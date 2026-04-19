@@ -1,0 +1,417 @@
+"""Deterministic planner and plan validator for Phase A."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+from uuid import uuid4
+
+from task_brain.context import TaskContext, build_task_context
+from task_brain.domain import (
+    CapabilitySpec,
+    HighLevelPlan,
+    ParsedTask,
+    Predicate,
+    RuntimeState,
+    Subgoal,
+    SubgoalType,
+    TargetObject,
+    TaskIntent,
+    TaskRequest,
+)
+from task_brain.parser import parse_instruction
+
+_ALLOWED_SUBGOAL_TYPES = {
+    SubgoalType.NAVIGATE,
+    SubgoalType.OBSERVE,
+    SubgoalType.VERIFY_OBJECT_PRESENCE,
+    SubgoalType.EMBODIED_MANIPULATION,
+    SubgoalType.RETURN_TO_USER,
+    SubgoalType.REPORT_FAILURE,
+    SubgoalType.ASK_CLARIFICATION,
+}
+
+_EXECUTABLE_SUBGOAL_TYPES = {
+    SubgoalType.NAVIGATE,
+    SubgoalType.OBSERVE,
+    SubgoalType.VERIFY_OBJECT_PRESENCE,
+    SubgoalType.EMBODIED_MANIPULATION,
+    SubgoalType.RETURN_TO_USER,
+}
+
+_ATOMIC_ACTION_KEYWORDS = {
+    "move_arm_to_pregrasp",
+    "close_gripper",
+    "open_gripper",
+    "lift",
+}
+
+_SUBGOAL_CAPABILITY_REQUIREMENTS: dict[SubgoalType, tuple[str, ...]] = {
+    SubgoalType.NAVIGATE: ("mock_vln.navigate",),
+    SubgoalType.OBSERVE: ("mock_perception.observe",),
+    SubgoalType.VERIFY_OBJECT_PRESENCE: ("verification.evaluate",),
+    SubgoalType.EMBODIED_MANIPULATION: ("robobrain.plan", "mock_atomic_executor.execute"),
+    SubgoalType.RETURN_TO_USER: ("mock_atomic_executor.execute",),
+    SubgoalType.REPORT_FAILURE: ("recovery.decide",),
+    SubgoalType.ASK_CLARIFICATION: ("recovery.decide",),
+}
+
+
+class DeterministicHighLevelPlanner:
+    """Generate deterministic high-level plans from TaskContext only."""
+
+    def generate(self, context: TaskContext) -> HighLevelPlan:
+        """Generate a high-level plan for Phase A intents."""
+        parse_error = str(context.constraints.get("parse_error", "")).strip()
+        if parse_error:
+            return self._build_ask_clarification_plan(
+                intent=context.parsed_task.intent,
+                notes=f"parse_error={parse_error}; {self._replan_context_summary(context)}",
+            )
+
+        top_candidate = self._select_top_candidate(context.ranked_candidates)
+        if top_candidate is None:
+            return self._build_ask_clarification_plan(
+                intent=context.parsed_task.intent,
+                notes=f"candidate_unavailable; {self._replan_context_summary(context)}",
+            )
+
+        memory_id = _candidate_memory_id(top_candidate)
+        if context.parsed_task.intent == TaskIntent.CHECK_OBJECT_PRESENCE:
+            return self._build_check_presence_plan(
+                target_category=context.parsed_task.target_object.category,
+                memory_id=memory_id,
+            )
+        if context.parsed_task.intent == TaskIntent.FETCH_OBJECT:
+            return self._build_fetch_plan(
+                target_category=context.parsed_task.target_object.category,
+                memory_id=memory_id,
+            )
+
+        notes = (
+            f"unsupported_intent={context.parsed_task.intent}; "
+            f"{self._replan_context_summary(context)}"
+        )
+        return self._build_ask_clarification_plan(
+            intent=context.parsed_task.intent,
+            notes=notes,
+        )
+
+    @staticmethod
+    def _select_top_candidate(ranked_candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not ranked_candidates:
+            return None
+        return ranked_candidates[0]
+
+    def _build_check_presence_plan(
+        self,
+        *,
+        target_category: str,
+        memory_id: str,
+    ) -> HighLevelPlan:
+        return HighLevelPlan(
+            plan_id=f"plan-{uuid4().hex[:12]}",
+            intent=TaskIntent.CHECK_OBJECT_PRESENCE,
+            subgoals=[
+                Subgoal(
+                    subgoal_id="sg-1",
+                    subgoal_type=SubgoalType.NAVIGATE,
+                    description=f"Navigate to candidate location for {target_category}.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[
+                        Predicate(name="arrived_at_candidate_anchor", args=[memory_id])
+                    ],
+                ),
+                Subgoal(
+                    subgoal_id="sg-2",
+                    subgoal_type=SubgoalType.OBSERVE,
+                    description=f"Observe candidate area for {target_category}.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[Predicate(name="observation_captured", args=[memory_id])],
+                ),
+                Subgoal(
+                    subgoal_id="sg-3",
+                    subgoal_type=SubgoalType.VERIFY_OBJECT_PRESENCE,
+                    description=f"Verify presence of {target_category}.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[
+                        Predicate(
+                            name="object_presence_verified",
+                            args=[target_category, memory_id],
+                        ),
+                        Predicate(name="task_goal_satisfied", args=[target_category]),
+                    ],
+                ),
+            ],
+            memory_grounding=[memory_id],
+            candidate_grounding=[memory_id],
+            notes="deterministic_check_presence_plan",
+        )
+
+    def _build_fetch_plan(
+        self,
+        *,
+        target_category: str,
+        memory_id: str,
+    ) -> HighLevelPlan:
+        return HighLevelPlan(
+            plan_id=f"plan-{uuid4().hex[:12]}",
+            intent=TaskIntent.FETCH_OBJECT,
+            subgoals=[
+                Subgoal(
+                    subgoal_id="sg-1",
+                    subgoal_type=SubgoalType.NAVIGATE,
+                    description=f"Navigate to candidate location for {target_category}.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[
+                        Predicate(name="arrived_at_candidate_anchor", args=[memory_id])
+                    ],
+                ),
+                Subgoal(
+                    subgoal_id="sg-2",
+                    subgoal_type=SubgoalType.OBSERVE,
+                    description=f"Observe candidate area for {target_category}.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[Predicate(name="observation_captured", args=[memory_id])],
+                ),
+                Subgoal(
+                    subgoal_id="sg-3",
+                    subgoal_type=SubgoalType.VERIFY_OBJECT_PRESENCE,
+                    description=f"Verify target {target_category} is present before manipulation.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[
+                        Predicate(name="object_presence_verified", args=[memory_id])
+                    ],
+                ),
+                Subgoal(
+                    subgoal_id="sg-4",
+                    subgoal_type=SubgoalType.EMBODIED_MANIPULATION,
+                    description=f"Manipulate and secure {target_category} for delivery.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[Predicate(name="object_secured", args=[target_category])],
+                ),
+                Subgoal(
+                    subgoal_id="sg-5",
+                    subgoal_type=SubgoalType.RETURN_TO_USER,
+                    description="Return to user and complete handover.",
+                    candidate_id=memory_id,
+                    target_memory_id=memory_id,
+                    success_conditions=[
+                        Predicate(name="returned_to_user", args=["user"]),
+                        Predicate(name="task_goal_satisfied", args=[target_category]),
+                    ],
+                ),
+            ],
+            memory_grounding=[memory_id],
+            candidate_grounding=[memory_id],
+            notes="deterministic_fetch_plan",
+        )
+
+    def _build_ask_clarification_plan(self, *, intent: TaskIntent, notes: str) -> HighLevelPlan:
+        return HighLevelPlan(
+            plan_id=f"plan-{uuid4().hex[:12]}",
+            intent=intent,
+            subgoals=[
+                Subgoal(
+                    subgoal_id="sg-1",
+                    subgoal_type=SubgoalType.ASK_CLARIFICATION,
+                    description="Ask user for clarification to recover planning context.",
+                    success_conditions=[Predicate(name="clarification_received", args=[])],
+                )
+            ],
+            memory_grounding=[],
+            candidate_grounding=[],
+            notes=notes,
+        )
+
+    @staticmethod
+    def _replan_context_summary(context: TaskContext) -> str:
+        recent_failure = (
+            context.runtime_state.recent_failure_analysis.failure_type.value
+            if context.runtime_state.recent_failure_analysis is not None
+            else "none"
+        )
+        return (
+            f"negative_evidence={len(context.task_negative_evidence)}; "
+            f"candidate_exclusions={len(context.runtime_state.candidate_exclusion_state)}; "
+            f"recent_failure={recent_failure}; "
+            f"retry_budget={context.runtime_state.retry_budget}"
+        )
+
+
+class PlanValidator:
+    """Validate generated plans before execution."""
+
+    def validate(self, plan: HighLevelPlan, context: TaskContext) -> None:
+        self._validate_subgoal_types(plan)
+        self._validate_no_atomic_actions(plan)
+        self._validate_manipulation_order(plan)
+        self._validate_fetch_completion_contract(plan)
+        self._validate_grounding_requirements(plan)
+        self._validate_capability_requirements(plan, context.capability_registry)
+
+    @staticmethod
+    def _validate_subgoal_types(plan: HighLevelPlan) -> None:
+        invalid = [
+            item.subgoal_type.value
+            for item in plan.subgoals
+            if item.subgoal_type not in _ALLOWED_SUBGOAL_TYPES
+        ]
+        if invalid:
+            raise ValueError(f"unsupported subgoal types: {invalid}")
+
+    @staticmethod
+    def _validate_no_atomic_actions(plan: HighLevelPlan) -> None:
+        for subgoal in plan.subgoals:
+            text = (subgoal.description or "").lower()
+            for keyword in _ATOMIC_ACTION_KEYWORDS:
+                if keyword in text:
+                    raise ValueError(
+                        f"atomic action is not allowed in high-level plan: {keyword}"
+                    )
+
+    @staticmethod
+    def _validate_manipulation_order(plan: HighLevelPlan) -> None:
+        verify_indices = [
+            idx
+            for idx, subgoal in enumerate(plan.subgoals)
+            if subgoal.subgoal_type == SubgoalType.VERIFY_OBJECT_PRESENCE
+        ]
+        manipulation_indices = [
+            idx
+            for idx, subgoal in enumerate(plan.subgoals)
+            if subgoal.subgoal_type == SubgoalType.EMBODIED_MANIPULATION
+        ]
+        if not manipulation_indices:
+            return
+        if not verify_indices:
+            raise ValueError("embodied_manipulation requires verify_object_presence beforehand.")
+        if min(manipulation_indices) < min(verify_indices):
+            raise ValueError("embodied_manipulation cannot happen before verify_object_presence.")
+
+    @staticmethod
+    def _validate_fetch_completion_contract(plan: HighLevelPlan) -> None:
+        if plan.intent != TaskIntent.FETCH_OBJECT:
+            return
+
+        has_return = any(item.subgoal_type == SubgoalType.RETURN_TO_USER for item in plan.subgoals)
+        if not has_return:
+            raise ValueError("fetch plan must include return_to_user subgoal.")
+
+        has_task_goal_predicate = any(
+            condition.name == "task_goal_satisfied"
+            for subgoal in plan.subgoals
+            for condition in subgoal.success_conditions
+        )
+        if not has_task_goal_predicate:
+            raise ValueError("fetch plan must include final task verification predicate.")
+
+    @staticmethod
+    def _validate_grounding_requirements(plan: HighLevelPlan) -> None:
+        has_executable_subgoals = any(
+            subgoal.subgoal_type in _EXECUTABLE_SUBGOAL_TYPES for subgoal in plan.subgoals
+        )
+        if not has_executable_subgoals:
+            return
+        if not plan.memory_grounding or not plan.candidate_grounding:
+            raise ValueError(
+                "plan with executable subgoals must include both memory_grounding "
+                "and candidate_grounding."
+            )
+
+    @staticmethod
+    def _validate_capability_requirements(
+        plan: HighLevelPlan,
+        registry: Mapping[str, CapabilitySpec],
+    ) -> None:
+        for subgoal in plan.subgoals:
+            required = _SUBGOAL_CAPABILITY_REQUIREMENTS.get(subgoal.subgoal_type, ())
+            for capability_name in required:
+                if capability_name not in registry:
+                    raise ValueError(
+                        f"missing capability '{capability_name}' required by subgoal "
+                        f"'{subgoal.subgoal_type.value}'."
+                    )
+
+
+class PlannerService:
+    """Planner service that enforces generation + validation pipeline."""
+
+    def __init__(
+        self,
+        planner: DeterministicHighLevelPlanner | None = None,
+        validator: PlanValidator | None = None,
+    ) -> None:
+        self._planner = planner or DeterministicHighLevelPlanner()
+        self._validator = validator or PlanValidator()
+
+    def plan(self, context: TaskContext) -> HighLevelPlan:
+        """Generate and validate a plan from task context."""
+        plan = self._planner.generate(context)
+        self._validator.validate(plan, context)
+        return plan
+
+    def plan_from_request(
+        self,
+        *,
+        request: TaskRequest,
+        runtime_state: RuntimeState,
+        ranked_candidates: list[dict[str, Any]] | None = None,
+        object_memory_hits: list[dict[str, Any]] | None = None,
+        category_prior_hits: list[dict[str, Any]] | None = None,
+        recent_episodic_summaries: list[dict[str, Any]] | None = None,
+        capability_registry: Mapping[str, CapabilitySpec | dict[str, Any]] | None = None,
+        adapter_status: dict[str, Any] | None = None,
+        constraints: dict[str, Any] | None = None,
+    ) -> HighLevelPlan:
+        """Parse request, build context, generate plan, and validate it."""
+        merged_constraints = dict(constraints or {})
+        ranked = list(ranked_candidates or [])
+
+        try:
+            parsed_task = parse_instruction(request)
+        except ValueError as exc:
+            parsed_task = ParsedTask(
+                intent=TaskIntent.CHECK_OBJECT_PRESENCE,
+                target_object=TargetObject(category="unknown_object"),
+                requires_navigation=False,
+                requires_manipulation=False,
+            )
+            merged_constraints["parse_error"] = str(exc)
+            ranked = []
+
+        context = build_task_context(
+            request=request,
+            parsed_task=parsed_task,
+            runtime_state=runtime_state,
+            ranked_candidates=ranked,
+            object_memory_hits=object_memory_hits,
+            category_prior_hits=category_prior_hits,
+            recent_episodic_summaries=recent_episodic_summaries,
+            capability_registry=capability_registry,
+            adapter_status=adapter_status,
+            constraints=merged_constraints,
+        )
+        return self.plan(context)
+
+
+def _candidate_memory_id(candidate: Mapping[str, Any]) -> str:
+    for key in ("memory_id", "candidate_id", "id"):
+        value = candidate.get(key)
+        if isinstance(value, str) and value:
+            return value
+    raise ValueError("top candidate must contain a non-empty memory_id/candidate_id/id.")
+
+
+__all__ = [
+    "DeterministicHighLevelPlanner",
+    "PlanValidator",
+    "PlannerService",
+]

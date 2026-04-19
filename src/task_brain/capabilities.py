@@ -14,6 +14,10 @@ ADAPTER_FACING_CAPABILITIES = (
     "mock_atomic_executor.execute",
 )
 
+_CAPABILITY_ALIASES = {
+    "memory.update": "memory.reconcile",
+}
+
 
 def default_capability_registry() -> dict[str, CapabilitySpec]:
     """Return the default Phase A capability registry."""
@@ -203,17 +207,33 @@ def validate_capability_registry(
     """Validate registry payload and normalize values to CapabilitySpec."""
     normalized: dict[str, CapabilitySpec] = {}
     for capability_name, payload in registry.items():
+        canonical_key = _canonical_capability_name(capability_name)
         spec = (
             payload.model_copy(deep=True)
             if isinstance(payload, CapabilitySpec)
             else CapabilitySpec.model_validate(payload)
         )
-        if spec.name != capability_name:
+        canonical_payload_name = _canonical_capability_name(spec.name)
+        if canonical_payload_name != canonical_key:
             raise ValueError(
                 f"capability name mismatch: key='{capability_name}' payload='{spec.name}'"
             )
-        normalized[capability_name] = spec
+
+        canonical_spec = spec.model_copy(update={"name": canonical_key})
+        existing = normalized.get(canonical_key)
+        if existing is not None:
+            if existing.model_dump() != canonical_spec.model_dump():
+                raise ValueError(
+                    f"conflicting capability alias contract for '{canonical_key}'"
+                )
+            continue
+
+        normalized[canonical_key] = canonical_spec
     return normalized
+
+
+def _canonical_capability_name(name: str) -> str:
+    return _CAPABILITY_ALIASES.get(name, name)
 
 
 __all__ = [

@@ -72,3 +72,63 @@ def test_registry_validation_rejects_name_mismatch_or_missing_fields() -> None:
                 }
             }
         )
+
+
+def test_registry_validation_normalizes_memory_update_to_memory_reconcile() -> None:
+    normalized = validate_capability_registry(
+        {
+            "memory.update": {
+                "name": "memory.update",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"verified_evidence": {"type": "object"}},
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {"updates": {"type": "array"}},
+                },
+                "failure_modes": ["reconcile_failed"],
+                "timeout_s": 3.0,
+                "returns_evidence": True,
+            }
+        }
+    )
+
+    assert list(normalized.keys()) == ["memory.reconcile"]
+    assert normalized["memory.reconcile"].name == "memory.reconcile"
+
+
+def test_registry_validation_rejects_conflicting_memory_alias_contracts() -> None:
+    with pytest.raises(ValueError, match="conflicting capability alias contract"):
+        validate_capability_registry(
+            {
+                "memory.reconcile": {
+                    "name": "memory.reconcile",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"verified_evidence": {"type": "object"}},
+                    },
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {"updates": {"type": "array"}},
+                    },
+                    "failure_modes": ["reconcile_failed"],
+                    "timeout_s": 3.0,
+                    "returns_evidence": True,
+                },
+                "memory.update": {
+                    "name": "memory.update",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"verified_evidence": {"type": "object"}},
+                    },
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {"updates": {"type": "array"}},
+                    },
+                    "failure_modes": ["reconcile_failed"],
+                    "timeout_s": 9.0,
+                    "returns_evidence": True,
+                },
+            }
+        )
