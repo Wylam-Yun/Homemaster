@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from task_brain.capabilities import default_capability_registry, validate_capability_registry
 from task_brain.domain import (
+    CapabilitySpec,
     Observation,
     ParsedTask,
     RobotRuntimeState,
@@ -30,7 +33,7 @@ class TaskContext(BaseModel):
     recent_episodic_summaries: list[dict[str, Any]] = Field(default_factory=list)
     current_observation: Observation | None = None
     robot_runtime_state: RobotRuntimeState | None = None
-    capability_registry: dict[str, Any] = Field(default_factory=dict)
+    capability_registry: dict[str, CapabilitySpec] = Field(default_factory=dict)
     adapter_status: dict[str, Any] = Field(default_factory=dict)
     constraints: dict[str, Any] = Field(default_factory=dict)
     runtime_state: RuntimeState
@@ -45,7 +48,7 @@ def build_task_context(
     object_memory_hits: list[dict[str, Any]] | None = None,
     category_prior_hits: list[dict[str, Any]] | None = None,
     recent_episodic_summaries: list[dict[str, Any]] | None = None,
-    capability_registry: dict[str, Any] | None = None,
+    capability_registry: Mapping[str, CapabilitySpec | dict[str, Any]] | None = None,
     adapter_status: dict[str, Any] | None = None,
     constraints: dict[str, Any] | None = None,
 ) -> TaskContext:
@@ -53,6 +56,12 @@ def build_task_context(
 
     Runtime/task-scoped state is injected from ``runtime_state`` as the single source of truth.
     """
+    normalized_registry = (
+        default_capability_registry()
+        if capability_registry is None
+        else validate_capability_registry(capability_registry)
+    )
+
     return TaskContext(
         request=request,
         parsed_task=parsed_task,
@@ -63,7 +72,7 @@ def build_task_context(
         recent_episodic_summaries=recent_episodic_summaries or [],
         current_observation=runtime_state.current_observation,
         robot_runtime_state=runtime_state.robot_runtime_state,
-        capability_registry=capability_registry or {},
+        capability_registry=normalized_registry,
         adapter_status=adapter_status or {},
         constraints=constraints or {},
         runtime_state=runtime_state,

@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from task_brain.capabilities import default_capability_registry
 from task_brain.context import TaskContext, build_task_context
 from task_brain.domain import (
+    CapabilitySpec,
     Observation,
     ObservationSource,
     ParsedTask,
@@ -79,7 +81,6 @@ def test_task_context_includes_memory_observation_runtime_and_capabilities() -> 
         object_memory_hits=[{"memory_id": "mem-cup-1"}],
         category_prior_hits=[{"anchor_id": "kitchen_table_1"}],
         recent_episodic_summaries=[{"episode_id": "ep-1", "summary": "cup in kitchen"}],
-        capability_registry={"mock_perception.observe": {"timeout_s": 3}},
         adapter_status={"mock_perception": "ok"},
         constraints={"allow_revisit": False},
     )
@@ -92,7 +93,9 @@ def test_task_context_includes_memory_observation_runtime_and_capabilities() -> 
     assert context.object_memory_hits[0]["memory_id"] == "mem-cup-1"
     assert context.category_prior_hits[0]["anchor_id"] == "kitchen_table_1"
     assert context.recent_episodic_summaries[0]["episode_id"] == "ep-1"
-    assert context.capability_registry["mock_perception.observe"]["timeout_s"] == 3
+    assert "mock_perception.observe" in context.capability_registry
+    assert isinstance(context.capability_registry["mock_perception.observe"], CapabilitySpec)
+    assert context.capability_registry["mock_perception.observe"].timeout_s == 3.0
     assert context.adapter_status["mock_perception"] == "ok"
     assert context.constraints["allow_revisit"] is False
 
@@ -133,7 +136,7 @@ def test_task_context_keeps_negative_evidence_for_replanning() -> None:
     assert context.task_negative_evidence[0].status == "searched_not_found"
     assert context.category_prior_hits == []
     assert context.recent_episodic_summaries == []
-    assert context.capability_registry == {}
+    assert "mock_perception.observe" in context.capability_registry
     assert context.adapter_status == {}
     assert context.constraints == {}
 
@@ -150,3 +153,68 @@ def test_parser_rejects_unsupported_instruction() -> None:
     request = TaskRequest(source="cli", user_id="u4", utterance="今天天气怎么样")
     with pytest.raises(ValueError, match="unsupported instruction"):
         parse_instruction(request)
+
+
+def test_build_task_context_injects_default_registry_when_not_provided() -> None:
+    request = TaskRequest(source="cli", user_id="u5", utterance="帮我看看药盒还在不在")
+    parsed_task = ParsedTask(
+        intent=TaskIntent.CHECK_OBJECT_PRESENCE,
+        target_object=TargetObject(category="medicine_box", aliases=["药盒"], attributes=[]),
+    )
+    runtime_state = RuntimeState()
+
+    context = build_task_context(
+        request=request,
+        parsed_task=parsed_task,
+        runtime_state=runtime_state,
+    )
+
+    default_registry = default_capability_registry()
+    assert set(context.capability_registry.keys()) == set(default_registry.keys())
+    assert "memory.reconcile" in context.capability_registry
+    assert context.capability_registry["memory.reconcile"].name == "memory.reconcile"
+
+
+def test_build_task_context_accepts_validated_registry_override() -> None:
+    request = TaskRequest(source="cli", user_id="u6", utterance="去厨房把水杯拿给我")
+    parsed_task = ParsedTask(
+        intent=TaskIntent.FETCH_OBJECT,
+        target_object=TargetObject(category="cup", aliases=["水杯"], attributes=[]),
+    )
+    runtime_state = RuntimeState()
+
+    override_registry = {
+        "custom.observe": {
+            "name": "custom.observe",
+            "input_schema": {"type": "object", "properties": {"x": {"type": "string"}}},
+            "output_schema": {"type": "object", "properties": {"y": {"type": "string"}}},
+            "failure_modes": ["timeout"],
+            "timeout_s": 1.0,
+            "returns_evidence": True,
+        }
+    }
+    context = build_task_context(
+        request=request,
+        parsed_task=parsed_task,
+        runtime_state=runtime_state,
+        capability_registry=override_registry,
+    )
+    assert list(context.capability_registry.keys()) == ["custom.observe"]
+    assert context.capability_registry["custom.observe"].name == "custom.observe"
+
+    with pytest.raises(ValueError, match="capability name mismatch"):
+        build_task_context(
+            request=request,
+            parsed_task=parsed_task,
+            runtime_state=runtime_state,
+            capability_registry={
+                "bad.key": {
+                    "name": "other.name",
+                    "input_schema": {"type": "object"},
+                    "output_schema": {"type": "object"},
+                    "failure_modes": ["timeout"],
+                    "timeout_s": 1.0,
+                    "returns_evidence": True,
+                }
+            },
+        )
