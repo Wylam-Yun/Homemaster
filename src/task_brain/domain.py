@@ -175,10 +175,13 @@ class Observation(BaseModel):
 class TaskNegativeEvidence(BaseModel):
     """Task-scoped negative evidence used for candidate exclusion."""
 
+    task_request_id: str | None = None
     location_key: str
+    status: str = "searched_not_found"
     reason: str = "searched_not_found"
     object_category: str | None = None
     anchor: Anchor | None = None
+    evidence: dict[str, Any] | None = None
     observed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
