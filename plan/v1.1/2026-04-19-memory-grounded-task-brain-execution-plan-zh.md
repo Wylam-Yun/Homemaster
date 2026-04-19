@@ -151,11 +151,13 @@ cd /Users/wylam/Documents/workspace/HomeMaster
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip
-python -m pip install -e ".[dev]"
+uv pip install ".[dev]" --python .venv/bin/python
 python -c "import task_brain; print(task_brain.__version__)"
 pytest -q
 ruff check .
 ```
+
+本机 Stage 0 使用非 editable 安装。当前 uv Python 会跳过 setuptools editable install 生成的 hidden `__editable__` `.pth` 文件，导致 `python -I -c "import task_brain"` 失败。后续开发阶段如果需要让 console script 读取最新源码，改完源码后重新执行 `uv pip install ".[dev]" --python .venv/bin/python` 即可；pytest 仍会通过 `pyproject.toml` 的 `pythonpath = ["src"]` 读取源码。
 
 ### 完成标准
 
@@ -1246,4 +1248,3 @@ git commit -m "feat: add simulator wrapper and optional gateway bridge"
 - [ ] Adapter-facing capabilities 都满足 skill-compatible contract。
 - [ ] Kimi API key 只从 `NVIDIA_API_KEY` 读取，未写入仓库。
 - [ ] Phase B LLM provider 缺 key 时不会破坏 deterministic CLI 主链。
-

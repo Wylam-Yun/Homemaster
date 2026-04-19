@@ -232,10 +232,12 @@ python -m pip install -U pip
 创建 `pyproject.toml` 后执行：
 
 ```bash
-python -m pip install -e ".[dev]"
+uv pip install ".[dev]" --python .venv/bin/python
 pytest -q
 ruff check .
 ```
+
+本机 Stage 0 使用非 editable 安装。当前 uv Python 会跳过 setuptools editable install 生成的 hidden `__editable__` `.pth` 文件，导致隔离 Python 进程无法 `import task_brain`。后续开发阶段如果需要让 console script 读取最新源码，改完源码后重新执行 `uv pip install ".[dev]" --python .venv/bin/python` 即可；pytest 仍会通过 `pyproject.toml` 的 `pythonpath = ["src"]` 读取源码。
 
 ### 验收
 
