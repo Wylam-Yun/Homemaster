@@ -1,8 +1,9 @@
-"""Deterministic planner and plan validator for Phase A."""
+"""Deterministic + LLM high-level planner and plan validator."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from task_brain.domain import (
     TaskIntent,
     TaskRequest,
 )
+from task_brain.llm import KimiPlanProvider, KimiProviderError
 from task_brain.parser import parse_instruction
 
 _ALLOWED_SUBGOAL_TYPES = {
@@ -76,7 +78,14 @@ class DeterministicHighLevelPlanner:
                 notes=f"candidate_unavailable; {self._replan_context_summary(context)}",
             )
 
-        memory_id = _candidate_memory_id(top_candidate)
+        try:
+            memory_id = _candidate_memory_id(top_candidate)
+        except ValueError as exc:
+            return self._build_ask_clarification_plan(
+                intent=context.parsed_task.intent,
+                notes=f"invalid_candidate={exc}; {self._replan_context_summary(context)}",
+            )
+
         if context.parsed_task.intent == TaskIntent.CHECK_OBJECT_PRESENCE:
             return self._build_check_presence_plan(
                 target_category=context.parsed_task.target_object.category,
@@ -256,6 +265,7 @@ class PlanValidator:
         self._validate_fetch_completion_contract(plan)
         self._validate_grounding_requirements(plan)
         self._validate_capability_requirements(plan, context.capability_registry)
+        self._validate_candidate_alignment_with_context(plan, context)
 
     @staticmethod
     def _validate_subgoal_types(plan: HighLevelPlan) -> None:
@@ -340,6 +350,158 @@ class PlanValidator:
                         f"'{subgoal.subgoal_type.value}'."
                     )
 
+    @staticmethod
+    def _validate_candidate_alignment_with_context(
+        plan: HighLevelPlan,
+        context: TaskContext,
+    ) -> None:
+        has_executable_subgoals = any(
+            subgoal.subgoal_type in _EXECUTABLE_SUBGOAL_TYPES for subgoal in plan.subgoals
+        )
+        if not has_executable_subgoals:
+            return
+
+        allowed_candidate_ids: set[str] = set()
+        candidate_to_location: dict[str, str] = {}
+        for candidate in context.ranked_candidates:
+            candidate_id = _candidate_identifier(candidate)
+            if candidate_id is None:
+                continue
+            allowed_candidate_ids.add(candidate_id)
+            location_key = _candidate_location_key(candidate)
+            if location_key is not None:
+                candidate_to_location[candidate_id] = location_key
+
+        grounded_ids = {
+            item for item in [*plan.memory_grounding, *plan.candidate_grounding] if item
+        }
+
+        if allowed_candidate_ids and not grounded_ids.issubset(allowed_candidate_ids):
+            missing = sorted(grounded_ids - allowed_candidate_ids)
+            raise ValueError(
+                "plan grounding must come from ranked candidates; "
+                f"unexpected grounding ids={missing}"
+            )
+
+        excluded_locations = set(context.runtime_state.candidate_exclusion_state)
+        for grounded_id in grounded_ids:
+            location_key = candidate_to_location.get(grounded_id)
+            if location_key and location_key in excluded_locations:
+                raise ValueError(
+                    "plan grounding points to excluded candidate location: "
+                    f"candidate_id={grounded_id} location={location_key}"
+                )
+
+
+class LLMHighLevelPlanner:
+    """LLM-backed high-level planner with schema and validator guardrails."""
+
+    def __init__(
+        self,
+        *,
+        provider_factory: Callable[[], KimiPlanProvider] | None = None,
+        validator: PlanValidator | None = None,
+    ) -> None:
+        self._provider_factory = provider_factory or KimiPlanProvider.from_env
+        self._validator = validator or PlanValidator()
+
+    def generate(self, context: TaskContext) -> HighLevelPlan:
+        provider = self._provider_factory()
+        try:
+            prompt = self._build_prompt(context)
+            plan = provider.generate_plan(prompt=prompt)
+            self._validator.validate(plan, context)
+            return plan
+        finally:
+            provider.close()
+
+    @staticmethod
+    def _build_prompt(context: TaskContext) -> str:
+        """Build deterministic JSON prompt from TaskContext only."""
+        runtime_state = context.runtime_state
+        top_candidates = [
+            {
+                "memory_id": item.get("memory_id") or item.get("candidate_id") or item.get("id"),
+                "anchor": item.get("anchor"),
+                "score": item.get("score"),
+                "reasons": item.get("reasons"),
+            }
+            for item in context.ranked_candidates[:5]
+        ]
+
+        payload = {
+            "request": {
+                "utterance": context.request.utterance,
+                "intent": context.parsed_task.intent.value,
+                "target_category": context.parsed_task.target_object.category,
+                "target_aliases": context.parsed_task.target_object.aliases,
+                "explicit_location_hint": context.parsed_task.explicit_location_hint,
+                "delivery_target": context.parsed_task.delivery_target,
+            },
+            "retrieval": {
+                "ranked_candidates": top_candidates,
+                "category_prior_hits": context.category_prior_hits[:5],
+                "recent_episodic_summaries": context.recent_episodic_summaries[:5],
+                "task_negative_evidence": [
+                    {
+                        "location_key": item.location_key,
+                        "status": item.status,
+                        "object_category": item.object_category,
+                    }
+                    for item in context.task_negative_evidence
+                ],
+                "candidate_exclusion_state": dict(runtime_state.candidate_exclusion_state),
+            },
+            "runtime": {
+                "retry_budget": runtime_state.retry_budget,
+                "recent_failure_type": (
+                    runtime_state.recent_failure_analysis.failure_type.value
+                    if runtime_state.recent_failure_analysis is not None
+                    else None
+                ),
+                "high_level_progress": (
+                    runtime_state.high_level_progress.model_dump(mode="json")
+                    if runtime_state.high_level_progress is not None
+                    else None
+                ),
+                "embodied_action_progress": (
+                    runtime_state.embodied_action_progress.model_dump(mode="json")
+                    if runtime_state.embodied_action_progress is not None
+                    else None
+                ),
+                "runtime_object_updates": [
+                    item.model_dump(mode="json") for item in runtime_state.runtime_object_updates
+                ],
+            },
+            "constraints": {
+                "allowed_subgoal_types": sorted(item.value for item in _ALLOWED_SUBGOAL_TYPES),
+                "forbidden_atomic_action_keywords": sorted(_ATOMIC_ACTION_KEYWORDS),
+                "must_not_use_excluded_candidates": True,
+                "must_include_verification": True,
+                "output_format": "json_only",
+            },
+            "output_schema": {
+                "type": "HighLevelPlan",
+                "required_fields": [
+                    "plan_id",
+                    "intent",
+                    "subgoals",
+                    "memory_grounding",
+                    "candidate_grounding",
+                ],
+            },
+        }
+
+        instructions = (
+            "Generate one high-level plan JSON object. "
+            "Do not emit markdown. Do not emit atomic actions. "
+            "Use only candidates from retrieval.ranked_candidates. "
+            "Never use excluded candidate locations. "
+            "Keep subgoal_type within allowed_subgoal_types."
+        )
+
+        return instructions + "\n\n" + json.dumps(payload, ensure_ascii=False)
+
 
 class PlannerService:
     """Planner service that enforces generation + validation pipeline."""
@@ -348,14 +510,71 @@ class PlannerService:
         self,
         planner: DeterministicHighLevelPlanner | None = None,
         validator: PlanValidator | None = None,
+        llm_planner: LLMHighLevelPlanner | None = None,
+        llm_first: bool = True,
     ) -> None:
         self._planner = planner or DeterministicHighLevelPlanner()
         self._validator = validator or PlanValidator()
+        self._llm_planner = llm_planner or LLMHighLevelPlanner(validator=self._validator)
+        self._llm_first = llm_first
+        self.last_diagnostics: dict[str, Any] = {
+            "planner_mode": "deterministic",
+            "llm_attempted": False,
+            "fallback_used": False,
+            "planner_error_type": None,
+            "planner_error_message": None,
+        }
 
     def plan(self, context: TaskContext) -> HighLevelPlan:
         """Generate and validate a plan from task context."""
+        parse_error = str(context.constraints.get("parse_error", "")).strip()
+        if parse_error:
+            plan = self._planner.generate(context)
+            self._validator.validate(plan, context)
+            self.last_diagnostics = {
+                "planner_mode": "deterministic_parse_error",
+                "llm_attempted": False,
+                "fallback_used": False,
+                "planner_error_type": None,
+                "planner_error_message": None,
+            }
+            return plan
+
+        if self._llm_first:
+            try:
+                plan = self._llm_planner.generate(context)
+            except Exception as exc:  # noqa: BLE001
+                error_type = _planner_error_type(exc)
+                error_message = str(exc)
+                fallback_plan = self._planner.generate(context)
+                self._validator.validate(fallback_plan, context)
+                self.last_diagnostics = {
+                    "planner_mode": "deterministic_fallback",
+                    "llm_attempted": True,
+                    "fallback_used": True,
+                    "planner_error_type": error_type,
+                    "planner_error_message": error_message,
+                }
+                return fallback_plan
+
+            self.last_diagnostics = {
+                "planner_mode": "llm",
+                "llm_attempted": True,
+                "fallback_used": False,
+                "planner_error_type": None,
+                "planner_error_message": None,
+            }
+            return plan
+
         plan = self._planner.generate(context)
         self._validator.validate(plan, context)
+        self.last_diagnostics = {
+            "planner_mode": "deterministic",
+            "llm_attempted": False,
+            "fallback_used": False,
+            "planner_error_type": None,
+            "planner_error_message": None,
+        }
         return plan
 
     def plan_from_request(
@@ -410,8 +629,36 @@ def _candidate_memory_id(candidate: Mapping[str, Any]) -> str:
     raise ValueError("top candidate must contain a non-empty memory_id/candidate_id/id.")
 
 
+def _candidate_identifier(candidate: Mapping[str, Any]) -> str | None:
+    for key in ("memory_id", "candidate_id", "id"):
+        value = candidate.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _candidate_location_key(candidate: Mapping[str, Any]) -> str | None:
+    anchor = candidate.get("anchor")
+    if not isinstance(anchor, Mapping):
+        return None
+    room_id = anchor.get("room_id")
+    anchor_id = anchor.get("anchor_id")
+    if not isinstance(room_id, str) or not room_id:
+        return None
+    if not isinstance(anchor_id, str) or not anchor_id:
+        return None
+    return f"{room_id}:{anchor_id}"
+
+
+def _planner_error_type(exc: Exception) -> str:
+    if isinstance(exc, KimiProviderError):
+        return exc.error_type
+    return exc.__class__.__name__
+
+
 __all__ = [
     "DeterministicHighLevelPlanner",
+    "LLMHighLevelPlanner",
     "PlanValidator",
     "PlannerService",
 ]

@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from task_brain.domain import (
     Anchor,
     BeliefState,
@@ -26,12 +28,53 @@ def anchor_to_location_key(anchor: Anchor) -> str:
     return f"{anchor.room_id}:{anchor.anchor_id}"
 
 
-class MemoryStore:
-    """In-memory store managing long-term object memory only."""
+class CategoryLocationPrior(BaseModel):
+    """One prior location candidate for a category."""
 
-    def __init__(self, object_memories: list[ObjectMemory]) -> None:
+    anchor: Anchor
+    prior_rank: int = Field(default=0, ge=0)
+    confidence_level: ConfidenceLevel = ConfidenceLevel.MEDIUM
+    reason: str | None = None
+    prior_source: str | None = None
+    updated_at: datetime | None = None
+
+
+class CategoryPriorMemoryEntry(BaseModel):
+    """Category-level location prior memory."""
+
+    object_category: str
+    aliases: list[str] = Field(default_factory=list)
+    candidate_locations: list[CategoryLocationPrior] = Field(default_factory=list)
+
+
+class EpisodicMemoryEntry(BaseModel):
+    """Recent episodic memory weak hint for ranking only."""
+
+    object_category: str | None = None
+    aliases: list[str] = Field(default_factory=list)
+    anchor: Anchor | None = None
+    location_key: str | None = None
+    summary: str | None = None
+    boost: float = 0.5
+    success: bool = True
+    occurred_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryStore:
+    """In-memory store managing long-term object memory and richer hints."""
+
+    def __init__(
+        self,
+        object_memories: list[ObjectMemory],
+        *,
+        category_prior_memories: list[CategoryPriorMemoryEntry] | None = None,
+        episodic_memories: list[EpisodicMemoryEntry] | None = None,
+    ) -> None:
         self._object_memories = object_memories
         self._by_id = {item.memory_id: item for item in object_memories}
+        self._category_prior_memories = list(category_prior_memories or [])
+        self._episodic_memories = list(episodic_memories or [])
 
     @classmethod
     def from_file(cls, path: str | Path) -> MemoryStore:
@@ -48,11 +91,46 @@ class MemoryStore:
         if not isinstance(raw_memories, list):
             raise ValueError("'object_memory' must be a list")
         memories = [ObjectMemory.model_validate(item) for item in raw_memories]
-        return cls(memories)
+        raw_category_prior = payload.get("category_prior_memory", [])
+        if raw_category_prior is None:
+            raw_category_prior = []
+        if not isinstance(raw_category_prior, list):
+            raise ValueError("'category_prior_memory' must be a list when provided")
+
+        category_priors = [
+            CategoryPriorMemoryEntry.model_validate(_normalize_category_prior_payload(item))
+            for item in raw_category_prior
+            if isinstance(item, dict)
+        ]
+
+        raw_episodic = payload.get("episodic_memory", [])
+        if raw_episodic is None:
+            raw_episodic = []
+        if not isinstance(raw_episodic, list):
+            raise ValueError("'episodic_memory' must be a list when provided")
+
+        episodic_memories = [
+            EpisodicMemoryEntry.model_validate(_normalize_episodic_payload(item))
+            for item in raw_episodic
+            if isinstance(item, dict)
+        ]
+        return cls(
+            memories,
+            category_prior_memories=category_priors,
+            episodic_memories=episodic_memories,
+        )
 
     def dump_object_memory(self) -> list[ObjectMemory]:
         """Return a shallow copy of long-term object memory list."""
         return list(self._object_memories)
+
+    def dump_category_prior_memory(self) -> list[dict[str, Any]]:
+        """Return category-prior entries for debug/testing."""
+        return [item.model_dump(mode="json") for item in self._category_prior_memories]
+
+    def dump_episodic_memory(self) -> list[dict[str, Any]]:
+        """Return episodic entries for debug/testing."""
+        return [item.model_dump(mode="json") for item in self._episodic_memories]
 
     def get_object_memory(self, memory_id: str) -> ObjectMemory | None:
         """Get one long-term memory by ID."""
@@ -84,6 +162,103 @@ class MemoryStore:
             )
         )
         return matched
+
+    def retrieve_category_prior(
+        self,
+        object_category: str,
+        aliases: list[str],
+    ) -> list[dict[str, Any]]:
+        """Retrieve category prior candidates for fallback candidate fill-in."""
+        normalized_category = _normalize(object_category)
+        normalized_aliases = {_normalize(item) for item in aliases if item}
+
+        results: list[dict[str, Any]] = []
+        for entry in self._category_prior_memories:
+            if not _category_prior_matches(entry, normalized_category, normalized_aliases):
+                continue
+            for location in entry.candidate_locations:
+                results.append(
+                    {
+                        "object_category": entry.object_category,
+                        "anchor": location.anchor.model_dump(mode="json"),
+                        "prior_rank": location.prior_rank,
+                        "confidence_level": location.confidence_level.value,
+                        "reason": location.reason,
+                        "prior_source": location.prior_source,
+                        "updated_at": location.updated_at,
+                    }
+                )
+
+        results.sort(
+            key=lambda item: (
+                item["prior_rank"],
+                -(
+                    item["updated_at"].timestamp()
+                    if isinstance(item.get("updated_at"), datetime)
+                    else float("-inf")
+                ),
+                str(item["anchor"].get("anchor_id", "")),
+            )
+        )
+        return results
+
+    def retrieve_recent_episodic_summaries(
+        self,
+        object_category: str,
+        aliases: list[str],
+        *,
+        limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        """Retrieve recent episodic hints for explainable ranking context only."""
+        normalized_category = _normalize(object_category)
+        normalized_aliases = {_normalize(item) for item in aliases if item}
+
+        matched = [
+            entry
+            for entry in self._episodic_memories
+            if entry.success
+            and _episodic_matches_target(entry, normalized_category, normalized_aliases)
+        ]
+        matched.sort(
+            key=lambda entry: (
+                -(entry.occurred_at.timestamp() if entry.occurred_at else float("-inf")),
+                -entry.boost,
+                _episodic_location_key(entry) or "",
+            )
+        )
+        return [
+            {
+                "summary": entry.summary,
+                "location_key": _episodic_location_key(entry),
+                "boost": entry.boost,
+                "occurred_at": entry.occurred_at,
+            }
+            for entry in matched[:limit]
+        ]
+
+    def episodic_boost_for_anchor(
+        self,
+        *,
+        anchor: Anchor,
+        object_category: str,
+        aliases: list[str],
+    ) -> float:
+        """Compute episodic ranking boost for one candidate anchor."""
+        normalized_category = _normalize(object_category)
+        normalized_aliases = {_normalize(item) for item in aliases if item}
+        location_key = anchor_to_location_key(anchor)
+
+        boost = 0.0
+        for entry in self._episodic_memories:
+            if not entry.success:
+                continue
+            if not _episodic_matches_target(entry, normalized_category, normalized_aliases):
+                continue
+            if _episodic_location_key(entry) != location_key:
+                continue
+            boost += max(entry.boost, 0.0)
+
+        return min(boost, 2.0)
 
     def update_object_memory_from_verified_observation(
         self,
@@ -156,14 +331,17 @@ def retrieve_candidates(
     runtime_state: RuntimeState,
     allow_revisit: bool = False,
 ) -> list[dict[str, Any]]:
-    """Structured retrieval first with task-negative-evidence exclusion."""
+    """Structured retrieval with richer memory hints and strict negative evidence."""
     target = parsed_task.target_object
     memories = memory_store.retrieve_object_memory(target.category, target.aliases)
+    category_prior_hits = memory_store.retrieve_category_prior(target.category, target.aliases)
     excluded = _excluded_location_keys(runtime_state, target.category)
     hint = _normalize(parsed_task.explicit_location_hint)
     normalized_aliases = {_normalize(item) for item in target.aliases if item}
 
-    ranked: list[tuple[float, float, ObjectMemory, list[str]]] = []
+    ranked: list[tuple[float, float, str, str, Anchor, str, list[str]]] = []
+    active_object_candidate_count = 0
+
     for memory in memories:
         location_key = anchor_to_location_key(memory.anchor)
         if not allow_revisit and location_key in excluded:
@@ -184,24 +362,102 @@ def retrieve_candidates(
         score += confidence_score
         reasons.append(f"confidence_{memory.confidence_level.value}")
 
+        belief_penalty, belief_reason = _belief_penalty(memory.belief_state)
+        score += belief_penalty
+        if belief_reason is not None:
+            reasons.append(belief_reason)
+        else:
+            active_object_candidate_count += 1
+
+        episodic_boost = memory_store.episodic_boost_for_anchor(
+            anchor=memory.anchor,
+            object_category=target.category,
+            aliases=target.aliases,
+        )
+        if episodic_boost > 0.0:
+            score += episodic_boost
+            reasons.append("episodic_hint_boost")
+
         timestamp_score = (
             memory.last_confirmed_at.timestamp()
             if memory.last_confirmed_at
             else float("-inf")
         )
-        ranked.append((score, timestamp_score, memory, reasons))
+        ranked.append(
+            (
+                score,
+                timestamp_score,
+                memory.memory_id,
+                memory.object_category,
+                memory.anchor,
+                memory.confidence_level.value,
+                reasons,
+            )
+        )
 
-    ranked.sort(key=lambda item: (-item[0], -item[1], item[2].memory_id))
+    if active_object_candidate_count == 0:
+        for prior in category_prior_hits:
+            anchor = Anchor.model_validate(prior["anchor"])
+            location_key = anchor_to_location_key(anchor)
+            if not allow_revisit and location_key in excluded:
+                continue
+
+            score = 1.0
+            reasons = ["category_prior_fill_in"]
+
+            prior_rank = int(prior.get("prior_rank") or 0)
+            score += max(0.0, 2.0 - (0.25 * prior_rank))
+            reasons.append(f"prior_rank_{prior_rank}")
+
+            confidence = ConfidenceLevel(
+                prior.get("confidence_level", ConfidenceLevel.MEDIUM.value)
+            )
+            score += _confidence_score(confidence)
+            reasons.append(f"confidence_{confidence.value}")
+
+            if hint and _location_matches_hint(anchor, hint):
+                score += 3.0
+                reasons.append("location_hint_match")
+
+            episodic_boost = memory_store.episodic_boost_for_anchor(
+                anchor=anchor,
+                object_category=target.category,
+                aliases=target.aliases,
+            )
+            if episodic_boost > 0.0:
+                score += episodic_boost
+                reasons.append("episodic_hint_boost")
+
+            prior_updated_at = prior.get("updated_at")
+            timestamp_score = (
+                prior_updated_at.timestamp()
+                if isinstance(prior_updated_at, datetime)
+                else float("-inf")
+            )
+            prior_memory_id = _category_prior_memory_id(target.category, anchor)
+            ranked.append(
+                (
+                    score,
+                    timestamp_score,
+                    prior_memory_id,
+                    target.category,
+                    anchor,
+                    confidence.value,
+                    reasons,
+                )
+            )
+
+    ranked.sort(key=lambda item: (-item[0], -item[1], item[2]))
     return [
         {
-            "memory_id": memory.memory_id,
-            "object_category": memory.object_category,
-            "anchor": memory.anchor.model_dump(),
-            "confidence_level": memory.confidence_level.value,
+            "memory_id": memory_id,
+            "object_category": object_category,
+            "anchor": anchor.model_dump(mode="json"),
+            "confidence_level": confidence_level,
             "score": score,
             "reasons": reasons,
         }
-        for score, _, memory, reasons in ranked
+        for score, _, memory_id, object_category, anchor, confidence_level, reasons in ranked
     ]
 
 
@@ -574,6 +830,155 @@ def _memory_alias_hit(memory: ObjectMemory, normalized_aliases: set[str]) -> boo
     memory_terms = {_normalize(item) for item in memory.aliases}
     memory_terms.add(_normalize(memory.object_category))
     return not memory_terms.isdisjoint(normalized_aliases)
+
+
+def _category_prior_matches(
+    entry: CategoryPriorMemoryEntry,
+    normalized_category: str,
+    normalized_aliases: set[str],
+) -> bool:
+    if _normalize(entry.object_category) == normalized_category:
+        return True
+    if not normalized_aliases:
+        return False
+    entry_terms = {_normalize(item) for item in entry.aliases}
+    return not entry_terms.isdisjoint(normalized_aliases)
+
+
+def _episodic_matches_target(
+    entry: EpisodicMemoryEntry,
+    normalized_category: str,
+    normalized_aliases: set[str],
+) -> bool:
+    entry_category = _normalize(entry.object_category)
+    if entry_category and entry_category == normalized_category:
+        return True
+
+    entry_terms = {_normalize(item) for item in entry.aliases}
+    if entry_category:
+        entry_terms.add(entry_category)
+
+    return bool(normalized_aliases and not entry_terms.isdisjoint(normalized_aliases))
+
+
+def _episodic_location_key(entry: EpisodicMemoryEntry) -> str | None:
+    if entry.location_key:
+        return entry.location_key
+    if entry.anchor is not None:
+        return anchor_to_location_key(entry.anchor)
+    return None
+
+
+def _belief_penalty(belief_state: BeliefState) -> tuple[float, str | None]:
+    if belief_state == BeliefState.CONTRADICTED:
+        return (-3.0, "belief_contradicted")
+    if belief_state == BeliefState.STALE:
+        return (-1.5, "belief_stale")
+    return (0.0, None)
+
+
+def _category_prior_memory_id(object_category: str, anchor: Anchor) -> str:
+    category_token = _sanitize_memory_token(object_category) or "object"
+    room_token = _sanitize_memory_token(anchor.room_id) or "room"
+    anchor_token = _sanitize_memory_token(anchor.anchor_id) or "anchor"
+    return f"prior-{category_token}-{room_token}-{anchor_token}"
+
+
+def _normalize_category_prior_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    object_category = payload.get("object_category") or payload.get("category")
+    if not isinstance(object_category, str) or not object_category.strip():
+        raise ValueError("category_prior_memory entry must include non-empty object_category")
+
+    raw_locations = payload.get("candidate_locations", [])
+    if not isinstance(raw_locations, list):
+        raise ValueError("category_prior_memory.candidate_locations must be a list")
+
+    normalized_locations: list[dict[str, Any]] = []
+    for location in raw_locations:
+        if not isinstance(location, dict):
+            continue
+        anchor_payload = location.get("anchor")
+        if not isinstance(anchor_payload, dict):
+            room_id = location.get("room_id")
+            anchor_id = location.get("anchor_id")
+            anchor_type = location.get("anchor_type")
+            if not (
+                isinstance(room_id, str)
+                and isinstance(anchor_id, str)
+                and isinstance(anchor_type, str)
+            ):
+                continue
+            anchor_payload = {
+                "room_id": room_id,
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "viewpoint_id": location.get("viewpoint_id"),
+                "display_text": location.get("display_text"),
+            }
+
+        normalized_locations.append(
+            {
+                "anchor": anchor_payload,
+                "prior_rank": location.get("prior_rank", 0),
+                "confidence_level": location.get(
+                    "confidence_level", ConfidenceLevel.MEDIUM.value
+                ),
+                "reason": location.get("reason"),
+                "prior_source": location.get("prior_source") or payload.get("prior_source"),
+                "updated_at": location.get("updated_at") or payload.get("updated_at"),
+            }
+        )
+
+    aliases = payload.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = []
+
+    return {
+        "object_category": object_category,
+        "aliases": [item for item in aliases if isinstance(item, str)],
+        "candidate_locations": normalized_locations,
+    }
+
+
+def _normalize_episodic_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    aliases = payload.get("aliases", [])
+    if not isinstance(aliases, list):
+        aliases = []
+
+    anchor_payload = payload.get("anchor")
+    if not isinstance(anchor_payload, dict):
+        room_id = payload.get("room_id")
+        anchor_id = payload.get("anchor_id")
+        anchor_type = payload.get("anchor_type")
+        if isinstance(room_id, str) and isinstance(anchor_id, str) and isinstance(anchor_type, str):
+            anchor_payload = {
+                "room_id": room_id,
+                "anchor_id": anchor_id,
+                "anchor_type": anchor_type,
+                "viewpoint_id": payload.get("viewpoint_id"),
+                "display_text": payload.get("display_text"),
+            }
+        else:
+            anchor_payload = None
+
+    raw_success = payload.get("success")
+    if isinstance(raw_success, bool):
+        success = raw_success
+    else:
+        outcome = payload.get("outcome")
+        success = not isinstance(outcome, str) or outcome.strip().lower() == "success"
+
+    return {
+        "object_category": payload.get("object_category") or payload.get("category"),
+        "aliases": [item for item in aliases if isinstance(item, str)],
+        "anchor": anchor_payload,
+        "location_key": payload.get("location_key"),
+        "summary": payload.get("summary"),
+        "boost": payload.get("boost", 0.5),
+        "success": success,
+        "occurred_at": payload.get("occurred_at") or payload.get("updated_at"),
+        "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+    }
 
 
 def _normalize(value: str | None) -> str:

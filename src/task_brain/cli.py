@@ -46,6 +46,7 @@ def run_command(
             events=events,
         )
     )
+    _emit_planner_fallback_diagnostics(events)
 
     if trace_jsonl is not None:
         write_trace_jsonl(
@@ -69,6 +70,26 @@ def _as_trace(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _emit_planner_fallback_diagnostics(events: list[dict[str, Any]]) -> None:
+    diagnostics: list[str] = []
+    for event in events:
+        if event.get("event") != "llm_planner_error":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        error_type = payload.get("planner_error_type") or "unknown_error"
+        error_message = payload.get("planner_error_message") or "unknown planner error"
+        diagnostics.append(f"{error_type}: {error_message}")
+
+    if not diagnostics:
+        return
+
+    typer.echo("planner_fallback_diagnostics:")
+    for item in diagnostics:
+        typer.echo(f"- {item}")
 
 
 if __name__ == "__main__":

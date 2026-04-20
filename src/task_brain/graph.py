@@ -35,7 +35,7 @@ from task_brain.domain import (
 from task_brain.evidence import build_verification_evidence
 from task_brain.memory import MemoryStore, reconcile_memory_after_task, retrieve_candidates
 from task_brain.parser import parse_instruction
-from task_brain.planner import DeterministicHighLevelPlanner, PlanValidator
+from task_brain.planner import PlannerService, PlanValidator
 from task_brain.recovery import analyze_failure, apply_recovery_state_updates, decide_recovery
 from task_brain.verification import VerificationEngine
 from task_brain.world import MockWorld
@@ -109,7 +109,12 @@ def run_task_graph(*, scenario: str, instruction: str, user_id: str = "u-graph")
         "world": world,
         "memory_store": memory_store,
         "runtime_state": RuntimeState(robot_runtime_state=RobotRuntimeState()),
-        "memory_context": {"ranked_candidates": [], "object_memory_hits": []},
+        "memory_context": {
+            "ranked_candidates": [],
+            "object_memory_hits": [],
+            "category_prior_hits": [],
+            "recent_episodic_summaries": [],
+        },
         "trace": [],
         "final_status": "running",
         "failure_rules": _ensure_list_of_dict(failures_payload.get("failure_rules", [])),
@@ -171,6 +176,15 @@ def _retrieve_memory(state: TaskGraphState) -> TaskGraphState:
         memory_store=memory_store,
         runtime_state=runtime_state,
     )
+    category_prior_hits = memory_store.retrieve_category_prior(
+        parsed_task.target_object.category,
+        parsed_task.target_object.aliases,
+    )
+    recent_episodic_summaries = memory_store.retrieve_recent_episodic_summaries(
+        parsed_task.target_object.category,
+        parsed_task.target_object.aliases,
+        limit=5,
+    )
     object_memory_hits = [
         item.model_dump()
         for item in memory_store.retrieve_object_memory(
@@ -187,6 +201,8 @@ def _retrieve_memory(state: TaskGraphState) -> TaskGraphState:
         state,
         "retrieve_memory",
         candidate_count=len(ranked_candidates),
+        category_prior_count=len(category_prior_hits),
+        episodic_summary_count=len(recent_episodic_summaries),
         selected_candidate_id=runtime_state.selected_candidate_id,
     )
 
@@ -194,6 +210,8 @@ def _retrieve_memory(state: TaskGraphState) -> TaskGraphState:
         "memory_context": {
             "ranked_candidates": ranked_candidates,
             "object_memory_hits": object_memory_hits,
+            "category_prior_hits": category_prior_hits,
+            "recent_episodic_summaries": recent_episodic_summaries,
         },
         "selected_object_id": selected_object_id,
     }
@@ -209,6 +227,8 @@ def _build_context_node(state: TaskGraphState) -> TaskGraphState:
         runtime_state=runtime_state,
         ranked_candidates=memory_context["ranked_candidates"],
         object_memory_hits=memory_context["object_memory_hits"],
+        category_prior_hits=memory_context.get("category_prior_hits"),
+        recent_episodic_summaries=memory_context.get("recent_episodic_summaries"),
         constraints=state.get("constraints") or {},
     )
 
@@ -222,8 +242,9 @@ def _build_context_node(state: TaskGraphState) -> TaskGraphState:
 
 
 def _generate_plan(state: TaskGraphState) -> TaskGraphState:
-    planner = DeterministicHighLevelPlanner()
-    plan = planner.generate(state["task_context"])
+    planner = PlannerService()
+    plan = planner.plan(state["task_context"])
+    _append_planner_diagnostics_trace(state, planner.last_diagnostics)
     _append_trace(
         state,
         "generate_plan",
@@ -783,11 +804,22 @@ def _replan_from_runtime(state: TaskGraphState, *, reason: str) -> None:
     state["memory_context"] = {
         "ranked_candidates": ranked_candidates,
         "object_memory_hits": object_memory_hits,
+        "category_prior_hits": memory_store.retrieve_category_prior(
+            parsed_task.target_object.category,
+            parsed_task.target_object.aliases,
+        ),
+        "recent_episodic_summaries": memory_store.retrieve_recent_episodic_summaries(
+            parsed_task.target_object.category,
+            parsed_task.target_object.aliases,
+            limit=5,
+        ),
     }
     _append_trace(
         state,
         "retrieve_memory",
         candidate_count=len(ranked_candidates),
+        category_prior_count=len(state["memory_context"]["category_prior_hits"]),
+        episodic_summary_count=len(state["memory_context"]["recent_episodic_summaries"]),
         selected_candidate_id=runtime_state.selected_candidate_id,
         reason=reason,
     )
@@ -798,6 +830,8 @@ def _replan_from_runtime(state: TaskGraphState, *, reason: str) -> None:
         runtime_state=runtime_state,
         ranked_candidates=ranked_candidates,
         object_memory_hits=object_memory_hits,
+        category_prior_hits=state["memory_context"].get("category_prior_hits"),
+        recent_episodic_summaries=state["memory_context"].get("recent_episodic_summaries"),
         constraints=state.get("constraints") or {},
     )
     state["task_context"] = task_context
@@ -809,9 +843,10 @@ def _replan_from_runtime(state: TaskGraphState, *, reason: str) -> None:
         reason=reason,
     )
 
-    planner = DeterministicHighLevelPlanner()
-    plan = planner.generate(task_context)
+    planner = PlannerService()
+    plan = planner.plan(task_context)
     state["plan"] = plan
+    _append_planner_diagnostics_trace(state, planner.last_diagnostics, reason=reason)
     _append_trace(
         state,
         "generate_plan",
@@ -820,8 +855,6 @@ def _replan_from_runtime(state: TaskGraphState, *, reason: str) -> None:
         reason=reason,
     )
 
-    validator = PlanValidator()
-    validator.validate(plan, task_context)
     _append_trace(state, "validate_plan", plan_id=plan.plan_id, reason=reason)
 
 
@@ -847,6 +880,35 @@ def _ensure_list_of_dict(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _append_planner_diagnostics_trace(
+    state: TaskGraphState,
+    diagnostics: dict[str, Any],
+    *,
+    reason: str | None = None,
+) -> None:
+    if diagnostics.get("llm_attempted"):
+        _append_trace(state, "call_llm_planner", reason=reason)
+
+    planner_error_type = diagnostics.get("planner_error_type")
+    planner_error_message = diagnostics.get("planner_error_message")
+    if planner_error_type or planner_error_message:
+        _append_trace(
+            state,
+            "llm_planner_error",
+            planner_error_type=planner_error_type,
+            planner_error_message=planner_error_message,
+            reason=reason,
+        )
+
+    if diagnostics.get("fallback_used"):
+        _append_trace(
+            state,
+            "llm_planner_fallback",
+            planner_mode=diagnostics.get("planner_mode"),
+            reason=reason,
+        )
 
 
 def _append_trace(state: TaskGraphState, event: str, **payload: Any) -> None:
