@@ -8,6 +8,14 @@ from task_brain.adapters.robobrain import (
     EmbodiedSubgoalRequest,
     FakeRoboBrainClient,
 )
+from task_brain.adapters.simulator_style import (
+    SimulatorEvent,
+    SimulatorPose,
+    SimulatorSceneRelation,
+    SimulatorStyleAdapter,
+    SimulatorVisibleAnchor,
+    SimulatorVisibleObject,
+)
 
 __all__ = [
     "AtomicPlanResponse",
@@ -18,4 +26,10 @@ __all__ = [
     "MockPerceptionAdapter",
     "MockVLNAdapter",
     "NavigationResult",
+    "SimulatorEvent",
+    "SimulatorPose",
+    "SimulatorSceneRelation",
+    "SimulatorStyleAdapter",
+    "SimulatorVisibleAnchor",
+    "SimulatorVisibleObject",
 ]
