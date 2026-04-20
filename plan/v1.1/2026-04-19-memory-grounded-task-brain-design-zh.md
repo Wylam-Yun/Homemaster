@@ -206,7 +206,7 @@ mock_perception -> real perception / VLM / simulator skill
 状态和记忆必须拆开：
 
 - `world truth`：mock world 或 simulator 的真实状态。
-- `runtime state`：当前任务运行中的机器人状态、当前 observation、选中目标、retry budget。
+- `runtime state`：当前任务运行中的唯一状态主语。
 - `long-term memory`：object memory、category prior、episodic memory。
 - `task-scoped memory`：当前任务内的 negative evidence 和 candidate exclusion state。
 - `trace`：任务执行过程的可审计事件流。
@@ -221,9 +221,52 @@ retry budget
 recent failure analysis
 task negative evidence
 candidate exclusion state
+high-level task progress
+embodied action progress
+runtime object updates
 ```
 
 长期 memory 只负责跨任务记忆，不作为当前执行状态源。Trace 只负责记录，不作为当前执行状态源。World truth 只作为 mock / simulator 的事实来源，不直接变成 Task Brain 的状态主语。
+
+Stage 6.5 之后，`RuntimeState` 需要明确容纳三类运行时进度信息：
+
+```text
+HighLevelProgress
+- current_subgoal_id
+- current_subgoal_type
+- completed_subgoal_ids
+- pending_subgoal_ids
+- execution_phase
+- replan_count
+
+EmbodiedActionProgress
+- active_skill_name
+- current_action_phase
+- completed_action_phases
+- pending_action_phases
+- local_world_state_flags
+
+RuntimeObjectUpdate
+- object_ref
+- new_anchor
+- new_relative_relation
+- source
+- timestamp
+- reason
+```
+
+`local_world_state_flags` 第一版只保留最小集合：
+
+```text
+container_opened
+holding_target
+target_dropped
+target_location_changed
+```
+
+并且只允许上述四个键，出现额外键时应校验失败。
+
+这些字段只描述当前任务运行时状态，不属于长期 memory，不直接写入 `ObjectMemory` 主表。
 
 ## 5. LangGraph 主流程
 
@@ -278,6 +321,11 @@ subgoal loop 的职责：
 - 对 return_to_user subgoal 调用 navigation / runtime adapter。
 - 对每个 subgoal 收集标准化 evidence。
 - 对失败结果调用 `analyze_failure` 和 `decide_recovery`。
+- 推进 `runtime_state.high_level_progress`。
+- 推进 `runtime_state.embodied_action_progress`。
+- 记录 `runtime_state.runtime_object_updates`。
+
+真正的状态推进逻辑放在后续 `execute_subgoal_loop` 中完成。Stage 6.5 只补齐状态槽位和兼容约束，不提前重写 deterministic 高层计划器、计划校验器或局部具身行为。
 
 ## 7. Observation Abstraction
 
@@ -560,6 +608,8 @@ inferred_experience -> low
 
 字段设计不是最容易出错的地方，更新、合并和冲突处理才是。v1.1 必须明确 memory reconciliation 硬规则。
 
+Stage 6.5 新增的 `runtime_object_updates` 只是当前任务内对象状态变化记录。它可以作为 memory reconciliation 的输入候选，但不能直接写回长期 `ObjectMemory`。长期记忆更新仍然必须等待 verified observation / verified evidence。
+
 #### 8.8.1 什么时候更新旧 Object Memory
 
 满足以下条件时，更新旧 object memory：
@@ -725,26 +775,64 @@ TaskContext
 - capability_registry
 - adapter_status
 - constraints
+- runtime_state
 ```
 
-Planner 只通过 `TaskContext` 获取上下文。Planner 不直接读 memory store、mock world 或 raw simulator state。
+高层计划器只通过 `TaskContext` 获取上下文。高层计划器不直接读 memory store、mock world 或 raw simulator state。
+
+TaskContext 不新增第二份进度字段，只透传 `runtime_state`。允许读取：
+
+```text
+TaskContext.runtime_state.high_level_progress
+TaskContext.runtime_state.embodied_action_progress
+TaskContext.runtime_state.runtime_object_updates
+```
+
+不允许在 TaskContext 顶层再新增：
+
+```text
+task_progress
+current_object_changes
+embodied_progress
+```
+
+否则会把当前任务状态拆成两个来源，破坏 runtime_state 唯一状态主语原则。
 
 ## 12. Planning 与 Validation
 
-v1.1 仍然支持 LLM planner + safe fallback。
+v1.1 明确区分两个规划器：
+
+```text
+高层计划器
+- 决定先去哪里
+- 决定先观察什么
+- 决定先验证什么
+- 决定什么时候调用拿取
+- 决定失败后换候选、重试还是重规划
+
+具身动作规划器
+- 负责拿起杯子
+- 负责打开抽屉
+- 负责取出药盒
+- 负责关闭抽屉
+```
+
+下文的 planner 默认指高层计划器；涉及局部操作时必须写成具身动作规划器或 embodied action planner。
+
+v1.1 仍然支持 LLM high-level planner + safe fallback。
 
 规则：
 
-- Planner 只能生成 high-level subgoals。
-- Planner 不能生成 atomic robot actions。
-- Planner 必须引用 memory grounding / candidate grounding。
-- Planner 不能跳过 verification。
+- 高层计划器只能生成 high-level subgoals。
+- 高层计划器不能生成 atomic robot actions。
+- 高层计划器必须引用 memory grounding / candidate grounding。
+- 高层计划器不能跳过 verification。
 - Plan validator 必须在执行前拦截非法 plan。
 - Fallback deterministic planner 必须覆盖两个 MVP task：
   - check object presence。
   - fetch object。
 
-Phase A 默认只使用 deterministic planner。LLM planner 只保留接口和测试边界，不作为 Phase A 主链依赖。Phase B 才接入真实 LLM provider、invalid-plan fallback 和 replanning prompt。
+Phase A 默认只使用 deterministic 高层计划器。LLM 高层计划器只保留接口和测试边界，不作为 Phase A 主链依赖。Phase B 才接入真实 LLM provider、invalid-plan fallback 和 replanning prompt。
 
 Replanning context 必须注入：
 
@@ -755,6 +843,9 @@ Replanning context 必须注入：
 - recent_observation_summary
 - rejected_target_info
 - retry_budget_state
+- high_level_progress
+- embodied_action_progress
+- runtime_object_updates
 ```
 
 ## 13. Failure-Type-Aware Recovery
@@ -804,6 +895,8 @@ verify_subgoal
 - retry_same_subgoal。
 - MVP retry budget 最多 1 次。
 
+Stage 6.5 后，failure analysis 可以读取 `runtime_state.embodied_action_progress.local_world_state_flags.holding_target` 和当前 observation 来判断“目标仍可见但拿取失败”。
+
 ### 13.3 Manipulation Failure，目标状态已变化
 
 含义：目标消失、位置变化、被遮挡，或 observation 与旧计划假设冲突。
@@ -812,6 +905,8 @@ verify_subgoal
 
 - re_observe。
 - replan。
+
+Stage 6.5 后，目标掉落、移位、被遮挡等变化先写入 `runtime_state.runtime_object_updates` 和 `runtime_state.embodied_action_progress.local_world_state_flags`。这些信息用于 recovery / replanning，不直接写长期 memory。
 
 ### 13.4 Navigation Failure
 

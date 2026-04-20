@@ -208,6 +208,9 @@ git commit -m "chore: initialize task brain project"
 - `RecoveryDecision`
 - `CapabilitySpec`
 - `TraceEvent`
+- `HighLevelProgress`
+- `EmbodiedActionProgress`
+- `RuntimeObjectUpdate`
 
 ### 实现细节
 
@@ -220,6 +223,9 @@ git commit -m "chore: initialize task brain project"
   - `recent_failure_analysis`
   - `task_negative_evidence`
   - `candidate_exclusion_state`
+  - `high_level_progress`
+  - `embodied_action_progress`
+  - `runtime_object_updates`
 - `ObjectMemory.memory_id` 是长期 ID，不能等于 detector 临时 ID。
 - `ObservedObject` 同时保留 `observation_object_id`、`detector_id`、`memory_id`，并在测试中证明三者可区分。
 - `CapabilitySpec` 必须包含：
@@ -239,6 +245,7 @@ git commit -m "chore: initialize task brain project"
 - `Subgoal` 没有 success conditions 时校验失败。
 - `ObservedObject.detector_id` 不等于 `memory_id`。
 - `RuntimeState` 持有当前任务状态字段。
+- `RuntimeState` 能持有高层任务进度、具身动作进度、当前任务内对象状态变化。
 - `CapabilitySpec` 缺少 evidence/result contract 时校验失败。
 
 运行：
@@ -393,6 +400,9 @@ git commit -m "feat: add object memory and task negative evidence"
   - “水杯”“杯子”“拿给我”“厨房” -> fetch cup。
 - `TaskContext` 包含 request、parsed_task、ranked_candidates、current_observation、runtime_state、capability registry、constraints。
 - Planner 只能读 `TaskContext`，不能直接读 world、memory store 或 trace。
+- Stage 6.5 后，`TaskContext` 仍然只透传 `runtime_state`，不新增第二份进度状态。
+- 允许后续高层计划器读取 `TaskContext.runtime_state.high_level_progress`、`TaskContext.runtime_state.embodied_action_progress`、`TaskContext.runtime_state.runtime_object_updates`。
+- 禁止新增顶层 `task_progress`、`current_object_changes`、`embodied_progress` 字段，避免形成第二个当前任务状态源。
 
 ### 测试计划
 
@@ -402,6 +412,7 @@ git commit -m "feat: add object memory and task negative evidence"
 - parser 提取拿水杯任务。
 - task context 包含 runtime state 和候选列表。
 - task context 中 negative evidence 来自 runtime state。
+- Stage 6.5 后，task context 只通过同一个 runtime state 透传高层任务进度、具身动作进度和对象状态变化。
 
 运行：
 
@@ -545,6 +556,125 @@ git add src/task_brain/planner.py tests/test_planner_validation.py
 git commit -m "feat: add deterministic planner and validation"
 ```
 
+## Stage 6.5（Phase A）：Runtime Progress Compatibility Patch
+
+### 目标
+
+在不重写 Stage 6 已完成高层计划器和计划校验器的前提下，为当前任务运行态补齐三类状态槽位：
+
+- 高层任务进度。
+- 具身动作进度。
+- 当前任务内对象状态变化。
+
+这个 stage 是兼容补丁，不改变 Phase A / Phase B 总边界，也不提前实现完整局部具身行为。
+
+### 范围
+
+修改：
+
+- `src/task_brain/domain.py`
+- `src/task_brain/context.py`
+- `tests/test_domain.py`
+- `tests/test_parser_context.py`
+
+新增：
+
+- `plan/v1.1/2026-04-19-stage6_5-runtime-progress-patch-zh.md`
+
+不修改：
+
+- `src/task_brain/planner.py`
+- `src/task_brain/verification.py`
+- `src/task_brain/recovery.py`
+- `src/task_brain/graph.py`
+
+除非只是为了最小透传和类型兼容。
+
+### 实现细节
+
+新增 `HighLevelProgress`：
+
+- `current_subgoal_id`
+- `current_subgoal_type`
+- `completed_subgoal_ids`
+- `pending_subgoal_ids`
+- `execution_phase`
+- `replan_count`
+
+新增 `EmbodiedActionProgress`：
+
+- `active_skill_name`
+- `current_action_phase`
+- `completed_action_phases`
+- `pending_action_phases`
+- `local_world_state_flags`
+
+`local_world_state_flags` 第一版只保留：
+
+- `container_opened`
+- `holding_target`
+- `target_dropped`
+- `target_location_changed`
+- 仅允许上述四个键，出现额外键时报错。
+
+新增 `RuntimeObjectUpdate`：
+
+- `object_ref`
+- `new_anchor`
+- `new_relative_relation`
+- `source`
+- `timestamp`
+- `reason`
+
+扩展 `RuntimeState`：
+
+- `high_level_progress`
+- `embodied_action_progress`
+- `runtime_object_updates`
+
+### 状态边界
+
+- `RuntimeState` 仍然是当前任务执行中的唯一状态主语。
+- `TaskContext` 只透传 `runtime_state`，不复制进第二份顶层字段。
+- 长期 `ObjectMemory` 主表不新增运行时进度字段。
+- `runtime_object_updates` 只是当前任务内对象状态变化记录，不直接写长期 memory。
+- 真正推进 `high_level_progress`、`embodied_action_progress`、`runtime_object_updates` 的位置是后续 `execute_subgoal_loop`。
+
+### 测试计划
+
+`tests/test_domain.py` 新增：
+
+- `test_runtime_state_can_hold_high_level_progress`
+- `test_runtime_state_can_hold_embodied_action_progress`
+- `test_runtime_state_can_hold_runtime_object_updates`
+- `test_runtime_progress_is_not_long_term_memory`
+
+`tests/test_parser_context.py` 新增：
+
+- `test_task_context_passes_runtime_progress_without_creating_second_state_source`
+
+运行：
+
+```bash
+pytest tests/test_domain.py tests/test_parser_context.py -q
+pytest -q
+ruff check .
+```
+
+### 完成标准
+
+- RuntimeState 能持有三类新运行时状态。
+- TaskContext 没有新增 `task_progress`、`current_object_changes`、`embodied_progress` 顶层字段。
+- deterministic 高层计划器和 PlanValidator 主逻辑不需要重写。
+- 长期 memory schema 不承担运行时进度职责。
+
+### 提交点
+
+```bash
+git add src/task_brain/domain.py src/task_brain/context.py tests/test_domain.py tests/test_parser_context.py plan/v1.1/2026-04-19-stage6_5-runtime-progress-patch-zh.md
+git commit -m "feat: add runtime progress state slots"
+```
+
 ## Stage 7（Phase A）：Mock Adapters 与 Fake RoboBrain
 
 ### 目标
@@ -567,6 +697,8 @@ git commit -m "feat: add deterministic planner and validation"
 - `MockAtomicExecutor.execute(plan, runtime_state, world, attempt)` 返回 `ExecutionResult`。
 - 所有 adapter result 都必须携带 evidence，供 verification 和 failure analysis 使用。
 - failure injection 通过 scenario 的 `failures.json` 控制。
+- Stage 6.5 后，adapter 可以读取 `runtime_state.embodied_action_progress` 来理解局部动作阶段，也可以通过 execution evidence 报告 target dropped / location changed 等线索。
+- Adapter 不直接写长期 memory，也不把运行时进度复制到 trace 或 memory store 中作为状态源。
 
 ### 测试计划
 
@@ -578,6 +710,7 @@ git commit -m "feat: add deterministic planner and validation"
 - fake RoboBrain 返回 atomic plan，但 planner 不直接生成这些 atomic actions。
 - mock executor 可以成功 apply state delta。
 - mock executor 可以按 failure rule 注入失败。
+- mock executor 可以把目标掉落、移位等变化作为 evidence 返回，供后续 runtime object update 使用。
 
 运行：
 
@@ -626,6 +759,8 @@ Verification engine 接收 `VerificationEvidence`，支持：
 - `reachable_category(category)`
 - `holding_category(robot, category)`
 - `near(robot, user)`
+- Stage 6.5 后，verification 可以读取 `runtime_state.embodied_action_progress` 和 `runtime_state.runtime_object_updates` 辅助判断目标是否掉落、移位或被遮挡。
+- 这些信息仍然只属于当前任务运行时状态，不能直接作为长期 memory update。
 
 ### 测试计划
 
@@ -636,6 +771,7 @@ Verification engine 接收 `VerificationEvidence`，支持：
 - 从 runtime state 验证 holding category。
 - execution result alone 不等于 success。
 - final success 必须经过 final task verification。
+- target dropped / location changed evidence 不会绕过 verification。
 
 运行：
 
@@ -824,12 +960,16 @@ respond_with_trace
 - analyze failure。
 - decide recovery。
 - retry / switch / replan / report failure。
+- 推进 `runtime_state.high_level_progress`。
+- 推进 `runtime_state.embodied_action_progress`。
+- 记录 `runtime_state.runtime_object_updates`。
 
 State rules：
 
 - `RuntimeState` 是唯一执行状态源。
 - Trace 只记录，不驱动状态。
 - Long-term memory 只在 reconciliation 阶段更新。
+- Stage 6.5 的三类进度状态在这里真正开始随执行推进；前面只定义槽位和兼容约束。
 
 ### 测试计划
 
@@ -843,6 +983,7 @@ State rules：
 - `object_not_found` 返回 failed。
 - `distractor_rejected` 不调用 RoboBrain pickup。
 - success 一定晚于 final task verification。
+- graph 运行中只有 `runtime_state` 推进当前任务进度，trace 不作为状态源。
 
 运行：
 
@@ -973,6 +1114,8 @@ git commit -m "feat: add CLI trace demo"
 - 长期 memory 不直接删除。
 - verified conflict：将旧 memory 降级，`belief_state` 标为 `stale` 或 `contradicted`。
 - 弱证据或不完整 observation：保留旧 memory，只降低 confidence 或等待更多 evidence。
+- Stage 6.5 后，`runtime_object_updates` 可以作为 reconciliation 的输入候选，但不能直接写长期 `ObjectMemory`。
+- 只有 verified observation / verified evidence 支持的对象状态变化，才允许更新、降级或新建长期 object memory。
 
 优先级：
 
@@ -993,6 +1136,7 @@ verified current observation
 - task negative evidence 不写入 object memory 主表。
 - verified not found 将旧 memory 标为 stale/contradicted。
 - detector_id 不会成为 memory_id。
+- runtime object update 未被 verification 支持时，不更新长期 memory。
 
 运行：
 
@@ -1107,6 +1251,8 @@ NVIDIA_API_KEY=<read from environment only>
 - 测试不访问真实 API，使用 fake transport 或 fake provider。
 - LLM 输出必须经过 `HighLevelPlan` schema validation。
 - invalid LLM plan fallback deterministic planner。
+- LLM 高层计划器只通过 `TaskContext.runtime_state` 读取高层进度、具身动作进度和对象状态变化。
+- LLM planner 不新增第二个状态源，不直接读取 trace / memory store 来判断当前执行进度。
 
 ### 测试计划
 
@@ -1116,6 +1262,7 @@ NVIDIA_API_KEY=<read from environment only>
 - episodic hint 提升排序但不覆盖 negative evidence。
 - invalid LLM plan fallback deterministic planner。
 - LLM plan 不能忽略 task negative evidence。
+- LLM replan context 包含 richer runtime state，但没有新增顶层进度副本。
 
 `tests/test_kimi_provider.py` 覆盖：
 
@@ -1243,6 +1390,7 @@ git commit -m "feat: add simulator wrapper and optional gateway bridge"
 - [ ] Trace 证明 retrieve memory before planning。
 - [ ] Trace 证明 verification before success。
 - [ ] Runtime/task-scoped state 是唯一执行状态源。
+- [ ] Stage 6.5 runtime progress slots 已接入 `RuntimeState`，且只通过 `TaskContext.runtime_state` 透传。
 - [ ] Task negative evidence 不污染长期 object memory。
 - [ ] Long-term memory 只基于 verified evidence 更新。
 - [ ] Adapter-facing capabilities 都满足 skill-compatible contract。

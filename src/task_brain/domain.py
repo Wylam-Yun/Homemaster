@@ -8,6 +8,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+_LOCAL_WORLD_STATE_FLAG_DEFAULTS: dict[str, bool] = {
+    "container_opened": False,
+    "holding_target": False,
+    "target_dropped": False,
+    "target_location_changed": False,
+}
+
 
 class TaskIntent(StrEnum):
     """Supported Phase A user intents."""
@@ -299,6 +306,57 @@ class RecoveryDecision(BaseModel):
     allow_revisit: bool = False
 
 
+class HighLevelProgress(BaseModel):
+    """Runtime progress for high-level deterministic subgoals."""
+
+    current_subgoal_id: str | None = None
+    current_subgoal_type: SubgoalType | None = None
+    completed_subgoal_ids: list[str] = Field(default_factory=list)
+    pending_subgoal_ids: list[str] = Field(default_factory=list)
+    execution_phase: str | None = None
+    replan_count: int = Field(default=0, ge=0)
+
+
+class EmbodiedActionProgress(BaseModel):
+    """Runtime progress for embodied skill execution in current task."""
+
+    active_skill_name: str | None = None
+    current_action_phase: str | None = None
+    completed_action_phases: list[str] = Field(default_factory=list)
+    pending_action_phases: list[str] = Field(default_factory=list)
+    local_world_state_flags: dict[str, bool] = Field(
+        default_factory=lambda: dict(_LOCAL_WORLD_STATE_FLAG_DEFAULTS)
+    )
+
+    @model_validator(mode="after")
+    def validate_local_world_state_flags(self) -> EmbodiedActionProgress:
+        """Only the Stage 6.5 fixed flag set is allowed."""
+        unknown_keys = sorted(
+            set(self.local_world_state_flags) - set(_LOCAL_WORLD_STATE_FLAG_DEFAULTS)
+        )
+        if unknown_keys:
+            raise ValueError(
+                "local_world_state_flags only allows keys: "
+                + ",".join(sorted(_LOCAL_WORLD_STATE_FLAG_DEFAULTS))
+            )
+
+        normalized_flags = dict(_LOCAL_WORLD_STATE_FLAG_DEFAULTS)
+        normalized_flags.update(self.local_world_state_flags)
+        self.local_world_state_flags = normalized_flags
+        return self
+
+
+class RuntimeObjectUpdate(BaseModel):
+    """Task-scoped object state change recorded during execution."""
+
+    object_ref: str
+    new_anchor: Anchor | None = None
+    new_relative_relation: RelativeRelation | None = None
+    source: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    reason: str | None = None
+
+
 class RuntimeState(BaseModel):
     """Single source of truth for current task execution state."""
 
@@ -310,6 +368,9 @@ class RuntimeState(BaseModel):
     task_negative_evidence: list[TaskNegativeEvidence] = Field(default_factory=list)
     candidate_exclusion_state: dict[str, str] = Field(default_factory=dict)
     robot_runtime_state: RobotRuntimeState | None = None
+    high_level_progress: HighLevelProgress | None = None
+    embodied_action_progress: EmbodiedActionProgress | None = None
+    runtime_object_updates: list[RuntimeObjectUpdate] = Field(default_factory=list)
 
 
 class CapabilitySpec(BaseModel):
@@ -341,7 +402,9 @@ __all__ = [
     "EvidenceSource",
     "FailureAnalysis",
     "FailureType",
+    "HighLevelProgress",
     "HighLevelPlan",
+    "EmbodiedActionProgress",
     "ObjectMemory",
     "Observation",
     "ObservationSource",
@@ -353,6 +416,7 @@ __all__ = [
     "RecoveryDecision",
     "RelativeRelation",
     "RobotRuntimeState",
+    "RuntimeObjectUpdate",
     "RuntimeState",
     "SceneRelation",
     "Subgoal",

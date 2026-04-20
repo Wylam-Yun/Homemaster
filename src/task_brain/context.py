@@ -20,7 +20,10 @@ from task_brain.domain import (
 
 
 class TaskContext(BaseModel):
-    """Single planner input model built from runtime and retrieval artifacts."""
+    """Single planner input model built from runtime and retrieval artifacts.
+
+    Runtime progress is carried only by ``runtime_state`` to avoid a second task-state source.
+    """
 
     model_config = ConfigDict(extra="forbid")
 

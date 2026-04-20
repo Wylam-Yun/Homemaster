@@ -7,11 +7,15 @@ from task_brain.capabilities import default_capability_registry
 from task_brain.context import TaskContext, build_task_context
 from task_brain.domain import (
     CapabilitySpec,
+    EmbodiedActionProgress,
+    HighLevelProgress,
     Observation,
     ObservationSource,
     ParsedTask,
     RobotRuntimeState,
+    RuntimeObjectUpdate,
     RuntimeState,
+    SubgoalType,
     TargetObject,
     TaskIntent,
     TaskNegativeEvidence,
@@ -218,3 +222,53 @@ def test_build_task_context_accepts_validated_registry_override() -> None:
                 }
             },
         )
+
+
+def test_task_context_passes_runtime_progress_without_creating_second_state_source() -> None:
+    request = TaskRequest(source="cli", user_id="u7", utterance="去厨房把水杯拿给我")
+    parsed_task = ParsedTask(
+        intent=TaskIntent.FETCH_OBJECT,
+        target_object=TargetObject(category="cup", aliases=["水杯"], attributes=[]),
+    )
+    runtime_state = RuntimeState(
+        high_level_progress=HighLevelProgress(
+            current_subgoal_id="sg-2",
+            current_subgoal_type=SubgoalType.OBSERVE,
+            completed_subgoal_ids=["sg-1"],
+            pending_subgoal_ids=["sg-3", "sg-4"],
+            execution_phase="executing",
+            replan_count=1,
+        ),
+        embodied_action_progress=EmbodiedActionProgress(
+            active_skill_name="mock_atomic_executor.execute",
+            current_action_phase="approaching_target",
+            completed_action_phases=[],
+            pending_action_phases=["grasp_target"],
+            local_world_state_flags={"container_opened": True},
+        ),
+        runtime_object_updates=[
+            RuntimeObjectUpdate(
+                object_ref="mem-cup-001",
+                source="execution_evidence",
+                reason="target_location_changed",
+            )
+        ],
+    )
+
+    context = build_task_context(
+        request=request,
+        parsed_task=parsed_task,
+        runtime_state=runtime_state,
+    )
+
+    assert context.runtime_state.high_level_progress is not None
+    assert context.runtime_state.high_level_progress.current_subgoal_id == "sg-2"
+    assert context.runtime_state.embodied_action_progress is not None
+    assert context.runtime_state.embodied_action_progress.local_world_state_flags[
+        "container_opened"
+    ]
+    assert len(context.runtime_state.runtime_object_updates) == 1
+
+    assert not hasattr(context, "task_progress")
+    assert not hasattr(context, "current_object_changes")
+    assert not hasattr(context, "embodied_progress")

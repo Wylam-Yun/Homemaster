@@ -272,6 +272,9 @@ ruff check .
 - `RuntimeState`
 - `RobotRuntimeState`
 - `TraceEvent`
+- `HighLevelProgress`
+- `EmbodiedActionProgress`
+- `RuntimeObjectUpdate`
 
 v1.1 新增 domain model：
 
@@ -306,6 +309,7 @@ Phase B 再补：
 - `ObjectMemory.memory_id` 是长期 ID。
 - `FailureType` 枚举包含四类基础 failure。
 - `RuntimeState` 是当前任务执行中的唯一状态主语，包含 current observation、selected candidate、selected object、retry budget、recent failure analysis、task negative evidence、candidate exclusion state。
+- Stage 6.5 追加 `high_level_progress`、`embodied_action_progress`、`runtime_object_updates` 三类运行时槽位，但不改变 `RuntimeState` 作为唯一状态主语的定义。
 - `CapabilitySpec` 必须包含 stable capability name、typed input schema、typed output schema、failure modes、timeout、evidence-carrying result。
 
 ### 验收
@@ -480,6 +484,22 @@ Planner 只能读 `TaskContext`，不直接读 memory store 或 mock world。
 
 当前任务执行状态只能从 runtime/task-scoped state 进入 `TaskContext`。Trace 不能作为状态源，长期 memory 不能存放 selected candidate、retry budget、recent failure analysis 等运行中状态。
 
+Stage 6.5 后，TaskContext 仍然只透传 `runtime_state`，不新增第二份进度字段。允许读取：
+
+```text
+TaskContext.runtime_state.high_level_progress
+TaskContext.runtime_state.embodied_action_progress
+TaskContext.runtime_state.runtime_object_updates
+```
+
+不允许在 TaskContext 顶层新增：
+
+```text
+task_progress
+current_object_changes
+embodied_progress
+```
+
 ### 测试
 
 - `test_parser_extracts_check_medicine_task`
@@ -512,9 +532,13 @@ pytest tests/test_parser_context.py -q
 - `robobrain.plan`
 - `mock_atomic_executor.execute`
 - `verification.evaluate`
-- `memory.update`
+- `memory.reconcile`
 - `recovery.analyze_failure`
 - `recovery.decide`
+
+兼容约束：
+
+- `memory.update` 只作为入参别名兼容，统一归一化到 `memory.reconcile`。
 
 每个 adapter-facing capability 都必须是 skill-compatible contract：
 
@@ -565,6 +589,128 @@ pytest tests/test_planner_validation.py -q
 
 期望通过。
 
+## Task 6.5（Phase A）：双层运行时进度状态兼容补丁
+
+> 本实施计划中 Task 5 同时覆盖 capability registry、deterministic 高层计划器和 plan validator，因此 6.5 作为兼容补丁插在 Task 5 之后、Task 6 adapter 之前；不重排已完成任务编号。
+
+### 文件
+
+- 修改 `src/task_brain/domain.py`
+- 修改 `src/task_brain/context.py`
+- 修改 `tests/test_domain.py`
+- 修改 `tests/test_parser_context.py`
+- 新增 `plan/v1.1/2026-04-19-stage6_5-runtime-progress-patch-zh.md`
+
+### 目标
+
+在不重写 Stage 6 已完成高层计划器和计划校验器的前提下，为当前任务 runtime state 增加三类运行时信息：
+
+- 高层任务进度。
+- 具身动作进度。
+- 当前任务内对象状态变化。
+
+### 硬原则
+
+- 不改 Phase A / Phase B 总边界。
+- 不改 deterministic 高层计划器主逻辑。
+- 不改计划校验器主逻辑。
+- 不改长期 `ObjectMemory` 主表结构。
+- 不引入第二个状态源。
+- 不把运行时进度写进长期 memory。
+- 真正推进状态的逻辑放到后续 `execute_subgoal_loop`。
+
+### 新增结构
+
+```text
+HighLevelProgress
+- current_subgoal_id
+- current_subgoal_type
+- completed_subgoal_ids
+- pending_subgoal_ids
+- execution_phase
+- replan_count
+
+EmbodiedActionProgress
+- active_skill_name
+- current_action_phase
+- completed_action_phases
+- pending_action_phases
+- local_world_state_flags
+
+RuntimeObjectUpdate
+- object_ref
+- new_anchor
+- new_relative_relation
+- source
+- timestamp
+- reason
+```
+
+`local_world_state_flags` 第一版只保留：
+
+```text
+container_opened
+holding_target
+target_dropped
+target_location_changed
+```
+
+并且只允许上述四个键，出现额外键时校验失败。
+
+### RuntimeState 新增字段
+
+```text
+RuntimeState
+- high_level_progress
+- embodied_action_progress
+- runtime_object_updates
+```
+
+### TaskContext 兼容
+
+TaskContext 只透传 richer runtime state，不复制进第二份字段。
+
+允许：
+
+```text
+TaskContext.runtime_state.high_level_progress
+TaskContext.runtime_state.embodied_action_progress
+TaskContext.runtime_state.runtime_object_updates
+```
+
+不允许：
+
+```text
+TaskContext.task_progress
+TaskContext.current_object_changes
+TaskContext.embodied_progress
+```
+
+### 测试
+
+- `test_runtime_state_can_hold_high_level_progress`
+- `test_runtime_state_can_hold_embodied_action_progress`
+- `test_runtime_state_can_hold_runtime_object_updates`
+- `test_runtime_progress_is_not_long_term_memory`
+- `test_task_context_passes_runtime_progress_without_creating_second_state_source`
+
+### 验收
+
+```bash
+pytest tests/test_domain.py tests/test_parser_context.py -q
+pytest -q
+ruff check .
+```
+
+期望通过。
+
+### 提交点
+
+```bash
+git add src/task_brain/domain.py src/task_brain/context.py tests/test_domain.py tests/test_parser_context.py plan/v1.1/2026-04-19-stage6_5-runtime-progress-patch-zh.md
+git commit -m "feat: add runtime progress state slots"
+```
+
 ## Task 6（Phase A）：Mock Adapters 与 RoboBrain 边界
 
 ### 文件
@@ -595,6 +741,8 @@ execute(AtomicPlanResponse, world/runtime, attempt) -> ExecutionResult
 ```
 
 所有 adapter result 必须携带 evidence，供 verification 和 failure analysis 使用。
+
+Stage 6.5 兼容说明：adapter 可以读取 `runtime_state.embodied_action_progress` 来报告局部动作阶段，也可以通过 execution evidence 提供 target dropped / location changed 等线索；但 adapter 不直接写长期 memory。
 
 ### RoboBrain 请求
 
@@ -635,6 +783,8 @@ pytest tests/test_adapters.py -q
 ### 目标
 
 Verification engine 消费标准化 evidence，而不是直接消费 raw world。
+
+Stage 6.5 兼容说明：verification 可以读取 `runtime_state.embodied_action_progress` 和 `runtime_state.runtime_object_updates` 帮助判断目标是否掉落、移位、被遮挡；这些信息仍然属于当前任务运行时状态。
 
 输入：
 
@@ -840,6 +990,16 @@ input_instruction
 
 运行中的唯一状态主语是 `runtime_state`。`current_observation`、`selected_object_id`、`recent_failure_analysis`、task negative evidence、candidate exclusion state、retry budget 都必须写入 `runtime_state`，不要分散到 memory store 或 trace 中。
 
+Stage 6.5 后，`execute_subgoal_loop` 还负责推进：
+
+```text
+runtime_state.high_level_progress
+runtime_state.embodied_action_progress
+runtime_state.runtime_object_updates
+```
+
+这是三类进度状态真正“活起来”的位置；前面的 Stage 6.5 只补齐状态槽位和兼容测试。
+
 ### 测试
 
 - `test_build_task_graph_returns_invokable_langgraph`
@@ -928,6 +1088,8 @@ pytest tests/test_cli.py -q
 - 对被验证为 stale 的 object memory 降级。
 - task negative evidence 保持 task-scoped，不污染长期 object memory 主表。
 - 只有 verified not found 且 location 与 object memory anchor 明确对应时，才在 reconciliation 阶段将旧 object memory 标记为 `stale` 或 `contradicted`。
+
+Stage 6.5 兼容说明：`runtime_object_updates` 只是当前任务内对象状态变化记录，是 memory reconciliation 的输入候选。它不能直接写入长期 `ObjectMemory`，必须先被 verified observation / verified evidence 支持。
 
 更新旧 memory：
 
@@ -1121,6 +1283,8 @@ LLM planner 接入规则：
 - LLM plan 不能发出 atomic robot action。
 - LLM plan 不能跳过 verification。
 - LLM plan 不能忽略 task negative evidence。
+
+Stage 6.5 兼容说明：LLM 高层计划器未来只通过 `TaskContext.runtime_state` 读取高层进度、具身动作进度和对象状态变化，不新增第二个状态源。
 
 ### 测试
 
