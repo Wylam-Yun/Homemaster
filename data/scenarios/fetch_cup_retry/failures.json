@@ -1,0 +1,14 @@
+{
+  "failure_rules": [
+    {
+      "attempt": 1,
+      "status": "failed",
+      "reason": "object_slipped",
+      "state_delta": {
+        "executor_status": "failed",
+        "last_attempt": 1
+      },
+      "runtime_object_updates_candidate": []
+    }
+  ]
+}

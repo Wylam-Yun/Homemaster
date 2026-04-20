@@ -1,0 +1,36 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-cup-1",
+      "object_category": "cup",
+      "aliases": ["水杯", "杯子"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "kitchen_table_viewpoint",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-10T10:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-cup-2",
+      "object_category": "cup",
+      "aliases": ["水杯"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "living_side_table_viewpoint",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-01T10:00:00Z",
+      "belief_state": "stale"
+    }
+  ]
+}
