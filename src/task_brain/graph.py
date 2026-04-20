@@ -33,7 +33,7 @@ from task_brain.domain import (
     TaskRequest,
 )
 from task_brain.evidence import build_verification_evidence
-from task_brain.memory import MemoryStore, retrieve_candidates
+from task_brain.memory import MemoryStore, reconcile_memory_after_task, retrieve_candidates
 from task_brain.parser import parse_instruction
 from task_brain.planner import DeterministicHighLevelPlanner, PlanValidator
 from task_brain.recovery import analyze_failure, apply_recovery_state_updates, decide_recovery
@@ -413,11 +413,23 @@ def _final_task_verification(state: TaskGraphState) -> TaskGraphState:
 
 
 def _update_memory(state: TaskGraphState) -> TaskGraphState:
+    reconciliation = reconcile_memory_after_task(
+        parsed_task=state["parsed_task"],
+        runtime_state=state["runtime_state"],
+        memory_store=state["memory_store"],
+        final_status=state["final_status"],
+        latest_execution_result=state.get("latest_execution_result"),
+    )
     _append_trace(
         state,
         "update_memory",
-        mode="no_op",
-        reason="stage11_placeholder_until_stage13",
+        verified=reconciliation["verified"],
+        updated=reconciliation["updated"],
+        created=reconciliation["created"],
+        stale=reconciliation["stale"],
+        contradicted=reconciliation["contradicted"],
+        skipped_runtime_updates=reconciliation["skipped_runtime_updates"],
+        skipped_reasons=reconciliation["skipped_reasons"],
     )
     return {
         "trace": state["trace"],

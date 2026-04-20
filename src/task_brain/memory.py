@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,6 +57,11 @@ class MemoryStore:
     def get_object_memory(self, memory_id: str) -> ObjectMemory | None:
         """Get one long-term memory by ID."""
         return self._by_id.get(memory_id)
+
+    def add_object_memory(self, memory: ObjectMemory) -> None:
+        """Insert one long-term memory record."""
+        self._object_memories.append(memory)
+        self._by_id[memory.memory_id] = memory
 
     def retrieve_object_memory(
         self,
@@ -199,6 +205,151 @@ def retrieve_candidates(
     ]
 
 
+def reconcile_memory_after_task(
+    *,
+    parsed_task: ParsedTask,
+    runtime_state: RuntimeState,
+    memory_store: MemoryStore,
+    final_status: str,
+    latest_execution_result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Reconcile long-term object memory using verified task evidence only."""
+    _ = latest_execution_result
+
+    target_category = parsed_task.target_object.category
+    normalized_target = _normalize(target_category)
+    summary: dict[str, Any] = {
+        "verified": False,
+        "updated": 0,
+        "created": 0,
+        "stale": 0,
+        "contradicted": 0,
+        "skipped_runtime_updates": 0,
+        "updated_memory_ids": [],
+        "created_memory_ids": [],
+        "stale_memory_ids": [],
+        "contradicted_memory_ids": [],
+        "skipped_reasons": [],
+    }
+
+    updated_ids: set[str] = set()
+    created_ids: set[str] = set()
+    stale_ids: set[str] = set()
+    contradicted_ids: set[str] = set()
+    skipped_reasons: list[str] = []
+
+    observation = runtime_state.current_observation
+    target_observed_objects = _target_observed_objects(observation, normalized_target)
+    has_verified_positive = final_status == "success" and bool(target_observed_objects)
+    summary["verified"] = has_verified_positive
+
+    positive_memory_ids: set[str] = set()
+    positive_location_keys: set[str] = set()
+    positive_anchor = _observation_primary_anchor(observation)
+    if positive_anchor is not None:
+        positive_location_keys.add(anchor_to_location_key(positive_anchor))
+
+    if has_verified_positive:
+        for observed in target_observed_objects:
+            matched_memory = _match_existing_memory(
+                observed_memory_id=observed.get("memory_id"),
+                normalized_target_category=normalized_target,
+                memory_store=memory_store,
+                anchor=positive_anchor,
+            )
+            if matched_memory is not None:
+                resolved_anchor = positive_anchor or matched_memory.anchor
+                updated = memory_store.update_object_memory_from_verified_observation(
+                    matched_memory.memory_id,
+                    verified=True,
+                    anchor=resolved_anchor,
+                    last_observed_state=observed.get("state_summary"),
+                    evidence_source=EvidenceSource.DIRECT_OBSERVATION,
+                    confidence_level=ConfidenceLevel.HIGH,
+                )
+                if updated:
+                    updated_ids.add(matched_memory.memory_id)
+                    positive_memory_ids.add(matched_memory.memory_id)
+                    positive_location_keys.add(anchor_to_location_key(resolved_anchor))
+                continue
+
+            if positive_anchor is None:
+                skipped_reasons.append("skip_create_missing_anchor")
+                continue
+
+            memory_id = _generate_memory_id(
+                object_category=target_category,
+                observation_object_id=observed.get("observation_object_id"),
+                detector_id=observed.get("detector_id"),
+                memory_store=memory_store,
+            )
+            aliases = _unique_nonempty(
+                [target_category, *parsed_task.target_object.aliases, *observed.get("aliases", [])]
+            )
+            new_memory = ObjectMemory(
+                memory_id=memory_id,
+                object_category=target_category,
+                aliases=aliases,
+                anchor=positive_anchor,
+                last_observed_state=observed.get("state_summary"),
+                evidence_source=EvidenceSource.DIRECT_OBSERVATION,
+                confidence_level=ConfidenceLevel.HIGH,
+                last_confirmed_at=datetime.now(UTC),
+                belief_state=BeliefState.CONFIRMED,
+            )
+            memory_store.add_object_memory(new_memory)
+            created_ids.add(memory_id)
+            positive_memory_ids.add(memory_id)
+            positive_location_keys.add(anchor_to_location_key(positive_anchor))
+    else:
+        skipped_reasons.append("no_verified_positive_evidence")
+
+    _reconcile_negative_evidence(
+        normalized_target_category=normalized_target,
+        runtime_state=runtime_state,
+        memory_store=memory_store,
+        positive_memory_ids=positive_memory_ids,
+        positive_location_keys=positive_location_keys,
+        stale_ids=stale_ids,
+        contradicted_ids=contradicted_ids,
+    )
+
+    for runtime_update in runtime_state.runtime_object_updates:
+        if runtime_update.object_ref not in positive_memory_ids:
+            summary["skipped_runtime_updates"] += 1
+            skipped_reasons.append(
+                f"runtime_update_without_verified_support:{runtime_update.object_ref}"
+            )
+            continue
+        memory = memory_store.get_object_memory(runtime_update.object_ref)
+        if memory is None:
+            summary["skipped_runtime_updates"] += 1
+            skipped_reasons.append(f"runtime_update_unknown_memory:{runtime_update.object_ref}")
+            continue
+
+        updated = memory_store.update_object_memory_from_verified_observation(
+            runtime_update.object_ref,
+            verified=True,
+            anchor=runtime_update.new_anchor or memory.anchor,
+            relative_relation=runtime_update.new_relative_relation or memory.relative_relation,
+            last_observed_state=runtime_update.reason or "runtime_update_verified",
+            evidence_source=EvidenceSource.DIRECT_OBSERVATION,
+        )
+        if updated:
+            updated_ids.add(runtime_update.object_ref)
+
+    summary["updated_memory_ids"] = sorted(updated_ids)
+    summary["created_memory_ids"] = sorted(created_ids)
+    summary["stale_memory_ids"] = sorted(stale_ids)
+    summary["contradicted_memory_ids"] = sorted(contradicted_ids)
+    summary["updated"] = len(updated_ids)
+    summary["created"] = len(created_ids)
+    summary["stale"] = len(stale_ids)
+    summary["contradicted"] = len(contradicted_ids)
+    summary["skipped_reasons"] = skipped_reasons
+    return summary
+
+
 def _excluded_location_keys(runtime_state: RuntimeState, target_category: str) -> set[str]:
     normalized_target = _normalize(target_category)
     excluded: set[str] = set()
@@ -214,6 +365,172 @@ def _excluded_location_keys(runtime_state: RuntimeState, target_category: str) -
         if evidence.anchor is not None:
             excluded.add(anchor_to_location_key(evidence.anchor))
     return excluded
+
+
+def _target_observed_objects(
+    observation: Any,
+    normalized_target_category: str,
+) -> list[dict[str, Any]]:
+    if observation is None:
+        return []
+    visible_objects = getattr(observation, "visible_objects", [])
+    if not isinstance(visible_objects, list):
+        return []
+
+    matched: list[dict[str, Any]] = []
+    for item in visible_objects:
+        category = getattr(item, "category", None)
+        if _normalize(category) != normalized_target_category:
+            continue
+        aliases = getattr(item, "aliases", [])
+        matched.append(
+            {
+                "observation_object_id": getattr(item, "observation_object_id", None),
+                "memory_id": getattr(item, "memory_id", None),
+                "detector_id": getattr(item, "detector_id", None),
+                "state_summary": getattr(item, "state_summary", None),
+                "aliases": aliases if isinstance(aliases, list) else [],
+            }
+        )
+    return matched
+
+
+def _observation_primary_anchor(observation: Any) -> Anchor | None:
+    if observation is None:
+        return None
+    visible_anchors = getattr(observation, "visible_anchors", [])
+    if not isinstance(visible_anchors, list) or not visible_anchors:
+        return None
+    first_anchor = visible_anchors[0]
+    return Anchor(
+        room_id=str(first_anchor.room_id),
+        anchor_id=str(first_anchor.anchor_id),
+        anchor_type=str(first_anchor.anchor_type),
+        viewpoint_id=first_anchor.viewpoint_id,
+        display_text=first_anchor.display_text,
+    )
+
+
+def _match_existing_memory(
+    *,
+    observed_memory_id: str | None,
+    normalized_target_category: str,
+    memory_store: MemoryStore,
+    anchor: Anchor | None,
+) -> ObjectMemory | None:
+    if observed_memory_id:
+        candidate = memory_store.get_object_memory(observed_memory_id)
+        if (
+            candidate is not None
+            and _normalize(candidate.object_category) == normalized_target_category
+        ):
+            return candidate
+
+    if anchor is None:
+        return None
+
+    location_key = anchor_to_location_key(anchor)
+    category_memories = memory_store.retrieve_object_memory(normalized_target_category, [])
+    matched = [
+        memory
+        for memory in category_memories
+        if anchor_to_location_key(memory.anchor) == location_key
+    ]
+    if len(matched) == 1:
+        return matched[0]
+    return None
+
+
+def _generate_memory_id(
+    *,
+    object_category: str,
+    observation_object_id: str | None,
+    detector_id: str | None,
+    memory_store: MemoryStore,
+) -> str:
+    category_token = _sanitize_memory_token(object_category)
+    object_token = _sanitize_memory_token(observation_object_id) or "object"
+    base_id = f"mem-{category_token}-{object_token}"
+    existing_ids = {item.memory_id for item in memory_store.dump_object_memory()}
+    candidate = base_id
+    suffix = 2
+    while candidate in existing_ids or (detector_id is not None and candidate == detector_id):
+        candidate = f"{base_id}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _sanitize_memory_token(value: str | None) -> str:
+    normalized = _normalize(value)
+    if not normalized:
+        return ""
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    return normalized[:40]
+
+
+def _unique_nonempty(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        stripped = value.strip()
+        if not stripped or stripped in seen:
+            continue
+        seen.add(stripped)
+        output.append(stripped)
+    return output
+
+
+def _reconcile_negative_evidence(
+    *,
+    normalized_target_category: str,
+    runtime_state: RuntimeState,
+    memory_store: MemoryStore,
+    positive_memory_ids: set[str],
+    positive_location_keys: set[str],
+    stale_ids: set[str],
+    contradicted_ids: set[str],
+) -> None:
+    if not runtime_state.task_negative_evidence:
+        return
+
+    target_memories = memory_store.retrieve_object_memory(normalized_target_category, [])
+    for evidence in runtime_state.task_negative_evidence:
+        status = evidence.status or evidence.reason
+        if status != "searched_not_found":
+            continue
+        if (
+            evidence.object_category
+            and _normalize(evidence.object_category) != normalized_target_category
+        ):
+            continue
+
+        location_key = evidence.location_key
+        if not location_key and evidence.anchor is not None:
+            location_key = anchor_to_location_key(evidence.anchor)
+        if not location_key:
+            continue
+
+        for memory in target_memories:
+            if memory.memory_id in positive_memory_ids:
+                continue
+            if anchor_to_location_key(memory.anchor) != location_key:
+                continue
+
+            contradicted = bool(
+                positive_location_keys and location_key not in positive_location_keys
+            )
+            updated = memory_store.mark_object_memory_stale_or_contradicted(
+                memory.memory_id,
+                contradicted=contradicted,
+            )
+            if not updated:
+                continue
+            if contradicted:
+                contradicted_ids.add(memory.memory_id)
+            else:
+                stale_ids.add(memory.memory_id)
 
 
 def _confidence_score(confidence: ConfidenceLevel) -> float:
@@ -266,5 +583,6 @@ def _normalize(value: str | None) -> str:
 __all__ = [
     "MemoryStore",
     "anchor_to_location_key",
+    "reconcile_memory_after_task",
     "retrieve_candidates",
 ]
