@@ -70,6 +70,10 @@ def default_capability_registry() -> dict[str, CapabilitySpec]:
                 "type": "object",
                 "properties": {
                     "subgoal": {"type": "object"},
+                    "target_object": {"type": "object"},
+                    "current_observation": {"type": "object"},
+                    "constraints": {"type": "object"},
+                    "success_conditions": {"type": "array"},
                     "runtime_state": {"type": "object"},
                 },
                 "required": ["subgoal"],
