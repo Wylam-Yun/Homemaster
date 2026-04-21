@@ -1,0 +1,91 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/wylam/Documents/workspace/HomeMaster/src/task_brain/cli.py", line 10, in <module>
+    from task_brain.graph import run_task_graph
+  File "/Users/wylam/Documents/workspace/HomeMaster/src/task_brain/graph.py", line 9, in <module>
+    from langgraph.graph import END, START, StateGraph
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langgraph/graph/__init__.py", line 2, in <module>
+    from langgraph.graph.message import MessageGraph, MessagesState, add_messages
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langgraph/graph/message.py", line 26, in <module>
+    from langgraph.graph.state import StateGraph
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langgraph/graph/state.py", line 27, in <module>
+    from langchain_core.runnables import Runnable, RunnableConfig
+  File "<frozen importlib._bootstrap>", line 1229, in _handle_fromlist
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/runnables/__init__.py", line 130, in __getattr__
+    result = import_attr(attr_name, module_name, __spec__.parent)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/_import_utils.py", line 36, in import_attr
+    module = import_module(f".{module_name}", package=package)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py", line 126, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py", line 85, in <module>
+    from langchain_core.tracers.event_stream import (
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/tracers/event_stream.py", line 38, in <module>
+    from langchain_core.tracers.log_stream import (
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/tracers/log_stream.py", line 28, in <module>
+    from langchain_core.tracers.base import BaseTracer
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/tracers/base.py", line 17, in <module>
+    from langchain_core.tracers.core import _TracerCore
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/tracers/core.py", line 18, in <module>
+    from langchain_core.tracers.schemas import Run
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/tracers/schemas.py", line 5, in <module>
+    from langsmith import RunTree
+  File "<frozen importlib._bootstrap>", line 1229, in _handle_fromlist
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langsmith/__init__.py", line 48, in __getattr__
+    from langsmith.run_trees import RunTree
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langsmith/run_trees.py", line 21, in <module>
+    from langsmith import schemas as ls_schemas
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langsmith/schemas.py", line 1360, in <module>
+    class InsightsSummaryReport(BaseModel):
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_model_construction.py", line 256, in __new__
+    complete_model_class(
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_model_construction.py", line 667, in complete_model_class
+    schema = gen_schema.generate_schema(cls)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 744, in generate_schema
+    schema = self._generate_schema_inner(obj)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 1028, in _generate_schema_inner
+    return self._model_schema(obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 858, in _model_schema
+    {k: self._generate_md_field_schema(k, v, decorators) for k, v in fields.items()},
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 858, in <dictcomp>
+    {k: self._generate_md_field_schema(k, v, decorators) for k, v in fields.items()},
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 1235, in _generate_md_field_schema
+    schema, metadata = self._common_field_schema(name, field_info, decorators)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 1311, in _common_field_schema
+    schema = wrap_default(field_info, schema)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_generate_schema.py", line 2663, in wrap_default
+    default_factory_takes_data=takes_validated_data_argument(field_info.default_factory),
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_fields.py", line 694, in takes_validated_data_argument
+    sig = _typing_extra.signature_no_eval(default_factory)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pydantic/_internal/_typing_extra.py", line 582, in signature_no_eval
+    return signature(f)
+           ^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/inspect.py", line 3263, in signature
+    return Signature.from_callable(obj, follow_wrapped=follow_wrapped,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/inspect.py", line 3011, in from_callable
+    return _signature_from_callable(obj, sigcls=cls,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/inspect.py", line 2579, in _signature_from_callable
+    return _signature_fromstr(sigcls, base, text_sig)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/inspect.py", line 2179, in _signature_fromstr
+    _signature_strip_non_python_syntax(s)
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/inspect.py", line 2136, in _signature_strip_non_python_syntax
+    for t in token_stream:
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/tokenize.py", line 609, in _tokenize
+    if last_line and last_line[-1] not in '\r\n' and not last_line.strip().startswith("#"):
+                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

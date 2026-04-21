@@ -1,0 +1,6 @@
+scenario	instruction	exit_code	final_status	expected_status	status_match	llm_error_count	llm_fallback_count	stdout_log	trace_jsonl	started_at	ended_at
+check_medicine_success	去桌子那边看看药盒是不是还在。	130	failed	success	no	0	0	artifacts/api_runs/20260421-141924/check_medicine_success.stdout.log	artifacts/api_runs/20260421-141924/check_medicine_success.trace.jsonl	2026-04-21T06:20:09Z	2026-04-21T06:20:36Z
+check_medicine_stale_recover	去桌子那边看看药盒是不是还在。	130	failed	success	no	0	0	artifacts/api_runs/20260421-141924/check_medicine_stale_recover.stdout.log	artifacts/api_runs/20260421-141924/check_medicine_stale_recover.trace.jsonl	2026-04-21T06:20:36Z	2026-04-21T06:20:36Z
+fetch_cup_retry	去厨房找水杯，然后拿给我	130	failed	success	no	0	0	artifacts/api_runs/20260421-141924/fetch_cup_retry.stdout.log	artifacts/api_runs/20260421-141924/fetch_cup_retry.trace.jsonl	2026-04-21T06:20:36Z	2026-04-21T06:20:36Z
+object_not_found	去厨房找水杯，然后拿给我	130	failed	failed	yes	0	0	artifacts/api_runs/20260421-141924/object_not_found.stdout.log	artifacts/api_runs/20260421-141924/object_not_found.trace.jsonl	2026-04-21T06:20:36Z	2026-04-21T06:20:37Z
+distractor_rejected	去厨房找水杯，然后拿给我	130	failed	failed	yes	0	0	artifacts/api_runs/20260421-141924/distractor_rejected.stdout.log	artifacts/api_runs/20260421-141924/distractor_rejected.trace.jsonl	2026-04-21T06:20:37Z	2026-04-21T06:20:37Z

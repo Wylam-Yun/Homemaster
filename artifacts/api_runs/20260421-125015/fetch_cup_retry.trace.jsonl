@@ -1,0 +1,30 @@
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 0, "event": "input_instruction", "payload": {"instruction": "去厨房找水杯，然后拿给我"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 1, "event": "parse_instruction", "payload": {"intent": "fetch_object", "target_category": "cup"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 2, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-cup-1"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 3, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 4, "event": "call_llm_planner", "payload": {"reason": null}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 5, "event": "llm_planner_error", "payload": {"planner_error_type": "network_error", "planner_error_message": "kimi request failed: The read operation timed out", "reason": null}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 6, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": null}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 7, "event": "generate_plan", "payload": {"plan_id": "plan-8e97e8c6dc61", "subgoal_count": 5}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 8, "event": "validate_plan", "payload": {"plan_id": "plan-8e97e8c6dc61"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 9, "event": "execute_subgoal_loop", "payload": {}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 10, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_table_viewpoint"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 11, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 12, "event": "observe_scene", "payload": {"viewpoint_id": "kitchen_table_viewpoint"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 13, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 14, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-3", "subgoal_type": "verify_object_presence", "passed": true}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 15, "event": "call_robobrain_planner", "payload": {"subgoal_id": "sg-4", "subgoal_type": "embodied_manipulation"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 16, "event": "execute_atomic_plan", "payload": {"subgoal_id": "sg-4", "attempt": 1}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 17, "event": "post_action_verification_failed", "payload": {"subgoal_id": "sg-4", "failed_conditions": ["object_secured"]}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 18, "event": "analyze_failure", "payload": {"failure_type": "manipulation_failure", "reason": "manipulation_target_still_visible"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 19, "event": "decide_recovery", "payload": {"action": "retry_same_subgoal", "reason": "manipulation_target_visible_retry_once"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 20, "event": "recovery_retry_same_subgoal", "payload": {"subgoal_id": "sg-4"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 21, "event": "call_robobrain_planner", "payload": {"subgoal_id": "sg-4", "subgoal_type": "embodied_manipulation"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 22, "event": "execute_atomic_plan", "payload": {"subgoal_id": "sg-4", "attempt": 2}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 23, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-4", "subgoal_type": "embodied_manipulation", "passed": true}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 24, "event": "call_robobrain_planner", "payload": {"subgoal_id": "sg-5", "subgoal_type": "return_to_user"}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 25, "event": "execute_atomic_plan", "payload": {"subgoal_id": "sg-5", "attempt": 1}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 26, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-5", "subgoal_type": "return_to_user", "passed": true}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 27, "event": "final_task_verification", "payload": {"passed": true, "failed_conditions": []}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 28, "event": "update_memory", "payload": {"verified": true, "updated": 1, "created": 0, "stale": 0, "contradicted": 0, "skipped_runtime_updates": 0, "skipped_reasons": []}}
+{"scenario": "fetch_cup_retry", "final_status": "success", "index": 29, "event": "respond_with_trace", "payload": {"final_status": "success"}}

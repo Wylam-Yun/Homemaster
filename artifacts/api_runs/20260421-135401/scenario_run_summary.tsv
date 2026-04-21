@@ -1,0 +1,5 @@
+scenario	instruction	exit_code	final_status	llm_error_count	llm_fallback_count	stdout_log	trace_jsonl	started_at	ended_at
+check_medicine_success	去桌子那边看看药盒是不是还在。	0	success	1	1	artifacts/api_runs/20260421-135401/check_medicine_success.stdout.log	artifacts/api_runs/20260421-135401/check_medicine_success.trace.jsonl	2026-04-21T05:54:01Z	2026-04-21T05:55:04Z
+check_medicine_stale_recover	去桌子那边看看药盒是不是还在。	0	success	2	2	artifacts/api_runs/20260421-135401/check_medicine_stale_recover.stdout.log	artifacts/api_runs/20260421-135401/check_medicine_stale_recover.trace.jsonl	2026-04-21T05:55:04Z	2026-04-21T05:56:56Z
+fetch_cup_retry	去厨房找水杯，然后拿给我	0	success	1	1	artifacts/api_runs/20260421-135401/fetch_cup_retry.stdout.log	artifacts/api_runs/20260421-135401/fetch_cup_retry.trace.jsonl	2026-04-21T05:56:56Z	2026-04-21T05:57:53Z
+object_not_found	去厨房找水杯，然后拿给我	1	failed	2	2	artifacts/api_runs/20260421-135401/object_not_found.stdout.log	artifacts/api_runs/20260421-135401/object_not_found.trace.jsonl	2026-04-21T05:57:53Z	2026-04-21T05:59:49Z

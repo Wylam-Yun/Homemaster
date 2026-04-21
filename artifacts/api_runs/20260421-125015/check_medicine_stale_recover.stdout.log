@@ -1,0 +1,53 @@
+scenario: check_medicine_stale_recover
+instruction: 去桌子那边看看药盒是不是还在。
+final_status: success
+trace_events:
+- 00 input_instruction
+- 01 parse_instruction
+- 02 retrieve_memory
+- 03 build_task_context
+- 04 call_llm_planner
+- 05 llm_planner_error
+- 06 llm_planner_fallback
+- 07 generate_plan
+- 08 validate_plan
+- 09 execute_subgoal_loop
+- 10 call_vln_navigate
+- 11 verify_subgoal
+- 12 observe_scene
+- 13 verify_subgoal
+- 14 analyze_failure
+- 15 decide_recovery
+- 16 write_task_negative_evidence
+- 17 recovery_switch_candidate
+- 18 retrieve_memory
+- 19 build_task_context
+- 20 call_llm_planner
+- 21 llm_planner_error
+- 22 llm_planner_fallback
+- 23 generate_plan
+- 24 validate_plan
+- 25 call_vln_navigate
+- 26 verify_subgoal
+- 27 observe_scene
+- 28 verify_subgoal
+- 29 verify_subgoal
+- 30 final_task_verification
+- 31 update_memory
+- 32 respond_with_trace
+planner_fallback_diagnostics:
+- network_error: kimi request failed: The read operation timed out
+- schema_validation_error: llm plan schema validation failed: 4 validation errors for HighLevelPlan
+subgoals.0.success_conditions
+  Field required [type=missing, input_value={'subgoal_id': 'sg-4', 's...int'}, 'depends_on': []}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+subgoals.1.success_conditions
+  Field required [type=missing, input_value={'subgoal_id': 'sg-5', 's... 'depends_on': ['sg-4']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/missing
+memory_grounding
+  Input should be a valid list [type=list_type, input_value={'primary_candidate': 'me...hor_kitchen_cabinet_1']}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+candidate_grounding
+  Input should be a valid list [type=list_type, input_value={'selected_candidate': {'...usion_compliance': True}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.13/v/list_type
+trace_jsonl: artifacts/api_runs/20260421-125015/check_medicine_stale_recover.trace.jsonl

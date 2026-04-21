@@ -1,0 +1,25 @@
+scenario: check_medicine_success
+instruction: 去桌子那边看看药盒是不是还在。
+final_status: success
+trace_events:
+- 00 input_instruction
+- 01 parse_instruction
+- 02 retrieve_memory
+- 03 build_task_context
+- 04 call_llm_planner
+- 05 llm_planner_error
+- 06 llm_planner_fallback
+- 07 generate_plan
+- 08 validate_plan
+- 09 execute_subgoal_loop
+- 10 call_vln_navigate
+- 11 verify_subgoal
+- 12 observe_scene
+- 13 verify_subgoal
+- 14 verify_subgoal
+- 15 final_task_verification
+- 16 update_memory
+- 17 respond_with_trace
+planner_fallback_diagnostics:
+- network_error: kimi request failed: The read operation timed out
+trace_jsonl: artifacts/api_runs/20260421-125015/check_medicine_success.trace.jsonl

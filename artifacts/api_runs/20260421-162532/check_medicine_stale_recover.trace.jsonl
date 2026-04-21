@@ -1,0 +1,33 @@
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 0, "event": "input_instruction", "payload": {"instruction": "去桌子那边看看药盒是不是还在。"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 1, "event": "parse_instruction", "payload": {"intent": "check_object_presence", "target_category": "medicine_box"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 2, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 3, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 4, "event": "call_llm_planner", "payload": {"reason": null}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 5, "event": "llm_planner_error", "payload": {"planner_error_type": "ValueError", "planner_error_message": "plan grounding must come from ranked candidates; unexpected grounding ids=['anchor_living_side_table_1']", "reason": null}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 6, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": null}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 7, "event": "generate_plan", "payload": {"plan_id": "plan-256212aac123", "subgoal_count": 3}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 8, "event": "validate_plan", "payload": {"plan_id": "plan-256212aac123"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 9, "event": "execute_subgoal_loop", "payload": {}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 10, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 11, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 12, "event": "observe_scene", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 13, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 14, "event": "analyze_failure", "payload": {"failure_type": "object_presence_failure", "reason": "object_presence_not_verified"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 15, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "object_presence_failure_switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 16, "event": "write_task_negative_evidence", "payload": {}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 17, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 18, "event": "retrieve_memory", "payload": {"candidate_count": 1, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 19, "event": "build_task_context", "payload": {"candidate_count": 1, "negative_evidence_count": 1, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 20, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 21, "event": "llm_planner_error", "payload": {"planner_error_type": "ValueError", "planner_error_message": "plan grounding must come from ranked candidates; unexpected grounding ids=['living_room:anchor_living_side_table_1']", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 22, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 23, "event": "generate_plan", "payload": {"plan_id": "plan-22736ec79f52", "subgoal_count": 3, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 24, "event": "validate_plan", "payload": {"plan_id": "plan-22736ec79f52", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 25, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 26, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 27, "event": "observe_scene", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 28, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 29, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-3", "subgoal_type": "verify_object_presence", "passed": true}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 30, "event": "final_task_verification", "payload": {"passed": true, "failed_conditions": []}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 31, "event": "update_memory", "payload": {"verified": true, "updated": 1, "created": 0, "stale": 0, "contradicted": 1, "skipped_runtime_updates": 0, "skipped_reasons": []}}
+{"scenario": "check_medicine_stale_recover", "final_status": "success", "index": 32, "event": "respond_with_trace", "payload": {"final_status": "success"}}

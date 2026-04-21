@@ -1,0 +1,25 @@
+{
+  "providers": [
+    {
+      "name": "simpleai_claude",
+      "base_url": "https://key.simpleai.com.cn",
+      "model": "claude-sonnet-4-6",
+      "api_keys": ["TVxEsHbMPQ1mTlqGOqn27zofuVNCaO9obFyFcBxuV9ojHoi7"],
+      "protocol": "openai"
+    },
+    {
+      "name": "huya_anthropic",
+      "base_url": "https://copilot.huya.info/api/anthropic",
+      "model": "z-ai/glm-5.1",
+      "api_keys": ["sk-BumO6KGNSgJMgrd-WCAgig"],
+      "protocol": "anthropic"
+    },
+    {
+      "name": "mytokenland",
+      "base_url": "https://api.mytokenland.com",
+      "model": "glm-5.1",
+      "api_keys": ["sk-U6jeeDgMXz9hqrmQJQ0jIGzaDIGTyuULXcymKqSk9eMTkIm2"],
+      "protocol": "openai"
+    }
+  ]
+}

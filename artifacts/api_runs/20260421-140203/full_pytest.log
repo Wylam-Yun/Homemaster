@@ -1,0 +1,122 @@
+..................FFF.........................
+=================================== FAILURES ===================================
+___________________ test_cli_trace_jsonl_writes_event_lines ____________________
+
+tmp_path = PosixPath('/private/var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/pytest-of-wylam/pytest-9/test_cli_trace_jsonl_writes_ev0')
+
+    def test_cli_trace_jsonl_writes_event_lines(tmp_path: Path) -> None:
+        output_path = tmp_path / "trace" / "run.jsonl"
+        result = _runner.invoke(
+            app,
+            [
+                "run",
+                "--scenario",
+                "check_medicine_success",
+                "--instruction",
+                _CHECK_MEDICINE_INSTRUCTION,
+                "--trace-jsonl",
+                str(output_path),
+            ],
+        )
+    
+>       assert result.exit_code == 0, result.stdout
+E       AssertionError: 
+E       assert 130 == 0
+E        +  where 130 = <Result SystemExit(130)>.exit_code
+
+tests/test_cli.py:104: AssertionError
+______________ test_cli_fallback_is_visible_when_api_key_missing _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1088e27d0>
+
+    def test_cli_fallback_is_visible_when_api_key_missing(monkeypatch) -> None:
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    
+        result = _RUNNER.invoke(
+            app,
+            [
+                "run",
+                "--scenario",
+                "check_medicine_success",
+                "--instruction",
+                _CHECK_MEDICINE_INSTRUCTION,
+            ],
+        )
+    
+>       assert result.exit_code == 0, result.stdout
+E       AssertionError: 
+E       assert 130 == 0
+E        +  where 130 = <Result SystemExit(130)>.exit_code
+
+tests/test_cli_phase_b_visibility.py:26: AssertionError
+____________ test_cli_fallback_trace_order_is_stable_when_llm_fails ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1088cc990>
+
+    def test_cli_fallback_trace_order_is_stable_when_llm_fails(monkeypatch) -> None:
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    
+        result = _RUNNER.invoke(
+            app,
+            [
+                "run",
+                "--scenario",
+                "check_medicine_success",
+                "--instruction",
+                _CHECK_MEDICINE_INSTRUCTION,
+            ],
+        )
+    
+>       assert result.exit_code == 0, result.stdout
+E       AssertionError: 
+E       assert 130 == 0
+E        +  where 130 = <Result SystemExit(130)>.exit_code
+
+tests/test_cli_phase_b_visibility.py:49: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cli.py::test_cli_trace_jsonl_writes_event_lines - Assertion...
+FAILED tests/test_cli_phase_b_visibility.py::test_cli_fallback_is_visible_when_api_key_missing
+FAILED tests/test_cli_phase_b_visibility.py::test_cli_fallback_trace_order_is_stable_when_llm_fails
+3 failed, 43 passed in 407.13s (0:06:47)
+Traceback (most recent call last):
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/bin/pytest", line 10, in <module>
+    sys.exit(console_main())
+             ^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/config/__init__.py", line 223, in console_main
+    code = main()
+           ^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/config/__init__.py", line 199, in main
+    ret: ExitCode | int = config.hook.pytest_cmdline_main(config=config)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pluggy/_hooks.py", line 512, in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pluggy/_manager.py", line 120, in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 167, in _multicall
+    raise exception
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/pluggy/_callers.py", line 121, in _multicall
+    res = hook_impl.function(*args)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/main.py", line 365, in pytest_cmdline_main
+    return wrap_session(config, _main)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/main.py", line 360, in wrap_session
+    config._ensure_unconfigure()
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/config/__init__.py", line 1177, in _ensure_unconfigure
+    self._cleanup_stack.close()
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py", line 609, in close
+    self.__exit__(None, None, None)
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py", line 601, in __exit__
+    raise exc_details[1]
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py", line 586, in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+  File "/Users/wylam/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py", line 469, in _exit_wrapper
+    callback(*args, **kwds)
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py", line 94, in cleanup
+    gc_collect_harder(gc_collect_iterations)
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/_pytest/unraisableexception.py", line 33, in gc_collect_harder
+    gc.collect()
+KeyboardInterrupt

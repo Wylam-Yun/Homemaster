@@ -1,0 +1,25 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/wylam/Documents/workspace/HomeMaster/src/task_brain/cli.py", line 10, in <module>
+    from task_brain.graph import run_task_graph
+  File "/Users/wylam/Documents/workspace/HomeMaster/src/task_brain/graph.py", line 9, in <module>
+    from langgraph.graph import END, START, StateGraph
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langgraph/graph/__init__.py", line 2, in <module>
+    from langgraph.graph.message import MessageGraph, MessagesState, add_messages
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langgraph/graph/message.py", line 14, in <module>
+    from langchain_core.messages import (
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/messages/__init__.py", line 6, in <module>
+    from langchain_core.utils.utils import LC_AUTO_PREFIX, LC_ID_PREFIX, ensure_id
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/langchain_core/utils/utils.py", line 16, in <module>
+    from requests import HTTPError, Response
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/requests/__init__.py", line 150, in <module>
+    from . import packages, utils
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/requests/packages.py", line 9, in <module>
+    locals()[package] = __import__(package)
+                        ^^^^^^^^^^^^^^^^^^^
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/idna/__init__.py", line 1, in <module>
+    from .core import (
+  File "/Users/wylam/Documents/workspace/HomeMaster/.venv/lib/python3.11/site-packages/idna/core.py", line 6, in <module>
+    from . import idnadata
+KeyboardInterrupt

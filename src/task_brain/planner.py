@@ -402,7 +402,7 @@ class LLMHighLevelPlanner:
         provider_factory: Callable[[], KimiPlanProvider] | None = None,
         validator: PlanValidator | None = None,
     ) -> None:
-        self._provider_factory = provider_factory or KimiPlanProvider.from_env
+        self._provider_factory = provider_factory or KimiPlanProvider.from_config_file
         self._validator = validator or PlanValidator()
 
     def generate(self, context: TaskContext) -> HighLevelPlan:

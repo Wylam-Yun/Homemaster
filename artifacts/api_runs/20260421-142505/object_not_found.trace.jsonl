@@ -1,0 +1,36 @@
+{"scenario": "object_not_found", "final_status": "failed", "index": 0, "event": "input_instruction", "payload": {"instruction": "去厨房找水杯，然后拿给我"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 1, "event": "parse_instruction", "payload": {"intent": "fetch_object", "target_category": "cup"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 2, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-cup-1"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 3, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 4, "event": "call_llm_planner", "payload": {"reason": null}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 5, "event": "llm_planner_error", "payload": {"planner_error_type": "all_targets_failed", "planner_error_message": "all configured API targets failed: target#1:network_error; target#2:network_error; target#3:network_error", "reason": null}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 6, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": null}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 7, "event": "generate_plan", "payload": {"plan_id": "plan-4e3c0c3571e5", "subgoal_count": 5}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 8, "event": "validate_plan", "payload": {"plan_id": "plan-4e3c0c3571e5"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 9, "event": "execute_subgoal_loop", "payload": {}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 10, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_table_viewpoint"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 11, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 12, "event": "observe_scene", "payload": {"viewpoint_id": "kitchen_table_viewpoint"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 13, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 14, "event": "analyze_failure", "payload": {"failure_type": "object_presence_failure", "reason": "object_presence_not_verified"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 15, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "object_presence_failure_switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 16, "event": "write_task_negative_evidence", "payload": {}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 17, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-cup-2"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 18, "event": "retrieve_memory", "payload": {"candidate_count": 1, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-cup-2", "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 19, "event": "build_task_context", "payload": {"candidate_count": 1, "negative_evidence_count": 1, "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 20, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 21, "event": "llm_planner_error", "payload": {"planner_error_type": "all_targets_failed", "planner_error_message": "all configured API targets failed: target#1:network_error; target#2:network_error; target#3:network_error", "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 22, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 23, "event": "generate_plan", "payload": {"plan_id": "plan-99507c768814", "subgoal_count": 5, "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 24, "event": "validate_plan", "payload": {"plan_id": "plan-99507c768814", "reason": "switch_candidate"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 25, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 26, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 27, "event": "observe_scene", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 28, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 29, "event": "analyze_failure", "payload": {"failure_type": "object_presence_failure", "reason": "object_presence_not_verified"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 30, "event": "decide_recovery", "payload": {"action": "report_failure", "reason": "candidate_exhausted_report_failure"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 31, "event": "write_task_negative_evidence", "payload": {}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 32, "event": "recovery_report_failure", "payload": {}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 33, "event": "final_task_verification", "payload": {"skipped": true, "final_status": "failed"}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 34, "event": "update_memory", "payload": {"verified": false, "updated": 0, "created": 0, "stale": 1, "contradicted": 1, "skipped_runtime_updates": 0, "skipped_reasons": ["no_verified_positive_evidence"]}}
+{"scenario": "object_not_found", "final_status": "failed", "index": 35, "event": "respond_with_trace", "payload": {"final_status": "failed"}}

@@ -1,0 +1,54 @@
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+scenario: distractor_rejected
+instruction: 去厨房找水杯，然后拿给我
+final_status: failed
+trace_events:
+- 00 input_instruction
+- 01 parse_instruction
+- 02 retrieve_memory
+- 03 build_task_context
+- 04 call_llm_planner
+- 05 llm_planner_error
+- 06 llm_planner_fallback
+- 07 generate_plan
+- 08 validate_plan
+- 09 execute_subgoal_loop
+- 10 call_vln_navigate
+- 11 verify_subgoal
+- 12 observe_scene
+- 13 verify_subgoal
+- 14 analyze_failure
+- 15 decide_recovery
+- 16 write_task_negative_evidence
+- 17 recovery_switch_candidate
+- 18 retrieve_memory
+- 19 build_task_context
+- 20 call_llm_planner
+- 21 llm_planner_error
+- 22 llm_planner_fallback
+- 23 generate_plan
+- 24 validate_plan
+- 25 call_vln_navigate
+- 26 verify_subgoal
+- 27 observe_scene
+- 28 verify_subgoal
+- 29 analyze_failure
+- 30 decide_recovery
+- 31 write_task_negative_evidence
+- 32 recovery_report_failure
+- 33 final_task_verification
+- 34 update_memory
+- 35 respond_with_trace
+planner_fallback_diagnostics:
+- ValueError: fetch plan must include final task verification predicate.
+- ValueError: fetch plan must include final task verification predicate.
+trace_jsonl: artifacts/api_runs/20260421-162532/distractor_rejected.trace.jsonl

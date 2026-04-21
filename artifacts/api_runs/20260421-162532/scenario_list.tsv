@@ -1,0 +1,6 @@
+scenario	instruction	expected_status
+check_medicine_success	去桌子那边看看药盒是不是还在。	success
+check_medicine_stale_recover	去桌子那边看看药盒是不是还在。	success
+fetch_cup_retry	去厨房找水杯，然后拿给我	success
+object_not_found	去厨房找水杯，然后拿给我	failed
+distractor_rejected	去厨房找水杯，然后拿给我	failed

@@ -1,0 +1,14 @@
+suite	exit_code	log_path
+api_probe	0	artifacts/api_runs/20260421-153128/api_probe.log
+test_adapters.py	0	artifacts/api_runs/20260421-153128/pytest_test_adapters.py.log
+test_capabilities.py	0	artifacts/api_runs/20260421-153128/pytest_test_capabilities.py.log
+test_cli_phase_b_visibility.py	0	artifacts/api_runs/20260421-153128/pytest_test_cli_phase_b_visibility.py.log
+test_cli.py	0	artifacts/api_runs/20260421-153128/pytest_test_cli.py.log
+test_domain.py	0	artifacts/api_runs/20260421-153128/pytest_test_domain.py.log
+test_failure_analysis.py	0	artifacts/api_runs/20260421-153128/pytest_test_failure_analysis.py.log
+test_gateway.py	0	artifacts/api_runs/20260421-153128/pytest_test_gateway.py.log
+test_graph_scenarios.py	0	artifacts/api_runs/20260421-153128/pytest_test_graph_scenarios.py.log
+test_kimi_provider.py	0	artifacts/api_runs/20260421-153128/pytest_test_kimi_provider.py.log
+test_llm_prompt_contract.py	0	artifacts/api_runs/20260421-153128/pytest_test_llm_prompt_contract.py.log
+test_memory_reconciliation.py	0	artifacts/api_runs/20260421-153128/pytest_test_memory_reconciliation.py.log
+test_memory_retrieval.py	0	artifacts/api_runs/20260421-153128/pytest_test_memory_retrieval.py.log
