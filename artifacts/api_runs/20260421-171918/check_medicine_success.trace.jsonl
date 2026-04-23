@@ -1,0 +1,144 @@
+{"scenario": "check_medicine_success", "final_status": "success", "index": 0, "event": "input_instruction", "payload": {"instruction": "去桌子那边看看药盒是不是还在。"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 1, "event": "parse_instruction", "payload": {"intent": "check_object_presence", "target_category": "medicine_box"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 2, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 3, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 4, "event": "call_llm_planner", "payload": {"reason": null}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 5, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_001", "subgoal_count": 4}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 6, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_001"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 7, "event": "execute_subgoal_loop", "payload": {}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 8, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 9, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 10, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 11, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 12, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 13, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 14, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 15, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_001", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 16, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_001", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 17, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 18, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 19, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 20, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 21, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 22, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 23, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 24, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_table_v3", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 25, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_table_v3", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 26, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 27, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 28, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 29, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 30, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 31, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 32, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 33, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_004", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 34, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_004", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 35, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 36, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 37, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 38, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 39, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 40, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 41, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 42, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_v5", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 43, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_v5", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 44, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 45, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 46, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 47, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 48, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 49, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 50, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 51, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_table", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 52, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_table", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 53, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 54, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 55, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 56, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 57, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 58, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 59, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 60, "event": "generate_plan", "payload": {"plan_id": "plan_de20250715_001", "subgoal_count": 3, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 61, "event": "validate_plan", "payload": {"plan_id": "plan_de20250715_001", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 62, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 63, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 64, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 65, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 66, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 67, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 68, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 69, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_8", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 70, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_8", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 71, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 72, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 73, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 74, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 75, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 76, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 77, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 78, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_9", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 79, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_9", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 80, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 81, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 82, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 83, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 84, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 85, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 86, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 87, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_v1", "subgoal_count": 5, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 88, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_v1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 89, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 90, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 91, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 92, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 93, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 94, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 95, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 96, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_10", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 97, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_10", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 98, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 99, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 100, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 101, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 102, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 103, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 104, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 105, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_12", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 106, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_12", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 107, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 108, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 109, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 110, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 111, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 112, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 113, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 114, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_13", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 115, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_13", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 116, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 117, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 118, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 119, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-2"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 120, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-2", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 121, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 122, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 123, "event": "generate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_14", "subgoal_count": 4, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 124, "event": "validate_plan", "payload": {"plan_id": "plan_check_medicine_box_replan_14", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 125, "event": "call_vln_navigate", "payload": {"viewpoint_id": "living_side_table_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 126, "event": "analyze_failure", "payload": {"failure_type": "navigation_failure", "reason": "navigation_not_arrived"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 127, "event": "decide_recovery", "payload": {"action": "switch_candidate", "reason": "navigation_failure_switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 128, "event": "recovery_switch_candidate", "payload": {"next_candidate_id": "mem-medicine-1"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 129, "event": "retrieve_memory", "payload": {"candidate_count": 2, "category_prior_count": 0, "episodic_summary_count": 0, "selected_candidate_id": "mem-medicine-1", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 130, "event": "build_task_context", "payload": {"candidate_count": 2, "negative_evidence_count": 0, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 131, "event": "call_llm_planner", "payload": {"reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 132, "event": "llm_planner_error", "payload": {"planner_error_type": "all_targets_failed", "planner_error_message": "all configured API targets failed: target#1:response_missing_content; target#2:http_error; target#3:timeout", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 133, "event": "llm_planner_fallback", "payload": {"planner_mode": "deterministic_fallback", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 134, "event": "generate_plan", "payload": {"plan_id": "plan-ac362fb30c8b", "subgoal_count": 3, "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 135, "event": "validate_plan", "payload": {"plan_id": "plan-ac362fb30c8b", "reason": "switch_candidate"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 136, "event": "call_vln_navigate", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 137, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-1", "subgoal_type": "navigate", "passed": true}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 138, "event": "observe_scene", "payload": {"viewpoint_id": "kitchen_cabinet_viewpoint"}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 139, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-2", "subgoal_type": "observe", "passed": true}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 140, "event": "verify_subgoal", "payload": {"subgoal_id": "sg-3", "subgoal_type": "verify_object_presence", "passed": true}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 141, "event": "final_task_verification", "payload": {"passed": true, "failed_conditions": []}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 142, "event": "update_memory", "payload": {"verified": true, "updated": 1, "created": 0, "stale": 0, "contradicted": 0, "skipped_runtime_updates": 0, "skipped_reasons": []}}
+{"scenario": "check_medicine_success", "final_status": "success", "index": 143, "event": "respond_with_trace", "payload": {"final_status": "success"}}

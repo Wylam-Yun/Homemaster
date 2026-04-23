@@ -1,0 +1,7 @@
+group	name	protocol	status	base_url	model	message
+1	simpleai_claude	openai	200	https://key.simpleai.com.cn	claude-sonnet-4-6	{"id":"cd90a06f-91af-490b-b913-0989bb3500e0","model":"claude-sonnet-4-5","object":"chat.completion","created":1776763889,"choices":[{"index"
+1	simpleai_claude	anthropic	200	https://key.simpleai.com.cn	claude-sonnet-4-6	{"id": "msg_20260421173132", "type": "message", "role": "assistant", "content": [{"type": "text", "text": "```json\n{\"ping\":\"pong\"}\n```
+2	huya_anthropic	openai	404	https://copilot.huya.info/api/anthropic	z-ai/glm-5.1	{"detail":"Not Found"}
+2	huya_anthropic	anthropic	400	https://copilot.huya.info/api/anthropic	z-ai/glm-5.1	{"type":"error","error":{"type":"invalid_request_error","message":"llmproxy.BadRequestError: llmproxy_proxyException - Budget has been excee
+3	mytokenland	openai	EXC	https://api.mytokenland.com	glm-5.1	The read operation timed out
+3	mytokenland	anthropic	EXC	https://api.mytokenland.com	glm-5.1	The read operation timed out

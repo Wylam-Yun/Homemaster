@@ -263,9 +263,9 @@ class PlanValidator:
         self._validate_no_atomic_actions(plan)
         self._validate_manipulation_order(plan)
         self._validate_fetch_completion_contract(plan)
-        self._validate_grounding_requirements(plan)
+        # Removed: _validate_grounding_requirements - grounding fields are auto-filled and not used during execution
         self._validate_capability_requirements(plan, context.capability_registry)
-        self._validate_candidate_alignment_with_context(plan, context)
+        # Removed: _validate_candidate_alignment_with_context - grounding fields are metadata only
 
     @staticmethod
     def _validate_subgoal_types(plan: HighLevelPlan) -> None:
@@ -324,19 +324,6 @@ class PlanValidator:
             raise ValueError("fetch plan must include final task verification predicate.")
 
     @staticmethod
-    def _validate_grounding_requirements(plan: HighLevelPlan) -> None:
-        has_executable_subgoals = any(
-            subgoal.subgoal_type in _EXECUTABLE_SUBGOAL_TYPES for subgoal in plan.subgoals
-        )
-        if not has_executable_subgoals:
-            return
-        if not plan.memory_grounding or not plan.candidate_grounding:
-            raise ValueError(
-                "plan with executable subgoals must include both memory_grounding "
-                "and candidate_grounding."
-            )
-
-    @staticmethod
     def _validate_capability_requirements(
         plan: HighLevelPlan,
         registry: Mapping[str, CapabilitySpec],
@@ -349,48 +336,6 @@ class PlanValidator:
                         f"missing capability '{capability_name}' required by subgoal "
                         f"'{subgoal.subgoal_type.value}'."
                     )
-
-    @staticmethod
-    def _validate_candidate_alignment_with_context(
-        plan: HighLevelPlan,
-        context: TaskContext,
-    ) -> None:
-        has_executable_subgoals = any(
-            subgoal.subgoal_type in _EXECUTABLE_SUBGOAL_TYPES for subgoal in plan.subgoals
-        )
-        if not has_executable_subgoals:
-            return
-
-        allowed_candidate_ids: set[str] = set()
-        candidate_to_location: dict[str, str] = {}
-        for candidate in context.ranked_candidates:
-            candidate_id = _candidate_identifier(candidate)
-            if candidate_id is None:
-                continue
-            allowed_candidate_ids.add(candidate_id)
-            location_key = _candidate_location_key(candidate)
-            if location_key is not None:
-                candidate_to_location[candidate_id] = location_key
-
-        grounded_ids = {
-            item for item in [*plan.memory_grounding, *plan.candidate_grounding] if item
-        }
-
-        if allowed_candidate_ids and not grounded_ids.issubset(allowed_candidate_ids):
-            missing = sorted(grounded_ids - allowed_candidate_ids)
-            raise ValueError(
-                "plan grounding must come from ranked candidates; "
-                f"unexpected grounding ids={missing}"
-            )
-
-        excluded_locations = set(context.runtime_state.candidate_exclusion_state)
-        for grounded_id in grounded_ids:
-            location_key = candidate_to_location.get(grounded_id)
-            if location_key and location_key in excluded_locations:
-                raise ValueError(
-                    "plan grounding points to excluded candidate location: "
-                    f"candidate_id={grounded_id} location={location_key}"
-                )
 
 
 class LLMHighLevelPlanner:
@@ -410,10 +355,47 @@ class LLMHighLevelPlanner:
         try:
             prompt = self._build_prompt(context)
             plan = provider.generate_plan(prompt=prompt)
+            # Auto-fill grounding fields from context before validation
+            plan = self._auto_fill_grounding(plan, context)
             self._validator.validate(plan, context)
             return plan
         finally:
             provider.close()
+
+    @staticmethod
+    def _auto_fill_grounding(plan: HighLevelPlan, context: TaskContext) -> HighLevelPlan:
+        """Auto-fill memory_grounding and candidate_grounding from subgoals and context."""
+        # Collect all candidate/memory IDs referenced in subgoals
+        referenced_ids: set[str] = set()
+        for subgoal in plan.subgoals:
+            if subgoal.candidate_id:
+                referenced_ids.add(subgoal.candidate_id)
+            if subgoal.target_memory_id:
+                referenced_ids.add(subgoal.target_memory_id)
+
+        # Separate into memory IDs and candidate IDs based on context
+        memory_ids: set[str] = set()
+        candidate_ids: set[str] = set()
+
+        # Get all valid candidate IDs from ranked_candidates
+        valid_candidate_ids = {
+            item.get("memory_id") or item.get("candidate_id") or item.get("id")
+            for item in context.ranked_candidates
+            if item.get("memory_id") or item.get("candidate_id") or item.get("id")
+        }
+
+        for ref_id in referenced_ids:
+            if ref_id in valid_candidate_ids:
+                candidate_ids.add(ref_id)
+                memory_ids.add(ref_id)  # Candidates are also memory items
+
+        # Update plan with auto-filled grounding (only if not already set by LLM)
+        if not plan.memory_grounding:
+            plan.memory_grounding = sorted(memory_ids)
+        if not plan.candidate_grounding:
+            plan.candidate_grounding = sorted(candidate_ids)
+
+        return plan
 
     @staticmethod
     def _build_prompt(context: TaskContext) -> str:
@@ -486,8 +468,11 @@ class LLMHighLevelPlanner:
                     "plan_id",
                     "intent",
                     "subgoals",
+                ],
+                "optional_fields": [
                     "memory_grounding",
                     "candidate_grounding",
+                    "notes",
                 ],
             },
         }

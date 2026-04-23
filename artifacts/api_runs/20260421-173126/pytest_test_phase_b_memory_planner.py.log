@@ -1,0 +1,91 @@
+...F.                                                                    [100%]
+=================================== FAILURES ===================================
+______________ test_llm_plan_cannot_ignore_task_negative_evidence ______________
+
+    def test_llm_plan_cannot_ignore_task_negative_evidence() -> None:
+        class IgnoreEvidenceProvider:
+            def generate_plan(self, *, prompt: str) -> HighLevelPlan:
+                _ = prompt
+                return HighLevelPlan(
+                    plan_id="plan-llm-ignore-1",
+                    intent=TaskIntent.CHECK_OBJECT_PRESENCE,
+                    subgoals=[
+                        Subgoal(
+                            subgoal_id="sg-1",
+                            subgoal_type=SubgoalType.NAVIGATE,
+                            description="Navigate to excluded place.",
+                            candidate_id="mem-excluded",
+                            target_memory_id="mem-excluded",
+                            success_conditions=[
+                                Predicate(name="arrived_at_candidate_anchor", args=["mem-excluded"])
+                            ],
+                        ),
+                        Subgoal(
+                            subgoal_id="sg-2",
+                            subgoal_type=SubgoalType.OBSERVE,
+                            description="Observe excluded place.",
+                            candidate_id="mem-excluded",
+                            target_memory_id="mem-excluded",
+                            success_conditions=[
+                                Predicate(name="observation_captured", args=["mem-excluded"])
+                            ],
+                        ),
+                        Subgoal(
+                            subgoal_id="sg-3",
+                            subgoal_type=SubgoalType.VERIFY_OBJECT_PRESENCE,
+                            description="Verify excluded candidate.",
+                            candidate_id="mem-excluded",
+                            target_memory_id="mem-excluded",
+                            success_conditions=[
+                                Predicate(name="object_presence_verified", args=["cup", "mem-excluded"])
+                            ],
+                        ),
+                    ],
+                    memory_grounding=["mem-excluded"],
+                    candidate_grounding=["mem-excluded"],
+                    notes="llm_ignore_negative_evidence",
+                )
+    
+            def close(self) -> None:
+                return None
+    
+        llm_planner = LLMHighLevelPlanner(provider_factory=lambda: IgnoreEvidenceProvider())
+        service = PlannerService(llm_planner=llm_planner, llm_first=True)
+    
+        context = _build_check_context(
+            ranked_candidates=[
+                {
+                    "memory_id": "mem-allowed",
+                    "anchor": {
+                        "room_id": "bedroom",
+                        "anchor_id": "bedside_table_1",
+                        "anchor_type": "table",
+                        "viewpoint_id": "bedside_table_viewpoint",
+                    },
+                    "score": 7.0,
+                }
+            ],
+            runtime_state=RuntimeState(
+                task_negative_evidence=[
+                    TaskNegativeEvidence(
+                        task_request_id="req-neg-2",
+                        location_key="kitchen:kitchen_table_1",
+                        status="searched_not_found",
+                        object_category="medicine_box",
+                    )
+                ],
+                candidate_exclusion_state={"kitchen:kitchen_table_1": "searched_not_found"},
+            ),
+        )
+        plan = service.plan(context)
+    
+>       assert plan.memory_grounding == ["mem-allowed"]
+E       AssertionError: assert ['mem-excluded'] == ['mem-allowed']
+E         
+E         At index 0 diff: 'mem-excluded' != 'mem-allowed'
+E         Use -v to get more diff
+
+tests/test_phase_b_memory_planner.py:249: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_phase_b_memory_planner.py::test_llm_plan_cannot_ignore_task_negative_evidence
+1 failed, 4 passed in 0.04s

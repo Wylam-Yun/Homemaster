@@ -261,17 +261,18 @@ class KimiPlanProvider:
 
         # 保存原timeout，方法结束后恢复；复用client连接池避免重复TCP/TLS握手
         saved_timeout = self._client.timeout
-        self._client.timeout = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+        # 放宽超时：connect 10s, read 45s (考虑网络波动和模型推理时间)
+        self._client.timeout = httpx.Timeout(connect=10.0, read=45.0, write=15.0, pool=10.0)
         try:
 
             # 从target获取指定的协议
             specified_protocol = target.get("protocol", "").lower()
 
-            # 决定协议尝试顺序
+            # 决定协议尝试顺序 - 即使指定了协议，也尝试fallback到另一个
             if specified_protocol == "anthropic":
-                protocols_to_try = ["anthropic"]
+                protocols_to_try = ["anthropic", "openai"]  # anthropic优先，但失败时试openai
             elif specified_protocol == "openai":
-                protocols_to_try = ["openai"]
+                protocols_to_try = ["openai", "anthropic"]  # openai优先，但失败时试anthropic
             else:
                 # 未指定则两个都试，但根据URL判断优先级
                 if "anthropic" in base_url.lower():
@@ -350,27 +351,38 @@ class KimiPlanProvider:
                         response = self._client.post(completion_url, headers=headers, json=payload)
 
                     # 处理响应
-                    if response.status_code == 404 and protocol == "anthropic":
-                        # 404可能是协议不匹配，立即尝试OpenAI
-                        logger.debug("Anthropic protocol got 404, trying OpenAI")
+                    if response.status_code == 404:
+                        # 404可能是协议不匹配或路径错误，尝试另一个协议
+                        logger.debug(f"{protocol} protocol got 404, trying next protocol")
                         last_error = KimiProviderResponseError(
                             error_type="http_error",
-                            message=f"Anthropic protocol got 404, trying OpenAI"
+                            message=f"{protocol} protocol got 404"
                         )
                         continue
 
                     if response.status_code in {401, 403}:
-                        raise KimiProviderAuthError(
+                        # 认证错误也可能是协议不匹配（header格式不对），尝试另一个协议
+                        logger.debug(f"{protocol} protocol got {response.status_code}, trying next protocol")
+                        last_error = KimiProviderAuthError(
                             error_type="auth_rejected",
-                            message=f"kimi auth rejected with status={response.status_code}",
+                            message=f"auth rejected with status={response.status_code}",
                         )
+                        # 不立即raise，尝试下一个协议
+                        if protocol == protocols_to_try[-1]:
+                            raise last_error
+                        continue
 
                     if response.status_code >= 400:
                         error_message = _extract_error_message(response)
-                        raise KimiProviderResponseError(
+                        logger.debug(f"{protocol} protocol got {response.status_code}, trying next protocol")
+                        last_error = KimiProviderResponseError(
                             error_type="http_error",
-                            message=f"kimi http status={response.status_code}: {error_message}",
+                            message=f"http status={response.status_code}: {error_message}",
                         )
+                        # HTTP错误也可能是协议问题，尝试下一个协议
+                        if protocol == protocols_to_try[-1]:
+                            raise last_error
+                        continue
 
                     try:
                         body = response.json()
@@ -397,25 +409,28 @@ class KimiPlanProvider:
                         ) from exc
 
                 except httpx.TimeoutException as exc:
-                    logger.info(f"{protocol} protocol timed out")
+                    logger.info(f"{protocol} protocol timed out, trying next protocol")
                     last_error = KimiProviderNetworkError(
                         error_type="timeout",
                         message=f"{protocol} protocol timed out for {base_url}"
                     )
+                    # 超时也尝试下一个协议（可能另一个协议的endpoint更快）
                     if protocol == protocols_to_try[-1]:
                         raise last_error from exc
                     continue
 
                 except httpx.RequestError as exc:
+                    logger.info(f"{protocol} protocol network error, trying next protocol")
                     last_error = KimiProviderNetworkError(
                         error_type="network_error",
-                        message=f"kimi request failed with {protocol}: {exc}",
+                        message=f"request failed with {protocol}: {exc}",
                     )
                     if protocol == protocols_to_try[-1]:
                         raise last_error from exc
                     continue
 
-                except (KimiProviderAuthError, KimiProviderSchemaError):
+                except KimiProviderSchemaError:
+                    # Schema错误说明API调用成功但返回格式不对，不要重试其他协议
                     raise
 
                 except KimiProviderResponseError as exc:

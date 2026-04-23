@@ -1,0 +1,7 @@
+api_probe_tsv=artifacts/api_runs/20260421-173126/api_probe.tsv
+group=1 protocol=openai status=200 model=claude-sonnet-4-6 msg={"id":"cd90a06f-91af-490b-b913-0989bb3500e0","model":"claude-sonnet-4-5","object":"chat.completion","created":1776763889,"choices":[{"index"
+group=1 protocol=anthropic status=200 model=claude-sonnet-4-6 msg={"id": "msg_20260421173132", "type": "message", "role": "assistant", "content": [{"type": "text", "text": "```json\n{\"ping\":\"pong\"}\n```
+group=2 protocol=openai status=404 model=z-ai/glm-5.1 msg={"detail":"Not Found"}
+group=2 protocol=anthropic status=400 model=z-ai/glm-5.1 msg={"type":"error","error":{"type":"invalid_request_error","message":"llmproxy.BadRequestError: llmproxy_proxyException - Budget has been excee
+group=3 protocol=openai status=EXC model=glm-5.1 msg=The read operation timed out
+group=3 protocol=anthropic status=EXC model=glm-5.1 msg=The read operation timed out

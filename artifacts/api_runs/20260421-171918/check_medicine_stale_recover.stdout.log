@@ -1,0 +1,133 @@
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+  │ Target 1 failed error_type=response_missing_content
+  │ Trying target 2/3 model=z-ai/glm-5.1 
+base_url=https://copilot.huya.info/api/anthropic
+  … Trying anthropic protocol base_url=https://copilot.huya.info/api/anthropic
+  │ Target 2 failed error_type=http_error
+  │ Trying target 3/3 model=glm-5.1 base_url=https://api.mytokenland.com
+  … Trying openai protocol base_url=https://api.mytokenland.com
+  │ openai protocol timed out
+  │ Target 3 failed error_type=timeout
+✗ All targets failed
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
+✓ Plan generated successfully
+► Generating plan with 3 API targets...
+  │ Trying target 1/3 model=claude-sonnet-4-6 
+base_url=https://key.simpleai.com.cn
+  … Trying openai protocol base_url=https://key.simpleai.com.cn
