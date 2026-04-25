@@ -1,0 +1,48 @@
+{
+  "checks": {
+    "does_not_need_clarification": true,
+    "has_location_hint": true,
+    "has_success_criteria": true,
+    "target_mentions_medicine_box": true,
+    "task_type_is_check_presence": true
+  },
+  "json_payload": {
+    "clarification_question": null,
+    "confidence": 0.95,
+    "delivery_target": null,
+    "location_hint": "桌子那边",
+    "needs_clarification": false,
+    "success_criteria": [
+      "药盒在桌子那边被确认存在"
+    ],
+    "target": "药盒",
+    "task_type": "check_presence"
+  },
+  "passed": true,
+  "provider": {
+    "attempts": [
+      {
+        "elapsed_ms": 17883.52654099981,
+        "key_index": 1,
+        "status_code": 200
+      }
+    ],
+    "elapsed_ms": 17883.52654099981,
+    "model": "mimo-v2-pro",
+    "protocol": "anthropic",
+    "provider_name": "Mimo"
+  },
+  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"桌子那边\",\n  \"success_criteria\": [\"药盒在桌子那边被确认存在\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.95,
+    "delivery_target": null,
+    "location_hint": "桌子那边",
+    "needs_clarification": false,
+    "success_criteria": [
+      "药盒在桌子那边被确认存在"
+    ],
+    "target": "药盒",
+    "task_type": "check_presence"
+  }
+}

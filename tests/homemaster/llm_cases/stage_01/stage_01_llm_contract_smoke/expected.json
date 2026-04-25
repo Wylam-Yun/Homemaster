@@ -1,0 +1,13 @@
+{
+  "case_name": "stage_01_llm_contract_smoke",
+  "required_checks": [
+    "provider returns parseable JSON object",
+    "JSON validates as TaskCard",
+    "task_type == check_presence",
+    "target mentions 药盒/药/medicine",
+    "needs_clarification == false",
+    "success_criteria has at least one item",
+    "location_hint is a non-empty user-stated hint"
+  ],
+  "schema": "TaskCard"
+}

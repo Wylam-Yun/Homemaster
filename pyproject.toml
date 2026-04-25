@@ -19,6 +19,7 @@ dev = [
 
 [project.scripts]
 task-brain = "task_brain.cli:app"
+homemaster = "homemaster.cli:app"
 
 [build-system]
 requires = ["setuptools>=68"]
