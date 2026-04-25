@@ -11,6 +11,8 @@ build/
 *.egg-info/
 .env*
 .DS_Store
+config/nvidia_api_config.json
+.cache/
 artifacts/
 tmp/
 data/runs/

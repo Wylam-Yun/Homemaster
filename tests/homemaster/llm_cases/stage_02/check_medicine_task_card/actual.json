@@ -12,12 +12,12 @@
       },
       "json_payload": {
         "clarification_question": null,
-        "confidence": 0.95,
+        "confidence": 0.9,
         "delivery_target": null,
         "location_hint": "桌子那边",
         "needs_clarification": false,
         "success_criteria": [
-          "药盒在桌子那边被观察到"
+          "后续观察可以验证任务是否完成"
         ],
         "target": "药盒",
         "task_type": "check_presence"
@@ -27,25 +27,25 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 12987.615875000301,
+            "elapsed_ms": 0.13412499902187847,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 12987.615875000301,
+        "elapsed_ms": 0.13412499902187847,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"桌子那边\",\n  \"success_criteria\": [\"药盒在桌子那边被观察到\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+      "raw_text": "{\"task_type\": \"check_presence\", \"target\": \"药盒\", \"delivery_target\": null, \"location_hint\": \"桌子那边\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
       "task_card": {
         "clarification_question": null,
-        "confidence": 0.95,
+        "confidence": 0.9,
         "delivery_target": null,
         "location_hint": "桌子那边",
         "needs_clarification": false,
         "success_criteria": [
-          "药盒在桌子那边被观察到"
+          "后续观察可以验证任务是否完成"
         ],
         "target": "药盒",
         "task_type": "check_presence"
@@ -69,12 +69,12 @@
   },
   "json_payload": {
     "clarification_question": null,
-    "confidence": 0.95,
+    "confidence": 0.9,
     "delivery_target": null,
     "location_hint": "桌子那边",
     "needs_clarification": false,
     "success_criteria": [
-      "药盒在桌子那边被观察到"
+      "后续观察可以验证任务是否完成"
     ],
     "target": "药盒",
     "task_type": "check_presence"
@@ -83,26 +83,26 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 12987.615875000301,
+        "elapsed_ms": 0.13412499902187847,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 12987.615875000301,
+    "elapsed_ms": 0.13412499902187847,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"桌子那边\",\n  \"success_criteria\": [\"药盒在桌子那边被观察到\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+  "raw_text": "{\"task_type\": \"check_presence\", \"target\": \"药盒\", \"delivery_target\": null, \"location_hint\": \"桌子那边\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
-    "confidence": 0.95,
+    "confidence": 0.9,
     "delivery_target": null,
     "location_hint": "桌子那边",
     "needs_clarification": false,
     "success_criteria": [
-      "药盒在桌子那边被观察到"
+      "后续观察可以验证任务是否完成"
     ],
     "target": "药盒",
     "task_type": "check_presence"

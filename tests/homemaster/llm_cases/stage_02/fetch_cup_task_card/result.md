@@ -104,16 +104,7 @@ TaskCard schema:
 ## Mimo Raw Response Attempt 1
 
 ````json
-{
-  "task_type": "fetch_object",
-  "target": "水杯",
-  "delivery_target": "user",
-  "location_hint": "厨房",
-  "success_criteria": ["水杯被成功交付给用户"],
-  "needs_clarification": false,
-  "clarification_question": null,
-  "confidence": 0.95
-}
+{"task_type": "fetch_object", "target": "水杯", "delivery_target": "user", "location_hint": "厨房", "success_criteria": ["后续观察可以验证任务是否完成"], "needs_clarification": false, "clarification_question": null, "confidence": 0.9}
 ````
 
 ## Parsed JSON Payload Attempt 1
@@ -121,12 +112,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "水杯被成功交付给用户"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "水杯",
   "task_type": "fetch_object"
@@ -138,12 +129,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "水杯被成功交付给用户"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "水杯",
   "task_type": "fetch_object"
@@ -169,12 +160,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "水杯被成功交付给用户"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "水杯",
   "task_type": "fetch_object"

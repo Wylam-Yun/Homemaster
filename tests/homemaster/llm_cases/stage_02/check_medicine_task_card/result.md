@@ -103,16 +103,7 @@ TaskCard schema:
 ## Mimo Raw Response Attempt 1
 
 ````json
-{
-  "task_type": "check_presence",
-  "target": "药盒",
-  "delivery_target": null,
-  "location_hint": "桌子那边",
-  "success_criteria": ["药盒在桌子那边被观察到"],
-  "needs_clarification": false,
-  "clarification_question": null,
-  "confidence": 0.95
-}
+{"task_type": "check_presence", "target": "药盒", "delivery_target": null, "location_hint": "桌子那边", "success_criteria": ["后续观察可以验证任务是否完成"], "needs_clarification": false, "clarification_question": null, "confidence": 0.9}
 ````
 
 ## Parsed JSON Payload Attempt 1
@@ -120,12 +111,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
   "location_hint": "桌子那边",
   "needs_clarification": false,
   "success_criteria": [
-    "药盒在桌子那边被观察到"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -137,12 +128,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
   "location_hint": "桌子那边",
   "needs_clarification": false,
   "success_criteria": [
-    "药盒在桌子那边被观察到"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -167,12 +158,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
   "location_hint": "桌子那边",
   "needs_clarification": false,
   "success_criteria": [
-    "药盒在桌子那边被观察到"
+    "后续观察可以验证任务是否完成"
   ],
   "target": "药盒",
   "task_type": "check_presence"
