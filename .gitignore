@@ -11,6 +11,8 @@ build/
 *.egg-info/
 .env*
 .DS_Store
+artifacts/
+tmp/
 data/runs/
 trace.jsonl
 plan/V1.2/test_results/

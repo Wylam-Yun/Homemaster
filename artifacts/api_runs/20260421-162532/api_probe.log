@@ -1,7 +1,0 @@
-api_probe_tsv=artifacts/api_runs/20260421-162532/api_probe.tsv
-group=1 protocol=openai status=200 model=claude-sonnet-4-6 msg={"id":"ea90100f-03be-4c7a-b72b-532e5acf487d","model":"claude-sonnet-4-5","object":"chat.completion","created":1776759935,"choices":[{"index"
-group=1 protocol=anthropic status=200 model=claude-sonnet-4-6 msg={"id":"91e033d4-7042-4135-8454-0ccd8a8e73ec","type":"message","role":"assistant","model":"claude-sonnet-4-5","stop_reason":"end_turn","stop_
-group=2 protocol=openai status=404 model=z-ai/glm-5.1 msg={"detail":"Not Found"}
-group=2 protocol=anthropic status=200 model=z-ai/glm-5.1 msg={"id":"chatcmpl-267ba7d5-f113-904f-aa1a-7181d0615685","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"1.  **An
-group=3 protocol=openai status=200 model=glm-5.1 msg={"id":"","model":"","object":"chat.completion","created":1776759947,"choices":[{"index":0,"message":{"role":"assistant","content":""},"finis
-group=3 protocol=anthropic status=200 model=glm-5.1 msg={"id":"msg_c0fb6c0ac3994115b6b8b4680c535076","type":"message","role":"assistant","content":[{"type":"text","text":"```json\n{\"ping\":\"pong

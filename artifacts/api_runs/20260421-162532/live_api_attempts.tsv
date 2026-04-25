@@ -1,4 +1,0 @@
-attempt	exit_code	started_at	ended_at	log_path
-1	1	2026-04-21T08:27:23Z	2026-04-21T08:27:25Z	artifacts/api_runs/20260421-162532/live_api_attempt_1.log
-2	1	2026-04-21T08:27:27Z	2026-04-21T08:27:28Z	artifacts/api_runs/20260421-162532/live_api_attempt_2.log
-3	1	2026-04-21T08:27:30Z	2026-04-21T08:27:31Z	artifacts/api_runs/20260421-162532/live_api_attempt_3.log

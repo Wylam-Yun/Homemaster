@@ -1,7 +1,0 @@
-api_probe_tsv=artifacts/api_runs/20260421-141924/api_probe.tsv
-group=1 protocol=openai status=404 model=z-ai/glm-5.1 msg={"detail":"Not Found"}
-group=1 protocol=anthropic status=200 model=z-ai/glm-5.1 msg={"id":"chatcmpl-1ef53bc7-dc8c-989c-b962-396e6d7dec43","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"1.  **An
-group=2 protocol=openai status=EXC model=glm-5.1 msg=The read operation timed out
-group=2 protocol=anthropic status=EXC model=glm-5.1 msg=The read operation timed out
-group=3 protocol=openai status=200 model=moonshotai/kimi-k2.5 msg={"id":"chatcmpl-96e8723e46679cef","object":"chat.completion","created":1776752400,"model":"moonshotai/kimi-k2.5","choices":[{"index":0,"mess
-group=3 protocol=anthropic status=404 model=moonshotai/kimi-k2.5 msg=404 page not found 

@@ -1,7 +1,0 @@
-group	name	protocol	status	base_url	model	message
-1	provider_group_1	openai	404	https://copilot.huya.info/api/anthropic	z-ai/glm-5.1	{"detail":"Not Found"}
-1	provider_group_1	anthropic	200	https://copilot.huya.info/api/anthropic	z-ai/glm-5.1	{"id":"chatcmpl-c22a7117-688b-96a3-8410-7d02ae6dc71f","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"1.  **An
-2	provider_group_2	openai	200	https://api.mytokenland.com	glm-5.1	{"id":"msg_2026042115313527351c232667411b","model":"glm-5.1","object":"chat.completion","created":1776756701,"choices":[{"index":0,"message"
-2	provider_group_2	anthropic	EXC	https://api.mytokenland.com	glm-5.1	The read operation timed out
-3	provider_group_3	openai	200	https://integrate.api.nvidia.com	moonshotai/kimi-k2.5	{"id":"chatcmpl-89d3b48c7b969591","object":"chat.completion","created":1776756716,"model":"moonshotai/kimi-k2.5","choices":[{"index":0,"mess
-3	provider_group_3	anthropic	404	https://integrate.api.nvidia.com	moonshotai/kimi-k2.5	404 page not found 
