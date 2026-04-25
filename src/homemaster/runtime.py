@@ -30,6 +30,7 @@ class ProviderConfig:
     model: str
     api_keys: tuple[str, ...]
     protocol: str
+    embedding_url: str | None = None
 
     def public_summary(self) -> dict[str, Any]:
         return {
@@ -37,6 +38,7 @@ class ProviderConfig:
             "base_url": self.base_url,
             "model": self.model,
             "protocol": self.protocol,
+            "embedding_url": self.embedding_url,
             "api_key_count": len(self.api_keys),
         }
 
@@ -98,6 +100,7 @@ def _provider_from_payload(payload: dict[str, Any], *, fallback_name: str) -> Pr
         model=model,
         api_keys=api_keys,
         protocol=protocol,
+        embedding_url=_optional_str(payload.get("embedding_url")),
     )
 
 
@@ -106,6 +109,12 @@ def _required_str(payload: dict[str, Any], key: str, *, fallback: str | None = N
     if not isinstance(value, str) or not value.strip():
         raise RuntimeConfigError(f"missing or empty {key!r}")
     return value.strip()
+
+
+def _optional_str(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
 
 
 def _normalize_api_keys(raw: Any) -> list[str]:

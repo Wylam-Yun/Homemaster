@@ -1,0 +1,25 @@
+{
+  "case_name": "medicine_object_memory_rag",
+  "expected_query_keywords": [
+    "药盒",
+    "药",
+    "medicine"
+  ],
+  "expected_top_memory_ids": [
+    "mem-medicine-1",
+    "mem-medicine-2"
+  ],
+  "memory_path": "data/scenarios/check_medicine_success/memory.json",
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": null,
+    "location_hint": "桌子那边",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "药盒",
+    "task_type": "check_presence"
+  }
+}

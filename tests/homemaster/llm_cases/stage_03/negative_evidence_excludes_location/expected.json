@@ -1,0 +1,29 @@
+{
+  "case_name": "negative_evidence_excludes_location",
+  "excluded_memory_ids": [
+    "mem-cup-1"
+  ],
+  "expected_query_keywords": [
+    "水杯",
+    "杯",
+    "cup"
+  ],
+  "memory_path": "data/scenarios/object_not_found/memory.json",
+  "negative_evidence": {
+    "excluded_memory_ids": [
+      "mem-cup-1"
+    ]
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  }
+}

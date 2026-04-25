@@ -1,0 +1,28 @@
+{
+  "case_name": "mimo_memory_retrieval_query",
+  "expected_location_keywords": [
+    "厨房",
+    "kitchen"
+  ],
+  "expected_query_keywords": [
+    "水杯",
+    "杯",
+    "cup"
+  ],
+  "expected_top_memory_ids": [
+    "mem-cup-1"
+  ],
+  "memory_path": "data/scenarios/fetch_cup_retry/memory.json",
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  }
+}
