@@ -13,3 +13,4 @@ build/
 .DS_Store
 data/runs/
 trace.jsonl
+plan/V1.2/test_results/

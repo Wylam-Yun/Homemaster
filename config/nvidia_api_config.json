@@ -1,11 +1,11 @@
 {
   "providers": [
     {
-      "name": "simpleai_claude",
-      "base_url": "https://key.simpleai.com.cn",
-      "model": "claude-sonnet-4-6",
-      "api_keys": ["TVxEsHbMPQ1mTlqGOqn27zofuVNCaO9obFyFcBxuV9ojHoi7"],
-      "protocol": "openai"
+      "name": "Mimo",
+      "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+      "model": "mimo-v2-pro",
+      "api_keys": ["tp-cf45sqvijwqzb8iajlpcx36re5ykot0u088v47vxy1nynfed"],
+      "protocol": "anthropic"
     },
     {
       "name": "huya_anthropic",
