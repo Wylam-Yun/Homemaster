@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
+GENERIC_CONFIG_PATH = REPO_ROOT / "config" / "api_config.json"
+LEGACY_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
+DEFAULT_CONFIG_PATH = GENERIC_CONFIG_PATH if GENERIC_CONFIG_PATH.exists() else LEGACY_CONFIG_PATH
 DEFAULT_PROVIDER_NAME = "Mimo"
 DEFAULT_STAGE_01_CASE_NAME = "stage_01_llm_contract_smoke"
 LLM_CASE_ROOT = REPO_ROOT / "tests" / "homemaster" / "llm_cases"

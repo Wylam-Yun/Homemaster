@@ -5,7 +5,20 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from homemaster.contracts import TaskCard, VLMImageInput
+from homemaster.contracts import (
+    CandidatePool,
+    CandidateSelection,
+    GroundedMemoryTarget,
+    MemoryRetrievalHit,
+    MemoryRetrievalQuery,
+    MemoryRetrievalResult,
+    ObjectMemorySearchPlan,
+    OrchestrationPlan,
+    PlanningContext,
+    RecoveryDecision,
+    TaskCard,
+    VLMImageInput,
+)
 
 
 def _valid_task_card() -> dict[str, object]:
@@ -61,3 +74,111 @@ def test_vlm_image_input_defaults_to_disabled_and_serializes() -> None:
 
     assert image_input.enabled is False
     assert VLMImageInput.model_validate_json(image_input.model_dump_json()) == image_input
+
+
+def test_memory_retrieval_query_and_result_serialize() -> None:
+    query = MemoryRetrievalQuery(
+        query_text="厨房 水杯 杯子 cup",
+        target_category="cup",
+        target_aliases=["水杯", "杯子", "cup"],
+        location_terms=["厨房", "kitchen"],
+    )
+    hit = MemoryRetrievalHit(
+        document_id="object_memory:mem-cup-1",
+        memory_id="mem-cup-1",
+        object_category="cup",
+        aliases=["水杯", "杯子"],
+        room_id="kitchen",
+        anchor_id="anchor_kitchen_table_1",
+        anchor_type="table",
+        display_text="厨房餐桌",
+        viewpoint_id="kitchen_table_viewpoint",
+        confidence_level="high",
+        belief_state="confirmed",
+        bm25_score=0.8,
+        dense_score=0.7,
+        metadata_score=0.2,
+        final_score=0.9,
+        ranking_reasons=["bm25_alias_match", "dense_match"],
+        canonical_metadata={"memory_id": "mem-cup-1"},
+        executable=True,
+        ranking_stage="bm25_dense_fusion",
+    )
+    result = MemoryRetrievalResult(
+        hits=[hit],
+        retrieval_query=query,
+        embedding_provider={"name": "MemoryEmbedding", "model": "BAAI/bge-m3"},
+        index_snapshot={"document_count": 1},
+    )
+
+    encoded = result.model_dump_json()
+    decoded = MemoryRetrievalResult.model_validate_json(encoded)
+
+    assert decoded.hits[0].memory_id == "mem-cup-1"
+    assert decoded.retrieval_query is not None
+    assert decoded.retrieval_query.source_filter == ["object_memory"]
+
+
+def test_memory_retrieval_query_rejects_non_object_memory_source() -> None:
+    with pytest.raises(ValidationError):
+        MemoryRetrievalQuery(query_text="水杯", source_filter=["episodic_memory"])
+
+
+def test_grounded_target_and_planning_context_serialize() -> None:
+    task_card = TaskCard.model_validate(_valid_task_card())
+    query = MemoryRetrievalQuery(query_text="桌子那边 药盒 medicine_box")
+    hit = MemoryRetrievalHit(
+        document_id="object_memory:mem-medicine-1",
+        memory_id="mem-medicine-1",
+        viewpoint_id="living_side_table_viewpoint",
+        final_score=0.91,
+        executable=True,
+    )
+    target = GroundedMemoryTarget(
+        memory_id="mem-medicine-1",
+        room_id="living_room",
+        anchor_id="anchor_living_side_table_1",
+        viewpoint_id="living_side_table_viewpoint",
+        display_text="客厅边桌",
+        evidence={"final_score": 0.91},
+    )
+    context = PlanningContext(
+        task_card=task_card,
+        retrieval_query=query,
+        memory_evidence=MemoryRetrievalResult(hits=[hit], retrieval_query=query),
+        selected_target=target,
+        world_summary={"rooms": ["living_room"]},
+    )
+
+    decoded = PlanningContext.model_validate_json(context.model_dump_json())
+
+    assert decoded.selected_target is not None
+    assert decoded.selected_target.viewpoint_id == "living_side_table_viewpoint"
+
+
+def test_orchestration_and_recovery_accept_new_grounded_target_fields() -> None:
+    target = GroundedMemoryTarget(
+        memory_id="mem-cup-1",
+        room_id="kitchen",
+        anchor_id="anchor_kitchen_table_1",
+        viewpoint_id="kitchen_table_viewpoint",
+    )
+    plan = OrchestrationPlan(goal="取水杯", selected_target=target)
+    decision = RecoveryDecision(action="switch_target", next_target_id="mem-cup-2")
+
+    assert OrchestrationPlan.model_validate_json(plan.model_dump_json()).selected_target == target
+    decoded_decision = RecoveryDecision.model_validate_json(decision.model_dump_json())
+
+    assert decoded_decision.action == "switch_target"
+
+
+def test_deprecated_contract_shells_remain_compatible() -> None:
+    search_plan = ObjectMemorySearchPlan(target_category="cup", location_hint="厨房")
+    pool = CandidatePool()
+    selection = CandidateSelection(selected_candidate_id="candidate_cup_1")
+    decision = RecoveryDecision(action="switch_candidate", next_candidate_id="candidate_cup_2")
+
+    assert search_plan.target_category == "cup"
+    assert CandidatePool.model_validate_json(pool.model_dump_json()) == pool
+    assert selection.selected_candidate_id == "candidate_cup_1"
+    assert decision.next_candidate_id == "candidate_cup_2"

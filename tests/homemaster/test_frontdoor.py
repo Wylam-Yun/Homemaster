@@ -87,7 +87,7 @@ def test_frontdoor_prompt_contains_full_context() -> None:
 
 
 def test_understanding_accepts_mock_mimo_check_presence(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     _write_config(config_path)
     provider = load_provider_config(config_path)
 
@@ -116,7 +116,7 @@ def test_understanding_accepts_mock_mimo_check_presence(tmp_path: Path) -> None:
 
 
 def test_understanding_accepts_mock_mimo_fetch_object(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     _write_config(config_path)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -145,7 +145,7 @@ def test_understanding_accepts_mock_mimo_fetch_object(tmp_path: Path) -> None:
 
 
 def test_understanding_retries_once_after_invalid_json(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     _write_config(config_path)
     responses = iter(
         [
@@ -177,7 +177,7 @@ def test_understanding_retries_once_after_invalid_json(tmp_path: Path) -> None:
 
 
 def test_understanding_fails_after_second_invalid_output(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     _write_config(config_path)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -197,7 +197,7 @@ def test_understanding_fails_after_second_invalid_output(tmp_path: Path) -> None
 
 
 def test_frontdoor_debug_assets_do_not_contain_secrets(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     _write_config(config_path)
 
     def handler(request: httpx.Request) -> httpx.Response:

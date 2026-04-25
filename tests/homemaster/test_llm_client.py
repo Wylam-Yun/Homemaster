@@ -12,7 +12,7 @@ from homemaster.trace import sanitize_for_log
 
 
 def test_raw_json_client_reads_mimo_config_and_sends_anthropic_request(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     config_path.write_text(
         json.dumps(
             {

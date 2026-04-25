@@ -11,7 +11,9 @@ from typing import Any
 import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
+GENERIC_CONFIG_PATH = REPO_ROOT / "config" / "api_config.json"
+LEGACY_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
+DEFAULT_CONFIG_PATH = GENERIC_CONFIG_PATH if GENERIC_CONFIG_PATH.exists() else LEGACY_CONFIG_PATH
 DEFAULT_PROVIDER_NAME = "Mimo"
 
 PROMPT_SOURCE = (

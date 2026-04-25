@@ -18,7 +18,7 @@ def test_stage_01_prompt_contains_task_card_contract() -> None:
 
 
 def test_stage_01_contract_smoke_writes_debug_assets_with_mock_llm(tmp_path: Path) -> None:
-    config_path = tmp_path / "nvidia_api_config.json"
+    config_path = tmp_path / "api_config.json"
     case_dir = tmp_path / "case"
     results_dir = tmp_path / "results"
     config_path.write_text(
