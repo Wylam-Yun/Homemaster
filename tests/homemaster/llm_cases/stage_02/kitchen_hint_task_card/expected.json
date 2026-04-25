@@ -1,0 +1,20 @@
+{
+  "case_name": "kitchen_hint_task_card",
+  "expected_task_type": "check_presence",
+  "location_keywords": [
+    "厨房"
+  ],
+  "needs_clarification": false,
+  "required_checks": [
+    "task_type == check_presence",
+    "target mentions 水杯/cup",
+    "location_hint contains 厨房",
+    "needs_clarification == false"
+  ],
+  "target_keywords": [
+    "水杯",
+    "杯",
+    "cup"
+  ],
+  "utterance": "去厨房看看水杯还在不在"
+}

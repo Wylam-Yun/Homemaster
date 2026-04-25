@@ -1,0 +1,21 @@
+{
+  "case_name": "fetch_cup_task_card",
+  "delivery_target": "user",
+  "expected_task_type": "fetch_object",
+  "location_keywords": [
+    "厨房"
+  ],
+  "needs_clarification": false,
+  "required_checks": [
+    "task_type == fetch_object",
+    "target mentions 水杯/cup",
+    "delivery_target == user",
+    "location_hint contains 厨房"
+  ],
+  "target_keywords": [
+    "水杯",
+    "杯",
+    "cup"
+  ],
+  "utterance": "去厨房找水杯，然后拿给我"
+}

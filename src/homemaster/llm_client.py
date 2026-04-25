@@ -16,9 +16,16 @@ from homemaster.runtime import ProviderConfig
 class LLMClientError(RuntimeError):
     """Base LLM client error with a stable error type."""
 
-    def __init__(self, *, error_type: str, message: str) -> None:
+    def __init__(
+        self,
+        *,
+        error_type: str,
+        message: str,
+        raw_content: str | None = None,
+    ) -> None:
         self.error_type = error_type
         self.message = message
+        self.raw_content = raw_content
         super().__init__(message)
 
 
@@ -78,6 +85,7 @@ class RawJsonLLMClient:
     ) -> LLMJsonResponse:
         errors: list[str] = []
         attempts: list[dict[str, Any]] = []
+        last_raw_content: str | None = None
 
         for key_index, api_key in enumerate(self._provider.api_keys, start=1):
             started = time.perf_counter()
@@ -111,6 +119,7 @@ class RawJsonLLMClient:
                 continue
 
             content = self._extract_content(response)
+            last_raw_content = content
             try:
                 payload = extract_json_payload(content)
             except LLMProviderResponseError as exc:
@@ -135,6 +144,7 @@ class RawJsonLLMClient:
         raise LLMProviderResponseError(
             error_type="provider_response_error",
             message="all configured API keys failed: " + "; ".join(errors),
+            raw_content=last_raw_content,
         )
 
     def _send_prompt(

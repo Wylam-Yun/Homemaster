@@ -11,3 +11,4 @@ def test_cli_help_runs_and_lists_contract_smoke() -> None:
     assert result.exit_code == 0, result.stdout
     assert "HomeMaster" in result.stdout
     assert "contract-smoke" in result.stdout
+    assert "understand" in result.stdout

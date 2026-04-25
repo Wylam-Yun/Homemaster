@@ -1,0 +1,19 @@
+{
+  "case_name": "ambiguous_task_card",
+  "clarification_question_non_empty": true,
+  "forbidden_target_keywords": [
+    "药盒",
+    "水杯",
+    "medicine",
+    "cup"
+  ],
+  "needs_clarification": true,
+  "required_checks": [
+    "needs_clarification == true",
+    "clarification_question is non-empty",
+    "task_type is unknown or target remains unclear",
+    "target does not guess a concrete object"
+  ],
+  "task_type_unknown_or_target_unclear": true,
+  "utterance": "帮我看看那个还在不在"
+}

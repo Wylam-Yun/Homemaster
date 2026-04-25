@@ -1,0 +1,20 @@
+{
+  "case_name": "check_medicine_task_card",
+  "expected_task_type": "check_presence",
+  "location_keywords": [
+    "桌子"
+  ],
+  "needs_clarification": false,
+  "required_checks": [
+    "task_type == check_presence",
+    "target mentions 药盒/药/medicine",
+    "needs_clarification == false",
+    "location_hint contains 桌子"
+  ],
+  "target_keywords": [
+    "药盒",
+    "药",
+    "medicine"
+  ],
+  "utterance": "去桌子那边看看药盒是不是还在。"
+}
