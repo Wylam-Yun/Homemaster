@@ -1,0 +1,74 @@
+{
+  "case_name": "ungrounded_no_memory_context",
+  "memory_result": {
+    "embedding_provider": {
+      "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+      "model": "BAAI/bge-m3",
+      "provider_name": "MemoryEmbedding"
+    },
+    "excluded": [],
+    "hits": [],
+    "index_snapshot": {
+      "document_count": 2,
+      "domain_terms": [
+        "cup",
+        "水杯",
+        "杯子",
+        "kitchen",
+        "anchor_kitchen_table_1",
+        "table",
+        "kitchen_table_viewpoint",
+        "厨房餐桌",
+        "厨房",
+        "桌子",
+        "餐桌",
+        "pantry",
+        "anchor_pantry_shelf_1",
+        "shelf",
+        "pantry_shelf_viewpoint",
+        "储物间搁架",
+        "储物间",
+        "搁架",
+        "架子"
+      ],
+      "ranking_stage": "bm25_dense_fusion",
+      "tokenized_query": "[REDACTED]"
+    },
+    "ranking_reasons": [
+      "bm25_dense_rrf_fusion",
+      "metadata_guardrail"
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "厨房"
+      ],
+      "query_text": "水杯 杯子 厨房 water cup",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "水杯",
+        "杯子"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "retrieval_summary": "returned 2 hits and 0 excluded"
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  },
+  "world_path": "data/scenarios/fetch_cup_retry/world.json"
+}

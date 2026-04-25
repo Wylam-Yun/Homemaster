@@ -1,0 +1,178 @@
+{
+  "case_name": "planning_context_for_orchestration",
+  "memory_result": {
+    "embedding_provider": {
+      "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+      "model": "BAAI/bge-m3",
+      "provider_name": "MemoryEmbedding"
+    },
+    "excluded": [],
+    "hits": [
+      {
+        "aliases": [
+          "水杯",
+          "杯子"
+        ],
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "belief_state": "confirmed",
+        "bm25_score": 0.5871412754058838,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "anchor_id": "anchor_kitchen_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "confidence_level": "high",
+          "display_text": "厨房餐桌",
+          "document_text_hash": "4c3fb877f13a22c5a2e4924487333c7a484154120633c4fe536d668a5043e35b",
+          "last_confirmed_at": "2026-04-19T11:00:00Z",
+          "memory_id": "mem-cup-1",
+          "object_category": "cup",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_table_viewpoint"
+        },
+        "confidence_level": "high",
+        "dense_score": 0.0,
+        "display_text": "厨房餐桌",
+        "document_id": "object_memory:mem-cup-1",
+        "executable": true,
+        "final_score": 0.4827868852459016,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-19T11:00:00Z",
+        "memory_id": "mem-cup-1",
+        "metadata_score": 0.44999999999999996,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=1",
+          "dense_rank=1",
+          "metadata_target_alias_match",
+          "metadata_location_match",
+          "metadata_high_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "kitchen",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯、杯子。历史位置: 厨房餐桌。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: kitchen_table_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-19T11:00:00Z。",
+        "viewpoint_id": "kitchen_table_viewpoint"
+      },
+      {
+        "aliases": [
+          "水杯"
+        ],
+        "anchor_id": "anchor_pantry_shelf_1",
+        "anchor_type": "shelf",
+        "belief_state": "confirmed",
+        "bm25_score": 0.2824892997741699,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_pantry_shelf_1",
+          "anchor_type": "shelf",
+          "belief_state": "confirmed",
+          "confidence_level": "medium",
+          "display_text": "储物间搁架",
+          "document_text_hash": "0ce6d751065a83d42507903b864669875ac1077ccf68007227c057c650b11a6d",
+          "last_confirmed_at": "2026-04-16T11:00:00Z",
+          "memory_id": "mem-cup-2",
+          "object_category": "cup",
+          "room_id": "pantry",
+          "source_type": "object_memory",
+          "viewpoint_id": "pantry_shelf_viewpoint"
+        },
+        "confidence_level": "medium",
+        "dense_score": 0.0,
+        "display_text": "储物间搁架",
+        "document_id": "object_memory:mem-cup-2",
+        "executable": true,
+        "final_score": 0.282258064516129,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-16T11:00:00Z",
+        "memory_id": "mem-cup-2",
+        "metadata_score": 0.25,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_medium_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "pantry",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 储物间搁架。房间: pantry。房间别名: 储物间、pantry。锚点类型: shelf。锚点别名: 搁架、架子、shelf。可观察视角: pantry_shelf_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-16T11:00:00Z。",
+        "viewpoint_id": "pantry_shelf_viewpoint"
+      }
+    ],
+    "index_snapshot": {
+      "document_count": 2,
+      "domain_terms": [
+        "cup",
+        "水杯",
+        "杯子",
+        "kitchen",
+        "anchor_kitchen_table_1",
+        "table",
+        "kitchen_table_viewpoint",
+        "厨房餐桌",
+        "厨房",
+        "桌子",
+        "餐桌",
+        "pantry",
+        "anchor_pantry_shelf_1",
+        "shelf",
+        "pantry_shelf_viewpoint",
+        "储物间搁架",
+        "储物间",
+        "搁架",
+        "架子"
+      ],
+      "ranking_stage": "bm25_dense_fusion",
+      "tokenized_query": "[REDACTED]"
+    },
+    "ranking_reasons": [
+      "bm25_dense_rrf_fusion",
+      "metadata_guardrail"
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "厨房"
+      ],
+      "query_text": "水杯 杯子 厨房 water cup",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "水杯",
+        "杯子"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "retrieval_summary": "returned 2 hits and 0 excluded"
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  },
+  "world_path": "data/scenarios/fetch_cup_retry/world.json"
+}

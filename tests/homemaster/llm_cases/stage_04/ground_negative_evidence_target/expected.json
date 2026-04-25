@@ -1,0 +1,6 @@
+{
+  "expected_grounding_status": "ungrounded",
+  "expected_selected_memory_id": null,
+  "stage_03_case": "negative_evidence_excludes_location",
+  "world_path": "data/scenarios/object_not_found/world.json"
+}

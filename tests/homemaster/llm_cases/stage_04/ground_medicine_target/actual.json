@@ -1,0 +1,532 @@
+{
+  "case_name": "ground_medicine_target",
+  "checks": {
+    "grounding_status_matches": true,
+    "planning_context_serializes": true,
+    "selected_memory_matches": true
+  },
+  "grounding": {
+    "assessments": [
+      {
+        "document_id": "object_memory:mem-medicine-1",
+        "memory_id": "mem-medicine-1",
+        "needs_exploratory_search": false,
+        "reasons": [
+          "reliable_execution_memory"
+        ],
+        "status": "reliable",
+        "suggested_search_hint": null
+      }
+    ],
+    "grounding_reason": "selected first reliable executable memory hit",
+    "grounding_status": "grounded",
+    "rejected_hits": [],
+    "selected_target": {
+      "anchor_id": "anchor_kitchen_cabinet_1",
+      "display_text": "厨房药柜",
+      "evidence": {
+        "canonical_metadata": {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "confidence_level": "high",
+          "display_text": "厨房药柜",
+          "document_text_hash": "d7f6ccb8e3d5a8f30955143466a7e652e071244ce067bad2b3aa441e4c3601e0",
+          "last_confirmed_at": "2026-04-19T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "object_category": "medicine_box",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        "document_id": "object_memory:mem-medicine-1",
+        "final_score": 0.33225806451612905,
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_high_confidence"
+        ],
+        "reliability": {
+          "document_id": "object_memory:mem-medicine-1",
+          "memory_id": "mem-medicine-1",
+          "needs_exploratory_search": false,
+          "reasons": [
+            "reliable_execution_memory"
+          ],
+          "status": "reliable",
+          "suggested_search_hint": null
+        },
+        "source": "canonical_metadata"
+      },
+      "executable": true,
+      "invalid_reason": null,
+      "memory_id": "mem-medicine-1",
+      "room_id": "kitchen",
+      "viewpoint_id": "kitchen_cabinet_viewpoint"
+    }
+  },
+  "memory_result": {
+    "embedding_provider": {
+      "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+      "model": "BAAI/bge-m3",
+      "provider_name": "MemoryEmbedding"
+    },
+    "excluded": [],
+    "hits": [
+      {
+        "aliases": [
+          "药盒",
+          "药箱"
+        ],
+        "anchor_id": "anchor_kitchen_cabinet_1",
+        "anchor_type": "cabinet",
+        "belief_state": "confirmed",
+        "bm25_score": 0.43699416518211365,
+        "canonical_metadata": {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "confidence_level": "high",
+          "display_text": "厨房药柜",
+          "document_text_hash": "d7f6ccb8e3d5a8f30955143466a7e652e071244ce067bad2b3aa441e4c3601e0",
+          "last_confirmed_at": "2026-04-19T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "object_category": "medicine_box",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        "confidence_level": "high",
+        "dense_score": 0.6576476155589809,
+        "display_text": "厨房药柜",
+        "document_id": "object_memory:mem-medicine-1",
+        "executable": true,
+        "final_score": 0.33225806451612905,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-19T09:00:00Z",
+        "memory_id": "mem-medicine-1",
+        "metadata_score": 0.30000000000000004,
+        "object_category": "medicine_box",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_high_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "kitchen",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒、药箱。历史位置: 厨房药柜。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: cabinet。锚点别名: 柜子、药柜、cabinet。可观察视角: kitchen_cabinet_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-19T09:00:00Z。",
+        "viewpoint_id": "kitchen_cabinet_viewpoint"
+      },
+      {
+        "aliases": [
+          "药盒"
+        ],
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "belief_state": "confirmed",
+        "bm25_score": 0.705785870552063,
+        "canonical_metadata": {
+          "aliases": [
+            "药盒"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "confidence_level": "medium",
+          "display_text": "客厅边桌",
+          "document_text_hash": "38d0d78232705568b63372822d9e58966aa1e537a70e699fb34f03007fa2a45f",
+          "last_confirmed_at": "2026-04-17T09:00:00Z",
+          "memory_id": "mem-medicine-2",
+          "object_category": "medicine_box",
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "viewpoint_id": "living_side_table_viewpoint"
+        },
+        "confidence_level": "medium",
+        "dense_score": 0.6810574673155294,
+        "display_text": "客厅边桌",
+        "document_id": "object_memory:mem-medicine-2",
+        "executable": true,
+        "final_score": 0.2827868852459016,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-17T09:00:00Z",
+        "memory_id": "mem-medicine-2",
+        "metadata_score": 0.25,
+        "object_category": "medicine_box",
+        "ranking_reasons": [
+          "bm25_rank=1",
+          "dense_rank=1",
+          "metadata_target_alias_match",
+          "metadata_medium_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "living_room",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-17T09:00:00Z。",
+        "viewpoint_id": "living_side_table_viewpoint"
+      }
+    ],
+    "index_snapshot": {
+      "document_count": 2,
+      "domain_terms": [
+        "medicine_box",
+        "药盒",
+        "药箱",
+        "medicine",
+        "kitchen",
+        "anchor_kitchen_cabinet_1",
+        "cabinet",
+        "kitchen_cabinet_viewpoint",
+        "厨房药柜",
+        "厨房",
+        "柜子",
+        "药柜",
+        "living_room",
+        "anchor_living_side_table_1",
+        "table",
+        "living_side_table_viewpoint",
+        "客厅边桌",
+        "客厅",
+        "living room",
+        "桌子",
+        "餐桌"
+      ],
+      "ranking_stage": "bm25_dense_fusion",
+      "tokenized_query": "[REDACTED]"
+    },
+    "ranking_reasons": [
+      "bm25_dense_rrf_fusion",
+      "metadata_guardrail"
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "桌子那边"
+      ],
+      "query_text": "药盒在桌子那边，medicine box, pill box",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "药盒",
+        "药品盒",
+        "medicine box",
+        "pill box"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "retrieval_summary": "returned 2 hits and 0 excluded"
+  },
+  "passed": true,
+  "planning_context": {
+    "memory_evidence": {
+      "embedding_provider": {
+        "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "provider_name": "MemoryEmbedding"
+      },
+      "excluded": [],
+      "hits": [
+        {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "bm25_score": 0.43699416518211365,
+          "canonical_metadata": {
+            "aliases": [
+              "药盒",
+              "药箱"
+            ],
+            "anchor_id": "anchor_kitchen_cabinet_1",
+            "anchor_type": "cabinet",
+            "belief_state": "confirmed",
+            "confidence_level": "high",
+            "display_text": "厨房药柜",
+            "document_text_hash": "d7f6ccb8e3d5a8f30955143466a7e652e071244ce067bad2b3aa441e4c3601e0",
+            "last_confirmed_at": "2026-04-19T09:00:00Z",
+            "memory_id": "mem-medicine-1",
+            "object_category": "medicine_box",
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "viewpoint_id": "kitchen_cabinet_viewpoint"
+          },
+          "confidence_level": "high",
+          "dense_score": 0.6576476155589809,
+          "display_text": "厨房药柜",
+          "document_id": "object_memory:mem-medicine-1",
+          "executable": true,
+          "final_score": 0.33225806451612905,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-19T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "metadata_score": 0.30000000000000004,
+          "object_category": "medicine_box",
+          "ranking_reasons": [
+            "bm25_rank=2",
+            "dense_rank=2",
+            "metadata_target_alias_match",
+            "metadata_high_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒、药箱。历史位置: 厨房药柜。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: cabinet。锚点别名: 柜子、药柜、cabinet。可观察视角: kitchen_cabinet_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-19T09:00:00Z。",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        {
+          "aliases": [
+            "药盒"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "bm25_score": 0.705785870552063,
+          "canonical_metadata": {
+            "aliases": [
+              "药盒"
+            ],
+            "anchor_id": "anchor_living_side_table_1",
+            "anchor_type": "table",
+            "belief_state": "confirmed",
+            "confidence_level": "medium",
+            "display_text": "客厅边桌",
+            "document_text_hash": "38d0d78232705568b63372822d9e58966aa1e537a70e699fb34f03007fa2a45f",
+            "last_confirmed_at": "2026-04-17T09:00:00Z",
+            "memory_id": "mem-medicine-2",
+            "object_category": "medicine_box",
+            "room_id": "living_room",
+            "source_type": "object_memory",
+            "viewpoint_id": "living_side_table_viewpoint"
+          },
+          "confidence_level": "medium",
+          "dense_score": 0.6810574673155294,
+          "display_text": "客厅边桌",
+          "document_id": "object_memory:mem-medicine-2",
+          "executable": true,
+          "final_score": 0.2827868852459016,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-17T09:00:00Z",
+          "memory_id": "mem-medicine-2",
+          "metadata_score": 0.25,
+          "object_category": "medicine_box",
+          "ranking_reasons": [
+            "bm25_rank=1",
+            "dense_rank=1",
+            "metadata_target_alias_match",
+            "metadata_medium_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-17T09:00:00Z。",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "index_snapshot": {
+        "document_count": 2,
+        "domain_terms": [
+          "medicine_box",
+          "药盒",
+          "药箱",
+          "medicine",
+          "kitchen",
+          "anchor_kitchen_cabinet_1",
+          "cabinet",
+          "kitchen_cabinet_viewpoint",
+          "厨房药柜",
+          "厨房",
+          "柜子",
+          "药柜",
+          "living_room",
+          "anchor_living_side_table_1",
+          "table",
+          "living_side_table_viewpoint",
+          "客厅边桌",
+          "客厅",
+          "living room",
+          "桌子",
+          "餐桌"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "tokenized_query": "[REDACTED]"
+      },
+      "ranking_reasons": [
+        "bm25_dense_rrf_fusion",
+        "metadata_guardrail"
+      ],
+      "retrieval_query": {
+        "excluded_location_keys": [],
+        "excluded_memory_ids": [],
+        "location_terms": [
+          "桌子那边"
+        ],
+        "query_text": "药盒在桌子那边，medicine box, pill box",
+        "reason": null,
+        "source_filter": [
+          "object_memory"
+        ],
+        "target_aliases": [
+          "药盒",
+          "药品盒",
+          "medicine box",
+          "pill box"
+        ],
+        "target_category": null,
+        "top_k": 5
+      },
+      "retrieval_summary": "returned 2 hits and 0 excluded"
+    },
+    "planning_notes": [
+      "grounded reliable memory target is available for Stage 05 planning"
+    ],
+    "rejected_hits": [],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "桌子那边"
+      ],
+      "query_text": "药盒在桌子那边，medicine box, pill box",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "药盒",
+        "药品盒",
+        "medicine box",
+        "pill box"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "runtime_state_summary": {
+      "grounding_reason": "selected first reliable executable memory hit",
+      "grounding_status": "grounded",
+      "needs_exploratory_search": false
+    },
+    "selected_target": {
+      "anchor_id": "anchor_kitchen_cabinet_1",
+      "display_text": "厨房药柜",
+      "evidence": {
+        "canonical_metadata": {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "confidence_level": "high",
+          "display_text": "厨房药柜",
+          "document_text_hash": "d7f6ccb8e3d5a8f30955143466a7e652e071244ce067bad2b3aa441e4c3601e0",
+          "last_confirmed_at": "2026-04-19T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "object_category": "medicine_box",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        "document_id": "object_memory:mem-medicine-1",
+        "final_score": 0.33225806451612905,
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_high_confidence"
+        ],
+        "reliability": {
+          "document_id": "object_memory:mem-medicine-1",
+          "memory_id": "mem-medicine-1",
+          "needs_exploratory_search": false,
+          "reasons": [
+            "reliable_execution_memory"
+          ],
+          "status": "reliable",
+          "suggested_search_hint": null
+        },
+        "source": "canonical_metadata"
+      },
+      "executable": true,
+      "invalid_reason": null,
+      "memory_id": "mem-medicine-1",
+      "room_id": "kitchen",
+      "viewpoint_id": "kitchen_cabinet_viewpoint"
+    },
+    "task_card": {
+      "clarification_question": null,
+      "confidence": 0.9,
+      "delivery_target": null,
+      "location_hint": "桌子那边",
+      "needs_clarification": false,
+      "success_criteria": [
+        "后续观察可以验证任务是否完成"
+      ],
+      "target": "药盒",
+      "task_type": "check_presence"
+    },
+    "world_summary": {
+      "anchors": [
+        {
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "display_text": "厨房药柜",
+          "room_id": "kitchen",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        {
+          "anchor_id": "anchor_living_side_table_1",
+          "display_text": "客厅边桌",
+          "room_id": "living_room",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "room_ids": [
+        "kitchen",
+        "living_room"
+      ],
+      "viewpoint_ids": [
+        "kitchen_cabinet_viewpoint",
+        "living_side_table_viewpoint"
+      ]
+    }
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": null,
+    "location_hint": "桌子那边",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "药盒",
+    "task_type": "check_presence"
+  },
+  "world_path": "data/scenarios/check_medicine_success/world.json"
+}

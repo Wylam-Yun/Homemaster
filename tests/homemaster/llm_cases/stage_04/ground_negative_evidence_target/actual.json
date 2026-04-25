@@ -1,0 +1,545 @@
+{
+  "case_name": "ground_negative_evidence_target",
+  "checks": {
+    "grounding_status_matches": true,
+    "planning_context_serializes": true,
+    "selected_memory_matches": true
+  },
+  "grounding": {
+    "assessments": [
+      {
+        "document_id": "object_memory:mem-cup-2",
+        "memory_id": "mem-cup-2",
+        "needs_exploratory_search": true,
+        "reasons": [
+          "location_conflict",
+          "low_confidence",
+          "stale_belief"
+        ],
+        "status": "weak_lead",
+        "suggested_search_hint": "水杯 厨房"
+      }
+    ],
+    "grounding_reason": "only weak memory leads available; planner should explore/search",
+    "grounding_status": "ungrounded",
+    "rejected_hits": [
+      {
+        "aliases": [
+          "水杯"
+        ],
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "belief_state": "stale",
+        "bm25_score": 0.20683912932872772,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "stale",
+          "confidence_level": "low",
+          "display_text": "客厅边桌",
+          "document_text_hash": "ae2e6e538fc84b173b4284ee8812981b933e5bad387b491d0e018b374da378e4",
+          "last_confirmed_at": "2026-04-01T10:00:00Z",
+          "memory_id": "mem-cup-2",
+          "object_category": "cup",
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "viewpoint_id": "living_side_table_viewpoint"
+        },
+        "confidence_level": "low",
+        "dense_score": 0.0,
+        "display_text": "客厅边桌",
+        "document_id": "object_memory:mem-cup-2",
+        "executable": true,
+        "final_score": 0.13225806451612904,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-01T10:00:00Z",
+        "memory_id": "mem-cup-2",
+        "metadata_score": 0.1,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_stale_penalty"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "living_room",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: low。记忆状态: stale。最近确认时间: 2026-04-01T10:00:00Z。",
+        "viewpoint_id": "living_side_table_viewpoint"
+      }
+    ],
+    "selected_target": null
+  },
+  "memory_result": {
+    "embedding_provider": {
+      "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+      "model": "BAAI/bge-m3",
+      "provider_name": "MemoryEmbedding"
+    },
+    "excluded": [
+      {
+        "aliases": [
+          "水杯",
+          "杯子"
+        ],
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "belief_state": "confirmed",
+        "bm25_score": 0.4900756776332855,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "anchor_id": "anchor_kitchen_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "confidence_level": "medium",
+          "display_text": "厨房餐桌",
+          "document_text_hash": "66d36707b780d556dc37bd38c2e61a679166655db664c7838f4d4cfd23b96807",
+          "last_confirmed_at": "2026-04-10T10:00:00Z",
+          "memory_id": "mem-cup-1",
+          "object_category": "cup",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_table_viewpoint"
+        },
+        "confidence_level": "medium",
+        "dense_score": 0.0,
+        "display_text": "厨房餐桌",
+        "document_id": "object_memory:mem-cup-1",
+        "executable": false,
+        "final_score": 0.4327868852459016,
+        "invalid_reason": "excluded by runtime negative evidence memory_id",
+        "last_confirmed_at": "2026-04-10T10:00:00Z",
+        "memory_id": "mem-cup-1",
+        "metadata_score": 0.39999999999999997,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=1",
+          "dense_rank=1",
+          "metadata_target_alias_match",
+          "metadata_location_match",
+          "metadata_medium_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "kitchen",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯、杯子。历史位置: 厨房餐桌。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: kitchen_table_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-10T10:00:00Z。",
+        "viewpoint_id": "kitchen_table_viewpoint"
+      }
+    ],
+    "hits": [
+      {
+        "aliases": [
+          "水杯"
+        ],
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "belief_state": "stale",
+        "bm25_score": 0.20683912932872772,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "stale",
+          "confidence_level": "low",
+          "display_text": "客厅边桌",
+          "document_text_hash": "ae2e6e538fc84b173b4284ee8812981b933e5bad387b491d0e018b374da378e4",
+          "last_confirmed_at": "2026-04-01T10:00:00Z",
+          "memory_id": "mem-cup-2",
+          "object_category": "cup",
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "viewpoint_id": "living_side_table_viewpoint"
+        },
+        "confidence_level": "low",
+        "dense_score": 0.0,
+        "display_text": "客厅边桌",
+        "document_id": "object_memory:mem-cup-2",
+        "executable": true,
+        "final_score": 0.13225806451612904,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-01T10:00:00Z",
+        "memory_id": "mem-cup-2",
+        "metadata_score": 0.1,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_stale_penalty"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "living_room",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: low。记忆状态: stale。最近确认时间: 2026-04-01T10:00:00Z。",
+        "viewpoint_id": "living_side_table_viewpoint"
+      }
+    ],
+    "index_snapshot": {
+      "document_count": 2,
+      "domain_terms": [
+        "cup",
+        "水杯",
+        "杯子",
+        "kitchen",
+        "anchor_kitchen_table_1",
+        "table",
+        "kitchen_table_viewpoint",
+        "厨房餐桌",
+        "厨房",
+        "桌子",
+        "餐桌",
+        "living_room",
+        "anchor_living_side_table_1",
+        "living_side_table_viewpoint",
+        "客厅边桌",
+        "客厅",
+        "living room"
+      ],
+      "ranking_stage": "bm25_dense_fusion",
+      "tokenized_query": "[REDACTED]"
+    },
+    "ranking_reasons": [
+      "bm25_dense_rrf_fusion",
+      "metadata_guardrail"
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [
+        "mem-cup-1"
+      ],
+      "location_terms": [
+        "厨房",
+        "kitchen"
+      ],
+      "query_text": "水杯 (cup) 在厨房",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "水杯",
+        "杯子",
+        "cup"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "retrieval_summary": "returned 1 hits and 1 excluded"
+  },
+  "passed": true,
+  "planning_context": {
+    "memory_evidence": {
+      "embedding_provider": {
+        "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "provider_name": "MemoryEmbedding"
+      },
+      "excluded": [
+        {
+          "aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "anchor_id": "anchor_kitchen_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "bm25_score": 0.4900756776332855,
+          "canonical_metadata": {
+            "aliases": [
+              "水杯",
+              "杯子"
+            ],
+            "anchor_id": "anchor_kitchen_table_1",
+            "anchor_type": "table",
+            "belief_state": "confirmed",
+            "confidence_level": "medium",
+            "display_text": "厨房餐桌",
+            "document_text_hash": "66d36707b780d556dc37bd38c2e61a679166655db664c7838f4d4cfd23b96807",
+            "last_confirmed_at": "2026-04-10T10:00:00Z",
+            "memory_id": "mem-cup-1",
+            "object_category": "cup",
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "viewpoint_id": "kitchen_table_viewpoint"
+          },
+          "confidence_level": "medium",
+          "dense_score": 0.0,
+          "display_text": "厨房餐桌",
+          "document_id": "object_memory:mem-cup-1",
+          "executable": false,
+          "final_score": 0.4327868852459016,
+          "invalid_reason": "excluded by runtime negative evidence memory_id",
+          "last_confirmed_at": "2026-04-10T10:00:00Z",
+          "memory_id": "mem-cup-1",
+          "metadata_score": 0.39999999999999997,
+          "object_category": "cup",
+          "ranking_reasons": [
+            "bm25_rank=1",
+            "dense_rank=1",
+            "metadata_target_alias_match",
+            "metadata_location_match",
+            "metadata_medium_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯、杯子。历史位置: 厨房餐桌。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: kitchen_table_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-10T10:00:00Z。",
+          "viewpoint_id": "kitchen_table_viewpoint"
+        }
+      ],
+      "hits": [
+        {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "stale",
+          "bm25_score": 0.20683912932872772,
+          "canonical_metadata": {
+            "aliases": [
+              "水杯"
+            ],
+            "anchor_id": "anchor_living_side_table_1",
+            "anchor_type": "table",
+            "belief_state": "stale",
+            "confidence_level": "low",
+            "display_text": "客厅边桌",
+            "document_text_hash": "ae2e6e538fc84b173b4284ee8812981b933e5bad387b491d0e018b374da378e4",
+            "last_confirmed_at": "2026-04-01T10:00:00Z",
+            "memory_id": "mem-cup-2",
+            "object_category": "cup",
+            "room_id": "living_room",
+            "source_type": "object_memory",
+            "viewpoint_id": "living_side_table_viewpoint"
+          },
+          "confidence_level": "low",
+          "dense_score": 0.0,
+          "display_text": "客厅边桌",
+          "document_id": "object_memory:mem-cup-2",
+          "executable": true,
+          "final_score": 0.13225806451612904,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-01T10:00:00Z",
+          "memory_id": "mem-cup-2",
+          "metadata_score": 0.1,
+          "object_category": "cup",
+          "ranking_reasons": [
+            "bm25_rank=2",
+            "dense_rank=2",
+            "metadata_target_alias_match",
+            "metadata_stale_penalty"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: low。记忆状态: stale。最近确认时间: 2026-04-01T10:00:00Z。",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "index_snapshot": {
+        "document_count": 2,
+        "domain_terms": [
+          "cup",
+          "水杯",
+          "杯子",
+          "kitchen",
+          "anchor_kitchen_table_1",
+          "table",
+          "kitchen_table_viewpoint",
+          "厨房餐桌",
+          "厨房",
+          "桌子",
+          "餐桌",
+          "living_room",
+          "anchor_living_side_table_1",
+          "living_side_table_viewpoint",
+          "客厅边桌",
+          "客厅",
+          "living room"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "tokenized_query": "[REDACTED]"
+      },
+      "ranking_reasons": [
+        "bm25_dense_rrf_fusion",
+        "metadata_guardrail"
+      ],
+      "retrieval_query": {
+        "excluded_location_keys": [],
+        "excluded_memory_ids": [
+          "mem-cup-1"
+        ],
+        "location_terms": [
+          "厨房",
+          "kitchen"
+        ],
+        "query_text": "水杯 (cup) 在厨房",
+        "reason": null,
+        "source_filter": [
+          "object_memory"
+        ],
+        "target_aliases": [
+          "水杯",
+          "杯子",
+          "cup"
+        ],
+        "target_category": null,
+        "top_k": 5
+      },
+      "retrieval_summary": "returned 1 hits and 1 excluded"
+    },
+    "planning_notes": [
+      "没有可靠执行记忆；Stage 05 should plan exploratory search/observe steps.",
+      "weak memory leads for exploration: 水杯 厨房"
+    ],
+    "rejected_hits": [
+      {
+        "aliases": [
+          "水杯"
+        ],
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "belief_state": "stale",
+        "bm25_score": 0.20683912932872772,
+        "canonical_metadata": {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "stale",
+          "confidence_level": "low",
+          "display_text": "客厅边桌",
+          "document_text_hash": "ae2e6e538fc84b173b4284ee8812981b933e5bad387b491d0e018b374da378e4",
+          "last_confirmed_at": "2026-04-01T10:00:00Z",
+          "memory_id": "mem-cup-2",
+          "object_category": "cup",
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "viewpoint_id": "living_side_table_viewpoint"
+        },
+        "confidence_level": "low",
+        "dense_score": 0.0,
+        "display_text": "客厅边桌",
+        "document_id": "object_memory:mem-cup-2",
+        "executable": true,
+        "final_score": 0.13225806451612904,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-01T10:00:00Z",
+        "memory_id": "mem-cup-2",
+        "metadata_score": 0.1,
+        "object_category": "cup",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_stale_penalty"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "living_room",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: low。记忆状态: stale。最近确认时间: 2026-04-01T10:00:00Z。",
+        "viewpoint_id": "living_side_table_viewpoint"
+      }
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [
+        "mem-cup-1"
+      ],
+      "location_terms": [
+        "厨房",
+        "kitchen"
+      ],
+      "query_text": "水杯 (cup) 在厨房",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "水杯",
+        "杯子",
+        "cup"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "runtime_state_summary": {
+      "grounding_reason": "only weak memory leads available; planner should explore/search",
+      "grounding_status": "ungrounded",
+      "needs_exploratory_search": true
+    },
+    "selected_target": null,
+    "task_card": {
+      "clarification_question": null,
+      "confidence": 0.9,
+      "delivery_target": "user",
+      "location_hint": "厨房",
+      "needs_clarification": false,
+      "success_criteria": [
+        "后续观察可以验证任务是否完成"
+      ],
+      "target": "水杯",
+      "task_type": "fetch_object"
+    },
+    "world_summary": {
+      "anchors": [
+        {
+          "anchor_id": "anchor_kitchen_table_1",
+          "display_text": "厨房餐桌",
+          "room_id": "kitchen",
+          "viewpoint_id": "kitchen_table_viewpoint"
+        },
+        {
+          "anchor_id": "anchor_living_side_table_1",
+          "display_text": "客厅边桌",
+          "room_id": "living_room",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "room_ids": [
+        "kitchen",
+        "living_room"
+      ],
+      "viewpoint_ids": [
+        "kitchen_table_viewpoint",
+        "living_side_table_viewpoint"
+      ]
+    }
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.9,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "后续观察可以验证任务是否完成"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  },
+  "world_path": "data/scenarios/object_not_found/world.json"
+}

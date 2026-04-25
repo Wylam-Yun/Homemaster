@@ -1,0 +1,7 @@
+{
+  "expected_grounding_status": "ungrounded",
+  "expected_selected_memory_id": null,
+  "force_empty_hits": true,
+  "stage_03_case": "cup_object_memory_rag",
+  "world_path": "data/scenarios/fetch_cup_retry/world.json"
+}
