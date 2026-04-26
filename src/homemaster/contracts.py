@@ -402,16 +402,206 @@ class RecoveryDecision(ContractModel):
         return [item.strip() for item in value if item.strip()]
 
 
+EvidenceType = Literal[
+    "verification_result",
+    "failure_record",
+    "skill_result",
+    "observation",
+    "selected_target",
+    "trace_event",
+]
+
+
+class EvidenceRef(ContractModel):
+    evidence_id: str
+    evidence_type: EvidenceType
+    source_id: str
+    subtask_id: str | None = None
+    memory_id: str | None = None
+    location_key: str | None = None
+    created_at: str
+    summary: str
+
+    @field_validator("evidence_id", "source_id", "created_at", "summary")
+    @classmethod
+    def _strip_required_evidence_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("evidence text fields must not be blank")
+        return value
+
+    @field_validator("subtask_id", "memory_id", "location_key")
+    @classmethod
+    def _strip_optional_evidence_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class EvidenceBundle(ContractModel):
+    task_id: str
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    verified_facts: list[str] = Field(default_factory=list)
+    failure_facts: list[str] = Field(default_factory=list)
+    system_failures: list[str] = Field(default_factory=list)
+    negative_evidence: list[dict[str, Any]] = Field(default_factory=list)
+
+    @field_validator("task_id")
+    @classmethod
+    def _strip_task_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("task_id must not be blank")
+        return value
+
+    @field_validator("verified_facts", "failure_facts", "system_failures")
+    @classmethod
+    def _strip_bundle_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+
+class ObjectMemoryUpdate(ContractModel):
+    memory_id: str
+    update_type: Literal["confirm", "mark_stale", "mark_contradicted"]
+    updated_fields: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[EvidenceRef] = Field(min_length=1)
+    reason: str
+
+    @field_validator("memory_id", "reason")
+    @classmethod
+    def _strip_required_object_update_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("object memory update text fields must not be blank")
+        return value
+
+
+class FactMemoryWrite(ContractModel):
+    fact_id: str
+    fact_type: Literal[
+        "object_seen",
+        "object_not_seen",
+        "operation_failed",
+        "delivery_verified",
+        "verification_failed",
+        "user_preference",
+        "system_event",
+    ]
+    polarity: Literal["positive", "negative", "neutral"]
+    target: str | None = None
+    location: dict[str, Any] = Field(default_factory=dict)
+    time_scope: str = "task_run"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    text: str
+    evidence_refs: list[EvidenceRef] = Field(min_length=1)
+    expires_at: str | None = None
+    stale_after: str | None = None
+    searchable: bool = False
+
+    @field_validator("fact_id", "time_scope", "text")
+    @classmethod
+    def _strip_required_fact_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("fact memory text fields must not be blank")
+        return value
+
+    @field_validator("target", "expires_at", "stale_after")
+    @classmethod
+    def _strip_optional_fact_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("searchable")
+    @classmethod
+    def _searchable_must_be_false(cls, value: bool) -> bool:
+        if value:
+            raise ValueError("Stage 06 fact/event memory is not searchable yet")
+        return False
+
+
 class TaskSummary(ContractModel):
     result: Literal["success", "failed", "needs_user"]
     confirmed_facts: list[str] = Field(default_factory=list)
     unconfirmed_facts: list[str] = Field(default_factory=list)
     recovery_attempts: list[str] = Field(default_factory=list)
     user_reply: str | None = None
+    failure_summary: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "confirmed_facts",
+        "unconfirmed_facts",
+        "recovery_attempts",
+        "evidence_refs",
+    )
+    @classmethod
+    def _strip_summary_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+    @field_validator("user_reply", "failure_summary")
+    @classmethod
+    def _strip_optional_summary_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class TaskRecord(ContractModel):
+    task_id: str
+    task_card: TaskCard
+    summary: TaskSummary
+    result: Literal["success", "failed", "needs_user"]
+    started_at: str | None = None
+    completed_at: str | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    failure_record_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("task_id")
+    @classmethod
+    def _strip_task_record_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("task_id must not be blank")
+        return value
+
+    @field_validator("started_at", "completed_at")
+    @classmethod
+    def _strip_optional_task_record_time(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("failure_record_ids")
+    @classmethod
+    def _strip_task_record_failure_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
 
 
 class MemoryCommitPlan(ContractModel):
-    object_memory_updates: list[dict[str, Any]] = Field(default_factory=list)
+    commit_id: str | None = None
+    object_memory_updates: list[ObjectMemoryUpdate] = Field(default_factory=list)
+    fact_memory_writes: list[FactMemoryWrite] = Field(default_factory=list)
+    task_record: TaskRecord | None = None
     negative_evidence: list[dict[str, Any]] = Field(default_factory=list)
-    task_record_note: str | None = None
+    skipped_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    index_stale_memory_ids: list[str] = Field(default_factory=list)
     skipped: bool = False
+
+    @field_validator("commit_id")
+    @classmethod
+    def _strip_optional_commit_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("index_stale_memory_ids")
+    @classmethod
+    def _strip_index_stale_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]

@@ -1,0 +1,773 @@
+{
+  "attempts": [
+    {
+      "attempt": 1,
+      "json_payload": {
+        "confirmed_facts": [],
+        "evidence_refs": [
+          "verification:stage06-object-not-found:1",
+          "skill_result:stage06-object-not-found:1:navigation",
+          "observation:stage06-object-not-found:1",
+          "failure:failure-object-not-found",
+          "trace_event:stage06-object-not-found"
+        ],
+        "failure_summary": "水杯在厨房餐桌未找到。",
+        "recovery_attempts": [],
+        "result": "failed",
+        "unconfirmed_facts": [
+          "厨房餐桌没有观察到水杯"
+        ],
+        "user_reply": "水杯在厨房餐桌没有找到。"
+      },
+      "passed": true,
+      "prompt": "你是 HomeMaster V1.2 的 Stage06 任务总结组件。\n\n目标：只根据输入证据生成 TaskSummary JSON，给用户和开发者阅读。\n你不负责长期记忆写回，不能决定 object_memory 或 fact_memory 写什么。\n\n必须只输出一个 JSON object。\n不要输出 Markdown。\n不要输出解释。\n不要输出代码块。\n不要输出思考过程。\n不要编造没有证据的成功结果。\n不要编造 evidence_refs，只能引用 EvidenceBundle 里已有的 evidence_id。\n\nTaskSummary schema:\n{\n  \"result\": \"success | failed | needs_user\",\n  \"confirmed_facts\": [\"由验证证据支持的事实\"],\n  \"unconfirmed_facts\": [\"没有被验证或失败的事实\"],\n  \"recovery_attempts\": [\"发生过的恢复尝试，没有则 []\"],\n  \"user_reply\": \"给用户看的简短回复或 null\",\n  \"failure_summary\": \"失败摘要或 null\",\n  \"evidence_refs\": [\"引用 EvidenceBundle.evidence_refs 中的 evidence_id\"]\n}\n\nTaskCard:\n{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\n    \"后续观察可以验证任务是否完成\"\n  ],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}\n\nExecutionState:\n{\n  \"task_status\": \"failed\",\n  \"current_subtask_id\": null,\n  \"subtasks\": [\n    {\n      \"subtask_id\": \"find_cup\",\n      \"status\": \"failed\",\n      \"depends_on\": [],\n      \"attempt_count\": 0,\n      \"last_started_at\": null,\n      \"last_completed_at\": null,\n      \"last_skill\": null,\n      \"last_observation\": null,\n      \"last_verification_result\": null,\n      \"failure_record_ids\": []\n    }\n  ],\n  \"held_object\": null,\n  \"target_object_visible\": false,\n  \"target_object_location\": null,\n  \"user_location\": null,\n  \"current_location\": null,\n  \"last_observation\": null,\n  \"last_skill_call\": null,\n  \"last_skill_result\": null,\n  \"last_verification_result\": null,\n  \"failure_record_ids\": [\n    \"failure-object-not-found\"\n  ],\n  \"negative_evidence\": [],\n  \"retry_counts\": {},\n  \"completed_subtask_ids\": []\n}\n\nEvidenceBundle:\n{\n  \"task_id\": \"stage06-object-not-found\",\n  \"evidence_refs\": [\n    {\n      \"evidence_id\": \"verification:stage06-object-not-found:1\",\n      \"evidence_type\": \"verification_result\",\n      \"source_id\": \"verification-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"厨房餐桌没有观察到水杯\"\n    },\n    {\n      \"evidence_id\": \"skill_result:stage06-object-not-found:1:navigation\",\n      \"evidence_type\": \"skill_result\",\n      \"source_id\": \"skill-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"navigation success\"\n    },\n    {\n      \"evidence_id\": \"observation:stage06-object-not-found:1\",\n      \"evidence_type\": \"observation\",\n      \"source_id\": \"skill-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"observation: target not visible\"\n    },\n    {\n      \"evidence_id\": \"failure:failure-object-not-found\",\n      \"evidence_type\": \"failure_record\",\n      \"source_id\": \"failure-object-not-found\",\n      \"subtask_id\": \"find_cup\",\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"厨房餐桌没有观察到水杯\"\n    },\n    {\n      \"evidence_id\": \"trace_event:stage06-object-not-found\",\n      \"evidence_type\": \"trace_event\",\n      \"source_id\": \"stage06-object-not-found\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"cup not visible\"\n    }\n  ],\n  \"verified_facts\": [],\n  \"failure_facts\": [\n    \"厨房餐桌没有观察到水杯\",\n    \"厨房餐桌没有观察到水杯\"\n  ],\n  \"system_failures\": [],\n  \"negative_evidence\": [\n    {\n      \"memory_id\": \"mem-cup-1\",\n      \"location_key\": \"kitchen:anchor_kitchen_table_1\",\n      \"reason\": \"not_visible\",\n      \"failure_record_id\": \"failure-object-not-found\",\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"stale_after\": \"2026-05-03T00:00:00Z\"\n    }\n  ]\n}\n\n只输出 JSON object:",
+      "provider": {
+        "attempts": [
+          {
+            "elapsed_ms": 29914.59254200163,
+            "key_index": 1,
+            "status_code": 200
+          }
+        ],
+        "elapsed_ms": 29914.59254200163,
+        "model": "mimo-v2-pro",
+        "protocol": "anthropic",
+        "provider_name": "Mimo"
+      },
+      "raw_response": "{\n  \"result\": \"failed\",\n  \"confirmed_facts\": [],\n  \"unconfirmed_facts\": [\"厨房餐桌没有观察到水杯\"],\n  \"recovery_attempts\": [],\n  \"user_reply\": \"水杯在厨房餐桌没有找到。\",\n  \"failure_summary\": \"水杯在厨房餐桌未找到。\",\n  \"evidence_refs\": [\"verification:stage06-object-not-found:1\", \"skill_result:stage06-object-not-found:1:navigation\", \"observation:stage06-object-not-found:1\", \"failure:failure-object-not-found\", \"trace_event:stage06-object-not-found\"]\n}",
+      "summary": {
+        "confirmed_facts": [],
+        "evidence_refs": [
+          "verification:stage06-object-not-found:1",
+          "skill_result:stage06-object-not-found:1:navigation",
+          "observation:stage06-object-not-found:1",
+          "failure:failure-object-not-found",
+          "trace_event:stage06-object-not-found"
+        ],
+        "failure_summary": "水杯在厨房餐桌未找到。",
+        "recovery_attempts": [],
+        "result": "failed",
+        "unconfirmed_facts": [
+          "厨房餐桌没有观察到水杯"
+        ],
+        "user_reply": "水杯在厨房餐桌没有找到。"
+      }
+    }
+  ],
+  "case_name": "object_not_found_summary_memory_live",
+  "checks": {
+    "all_fact_memory_non_searchable": true,
+    "commit_has_id": true,
+    "does_not_create_new_object_memory": true,
+    "has_negative_fact": true,
+    "negative_evidence_has_failure_record": true,
+    "summary_failed": true,
+    "summary_has_evidence_refs": true,
+    "task_record_written": true
+  },
+  "evidence_bundle": {
+    "evidence_refs": [
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "evidence_id": "verification:stage06-object-not-found:1",
+        "evidence_type": "verification_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "verification-1",
+        "subtask_id": null,
+        "summary": "厨房餐桌没有观察到水杯"
+      },
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "evidence_id": "skill_result:stage06-object-not-found:1:navigation",
+        "evidence_type": "skill_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-1",
+        "subtask_id": null,
+        "summary": "navigation success"
+      },
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "evidence_id": "observation:stage06-object-not-found:1",
+        "evidence_type": "observation",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-1",
+        "subtask_id": null,
+        "summary": "observation: target not visible"
+      },
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "evidence_id": "failure:failure-object-not-found",
+        "evidence_type": "failure_record",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "failure-object-not-found",
+        "subtask_id": "find_cup",
+        "summary": "厨房餐桌没有观察到水杯"
+      },
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "evidence_id": "trace_event:stage06-object-not-found",
+        "evidence_type": "trace_event",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "stage06-object-not-found",
+        "subtask_id": null,
+        "summary": "cup not visible"
+      }
+    ],
+    "failure_facts": [
+      "厨房餐桌没有观察到水杯",
+      "厨房餐桌没有观察到水杯"
+    ],
+    "negative_evidence": [
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "failure_record_id": "failure-object-not-found",
+        "location_key": "kitchen:anchor_kitchen_table_1",
+        "memory_id": "mem-cup-1",
+        "reason": "not_visible",
+        "stale_after": "2026-05-03T00:00:00Z"
+      }
+    ],
+    "system_failures": [],
+    "task_id": "stage06-object-not-found",
+    "verified_facts": []
+  },
+  "input": {
+    "base_memory_path": "/Users/wylam/Documents/workspace/HomeMaster/data/scenarios/fetch_cup_retry/memory.json",
+    "execution_state": {
+      "completed_subtask_ids": [],
+      "current_location": null,
+      "current_subtask_id": null,
+      "failure_record_ids": [
+        "failure-object-not-found"
+      ],
+      "held_object": null,
+      "last_observation": null,
+      "last_skill_call": null,
+      "last_skill_result": null,
+      "last_verification_result": null,
+      "negative_evidence": [],
+      "retry_counts": {},
+      "subtasks": [
+        {
+          "attempt_count": 0,
+          "depends_on": [],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": null,
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": null,
+          "status": "failed",
+          "subtask_id": "find_cup"
+        }
+      ],
+      "target_object_location": null,
+      "target_object_visible": false,
+      "task_status": "failed",
+      "user_location": null
+    },
+    "failure_records": [
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "event_memory_candidate": null,
+        "failed_reason": "厨房餐桌没有观察到水杯",
+        "failure_id": "failure-object-not-found",
+        "failure_type": "object_not_found",
+        "negative_evidence": [
+          {
+            "location_key": "kitchen:anchor_kitchen_table_1",
+            "memory_id": "mem-cup-1",
+            "reason": "not_visible"
+          }
+        ],
+        "observation": null,
+        "retry_count": 0,
+        "skill": "navigation",
+        "skill_input": {},
+        "skill_output": {},
+        "subtask_id": "find_cup",
+        "subtask_intent": "找到水杯",
+        "verification_result": null
+      }
+    ],
+    "orchestration_plan": {
+      "confidence": 0.8,
+      "goal": "寻找水杯",
+      "subtasks": [
+        {
+          "anchor_hint": null,
+          "depends_on": [],
+          "id": "find_cup",
+          "intent": "找到水杯",
+          "recipient": null,
+          "room_hint": null,
+          "success_criteria": [
+            "看到水杯"
+          ],
+          "target_object": "水杯"
+        }
+      ]
+    },
+    "planning_context": {
+      "memory_evidence": {
+        "embedding_provider": {
+          "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+          "model": "BAAI/bge-m3",
+          "provider_name": "MemoryEmbedding"
+        },
+        "excluded": [],
+        "hits": [
+          {
+            "aliases": [
+              "水杯",
+              "杯子"
+            ],
+            "anchor_id": "anchor_kitchen_table_1",
+            "anchor_type": "table",
+            "belief_state": "confirmed",
+            "bm25_score": 0.5871412754058838,
+            "canonical_metadata": {
+              "aliases": [
+                "水杯",
+                "杯子"
+              ],
+              "anchor_id": "anchor_kitchen_table_1",
+              "anchor_type": "table",
+              "belief_state": "confirmed",
+              "confidence_level": "high",
+              "display_text": "厨房餐桌",
+              "document_text_hash": "4c3fb877f13a22c5a2e4924487333c7a484154120633c4fe536d668a5043e35b",
+              "last_confirmed_at": "2026-04-19T11:00:00Z",
+              "memory_id": "mem-cup-1",
+              "object_category": "cup",
+              "room_id": "kitchen",
+              "source_type": "object_memory",
+              "viewpoint_id": "kitchen_table_viewpoint"
+            },
+            "confidence_level": "high",
+            "dense_score": 0.0,
+            "display_text": "厨房餐桌",
+            "document_id": "object_memory:mem-cup-1",
+            "executable": true,
+            "final_score": 0.4827868852459016,
+            "invalid_reason": null,
+            "last_confirmed_at": "2026-04-19T11:00:00Z",
+            "memory_id": "mem-cup-1",
+            "metadata_score": 0.44999999999999996,
+            "object_category": "cup",
+            "ranking_reasons": [
+              "bm25_rank=1",
+              "dense_rank=1",
+              "metadata_target_alias_match",
+              "metadata_location_match",
+              "metadata_high_confidence"
+            ],
+            "ranking_stage": "bm25_dense_fusion",
+            "rerank_score": null,
+            "reranker_model": null,
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯、杯子。历史位置: 厨房餐桌。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: kitchen_table_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-19T11:00:00Z。",
+            "viewpoint_id": "kitchen_table_viewpoint"
+          },
+          {
+            "aliases": [
+              "水杯"
+            ],
+            "anchor_id": "anchor_pantry_shelf_1",
+            "anchor_type": "shelf",
+            "belief_state": "confirmed",
+            "bm25_score": 0.2824892997741699,
+            "canonical_metadata": {
+              "aliases": [
+                "水杯"
+              ],
+              "anchor_id": "anchor_pantry_shelf_1",
+              "anchor_type": "shelf",
+              "belief_state": "confirmed",
+              "confidence_level": "medium",
+              "display_text": "储物间搁架",
+              "document_text_hash": "0ce6d751065a83d42507903b864669875ac1077ccf68007227c057c650b11a6d",
+              "last_confirmed_at": "2026-04-16T11:00:00Z",
+              "memory_id": "mem-cup-2",
+              "object_category": "cup",
+              "room_id": "pantry",
+              "source_type": "object_memory",
+              "viewpoint_id": "pantry_shelf_viewpoint"
+            },
+            "confidence_level": "medium",
+            "dense_score": 0.0,
+            "display_text": "储物间搁架",
+            "document_id": "object_memory:mem-cup-2",
+            "executable": true,
+            "final_score": 0.282258064516129,
+            "invalid_reason": null,
+            "last_confirmed_at": "2026-04-16T11:00:00Z",
+            "memory_id": "mem-cup-2",
+            "metadata_score": 0.25,
+            "object_category": "cup",
+            "ranking_reasons": [
+              "bm25_rank=2",
+              "dense_rank=2",
+              "metadata_target_alias_match",
+              "metadata_medium_confidence"
+            ],
+            "ranking_stage": "bm25_dense_fusion",
+            "rerank_score": null,
+            "reranker_model": null,
+            "room_id": "pantry",
+            "source_type": "object_memory",
+            "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 储物间搁架。房间: pantry。房间别名: 储物间、pantry。锚点类型: shelf。锚点别名: 搁架、架子、shelf。可观察视角: pantry_shelf_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-16T11:00:00Z。",
+            "viewpoint_id": "pantry_shelf_viewpoint"
+          }
+        ],
+        "index_snapshot": {
+          "document_count": 2,
+          "domain_terms": [
+            "cup",
+            "水杯",
+            "杯子",
+            "kitchen",
+            "anchor_kitchen_table_1",
+            "table",
+            "kitchen_table_viewpoint",
+            "厨房餐桌",
+            "厨房",
+            "桌子",
+            "餐桌",
+            "pantry",
+            "anchor_pantry_shelf_1",
+            "shelf",
+            "pantry_shelf_viewpoint",
+            "储物间搁架",
+            "储物间",
+            "搁架",
+            "架子"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "tokenized_query": "[REDACTED]"
+        },
+        "ranking_reasons": [
+          "bm25_dense_rrf_fusion",
+          "metadata_guardrail"
+        ],
+        "retrieval_query": {
+          "excluded_location_keys": [],
+          "excluded_memory_ids": [],
+          "location_terms": [
+            "厨房"
+          ],
+          "query_text": "水杯，杯子，厨房，water cup",
+          "reason": null,
+          "source_filter": [
+            "object_memory"
+          ],
+          "target_aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "target_category": null,
+          "top_k": 5
+        },
+        "retrieval_summary": "returned 2 hits and 0 excluded"
+      },
+      "planning_notes": [
+        "grounded reliable memory target is available for Stage 05 planning"
+      ],
+      "rejected_hits": [],
+      "retrieval_query": {
+        "excluded_location_keys": [],
+        "excluded_memory_ids": [],
+        "location_terms": [
+          "厨房"
+        ],
+        "query_text": "水杯，杯子，厨房，water cup",
+        "reason": null,
+        "source_filter": [
+          "object_memory"
+        ],
+        "target_aliases": [
+          "水杯",
+          "杯子"
+        ],
+        "target_category": null,
+        "top_k": 5
+      },
+      "runtime_state_summary": {
+        "grounding_reason": "selected first reliable executable memory hit",
+        "grounding_status": "grounded",
+        "needs_exploratory_search": false
+      },
+      "selected_target": {
+        "anchor_id": "anchor_kitchen_table_1",
+        "display_text": "厨房餐桌",
+        "evidence": {
+          "canonical_metadata": {
+            "aliases": [
+              "水杯",
+              "杯子"
+            ],
+            "anchor_id": "anchor_kitchen_table_1",
+            "anchor_type": "table",
+            "belief_state": "confirmed",
+            "confidence_level": "high",
+            "display_text": "厨房餐桌",
+            "document_text_hash": "4c3fb877f13a22c5a2e4924487333c7a484154120633c4fe536d668a5043e35b",
+            "last_confirmed_at": "2026-04-19T11:00:00Z",
+            "memory_id": "mem-cup-1",
+            "object_category": "cup",
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "viewpoint_id": "kitchen_table_viewpoint"
+          },
+          "document_id": "object_memory:mem-cup-1",
+          "final_score": 0.4827868852459016,
+          "ranking_reasons": [
+            "bm25_rank=1",
+            "dense_rank=1",
+            "metadata_target_alias_match",
+            "metadata_location_match",
+            "metadata_high_confidence"
+          ],
+          "reliability": {
+            "document_id": "object_memory:mem-cup-1",
+            "memory_id": "mem-cup-1",
+            "needs_exploratory_search": false,
+            "reasons": [
+              "reliable_execution_memory"
+            ],
+            "status": "reliable",
+            "suggested_search_hint": null
+          },
+          "source": "canonical_metadata"
+        },
+        "executable": true,
+        "invalid_reason": null,
+        "memory_id": "mem-cup-1",
+        "room_id": "kitchen",
+        "viewpoint_id": "kitchen_table_viewpoint"
+      },
+      "task_card": {
+        "clarification_question": null,
+        "confidence": 0.9,
+        "delivery_target": "user",
+        "location_hint": "厨房",
+        "needs_clarification": false,
+        "success_criteria": [
+          "后续观察可以验证任务是否完成"
+        ],
+        "target": "水杯",
+        "task_type": "fetch_object"
+      },
+      "world_summary": {
+        "anchors": [
+          {
+            "anchor_id": "anchor_kitchen_table_1",
+            "display_text": "厨房餐桌",
+            "room_id": "kitchen",
+            "viewpoint_id": "kitchen_table_viewpoint"
+          },
+          {
+            "anchor_id": "anchor_pantry_shelf_1",
+            "display_text": "储物间搁架",
+            "room_id": "pantry",
+            "viewpoint_id": "pantry_shelf_viewpoint"
+          }
+        ],
+        "room_ids": [
+          "kitchen",
+          "pantry"
+        ],
+        "viewpoint_ids": [
+          "kitchen_table_viewpoint",
+          "pantry_shelf_viewpoint"
+        ]
+      }
+    },
+    "skill_results": [
+      {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "target_object_location": "厨房餐桌",
+          "target_object_visible": false
+        },
+        "runtime_state_delta": {},
+        "skill": "navigation",
+        "skill_output": {},
+        "status": "success"
+      }
+    ],
+    "task_id": "stage06-object-not-found",
+    "trace_events": [
+      {
+        "event_id": "stage06-object-not-found",
+        "summary": "cup not visible"
+      }
+    ],
+    "verification_results": [
+      {
+        "confidence": 0.82,
+        "failed_reason": "厨房餐桌没有观察到水杯",
+        "missing_evidence": [
+          "未看到水杯"
+        ],
+        "passed": false,
+        "scope": "subtask",
+        "verified_facts": []
+      }
+    ]
+  },
+  "memory_commit_plan": {
+    "commit_id": "commit:stage06-object-not-found",
+    "fact_memory_writes": [
+      {
+        "confidence": 0.8,
+        "evidence_refs": [
+          {
+            "created_at": "2026-04-26T00:00:00Z",
+            "evidence_id": "failure:failure-object-not-found",
+            "evidence_type": "failure_record",
+            "location_key": null,
+            "memory_id": null,
+            "source_id": "failure-object-not-found",
+            "subtask_id": "find_cup",
+            "summary": "厨房餐桌没有观察到水杯"
+          }
+        ],
+        "expires_at": null,
+        "fact_id": "fact:stage06-object-not-found:object-not-seen",
+        "fact_type": "object_not_seen",
+        "location": {
+          "anchor_id": "anchor_kitchen_table_1",
+          "display_text": "厨房餐桌",
+          "memory_id": "mem-cup-1",
+          "room_id": "kitchen",
+          "viewpoint_id": "kitchen_table_viewpoint"
+        },
+        "polarity": "negative",
+        "searchable": false,
+        "stale_after": "2026-05-03T00:01:00Z",
+        "target": "水杯",
+        "text": "本次任务中，在厨房餐桌没有观察到水杯。",
+        "time_scope": "task_run"
+      }
+    ],
+    "index_stale_memory_ids": [
+      "mem-cup-1"
+    ],
+    "negative_evidence": [
+      {
+        "created_at": "2026-04-26T00:00:00Z",
+        "failure_record_id": "failure-object-not-found",
+        "location_key": "kitchen:anchor_kitchen_table_1",
+        "memory_id": "mem-cup-1",
+        "reason": "not_visible",
+        "stale_after": "2026-05-03T00:00:00Z"
+      }
+    ],
+    "object_memory_updates": [
+      {
+        "evidence_refs": [
+          {
+            "created_at": "2026-04-26T00:00:00Z",
+            "evidence_id": "failure:failure-object-not-found",
+            "evidence_type": "failure_record",
+            "location_key": null,
+            "memory_id": null,
+            "source_id": "failure-object-not-found",
+            "subtask_id": "find_cup",
+            "summary": "厨房餐桌没有观察到水杯"
+          }
+        ],
+        "memory_id": "mem-cup-1",
+        "reason": "本次任务在对应位置未观察到目标物",
+        "update_type": "mark_stale",
+        "updated_fields": {
+          "belief_state": "stale"
+        }
+      }
+    ],
+    "skipped": false,
+    "skipped_candidates": [],
+    "task_record": {
+      "completed_at": "2026-04-26T00:01:00Z",
+      "evidence_refs": [
+        {
+          "created_at": "2026-04-26T00:00:00Z",
+          "evidence_id": "verification:stage06-object-not-found:1",
+          "evidence_type": "verification_result",
+          "location_key": null,
+          "memory_id": null,
+          "source_id": "verification-1",
+          "subtask_id": null,
+          "summary": "厨房餐桌没有观察到水杯"
+        },
+        {
+          "created_at": "2026-04-26T00:00:00Z",
+          "evidence_id": "skill_result:stage06-object-not-found:1:navigation",
+          "evidence_type": "skill_result",
+          "location_key": null,
+          "memory_id": null,
+          "source_id": "skill-1",
+          "subtask_id": null,
+          "summary": "navigation success"
+        },
+        {
+          "created_at": "2026-04-26T00:00:00Z",
+          "evidence_id": "observation:stage06-object-not-found:1",
+          "evidence_type": "observation",
+          "location_key": null,
+          "memory_id": null,
+          "source_id": "skill-1",
+          "subtask_id": null,
+          "summary": "observation: target not visible"
+        },
+        {
+          "created_at": "2026-04-26T00:00:00Z",
+          "evidence_id": "failure:failure-object-not-found",
+          "evidence_type": "failure_record",
+          "location_key": null,
+          "memory_id": null,
+          "source_id": "failure-object-not-found",
+          "subtask_id": "find_cup",
+          "summary": "厨房餐桌没有观察到水杯"
+        },
+        {
+          "created_at": "2026-04-26T00:00:00Z",
+          "evidence_id": "trace_event:stage06-object-not-found",
+          "evidence_type": "trace_event",
+          "location_key": null,
+          "memory_id": null,
+          "source_id": "stage06-object-not-found",
+          "subtask_id": null,
+          "summary": "cup not visible"
+        },
+        {
+          "created_at": "2026-04-26T00:01:00Z",
+          "evidence_id": "selected_target:mem-cup-1",
+          "evidence_type": "selected_target",
+          "location_key": "kitchen:anchor_kitchen_table_1",
+          "memory_id": "mem-cup-1",
+          "source_id": "mem-cup-1",
+          "subtask_id": null,
+          "summary": "Stage04 selected reliable target mem-cup-1"
+        }
+      ],
+      "failure_record_ids": [
+        "failure-object-not-found"
+      ],
+      "result": "failed",
+      "started_at": "2026-04-26T00:00:00Z",
+      "summary": {
+        "confirmed_facts": [],
+        "evidence_refs": [
+          "verification:stage06-object-not-found:1",
+          "skill_result:stage06-object-not-found:1:navigation",
+          "observation:stage06-object-not-found:1",
+          "failure:failure-object-not-found",
+          "trace_event:stage06-object-not-found"
+        ],
+        "failure_summary": "水杯在厨房餐桌未找到。",
+        "recovery_attempts": [],
+        "result": "failed",
+        "unconfirmed_facts": [
+          "厨房餐桌没有观察到水杯"
+        ],
+        "user_reply": "水杯在厨房餐桌没有找到。"
+      },
+      "task_card": {
+        "clarification_question": null,
+        "confidence": 0.9,
+        "delivery_target": "user",
+        "location_hint": "厨房",
+        "needs_clarification": false,
+        "success_criteria": [
+          "后续观察可以验证任务是否完成"
+        ],
+        "target": "水杯",
+        "task_type": "fetch_object"
+      },
+      "task_id": "stage06-object-not-found"
+    }
+  },
+  "parsed_json": {
+    "confirmed_facts": [],
+    "evidence_refs": [
+      "verification:stage06-object-not-found:1",
+      "skill_result:stage06-object-not-found:1:navigation",
+      "observation:stage06-object-not-found:1",
+      "failure:failure-object-not-found",
+      "trace_event:stage06-object-not-found"
+    ],
+    "failure_summary": "水杯在厨房餐桌未找到。",
+    "recovery_attempts": [],
+    "result": "failed",
+    "unconfirmed_facts": [
+      "厨房餐桌没有观察到水杯"
+    ],
+    "user_reply": "水杯在厨房餐桌没有找到。"
+  },
+  "passed": true,
+  "persistence": {
+    "commit_log": {
+      "commit_id": "commit:stage06-object-not-found",
+      "fact_memory_write_count": 1,
+      "index_stale_memory_ids": [
+        "mem-cup-1"
+      ],
+      "object_memory_path": "/private/var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/pytest-of-wylam/pytest-14/test_stage_06_live_summary_mem2/memory/object_memory.json",
+      "object_memory_update_count": 1,
+      "skipped_candidates": [],
+      "task_id": "stage06-object-not-found",
+      "task_record_written": true
+    },
+    "fact_memory_write_count": 1,
+    "object_memory_path": "/private/var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/pytest-of-wylam/pytest-14/test_stage_06_live_summary_mem2/memory/object_memory.json",
+    "task_record_write_count": 1
+  },
+  "provider": {
+    "attempts": [
+      {
+        "elapsed_ms": 29914.59254200163,
+        "key_index": 1,
+        "status_code": 200
+      }
+    ],
+    "elapsed_ms": 29914.59254200163,
+    "model": "mimo-v2-pro",
+    "protocol": "anthropic",
+    "provider_name": "Mimo"
+  },
+  "raw_response": "{\n  \"result\": \"failed\",\n  \"confirmed_facts\": [],\n  \"unconfirmed_facts\": [\"厨房餐桌没有观察到水杯\"],\n  \"recovery_attempts\": [],\n  \"user_reply\": \"水杯在厨房餐桌没有找到。\",\n  \"failure_summary\": \"水杯在厨房餐桌未找到。\",\n  \"evidence_refs\": [\"verification:stage06-object-not-found:1\", \"skill_result:stage06-object-not-found:1:navigation\", \"observation:stage06-object-not-found:1\", \"failure:failure-object-not-found\", \"trace_event:stage06-object-not-found\"]\n}",
+  "summary_prompt": "你是 HomeMaster V1.2 的 Stage06 任务总结组件。\n\n目标：只根据输入证据生成 TaskSummary JSON，给用户和开发者阅读。\n你不负责长期记忆写回，不能决定 object_memory 或 fact_memory 写什么。\n\n必须只输出一个 JSON object。\n不要输出 Markdown。\n不要输出解释。\n不要输出代码块。\n不要输出思考过程。\n不要编造没有证据的成功结果。\n不要编造 evidence_refs，只能引用 EvidenceBundle 里已有的 evidence_id。\n\nTaskSummary schema:\n{\n  \"result\": \"success | failed | needs_user\",\n  \"confirmed_facts\": [\"由验证证据支持的事实\"],\n  \"unconfirmed_facts\": [\"没有被验证或失败的事实\"],\n  \"recovery_attempts\": [\"发生过的恢复尝试，没有则 []\"],\n  \"user_reply\": \"给用户看的简短回复或 null\",\n  \"failure_summary\": \"失败摘要或 null\",\n  \"evidence_refs\": [\"引用 EvidenceBundle.evidence_refs 中的 evidence_id\"]\n}\n\nTaskCard:\n{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\n    \"后续观察可以验证任务是否完成\"\n  ],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}\n\nExecutionState:\n{\n  \"task_status\": \"failed\",\n  \"current_subtask_id\": null,\n  \"subtasks\": [\n    {\n      \"subtask_id\": \"find_cup\",\n      \"status\": \"failed\",\n      \"depends_on\": [],\n      \"attempt_count\": 0,\n      \"last_started_at\": null,\n      \"last_completed_at\": null,\n      \"last_skill\": null,\n      \"last_observation\": null,\n      \"last_verification_result\": null,\n      \"failure_record_ids\": []\n    }\n  ],\n  \"held_object\": null,\n  \"target_object_visible\": false,\n  \"target_object_location\": null,\n  \"user_location\": null,\n  \"current_location\": null,\n  \"last_observation\": null,\n  \"last_skill_call\": null,\n  \"last_skill_result\": null,\n  \"last_verification_result\": null,\n  \"failure_record_ids\": [\n    \"failure-object-not-found\"\n  ],\n  \"negative_evidence\": [],\n  \"retry_counts\": {},\n  \"completed_subtask_ids\": []\n}\n\nEvidenceBundle:\n{\n  \"task_id\": \"stage06-object-not-found\",\n  \"evidence_refs\": [\n    {\n      \"evidence_id\": \"verification:stage06-object-not-found:1\",\n      \"evidence_type\": \"verification_result\",\n      \"source_id\": \"verification-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"厨房餐桌没有观察到水杯\"\n    },\n    {\n      \"evidence_id\": \"skill_result:stage06-object-not-found:1:navigation\",\n      \"evidence_type\": \"skill_result\",\n      \"source_id\": \"skill-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"navigation success\"\n    },\n    {\n      \"evidence_id\": \"observation:stage06-object-not-found:1\",\n      \"evidence_type\": \"observation\",\n      \"source_id\": \"skill-1\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"observation: target not visible\"\n    },\n    {\n      \"evidence_id\": \"failure:failure-object-not-found\",\n      \"evidence_type\": \"failure_record\",\n      \"source_id\": \"failure-object-not-found\",\n      \"subtask_id\": \"find_cup\",\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"厨房餐桌没有观察到水杯\"\n    },\n    {\n      \"evidence_id\": \"trace_event:stage06-object-not-found\",\n      \"evidence_type\": \"trace_event\",\n      \"source_id\": \"stage06-object-not-found\",\n      \"subtask_id\": null,\n      \"memory_id\": null,\n      \"location_key\": null,\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"summary\": \"cup not visible\"\n    }\n  ],\n  \"verified_facts\": [],\n  \"failure_facts\": [\n    \"厨房餐桌没有观察到水杯\",\n    \"厨房餐桌没有观察到水杯\"\n  ],\n  \"system_failures\": [],\n  \"negative_evidence\": [\n    {\n      \"memory_id\": \"mem-cup-1\",\n      \"location_key\": \"kitchen:anchor_kitchen_table_1\",\n      \"reason\": \"not_visible\",\n      \"failure_record_id\": \"failure-object-not-found\",\n      \"created_at\": \"2026-04-26T00:00:00Z\",\n      \"stale_after\": \"2026-05-03T00:00:00Z\"\n    }\n  ]\n}\n\n只输出 JSON object:",
+  "task_summary": {
+    "confirmed_facts": [],
+    "evidence_refs": [
+      "verification:stage06-object-not-found:1",
+      "skill_result:stage06-object-not-found:1:navigation",
+      "observation:stage06-object-not-found:1",
+      "failure:failure-object-not-found",
+      "trace_event:stage06-object-not-found"
+    ],
+    "failure_summary": "水杯在厨房餐桌未找到。",
+    "recovery_attempts": [],
+    "result": "failed",
+    "unconfirmed_facts": [
+      "厨房餐桌没有观察到水杯"
+    ],
+    "user_reply": "水杯在厨房餐桌没有找到。"
+  }
+}
