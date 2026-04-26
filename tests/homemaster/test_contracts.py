@@ -5,14 +5,12 @@ import json
 import pytest
 from pydantic import ValidationError
 
+import homemaster.contracts as contracts
 from homemaster.contracts import (
-    CandidatePool,
-    CandidateSelection,
     GroundedMemoryTarget,
     MemoryRetrievalHit,
     MemoryRetrievalQuery,
     MemoryRetrievalResult,
-    ObjectMemorySearchPlan,
     OrchestrationPlan,
     PlanningContext,
     RecoveryDecision,
@@ -172,13 +170,30 @@ def test_orchestration_and_recovery_accept_new_grounded_target_fields() -> None:
     assert decoded_decision.action == "switch_target"
 
 
-def test_deprecated_contract_shells_remain_compatible() -> None:
-    search_plan = ObjectMemorySearchPlan(target_category="cup", location_hint="厨房")
-    pool = CandidatePool()
-    selection = CandidateSelection(selected_candidate_id="candidate_cup_1")
-    decision = RecoveryDecision(action="switch_candidate", next_candidate_id="candidate_cup_2")
+def test_homemaster_contracts_do_not_expose_legacy_candidate_contracts() -> None:
+    for name in (
+        "ObjectMemorySearchPlan",
+        "ObjectMemoryEvidence",
+        "Candidate",
+        "CandidatePool",
+        "CandidateSelection",
+    ):
+        assert not hasattr(contracts, name)
 
-    assert search_plan.target_category == "cup"
-    assert CandidatePool.model_validate_json(pool.model_dump_json()) == pool
-    assert selection.selected_candidate_id == "candidate_cup_1"
-    assert decision.next_candidate_id == "candidate_cup_2"
+
+def test_orchestration_plan_rejects_selected_candidate_id() -> None:
+    with pytest.raises(ValidationError):
+        OrchestrationPlan(goal="取水杯", selected_candidate_id="candidate_cup_1")
+
+
+def test_recovery_decision_rejects_switch_candidate() -> None:
+    with pytest.raises(ValidationError):
+        RecoveryDecision(action="switch_candidate", next_candidate_id="candidate_cup_2")
+
+
+def test_old_task_brain_candidate_baseline_still_imports() -> None:
+    from task_brain.domain import RuntimeState
+
+    state = RuntimeState(selected_candidate_id="mem-cup-1")
+
+    assert state.selected_candidate_id == "mem-cup-1"

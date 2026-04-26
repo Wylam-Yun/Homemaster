@@ -17,7 +17,7 @@
         "location_hint": null,
         "needs_clarification": true,
         "success_criteria": [
-          "目标物被确认存在或不存在"
+          "确认指定物品的存在状态"
         ],
         "target": "unknown_object",
         "task_type": "unknown"
@@ -27,17 +27,17 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 22825.17412499965,
+            "elapsed_ms": 26213.925583000673,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 22825.17412499965,
+        "elapsed_ms": 26213.925583000673,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\n  \"task_type\": \"unknown\",\n  \"target\": \"unknown_object\",\n  \"delivery_target\": null,\n  \"location_hint\": null,\n  \"success_criteria\": [\"目标物被确认存在或不存在\"],\n  \"needs_clarification\": true,\n  \"clarification_question\": \"请问您想确认哪个物品？\",\n  \"confidence\": 0.3\n}",
+      "raw_text": "{\n  \"task_type\": \"unknown\",\n  \"target\": \"unknown_object\",\n  \"delivery_target\": null,\n  \"location_hint\": null,\n  \"success_criteria\": [\"确认指定物品的存在状态\"],\n  \"needs_clarification\": true,\n  \"clarification_question\": \"请问您想确认哪个物品？\",\n  \"confidence\": 0.3\n}",
       "task_card": {
         "clarification_question": "请问您想确认哪个物品？",
         "confidence": 0.3,
@@ -45,7 +45,7 @@
         "location_hint": null,
         "needs_clarification": true,
         "success_criteria": [
-          "目标物被确认存在或不存在"
+          "确认指定物品的存在状态"
         ],
         "target": "unknown_object",
         "task_type": "unknown"
@@ -74,7 +74,7 @@
     "location_hint": null,
     "needs_clarification": true,
     "success_criteria": [
-      "目标物被确认存在或不存在"
+      "确认指定物品的存在状态"
     ],
     "target": "unknown_object",
     "task_type": "unknown"
@@ -83,17 +83,17 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 22825.17412499965,
+        "elapsed_ms": 26213.925583000673,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 22825.17412499965,
+    "elapsed_ms": 26213.925583000673,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\n  \"task_type\": \"unknown\",\n  \"target\": \"unknown_object\",\n  \"delivery_target\": null,\n  \"location_hint\": null,\n  \"success_criteria\": [\"目标物被确认存在或不存在\"],\n  \"needs_clarification\": true,\n  \"clarification_question\": \"请问您想确认哪个物品？\",\n  \"confidence\": 0.3\n}",
+  "raw_text": "{\n  \"task_type\": \"unknown\",\n  \"target\": \"unknown_object\",\n  \"delivery_target\": null,\n  \"location_hint\": null,\n  \"success_criteria\": [\"确认指定物品的存在状态\"],\n  \"needs_clarification\": true,\n  \"clarification_question\": \"请问您想确认哪个物品？\",\n  \"confidence\": 0.3\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": "请问您想确认哪个物品？",
@@ -102,7 +102,7 @@
     "location_hint": null,
     "needs_clarification": true,
     "success_criteria": [
-      "目标物被确认存在或不存在"
+      "确认指定物品的存在状态"
     ],
     "target": "unknown_object",
     "task_type": "unknown"

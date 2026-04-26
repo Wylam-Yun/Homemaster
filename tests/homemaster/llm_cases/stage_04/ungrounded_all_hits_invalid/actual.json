@@ -288,7 +288,7 @@
       "location_terms": [
         "厨房"
       ],
-      "query_text": "水杯 杯子 厨房 water cup",
+      "query_text": "水杯，杯子，厨房，water cup",
       "reason": null,
       "source_filter": [
         "object_memory"
@@ -452,7 +452,7 @@
         "location_terms": [
           "厨房"
         ],
-        "query_text": "水杯 杯子 厨房 water cup",
+        "query_text": "水杯，杯子，厨房，water cup",
         "reason": null,
         "source_filter": [
           "object_memory"
@@ -580,7 +580,7 @@
       "location_terms": [
         "厨房"
       ],
-      "query_text": "水杯 杯子 厨房 water cup",
+      "query_text": "水杯，杯子，厨房，water cup",
       "reason": null,
       "source_filter": [
         "object_memory"

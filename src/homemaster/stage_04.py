@@ -85,7 +85,7 @@ def stage_04_case_expectations() -> dict[str, dict[str, Any]]:
             "stage_03_case": "medicine_object_memory_rag",
             "world_path": "data/scenarios/check_medicine_success/world.json",
             "expected_grounding_status": "grounded",
-            "expected_selected_memory_id": "mem-medicine-1",
+            "expected_selected_memory_id": "mem-medicine-2",
         },
         "ground_negative_evidence_target": {
             "stage_03_case": "negative_evidence_excludes_location",

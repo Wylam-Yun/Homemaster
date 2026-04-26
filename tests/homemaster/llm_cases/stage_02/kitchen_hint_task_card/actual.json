@@ -17,7 +17,7 @@
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "观察到水杯在厨房"
+          "验证水杯是否在厨房"
         ],
         "target": "水杯",
         "task_type": "check_presence"
@@ -27,17 +27,17 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 12702.615749999495,
+            "elapsed_ms": 16110.564624999824,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 12702.615749999495,
+        "elapsed_ms": 16110.564624999824,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"水杯\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"观察到水杯在厨房\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"水杯\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"验证水杯是否在厨房\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
       "task_card": {
         "clarification_question": null,
         "confidence": 0.95,
@@ -45,7 +45,7 @@
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "观察到水杯在厨房"
+          "验证水杯是否在厨房"
         ],
         "target": "水杯",
         "task_type": "check_presence"
@@ -74,7 +74,7 @@
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "观察到水杯在厨房"
+      "验证水杯是否在厨房"
     ],
     "target": "水杯",
     "task_type": "check_presence"
@@ -83,17 +83,17 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 12702.615749999495,
+        "elapsed_ms": 16110.564624999824,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 12702.615749999495,
+    "elapsed_ms": 16110.564624999824,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"水杯\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"观察到水杯在厨房\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"水杯\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"验证水杯是否在厨房\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
@@ -102,7 +102,7 @@
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "观察到水杯在厨房"
+      "验证水杯是否在厨房"
     ],
     "target": "水杯",
     "task_type": "check_presence"

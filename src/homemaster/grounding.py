@@ -22,6 +22,11 @@ ROOM_HINTS: dict[str, tuple[str, ...]] = {
     "pantry": ("储物间", "pantry"),
 }
 
+ANCHOR_HINTS: dict[str, tuple[str, ...]] = {
+    "table": ("桌", "桌子", "餐桌", "边桌", "table"),
+    "cabinet": ("柜", "柜子", "药柜", "橱柜", "cabinet"),
+}
+
 
 @dataclass(frozen=True)
 class ReliabilityAssessment:
@@ -102,6 +107,8 @@ def assess_hit_reliability(
 
     if _location_conflicts(task_card, hit):
         weak_reasons.append("location_conflict")
+    if _anchor_hint_conflicts(task_card, hit):
+        weak_reasons.append("anchor_hint_conflict")
 
     if (hit.confidence_level or "").casefold() == "low":
         weak_reasons.append("low_confidence")
@@ -231,6 +238,18 @@ def _location_conflicts(task_card: TaskCard, hit: MemoryRetrievalHit) -> bool:
     return hit.room_id != expected_room
 
 
+def _anchor_hint_conflicts(task_card: TaskCard, hit: MemoryRetrievalHit) -> bool:
+    expected_anchor = _expected_anchor_from_hint(task_card.location_hint)
+    if expected_anchor is None:
+        return False
+    hit_anchor = _hit_anchor_text(hit)
+    if expected_anchor == "table":
+        return "table" not in hit_anchor and "桌" not in hit_anchor
+    if expected_anchor == "cabinet":
+        return "cabinet" not in hit_anchor and "柜" not in hit_anchor
+    return False
+
+
 def _expected_room_from_hint(location_hint: str | None) -> str | None:
     if not location_hint:
         return None
@@ -239,6 +258,29 @@ def _expected_room_from_hint(location_hint: str | None) -> str | None:
         if any(term.casefold() in hint for term in terms):
             return room_id
     return None
+
+
+def _expected_anchor_from_hint(location_hint: str | None) -> str | None:
+    if not location_hint:
+        return None
+    hint = location_hint.casefold()
+    for anchor_type, terms in ANCHOR_HINTS.items():
+        if any(term.casefold() in hint for term in terms):
+            return anchor_type
+    return None
+
+
+def _hit_anchor_text(hit: MemoryRetrievalHit) -> str:
+    return " ".join(
+        str(value or "").casefold()
+        for value in (
+            hit.anchor_type,
+            hit.anchor_id,
+            hit.display_text,
+            hit.canonical_metadata.get("anchor_type"),
+            hit.canonical_metadata.get("display_text"),
+        )
+    )
 
 
 def _suggested_search_hint(

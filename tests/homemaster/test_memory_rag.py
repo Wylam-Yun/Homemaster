@@ -9,8 +9,10 @@ import pytest
 from pydantic import ValidationError
 
 from homemaster.contracts import MemoryRetrievalQuery, TaskCard
+from homemaster.llm_client import LLMProviderResponseError
 from homemaster.memory_rag import (
     MemoryRagBoundaryError,
+    MemoryRagError,
     build_memory_retrieval_query_prompt,
     run_memory_rag,
 )
@@ -44,6 +46,23 @@ class StaticQueryProvider:
     def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         self.prompt = prompt
         return self.query, self.raw_response, {"provider_name": "Mimo", "model": "mimo-v2-pro"}
+
+
+@dataclass
+class SequencedQueryProvider:
+    responses: list[object]
+    prompts: list[str] | None = None
+
+    def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
+        if self.prompts is None:
+            self.prompts = []
+        self.prompts.append(prompt)
+        item = self.responses.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        if isinstance(item, MemoryRetrievalQuery):
+            return item, item.model_dump_json(), {"provider_name": "Mimo", "model": "mimo-v2-pro"}
+        raise TypeError(f"unsupported test response: {item!r}")
 
 
 @dataclass
@@ -176,6 +195,127 @@ def test_query_boundary_rejects_model_excluded_ids_not_in_runtime_evidence(
         )
 
     assert exc_info.value.error_type == "query_boundary_error"
+
+
+def test_stage_03_retries_query_generation_after_invalid_json(tmp_path: Path) -> None:
+    query_provider = SequencedQueryProvider(
+        responses=[
+            LLMProviderResponseError(
+                error_type="response_not_json_object",
+                message="model output did not contain a JSON object",
+                raw_content="不是 JSON",
+            ),
+            MemoryRetrievalQuery(
+                query_text="厨房 水杯 cup",
+                target_category="cup",
+                target_aliases=["水杯", "cup"],
+                location_terms=["厨房"],
+            ),
+        ],
+    )
+
+    result = run_memory_rag(
+        _task_card(),
+        memory_path=Path("data/scenarios/fetch_cup_retry/memory.json"),
+        case_name="retry_after_invalid_json",
+        query_provider=query_provider,
+        embedding_provider=KeywordEmbedder(),
+        llm_provider=_provider(),
+        case_root=tmp_path / "cases",
+        results_dir=tmp_path / "results",
+    )
+
+    assert result.passed is True
+    assert query_provider.prompts is not None
+    assert len(query_provider.prompts) == 2
+    assert "上一次输出没有通过 MemoryRetrievalQuery 校验" in query_provider.prompts[1]
+    actual = json.loads((result.case_dir / "actual.json").read_text(encoding="utf-8"))
+    assert actual["query_attempt_count"] == 2
+    assert actual["query_attempts"][0]["passed"] is False
+    assert actual["query_attempts"][1]["passed"] is True
+
+
+def test_stage_03_writes_fail_debug_assets_when_query_generation_fails_twice(
+    tmp_path: Path,
+) -> None:
+    query_provider = SequencedQueryProvider(
+        responses=[
+            LLMProviderResponseError(
+                error_type="response_not_json_object",
+                message="model output did not contain a JSON object",
+                raw_content="第一次不是 JSON",
+            ),
+            LLMProviderResponseError(
+                error_type="response_not_json_object",
+                message="model output did not contain a JSON object",
+                raw_content="第二次还是不是 JSON",
+            ),
+        ],
+    )
+    case_root = tmp_path / "cases"
+
+    with pytest.raises(MemoryRagError) as exc_info:
+        run_memory_rag(
+            _task_card(),
+            memory_path=Path("data/scenarios/fetch_cup_retry/memory.json"),
+            case_name="query_generation_fail",
+            query_provider=query_provider,
+            embedding_provider=KeywordEmbedder(),
+            llm_provider=_provider(),
+            case_root=case_root,
+            results_dir=tmp_path / "results",
+        )
+
+    assert exc_info.value.error_type == "response_not_json_object"
+    actual_path = case_root / "query_generation_fail" / "actual.json"
+    report_path = case_root / "query_generation_fail" / "result.md"
+    assert actual_path.is_file()
+    assert report_path.is_file()
+    actual = json.loads(actual_path.read_text(encoding="utf-8"))
+    report = report_path.read_text(encoding="utf-8")
+    assert actual["passed"] is False
+    assert actual["query_attempt_count"] == 2
+    assert "第一次不是 JSON" in report
+    assert "第二次还是不是 JSON" in report
+    assert "Status: FAIL" in report
+
+
+def test_stage_03_retries_after_query_boundary_error(tmp_path: Path) -> None:
+    query_provider = SequencedQueryProvider(
+        responses=[
+            MemoryRetrievalQuery(
+                query_text="厨房 水杯 cup",
+                target_category="cup",
+                target_aliases=["水杯", "cup"],
+                location_terms=["厨房"],
+                excluded_memory_ids=["mem-cup-1"],
+            ),
+            MemoryRetrievalQuery(
+                query_text="厨房 水杯 cup",
+                target_category="cup",
+                target_aliases=["水杯", "cup"],
+                location_terms=["厨房"],
+            ),
+        ],
+    )
+
+    result = run_memory_rag(
+        _task_card(),
+        memory_path=Path("data/scenarios/fetch_cup_retry/memory.json"),
+        case_name="retry_after_boundary_error",
+        query_provider=query_provider,
+        embedding_provider=KeywordEmbedder(),
+        llm_provider=_provider(),
+        case_root=tmp_path / "cases",
+        results_dir=tmp_path / "results",
+    )
+
+    assert result.passed is True
+    assert query_provider.prompts is not None
+    assert len(query_provider.prompts) == 2
+    actual = json.loads((result.case_dir / "actual.json").read_text(encoding="utf-8"))
+    assert actual["query_attempts"][0]["error_type"] == "query_boundary_error"
+    assert actual["query_attempts"][1]["passed"] is True
 
 
 def test_source_filter_rejects_non_object_memory_at_schema_boundary() -> None:

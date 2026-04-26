@@ -107,7 +107,7 @@ TaskCard schema:
   "target": "unknown_object",
   "delivery_target": null,
   "location_hint": null,
-  "success_criteria": ["目标物被确认存在或不存在"],
+  "success_criteria": ["确认指定物品的存在状态"],
   "needs_clarification": true,
   "clarification_question": "请问您想确认哪个物品？",
   "confidence": 0.3
@@ -124,7 +124,7 @@ TaskCard schema:
   "location_hint": null,
   "needs_clarification": true,
   "success_criteria": [
-    "目标物被确认存在或不存在"
+    "确认指定物品的存在状态"
   ],
   "target": "unknown_object",
   "task_type": "unknown"
@@ -141,7 +141,7 @@ TaskCard schema:
   "location_hint": null,
   "needs_clarification": true,
   "success_criteria": [
-    "目标物被确认存在或不存在"
+    "确认指定物品的存在状态"
   ],
   "target": "unknown_object",
   "task_type": "unknown"
@@ -171,7 +171,7 @@ TaskCard schema:
   "location_hint": null,
   "needs_clarification": true,
   "success_criteria": [
-    "目标物被确认存在或不存在"
+    "确认指定物品的存在状态"
   ],
   "target": "unknown_object",
   "task_type": "unknown"

@@ -16,7 +16,7 @@
         "anchor_id": "anchor_kitchen_cabinet_1",
         "anchor_type": "cabinet",
         "belief_state": "confirmed",
-        "bm25_score": 0.43699416518211365,
+        "bm25_score": 0.31477493047714233,
         "canonical_metadata": {
           "aliases": [
             "药盒",
@@ -36,7 +36,7 @@
           "viewpoint_id": "kitchen_cabinet_viewpoint"
         },
         "confidence_level": "high",
-        "dense_score": 0.6576476155589809,
+        "dense_score": 0.691463205593678,
         "display_text": "厨房药柜",
         "document_id": "object_memory:mem-medicine-1",
         "executable": true,
@@ -67,7 +67,7 @@
         "anchor_id": "anchor_living_side_table_1",
         "anchor_type": "table",
         "belief_state": "confirmed",
-        "bm25_score": 0.705785870552063,
+        "bm25_score": 0.5536638498306274,
         "canonical_metadata": {
           "aliases": [
             "药盒"
@@ -86,7 +86,7 @@
           "viewpoint_id": "living_side_table_viewpoint"
         },
         "confidence_level": "medium",
-        "dense_score": 0.6810574673155294,
+        "dense_score": 0.7041529775162785,
         "display_text": "客厅边桌",
         "document_id": "object_memory:mem-medicine-2",
         "executable": true,
@@ -149,16 +149,15 @@
       "location_terms": [
         "桌子那边"
       ],
-      "query_text": "药盒在桌子那边，medicine box, pill box",
+      "query_text": "药盒，药物盒，药箱，pill box，桌子那边",
       "reason": null,
       "source_filter": [
         "object_memory"
       ],
       "target_aliases": [
         "药盒",
-        "药品盒",
-        "medicine box",
-        "pill box"
+        "药物盒",
+        "药箱"
       ],
       "target_category": null,
       "top_k": 5

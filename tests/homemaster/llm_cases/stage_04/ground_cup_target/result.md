@@ -228,7 +228,7 @@ Status: PASS
     "confidence": 0.9
   },
   "retrieval_query": {
-    "query_text": "水杯 杯子 厨房 water cup",
+    "query_text": "水杯，杯子，厨房，water cup",
     "target_category": null,
     "target_aliases": [
       "水杯",
@@ -353,7 +353,7 @@ Status: PASS
     ],
     "excluded": [],
     "retrieval_query": {
-      "query_text": "水杯 杯子 厨房 water cup",
+      "query_text": "水杯，杯子，厨房，water cup",
       "target_category": null,
       "target_aliases": [
         "水杯",

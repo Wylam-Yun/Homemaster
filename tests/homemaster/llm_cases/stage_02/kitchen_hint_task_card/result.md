@@ -108,7 +108,7 @@ TaskCard schema:
   "target": "水杯",
   "delivery_target": null,
   "location_hint": "厨房",
-  "success_criteria": ["观察到水杯在厨房"],
+  "success_criteria": ["验证水杯是否在厨房"],
   "needs_clarification": false,
   "clarification_question": null,
   "confidence": 0.95
@@ -125,7 +125,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "观察到水杯在厨房"
+    "验证水杯是否在厨房"
   ],
   "target": "水杯",
   "task_type": "check_presence"
@@ -142,7 +142,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "观察到水杯在厨房"
+    "验证水杯是否在厨房"
   ],
   "target": "水杯",
   "task_type": "check_presence"
@@ -172,7 +172,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "观察到水杯在厨房"
+    "验证水杯是否在厨房"
   ],
   "target": "水杯",
   "task_type": "check_presence"

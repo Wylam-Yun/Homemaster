@@ -71,8 +71,57 @@ def test_ground_medicine_target() -> None:
 
     assert result.grounding_status == "grounded"
     assert result.selected_target is not None
-    assert result.selected_target.memory_id == "mem-medicine-1"
+    assert result.selected_target.memory_id == "mem-medicine-2"
     assert result.selected_target.evidence["source"] == "canonical_metadata"
+
+
+def test_anchor_hint_conflict_becomes_weak_lead() -> None:
+    task_card = _task_card_from_stage_03("medicine_object_memory_rag")
+    hit = _memory_result_from_stage_03("medicine_object_memory_rag").hits[0]
+
+    assessment = assess_hit_reliability(
+        task_card,
+        hit,
+        _world("check_medicine_success"),
+        set(),
+    )
+
+    assert assessment.status == "weak_lead"
+    assert "anchor_hint_conflict" in assessment.reasons
+
+
+def test_medicine_table_hint_does_not_select_cabinet() -> None:
+    task_card = _task_card_from_stage_03("medicine_object_memory_rag")
+    memory_result = _memory_result_from_stage_03("medicine_object_memory_rag")
+
+    result = select_grounded_target(
+        task_card,
+        memory_result,
+        _world("check_medicine_success"),
+    )
+
+    assert result.selected_target is not None
+    assert result.selected_target.memory_id == "mem-medicine-2"
+    assert result.rejected_hits[0].memory_id == "mem-medicine-1"
+    assert "anchor_hint_conflict" in result.assessments[0].reasons
+
+
+def test_grounding_can_select_second_hit_when_anchor_matches_hint() -> None:
+    task_card = _task_card_from_stage_03("medicine_object_memory_rag")
+    memory_result = _memory_result_from_stage_03("medicine_object_memory_rag")
+    weak_cabinet = memory_result.hits[0]
+    table_second = memory_result.hits[1]
+    patched_result = memory_result.model_copy(update={"hits": [weak_cabinet, table_second]})
+
+    result = select_grounded_target(
+        task_card,
+        patched_result,
+        _world("check_medicine_success"),
+    )
+
+    assert result.grounding_status == "grounded"
+    assert result.selected_target is not None
+    assert result.selected_target.memory_id == "mem-medicine-2"
 
 
 def test_skip_invalid_viewpoint_hit() -> None:

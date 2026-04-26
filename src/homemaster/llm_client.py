@@ -118,7 +118,12 @@ class RawJsonLLMClient:
                 )
                 continue
 
-            content = self._extract_content(response)
+            try:
+                content = self._extract_content(response)
+            except LLMProviderResponseError as exc:
+                last_raw_content = exc.raw_content or _response_preview(response)
+                errors.append(f"key#{key_index}:{exc.error_type}")
+                continue
             last_raw_content = content
             try:
                 payload = extract_json_payload(content)
@@ -192,11 +197,13 @@ class RawJsonLLMClient:
             raise LLMProviderResponseError(
                 error_type="response_not_json",
                 message="provider response body is not JSON",
+                raw_content=_response_preview(response),
             ) from exc
 
+        raw_content = _json_preview(body)
         if self._provider.protocol == "anthropic":
-            return _extract_anthropic_content(body)
-        return _extract_openai_content(body)
+            return _extract_anthropic_content(body, raw_content=raw_content)
+        return _extract_openai_content(body, raw_content=raw_content)
 
 
 def extract_json_payload(content: str) -> dict[str, Any]:
@@ -232,7 +239,7 @@ def extract_json_payload(content: str) -> dict[str, Any]:
     return payload
 
 
-def _extract_anthropic_content(body: dict[str, Any]) -> str:
+def _extract_anthropic_content(body: dict[str, Any], *, raw_content: str) -> str:
     content = body.get("content")
     if isinstance(content, str):
         return content.strip()
@@ -245,21 +252,14 @@ def _extract_anthropic_content(body: dict[str, Any]) -> str:
         text = "\n".join(part for part in parts if part).strip()
         if text:
             return text
-        thinking_parts = [
-            item.get("thinking", "")
-            for item in content
-            if isinstance(item, dict) and item.get("type") == "thinking"
-        ]
-        thinking = "\n".join(part for part in thinking_parts if part).strip()
-        if thinking:
-            return thinking
     raise LLMProviderResponseError(
         error_type="response_missing_text",
         message="anthropic response missing textual content",
+        raw_content=raw_content,
     )
 
 
-def _extract_openai_content(body: dict[str, Any]) -> str:
+def _extract_openai_content(body: dict[str, Any], *, raw_content: str) -> str:
     choices = body.get("choices")
     if isinstance(choices, list) and choices:
         message = choices[0].get("message")
@@ -270,6 +270,7 @@ def _extract_openai_content(body: dict[str, Any]) -> str:
     raise LLMProviderResponseError(
         error_type="response_missing_text",
         message="openai response missing textual content",
+        raw_content=raw_content,
     )
 
 
@@ -294,3 +295,18 @@ def _extract_error_message(response: httpx.Response) -> str:
 def _sanitize_error_text(value: str) -> str:
     compact = " ".join(value.split())
     return compact[:240] if compact else "unknown error"
+
+
+def _response_preview(response: httpx.Response) -> str:
+    try:
+        return _json_preview(response.json())
+    except ValueError:
+        return _sanitize_error_text(response.text)
+
+
+def _json_preview(value: Any) -> str:
+    try:
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        encoded = str(value)
+    return _sanitize_error_text(encoded)

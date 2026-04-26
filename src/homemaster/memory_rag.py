@@ -46,6 +46,11 @@ STAGE_03_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_03"
 STAGE_03_CASE_ROOT = LLM_CASE_ROOT / "stage_03"
 DEFAULT_EMBEDDING_PROVIDER_NAME = "MemoryEmbedding"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
+MEMORY_QUERY_RETRY_INSTRUCTION = """上一次输出没有通过 MemoryRetrievalQuery 校验。
+请修正为严格 JSON object，只包含 MemoryRetrievalQuery schema 中列出的字段。
+不要添加额外字段。
+source_filter 必须是 ["object_memory"]。
+excluded_memory_ids 和 excluded_location_keys 只能来自 runtime negative evidence。"""
 
 
 class MemoryRagError(RuntimeError):
@@ -214,8 +219,75 @@ def run_memory_rag(
     expected_payload = expected or minimal_stage_03_expectation(case_name=case_name)
 
     prompt = build_memory_retrieval_query_prompt(task_card, negative_evidence=negative_evidence)
-    query, raw_response, query_provider_summary = query_provider.generate_query(prompt)
-    _validate_query_boundaries(query, negative_evidence or {})
+    query_attempts: list[dict[str, Any]] = []
+    query_provider_summary: dict[str, Any] = llm_provider.public_summary()
+    query: MemoryRetrievalQuery | None = None
+    raw_response = ""
+    last_error_type = "query_generation_failed"
+    last_error_message = "query generation failed"
+
+    for attempt_index in range(1, 3):
+        attempt_prompt = _memory_query_attempt_prompt(prompt, attempt_index)
+        attempt: dict[str, Any] = {
+            "attempt": attempt_index,
+            "prompt": attempt_prompt,
+            "passed": False,
+        }
+        try:
+            query, raw_response, query_provider_summary = query_provider.generate_query(
+                attempt_prompt
+            )
+            _validate_query_boundaries(query, negative_evidence or {})
+            attempt.update(
+                {
+                    "passed": True,
+                    "raw_response": raw_response,
+                    "retrieval_query": query.model_dump(mode="json"),
+                    "query_provider": query_provider_summary,
+                }
+            )
+            query_attempts.append(attempt)
+            break
+        except (LLMClientError, MemoryRagBoundaryError) as exc:
+            query = None
+            last_error_type = getattr(exc, "error_type", type(exc).__name__)
+            last_error_message = str(exc)
+            raw_response = getattr(exc, "raw_content", None) or ""
+            attempt.update(
+                {
+                    "passed": False,
+                    "raw_response": raw_response,
+                    "error_type": last_error_type,
+                    "message": last_error_message,
+                    "query_provider": query_provider_summary,
+                }
+            )
+            query_attempts.append(attempt)
+
+    if query is None:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        actual = _stage_03_failure_actual(
+            case_name=case_name,
+            task_card=task_card,
+            query_provider=query_provider_summary,
+            embedding_provider=embedding_provider.public_summary(),
+            prompt=prompt,
+            raw_response=raw_response,
+            query_attempts=query_attempts,
+            error_type=last_error_type,
+            message=last_error_message,
+            elapsed_ms=elapsed_ms,
+        )
+        _write_stage_03_assets(
+            case_dir=case_dir,
+            results_dir=results_dir,
+            expected=expected_payload,
+            actual=actual,
+            status="FAIL",
+        )
+        if last_error_type == "query_boundary_error":
+            raise MemoryRagBoundaryError(error_type=last_error_type, message=last_error_message)
+        raise MemoryRagError(error_type=last_error_type, message=last_error_message)
 
     domain_terms = build_domain_terms_from_object_memory(memory_payload)
     tokenizer = JiebaMemoryTokenizer(domain_terms=domain_terms)
@@ -263,6 +335,8 @@ def run_memory_rag(
         "embedding_provider": embedding_provider.public_summary(),
         "prompt": prompt,
         "raw_response": raw_response,
+        "query_attempt_count": len(query_attempts),
+        "query_attempts": query_attempts,
         "retrieval_query": query.model_dump(mode="json"),
         "memory_documents": [
             {
@@ -416,6 +490,48 @@ def minimal_stage_03_expectation(*, case_name: str) -> dict[str, Any]:
             "returns MemoryRetrievalResult",
             "hits include score breakdown",
         ],
+    }
+
+
+def _memory_query_attempt_prompt(prompt: str, attempt_index: int) -> str:
+    if attempt_index == 1:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{MEMORY_QUERY_RETRY_INSTRUCTION}\n"
+
+
+def _stage_03_failure_actual(
+    *,
+    case_name: str,
+    task_card: TaskCard,
+    query_provider: dict[str, Any],
+    embedding_provider: dict[str, Any],
+    prompt: str,
+    raw_response: str,
+    query_attempts: list[dict[str, Any]],
+    error_type: str,
+    message: str,
+    elapsed_ms: float,
+) -> dict[str, Any]:
+    return {
+        "case_name": case_name,
+        "passed": False,
+        "task_card": task_card.model_dump(mode="json"),
+        "query_provider": query_provider,
+        "embedding_provider": embedding_provider,
+        "prompt": prompt,
+        "raw_response": raw_response,
+        "query_attempt_count": len(query_attempts),
+        "query_attempts": query_attempts,
+        "retrieval_query": None,
+        "memory_documents": [],
+        "tokenized_query": [],
+        "bm25_hits": [],
+        "dense_hits": [],
+        "memory_result": None,
+        "checks": {},
+        "error_type": error_type,
+        "message": message,
+        "elapsed_ms": elapsed_ms,
     }
 
 
@@ -740,6 +856,12 @@ Embedding Provider: {actual["embedding_provider"]}
 
 ```text
 {actual["raw_response"]}
+```
+
+## Query Attempts
+
+```json
+{json.dumps(actual.get("query_attempts", []), ensure_ascii=False, indent=2)}
 ```
 
 ## Parsed MemoryRetrievalQuery

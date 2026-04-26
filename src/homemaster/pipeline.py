@@ -24,6 +24,9 @@ from homemaster.runtime import (
 from homemaster.trace import append_jsonl_event, write_json
 
 DEFAULT_STAGE_01_UTTERANCE = "去桌子那边看看药盒是不是还在。"
+STAGE_01_RETRY_INSTRUCTION = """上一次输出没有通过 TaskCard 校验。
+请修正为严格 JSON object，只包含 TaskCard schema 中列出的字段。
+不要添加额外字段。"""
 
 
 class Stage01SmokeError(RuntimeError):
@@ -107,30 +110,75 @@ def run_stage_01_contract_smoke(
     write_json(case_dir / "expected.json", expected)
 
     llm_client = RawJsonLLMClient(provider, client=client)
+    attempts: list[dict[str, Any]] = []
     try:
-        response = llm_client.complete_json(prompt, max_tokens=max_tokens, temperature=0.0)
-        task_card = TaskCard.model_validate(response.json_payload)
-        checks = validate_stage_01_task_card(task_card)
-        passed = all(checks.values())
-        actual = {
-            "provider": response.public_summary(),
-            "raw_text": response.content,
-            "json_payload": response.json_payload,
-            "task_card": task_card.model_dump(mode="json"),
-            "checks": checks,
-            "passed": passed,
-        }
-        _write_success_assets(
-            case_dir=case_dir,
-            results_dir=results_dir,
-            provider=provider,
-            utterance=utterance,
-            prompt=prompt,
-            expected=expected,
-            actual=actual,
-            passed=passed,
-        )
-    except (LLMClientError, ValidationError, ValueError) as exc:
+        for attempt_index in range(1, 3):
+            attempt_prompt = _stage_01_attempt_prompt(prompt, attempt_index)
+            attempt: dict[str, Any] = {
+                "attempt": attempt_index,
+                "prompt": attempt_prompt,
+                "passed": False,
+            }
+            try:
+                response = llm_client.complete_json(
+                    attempt_prompt,
+                    max_tokens=max_tokens,
+                    temperature=0.0,
+                )
+                task_card = TaskCard.model_validate(response.json_payload)
+                checks = validate_stage_01_task_card(task_card)
+                passed = all(checks.values())
+                attempt.update(
+                    {
+                        "provider": response.public_summary(),
+                        "raw_text": response.content,
+                        "json_payload": response.json_payload,
+                        "task_card": task_card.model_dump(mode="json"),
+                        "checks": checks,
+                        "passed": passed,
+                    }
+                )
+                if not passed:
+                    attempt["error_type"] = "contract_check_failed"
+                    attempt["message"] = "TaskCard did not satisfy Stage 01 expected checks."
+                attempts.append(attempt)
+                if passed:
+                    actual = _stage_01_actual_from_attempt(
+                        attempt,
+                        attempts=attempts,
+                        passed=True,
+                    )
+                    _write_success_assets(
+                        case_dir=case_dir,
+                        results_dir=results_dir,
+                        provider=provider,
+                        utterance=utterance,
+                        prompt=prompt,
+                        expected=expected,
+                        actual=actual,
+                        passed=True,
+                    )
+                    return Stage01SmokeResult(
+                        passed=True,
+                        provider=provider.public_summary(),
+                        task_card=task_card,
+                        checks=checks,
+                        case_dir=case_dir,
+                        results_dir=results_dir,
+                        elapsed_ms=response.elapsed_ms,
+                    )
+            except (LLMClientError, ValidationError, ValueError) as exc:
+                attempt.update(
+                    {
+                        "passed": False,
+                        "error_type": getattr(exc, "error_type", type(exc).__name__),
+                        "message": str(exc),
+                        "raw_text": getattr(exc, "raw_content", None) or "",
+                    }
+                )
+                attempts.append(attempt)
+
+        final_attempt = attempts[-1] if attempts else {}
         _write_failure_assets(
             case_dir=case_dir,
             results_dir=results_dir,
@@ -138,25 +186,18 @@ def run_stage_01_contract_smoke(
             utterance=utterance,
             prompt=prompt,
             expected=expected,
-            error_type=getattr(exc, "error_type", type(exc).__name__),
-            message=str(exc),
+            error_type=str(final_attempt.get("error_type", "stage_01_failed")),
+            message=str(final_attempt.get("message", "Stage 01 failed after retry.")),
+            attempts=attempts,
         )
-        raise Stage01SmokeError(f"stage 01 contract smoke failed: {exc}") from exc
+        raise Stage01SmokeError(
+            "stage 01 contract smoke failed after 2 attempts: "
+            f"{final_attempt.get('message', 'unknown error')}"
+        )
     finally:
         llm_client.close()
 
-    if not passed:
-        raise Stage01SmokeError("stage 01 contract smoke failed contract checks")
-
-    return Stage01SmokeResult(
-        passed=True,
-        provider=provider.public_summary(),
-        task_card=task_card,
-        checks=checks,
-        case_dir=case_dir,
-        results_dir=results_dir,
-        elapsed_ms=response.elapsed_ms,
-    )
+    raise Stage01SmokeError("stage 01 contract smoke failed unexpectedly")
 
 
 def validate_stage_01_task_card(task_card: TaskCard) -> dict[str, bool]:
@@ -184,6 +225,30 @@ def _expected_payload() -> dict[str, Any]:
             "success_criteria has at least one item",
             "location_hint is a non-empty user-stated hint",
         ],
+    }
+
+
+def _stage_01_attempt_prompt(prompt: str, attempt_index: int) -> str:
+    if attempt_index == 1:
+        return prompt
+    return f"{prompt.rstrip()}\n\n{STAGE_01_RETRY_INSTRUCTION}\n"
+
+
+def _stage_01_actual_from_attempt(
+    attempt: dict[str, Any],
+    *,
+    attempts: list[dict[str, Any]],
+    passed: bool,
+) -> dict[str, Any]:
+    return {
+        "provider": attempt.get("provider", {}),
+        "raw_text": attempt.get("raw_text", ""),
+        "json_payload": attempt.get("json_payload"),
+        "task_card": attempt.get("task_card"),
+        "checks": attempt.get("checks"),
+        "passed": passed,
+        "attempt_count": len(attempts),
+        "attempts": attempts,
     }
 
 
@@ -237,12 +302,21 @@ def _write_failure_assets(
     expected: dict[str, Any],
     error_type: str,
     message: str,
+    attempts: list[dict[str, Any]] | None = None,
 ) -> None:
+    attempts = attempts or []
+    final_attempt = attempts[-1] if attempts else {}
     payload = {
         "provider": provider.public_summary(),
         "passed": False,
         "error_type": error_type,
         "message": message,
+        "raw_text": final_attempt.get("raw_text", ""),
+        "json_payload": final_attempt.get("json_payload"),
+        "task_card": final_attempt.get("task_card"),
+        "checks": final_attempt.get("checks"),
+        "attempt_count": len(attempts),
+        "attempts": attempts,
     }
     write_json(case_dir / "actual.json", payload)
     _write_result_markdown(
@@ -283,6 +357,8 @@ def _write_result_markdown(
         "\n".join(
             [
                 "# Stage 01 LLM Contract Smoke",
+                "",
+                f"Status: {status}",
                 "",
                 "## Summary",
                 "",
@@ -330,6 +406,10 @@ def _write_result_markdown(
                 _json_block(expected),
                 "```",
                 "",
+                "## Attempts",
+                "",
+                _attempts_markdown(actual.get("attempts")),
+                "",
             ]
         ),
         encoding="utf-8",
@@ -340,3 +420,41 @@ def _json_block(value: Any) -> str:
     if value is None:
         return "null"
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _attempts_markdown(value: Any) -> str:
+    if not isinstance(value, list) or not value:
+        return "(no attempts recorded)"
+    sections: list[str] = []
+    for attempt in value:
+        if not isinstance(attempt, dict):
+            continue
+        sections.extend(
+            [
+                f"### Attempt {attempt.get('attempt', '?')}",
+                "",
+                f"- Passed: {attempt.get('passed', False)}",
+                f"- Error Type: {attempt.get('error_type')}",
+                f"- Message: {attempt.get('message')}",
+                "",
+                "#### Prompt",
+                "",
+                "```text",
+                str(attempt.get("prompt", "")).rstrip(),
+                "```",
+                "",
+                "#### Raw Response",
+                "",
+                "```text",
+                str(attempt.get("raw_text", "")).rstrip(),
+                "```",
+                "",
+                "#### Parsed JSON",
+                "",
+                "```json",
+                _json_block(attempt.get("json_payload")),
+                "```",
+                "",
+            ]
+        )
+    return "\n".join(sections)

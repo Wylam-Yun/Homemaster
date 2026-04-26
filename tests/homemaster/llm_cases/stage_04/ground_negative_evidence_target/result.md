@@ -137,8 +137,7 @@ null
       "cup"
     ],
     "location_terms": [
-      "厨房",
-      "kitchen"
+      "厨房"
     ],
     "source_filter": [
       "object_memory"
@@ -267,8 +266,7 @@ null
         "cup"
       ],
       "location_terms": [
-        "厨房",
-        "kitchen"
+        "厨房"
       ],
       "source_filter": [
         "object_memory"

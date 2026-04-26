@@ -146,7 +146,7 @@ class MemoryRetrievalResult(ContractModel):
 
 
 class GroundedMemoryTarget(ContractModel):
-    """Executable target grounded from the top valid retrieval hit."""
+    """Executable target grounded from a reliable memory hit."""
 
     memory_id: str
     room_id: str
@@ -171,54 +171,6 @@ class PlanningContext(ContractModel):
     planning_notes: list[str] = Field(default_factory=list)
 
 
-class ObjectMemorySearchPlan(ContractModel):
-    """Deprecated compatibility shell; new code should use MemoryRetrievalQuery."""
-
-    target_category: str
-    target_aliases: list[str] = Field(default_factory=list)
-    location_hint: str | None = None
-    excluded_location_keys: list[str] = Field(default_factory=list)
-    ranking_policy: str | None = None
-    reason: str | None = None
-
-
-class ObjectMemoryEvidence(ContractModel):
-    """Deprecated compatibility shell; new code should use MemoryRetrievalResult."""
-
-    hits: list[dict[str, Any]] = Field(default_factory=list)
-    excluded: list[dict[str, Any]] = Field(default_factory=list)
-    ranking_reasons: list[str] = Field(default_factory=list)
-    retrieval_summary: str | None = None
-
-
-class Candidate(ContractModel):
-    """Deprecated compatibility shell; new code should use GroundedMemoryTarget."""
-
-    candidate_id: str
-    memory_id: str | None = None
-    room_id: str | None = None
-    anchor_id: str | None = None
-    viewpoint_id: str | None = None
-    display_text: str | None = None
-    evidence: dict[str, Any] = Field(default_factory=dict)
-
-
-class CandidatePool(ContractModel):
-    """Deprecated compatibility shell; Stage 04 now uses PlanningContext."""
-
-    candidates: list[Candidate] = Field(default_factory=list)
-    generation_summary: dict[str, Any] = Field(default_factory=dict)
-
-
-class CandidateSelection(ContractModel):
-    """Deprecated compatibility shell; target selection is no longer an LLM stage."""
-
-    selected_candidate_id: str | None = None
-    ranked_candidate_ids: list[str] = Field(default_factory=list)
-    reason: str | None = None
-    need_retrieve_again: bool = False
-
-
 class Subtask(ContractModel):
     id: str
     type: Literal["navigate", "observe_verify", "embodied_operate", "ask_user", "finish"]
@@ -230,7 +182,6 @@ class Subtask(ContractModel):
 class OrchestrationPlan(ContractModel):
     goal: str
     selected_target: GroundedMemoryTarget | None = None
-    selected_candidate_id: str | None = None
     subtasks: list[Subtask] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -268,7 +219,6 @@ class RecoveryDecision(ContractModel):
         "retry_step",
         "reobserve",
         "switch_target",
-        "switch_candidate",
         "retrieve_again",
         "replan",
         "ask_user",
@@ -276,7 +226,6 @@ class RecoveryDecision(ContractModel):
     ]
     reason: str | None = None
     next_target_id: str | None = None
-    next_candidate_id: str | None = None
     should_retrieve_again: bool = False
     should_replan: bool = False
     ask_user_question: str | None = None
