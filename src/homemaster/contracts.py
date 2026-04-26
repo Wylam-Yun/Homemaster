@@ -173,31 +173,78 @@ class PlanningContext(ContractModel):
 
 class Subtask(ContractModel):
     id: str
-    type: Literal["navigate", "observe_verify", "embodied_operate", "ask_user", "finish"]
-    target: str | None = None
+    intent: str
+    target_object: str | None = None
+    recipient: str | None = None
+    room_hint: str | None = None
+    anchor_hint: str | None = None
     success_criteria: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
+
+    @field_validator("id", "intent")
+    @classmethod
+    def _strip_required_subtask_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("subtask text fields must not be blank")
+        return value
+
+    @field_validator("target_object", "recipient", "room_hint", "anchor_hint")
+    @classmethod
+    def _strip_optional_subtask_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("success_criteria", "depends_on")
+    @classmethod
+    def _strip_subtask_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
 
 
 class OrchestrationPlan(ContractModel):
     goal: str
-    selected_target: GroundedMemoryTarget | None = None
     subtasks: list[Subtask] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    @field_validator("goal")
+    @classmethod
+    def _strip_goal(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("goal must not be blank")
+        return value
+
 
 class StepDecision(ContractModel):
-    subtask_id: str | None = None
-    module: Literal["navigate", "observe", "verify", "operate", "ask_user", "finish"]
-    module_input: dict[str, Any] = Field(default_factory=dict)
+    subtask_id: str
+    selected_skill: Literal["navigation", "operation"]
+    skill_input: dict[str, Any] = Field(default_factory=dict)
     expected_result: str | None = None
-    verify_after: bool = True
     reason: str | None = None
+
+    @field_validator("subtask_id")
+    @classmethod
+    def _strip_subtask_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("subtask_id must not be blank")
+        return value
+
+    @field_validator("expected_result", "reason")
+    @classmethod
+    def _strip_optional_decision_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class ModuleExecutionResult(ContractModel):
-    module: str
+    skill: Literal["navigation", "operation", "verification"]
     status: Literal["success", "failed", "blocked"]
+    skill_output: dict[str, Any] = Field(default_factory=dict)
     observation: dict[str, Any] | None = None
     runtime_state_delta: dict[str, Any] = Field(default_factory=dict)
     evidence: dict[str, Any] = Field(default_factory=dict)
@@ -214,30 +261,145 @@ class VerificationResult(ContractModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
+class SubtaskRuntimeState(ContractModel):
+    subtask_id: str
+    status: Literal["pending", "running", "verified", "failed", "blocked", "skipped"] = (
+        "pending"
+    )
+    depends_on: list[str] = Field(default_factory=list)
+    attempt_count: int = Field(default=0, ge=0)
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    last_skill: Literal["navigation", "operation", "verification"] | None = None
+    last_observation: dict[str, Any] | None = None
+    last_verification_result: VerificationResult | None = None
+    failure_record_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("subtask_id")
+    @classmethod
+    def _strip_runtime_subtask_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("subtask_id must not be blank")
+        return value
+
+    @field_validator("depends_on", "failure_record_ids")
+    @classmethod
+    def _strip_runtime_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+
+class ExecutionState(ContractModel):
+    task_status: Literal["running", "completed", "failed", "needs_user_input"] = "running"
+    current_subtask_id: str | None = None
+    subtasks: list[SubtaskRuntimeState] = Field(default_factory=list)
+    held_object: str | None = None
+    target_object_visible: bool = False
+    target_object_location: str | None = None
+    user_location: str | None = None
+    current_location: str | None = None
+    last_observation: dict[str, Any] | None = None
+    last_skill_call: dict[str, Any] | None = None
+    last_skill_result: ModuleExecutionResult | None = None
+    last_verification_result: VerificationResult | None = None
+    failure_record_ids: list[str] = Field(default_factory=list)
+    negative_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    retry_counts: dict[str, int] = Field(default_factory=dict)
+    completed_subtask_ids: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "current_subtask_id",
+        "held_object",
+        "target_object_location",
+        "user_location",
+        "current_location",
+    )
+    @classmethod
+    def _strip_optional_state_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @field_validator("failure_record_ids", "completed_subtask_ids")
+    @classmethod
+    def _strip_state_lists(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
+
+
+FailureType = Literal[
+    "model_output_invalid",
+    "skill_schema_invalid",
+    "skill_failed",
+    "precondition_failed",
+    "verification_failed",
+    "target_not_visible",
+    "object_not_found",
+    "max_retry_exceeded",
+]
+
+
+class FailureRecord(ContractModel):
+    failure_id: str
+    subtask_id: str | None = None
+    subtask_intent: str | None = None
+    skill: Literal["navigation", "operation", "verification"] | None = None
+    failure_type: FailureType
+    failed_reason: str
+    skill_input: dict[str, Any] = Field(default_factory=dict)
+    skill_output: dict[str, Any] = Field(default_factory=dict)
+    verification_result: VerificationResult | None = None
+    observation: dict[str, Any] | None = None
+    negative_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    retry_count: int = Field(default=0, ge=0)
+    created_at: str | None = None
+    event_memory_candidate: dict[str, Any] | None = None
+
+    @field_validator("failure_id", "failed_reason")
+    @classmethod
+    def _strip_required_failure_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("failure text fields must not be blank")
+        return value
+
+    @field_validator("subtask_id", "subtask_intent", "created_at")
+    @classmethod
+    def _strip_optional_failure_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
 class RecoveryDecision(ContractModel):
     action: Literal[
         "retry_step",
         "reobserve",
-        "switch_target",
         "retrieve_again",
         "replan",
         "ask_user",
         "finish_failed",
     ]
     reason: str | None = None
-    next_target_id: str | None = None
+    failure_record_ids: list[str] = Field(default_factory=list)
     should_retrieve_again: bool = False
     should_replan: bool = False
     ask_user_question: str | None = None
+    final_failed_reason: str | None = None
 
+    @field_validator("reason", "ask_user_question", "final_failed_reason")
+    @classmethod
+    def _strip_optional_recovery_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
-class EmbodiedActionPlan(ContractModel):
-    operation_goal: str
-    target: str | None = None
-    observation: dict[str, Any] | None = None
-    constraints: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(default_factory=list)
-    vla_instruction: str | None = None
+    @field_validator("failure_record_ids")
+    @classmethod
+    def _strip_failure_record_ids(cls, value: list[str]) -> list[str]:
+        return [item.strip() for item in value if item.strip()]
 
 
 class TaskSummary(ContractModel):
