@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from homemaster.contracts import ExecutionState, FailureRecord, RecoveryDecision
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
 from homemaster.runtime import ProviderConfig
+from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
 RECOVERY_RETRY_INSTRUCTION = """上一次输出没有通过 RecoveryDecision 校验。
 请修正为严格 JSON object。
@@ -98,22 +99,27 @@ def generate_recovery_decision(
     provider: ProviderConfig,
     *,
     client: httpx.Client | None = None,
-    max_tokens: int = 2048,
+    max_tokens: int = initial_max_tokens("stage_05_recovery"),
 ) -> RecoveryDecisionGenerationResult:
     llm_client = RawJsonLLMClient(provider, client=client)
     attempts: list[dict[str, Any]] = []
     try:
-        for attempt_index in range(1, 4):
+        for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
             prompt = build_recovery_prompt(
                 state,
                 failure_records,
                 retry_feedback=RECOVERY_RETRY_INSTRUCTION if attempt_index > 1 else None,
             )
-            attempt: dict[str, Any] = {"attempt": attempt_index, "prompt": prompt}
+            attempt_max_tokens = max_tokens_for_attempt(max_tokens, attempt_index)
+            attempt: dict[str, Any] = {
+                "attempt": attempt_index,
+                "prompt": prompt,
+                "max_tokens": attempt_max_tokens,
+            }
             try:
                 response = llm_client.complete_json(
                     prompt,
-                    max_tokens=max_tokens,
+                    max_tokens=attempt_max_tokens,
                     temperature=0.0,
                 )
                 decision = RecoveryDecision.model_validate(response.json_payload)

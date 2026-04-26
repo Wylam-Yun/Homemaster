@@ -206,9 +206,10 @@ def test_stage_01_failure_report_contains_attempt_raw_response(tmp_path: Path) -
 
     actual = json.loads((case_dir / "actual.json").read_text(encoding="utf-8"))
     assert actual["passed"] is False
-    assert actual["attempt_count"] == 2
+    assert actual["attempt_count"] == 3
     assert actual["attempts"][0]["raw_text"] == "不是 JSON 的回复"
     assert actual["attempts"][1]["raw_text"] == "不是 JSON 的回复"
+    assert actual["attempts"][2]["raw_text"] == "不是 JSON 的回复"
     report = (case_dir / "result.md").read_text(encoding="utf-8")
     assert "Status: FAIL" in report
     assert "不是 JSON 的回复" in report

@@ -21,6 +21,7 @@ from homemaster.runtime import (
     ensure_stage_directories,
     load_provider_config,
 )
+from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 from homemaster.trace import append_jsonl_event, write_json
 
 STAGE_02_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_02"
@@ -92,7 +93,7 @@ class MimoTaskUnderstandingProvider:
         *,
         results_dir: Path = STAGE_02_RESULTS_DIR,
         client: httpx.Client | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = initial_max_tokens("stage_02_task_card"),
     ) -> None:
         self._provider = provider
         self._results_dir = results_dir
@@ -126,19 +127,21 @@ class MimoTaskUnderstandingProvider:
         llm_client = RawJsonLLMClient(self._provider, client=self._client)
         attempts: list[dict[str, Any]] = []
         try:
-            for attempt_index in (1, 2):
+            for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
                 prompt = build_task_understanding_prompt(
                     input_data,
-                    retry_feedback=RETRY_INSTRUCTION if attempt_index == 2 else None,
+                    retry_feedback=RETRY_INSTRUCTION if attempt_index > 1 else None,
                 )
+                attempt_max_tokens = max_tokens_for_attempt(self._max_tokens, attempt_index)
                 attempt_record = {
                     "attempt_index": attempt_index,
                     "prompt": prompt,
+                    "max_tokens": attempt_max_tokens,
                 }
                 try:
                     response = llm_client.complete_json(
                         prompt,
-                        max_tokens=self._max_tokens,
+                        max_tokens=attempt_max_tokens,
                         temperature=0.0,
                     )
                     task_card = TaskCard.model_validate(response.json_payload)
@@ -152,7 +155,7 @@ class MimoTaskUnderstandingProvider:
                         }
                     )
                     attempts.append(attempt_record)
-                    if attempt_index == 2:
+                    if attempt_index == MAX_LLM_ATTEMPTS:
                         return _fail_understanding(
                             case_name=case_name,
                             case_dir=case_dir,
@@ -249,7 +252,7 @@ def understand_task(
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     client: httpx.Client | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = initial_max_tokens("stage_02_task_card"),
 ) -> TaskUnderstandingResult:
     provider = load_provider_config(config_path, provider_name=provider_name)
     task_input = TaskUnderstandingInput(

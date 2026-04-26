@@ -43,7 +43,12 @@ class StaticQueryProvider:
     raw_response: str = "{}"
     prompt: str | None = None
 
-    def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
+    def generate_query(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         self.prompt = prompt
         return self.query, self.raw_response, {"provider_name": "Mimo", "model": "mimo-v2-pro"}
 
@@ -53,7 +58,12 @@ class SequencedQueryProvider:
     responses: list[object]
     prompts: list[str] | None = None
 
-    def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
+    def generate_query(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         if self.prompts is None:
             self.prompts = []
         self.prompts.append(prompt)
@@ -250,6 +260,11 @@ def test_stage_03_writes_fail_debug_assets_when_query_generation_fails_twice(
                 message="model output did not contain a JSON object",
                 raw_content="第二次还是不是 JSON",
             ),
+            LLMProviderResponseError(
+                error_type="response_not_json_object",
+                message="model output did not contain a JSON object",
+                raw_content="第三次还是不是 JSON",
+            ),
         ],
     )
     case_root = tmp_path / "cases"
@@ -274,9 +289,10 @@ def test_stage_03_writes_fail_debug_assets_when_query_generation_fails_twice(
     actual = json.loads(actual_path.read_text(encoding="utf-8"))
     report = report_path.read_text(encoding="utf-8")
     assert actual["passed"] is False
-    assert actual["query_attempt_count"] == 2
+    assert actual["query_attempt_count"] == 3
     assert "第一次不是 JSON" in report
     assert "第二次还是不是 JSON" in report
+    assert "第三次还是不是 JSON" in report
     assert "Status: FAIL" in report
 
 

@@ -202,8 +202,16 @@ class RawJsonLLMClient:
 
         raw_content = _json_preview(body)
         if self._provider.protocol == "anthropic":
-            return _extract_anthropic_content(body, raw_content=raw_content)
-        return _extract_openai_content(body, raw_content=raw_content)
+            content = _extract_anthropic_content(body, raw_content=raw_content)
+        else:
+            content = _extract_openai_content(body, raw_content=raw_content)
+        if _response_was_truncated(body):
+            raise LLMProviderResponseError(
+                error_type="response_truncated",
+                message="provider stopped because max_tokens was reached",
+                raw_content=content or raw_content,
+            )
+        return content
 
 
 def extract_json_payload(content: str) -> dict[str, Any]:
@@ -272,6 +280,16 @@ def _extract_openai_content(body: dict[str, Any], *, raw_content: str) -> str:
         message="openai response missing textual content",
         raw_content=raw_content,
     )
+
+
+def _response_was_truncated(body: dict[str, Any]) -> bool:
+    stop_reason = body.get("stop_reason")
+    if stop_reason == "max_tokens":
+        return True
+    choices = body.get("choices")
+    if isinstance(choices, list) and choices:
+        return choices[0].get("finish_reason") == "length"
+    return False
 
 
 def _extract_error_message(response: httpx.Response) -> str:

@@ -22,7 +22,12 @@ from homemaster.runtime_memory_store import RuntimeMemoryStore
 class StaticQueryProvider:
     query: MemoryRetrievalQuery
 
-    def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
+    def generate_query(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         return self.query, self.query.model_dump_json(), {"provider_name": "Mimo"}
 
 

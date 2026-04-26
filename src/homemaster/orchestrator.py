@@ -15,6 +15,7 @@ from homemaster.orchestration_validator import (
     validate_orchestration_payload,
 )
 from homemaster.runtime import ProviderConfig
+from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
 ORCHESTRATION_RETRY_INSTRUCTION = """上一次输出没有通过 OrchestrationPlan 校验。
 请修正为严格 JSON object，只包含 goal、subtasks、confidence。
@@ -106,24 +107,29 @@ def generate_orchestration_plan(
     provider: ProviderConfig,
     *,
     client: httpx.Client | None = None,
-    max_tokens: int = 4096,
+    max_tokens: int = initial_max_tokens("stage_05_orchestration"),
 ) -> OrchestrationGenerationResult:
     llm_client = RawJsonLLMClient(provider, client=client)
     attempts: list[dict[str, Any]] = []
     first_prompt = build_orchestration_prompt(context)
     try:
-        for attempt_index in range(1, 4):
+        for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
             prompt = build_orchestration_prompt(
                 context,
                 retry_feedback=ORCHESTRATION_RETRY_INSTRUCTION
                 if attempt_index > 1
                 else None,
             )
-            attempt: dict[str, Any] = {"attempt": attempt_index, "prompt": prompt}
+            attempt_max_tokens = max_tokens_for_attempt(max_tokens, attempt_index)
+            attempt: dict[str, Any] = {
+                "attempt": attempt_index,
+                "prompt": prompt,
+                "max_tokens": attempt_max_tokens,
+            }
             try:
                 response = llm_client.complete_json(
                     prompt,
-                    max_tokens=max_tokens,
+                    max_tokens=attempt_max_tokens,
                     temperature=0.0,
                 )
                 plan = validate_orchestration_payload(response.json_payload)

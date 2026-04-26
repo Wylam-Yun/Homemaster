@@ -45,13 +45,13 @@ from homemaster.runtime import (
 )
 from homemaster.stage_06 import persist_stage_06_commit
 from homemaster.summary import generate_task_summary
+from homemaster.token_budget import initial_max_tokens
 from homemaster.trace import append_jsonl_event, sanitize_for_log, write_json
 
 STAGE_07_CASE_ROOT = LLM_CASE_ROOT / "stage_07"
 STAGE_07_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_07"
 DEFAULT_STAGE_07_RUNTIME_ROOT = REPO_ROOT / "var" / "homemaster" / "runs"
 DEFAULT_STAGE_07_DEBUG_ROOT = STAGE_07_CASE_ROOT.parent
-STAGE_07_LIVE_MAX_TOKENS = 81920
 
 
 class HomeMasterRunError(RuntimeError):
@@ -112,7 +112,12 @@ class StaticMemoryQueryProvider:
     def __init__(self, query: MemoryRetrievalQuery) -> None:
         self.query = query
 
-    def generate_query(self, prompt: str) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
+    def generate_query(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int | None = None,
+    ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         raw = self.query.model_dump_json()
         return self.query, raw, {"provider_name": "deterministic", "model": "stage07-static"}
 
@@ -215,7 +220,7 @@ class LiveStepDecisionProvider:
             state,
             context,
             self.provider,
-            max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+            max_tokens=initial_max_tokens("stage_05_step_decision"),
         )
         decision = result.decision
         if (
@@ -463,7 +468,7 @@ def _stage02_task_card(
             case_name=f"stage07_{run_id}_task_understanding",
             config_path=config_path,
             provider_name=provider_name,
-            max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+            max_tokens=initial_max_tokens("stage_02_task_card"),
         ).task_card
     return _deterministic_task_card(utterance)
 
@@ -496,13 +501,14 @@ def _stage03_memory_rag(
                 case_name=f"stage07_{run_id}_memory_rag",
                 query_provider=MimoMemoryQueryProvider(
                     llm_provider,
-                    max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+                    max_tokens=initial_max_tokens("stage_03_memory_query"),
                 ),
                 embedding_provider=EmbeddingClientAdapter(bge_client),
                 llm_provider=llm_provider,
                 expected={"case_name": f"stage07_{run_id}_memory_rag"},
                 case_root=case_root,
                 results_dir=results_dir,
+                query_initial_max_tokens=initial_max_tokens("stage_03_memory_query"),
             )
         finally:
             bge_client.close()
@@ -531,7 +537,7 @@ def _stage05_plan(
         return generate_orchestration_plan(
             context,
             provider,
-            max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+            max_tokens=initial_max_tokens("stage_05_orchestration"),
         ).plan
     return _deterministic_plan(context)
 
@@ -555,7 +561,7 @@ def _live_step_decision_smoke(
         initial_state,
         context,
         provider,
-        max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+        max_tokens=initial_max_tokens("stage_05_step_decision"),
     )
     return {
         "mode": "real_mimo",
@@ -582,7 +588,7 @@ def _stage06_summary(
             execution_state=execution_state,
             evidence_bundle=evidence_bundle,
             provider=provider,
-            max_tokens=STAGE_07_LIVE_MAX_TOKENS,
+            max_tokens=initial_max_tokens("stage_06_summary"),
         ).summary
     result = "success" if execution_state.task_status == "completed" else "failed"
     return TaskSummary(

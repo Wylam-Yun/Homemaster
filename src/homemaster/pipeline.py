@@ -21,6 +21,7 @@ from homemaster.runtime import (
     ensure_stage_directories,
     load_provider_config,
 )
+from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 from homemaster.trace import append_jsonl_event, write_json
 
 DEFAULT_STAGE_01_UTTERANCE = "去桌子那边看看药盒是不是还在。"
@@ -90,7 +91,7 @@ def run_stage_01_contract_smoke(
     provider_name: str = DEFAULT_PROVIDER_NAME,
     case_dir: Path = STAGE_01_CASE_DIR,
     results_dir: Path = STAGE_01_RESULTS_DIR,
-    max_tokens: int = 1024,
+    max_tokens: int = initial_max_tokens("stage_01_smoke"),
     client: httpx.Client | None = None,
 ) -> Stage01SmokeResult:
     ensure_stage_directories(case_dir=case_dir, results_dir=results_dir)
@@ -112,17 +113,19 @@ def run_stage_01_contract_smoke(
     llm_client = RawJsonLLMClient(provider, client=client)
     attempts: list[dict[str, Any]] = []
     try:
-        for attempt_index in range(1, 3):
+        for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
             attempt_prompt = _stage_01_attempt_prompt(prompt, attempt_index)
+            attempt_max_tokens = max_tokens_for_attempt(max_tokens, attempt_index)
             attempt: dict[str, Any] = {
                 "attempt": attempt_index,
                 "prompt": attempt_prompt,
+                "max_tokens": attempt_max_tokens,
                 "passed": False,
             }
             try:
                 response = llm_client.complete_json(
                     attempt_prompt,
-                    max_tokens=max_tokens,
+                    max_tokens=attempt_max_tokens,
                     temperature=0.0,
                 )
                 task_card = TaskCard.model_validate(response.json_payload)
@@ -191,7 +194,7 @@ def run_stage_01_contract_smoke(
             attempts=attempts,
         )
         raise Stage01SmokeError(
-            "stage 01 contract smoke failed after 2 attempts: "
+            f"stage 01 contract smoke failed after {MAX_LLM_ATTEMPTS} attempts: "
             f"{final_attempt.get('message', 'unknown error')}"
         )
     finally:

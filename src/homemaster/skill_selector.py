@@ -17,6 +17,7 @@ from homemaster.skill_registry import (
     get_stage_05_skill_prompt_payload,
     validate_skill_input,
 )
+from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
 STEP_DECISION_RETRY_INSTRUCTION = """上一次输出没有通过 StepDecision 校验。
 请修正为严格 JSON object，只包含 subtask_id、selected_skill、skill_input、expected_result、reason。
@@ -125,23 +126,28 @@ def generate_step_decision(
     provider: ProviderConfig,
     *,
     client: httpx.Client | None = None,
-    max_tokens: int = 2048,
+    max_tokens: int = initial_max_tokens("stage_05_step_decision"),
 ) -> StepDecisionGenerationResult:
     llm_client = RawJsonLLMClient(provider, client=client)
     attempts: list[dict[str, Any]] = []
     try:
-        for attempt_index in range(1, 4):
+        for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
             prompt = build_step_decision_prompt(
                 subtask,
                 state,
                 context,
                 retry_feedback=STEP_DECISION_RETRY_INSTRUCTION if attempt_index > 1 else None,
             )
-            attempt: dict[str, Any] = {"attempt": attempt_index, "prompt": prompt}
+            attempt_max_tokens = max_tokens_for_attempt(max_tokens, attempt_index)
+            attempt: dict[str, Any] = {
+                "attempt": attempt_index,
+                "prompt": prompt,
+                "max_tokens": attempt_max_tokens,
+            }
             try:
                 response = llm_client.complete_json(
                     prompt,
-                    max_tokens=max_tokens,
+                    max_tokens=attempt_max_tokens,
                     temperature=0.0,
                 )
                 decision = StepDecision.model_validate(response.json_payload)
