@@ -4,20 +4,16 @@
       "attempt_index": 1,
       "checks": {
         "has_success_criteria": true,
-        "location_hint_matches": true,
-        "needs_clarification_matches": true,
-        "schema_valid": true,
-        "target_matches": true,
-        "task_type_matches": true
+        "schema_valid": true
       },
       "json_payload": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 1.0,
         "delivery_target": null,
         "location_hint": "桌子那边",
         "needs_clarification": false,
         "success_criteria": [
-          "后续观察可以验证任务是否完成"
+          "通过视觉确认药盒在桌子那边"
         ],
         "target": "药盒",
         "task_type": "check_presence"
@@ -27,39 +23,35 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 0.09750000026542693,
+            "elapsed_ms": 23649.139332999766,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 0.09750000026542693,
+        "elapsed_ms": 23649.139332999766,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\"task_type\": \"check_presence\", \"target\": \"药盒\", \"delivery_target\": null, \"location_hint\": \"桌子那边\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
+      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"桌子那边\",\n  \"success_criteria\": [\"通过视觉确认药盒在桌子那边\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 1.0\n}",
       "task_card": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 1.0,
         "delivery_target": null,
         "location_hint": "桌子那边",
         "needs_clarification": false,
         "success_criteria": [
-          "后续观察可以验证任务是否完成"
+          "通过视觉确认药盒在桌子那边"
         ],
         "target": "药盒",
         "task_type": "check_presence"
       }
     }
   ],
-  "case_name": "check_medicine_task_card",
+  "case_name": "stage07_stage07-check_medicine_stale_recover_task_understanding",
   "checks": {
     "has_success_criteria": true,
-    "location_hint_matches": true,
-    "needs_clarification_matches": true,
-    "schema_valid": true,
-    "target_matches": true,
-    "task_type_matches": true
+    "schema_valid": true
   },
   "input": {
     "recent_task_summary": null,
@@ -69,12 +61,12 @@
   },
   "json_payload": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 1.0,
     "delivery_target": null,
     "location_hint": "桌子那边",
     "needs_clarification": false,
     "success_criteria": [
-      "后续观察可以验证任务是否完成"
+      "通过视觉确认药盒在桌子那边"
     ],
     "target": "药盒",
     "task_type": "check_presence"
@@ -83,26 +75,26 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 0.09750000026542693,
+        "elapsed_ms": 23649.139332999766,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 0.09750000026542693,
+    "elapsed_ms": 23649.139332999766,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\"task_type\": \"check_presence\", \"target\": \"药盒\", \"delivery_target\": null, \"location_hint\": \"桌子那边\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
+  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"桌子那边\",\n  \"success_criteria\": [\"通过视觉确认药盒在桌子那边\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 1.0\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 1.0,
     "delivery_target": null,
     "location_hint": "桌子那边",
     "needs_clarification": false,
     "success_criteria": [
-      "后续观察可以验证任务是否完成"
+      "通过视觉确认药盒在桌子那边"
     ],
     "target": "药盒",
     "task_type": "check_presence"

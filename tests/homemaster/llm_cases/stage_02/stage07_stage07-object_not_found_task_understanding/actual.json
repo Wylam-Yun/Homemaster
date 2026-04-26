@@ -3,22 +3,17 @@
     {
       "attempt_index": 1,
       "checks": {
-        "delivery_target_matches": true,
         "has_success_criteria": true,
-        "location_hint_matches": true,
-        "needs_clarification_matches": true,
-        "schema_valid": true,
-        "target_matches": true,
-        "task_type_matches": true
+        "schema_valid": true
       },
       "json_payload": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 0.95,
         "delivery_target": "user",
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "后续观察可以验证任务是否完成"
+          "机器人将水杯交付给用户"
         ],
         "target": "水杯",
         "task_type": "fetch_object"
@@ -28,40 +23,35 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 0.13737499830313027,
+            "elapsed_ms": 14745.620875000895,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 0.13737499830313027,
+        "elapsed_ms": 14745.620875000895,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\"task_type\": \"fetch_object\", \"target\": \"水杯\", \"delivery_target\": \"user\", \"location_hint\": \"厨房\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
+      "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"机器人将水杯交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
       "task_card": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 0.95,
         "delivery_target": "user",
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "后续观察可以验证任务是否完成"
+          "机器人将水杯交付给用户"
         ],
         "target": "水杯",
         "task_type": "fetch_object"
       }
     }
   ],
-  "case_name": "fetch_cup_task_card",
+  "case_name": "stage07_stage07-object_not_found_task_understanding",
   "checks": {
-    "delivery_target_matches": true,
     "has_success_criteria": true,
-    "location_hint_matches": true,
-    "needs_clarification_matches": true,
-    "schema_valid": true,
-    "target_matches": true,
-    "task_type_matches": true
+    "schema_valid": true
   },
   "input": {
     "recent_task_summary": null,
@@ -71,12 +61,12 @@
   },
   "json_payload": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 0.95,
     "delivery_target": "user",
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "后续观察可以验证任务是否完成"
+      "机器人将水杯交付给用户"
     ],
     "target": "水杯",
     "task_type": "fetch_object"
@@ -85,26 +75,26 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 0.13737499830313027,
+        "elapsed_ms": 14745.620875000895,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 0.13737499830313027,
+    "elapsed_ms": 14745.620875000895,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\"task_type\": \"fetch_object\", \"target\": \"水杯\", \"delivery_target\": \"user\", \"location_hint\": \"厨房\", \"success_criteria\": [\"后续观察可以验证任务是否完成\"], \"needs_clarification\": false, \"clarification_question\": null, \"confidence\": 0.9}",
+  "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"机器人将水杯交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 0.95,
     "delivery_target": "user",
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "后续观察可以验证任务是否完成"
+      "机器人将水杯交付给用户"
     ],
     "target": "水杯",
     "task_type": "fetch_object"

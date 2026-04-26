@@ -1,0 +1,9 @@
+{
+  "case_name": "stage07_stage07-distractor_rejected_task_understanding",
+  "required_checks": [
+    "provider returns parseable JSON object",
+    "JSON validates as TaskCard",
+    "success_criteria has at least one item"
+  ],
+  "schema": "TaskCard"
+}

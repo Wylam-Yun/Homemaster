@@ -249,6 +249,7 @@ def understand_task(
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     client: httpx.Client | None = None,
+    max_tokens: int = 4096,
 ) -> TaskUnderstandingResult:
     provider = load_provider_config(config_path, provider_name=provider_name)
     task_input = TaskUnderstandingInput(
@@ -257,7 +258,11 @@ def understand_task(
         source=source,
         recent_task_summary=recent_task_summary,
     )
-    task_provider = MimoTaskUnderstandingProvider(provider, client=client)
+    task_provider = MimoTaskUnderstandingProvider(
+        provider,
+        client=client,
+        max_tokens=max_tokens,
+    )
     return task_provider.understand(task_input, case_name=case_name, expected=expected)
 
 

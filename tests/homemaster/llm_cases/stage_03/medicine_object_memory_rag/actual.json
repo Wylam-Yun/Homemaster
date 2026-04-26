@@ -3,12 +3,12 @@
     {
       "document_id": "object_memory:mem-medicine-2",
       "rank": 1,
-      "score": 0.4814494550228119
+      "score": 0.6023329496383667
     },
     {
       "document_id": "object_memory:mem-medicine-1",
       "rank": 2,
-      "score": 0.20984995365142822
+      "score": 0.33206918835639954
     }
   ],
   "case_name": "medicine_object_memory_rag",
@@ -22,15 +22,15 @@
     {
       "document_id": "object_memory:mem-medicine-2",
       "rank": 1,
-      "score": 0.6695071462590261
+      "score": 0.6840679817365459
     },
     {
       "document_id": "object_memory:mem-medicine-1",
       "rank": 2,
-      "score": 0.6440351277536
+      "score": 0.6623963172658449
     }
   ],
-  "elapsed_ms": 21789.83233400004,
+  "elapsed_ms": 26165.840749999916,
   "embedding_provider": {
     "endpoint": "https://api.siliconflow.cn/v1/embeddings",
     "model": "BAAI/bge-m3",
@@ -101,7 +101,7 @@
         "anchor_id": "anchor_kitchen_cabinet_1",
         "anchor_type": "cabinet",
         "belief_state": "confirmed",
-        "bm25_score": 0.20984995365142822,
+        "bm25_score": 0.33206918835639954,
         "canonical_metadata": {
           "aliases": [
             "药盒",
@@ -121,7 +121,7 @@
           "viewpoint_id": "kitchen_cabinet_viewpoint"
         },
         "confidence_level": "high",
-        "dense_score": 0.6440351277536,
+        "dense_score": 0.6623963172658449,
         "display_text": "厨房药柜",
         "document_id": "object_memory:mem-medicine-1",
         "executable": true,
@@ -152,7 +152,7 @@
         "anchor_id": "anchor_living_side_table_1",
         "anchor_type": "table",
         "belief_state": "confirmed",
-        "bm25_score": 0.4814494550228119,
+        "bm25_score": 0.6023329496383667,
         "canonical_metadata": {
           "aliases": [
             "药盒"
@@ -171,20 +171,19 @@
           "viewpoint_id": "living_side_table_viewpoint"
         },
         "confidence_level": "medium",
-        "dense_score": 0.6695071462590261,
+        "dense_score": 0.6840679817365459,
         "display_text": "客厅边桌",
         "document_id": "object_memory:mem-medicine-2",
         "executable": true,
-        "final_score": 0.2827868852459016,
+        "final_score": 0.08278688524590164,
         "invalid_reason": null,
         "last_confirmed_at": "2026-04-17T09:00:00Z",
         "memory_id": "mem-medicine-2",
-        "metadata_score": 0.25,
+        "metadata_score": 0.05,
         "object_category": "medicine_box",
         "ranking_reasons": [
           "bm25_rank=1",
           "dense_rank=1",
-          "metadata_target_alias_match",
           "metadata_medium_confidence"
         ],
         "ranking_stage": "bm25_dense_fusion",
@@ -234,14 +233,14 @@
       "location_terms": [
         "桌子"
       ],
-      "query_text": "药盒 pill box 桌子那边",
-      "reason": "检查药盒是否在桌子那边",
+      "query_text": "药盒 medicine box 桌子那边",
+      "reason": null,
       "source_filter": [
         "object_memory"
       ],
       "target_aliases": [
-        "药盒",
-        "pill box"
+        "药箱",
+        "药品盒"
       ],
       "target_category": null,
       "top_k": 5
@@ -259,31 +258,31 @@
       "query_provider": {
         "attempts": [
           {
-            "elapsed_ms": 21299.705458000062,
+            "elapsed_ms": 25631.66700000147,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 21299.705458000062,
+        "elapsed_ms": 25631.66700000147,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_response": "{\n  \"query_text\": \"药盒 pill box 桌子那边\",\n  \"target_category\": null,\n  \"target_aliases\": [\"药盒\", \"pill box\"],\n  \"location_terms\": [\"桌子\"],\n  \"source_filter\": [\"object_memory\"],\n  \"top_k\": 5,\n  \"excluded_memory_ids\": [],\n  \"excluded_location_keys\": [],\n  \"reason\": \"检查药盒是否在桌子那边\"\n}",
+      "raw_response": "{\n  \"query_text\": \"药盒 medicine box 桌子那边\",\n  \"target_category\": null,\n  \"target_aliases\": [\"药箱\", \"药品盒\"],\n  \"location_terms\": [\"桌子\"],\n  \"source_filter\": [\"object_memory\"],\n  \"top_k\": 5,\n  \"excluded_memory_ids\": [],\n  \"excluded_location_keys\": [],\n  \"reason\": null\n}",
       "retrieval_query": {
         "excluded_location_keys": [],
         "excluded_memory_ids": [],
         "location_terms": [
           "桌子"
         ],
-        "query_text": "药盒 pill box 桌子那边",
-        "reason": "检查药盒是否在桌子那边",
+        "query_text": "药盒 medicine box 桌子那边",
+        "reason": null,
         "source_filter": [
           "object_memory"
         ],
         "target_aliases": [
-          "药盒",
-          "pill box"
+          "药箱",
+          "药品盒"
         ],
         "target_category": null,
         "top_k": 5
@@ -293,31 +292,31 @@
   "query_provider": {
     "attempts": [
       {
-        "elapsed_ms": 21299.705458000062,
+        "elapsed_ms": 25631.66700000147,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 21299.705458000062,
+    "elapsed_ms": 25631.66700000147,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_response": "{\n  \"query_text\": \"药盒 pill box 桌子那边\",\n  \"target_category\": null,\n  \"target_aliases\": [\"药盒\", \"pill box\"],\n  \"location_terms\": [\"桌子\"],\n  \"source_filter\": [\"object_memory\"],\n  \"top_k\": 5,\n  \"excluded_memory_ids\": [],\n  \"excluded_location_keys\": [],\n  \"reason\": \"检查药盒是否在桌子那边\"\n}",
+  "raw_response": "{\n  \"query_text\": \"药盒 medicine box 桌子那边\",\n  \"target_category\": null,\n  \"target_aliases\": [\"药箱\", \"药品盒\"],\n  \"location_terms\": [\"桌子\"],\n  \"source_filter\": [\"object_memory\"],\n  \"top_k\": 5,\n  \"excluded_memory_ids\": [],\n  \"excluded_location_keys\": [],\n  \"reason\": null\n}",
   "retrieval_query": {
     "excluded_location_keys": [],
     "excluded_memory_ids": [],
     "location_terms": [
       "桌子"
     ],
-    "query_text": "药盒 pill box 桌子那边",
-    "reason": "检查药盒是否在桌子那边",
+    "query_text": "药盒 medicine box 桌子那边",
+    "reason": null,
     "source_filter": [
       "object_memory"
     ],
     "target_aliases": [
-      "药盒",
-      "pill box"
+      "药箱",
+      "药品盒"
     ],
     "target_category": null,
     "top_k": 5
