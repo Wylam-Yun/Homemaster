@@ -1,0 +1,4 @@
+{
+  "expected_behavior": "查看药盒，不生成拿取/交付动作",
+  "stage_04_case": "ground_medicine_target"
+}

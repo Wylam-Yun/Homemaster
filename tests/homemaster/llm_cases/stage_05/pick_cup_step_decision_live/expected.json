@@ -1,0 +1,39 @@
+{
+  "expected_skill": "operation",
+  "stage_04_case": "ground_cup_target",
+  "state": {
+    "current_subtask_id": "pick_cup",
+    "last_observation": {
+      "target_object_location": "厨房餐桌",
+      "target_object_visible": true
+    },
+    "subtasks": [
+      {
+        "status": "verified",
+        "subtask_id": "find_cup"
+      },
+      {
+        "depends_on": [
+          "find_cup"
+        ],
+        "status": "running",
+        "subtask_id": "pick_cup"
+      }
+    ],
+    "target_object_location": "厨房餐桌",
+    "target_object_visible": true,
+    "task_status": "running",
+    "user_location": "客厅沙发旁"
+  },
+  "subtask": {
+    "depends_on": [
+      "find_cup"
+    ],
+    "id": "pick_cup",
+    "intent": "拿起水杯",
+    "success_criteria": [
+      "确认水杯已经被拿起"
+    ],
+    "target_object": "水杯"
+  }
+}

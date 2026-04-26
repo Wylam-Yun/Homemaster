@@ -1,0 +1,4 @@
+{
+  "expected_behavior": "找到水杯、拿起、回用户位置、交付、确认",
+  "stage_04_case": "ground_cup_target"
+}

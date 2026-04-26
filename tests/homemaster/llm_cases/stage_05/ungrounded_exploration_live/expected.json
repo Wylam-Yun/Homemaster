@@ -1,0 +1,4 @@
+{
+  "expected_behavior": "没有 reliable memory target 时生成探索/寻找/观察或追问计划",
+  "stage_04_case": "ungrounded_no_memory_context"
+}
