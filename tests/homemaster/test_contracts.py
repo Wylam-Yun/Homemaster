@@ -294,11 +294,3 @@ def test_recovery_decision_rejects_switch_target_and_next_target_id() -> None:
 
 def test_homemaster_contracts_do_not_expose_embodied_action_plan() -> None:
     assert not hasattr(contracts, "EmbodiedActionPlan")
-
-
-def test_old_task_brain_candidate_baseline_still_imports() -> None:
-    from task_brain.domain import RuntimeState
-
-    state = RuntimeState(selected_candidate_id="mem-cup-1")
-
-    assert state.selected_candidate_id == "mem-cup-1"

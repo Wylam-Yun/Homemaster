@@ -182,4 +182,4 @@ src/homemaster/scenario_runner.py
 - 真实：Mimo、BGE-M3。
 - 程序：Stage04 可靠记忆判定、Stage06 记忆写回。
 - 模拟：navigation、operation、verification skill。
-- 旧 `task_brain` 保留为 V1 对照基线，不是当前 README 的主入口。
+- 旧 `task_brain` 链路已从当前工程入口中清理；当前只维护 `homemaster` 主链。
