@@ -97,10 +97,10 @@ TaskCard schema:
   "target": "药盒",
   "delivery_target": null,
   "location_hint": "厨房",
-  "success_criteria": ["在厨房确认药盒的存在"],
+  "success_criteria": ["药盒在厨房中被确认存在"],
   "needs_clarification": false,
   "clarification_question": null,
-  "confidence": 0.9
+  "confidence": 0.95
 }
 ````
 
@@ -109,12 +109,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.9,
+  "confidence": 0.95,
   "delivery_target": null,
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "在厨房确认药盒的存在"
+    "药盒在厨房中被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -126,12 +126,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.9,
+  "confidence": 0.95,
   "delivery_target": null,
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "在厨房确认药盒的存在"
+    "药盒在厨房中被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -152,12 +152,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.9,
+  "confidence": 0.95,
   "delivery_target": null,
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "在厨房确认药盒的存在"
+    "药盒在厨房中被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"

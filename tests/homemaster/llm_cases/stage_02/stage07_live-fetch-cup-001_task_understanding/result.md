@@ -3,13 +3,13 @@
 ## Summary
 
 - Result: PASS
-- Case: stage07_stage07-check_medicine_stale_recover_task_understanding
+- Case: stage07_live-fetch-cup-001_task_understanding
 - Provider: Mimo
 - Model: mimo-v2-pro
 - Protocol: anthropic
 - Logs: /Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_02
 - Message: Task understanding completed.
-- Utterance: 去桌子那边看看药盒是不是还在。
+- Utterance: 去厨房找水杯，然后拿给我
 - Retry Count: 0
 
 ## Request Context
@@ -19,7 +19,7 @@
   "recent_task_summary": null,
   "source": null,
   "user_id": null,
-  "utterance": "去桌子那边看看药盒是不是还在。"
+  "utterance": "去厨房找水杯，然后拿给我"
 }
 ```
 
@@ -27,7 +27,7 @@
 
 ```json
 {
-  "case_name": "stage07_stage07-check_medicine_stale_recover_task_understanding",
+  "case_name": "stage07_live-fetch-cup-001_task_understanding",
   "required_checks": [
     "provider returns parseable JSON object",
     "JSON validates as TaskCard",
@@ -80,7 +80,7 @@ TaskCard schema:
 
 输入上下文:
 {
-  "utterance": "去桌子那边看看药盒是不是还在。",
+  "utterance": "去厨房找水杯，然后拿给我",
   "user_id": null,
   "source": null,
   "recent_task_summary": null
@@ -93,11 +93,11 @@ TaskCard schema:
 
 ````json
 {
-  "task_type": "check_presence",
-  "target": "药盒",
-  "delivery_target": null,
-  "location_hint": "桌子那边",
-  "success_criteria": ["确认药盒在桌子那边"],
+  "task_type": "fetch_object",
+  "target": "水杯",
+  "delivery_target": "user",
+  "location_hint": "厨房",
+  "success_criteria": ["机器人找到水杯并交付给用户"],
   "needs_clarification": false,
   "clarification_question": null,
   "confidence": 0.95
@@ -110,14 +110,14 @@ TaskCard schema:
 {
   "clarification_question": null,
   "confidence": 0.95,
-  "delivery_target": null,
-  "location_hint": "桌子那边",
+  "delivery_target": "user",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "机器人找到水杯并交付给用户"
   ],
-  "target": "药盒",
-  "task_type": "check_presence"
+  "target": "水杯",
+  "task_type": "fetch_object"
 }
 ```
 
@@ -127,14 +127,14 @@ TaskCard schema:
 {
   "clarification_question": null,
   "confidence": 0.95,
-  "delivery_target": null,
-  "location_hint": "桌子那边",
+  "delivery_target": "user",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "机器人找到水杯并交付给用户"
   ],
-  "target": "药盒",
-  "task_type": "check_presence"
+  "target": "水杯",
+  "task_type": "fetch_object"
 }
 ```
 
@@ -153,13 +153,13 @@ TaskCard schema:
 {
   "clarification_question": null,
   "confidence": 0.95,
-  "delivery_target": null,
-  "location_hint": "桌子那边",
+  "delivery_target": "user",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "机器人找到水杯并交付给用户"
   ],
-  "target": "药盒",
-  "task_type": "check_presence"
+  "target": "水杯",
+  "task_type": "fetch_object"
 }
 ```

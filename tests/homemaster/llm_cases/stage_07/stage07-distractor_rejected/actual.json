@@ -1,0 +1,867 @@
+{
+  "case_dir": "tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected",
+  "evidence_bundle": {
+    "evidence_refs": [
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "evidence_id": "verification:stage07-distractor_rejected:1",
+        "evidence_type": "verification_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "verification-1",
+        "subtask_id": null,
+        "summary": "没有观察到水杯"
+      },
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "evidence_id": "skill_result:stage07-distractor_rejected:1:navigation",
+        "evidence_type": "skill_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-1",
+        "subtask_id": null,
+        "summary": "navigation success"
+      },
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "evidence_id": "observation:stage07-distractor_rejected:1",
+        "evidence_type": "observation",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-1",
+        "subtask_id": null,
+        "summary": "observation: target not visible"
+      },
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "evidence_id": "failure:failure-1",
+        "evidence_type": "failure_record",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "failure-1",
+        "subtask_id": "subtask_1",
+        "summary": "没有观察到水杯"
+      },
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "evidence_id": "trace_event:stage07:stage07-distractor_rejected",
+        "evidence_type": "trace_event",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "stage07:stage07-distractor_rejected",
+        "subtask_id": null,
+        "summary": "stage07 task run"
+      }
+    ],
+    "failure_facts": [
+      "没有观察到水杯",
+      "没有观察到水杯"
+    ],
+    "negative_evidence": [
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "failure_record_id": "failure-1",
+        "location_key": "kitchen:anchor_kitchen_counter_1",
+        "memory_id": "mem-cup-1",
+        "observation": {
+          "current_location": "robot_start",
+          "target_object_visible": false,
+          "visible_objects": []
+        },
+        "reason": "verification_failed",
+        "stale_after": "2026-05-06T05:01:29Z",
+        "subtask_id": "subtask_1"
+      }
+    ],
+    "system_failures": [],
+    "task_id": "stage07-distractor_rejected",
+    "verified_facts": []
+  },
+  "execution_result": {
+    "failure_records": [
+      {
+        "created_at": "2026-04-29T05:01:29Z",
+        "event_memory_candidate": {
+          "negative_evidence": [
+            {
+              "location_key": "kitchen:anchor_kitchen_counter_1",
+              "memory_id": "mem-cup-1",
+              "observation": {
+                "current_location": "robot_start",
+                "target_object_visible": false,
+                "visible_objects": []
+              },
+              "reason": "verification_failed",
+              "subtask_id": "subtask_1"
+            }
+          ],
+          "reason": "没有观察到水杯",
+          "subtask_id": "subtask_1",
+          "type": "verification_failed"
+        },
+        "failed_reason": "没有观察到水杯",
+        "failure_id": "failure-1",
+        "failure_type": "verification_failed",
+        "negative_evidence": [
+          {
+            "location_key": "kitchen:anchor_kitchen_counter_1",
+            "memory_id": "mem-cup-1",
+            "observation": {
+              "current_location": "robot_start",
+              "target_object_visible": false,
+              "visible_objects": []
+            },
+            "reason": "verification_failed",
+            "subtask_id": "subtask_1"
+          }
+        ],
+        "observation": {
+          "current_location": "robot_start",
+          "target_object_visible": false,
+          "visible_objects": []
+        },
+        "retry_count": 0,
+        "skill": "navigation",
+        "skill_input": {
+          "anchor_hint": "anchor_kitchen_counter_1",
+          "force_no_object": true,
+          "goal_type": "find_object",
+          "room_hint": "kitchen",
+          "subtask_id": "subtask_1",
+          "subtask_intent": "找到水杯",
+          "target_object": "水杯"
+        },
+        "skill_output": {
+          "goal_type": "find_object",
+          "navigated": true
+        },
+        "subtask_id": "subtask_1",
+        "subtask_intent": "找到水杯",
+        "verification_result": {
+          "confidence": 0.8,
+          "failed_reason": "没有观察到水杯",
+          "missing_evidence": [
+            "没有观察到水杯"
+          ],
+          "passed": false,
+          "scope": "subtask",
+          "verified_facts": []
+        }
+      }
+    ],
+    "final_state": {
+      "completed_subtask_ids": [],
+      "current_location": "robot_start",
+      "current_subtask_id": "subtask_1",
+      "failure_record_ids": [
+        "failure-1"
+      ],
+      "held_object": null,
+      "last_observation": null,
+      "last_skill_call": {
+        "expected_result": "找到并观察目标物",
+        "reason": "当前子任务需要先导航或观察目标物",
+        "selected_skill": "navigation",
+        "skill_input": {
+          "anchor_hint": "anchor_kitchen_counter_1",
+          "force_no_object": true,
+          "goal_type": "find_object",
+          "room_hint": "kitchen",
+          "subtask_id": "subtask_1",
+          "subtask_intent": "找到水杯",
+          "target_object": "水杯"
+        },
+        "subtask_id": "subtask_1"
+      },
+      "last_skill_result": {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "robot_start",
+          "target_object_visible": false,
+          "visible_objects": []
+        },
+        "runtime_state_delta": {},
+        "skill": "navigation",
+        "skill_output": {
+          "goal_type": "find_object",
+          "navigated": true
+        },
+        "status": "success"
+      },
+      "last_verification_result": {
+        "confidence": 0.8,
+        "failed_reason": "没有观察到水杯",
+        "missing_evidence": [
+          "没有观察到水杯"
+        ],
+        "passed": false,
+        "scope": "subtask",
+        "verified_facts": []
+      },
+      "negative_evidence": [
+        {
+          "location_key": "kitchen:anchor_kitchen_counter_1",
+          "memory_id": "mem-cup-1",
+          "observation": {
+            "current_location": "robot_start",
+            "target_object_visible": false,
+            "visible_objects": []
+          },
+          "reason": "verification_failed",
+          "subtask_id": "subtask_1"
+        }
+      ],
+      "retry_counts": {
+        "subtask_1": 1
+      },
+      "subtasks": [
+        {
+          "attempt_count": 1,
+          "depends_on": [],
+          "failure_record_ids": [
+            "failure-1"
+          ],
+          "last_completed_at": null,
+          "last_observation": null,
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": null,
+          "status": "failed",
+          "subtask_id": "subtask_1"
+        },
+        {
+          "attempt_count": 0,
+          "depends_on": [
+            "subtask_1"
+          ],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": null,
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": null,
+          "status": "pending",
+          "subtask_id": "subtask_2"
+        },
+        {
+          "attempt_count": 0,
+          "depends_on": [
+            "subtask_2"
+          ],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": null,
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": null,
+          "status": "pending",
+          "subtask_id": "subtask_3"
+        },
+        {
+          "attempt_count": 0,
+          "depends_on": [
+            "subtask_3"
+          ],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": null,
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": null,
+          "status": "pending",
+          "subtask_id": "subtask_4"
+        }
+      ],
+      "target_object_location": null,
+      "target_object_visible": false,
+      "task_status": "failed",
+      "user_location": "user_start"
+    },
+    "plan": {
+      "confidence": 0.95,
+      "goal": "成功将水杯交付给用户",
+      "subtasks": [
+        {
+          "anchor_hint": "anchor_kitchen_counter_1",
+          "depends_on": [],
+          "id": "subtask_1",
+          "intent": "找到水杯",
+          "recipient": null,
+          "room_hint": "kitchen",
+          "success_criteria": [
+            "水杯被成功定位"
+          ],
+          "target_object": "水杯"
+        },
+        {
+          "anchor_hint": "anchor_kitchen_counter_1",
+          "depends_on": [
+            "subtask_1"
+          ],
+          "id": "subtask_2",
+          "intent": "拿起水杯",
+          "recipient": null,
+          "room_hint": "kitchen",
+          "success_criteria": [
+            "水杯被机器人抓取"
+          ],
+          "target_object": "水杯"
+        },
+        {
+          "anchor_hint": null,
+          "depends_on": [
+            "subtask_2"
+          ],
+          "id": "subtask_3",
+          "intent": "回到用户位置",
+          "recipient": "user",
+          "room_hint": null,
+          "success_criteria": [
+            "机器人到达用户所在位置"
+          ],
+          "target_object": null
+        },
+        {
+          "anchor_hint": null,
+          "depends_on": [
+            "subtask_3"
+          ],
+          "id": "subtask_4",
+          "intent": "交付水杯给用户",
+          "recipient": "user",
+          "room_hint": null,
+          "success_criteria": [
+            "水杯被成功交付给用户"
+          ],
+          "target_object": "水杯"
+        }
+      ]
+    },
+    "skill_results": [
+      {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "robot_start",
+          "target_object_visible": false,
+          "visible_objects": []
+        },
+        "runtime_state_delta": {},
+        "skill": "navigation",
+        "skill_output": {
+          "goal_type": "find_object",
+          "navigated": true
+        },
+        "status": "success"
+      }
+    ],
+    "step_decisions": [
+      {
+        "expected_result": "找到并观察目标物",
+        "reason": "当前子任务需要先导航或观察目标物",
+        "selected_skill": "navigation",
+        "skill_input": {
+          "anchor_hint": "anchor_kitchen_counter_1",
+          "force_no_object": true,
+          "goal_type": "find_object",
+          "room_hint": "kitchen",
+          "subtask_id": "subtask_1",
+          "subtask_intent": "找到水杯",
+          "target_object": "水杯"
+        },
+        "subtask_id": "subtask_1"
+      }
+    ],
+    "verification_inputs": [
+      {
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "robot_start",
+          "target_object_visible": false,
+          "visible_objects": []
+        },
+        "scope": "subtask",
+        "subtask_id": "subtask_1",
+        "subtask_intent": "找到水杯",
+        "success_criteria": [
+          "水杯被成功定位"
+        ]
+      }
+    ],
+    "verification_results": [
+      {
+        "confidence": 0.8,
+        "failed_reason": "没有观察到水杯",
+        "missing_evidence": [
+          "没有观察到水杯"
+        ],
+        "passed": false,
+        "scope": "subtask",
+        "verified_facts": []
+      }
+    ]
+  },
+  "final_status": "failed",
+  "memory_commit": {
+    "commit_log": {
+      "commit_id": "commit:stage07-distractor_rejected",
+      "fact_memory_write_count": 1,
+      "index_stale_memory_ids": [
+        "mem-cup-1"
+      ],
+      "object_memory_path": "var/homemaster/runs/stage07-distractor_rejected/memory/object_memory.json",
+      "object_memory_update_count": 1,
+      "skipped_candidates": [],
+      "task_id": "stage07-distractor_rejected",
+      "task_record_written": true
+    },
+    "fact_memory_write_count": 1,
+    "object_memory_path": "var/homemaster/runs/stage07-distractor_rejected/memory/object_memory.json",
+    "task_record_write_count": 1
+  },
+  "model_boundary": {
+    "real_robot": "not_integrated",
+    "real_vla": "not_integrated",
+    "real_vlm": "not_integrated",
+    "stage02": "real_mimo",
+    "stage03_embedding": "real_bge_m3",
+    "stage03_query": "real_mimo",
+    "stage04": "programmatic",
+    "stage05_navigation": "mock",
+    "stage05_operation": "mock",
+    "stage05_plan": "real_mimo",
+    "stage05_step": "real_mimo",
+    "stage05_verification": "mock",
+    "stage06_memory_commit": "programmatic",
+    "stage06_summary": "real_mimo"
+  },
+  "orchestration_plan": {
+    "confidence": 0.95,
+    "goal": "成功将水杯交付给用户",
+    "subtasks": [
+      {
+        "anchor_hint": "anchor_kitchen_counter_1",
+        "depends_on": [],
+        "id": "subtask_1",
+        "intent": "找到水杯",
+        "recipient": null,
+        "room_hint": "kitchen",
+        "success_criteria": [
+          "水杯被成功定位"
+        ],
+        "target_object": "水杯"
+      },
+      {
+        "anchor_hint": "anchor_kitchen_counter_1",
+        "depends_on": [
+          "subtask_1"
+        ],
+        "id": "subtask_2",
+        "intent": "拿起水杯",
+        "recipient": null,
+        "room_hint": "kitchen",
+        "success_criteria": [
+          "水杯被机器人抓取"
+        ],
+        "target_object": "水杯"
+      },
+      {
+        "anchor_hint": null,
+        "depends_on": [
+          "subtask_2"
+        ],
+        "id": "subtask_3",
+        "intent": "回到用户位置",
+        "recipient": "user",
+        "room_hint": null,
+        "success_criteria": [
+          "机器人到达用户所在位置"
+        ],
+        "target_object": null
+      },
+      {
+        "anchor_hint": null,
+        "depends_on": [
+          "subtask_3"
+        ],
+        "id": "subtask_4",
+        "intent": "交付水杯给用户",
+        "recipient": "user",
+        "room_hint": null,
+        "success_criteria": [
+          "水杯被成功交付给用户"
+        ],
+        "target_object": "水杯"
+      }
+    ]
+  },
+  "paths": {
+    "base_memory_path": "/Users/wylam/Documents/workspace/HomeMaster/data/scenarios/distractor_rejected/memory.json",
+    "case_dir": "tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected",
+    "results_dir": "/Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_07",
+    "runtime_memory_root": "var/homemaster/runs/stage07-distractor_rejected/memory",
+    "world_path": "/Users/wylam/Documents/workspace/HomeMaster/data/scenarios/distractor_rejected/world.json"
+  },
+  "planning_context": {
+    "memory_evidence": {
+      "embedding_provider": {
+        "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "provider_name": "MemoryEmbedding"
+      },
+      "excluded": [],
+      "hits": [
+        {
+          "aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "anchor_id": "anchor_kitchen_counter_1",
+          "anchor_type": "counter",
+          "belief_state": "confirmed",
+          "bm25_score": 0.5871412754058838,
+          "canonical_metadata": {
+            "aliases": [
+              "水杯",
+              "杯子"
+            ],
+            "anchor_id": "anchor_kitchen_counter_1",
+            "anchor_type": "counter",
+            "belief_state": "confirmed",
+            "confidence_level": "medium",
+            "display_text": "厨房操作台",
+            "document_text_hash": "5a28d382fb79619d682b72277c6cb07bc2805f209526bcdc6273700e3d1bd011",
+            "last_confirmed_at": "2026-04-12T12:00:00Z",
+            "memory_id": "mem-cup-1",
+            "object_category": "cup",
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "viewpoint_id": "kitchen_counter_viewpoint"
+          },
+          "confidence_level": "medium",
+          "dense_score": 0.6835317417201486,
+          "display_text": "厨房操作台",
+          "document_id": "object_memory:mem-cup-1",
+          "executable": true,
+          "final_score": 0.4327868852459016,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-12T12:00:00Z",
+          "memory_id": "mem-cup-1",
+          "metadata_score": 0.39999999999999997,
+          "object_category": "cup",
+          "ranking_reasons": [
+            "bm25_rank=1",
+            "dense_rank=1",
+            "metadata_target_alias_match",
+            "metadata_location_match",
+            "metadata_medium_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯、杯子。历史位置: 厨房操作台。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: counter。锚点别名: 台面、柜台、counter。可观察视角: kitchen_counter_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-12T12:00:00Z。",
+          "viewpoint_id": "kitchen_counter_viewpoint"
+        },
+        {
+          "aliases": [
+            "水杯"
+          ],
+          "anchor_id": "anchor_pantry_shelf_1",
+          "anchor_type": "shelf",
+          "belief_state": "stale",
+          "bm25_score": 0.2824892997741699,
+          "canonical_metadata": {
+            "aliases": [
+              "水杯"
+            ],
+            "anchor_id": "anchor_pantry_shelf_1",
+            "anchor_type": "shelf",
+            "belief_state": "stale",
+            "confidence_level": "low",
+            "display_text": "储物间搁架",
+            "document_text_hash": "fc87a9cf72f570c0666786ffcfc1c0c31c0df97446bedb362344f15ea2fd53d8",
+            "last_confirmed_at": "2026-04-03T12:00:00Z",
+            "memory_id": "mem-cup-2",
+            "object_category": "cup",
+            "room_id": "pantry",
+            "source_type": "object_memory",
+            "viewpoint_id": "pantry_shelf_viewpoint"
+          },
+          "confidence_level": "low",
+          "dense_score": 0.6159461620747501,
+          "display_text": "储物间搁架",
+          "document_id": "object_memory:mem-cup-2",
+          "executable": true,
+          "final_score": 0.13225806451612904,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-03T12:00:00Z",
+          "memory_id": "mem-cup-2",
+          "metadata_score": 0.1,
+          "object_category": "cup",
+          "ranking_reasons": [
+            "bm25_rank=2",
+            "dense_rank=2",
+            "metadata_target_alias_match",
+            "metadata_stale_penalty"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "pantry",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: cup。目标类别别名: 水杯、杯子、cup。别名: 水杯。历史位置: 储物间搁架。房间: pantry。房间别名: 储物间、pantry。锚点类型: shelf。锚点别名: 搁架、架子、shelf。可观察视角: pantry_shelf_viewpoint。置信度: low。记忆状态: stale。最近确认时间: 2026-04-03T12:00:00Z。",
+          "viewpoint_id": "pantry_shelf_viewpoint"
+        }
+      ],
+      "index_snapshot": {
+        "document_count": 2,
+        "domain_terms": [
+          "cup",
+          "水杯",
+          "杯子",
+          "kitchen",
+          "anchor_kitchen_counter_1",
+          "counter",
+          "kitchen_counter_viewpoint",
+          "厨房操作台",
+          "厨房",
+          "台面",
+          "柜台",
+          "pantry",
+          "anchor_pantry_shelf_1",
+          "shelf",
+          "pantry_shelf_viewpoint",
+          "储物间搁架",
+          "储物间",
+          "搁架",
+          "架子"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "tokenized_query": "[REDACTED]"
+      },
+      "ranking_reasons": [
+        "bm25_dense_rrf_fusion",
+        "metadata_guardrail"
+      ],
+      "retrieval_query": {
+        "excluded_location_keys": [],
+        "excluded_memory_ids": [],
+        "location_terms": [
+          "厨房"
+        ],
+        "query_text": "水杯，杯子，厨房，water cup",
+        "reason": "根据fetch_object任务检索水杯以交付给用户",
+        "source_filter": [
+          "object_memory"
+        ],
+        "target_aliases": [
+          "水杯",
+          "杯子"
+        ],
+        "target_category": null,
+        "top_k": 5
+      },
+      "retrieval_summary": "returned 2 hits and 0 excluded"
+    },
+    "planning_notes": [
+      "grounded reliable memory target is available for Stage 05 planning"
+    ],
+    "rejected_hits": [],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "厨房"
+      ],
+      "query_text": "水杯，杯子，厨房，water cup",
+      "reason": "根据fetch_object任务检索水杯以交付给用户",
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "水杯",
+        "杯子"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "runtime_state_summary": {
+      "grounding_reason": "selected first reliable executable memory hit",
+      "grounding_status": "grounded",
+      "needs_exploratory_search": false
+    },
+    "selected_target": {
+      "anchor_id": "anchor_kitchen_counter_1",
+      "display_text": "厨房操作台",
+      "evidence": {
+        "canonical_metadata": {
+          "aliases": [
+            "水杯",
+            "杯子"
+          ],
+          "anchor_id": "anchor_kitchen_counter_1",
+          "anchor_type": "counter",
+          "belief_state": "confirmed",
+          "confidence_level": "medium",
+          "display_text": "厨房操作台",
+          "document_text_hash": "5a28d382fb79619d682b72277c6cb07bc2805f209526bcdc6273700e3d1bd011",
+          "last_confirmed_at": "2026-04-12T12:00:00Z",
+          "memory_id": "mem-cup-1",
+          "object_category": "cup",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_counter_viewpoint"
+        },
+        "document_id": "object_memory:mem-cup-1",
+        "final_score": 0.4327868852459016,
+        "ranking_reasons": [
+          "bm25_rank=1",
+          "dense_rank=1",
+          "metadata_target_alias_match",
+          "metadata_location_match",
+          "metadata_medium_confidence"
+        ],
+        "reliability": {
+          "document_id": "object_memory:mem-cup-1",
+          "memory_id": "mem-cup-1",
+          "needs_exploratory_search": false,
+          "reasons": [
+            "reliable_execution_memory"
+          ],
+          "status": "reliable",
+          "suggested_search_hint": null
+        },
+        "source": "canonical_metadata"
+      },
+      "executable": true,
+      "invalid_reason": null,
+      "memory_id": "mem-cup-1",
+      "room_id": "kitchen",
+      "viewpoint_id": "kitchen_counter_viewpoint"
+    },
+    "task_card": {
+      "clarification_question": null,
+      "confidence": 0.95,
+      "delivery_target": "user",
+      "location_hint": "厨房",
+      "needs_clarification": false,
+      "success_criteria": [
+        "机器人成功将水杯交付给用户"
+      ],
+      "target": "水杯",
+      "task_type": "fetch_object"
+    },
+    "world_summary": {
+      "anchors": [
+        {
+          "anchor_id": "anchor_kitchen_counter_1",
+          "display_text": "厨房操作台",
+          "room_id": "kitchen",
+          "viewpoint_id": "kitchen_counter_viewpoint"
+        },
+        {
+          "anchor_id": "anchor_pantry_shelf_1",
+          "display_text": "储物间搁架",
+          "room_id": "pantry",
+          "viewpoint_id": "pantry_shelf_viewpoint"
+        }
+      ],
+      "room_ids": [
+        "kitchen",
+        "pantry"
+      ],
+      "viewpoint_ids": [
+        "kitchen_counter_viewpoint",
+        "pantry_shelf_viewpoint"
+      ]
+    }
+  },
+  "results_dir": "/Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_07",
+  "run_id": "stage07-distractor_rejected",
+  "runtime_memory_root": "var/homemaster/runs/stage07-distractor_rejected/memory",
+  "scenario": "distractor_rejected",
+  "stage_statuses": {
+    "stage02": {
+      "mode": "real_mimo",
+      "status": "PASS"
+    },
+    "stage03": {
+      "embedding": "real_bge_m3",
+      "mode": "real_mimo",
+      "status": "PASS"
+    },
+    "stage04": {
+      "grounding_status": "grounded",
+      "selected_target": "mem-cup-1",
+      "status": "PASS"
+    },
+    "stage05": {
+      "final_task_status": "failed",
+      "mock_skills": true,
+      "mode": "real_mimo",
+      "status": "PASS",
+      "step_decision": {
+        "mode": "real_mimo",
+        "provider": {
+          "attempts": [
+            {
+              "elapsed_ms": 29414.700792000076,
+              "key_index": 1,
+              "status_code": 200
+            }
+          ],
+          "elapsed_ms": 29414.700792000076,
+          "model": "mimo-v2-pro",
+          "protocol": "anthropic",
+          "provider_name": "Mimo"
+        },
+        "selected_skill": "navigation",
+        "status": "PASS",
+        "subtask_id": "subtask_1"
+      }
+    },
+    "stage06": {
+      "fact_memory_write_count": 1,
+      "mode": "real_mimo",
+      "object_memory_update_count": 1,
+      "status": "PASS",
+      "task_summary_result": "failed"
+    }
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.95,
+    "delivery_target": "user",
+    "location_hint": "厨房",
+    "needs_clarification": false,
+    "success_criteria": [
+      "机器人成功将水杯交付给用户"
+    ],
+    "target": "水杯",
+    "task_type": "fetch_object"
+  },
+  "utterance": "去厨房找水杯，然后拿给我"
+}

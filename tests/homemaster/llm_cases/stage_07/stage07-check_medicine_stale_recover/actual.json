@@ -1,0 +1,848 @@
+{
+  "case_dir": "tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover",
+  "evidence_bundle": {
+    "evidence_refs": [
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "verification:stage07-check_medicine_stale_recover:1",
+        "evidence_type": "verification_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "verification-1",
+        "subtask_id": null,
+        "summary": "结构化 observation 支持该子任务完成"
+      },
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "verification:stage07-check_medicine_stale_recover:2",
+        "evidence_type": "verification_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "verification-2",
+        "subtask_id": null,
+        "summary": "观察到药盒"
+      },
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "skill_result:stage07-check_medicine_stale_recover:1:operation",
+        "evidence_type": "skill_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-1",
+        "subtask_id": null,
+        "summary": "operation success"
+      },
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "skill_result:stage07-check_medicine_stale_recover:2:navigation",
+        "evidence_type": "skill_result",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-2",
+        "subtask_id": null,
+        "summary": "navigation success"
+      },
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "observation:stage07-check_medicine_stale_recover:2",
+        "evidence_type": "observation",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "skill-2",
+        "subtask_id": null,
+        "summary": "observation: target visible at 边桌"
+      },
+      {
+        "created_at": "2026-04-29T04:55:22Z",
+        "evidence_id": "trace_event:stage07:stage07-check_medicine_stale_recover",
+        "evidence_type": "trace_event",
+        "location_key": null,
+        "memory_id": null,
+        "source_id": "stage07:stage07-check_medicine_stale_recover",
+        "subtask_id": null,
+        "summary": "stage07 task run"
+      }
+    ],
+    "failure_facts": [],
+    "negative_evidence": [],
+    "system_failures": [],
+    "task_id": "stage07-check_medicine_stale_recover",
+    "verified_facts": [
+      "结构化 observation 支持该子任务完成",
+      "观察到药盒"
+    ]
+  },
+  "execution_result": {
+    "failure_records": [],
+    "final_state": {
+      "completed_subtask_ids": [
+        "subtask_1",
+        "subtask_2"
+      ],
+      "current_location": "客厅",
+      "current_subtask_id": "subtask_2",
+      "failure_record_ids": [],
+      "held_object": null,
+      "last_observation": {
+        "current_location": "客厅",
+        "target_object_location": "边桌",
+        "target_object_visible": true,
+        "visible_objects": [
+          "药盒"
+        ]
+      },
+      "last_skill_call": {
+        "expected_result": "找到并观察目标物",
+        "reason": "当前子任务需要先导航或观察目标物",
+        "selected_skill": "navigation",
+        "skill_input": {
+          "anchor_hint": "边桌",
+          "goal_type": "find_object",
+          "room_hint": "客厅",
+          "subtask_id": "subtask_2",
+          "subtask_intent": "确认药盒在桌子上",
+          "target_object": "药盒"
+        },
+        "subtask_id": "subtask_2"
+      },
+      "last_skill_result": {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "客厅",
+          "target_object_location": "边桌",
+          "target_object_visible": true,
+          "visible_objects": [
+            "药盒"
+          ]
+        },
+        "runtime_state_delta": {},
+        "skill": "navigation",
+        "skill_output": {
+          "goal_type": "find_object",
+          "navigated": true
+        },
+        "status": "success"
+      },
+      "last_verification_result": {
+        "confidence": 0.9,
+        "failed_reason": null,
+        "missing_evidence": [],
+        "passed": true,
+        "scope": "subtask",
+        "verified_facts": [
+          "观察到药盒"
+        ]
+      },
+      "negative_evidence": [],
+      "retry_counts": {},
+      "subtasks": [
+        {
+          "attempt_count": 0,
+          "depends_on": [],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": {},
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": {
+            "confidence": 0.9,
+            "failed_reason": null,
+            "missing_evidence": [],
+            "passed": true,
+            "scope": "subtask",
+            "verified_facts": [
+              "结构化 observation 支持该子任务完成"
+            ]
+          },
+          "status": "verified",
+          "subtask_id": "subtask_1"
+        },
+        {
+          "attempt_count": 0,
+          "depends_on": [
+            "subtask_1"
+          ],
+          "failure_record_ids": [],
+          "last_completed_at": null,
+          "last_observation": {
+            "current_location": "客厅",
+            "target_object_location": "边桌",
+            "target_object_visible": true,
+            "visible_objects": [
+              "药盒"
+            ]
+          },
+          "last_skill": null,
+          "last_started_at": null,
+          "last_verification_result": {
+            "confidence": 0.9,
+            "failed_reason": null,
+            "missing_evidence": [],
+            "passed": true,
+            "scope": "subtask",
+            "verified_facts": [
+              "观察到药盒"
+            ]
+          },
+          "status": "verified",
+          "subtask_id": "subtask_2"
+        }
+      ],
+      "target_object_location": "边桌",
+      "target_object_visible": true,
+      "task_status": "completed",
+      "user_location": "user_start"
+    },
+    "plan": {
+      "confidence": 0.95,
+      "goal": "确认药盒在桌子那边",
+      "subtasks": [
+        {
+          "anchor_hint": "边桌",
+          "depends_on": [],
+          "id": "subtask_1",
+          "intent": "导航到客厅边桌",
+          "recipient": null,
+          "room_hint": "客厅",
+          "success_criteria": [
+            "到达客厅边桌位置"
+          ],
+          "target_object": null
+        },
+        {
+          "anchor_hint": "边桌",
+          "depends_on": [
+            "subtask_1"
+          ],
+          "id": "subtask_2",
+          "intent": "确认药盒在桌子上",
+          "recipient": null,
+          "room_hint": "客厅",
+          "success_criteria": [
+            "观察到药盒在客厅边桌上"
+          ],
+          "target_object": "药盒"
+        }
+      ]
+    },
+    "skill_results": [
+      {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {},
+        "runtime_state_delta": {},
+        "skill": "operation",
+        "skill_output": {
+          "planned_atomic_actions": [
+            "operate"
+          ],
+          "vla_instruction": "根据当前观察执行：导航到客厅边桌"
+        },
+        "status": "success"
+      },
+      {
+        "error": null,
+        "evidence": {},
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "客厅",
+          "target_object_location": "边桌",
+          "target_object_visible": true,
+          "visible_objects": [
+            "药盒"
+          ]
+        },
+        "runtime_state_delta": {},
+        "skill": "navigation",
+        "skill_output": {
+          "goal_type": "find_object",
+          "navigated": true
+        },
+        "status": "success"
+      }
+    ],
+    "step_decisions": [
+      {
+        "expected_result": "完成操作子任务",
+        "reason": "当前子任务需要操作 skill",
+        "selected_skill": "operation",
+        "skill_input": {
+          "observation": null,
+          "recipient": null,
+          "subtask_id": "subtask_1",
+          "subtask_intent": "导航到客厅边桌",
+          "target_object": "药盒"
+        },
+        "subtask_id": "subtask_1"
+      },
+      {
+        "expected_result": "找到并观察目标物",
+        "reason": "当前子任务需要先导航或观察目标物",
+        "selected_skill": "navigation",
+        "skill_input": {
+          "anchor_hint": "边桌",
+          "goal_type": "find_object",
+          "room_hint": "客厅",
+          "subtask_id": "subtask_2",
+          "subtask_intent": "确认药盒在桌子上",
+          "target_object": "药盒"
+        },
+        "subtask_id": "subtask_2"
+      }
+    ],
+    "verification_inputs": [
+      {
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {},
+        "scope": "subtask",
+        "subtask_id": "subtask_1",
+        "subtask_intent": "导航到客厅边桌",
+        "success_criteria": [
+          "到达客厅边桌位置"
+        ]
+      },
+      {
+        "image_input": {
+          "camera": null,
+          "enabled": false,
+          "image_ref": null,
+          "metadata": {},
+          "timestamp": null
+        },
+        "observation": {
+          "current_location": "客厅",
+          "target_object_location": "边桌",
+          "target_object_visible": true,
+          "visible_objects": [
+            "药盒"
+          ]
+        },
+        "scope": "subtask",
+        "subtask_id": "subtask_2",
+        "subtask_intent": "确认药盒在桌子上",
+        "success_criteria": [
+          "观察到药盒在客厅边桌上"
+        ]
+      }
+    ],
+    "verification_results": [
+      {
+        "confidence": 0.9,
+        "failed_reason": null,
+        "missing_evidence": [],
+        "passed": true,
+        "scope": "subtask",
+        "verified_facts": [
+          "结构化 observation 支持该子任务完成"
+        ]
+      },
+      {
+        "confidence": 0.9,
+        "failed_reason": null,
+        "missing_evidence": [],
+        "passed": true,
+        "scope": "subtask",
+        "verified_facts": [
+          "观察到药盒"
+        ]
+      }
+    ]
+  },
+  "final_status": "completed",
+  "memory_commit": {
+    "commit_log": {
+      "commit_id": "commit:stage07-check_medicine_stale_recover",
+      "fact_memory_write_count": 1,
+      "index_stale_memory_ids": [
+        "mem-medicine-2"
+      ],
+      "object_memory_path": "var/homemaster/runs/stage07-check_medicine_stale_recover/memory/object_memory.json",
+      "object_memory_update_count": 1,
+      "skipped_candidates": [],
+      "task_id": "stage07-check_medicine_stale_recover",
+      "task_record_written": true
+    },
+    "fact_memory_write_count": 1,
+    "object_memory_path": "var/homemaster/runs/stage07-check_medicine_stale_recover/memory/object_memory.json",
+    "task_record_write_count": 1
+  },
+  "model_boundary": {
+    "real_robot": "not_integrated",
+    "real_vla": "not_integrated",
+    "real_vlm": "not_integrated",
+    "stage02": "real_mimo",
+    "stage03_embedding": "real_bge_m3",
+    "stage03_query": "real_mimo",
+    "stage04": "programmatic",
+    "stage05_navigation": "mock",
+    "stage05_operation": "mock",
+    "stage05_plan": "real_mimo",
+    "stage05_step": "real_mimo",
+    "stage05_verification": "mock",
+    "stage06_memory_commit": "programmatic",
+    "stage06_summary": "real_mimo"
+  },
+  "orchestration_plan": {
+    "confidence": 0.95,
+    "goal": "确认药盒在桌子那边",
+    "subtasks": [
+      {
+        "anchor_hint": "边桌",
+        "depends_on": [],
+        "id": "subtask_1",
+        "intent": "导航到客厅边桌",
+        "recipient": null,
+        "room_hint": "客厅",
+        "success_criteria": [
+          "到达客厅边桌位置"
+        ],
+        "target_object": null
+      },
+      {
+        "anchor_hint": "边桌",
+        "depends_on": [
+          "subtask_1"
+        ],
+        "id": "subtask_2",
+        "intent": "确认药盒在桌子上",
+        "recipient": null,
+        "room_hint": "客厅",
+        "success_criteria": [
+          "观察到药盒在客厅边桌上"
+        ],
+        "target_object": "药盒"
+      }
+    ]
+  },
+  "paths": {
+    "base_memory_path": "/Users/wylam/Documents/workspace/HomeMaster/data/scenarios/check_medicine_stale_recover/memory.json",
+    "case_dir": "tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover",
+    "results_dir": "/Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_07",
+    "runtime_memory_root": "var/homemaster/runs/stage07-check_medicine_stale_recover/memory",
+    "world_path": "/Users/wylam/Documents/workspace/HomeMaster/data/scenarios/check_medicine_stale_recover/world.json"
+  },
+  "planning_context": {
+    "memory_evidence": {
+      "embedding_provider": {
+        "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "BAAI/bge-m3",
+        "provider_name": "MemoryEmbedding"
+      },
+      "excluded": [],
+      "hits": [
+        {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "bm25_score": 0.43699416518211365,
+          "canonical_metadata": {
+            "aliases": [
+              "药盒",
+              "药箱"
+            ],
+            "anchor_id": "anchor_kitchen_cabinet_1",
+            "anchor_type": "cabinet",
+            "belief_state": "confirmed",
+            "confidence_level": "high",
+            "display_text": "厨房药柜",
+            "document_text_hash": "0afb5000847936f6217fc0e177af9b7d4407a09751d2df5ff94d91793bdf242f",
+            "last_confirmed_at": "2026-04-15T09:00:00Z",
+            "memory_id": "mem-medicine-1",
+            "object_category": "medicine_box",
+            "room_id": "kitchen",
+            "source_type": "object_memory",
+            "viewpoint_id": "kitchen_cabinet_viewpoint"
+          },
+          "confidence_level": "high",
+          "dense_score": 0.6803325487605275,
+          "display_text": "厨房药柜",
+          "document_id": "object_memory:mem-medicine-1",
+          "executable": true,
+          "final_score": 0.33225806451612905,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-15T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "metadata_score": 0.30000000000000004,
+          "object_category": "medicine_box",
+          "ranking_reasons": [
+            "bm25_rank=2",
+            "dense_rank=2",
+            "metadata_target_alias_match",
+            "metadata_high_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒、药箱。历史位置: 厨房药柜。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: cabinet。锚点别名: 柜子、药柜、cabinet。可观察视角: kitchen_cabinet_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-15T09:00:00Z。",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        {
+          "aliases": [
+            "药盒"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "bm25_score": 0.6745474338531494,
+          "canonical_metadata": {
+            "aliases": [
+              "药盒"
+            ],
+            "anchor_id": "anchor_living_side_table_1",
+            "anchor_type": "table",
+            "belief_state": "confirmed",
+            "confidence_level": "medium",
+            "display_text": "客厅边桌",
+            "document_text_hash": "a56d99546ce641d14c972a5323838f6fab4b1b864c97a7c26474c9d00c7be039",
+            "last_confirmed_at": "2026-04-19T08:30:00Z",
+            "memory_id": "mem-medicine-2",
+            "object_category": "medicine_box",
+            "room_id": "living_room",
+            "source_type": "object_memory",
+            "viewpoint_id": "living_side_table_viewpoint"
+          },
+          "confidence_level": "medium",
+          "dense_score": 0.6921792853832335,
+          "display_text": "客厅边桌",
+          "document_id": "object_memory:mem-medicine-2",
+          "executable": true,
+          "final_score": 0.2827868852459016,
+          "invalid_reason": null,
+          "last_confirmed_at": "2026-04-19T08:30:00Z",
+          "memory_id": "mem-medicine-2",
+          "metadata_score": 0.25,
+          "object_category": "medicine_box",
+          "ranking_reasons": [
+            "bm25_rank=1",
+            "dense_rank=1",
+            "metadata_target_alias_match",
+            "metadata_medium_confidence"
+          ],
+          "ranking_stage": "bm25_dense_fusion",
+          "rerank_score": null,
+          "reranker_model": null,
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒。历史位置: 客厅边桌。房间: living_room。房间别名: 客厅、living room、living_room。锚点类型: table。锚点别名: 桌子、餐桌、table。可观察视角: living_side_table_viewpoint。置信度: medium。记忆状态: confirmed。最近确认时间: 2026-04-19T08:30:00Z。",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "index_snapshot": {
+        "document_count": 2,
+        "domain_terms": [
+          "medicine_box",
+          "药盒",
+          "药箱",
+          "medicine",
+          "kitchen",
+          "anchor_kitchen_cabinet_1",
+          "cabinet",
+          "kitchen_cabinet_viewpoint",
+          "厨房药柜",
+          "厨房",
+          "柜子",
+          "药柜",
+          "living_room",
+          "anchor_living_side_table_1",
+          "table",
+          "living_side_table_viewpoint",
+          "客厅边桌",
+          "客厅",
+          "living room",
+          "桌子",
+          "餐桌"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "tokenized_query": "[REDACTED]"
+      },
+      "ranking_reasons": [
+        "bm25_dense_rrf_fusion",
+        "metadata_guardrail"
+      ],
+      "retrieval_query": {
+        "excluded_location_keys": [],
+        "excluded_memory_ids": [],
+        "location_terms": [
+          "桌子那边",
+          "桌子"
+        ],
+        "query_text": "药盒 药箱 medicine box 桌子那边",
+        "reason": null,
+        "source_filter": [
+          "object_memory"
+        ],
+        "target_aliases": [
+          "药盒",
+          "药箱",
+          "药品盒"
+        ],
+        "target_category": null,
+        "top_k": 5
+      },
+      "retrieval_summary": "returned 2 hits and 0 excluded"
+    },
+    "planning_notes": [
+      "grounded reliable memory target is available for Stage 05 planning"
+    ],
+    "rejected_hits": [
+      {
+        "aliases": [
+          "药盒",
+          "药箱"
+        ],
+        "anchor_id": "anchor_kitchen_cabinet_1",
+        "anchor_type": "cabinet",
+        "belief_state": "confirmed",
+        "bm25_score": 0.43699416518211365,
+        "canonical_metadata": {
+          "aliases": [
+            "药盒",
+            "药箱"
+          ],
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "anchor_type": "cabinet",
+          "belief_state": "confirmed",
+          "confidence_level": "high",
+          "display_text": "厨房药柜",
+          "document_text_hash": "0afb5000847936f6217fc0e177af9b7d4407a09751d2df5ff94d91793bdf242f",
+          "last_confirmed_at": "2026-04-15T09:00:00Z",
+          "memory_id": "mem-medicine-1",
+          "object_category": "medicine_box",
+          "room_id": "kitchen",
+          "source_type": "object_memory",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        "confidence_level": "high",
+        "dense_score": 0.6803325487605275,
+        "display_text": "厨房药柜",
+        "document_id": "object_memory:mem-medicine-1",
+        "executable": true,
+        "final_score": 0.33225806451612905,
+        "invalid_reason": null,
+        "last_confirmed_at": "2026-04-15T09:00:00Z",
+        "memory_id": "mem-medicine-1",
+        "metadata_score": 0.30000000000000004,
+        "object_category": "medicine_box",
+        "ranking_reasons": [
+          "bm25_rank=2",
+          "dense_rank=2",
+          "metadata_target_alias_match",
+          "metadata_high_confidence"
+        ],
+        "ranking_stage": "bm25_dense_fusion",
+        "rerank_score": null,
+        "reranker_model": null,
+        "room_id": "kitchen",
+        "source_type": "object_memory",
+        "text_snippet": "物体记忆。目标类别: medicine_box。目标类别别名: 药盒、药箱、medicine_box、medicine。别名: 药盒、药箱。历史位置: 厨房药柜。房间: kitchen。房间别名: 厨房、kitchen。锚点类型: cabinet。锚点别名: 柜子、药柜、cabinet。可观察视角: kitchen_cabinet_viewpoint。置信度: high。记忆状态: confirmed。最近确认时间: 2026-04-15T09:00:00Z。",
+        "viewpoint_id": "kitchen_cabinet_viewpoint"
+      }
+    ],
+    "retrieval_query": {
+      "excluded_location_keys": [],
+      "excluded_memory_ids": [],
+      "location_terms": [
+        "桌子那边",
+        "桌子"
+      ],
+      "query_text": "药盒 药箱 medicine box 桌子那边",
+      "reason": null,
+      "source_filter": [
+        "object_memory"
+      ],
+      "target_aliases": [
+        "药盒",
+        "药箱",
+        "药品盒"
+      ],
+      "target_category": null,
+      "top_k": 5
+    },
+    "runtime_state_summary": {
+      "grounding_reason": "selected first reliable executable memory hit",
+      "grounding_status": "grounded",
+      "needs_exploratory_search": false
+    },
+    "selected_target": {
+      "anchor_id": "anchor_living_side_table_1",
+      "display_text": "客厅边桌",
+      "evidence": {
+        "canonical_metadata": {
+          "aliases": [
+            "药盒"
+          ],
+          "anchor_id": "anchor_living_side_table_1",
+          "anchor_type": "table",
+          "belief_state": "confirmed",
+          "confidence_level": "medium",
+          "display_text": "客厅边桌",
+          "document_text_hash": "a56d99546ce641d14c972a5323838f6fab4b1b864c97a7c26474c9d00c7be039",
+          "last_confirmed_at": "2026-04-19T08:30:00Z",
+          "memory_id": "mem-medicine-2",
+          "object_category": "medicine_box",
+          "room_id": "living_room",
+          "source_type": "object_memory",
+          "viewpoint_id": "living_side_table_viewpoint"
+        },
+        "document_id": "object_memory:mem-medicine-2",
+        "final_score": 0.2827868852459016,
+        "ranking_reasons": [
+          "bm25_rank=1",
+          "dense_rank=1",
+          "metadata_target_alias_match",
+          "metadata_medium_confidence"
+        ],
+        "reliability": {
+          "document_id": "object_memory:mem-medicine-2",
+          "memory_id": "mem-medicine-2",
+          "needs_exploratory_search": false,
+          "reasons": [
+            "reliable_execution_memory"
+          ],
+          "status": "reliable",
+          "suggested_search_hint": null
+        },
+        "source": "canonical_metadata"
+      },
+      "executable": true,
+      "invalid_reason": null,
+      "memory_id": "mem-medicine-2",
+      "room_id": "living_room",
+      "viewpoint_id": "living_side_table_viewpoint"
+    },
+    "task_card": {
+      "clarification_question": null,
+      "confidence": 0.95,
+      "delivery_target": null,
+      "location_hint": "桌子那边",
+      "needs_clarification": false,
+      "success_criteria": [
+        "确认药盒在桌子那边"
+      ],
+      "target": "药盒",
+      "task_type": "check_presence"
+    },
+    "world_summary": {
+      "anchors": [
+        {
+          "anchor_id": "anchor_kitchen_cabinet_1",
+          "display_text": "厨房药柜",
+          "room_id": "kitchen",
+          "viewpoint_id": "kitchen_cabinet_viewpoint"
+        },
+        {
+          "anchor_id": "anchor_living_side_table_1",
+          "display_text": "客厅边桌",
+          "room_id": "living_room",
+          "viewpoint_id": "living_side_table_viewpoint"
+        }
+      ],
+      "room_ids": [
+        "kitchen",
+        "living_room"
+      ],
+      "viewpoint_ids": [
+        "kitchen_cabinet_viewpoint",
+        "living_side_table_viewpoint"
+      ]
+    }
+  },
+  "results_dir": "/Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_07",
+  "run_id": "stage07-check_medicine_stale_recover",
+  "runtime_memory_root": "var/homemaster/runs/stage07-check_medicine_stale_recover/memory",
+  "scenario": "check_medicine_stale_recover",
+  "stage_statuses": {
+    "stage02": {
+      "mode": "real_mimo",
+      "status": "PASS"
+    },
+    "stage03": {
+      "embedding": "real_bge_m3",
+      "mode": "real_mimo",
+      "status": "PASS"
+    },
+    "stage04": {
+      "grounding_status": "grounded",
+      "selected_target": "mem-medicine-2",
+      "status": "PASS"
+    },
+    "stage05": {
+      "final_task_status": "completed",
+      "mock_skills": true,
+      "mode": "real_mimo",
+      "status": "PASS",
+      "step_decision": {
+        "mode": "real_mimo",
+        "provider": {
+          "attempts": [
+            {
+              "elapsed_ms": 37443.24629099992,
+              "key_index": 1,
+              "status_code": 200
+            }
+          ],
+          "elapsed_ms": 37443.24629099992,
+          "model": "mimo-v2-pro",
+          "protocol": "anthropic",
+          "provider_name": "Mimo"
+        },
+        "selected_skill": "navigation",
+        "status": "PASS",
+        "subtask_id": "subtask_1"
+      }
+    },
+    "stage06": {
+      "fact_memory_write_count": 1,
+      "mode": "real_mimo",
+      "object_memory_update_count": 1,
+      "status": "PASS",
+      "task_summary_result": "success"
+    }
+  },
+  "task_card": {
+    "clarification_question": null,
+    "confidence": 0.95,
+    "delivery_target": null,
+    "location_hint": "桌子那边",
+    "needs_clarification": false,
+    "success_criteria": [
+      "确认药盒在桌子那边"
+    ],
+    "target": "药盒",
+    "task_type": "check_presence"
+  },
+  "utterance": "去桌子那边看看药盒是不是还在。"
+}

@@ -97,7 +97,7 @@ TaskCard schema:
   "target": "水杯",
   "delivery_target": "user",
   "location_hint": "厨房",
-  "success_criteria": ["机器人将水杯交付给用户"],
+  "success_criteria": ["机器人成功拿到水杯并交付给用户"],
   "needs_clarification": false,
   "clarification_question": null,
   "confidence": 0.95
@@ -114,7 +114,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "机器人将水杯交付给用户"
+    "机器人成功拿到水杯并交付给用户"
   ],
   "target": "水杯",
   "task_type": "fetch_object"
@@ -131,7 +131,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "机器人将水杯交付给用户"
+    "机器人成功拿到水杯并交付给用户"
   ],
   "target": "水杯",
   "task_type": "fetch_object"
@@ -157,7 +157,7 @@ TaskCard schema:
   "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "机器人将水杯交付给用户"
+    "机器人成功拿到水杯并交付给用户"
   ],
   "target": "水杯",
   "task_type": "fetch_object"

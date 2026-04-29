@@ -100,7 +100,7 @@ TaskCard schema:
   "success_criteria": ["水杯被成功交付给用户"],
   "needs_clarification": false,
   "clarification_question": null,
-  "confidence": 0.95
+  "confidence": 0.9
 }
 ````
 
@@ -109,7 +109,7 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,
@@ -126,7 +126,7 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,
@@ -152,7 +152,7 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": "user",
   "location_hint": "厨房",
   "needs_clarification": false,

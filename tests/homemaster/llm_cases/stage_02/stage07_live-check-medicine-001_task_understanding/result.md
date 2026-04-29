@@ -3,13 +3,13 @@
 ## Summary
 
 - Result: PASS
-- Case: stage07_stage07-check_medicine_stale_recover_task_understanding
+- Case: stage07_live-check-medicine-001_task_understanding
 - Provider: Mimo
 - Model: mimo-v2-pro
 - Protocol: anthropic
 - Logs: /Users/wylam/Documents/workspace/HomeMaster/plan/V1.2/test_results/stage_02
 - Message: Task understanding completed.
-- Utterance: 去桌子那边看看药盒是不是还在。
+- Utterance: 去厨房看看药盒是不是还在。
 - Retry Count: 0
 
 ## Request Context
@@ -19,7 +19,7 @@
   "recent_task_summary": null,
   "source": null,
   "user_id": null,
-  "utterance": "去桌子那边看看药盒是不是还在。"
+  "utterance": "去厨房看看药盒是不是还在。"
 }
 ```
 
@@ -27,7 +27,7 @@
 
 ```json
 {
-  "case_name": "stage07_stage07-check_medicine_stale_recover_task_understanding",
+  "case_name": "stage07_live-check-medicine-001_task_understanding",
   "required_checks": [
     "provider returns parseable JSON object",
     "JSON validates as TaskCard",
@@ -80,7 +80,7 @@ TaskCard schema:
 
 输入上下文:
 {
-  "utterance": "去桌子那边看看药盒是不是还在。",
+  "utterance": "去厨房看看药盒是不是还在。",
   "user_id": null,
   "source": null,
   "recent_task_summary": null
@@ -96,11 +96,11 @@ TaskCard schema:
   "task_type": "check_presence",
   "target": "药盒",
   "delivery_target": null,
-  "location_hint": "桌子那边",
-  "success_criteria": ["确认药盒在桌子那边"],
+  "location_hint": "厨房",
+  "success_criteria": ["药盒在厨房被确认存在"],
   "needs_clarification": false,
   "clarification_question": null,
-  "confidence": 0.95
+  "confidence": 0.9
 }
 ````
 
@@ -109,12 +109,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
-  "location_hint": "桌子那边",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "药盒在厨房被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -126,12 +126,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
-  "location_hint": "桌子那边",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "药盒在厨房被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"
@@ -152,12 +152,12 @@ TaskCard schema:
 ```json
 {
   "clarification_question": null,
-  "confidence": 0.95,
+  "confidence": 0.9,
   "delivery_target": null,
-  "location_hint": "桌子那边",
+  "location_hint": "厨房",
   "needs_clarification": false,
   "success_criteria": [
-    "确认药盒在桌子那边"
+    "药盒在厨房被确认存在"
   ],
   "target": "药盒",
   "task_type": "check_presence"

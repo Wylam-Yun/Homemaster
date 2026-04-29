@@ -1,0 +1,52 @@
+==> check_medicine_success
+Building prefix dict from the default dictionary ...
+Loading model from cache /var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/jieba.cache
+Loading model cost 0.312 seconds.
+Prefix dict has been built successfully.
+run_id: stage07-check_medicine_success
+scenario: check_medicine_success
+final_status: completed
+debug_path: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/result.md
+runtime_memory_root: var/homemaster/runs/stage07-check_medicine_success/memory
+==> check_medicine_stale_recover
+Building prefix dict from the default dictionary ...
+Loading model from cache /var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/jieba.cache
+Loading model cost 0.240 seconds.
+Prefix dict has been built successfully.
+run_id: stage07-check_medicine_stale_recover
+scenario: check_medicine_stale_recover
+final_status: completed
+debug_path: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/result.md
+runtime_memory_root: var/homemaster/runs/stage07-check_medicine_stale_recover/memory
+==> fetch_cup_retry
+Building prefix dict from the default dictionary ...
+Loading model from cache /var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/jieba.cache
+Loading model cost 0.264 seconds.
+Prefix dict has been built successfully.
+run_id: stage07-fetch_cup_retry
+scenario: fetch_cup_retry
+final_status: completed
+debug_path: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/result.md
+runtime_memory_root: var/homemaster/runs/stage07-fetch_cup_retry/memory
+==> object_not_found
+Building prefix dict from the default dictionary ...
+Loading model from cache /var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/jieba.cache
+Loading model cost 0.257 seconds.
+Prefix dict has been built successfully.
+run_id: stage07-object_not_found
+scenario: object_not_found
+final_status: failed
+debug_path: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/result.md
+runtime_memory_root: var/homemaster/runs/stage07-object_not_found/memory
+run_result: task failed safely; see debug_path for failure details
+==> distractor_rejected
+Building prefix dict from the default dictionary ...
+Loading model from cache /var/folders/57/hbsp6s1s5y966v37y0xfm9ch0000gn/T/jieba.cache
+Loading model cost 0.238 seconds.
+Prefix dict has been built successfully.
+run_id: stage07-distractor_rejected
+scenario: distractor_rejected
+final_status: failed
+debug_path: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/result.md
+runtime_memory_root: var/homemaster/runs/stage07-distractor_rejected/memory
+run_result: task failed safely; see debug_path for failure details

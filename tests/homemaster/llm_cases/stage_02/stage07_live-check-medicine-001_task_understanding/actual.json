@@ -8,12 +8,12 @@
       },
       "json_payload": {
         "clarification_question": null,
-        "confidence": 0.95,
+        "confidence": 0.9,
         "delivery_target": null,
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "药盒在厨房中被确认存在"
+          "药盒在厨房被确认存在"
         ],
         "target": "药盒",
         "task_type": "check_presence"
@@ -24,32 +24,32 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 14947.029791999967,
+            "elapsed_ms": 11719.82591599999,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 14947.029791999967,
+        "elapsed_ms": 11719.82591599999,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"药盒在厨房中被确认存在\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+      "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"药盒在厨房被确认存在\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}",
       "task_card": {
         "clarification_question": null,
-        "confidence": 0.95,
+        "confidence": 0.9,
         "delivery_target": null,
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "药盒在厨房中被确认存在"
+          "药盒在厨房被确认存在"
         ],
         "target": "药盒",
         "task_type": "check_presence"
       }
     }
   ],
-  "case_name": "stage07_stage07-check_medicine_success_task_understanding",
+  "case_name": "stage07_live-check-medicine-001_task_understanding",
   "checks": {
     "has_success_criteria": true,
     "schema_valid": true
@@ -62,12 +62,12 @@
   },
   "json_payload": {
     "clarification_question": null,
-    "confidence": 0.95,
+    "confidence": 0.9,
     "delivery_target": null,
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "药盒在厨房中被确认存在"
+      "药盒在厨房被确认存在"
     ],
     "target": "药盒",
     "task_type": "check_presence"
@@ -76,26 +76,26 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 14947.029791999967,
+        "elapsed_ms": 11719.82591599999,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 14947.029791999967,
+    "elapsed_ms": 11719.82591599999,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"药盒在厨房中被确认存在\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
+  "raw_text": "{\n  \"task_type\": \"check_presence\",\n  \"target\": \"药盒\",\n  \"delivery_target\": null,\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"药盒在厨房被确认存在\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
-    "confidence": 0.95,
+    "confidence": 0.9,
     "delivery_target": null,
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "药盒在厨房中被确认存在"
+      "药盒在厨房被确认存在"
     ],
     "target": "药盒",
     "task_type": "check_presence"

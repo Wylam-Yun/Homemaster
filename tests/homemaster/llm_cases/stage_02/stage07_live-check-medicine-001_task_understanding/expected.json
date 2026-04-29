@@ -1,0 +1,9 @@
+{
+  "case_name": "stage07_live-check-medicine-001_task_understanding",
+  "required_checks": [
+    "provider returns parseable JSON object",
+    "JSON validates as TaskCard",
+    "success_criteria has at least one item"
+  ],
+  "schema": "TaskCard"
+}

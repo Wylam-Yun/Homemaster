@@ -8,12 +8,12 @@
       },
       "json_payload": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 0.95,
         "delivery_target": "user",
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "水杯被成功交付给用户"
+          "机器人找到水杯并交付给用户"
         ],
         "target": "水杯",
         "task_type": "fetch_object"
@@ -24,32 +24,32 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 13932.96383300003,
+            "elapsed_ms": 11168.189250000069,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 13932.96383300003,
+        "elapsed_ms": 11168.189250000069,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
       },
-      "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"水杯被成功交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}",
+      "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"机器人找到水杯并交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
       "task_card": {
         "clarification_question": null,
-        "confidence": 0.9,
+        "confidence": 0.95,
         "delivery_target": "user",
         "location_hint": "厨房",
         "needs_clarification": false,
         "success_criteria": [
-          "水杯被成功交付给用户"
+          "机器人找到水杯并交付给用户"
         ],
         "target": "水杯",
         "task_type": "fetch_object"
       }
     }
   ],
-  "case_name": "stage07_stage07-fetch_cup_retry_task_understanding",
+  "case_name": "stage07_live-fetch-cup-001_task_understanding",
   "checks": {
     "has_success_criteria": true,
     "schema_valid": true
@@ -62,12 +62,12 @@
   },
   "json_payload": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 0.95,
     "delivery_target": "user",
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "水杯被成功交付给用户"
+      "机器人找到水杯并交付给用户"
     ],
     "target": "水杯",
     "task_type": "fetch_object"
@@ -76,26 +76,26 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 13932.96383300003,
+        "elapsed_ms": 11168.189250000069,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 13932.96383300003,
+    "elapsed_ms": 11168.189250000069,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"
   },
-  "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"水杯被成功交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.9\n}",
+  "raw_text": "{\n  \"task_type\": \"fetch_object\",\n  \"target\": \"水杯\",\n  \"delivery_target\": \"user\",\n  \"location_hint\": \"厨房\",\n  \"success_criteria\": [\"机器人找到水杯并交付给用户\"],\n  \"needs_clarification\": false,\n  \"clarification_question\": null,\n  \"confidence\": 0.95\n}",
   "retry_count": 0,
   "task_card": {
     "clarification_question": null,
-    "confidence": 0.9,
+    "confidence": 0.95,
     "delivery_target": "user",
     "location_hint": "厨房",
     "needs_clarification": false,
     "success_criteria": [
-      "水杯被成功交付给用户"
+      "机器人找到水杯并交付给用户"
     ],
     "target": "水杯",
     "task_type": "fetch_object"
