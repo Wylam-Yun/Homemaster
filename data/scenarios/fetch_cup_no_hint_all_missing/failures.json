@@ -1,0 +1,10 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "force_no_object_all_candidates",
+      "enabled": true,
+      "target_category": "cup",
+      "expected_failure_reason": "cup absent from all remembered locations"
+    }
+  ]
+}

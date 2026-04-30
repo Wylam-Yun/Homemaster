@@ -1,0 +1,569 @@
+{
+  "schema_version": "1.0",
+  "corpus_id": "elder_home_v1",
+  "home_id": "elder_home_v1",
+  "created_at": "2026-04-30T00:00:00Z",
+  "description": "统一记忆语料库",
+  "object_memory": [
+    {
+      "memory_id": "mem-cup-1",
+      "object_category": "cup",
+      "aliases": ["水杯", "杯子"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_kitchen_table_1_vp",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T10:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-cup-2",
+      "object_category": "cup",
+      "aliases": ["水杯"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_counter_1",
+        "anchor_type": "counter",
+        "viewpoint_id": "anchor_kitchen_counter_1_vp",
+        "display_text": "厨房操作台"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-25T10:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-cup-3",
+      "object_category": "cup",
+      "aliases": ["水杯"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_side_table_1_vp",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-10T10:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-cup-4",
+      "object_category": "cup",
+      "aliases": ["水杯"],
+      "anchor": {
+        "room_id": "pantry",
+        "anchor_id": "anchor_pantry_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_pantry_shelf_1_vp",
+        "display_text": "储物间搁架"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-05T10:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-cup-5",
+      "object_category": "cup",
+      "aliases": ["水杯", "杯子"],
+      "anchor": {
+        "room_id": "bedroom",
+        "anchor_id": "anchor_bedroom_dresser_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_bedroom_dresser_1_vp",
+        "display_text": "卧室梳妆台"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-15T10:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-cup-6",
+      "object_category": "cup",
+      "aliases": ["水杯"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_desk_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_study_desk_1_vp",
+        "display_text": "书房书桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-02T10:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-medicine-1",
+      "object_category": "medicine_box",
+      "aliases": ["药盒", "药箱"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_cabinet_1",
+        "anchor_type": "cabinet",
+        "viewpoint_id": "anchor_kitchen_cabinet_1_vp",
+        "display_text": "厨房药柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T09:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-medicine-2",
+      "object_category": "medicine_box",
+      "aliases": ["药盒"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_side_table_1_vp",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-28T09:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-medicine-3",
+      "object_category": "medicine_box",
+      "aliases": ["药盒"],
+      "anchor": {
+        "room_id": "bedroom",
+        "anchor_id": "anchor_bedroom_nightstand_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_bedroom_nightstand_1_vp",
+        "display_text": "卧室床头柜"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-20T09:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-medicine-4",
+      "object_category": "medicine_box",
+      "aliases": ["药盒"],
+      "anchor": {
+        "room_id": "entryway",
+        "anchor_id": "anchor_entryway_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_entryway_shelf_1_vp",
+        "display_text": "门口搁架"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-08T09:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-medicine-5",
+      "object_category": "medicine_box",
+      "aliases": ["药箱"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_bookshelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_study_bookshelf_1_vp",
+        "display_text": "书房书架"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-03T09:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-remote-1",
+      "object_category": "remote_control",
+      "aliases": ["遥控器"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_side_table_1_vp",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T08:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-remote-2",
+      "object_category": "remote_control",
+      "aliases": ["遥控器"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_coffee_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_coffee_table_1_vp",
+        "display_text": "客厅茶几"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-26T08:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-remote-3",
+      "object_category": "remote_control",
+      "aliases": ["遥控器"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_sofa_1",
+        "anchor_type": "sofa",
+        "viewpoint_id": "anchor_living_sofa_1_vp",
+        "display_text": "客厅沙发"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-12T08:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-remote-4",
+      "object_category": "remote_control",
+      "aliases": ["遥控器"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_kitchen_table_1_vp",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-06T08:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-glasses-1",
+      "object_category": "glasses",
+      "aliases": ["眼镜"],
+      "anchor": {
+        "room_id": "bedroom",
+        "anchor_id": "anchor_bedroom_nightstand_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_bedroom_nightstand_1_vp",
+        "display_text": "卧室床头柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T07:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-glasses-2",
+      "object_category": "glasses",
+      "aliases": ["眼镜"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_desk_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_study_desk_1_vp",
+        "display_text": "书房书桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-22T07:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-glasses-3",
+      "object_category": "glasses",
+      "aliases": ["眼镜"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_coffee_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_coffee_table_1_vp",
+        "display_text": "客厅茶几"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-09T07:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-keys-1",
+      "object_category": "keys",
+      "aliases": ["钥匙"],
+      "anchor": {
+        "room_id": "entryway",
+        "anchor_id": "anchor_entryway_cabinet_1",
+        "anchor_type": "cabinet",
+        "viewpoint_id": "anchor_entryway_cabinet_1_vp",
+        "display_text": "门口柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T06:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-keys-2",
+      "object_category": "keys",
+      "aliases": ["钥匙"],
+      "anchor": {
+        "room_id": "bedroom",
+        "anchor_id": "anchor_bedroom_dresser_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_bedroom_dresser_1_vp",
+        "display_text": "卧室梳妆台"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-18T06:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-keys-3",
+      "object_category": "keys",
+      "aliases": ["钥匙"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_counter_1",
+        "anchor_type": "counter",
+        "viewpoint_id": "anchor_kitchen_counter_1_vp",
+        "display_text": "厨房操作台"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-07T06:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-tissue-1",
+      "object_category": "tissue",
+      "aliases": ["纸巾", "纸巾盒"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_coffee_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_coffee_table_1_vp",
+        "display_text": "客厅茶几"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T05:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-tissue-2",
+      "object_category": "tissue",
+      "aliases": ["纸巾"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_kitchen_table_1_vp",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-24T05:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-tissue-3",
+      "object_category": "tissue",
+      "aliases": ["纸巾盒"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_desk_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_study_desk_1_vp",
+        "display_text": "书房书桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-11T05:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-mug-1",
+      "object_category": "mug",
+      "aliases": ["马克杯"],
+      "anchor": {
+        "room_id": "pantry",
+        "anchor_id": "anchor_pantry_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_pantry_shelf_1_vp",
+        "display_text": "储物间搁架"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-28T12:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-mug-2",
+      "object_category": "mug",
+      "aliases": ["马克杯"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_counter_1",
+        "anchor_type": "counter",
+        "viewpoint_id": "anchor_kitchen_counter_1_vp",
+        "display_text": "厨房操作台"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-14T12:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-bottle-1",
+      "object_category": "water_bottle",
+      "aliases": ["水瓶"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_counter_1",
+        "anchor_type": "counter",
+        "viewpoint_id": "anchor_kitchen_counter_1_vp",
+        "display_text": "厨房操作台"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T11:00:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-bottle-2",
+      "object_category": "water_bottle",
+      "aliases": ["水瓶"],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_living_side_table_1_vp",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "inferred_experience",
+      "confidence_level": "low",
+      "last_confirmed_at": "2026-04-13T11:00:00Z",
+      "belief_state": "stale"
+    },
+    {
+      "memory_id": "mem-bowl-1",
+      "object_category": "bowl",
+      "aliases": ["碗"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_kitchen_table_1_vp",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T10:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-plate-1",
+      "object_category": "plate",
+      "aliases": ["盘子"],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_cabinet_1",
+        "anchor_type": "cabinet",
+        "viewpoint_id": "anchor_kitchen_cabinet_1_vp",
+        "display_text": "厨房药柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-27T10:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-plate-2",
+      "object_category": "plate",
+      "aliases": ["盘子"],
+      "anchor": {
+        "room_id": "pantry",
+        "anchor_id": "anchor_pantry_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_pantry_shelf_1_vp",
+        "display_text": "储物间搁架"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-21T10:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-book-1",
+      "object_category": "book",
+      "aliases": ["书"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_desk_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_study_desk_1_vp",
+        "display_text": "书房书桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T09:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-phone-1",
+      "object_category": "phone",
+      "aliases": ["手机"],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_desk_1",
+        "anchor_type": "table",
+        "viewpoint_id": "anchor_study_desk_1_vp",
+        "display_text": "书房书桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-30T09:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-umbrella-1",
+      "object_category": "umbrella",
+      "aliases": ["雨伞"],
+      "anchor": {
+        "room_id": "entryway",
+        "anchor_id": "anchor_entryway_cabinet_1",
+        "anchor_type": "cabinet",
+        "viewpoint_id": "anchor_entryway_cabinet_1_vp",
+        "display_text": "门口柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-29T09:30:00Z",
+      "belief_state": "confirmed"
+    },
+    {
+      "memory_id": "mem-bag-1",
+      "object_category": "bag",
+      "aliases": ["包"],
+      "anchor": {
+        "room_id": "entryway",
+        "anchor_id": "anchor_entryway_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "anchor_entryway_shelf_1_vp",
+        "display_text": "门口搁架"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-29T09:30:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "rooms": [
+    {
+      "room_id": "entryway",
+      "display_text": "门口"
+    }
+  ],
+  "viewpoints": {
+    "entry_cabinet_viewpoint": {
+      "room_id": "entryway",
+      "visible_object_ids": [
+        "obj_tissue_box_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_entry_cabinet_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_entry_cabinet_1",
+      "room_id": "entryway",
+      "anchor_type": "cabinet",
+      "viewpoint_id": "entry_cabinet_viewpoint",
+      "display_text": "门口柜子"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_tissue_box_1",
+      "category": "tissue_box",
+      "aliases": [
+        "纸巾",
+        "纸巾盒"
+      ],
+      "attributes": [
+        "white"
+      ],
+      "detector_id": "det-tissue_box-1",
+      "memory_id": "mem-tissue_box-1",
+      "confidence_level": "high",
+      "state_summary": "half_full",
+      "spatial_relation": "on_table"
+    }
+  ],
+  "visibility": {
+    "entry_cabinet_viewpoint": {
+      "objects": [
+        "obj_tissue_box_1"
+      ],
+      "anchors": [
+        "anchor_entry_cabinet_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_tissue_box_1",
+          "target_object_id": "anchor_entry_cabinet_1",
+          "text": "纸巾在门口柜子。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "tissue_box"
+      ]
+    }
+  ]
+}

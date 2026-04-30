@@ -1,0 +1,11 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "attribute_mismatch",
+      "enabled": true,
+      "requested_attribute": "white",
+      "visible_attribute": "red",
+      "expected_failure_reason": "visible medicine box color mismatch"
+    }
+  ]
+}

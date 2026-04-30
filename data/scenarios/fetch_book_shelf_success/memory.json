@@ -1,0 +1,23 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-book-blue-shelf",
+      "object_category": "book",
+      "aliases": [
+        "书",
+        "蓝色书"
+      ],
+      "anchor": {
+        "room_id": "study",
+        "anchor_id": "anchor_study_bookshelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "study_bookshelf_viewpoint",
+        "display_text": "书房书架"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

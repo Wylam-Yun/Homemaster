@@ -1,0 +1,71 @@
+{
+  "rooms": [
+    {
+      "room_id": "pantry",
+      "display_text": "储物间"
+    }
+  ],
+  "viewpoints": {
+    "pantry_shelf_viewpoint": {
+      "room_id": "pantry",
+      "visible_object_ids": [
+        "obj_mug_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_pantry_shelf_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_pantry_shelf_1",
+      "room_id": "pantry",
+      "anchor_type": "shelf",
+      "viewpoint_id": "pantry_shelf_viewpoint",
+      "display_text": "储物间搁架"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_mug_1",
+      "category": "mug",
+      "aliases": [
+        "马克杯"
+      ],
+      "attributes": [
+        "blue"
+      ],
+      "detector_id": "det-mug-1",
+      "memory_id": "mem-mug-1",
+      "confidence_level": "high",
+      "state_summary": "upright",
+      "spatial_relation": "on_shelf"
+    }
+  ],
+  "visibility": {
+    "pantry_shelf_viewpoint": {
+      "objects": [
+        "obj_mug_1"
+      ],
+      "anchors": [
+        "anchor_pantry_shelf_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_mug_1",
+          "target_object_id": "anchor_pantry_shelf_1",
+          "text": "马克杯在储物间搁架。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "mug"
+      ]
+    }
+  ]
+}

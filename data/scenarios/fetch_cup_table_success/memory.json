@@ -1,0 +1,23 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-cup-table",
+      "object_category": "cup",
+      "aliases": [
+        "水杯",
+        "杯子"
+      ],
+      "anchor": {
+        "room_id": "kitchen",
+        "anchor_id": "anchor_kitchen_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "kitchen_table_viewpoint",
+        "display_text": "厨房餐桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "wrong_object_visible",
+      "enabled": true,
+      "target_category": "cup",
+      "visible_category": "mug",
+      "expected_failure_reason": "mug should not satisfy cup request"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "object_not_found",
+  "home_id": "elder_home_v1",
+  "utterance": "去厨房找水杯，然后拿给我",
+  "expected_final_status": "failed",
+  "tags": ["fetch_object", "failure", "not_found", "cup"],
+  "purpose": "物体不存在导致任务失败。",
+  "runtime_modes": ["deterministic"]
+}

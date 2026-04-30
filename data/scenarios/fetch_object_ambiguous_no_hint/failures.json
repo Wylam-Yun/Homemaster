@@ -1,0 +1,9 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "needs_clarification",
+      "enabled": true,
+      "expected_failure_reason": "target object is ambiguous"
+    }
+  ]
+}

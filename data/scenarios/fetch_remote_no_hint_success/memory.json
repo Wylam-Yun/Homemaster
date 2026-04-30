@@ -1,0 +1,22 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-remote-no-hint",
+      "object_category": "remote_control",
+      "aliases": [
+        "遥控器"
+      ],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_side_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "living_side_table_viewpoint",
+        "display_text": "客厅边桌"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

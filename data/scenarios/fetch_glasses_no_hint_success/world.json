@@ -1,0 +1,71 @@
+{
+  "rooms": [
+    {
+      "room_id": "bedroom",
+      "display_text": "卧室"
+    }
+  ],
+  "viewpoints": {
+    "bedroom_nightstand_viewpoint": {
+      "room_id": "bedroom",
+      "visible_object_ids": [
+        "obj_glasses_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_bedroom_nightstand_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_bedroom_nightstand_1",
+      "room_id": "bedroom",
+      "anchor_type": "nightstand",
+      "viewpoint_id": "bedroom_nightstand_viewpoint",
+      "display_text": "卧室床头柜"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_glasses_1",
+      "category": "glasses",
+      "aliases": [
+        "眼镜"
+      ],
+      "attributes": [
+        "silver"
+      ],
+      "detector_id": "det-glasses-1",
+      "memory_id": "mem-glasses-1",
+      "confidence_level": "high",
+      "state_summary": "folded",
+      "spatial_relation": "on_nightstand"
+    }
+  ],
+  "visibility": {
+    "bedroom_nightstand_viewpoint": {
+      "objects": [
+        "obj_glasses_1"
+      ],
+      "anchors": [
+        "anchor_bedroom_nightstand_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_glasses_1",
+          "target_object_id": "anchor_bedroom_nightstand_1",
+          "text": "眼镜在卧室床头柜。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "glasses"
+      ]
+    }
+  ]
+}

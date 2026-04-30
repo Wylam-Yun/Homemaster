@@ -1,0 +1,22 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-glasses-bedroom",
+      "object_category": "glasses",
+      "aliases": [
+        "眼镜"
+      ],
+      "anchor": {
+        "room_id": "bedroom",
+        "anchor_id": "anchor_bedroom_nightstand_1",
+        "anchor_type": "nightstand",
+        "viewpoint_id": "bedroom_nightstand_viewpoint",
+        "display_text": "卧室床头柜"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

@@ -28,6 +28,38 @@ EXPECTED_FINAL_STATUS: dict[str, set[str]] = {
 }
 
 
+def _load_scenarios() -> dict[str, str]:
+    """Load active scenarios from catalog, falling back to hardcoded dict."""
+    try:
+        from homemaster.scenario_catalog import load_catalog
+
+        catalog = load_catalog()
+        active = {e.name: e.utterance for e in catalog if e.status == "active"}
+        if active:
+            return active
+    except Exception:
+        pass
+    return STAGE_07_SCENARIOS
+
+
+def _load_expected_statuses() -> dict[str, set[str]]:
+    """Load expected statuses from catalog, falling back to hardcoded dict."""
+    try:
+        from homemaster.scenario_catalog import load_catalog
+
+        catalog = load_catalog()
+        active = {
+            e.name: {e.expected_final_status}
+            for e in catalog
+            if e.status == "active"
+        }
+        if active:
+            return active
+    except Exception:
+        pass
+    return EXPECTED_FINAL_STATUS
+
+
 @dataclass(frozen=True)
 class Stage07ScenarioMatrixResult:
     passed: bool
@@ -41,8 +73,10 @@ def run_stage_07_scenario_matrix(
     runtime_root: Path,
     debug_root: Path,
     live_models: bool,
-    scenarios: dict[str, str] | list[str] | tuple[str, ...] = STAGE_07_SCENARIOS,
+    scenarios: dict[str, str] | list[str] | tuple[str, ...] | None = None,
 ) -> Stage07ScenarioMatrixResult:
+    if scenarios is None:
+        scenarios = _load_scenarios()
     items = _scenario_items(scenarios)
     case_results: list[HomeMasterRunResult] = []
     for scenario, utterance in items:
@@ -85,9 +119,10 @@ def _acceptance_matrix(
     *,
     live_models: bool,
 ) -> dict[str, Any]:
+    expected_statuses = _load_expected_statuses()
     cases = []
     for result in results:
-        expected = EXPECTED_FINAL_STATUS.get(result.scenario, {"completed", "failed"})
+        expected = expected_statuses.get(result.scenario, {"completed", "failed"})
         case_passed = (
             result.final_status in expected
             and all(item.get("status") == "PASS" for item in result.stage_statuses.values())

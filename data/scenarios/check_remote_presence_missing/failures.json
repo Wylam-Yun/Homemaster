@@ -1,0 +1,10 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "force_no_object",
+      "enabled": true,
+      "target_category": "remote_control",
+      "expected_failure_reason": "remote not visible"
+    }
+  ]
+}

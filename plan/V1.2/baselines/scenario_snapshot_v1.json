@@ -1,0 +1,172 @@
+{
+  "snapshot_version": "1.0",
+  "created_at": "2026-04-30T06:09:21.292066+00:00",
+  "pipeline_mode": "deterministic",
+  "homemaster_commit": "4578edf311efdf24269afd49076c855a1fe72216",
+  "source_file_hashes": {
+    "data/scenarios/check_medicine_success/world.json": "b15721fc0f3fd65e6b8dbebb8fb77734322396d5fd8dac8e658edcc782f5be5a",
+    "data/scenarios/check_medicine_success/memory.json": "40a20b28a87ddb4e5a1f0149c357ca9ac45e226a028972548c2f3529080adf97",
+    "data/scenarios/check_medicine_stale_recover/world.json": "e56509057c21e1e1cfe036f1071c0beec3405f385a19bac2616c3b91c2c6fce5",
+    "data/scenarios/check_medicine_stale_recover/memory.json": "cf32e211af16e15e954b739d9b48c70cb5f6eff0a001246f0dc76a67980dbf9b",
+    "data/scenarios/fetch_cup_retry/world.json": "01abaff4833fbe57f716817e12ee63a45bcbe339480b4adc299ddb1eab8a311a",
+    "data/scenarios/fetch_cup_retry/memory.json": "449dd7df2bca3940ea5f88269954d6e5993f277905d74f98352682b5e4df8ea6",
+    "data/scenarios/object_not_found/world.json": "776419671461eec459d7d9f91b30f49c06319b0611c4102d50c3bd5f4a1cb26a",
+    "data/scenarios/object_not_found/memory.json": "4b0a76f978e622aec31b9ec57e26b8546515a5b19f21378e6d36533ec8485767",
+    "data/scenarios/distractor_rejected/world.json": "bb617c581880892640d36d9cd18d6dc821de381d1098707d0e6f41c33efc62d5",
+    "data/scenarios/distractor_rejected/memory.json": "def62ceef16b964f1431341e9729fba403e2c810c7f4e5715b6554812705fb9e",
+    "src/homemaster/scenario_runner.py": "934d8c715b3371e9b2e9018cb1b1d7c8870f361c4ffd1e8482452121563df021",
+    "src/homemaster/task_runner.py": "ae9c33698df5a092325584015c0e52fd578b2fe482c85fe357298e8c8f02c280"
+  },
+  "scenarios": {
+    "check_medicine_success": {
+      "utterance": "去厨房看看药盒是不是还在。",
+      "expected_final_status": [
+        "completed"
+      ],
+      "actual_final_status": "completed",
+      "stage_pass_fail": {
+        "stage02": "PASS",
+        "stage03": "PASS",
+        "stage04": "PASS",
+        "stage05": "PASS",
+        "stage06": "PASS"
+      },
+      "model_boundary": {
+        "stage02": "deterministic",
+        "stage03_query": "deterministic",
+        "stage03_embedding": "deterministic",
+        "stage04": "programmatic",
+        "stage05_plan": "deterministic",
+        "stage05_step": "deterministic",
+        "stage05_navigation": "mock",
+        "stage05_operation": "mock",
+        "stage05_verification": "mock",
+        "stage06_summary": "deterministic",
+        "stage06_memory_commit": "programmatic",
+        "real_robot": "not_integrated",
+        "real_vla": "not_integrated",
+        "real_vlm": "not_integrated"
+      }
+    },
+    "check_medicine_stale_recover": {
+      "utterance": "去桌子那边看看药盒是不是还在。",
+      "expected_final_status": [
+        "completed"
+      ],
+      "actual_final_status": "completed",
+      "stage_pass_fail": {
+        "stage02": "PASS",
+        "stage03": "PASS",
+        "stage04": "PASS",
+        "stage05": "PASS",
+        "stage06": "PASS"
+      },
+      "model_boundary": {
+        "stage02": "deterministic",
+        "stage03_query": "deterministic",
+        "stage03_embedding": "deterministic",
+        "stage04": "programmatic",
+        "stage05_plan": "deterministic",
+        "stage05_step": "deterministic",
+        "stage05_navigation": "mock",
+        "stage05_operation": "mock",
+        "stage05_verification": "mock",
+        "stage06_summary": "deterministic",
+        "stage06_memory_commit": "programmatic",
+        "real_robot": "not_integrated",
+        "real_vla": "not_integrated",
+        "real_vlm": "not_integrated"
+      }
+    },
+    "fetch_cup_retry": {
+      "utterance": "去厨房找水杯，然后拿给我",
+      "expected_final_status": [
+        "completed"
+      ],
+      "actual_final_status": "completed",
+      "stage_pass_fail": {
+        "stage02": "PASS",
+        "stage03": "PASS",
+        "stage04": "PASS",
+        "stage05": "PASS",
+        "stage06": "PASS"
+      },
+      "model_boundary": {
+        "stage02": "deterministic",
+        "stage03_query": "deterministic",
+        "stage03_embedding": "deterministic",
+        "stage04": "programmatic",
+        "stage05_plan": "deterministic",
+        "stage05_step": "deterministic",
+        "stage05_navigation": "mock",
+        "stage05_operation": "mock",
+        "stage05_verification": "mock",
+        "stage06_summary": "deterministic",
+        "stage06_memory_commit": "programmatic",
+        "real_robot": "not_integrated",
+        "real_vla": "not_integrated",
+        "real_vlm": "not_integrated"
+      }
+    },
+    "object_not_found": {
+      "utterance": "去厨房找水杯，然后拿给我",
+      "expected_final_status": [
+        "failed"
+      ],
+      "actual_final_status": "failed",
+      "stage_pass_fail": {
+        "stage02": "PASS",
+        "stage03": "PASS",
+        "stage04": "PASS",
+        "stage05": "PASS",
+        "stage06": "PASS"
+      },
+      "model_boundary": {
+        "stage02": "deterministic",
+        "stage03_query": "deterministic",
+        "stage03_embedding": "deterministic",
+        "stage04": "programmatic",
+        "stage05_plan": "deterministic",
+        "stage05_step": "deterministic",
+        "stage05_navigation": "mock",
+        "stage05_operation": "mock",
+        "stage05_verification": "mock",
+        "stage06_summary": "deterministic",
+        "stage06_memory_commit": "programmatic",
+        "real_robot": "not_integrated",
+        "real_vla": "not_integrated",
+        "real_vlm": "not_integrated"
+      }
+    },
+    "distractor_rejected": {
+      "utterance": "去厨房找水杯，然后拿给我",
+      "expected_final_status": [
+        "failed"
+      ],
+      "actual_final_status": "failed",
+      "stage_pass_fail": {
+        "stage02": "PASS",
+        "stage03": "PASS",
+        "stage04": "PASS",
+        "stage05": "PASS",
+        "stage06": "PASS"
+      },
+      "model_boundary": {
+        "stage02": "deterministic",
+        "stage03_query": "deterministic",
+        "stage03_embedding": "deterministic",
+        "stage04": "programmatic",
+        "stage05_plan": "deterministic",
+        "stage05_step": "deterministic",
+        "stage05_navigation": "mock",
+        "stage05_operation": "mock",
+        "stage05_verification": "mock",
+        "stage06_summary": "deterministic",
+        "stage06_memory_commit": "programmatic",
+        "real_robot": "not_integrated",
+        "real_vla": "not_integrated",
+        "real_vlm": "not_integrated"
+      }
+    }
+  }
+}

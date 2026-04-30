@@ -1,0 +1,71 @@
+{
+  "rooms": [
+    {
+      "room_id": "kitchen",
+      "display_text": "厨房"
+    }
+  ],
+  "viewpoints": {
+    "kitchen_table_viewpoint": {
+      "room_id": "kitchen",
+      "visible_object_ids": [
+        "obj_bowl_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_kitchen_table_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_kitchen_table_1",
+      "room_id": "kitchen",
+      "anchor_type": "table",
+      "viewpoint_id": "kitchen_table_viewpoint",
+      "display_text": "厨房餐桌"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_bowl_1",
+      "category": "bowl",
+      "aliases": [
+        "碗"
+      ],
+      "attributes": [
+        "white"
+      ],
+      "detector_id": "det-bowl-1",
+      "memory_id": "mem-bowl-1",
+      "confidence_level": "high",
+      "state_summary": "upright",
+      "spatial_relation": "on_table"
+    }
+  ],
+  "visibility": {
+    "kitchen_table_viewpoint": {
+      "objects": [
+        "obj_bowl_1"
+      ],
+      "anchors": [
+        "anchor_kitchen_table_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_bowl_1",
+          "target_object_id": "anchor_kitchen_table_1",
+          "text": "碗在厨房餐桌。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "bowl"
+      ]
+    }
+  ]
+}

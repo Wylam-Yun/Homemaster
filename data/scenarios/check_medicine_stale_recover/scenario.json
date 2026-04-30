@@ -1,0 +1,9 @@
+{
+  "name": "check_medicine_stale_recover",
+  "home_id": "elder_home_v1",
+  "utterance": "去桌子那边看看药盒是不是还在。",
+  "expected_final_status": "completed",
+  "tags": ["check_presence", "success", "stale_recover", "medicine_box"],
+  "purpose": "记忆过期后恢复路径。",
+  "runtime_modes": ["deterministic"]
+}

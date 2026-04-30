@@ -1,0 +1,92 @@
+{
+  "rooms": [
+    {
+      "room_id": "living_room",
+      "display_text": "客厅"
+    }
+  ],
+  "viewpoints": {
+    "living_sofa_viewpoint": {
+      "room_id": "living_room",
+      "visible_object_ids": [
+        "obj_remote_control_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_living_sofa_1"
+      ]
+    },
+    "living_side_table_viewpoint": {
+      "room_id": "living_room",
+      "visible_object_ids": [],
+      "visible_anchor_ids": [
+        "anchor_living_side_table_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_living_sofa_1",
+      "room_id": "living_room",
+      "anchor_type": "sofa",
+      "viewpoint_id": "living_sofa_viewpoint",
+      "display_text": "客厅沙发"
+    },
+    {
+      "anchor_id": "anchor_living_side_table_1",
+      "room_id": "living_room",
+      "anchor_type": "table",
+      "viewpoint_id": "living_side_table_viewpoint",
+      "display_text": "客厅边桌"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_remote_control_1",
+      "category": "remote_control",
+      "aliases": [
+        "遥控器"
+      ],
+      "attributes": [
+        "black"
+      ],
+      "detector_id": "det-remote_control-1",
+      "memory_id": "mem-remote_control-1",
+      "confidence_level": "high",
+      "state_summary": "idle",
+      "spatial_relation": "on_table"
+    }
+  ],
+  "visibility": {
+    "living_sofa_viewpoint": {
+      "objects": [
+        "obj_remote_control_1"
+      ],
+      "anchors": [
+        "anchor_living_sofa_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_remote_control_1",
+          "target_object_id": "anchor_living_sofa_1",
+          "text": "遥控器在客厅沙发。"
+        }
+      ]
+    },
+    "living_side_table_viewpoint": {
+      "objects": [],
+      "anchors": [
+        "anchor_living_side_table_1"
+      ],
+      "scene_relations": []
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "remote_control"
+      ]
+    }
+  ]
+}

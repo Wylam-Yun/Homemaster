@@ -17,13 +17,17 @@ ROOM_ALIASES: dict[str, tuple[str, ...]] = {
     "kitchen": ("厨房", "kitchen"),
     "living_room": ("客厅", "living room", "living_room"),
     "pantry": ("储物间", "pantry"),
+    "bedroom": ("卧室", "bedroom"),
+    "study": ("书房", "study"),
+    "entryway": ("门口", "entryway"),
 }
 
 ANCHOR_ALIASES: dict[str, tuple[str, ...]] = {
-    "table": ("桌子", "餐桌", "table"),
+    "table": ("桌子", "table"),
     "cabinet": ("柜子", "药柜", "cabinet"),
     "shelf": ("搁架", "架子", "shelf"),
     "counter": ("台面", "柜台", "counter"),
+    "sofa": ("沙发", "sofa"),
 }
 
 OBJECT_ALIASES: dict[str, tuple[str, ...]] = {

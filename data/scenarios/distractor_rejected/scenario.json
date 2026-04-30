@@ -1,0 +1,9 @@
+{
+  "name": "distractor_rejected",
+  "home_id": "elder_home_v1",
+  "utterance": "去厨房找水杯，然后拿给我",
+  "expected_final_status": "failed",
+  "tags": ["fetch_object", "failure", "distractor", "cup"],
+  "purpose": "干扰物被正确拒绝。",
+  "runtime_modes": ["deterministic"]
+}

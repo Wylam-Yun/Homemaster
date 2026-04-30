@@ -1,0 +1,22 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-keys-no-hint-missing",
+      "object_category": "keys",
+      "aliases": [
+        "钥匙"
+      ],
+      "anchor": {
+        "room_id": "entryway",
+        "anchor_id": "anchor_entry_cabinet_1",
+        "anchor_type": "cabinet",
+        "viewpoint_id": "entry_cabinet_viewpoint",
+        "display_text": "门口柜子"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

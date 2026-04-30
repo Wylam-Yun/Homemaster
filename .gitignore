@@ -21,3 +21,4 @@ trace.jsonl
 plan/V1.2/test_results/
 var/homemaster/memory/
 var/homemaster/runs/
+var/homemaster/snapshots/

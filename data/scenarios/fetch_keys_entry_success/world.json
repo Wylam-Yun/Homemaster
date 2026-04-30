@@ -1,0 +1,71 @@
+{
+  "rooms": [
+    {
+      "room_id": "entryway",
+      "display_text": "门口"
+    }
+  ],
+  "viewpoints": {
+    "entry_cabinet_viewpoint": {
+      "room_id": "entryway",
+      "visible_object_ids": [
+        "obj_keys_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_entry_cabinet_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_entry_cabinet_1",
+      "room_id": "entryway",
+      "anchor_type": "cabinet",
+      "viewpoint_id": "entry_cabinet_viewpoint",
+      "display_text": "门口柜子"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_keys_1",
+      "category": "keys",
+      "aliases": [
+        "钥匙"
+      ],
+      "attributes": [
+        "metal"
+      ],
+      "detector_id": "det-keys-1",
+      "memory_id": "mem-keys-1",
+      "confidence_level": "high",
+      "state_summary": "on_keyring",
+      "spatial_relation": "in_cabinet"
+    }
+  ],
+  "visibility": {
+    "entry_cabinet_viewpoint": {
+      "objects": [
+        "obj_keys_1"
+      ],
+      "anchors": [
+        "anchor_entry_cabinet_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "in",
+          "subject_object_id": "obj_keys_1",
+          "target_object_id": "anchor_entry_cabinet_1",
+          "text": "钥匙在门口柜子。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "keys"
+      ]
+    }
+  ]
+}

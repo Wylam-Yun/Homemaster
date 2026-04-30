@@ -1,0 +1,10 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "force_no_object",
+      "enabled": true,
+      "target_category": "keys",
+      "expected_failure_reason": "keys not visible at remembered location"
+    }
+  ]
+}

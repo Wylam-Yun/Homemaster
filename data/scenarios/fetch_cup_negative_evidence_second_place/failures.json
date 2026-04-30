@@ -1,0 +1,10 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "exclude_memory_id",
+      "enabled": true,
+      "memory_id": "mem-cup-kitchen-excluded",
+      "reason": "user requested another place"
+    }
+  ]
+}

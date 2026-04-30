@@ -1,0 +1,23 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-tissue-coffee-table",
+      "object_category": "tissue_box",
+      "aliases": [
+        "纸巾",
+        "纸巾盒"
+      ],
+      "anchor": {
+        "room_id": "living_room",
+        "anchor_id": "anchor_living_coffee_table_1",
+        "anchor_type": "table",
+        "viewpoint_id": "living_coffee_table_viewpoint",
+        "display_text": "客厅茶几"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "high",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

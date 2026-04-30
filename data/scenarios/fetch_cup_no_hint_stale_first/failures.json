@@ -1,0 +1,10 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "stale_memory_first",
+      "enabled": true,
+      "stale_memory_id": "mem-cup-no-hint-stale",
+      "recovery_memory_id": "mem-cup-no-hint-current"
+    }
+  ]
+}

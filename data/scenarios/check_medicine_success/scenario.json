@@ -1,0 +1,9 @@
+{
+  "name": "check_medicine_success",
+  "home_id": "elder_home_v1",
+  "utterance": "去厨房看看药盒是不是还在。",
+  "expected_final_status": "completed",
+  "tags": ["check_presence", "success", "medicine_box"],
+  "purpose": "基础检查药盒存在路径。",
+  "runtime_modes": ["deterministic"]
+}

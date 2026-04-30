@@ -1,0 +1,537 @@
+{
+  "scenarios": [
+    {
+      "name": "fetch_cup_table_success",
+      "utterance": "去厨房餐桌找水杯，然后拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "location_hint",
+        "cup"
+      ],
+      "purpose": "基础取杯成功路径。",
+      "scenario_dir": "data/scenarios/fetch_cup_table_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_alias_success",
+      "utterance": "去厨房把杯子拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "alias",
+        "cup"
+      ],
+      "purpose": "验证“杯子”别名能命中 cup。",
+      "scenario_dir": "data/scenarios/fetch_cup_alias_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_mug_not_cup_rejected",
+      "utterance": "去储物间找水杯拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "distractor",
+        "cup"
+      ],
+      "purpose": "可见马克杯但不是水杯，应该拒绝干扰物。",
+      "scenario_dir": "data/scenarios/fetch_mug_not_cup_rejected",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_remote_living_success",
+      "utterance": "去客厅边桌找遥控器，然后拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "remote_control"
+      ],
+      "purpose": "非药盒/水杯物体的拿取任务。",
+      "scenario_dir": "data/scenarios/fetch_remote_living_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_glasses_bedroom_success",
+      "utterance": "去卧室床头柜找眼镜，拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "bedroom",
+        "glasses"
+      ],
+      "purpose": "新增卧室和床头柜 anchor。",
+      "scenario_dir": "data/scenarios/fetch_glasses_bedroom_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_medicine_to_grandma",
+      "utterance": "去药柜把药盒拿给奶奶。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "delivery_target",
+        "medicine_box"
+      ],
+      "purpose": "交付目标不是默认 user。",
+      "scenario_dir": "data/scenarios/fetch_medicine_to_grandma",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_water_bottle_success",
+      "utterance": "去厨房操作台找水瓶，拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "water_bottle"
+      ],
+      "purpose": "饮水类但不是 cup。",
+      "scenario_dir": "data/scenarios/fetch_water_bottle_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_keys_entry_success",
+      "utterance": "去门口柜子找钥匙，拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "entryway",
+        "keys"
+      ],
+      "purpose": "门口区域小物体拿取。",
+      "scenario_dir": "data/scenarios/fetch_keys_entry_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_tissue_table_success",
+      "utterance": "去客厅茶几拿纸巾给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "tissue"
+      ],
+      "purpose": "轻量日用品拿取。",
+      "scenario_dir": "data/scenarios/fetch_tissue_table_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_book_shelf_success",
+      "utterance": "去书架找那本蓝色书，拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "attribute",
+        "book"
+      ],
+      "purpose": "带颜色属性约束的拿取。",
+      "scenario_dir": "data/scenarios/fetch_book_shelf_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_medicine_wrong_memory_recover",
+      "utterance": "去厨房找药盒拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "memory_conflict",
+        "wrong_location_hint",
+        "medicine_box"
+      ],
+      "purpose": "用户提示/旧记忆在厨房，较新记忆指向客厅。",
+      "scenario_dir": "data/scenarios/fetch_medicine_wrong_memory_recover",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_stale_memory_recover",
+      "utterance": "去厨房找水杯拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "stale_memory",
+        "cup"
+      ],
+      "purpose": "stale memory 被排除后选新位置。",
+      "scenario_dir": "data/scenarios/fetch_cup_stale_memory_recover",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_remote_conflicting_memory",
+      "utterance": "找遥控器拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "no_location_hint",
+        "memory_conflict",
+        "remote_control"
+      ],
+      "purpose": "无位置提示，多条遥控器记忆冲突。",
+      "scenario_dir": "data/scenarios/fetch_remote_conflicting_memory",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_negative_evidence_second_place",
+      "utterance": "再去别的地方找水杯，拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "negative_evidence",
+        "cup"
+      ],
+      "purpose": "runtime negative evidence 排除上一位置后找第二候选。",
+      "scenario_dir": "data/scenarios/fetch_cup_negative_evidence_second_place",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_object_not_found",
+      "utterance": "去厨房找水杯，拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "object_not_found",
+        "cup"
+      ],
+      "purpose": "memory 指向厨房但 world 中不可见目标物。",
+      "scenario_dir": "data/scenarios/fetch_object_not_found",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_all_locations_not_found",
+      "utterance": "帮我找水杯，找到就拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "no_location_hint",
+        "multi_location_search"
+      ],
+      "purpose": "无位置提示，多候选位置都找不到。",
+      "scenario_dir": "data/scenarios/fetch_all_locations_not_found",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_wrong_color_rejected",
+      "utterance": "去厨房找白色药盒拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "attribute_mismatch",
+        "medicine_box"
+      ],
+      "purpose": "可见红色药盒，但用户要白色药盒。",
+      "scenario_dir": "data/scenarios/fetch_wrong_color_rejected",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_operation_retry_candidate",
+      "utterance": "去厨房餐桌拿水杯给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "recovery_candidate",
+        "operation_retry",
+        "cup"
+      ],
+      "purpose": "第一次拿取失败，后续 Recovery 重试候选。",
+      "scenario_dir": "data/scenarios/fetch_operation_retry_candidate",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "check_medicine_presence_success",
+      "utterance": "去厨房看看药盒是不是还在。",
+      "expected_final_status": "completed",
+      "tags": [
+        "check_presence",
+        "success",
+        "medicine_box"
+      ],
+      "purpose": "少量确认类基线。",
+      "scenario_dir": "data/scenarios/check_medicine_presence_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "check_remote_presence_missing",
+      "utterance": "去客厅看看遥控器还在不在。",
+      "expected_final_status": "failed",
+      "tags": [
+        "check_presence",
+        "failure",
+        "remote_control"
+      ],
+      "purpose": "确认类找不到。",
+      "scenario_dir": "data/scenarios/check_remote_presence_missing",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_no_hint_memory_success",
+      "utterance": "帮我找一下水杯，然后拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "cup"
+      ],
+      "purpose": "无位置提示，memory 命中水杯。",
+      "scenario_dir": "data/scenarios/fetch_cup_no_hint_memory_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_no_hint_multi_memory_recent",
+      "utterance": "帮我把水杯拿过来。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "multi_memory"
+      ],
+      "purpose": "无位置提示，多条 memory，选最近可靠候选。",
+      "scenario_dir": "data/scenarios/fetch_cup_no_hint_multi_memory_recent",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_no_hint_stale_first",
+      "utterance": "找水杯拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "stale_memory"
+      ],
+      "purpose": "top memory stale，转向次优位置。",
+      "scenario_dir": "data/scenarios/fetch_cup_no_hint_stale_first",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_no_hint_all_missing",
+      "utterance": "帮我找水杯，找到就拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "no_location_hint",
+        "cup"
+      ],
+      "purpose": "无位置提示，多候选都找不到。",
+      "scenario_dir": "data/scenarios/fetch_cup_no_hint_all_missing",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_cup_no_hint_distractor_mug",
+      "utterance": "帮我拿水杯。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "no_location_hint",
+        "distractor"
+      ],
+      "purpose": "无位置提示，可见 mug 干扰物。",
+      "scenario_dir": "data/scenarios/fetch_cup_no_hint_distractor_mug",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_medicine_no_hint_success",
+      "utterance": "帮我把药盒拿过来。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "medicine_box"
+      ],
+      "purpose": "无位置提示，药盒 memory 命中。",
+      "scenario_dir": "data/scenarios/fetch_medicine_no_hint_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_remote_no_hint_success",
+      "utterance": "帮我找遥控器拿过来。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "remote_control"
+      ],
+      "purpose": "无位置提示，遥控器 memory 命中。",
+      "scenario_dir": "data/scenarios/fetch_remote_no_hint_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_glasses_no_hint_success",
+      "utterance": "帮我找眼镜拿给我。",
+      "expected_final_status": "completed",
+      "tags": [
+        "fetch_object",
+        "success",
+        "no_location_hint",
+        "glasses"
+      ],
+      "purpose": "无位置提示，眼镜 memory 命中。",
+      "scenario_dir": "data/scenarios/fetch_glasses_no_hint_success",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_keys_no_hint_not_found",
+      "utterance": "帮我找钥匙拿给我。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "failure",
+        "no_location_hint",
+        "keys"
+      ],
+      "purpose": "无位置提示，memory 有但 world 找不到。",
+      "scenario_dir": "data/scenarios/fetch_keys_no_hint_not_found",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    },
+    {
+      "name": "fetch_object_ambiguous_no_hint",
+      "utterance": "帮我找那个东西拿过来。",
+      "expected_final_status": "failed",
+      "tags": [
+        "fetch_object",
+        "clarification",
+        "no_location_hint",
+        "ambiguous_target"
+      ],
+      "purpose": "无位置且目标不明确，应该进入澄清/失败边界。",
+      "scenario_dir": "data/scenarios/fetch_object_ambiguous_no_hint",
+      "files": [
+        "world.json",
+        "memory.json",
+        "failures.json"
+      ]
+    }
+  ]
+}

@@ -20,11 +20,23 @@ ROOM_HINTS: dict[str, tuple[str, ...]] = {
     "kitchen": ("厨房", "kitchen"),
     "living_room": ("客厅", "living room", "living_room"),
     "pantry": ("储物间", "pantry"),
+    "bedroom": ("卧室", "bedroom"),
+    "study": ("书房", "study"),
+    "entryway": ("门口", "entryway"),
 }
 
 ANCHOR_HINTS: dict[str, tuple[str, ...]] = {
-    "table": ("桌", "桌子", "餐桌", "边桌", "table"),
+    "table": ("桌", "桌子", "table"),
     "cabinet": ("柜", "柜子", "药柜", "橱柜", "cabinet"),
+    "shelf": ("搁架", "架子", "shelf"),
+    "counter": ("台面", "柜台", "counter"),
+    "sofa": ("沙发", "sofa"),
+}
+
+SPECIFIC_ANCHOR_WORDS: dict[str, tuple[str, ...]] = {
+    "table": ("餐桌", "边桌", "茶几", "书桌", "床头柜", "梳妆台"),
+    "shelf": ("置物架", "书架"),
+    "counter": ("操作台",),
 }
 
 
@@ -242,12 +254,20 @@ def _anchor_hint_conflicts(task_card: TaskCard, hit: MemoryRetrievalHit) -> bool
     expected_anchor = _expected_anchor_from_hint(task_card.location_hint)
     if expected_anchor is None:
         return False
+    hint = (task_card.location_hint or "").casefold()
     hit_anchor = _hit_anchor_text(hit)
-    if expected_anchor == "table":
-        return "table" not in hit_anchor and "桌" not in hit_anchor
-    if expected_anchor == "cabinet":
-        return "cabinet" not in hit_anchor and "柜" not in hit_anchor
-    return False
+    hit_display = _hit_display_text(hit)
+
+    # If hint contains a specific furniture word (e.g. "茶几"), require that
+    # word in the hit's display_text — broad anchor_type match is not enough.
+    specific_words = SPECIFIC_ANCHOR_WORDS.get(expected_anchor, ())
+    specific_in_hint = [w for w in specific_words if w.casefold() in hint]
+    if specific_in_hint:
+        return not any(w.casefold() in hit_display for w in specific_in_hint)
+
+    # Otherwise fall back to broad anchor_type matching.
+    hint_terms = ANCHOR_HINTS.get(expected_anchor, ())
+    return not any(term.casefold() in hit_anchor for term in hint_terms)
 
 
 def _expected_room_from_hint(location_hint: str | None) -> str | None:
@@ -278,6 +298,17 @@ def _hit_anchor_text(hit: MemoryRetrievalHit) -> str:
             hit.anchor_id,
             hit.display_text,
             hit.canonical_metadata.get("anchor_type"),
+            hit.canonical_metadata.get("display_text"),
+        )
+    )
+
+
+def _hit_display_text(hit: MemoryRetrievalHit) -> str:
+    """Extract display_text fields only (no anchor_type/anchor_id)."""
+    return " ".join(
+        str(value or "").casefold()
+        for value in (
+            hit.display_text,
             hit.canonical_metadata.get("display_text"),
         )
     )

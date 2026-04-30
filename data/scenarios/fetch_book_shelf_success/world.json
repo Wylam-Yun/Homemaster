@@ -1,0 +1,72 @@
+{
+  "rooms": [
+    {
+      "room_id": "study",
+      "display_text": "书房"
+    }
+  ],
+  "viewpoints": {
+    "study_bookshelf_viewpoint": {
+      "room_id": "study",
+      "visible_object_ids": [
+        "obj_book_1"
+      ],
+      "visible_anchor_ids": [
+        "anchor_study_bookshelf_1"
+      ]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_study_bookshelf_1",
+      "room_id": "study",
+      "anchor_type": "shelf",
+      "viewpoint_id": "study_bookshelf_viewpoint",
+      "display_text": "书房书架"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_book_1",
+      "category": "book",
+      "aliases": [
+        "书",
+        "蓝色书"
+      ],
+      "attributes": [
+        "blue"
+      ],
+      "detector_id": "det-book-1",
+      "memory_id": "mem-book-1",
+      "confidence_level": "high",
+      "state_summary": "closed",
+      "spatial_relation": "on_shelf"
+    }
+  ],
+  "visibility": {
+    "study_bookshelf_viewpoint": {
+      "objects": [
+        "obj_book_1"
+      ],
+      "anchors": [
+        "anchor_study_bookshelf_1"
+      ],
+      "scene_relations": [
+        {
+          "relation_type": "on",
+          "subject_object_id": "obj_book_1",
+          "target_object_id": "anchor_study_bookshelf_1",
+          "text": "书在书房书架。"
+        }
+      ]
+    }
+  },
+  "symbolic_predicates": [
+    {
+      "name": "visible_category",
+      "args": [
+        "book"
+      ]
+    }
+  ]
+}

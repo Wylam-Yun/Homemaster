@@ -1,0 +1,9 @@
+{
+  "name": "fetch_cup_retry",
+  "home_id": "elder_home_v1",
+  "utterance": "去厨房找水杯，然后拿给我",
+  "expected_final_status": "completed",
+  "tags": ["fetch_object", "success", "retry", "cup"],
+  "purpose": "首次失败后重试成功。",
+  "runtime_modes": ["deterministic"]
+}

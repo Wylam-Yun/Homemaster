@@ -1018,128 +1018,322 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
     return True
 ```
 
-## 三、改进实施计划
+## 三、改进实施计划（修订版）
 
-> 优先级原则：短期聚焦 **StageRegistry + PipelineContext 解耦**，中期推进 **ProviderFactory / SkillRegistry 管插件化**。不引入 DI 容器或事件总线——用最轻的手段先达到可增删的目标。
+> 修订结论：用户提出的方向整体合理，尤其是 **先让场景和 Memory 支持扩增**、**再统一五场景基线**、**只做最小 Stage 化**、**Recovery 最后单独做**。原计划不合理之处在于第一阶段塞入了 Recovery 闭环、Stage05 子拆分、Contract 全冻结、Prompt schema 自动生成、文件重构等高耦合改动，容易把 `task_runner.py` 瘦身这件核心事拖散。
 
----
-
-### 短期（P0）：让 pipeline 能加能删能跳过
-
-核心目标：**改一个 Stage 不改 task_runner，加一个 Stage 不改核心代码，跳过/重跑一个 Stage 只改配置**。
-
-#### 任务1: Stage 协议 + StageRegistry
-
-**要完成什么**:
-- 定义 `Stage` Protocol：`execute(context: PipelineContext) -> PipelineContext`
-- 实现 `StageRegistry`：按名称注册 Stage，通过配置文件决定执行顺序和启用/禁用
-- 将 Stage 01 contract smoke 移入 `homemaster doctor --contract`
-- `pipeline.py` 重新定位为主编排器，`task_runner.py` 退化为任务启动入口
-
-**预期效果**:
-- task_runner.py 不再直接导入具体 Stage 模块，只从 Registry 取 Stage 实例
-- 新增 Stage 只需写一个实现 Stage Protocol 的类 + 在配置中加一行
-- 跳过 Stage 只需在配置中设 `enabled: false`
-- `homemaster doctor --contract` 替代 Stage 01 smoke，释放 `pipeline.py` 做编排
-
-**验收标准**:
-- [ ] 所有 Stage 实现 `Stage` Protocol
-- [ ] task_runner.py 不直接导入任何具体 Stage
-- [ ] 通过 `pipeline.yaml` 可动态启用/禁用/排序 Stage
-- [ ] `homemaster doctor --contract` 可独立运行
-- [ ] PipelineContext 支持不可变累积 + Recovery 回退
-- [ ] Contract 演化规则有文档记录
-
-#### 任务2: PipelineContext + Recovery 回退
-
-**要完成什么**:
-- 定义 `PipelineContext`：不可变上下文，每个 Stage 产出新版本（`context.with_result(stage_name=xxx)`）
-- 修正 `memory_commit` 从 `dict[str, Any]` 为 `MemoryCommitPlan` Pydantic 模型
-- Recovery 闭环：executor 循环消费 RecoveryDecision，根据 action 回退：
-  - `retry_step` → 重试当前 step
-  - `retrieve_again` → 清除 `context.memory_result`，重跑 Stage 03
-  - `replan` → 清除 `context.orchestration_plan`，重跑 Stage 05 规划
-  - `ask_user` → 中断并请求用户输入
-- 设置最大恢复次数（默认 3）
-
-**预期效果**:
-- Stage 间数据传递全部走 PipelineContext，不再有零散中间变量
-- Recovery 形成闭环：失败 → 决策 → 回退 → 重跑，不再"记录失败就退出"
-- Recovery 回退通过 `with_result()` 清除旧结果实现，无需改 Stage 内部逻辑
-
-**验收标准**:
-- [ ] PipelineContext 不可变，每个 Stage 产出新版本
-- [ ] `memory_commit` 类型为 `MemoryCommitPlan`，不再是 `dict[str, Any]`
-- [ ] RecoveryDecision 被 executor 消费，闭环运行
-- [ ] `retrieve_again` 可重跑 Stage 03 并更新 context
-- [ ] 最大恢复次数为 3
-
-#### 任务3: Stage05 拆分为独立子 Stage
-
-**要完成什么**:
-- 将 Stage05 拆为 5 个子 Stage：PlanningStage、StepDecisionStage、SkillExecutionStage、VerificationStage、RecoveryStage
-- 每个子 Stage 实现 `Stage` Protocol，可独立测试和替换
-
-**预期效果**:
-- 接 VLN/VLA/VLM 时只需替换对应子 Stage，不动其他
-- 验证可独立开关（跳过 VerificationStage = 不验证直接继续）
-- Recovery 独立可控（关闭 RecoveryStage = 验证失败直接终止）
-
-**验收标准**:
-- [ ] 5 个子 Stage 各自实现 Stage Protocol，可独立单元测试
-- [ ] 替换 VerificationStage 为 mock/vlm 不影响其他子 Stage
-- [ ] 跳过 RecoveryStage 时验证失败直接终止
-
-#### 任务4: Contract 演化规则 + ExecutionState 不变性
-
-**要完成什么**:
-- Contract 演化规则：新字段一律 `Optional + default`，旧字段不改不删
-- Prompt 外置后用 `model_json_schema()` 自动生成 schema 片段，与 Contract 同步
-- `ContractModel` 统一设置 `frozen=True`，所有修改走 `model_copy(deep=True)`
-- 删除 executor.py 中直接赋值修改 ExecutionState 的代码
-
-**预期效果**:
-- 给 TaskCard 加 optional 字段不影响下游 Stage
-- Prompt schema 与 Contract 自动同步，不再手动维护
-- ExecutionState 不变性一致，便于调试、重试、回滚
-
-**验收标准**:
-- [ ] ContractModel 基类设 `frozen=True`
-- [ ] executor.py 无直接赋值修改 ExecutionState
-- [ ] 新增 optional 字段到任意 Contract 模型，下游 Stage 不需要改代码
-- [ ] Prompt schema 从 `model_json_schema()` 自动生成
+> 新优先级：先冻结当前五场景快照，再把场景从代码硬编码变成可扩增测试资产，同时把每场景独立小 memory 改为共享 Memory Corpus + 场景 overlay/profile；之后把五场景基线切到 manifest 驱动，再搭 pipeline 骨架；先让 `task_runner.py` 从“大总管”变成“启动器”，再逐步做 runtime mode、最小日志、SkillRegistry、Prompt 外置、配置化、文件组织和 Recovery。
 
 ---
 
-### 中期（P1）：插件化，加 Skill/Provider 不改核心代码
+### P-1：场景与 Memory 扩增能力先行（阶段一前置）
 
-核心目标：**新增 Skill 或 Provider 只需写一个实现 + 注册，核心代码零改动**。
+核心目标：**先让新增场景和统一 Memory Corpus 有稳定入口，否则后续 pipeline、runtime mode、SkillRegistry、Recovery 都缺少可扩展验收面**。
 
-#### 任务5: SkillRegistry 插件化
+**关键判断**:
+- 不新增一个运行时业务 Stage 来“统一记忆”。Stage03 已经是 Memory RAG，新增 Stage02.5/Stage03.5 会让 pipeline 语义变乱。
+- 统一记忆应该作为 **P-1 数据与测试基础设施** 现在就做：先建立共享 corpus，再让场景引用 corpus 的子集或 profile。
+- 每场景一份 1-2 条 `memory.json` 只能测流程，不能测 RAG 的召回、排序、冲突、噪声、stale 和 negative evidence；因此不应继续作为主要扩增方式。
+
+**小阶段拆分与验收计划**:
+
+#### P-1.0：当前场景快照冻结
 
 **要完成什么**:
-- SkillManifest.name 从 `Literal` 改为 `str` + 注册时验证
-- 实现 SkillRegistry：配置文件或代码注册 Skill，不需要改 `contracts.py`
-- executor.py 通过 SkillManifest 的 `input_schema` 驱动执行，不写 per-skill 分支
-- 每个 SkillManifest 带 `handler: Callable` 字段，executor 调用 handler
+- 在迁移 HomeWorld / Memory Profile 之前，先冻结现有 5 个 Stage07 场景的当前结果。
+- 记录每个场景的：
+  - utterance
+  - expected_final_status
+  - 实际 final_status
+  - stage_statuses 摘要
+  - debug asset 路径
+  - deterministic/mock 与 live 的运行边界
+- 这个快照只作为迁移前后对比依据，不等于最终 manifest 形态。
 
-**预期效果**:
-- 加一个 `greeting` Skill：只需写 SkillManifest + handler，注册到 SkillRegistry，改 0 行核心代码
-- 加一个 `vlm_verify` Skill：同理，替换 VerificationStage 的 handler 即可
-- contracts.py 中不再有 Skill 名称 Literal
+**验收计划**:
+- [ ] 当前 5 个场景都能从现有 `scenario_runner.py` 跑出结果
+- [ ] 快照中明确 `fetch_cup_retry`、`object_not_found`、`distractor_rejected` 现阶段仍是失败符合预期
+- [ ] 迁移到 HomeWorld + Memory Profile 后，能逐项对比 final_status 和关键 stage_status
+- [ ] 没有这个快照，不进入 P-1A/P-1E 迁移
+
+#### P-1A：统一家庭环境 HomeWorld
+
+**要完成什么**:
+- 建立一套统一家庭环境，例如：
+  ```text
+  data/homes/elder_home_v1/world.json
+  ```
+- 覆盖固定房间、viewpoint、anchor、真实物体：
+  - 房间：厨房、客厅、卧室、门口、书房、储物间
+  - anchor：餐桌、操作台、药柜、边桌、茶几、沙发、床头柜、门口柜、书架、储物架
+  - 物体：水杯、药盒、遥控器、眼镜、钥匙、纸巾、水瓶、书、手机、干扰物
+- 明确 world 是“当前真实环境”，不是 memory；场景只能通过 overlay 改变可见物体或状态。
+
+**验收计划**:
+- [ ] `data/homes/elder_home_v1/world.json` 能被 JSON parser 读取
+- [ ] 每个 furniture 的 `viewpoint_id` 都存在于 `viewpoints`
+- [ ] 每个 viewpoint 的 `visible_object_ids` 都存在于 `objects`
+- [ ] 至少 6 个房间、10 个 anchor、20 个真实物体
+- [ ] 不依赖任何单一场景目录即可独立理解家庭环境
+
+#### P-1B：统一 Memory Corpus
+
+**要完成什么**:
+- 建立统一 object memory corpus：
+  ```text
+  data/memory/elder_home_v1/object_memory_corpus.json
+  ```
+- P-1 首轮先建立最小可用 corpus，至少 30-40 条记忆；完整 RAG 压测目标再扩到 80+ 条，不阻塞 P1 架构改造。
+- 首轮 corpus 必须覆盖：
+  - confirmed/stale
+  - high/medium/low confidence
+  - 同一物体多历史位置
+  - 新旧记忆冲突
+  - cup/mug/bottle 等近似干扰类别
+  - 用户习惯类位置记忆
+- 记忆必须引用 HomeWorld 中稳定存在的 room/anchor/viewpoint；少量“历史位置已不存在”必须显式标记，不默认混入普通记忆。
+
+**验收计划**:
+- [ ] corpus 能被 `build_memory_documents()` 构建为 MemoryDocument
+- [ ] corpus 中 `memory_id` 全局唯一
+- [ ] corpus 中 90% 以上 memory 的 room/anchor/viewpoint 能在 HomeWorld 找到
+- [ ] P-1 首轮至少包含 6 类目标物、4 类干扰物、6 条 stale memory、6 条多候选冲突 memory
+- [ ] 后续扩展目标记录为 80+ 条 memory、8 类目标物、5 类干扰物、10 条 stale memory、10 条多候选冲突 memory
+- [ ] 用 full corpus 跑一次 Stage03 单测时，top_k 返回不退化为空
+
+#### P-1C：Scenario Manifest + Memory Profile
+
+**要完成什么**:
+- 建立数据驱动场景 manifest：
+  ```text
+  data/scenarios/catalog.json
+  data/scenarios/<scenario_name>/scenario.json
+  data/scenarios/<scenario_name>/memory_profile.json
+  data/scenarios/<scenario_name>/world_overlay.json
+  data/scenarios/<scenario_name>/failures.json
+  ```
+- 每个场景声明：
+  - `home_id`
+  - `utterance`
+  - `expected_final_status`
+  - `tags`
+  - `runtime_modes`
+  - `purpose`
+  - `memory_profile`
+- `memory_profile` 支持：
+  - `full_corpus`
+  - `include_memory_ids`
+  - `exclude_memory_ids`
+  - `runtime_negative_evidence`
+- 增加最小 memory materializer：`object_memory_corpus.json + memory_profile.json -> 本次运行使用的 memory.json/object_memory payload`。
+- 物化优先级固定为：
+  1. `full_corpus: true` 时先选取整个 corpus；否则从 `include_memory_ids` 选取子集
+  2. `exclude_memory_ids` 在 full/include 之后做删除
+  3. `runtime_negative_evidence` 只注入本次 run 的 runtime-only evidence，不写回共享 corpus
+  4. 生成的 base memory 继续走现有 Stage03 `memory_path`，避免在 P-1 改 `run_memory_rag()` 行为
+- 保留每场景 `memory.json` 兼容路径，但新场景优先由 `memory_profile.json` 物化生成本次运行的 base memory。
+
+**验收计划**:
+- [ ] 新增一个普通成功场景只需要增加 scenario/profile/overlay/failures，不需要改 `scenario_runner.py`
+- [ ] 新增一个 RAG 压测场景可以直接使用 `full_corpus`
+- [ ] 新增一个定向场景可以用 `include_memory_ids` 从共享 corpus 选择子集
+- [ ] memory materializer 对 full/include/exclude/negative evidence 都有单测
+- [ ] Stage03 仍读取物化后的 `memory_path`，不要求理解 `memory_profile.json`
+- [ ] catalog 中每个场景都能解析出 home、world overlay、memory profile 和 expected status
+
+#### P-1D：场景与 Memory 校验器
+
+**要完成什么**:
+- 新增校验器，先作为开发/CI 工具，不进入业务 pipeline。
+- 校验内容：
+  - HomeWorld 引用完整性
+  - corpus memory_id 唯一性
+  - scenario/profile 引用的 memory_id 存在
+  - overlay 引用的 object/anchor/viewpoint 存在
+  - `expected_final_status` 只使用允许值
+  - 用户指令中的目标物能被 aliases/object_category 覆盖
+  - `failures.json` 使用受支持的最小失败规则
+  - memory_profile 能成功物化为 Stage03 可读的 object_memory payload
+
+**验收计划**:
+- [ ] 校验器对合法数据返回 PASS
+- [ ] 人为写错 memory_id 时返回 FAIL 且指出具体场景
+- [ ] 人为写错 anchor/viewpoint 时返回 FAIL 且指出具体文件
+- [ ] 人为写错 expected status 时返回 FAIL
+- [ ] 人为写错 profile 物化规则时返回 FAIL 且指出具体 memory_id 或字段
+- [ ] 校验器不调用 LLM、不调用 embedding，默认 CI 可跑
+
+#### P-1E：迁移基线与候选任务
+
+**要完成什么**:
+- 先迁移现有 5 个基线场景到 HomeWorld + Memory Profile。
+- 再把 30 个候选任务从“每场景独立 memory”改为 profile 引用；候选任务明确标记为 `draft/candidate`，不直接进入基线矩阵。
+- 让 `failures.json` 不再只是预留文件，先支持最小失败规则：
+  - `force_no_object`
+  - `expected_failure_reason`
+  - 后续可扩展 `drop_object`、`wrong_object_visible`、`verification_fail_once`
+- 禁止继续在 `task_runner.py` / executor 中按 scenario name 写失败注入分支。
+
+**验收计划**:
+- [ ] 现有 5 个场景迁移后运行结果不变
+- [ ] 30 个候选任务不再复制独立小 memory，改用 profile 引用 corpus，并标记为 draft/candidate
+- [ ] 新增一个找不到物体场景可以通过 `failures.json` 触发 `force_no_object`，不需要在 `task_runner.py` 写场景名判断
+- [ ] `task_runner.py` / executor 不再出现 `object_not_found`、`distractor_rejected` 这类按场景名触发失败注入的判断
+- [ ] `tests/homemaster/test_scenario_runner.py` 不再断言“只能有五个场景”，改为断言“基线五场景都存在”
+
+**不做什么**:
+- 不改 Stage02-06 行为。
+- 不做 pipeline Stage 化。
+- 不做完整 Recovery。
+- 不把所有 mock skill 行为一次性配置化，只先把当前按场景名硬编码的失败注入挪到场景数据。
+- 不把共享 Memory Corpus 写进 runtime memory；runtime memory 仍然由 Stage06 按 run 隔离写入，避免污染基线。
+
+**P-1 总体验收门槛**:
+- [ ] P-1.0 当前五场景快照已冻结
+- [ ] HomeWorld、Memory Corpus、Scenario Manifest 三者边界清晰
+- [ ] 场景不再以复制 1-2 条 memory 作为主要扩增方式
+- [ ] 至少一个场景使用 full corpus，至少一个场景使用 include_memory_ids 子集
+- [ ] memory_profile 能物化为 Stage03 兼容的 base memory
+- [ ] 五场景基线结果不变
+- [ ] 校验器 PASS 后再允许进入 P0
+
+---
+
+### P0：统一五场景测试基线
+
+核心目标：**在场景支持扩增之后，把“五场景不能被改坏”从代码常量固化为 manifest 驱动的回归基线**。
+
+**要完成什么**:
+- 固化 5 个 Stage07 场景作为回归基线：
+  - `check_medicine_success`：成功，符合预期
+  - `check_medicine_stale_recover`：成功，符合预期
+  - `fetch_cup_retry`：失败，符合预期，用于覆盖重试/失败路径
+  - `object_not_found`：失败，符合预期，用于覆盖找不到物体
+  - `distractor_rejected`：失败，符合预期，用于覆盖干扰物排除
+- 明确两套基线：
+  - deterministic/mock 基线：默认 CI 可跑，不依赖 Mimo/BGE-M3
+  - live 基线：需要 `HOMEMASTER_RUN_LIVE_LLM=1` 和 `HOMEMASTER_RUN_LIVE_EMBEDDING=1`
+- 把当前 `report/2026-04-29-stage07-live-5-scenarios-report.md` 和 `tests/homemaster/test_stage_07_scenarios_live.py` 对齐为验收依据。
+
+**不做什么**:
+- 不改变 Stage 行为。
+- 不改 prompt。
+- 不引入 Recovery 新逻辑。
+- 不搬文件。
 
 **验收标准**:
-- [ ] SkillManifest.name 为 `str`，不再有 Literal
-- [ ] 新增 Skill 不需要修改 contracts.py、skill_registry.py、executor.py
-- [ ] executor.py 不含 per-skill switch 分支，通过 handler 统一调用
-- [ ] Skill 可通过配置文件注册
+- [ ] 5 场景的预期状态来自 catalog/manifest，而不是散落在代码里
+- [ ] deterministic/mock 路径能在本地稳定跑通
+- [ ] live 路径仍保持 opt-in，不进入默认测试
+- [ ] 后续每个阶段结束都先跑这套基线
 
+---
 
-#### 任务6: ProviderFactory + runtime mode 配置
+### P1：最小 Stage 化：PipelineContext + StageRegistry + task_runner 瘦身
+
+核心目标：**先搭骨架，不重写器官**。现有 `task_runner.py` 在 `run_homemaster_task()` 中直接串联 Stage02-06、路径、debug asset、live/mock 分支和结果汇总；第一轮只把这条串联逻辑搬进 pipeline 骨架，Stage 内部实现尽量不动。
+
+**小阶段拆分与验收计划**:
+
+#### P1A：PipelineContext 最小模型
 
 **要完成什么**:
-- 实现 ProviderFactory：根据配置创建 LLM/Embedding Provider，不再在 task_runner.py 中硬编码 `if live_models` 分支
-- 定义 runtime mode 配置（`configs/runtime_mode.yaml`），每个组件独立指定模式：
+- 新增最小 `PipelineContext`，承载：
+  - run 信息：`run_id`、`scenario`、`utterance`
+  - 路径：home/world/memory/runtime/debug/results
+  - runtime 边界：`live_models`、`mock_skills`、provider 名称
+  - Stage 输出：`task_card`、`memory_result`、`planning_context`、`orchestration_plan`、`execution_result`、`evidence_bundle`、`task_summary`、`memory_commit`
+  - `stage_statuses`、`model_boundary`、`paths`
+- 提供 `with_updates()` 或等价方法，先支持线性累积，不要求 Recovery 回退。
+- 提供从现有 `run_homemaster_task()` 参数构建 context 的 helper。
+
+**验收计划**:
+- [ ] 单测能构造最小 context
+- [ ] context 能记录 stage output 和 stage status
+- [ ] context 可转换为现有 `HomeMasterRunResult` 所需字段
+- [ ] 不改任何 Stage02-06 业务函数
+
+#### P1B：Stage Protocol + StageRegistry
+
+**要完成什么**:
+- 定义最小 `Stage` Protocol：`name` + `execute(context) -> context`
+- 定义 `StageRegistry`，支持按名称注册和按顺序取出 Stage。
+- 先使用代码注册固定顺序，不急着上 `pipeline.yaml`。
+
+**验收计划**:
+- [ ] registry 能注册 Stage02-06 五个名字
+- [ ] registry 能按默认顺序返回 Stage
+- [ ] 重复注册、未知 stage 有明确错误
+- [ ] 不要求动态启停，不引入复杂配置
+
+#### P1C：Stage02-06 Adapter 化
+
+**要完成什么**:
+- 为现有函数加 adapter，不重写内部逻辑：
+  - Stage02 adapter 调 `understand_task()` 或 deterministic task card
+  - Stage03 adapter 调 `run_memory_rag()`
+  - Stage04 adapter 调 `build_planning_context()`
+  - Stage05 adapter 调 `generate_orchestration_plan()` + `execute_stage_05_plan()`
+  - Stage06 adapter 调 summary + memory commit
+- adapter 只负责从 context 取输入、写回输出和状态。
+
+**验收计划**:
+- [ ] 每个 adapter 有 focused 单测，能消费/更新 context
+- [ ] adapter 调用的底层函数仍是现有函数
+- [ ] Stage05 先保持 plan+execute 合并，不在本阶段拆子 Stage
+- [ ] adapter 失败时能把 stage 名称写入错误状态
+
+#### P1D：task_runner 瘦身
+
+**要完成什么**:
+- `run_homemaster_task()` 保持公开签名兼容，但职责降为：
+  - 校验输入
+  - 初始化 `PipelineContext`
+  - 调用 pipeline
+  - 将 context 转回 `HomeMasterRunResult`
+  - 写 Stage07 assets
+- `task_runner.py` 中不再手写 Stage02-06 的线性大流程。
+
+**验收计划**:
+- [ ] `tests/homemaster/test_task_runner.py` 通过
+- [ ] `HomeMasterRunResult.to_dict()` 输出字段与现有兼容
+- [ ] debug asset 路径与现有结构兼容
+- [ ] 非 live 路径不调用真实 LLM/embedding
+
+#### P1E：P1 回归门槛
+
+**要完成什么**:
+- 对 P1A-D 做整体回归。
+- 跑五场景基线和一两个 profile/corpus 新场景 smoke。
+
+**验收计划**:
+- [ ] 五场景 baseline final_status 不变
+- [ ] `stage_statuses` 字段结构不变或有兼容映射
+- [ ] runtime memory 仍按 run 隔离
+- [ ] 新 pipeline 路径和旧入口 `run_homemaster_task()` 行为一致
+- [ ] P1 完成后先进入 runtime_mode P2
+
+**关键取舍**:
+- 不要求第一轮做到“task_runner.py 不直接导入任何具体 Stage”。短期可以通过 adapter 过渡，目标是先把主流程从函数体里抽出去。
+- `pipeline.py` 当前承载 Stage01 smoke。为降低测试 churn，第一轮可新增 `pipeline_runtime.py` 或 `pipeline_core.py` 承载新骨架；`pipeline.py` 的命名清理放到 P8 文件组织阶段处理。
+- `PipelineContext` 先服务线性执行，不要求一开始支持 Recovery 回退。
+
+**P1 总体验收门槛**:
+- [ ] P1A-E 全部达标
+- [ ] `run_homemaster_task()` 不再手写 Stage02-06 的线性大流程
+- [ ] Stage02-06 通过 registry/adapter 顺序执行
+- [ ] 五场景基线状态不变
+- [ ] `tests/homemaster/test_task_runner.py` 和 Stage07 场景测试通过
+
+---
+
+### P2：明确 live/mock runtime_mode
+
+核心目标：**把 `live_models=True` 这种总开关拆成清晰边界**。
+
+**要完成什么**:
+- 新增最小 `RuntimeMode` 数据结构，先从代码默认值开始，不急着完整 YAML 化。
+- 明确每个组件的模式：
   ```yaml
   task_understanding: live | deterministic
   memory_query: live | static
@@ -1148,129 +1342,217 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
   step_decision: live | static
   skills: mock | robot
   verification: mock | vlm
+  summary: live | deterministic
+  memory_commit: programmatic
   ```
-- Provider 生命周期（初始化、warmup、teardown）纳入 ProviderFactory 管理
-- 移除 doctor.py 中的绝对路径 `/Users/wylam/.../.venv/bin/python`
-
-**预期效果**:
-- 切换 LLM Provider 只改配置，不改代码
-- 每个 Stage 可独立设 live/mock 模式，不再受全局 `live_models` 控制
-- Provider 初始化/清理统一管理，不再散落在各 Stage
+- 保留 `live_models` / `mock_skills` 作为兼容入口，内部映射到 `RuntimeMode`。
+- 修正当前边界表达不准的问题：`live_models=True` 时 Stage05 执行循环仍主要是 mock/static，不能在报告里被误读为全链路 live。
 
 **验收标准**:
-- [ ] ProviderFactory 根据配置创建 Provider，task_runner.py 无 `if live_models` 分支
-- [ ] runtime_mode.yaml 可独立控制每个组件的模式
-- [ ] 新增 LLM Provider 只需加配置 + 实现 Protocol，不改 Stage 代码
-- [ ] 无绝对路径泄漏
+- [ ] `model_boundary` 来源于 `RuntimeMode`，不是散落的字符串拼接
+- [ ] CLI/测试仍可继续传 `live_models`、`mock_skills`
+- [ ] Stage07 result 中能看出每个组件真实模式
+- [ ] 5 场景基线状态不变
 
-#### 任务7: Prompt 外置 + 配置化硬编码
+---
+
+### P3：加最小日志
+
+核心目标：**借 Stage 骨架和 RuntimeMode 补上可观测性，但不做重型日志平台**。
 
 **要完成什么**:
-- 创建 `prompts/` 目录，将 6 个模块的 prompt 迁移为 .md 模板
-- 实现 prompt loader：`load_prompt(name, **kwargs)` 加载模板 + 渲染 + 自动注入 JSON schema
-- 抽取共享片段：`_retry_instruction.md`、`_json_schema_header.md`
-- 创建 `configs/` 下的 YAML 配置文件（pipeline.yaml、runtime.yaml、providers.yaml、grounding.yaml、token_budget.yaml、scoring.yaml）
+- 引入标准 `logging`，新增最小 logger 配置。
+- 在 pipeline 层统一记录：
+  - stage start / complete / error
+  - stage 耗时
+  - stage 输入/输出摘要
+  - `run_id`、`scenario`、`runtime_mode`
+- 保留现有 `trace.py` 的 JSONL/debug assets；logging 只补充运行时诊断，不替代 trace。
 
-**预期效果**:
-- 修改 prompt 不需要改 Python 代码，代码 diff 干净
-- 非工程人员可参与 prompt 调优
-- 阈值、权重、路径全部可配置，不再需要改源码调参数
+**不做什么**:
+- 不做异步日志、日志轮转、metrics 平台。
+- 不把所有模块内部 print/echo 重构一遍；当前 CLI 已主要使用 `typer.echo()`，不是首要问题。
 
 **验收标准**:
-- [ ] 所有 prompt 在 `prompts/` 目录下为 .md 文件
+- [ ] 每个 Stage 进入/退出/异常都有日志
+- [ ] 日志中含 `run_id`、`stage_name` 和 `runtime_mode`
+- [ ] 出错时能看到异常类型、message 和 stage
+- [ ] 5 场景基线状态不变
+
+---
+
+### P4：Embedding 失败降级为 BM25-only（建议从原第 8 点提前）
+
+核心目标：**这是小改动、高收益的可靠性修复，不应等到大配置化或文件重构之后**。
+
+**要完成什么**:
+- 在 `memory_rag.py` 中保留 BM25 结果。
+- Dense embedding/cache/query embedding 任一步失败时，降级为 BM25-only。
+- 在 `MemoryRetrievalResult.index_snapshot` 或结果摘要中标记：
+  - `retrieval_mode: "hybrid" | "bm25_only"`
+  - `degraded: true | false`
+  - `degradation_reason`
+- 日志记录 embedding 失败原因，但不泄漏密钥。
+
+**不做什么**:
+- 不一次性设计所有 Stage 的 fallback framework。
+- 不把 LLM 不可用、VLM 不可用、机器人断连全部纳入本阶段。
+
+**验收标准**:
+- [ ] 构造 embedding provider 抛错的单测，Stage03 仍返回 BM25-only 结果
+- [ ] 正常 embedding 路径仍为 hybrid
+- [ ] Stage03 debug asset 中能看到 `retrieval_mode`
+- [ ] 5 场景基线状态不变
+
+---
+
+### P5：SkillRegistry 注册化
+
+核心目标：**先解决 Skill 新增时改动面过大的问题，但不急着做完整插件系统**。
+
+**要完成什么**:
+- 将 `SkillManifest.name` 从 `Literal["navigation", "operation", "verification"]` 改为 `str` + 注册验证。
+- 引入注册式 `SkillRegistry`：
+  - manifest 注册
+  - input validator 注册
+  - mock handler 注册
+- `executor.py` 通过 registry 找 handler，逐步减少 `_run_mock_skill()` 中的 per-skill 分支。
+- 先保留已有 `navigation`、`operation`、`verification` 行为不变。
+
+**关键取舍**:
+- 不要求一轮内把所有 `contracts.py` 中的 Skill Literal 全删干净；可以先保证 registry 是唯一来源，再分步放宽 contract。
+- 不要求 Skill 立刻从 YAML 动态加载。先代码注册，后续配置化再搬。
+
+**验收标准**:
+- [ ] 新增一个测试用 mock skill 时，不需要改 executor 主循环
+- [ ] 现有 navigation/operation/verification 行为不变
+- [ ] prompt 中展示的 skill manifest 来自 registry
+- [ ] 5 场景基线状态不变
+
+---
+
+### P6：Prompt 外置，只搬不改
+
+核心目标：**把 prompt 从 Python f-string 搬出去，但保持文本语义完全不变**。
+
+**要完成什么**:
+- 新增 `prompts/` 目录。
+- 迁移 6 类 prompt：
+  - task understanding
+  - memory query
+  - orchestration plan
+  - step decision
+  - recovery decision
+  - task summary
+- 实现最小 `prompt_loader`，只负责加载模板和渲染变量。
+- 增加 prompt 快照测试，确保搬迁前后生成文本一致或只有可解释的缩进/换行差异。
+
+**不做什么**:
+- 不改 prompt 内容。
+- 不在本阶段抽共享片段。
+- 不在本阶段自动注入 `model_json_schema()`；这会改变 prompt 结构，应该单独评估。
+- 不在本阶段做 A/B 测试或 prompt 调优。
+
+**验收标准**:
 - [ ] 修改 prompt 不需要改 Python 代码
-- [ ] 共享片段可复用
-- [ ] 阈值、权重、token 预算通过 YAML 配置
-- [ ] live/mock 边界通过 runtime_mode.yaml 控制
-
-#### 任务8: 降级框架
-
-**要完成什么**:
-- 为每个 Stage 定义 `fallback` 函数：当核心 Provider 不可用时，产出降级输出
-- 定义最小可行 pipeline：
-  - 全功能：Stage02(live) → Stage03(hybrid) → Stage04 → Stage05(live) → Stage06(live)
-  - LLM 降级：Stage02(keyword) → Stage03(bm25_only) → Stage04 → Stage05(deterministic) → Stage06(template)
-  - 紧急模式：Stage02(keyword) → Stage03(skip) → Stage04(no_memory) → Stage05(hardcoded) → Stage06(skip)
-- Embedding 不可用时 Stage03 降级为 BM25-only，结果中标记 `retrieval_mode`
-- LLM 不可用时各 LLM Stage 降级为确定性 fallback
-
-**预期效果**:
-- 单个服务不可用不会导致整个 pipeline 崩溃
-- 用户可感知系统在降级模式下运行（结果中含 `degradation_flags`）
-
-**验收标准**:
-- [ ] 每个 Stage 有 documented fallback 行为
-- [ ] Embedding 不可用时 Stage03 降级为 BM25-only，不报错中断
-- [ ] LLM 不可用时 pipeline 可走降级模式完成任务
-- [ ] 结果中包含 `degradation_flags` 标记降级组件
+- [ ] 原 prompt builder 的公开函数仍可用，内部改为读模板
+- [ ] prompt 快照测试覆盖 6 类 prompt
+- [ ] 5 场景基线状态不变
 
 ---
 
-### 中期延续（P1+）：代码组织与质量
+### P7：硬编码配置化
 
-#### 任务9: 文件组织重构
+核心目标：**把确实会调参的硬编码移到配置，避免把所有常量都过度工程化**。
 
-**要完成什么**:
-- 按职责拆分子包（cli/、doctor/、runtime/、pipeline/、stages/、providers/、contracts/、skills/、trace/）
-- 每个 `__init__.py` 定义 `__all__`，标记公开 API
-- 定义 Robot Integration API 边界（`robot_api.py`）
+**优先配置化对象**:
+- token budget：`token_budget.py`
+- retrieval scoring：metadata 权重、RRF 参数、top_k 上限
+- grounding hints：room/anchor hints
+- runtime/debug/report 路径
+- runtime mode 默认值
 
-**预期效果**:
-- 36 文件不再平铺，每个子包职责单一可导航
-- 外部集成只需看 `__all__` 中标记的 stable API
-
-**验收标准**:
-- [ ] 无 36 文件平铺，按职责拆入子包
-- [ ] 每个子包 `__init__.py` 有 `__all__`
-- [ ] 所有测试通过（import 路径更新后）
-- [ ] Robot Integration API 有明确的 stable/experimental/internal 标注
-
-#### 任务10: API 客户端去重 + 命名统一
-
-**要完成什么**:
-- 抽取 `BaseAPIClient`：统一 key 轮换 + 错误收集，LLM/Embedding Client 继承
-- 统一 `_extract_error_message()`
-- 文件名统一功能式（`task_understanding.py` 替代 `frontdoor.py`）
-- 类名去掉 Stage 编号前缀，函数名统一 `run_xxx()` 模式
-
-**预期效果**:
-- key 轮换逻辑只写一次，新增 Provider 自动继承
-- 代码 diff 更易读
+**暂不优先配置化对象**:
+- Pydantic contract 字段
+- 测试 fixture 的固定值
+- 为了测试稳定性存在的 deterministic 关键词规则
 
 **验收标准**:
-- [ ] BaseAPIClient 封装 key 轮换 + 错误收集，两个客户端继承
-- [ ] `_extract_error_message()` 统一实现
-- [ ] 文件名、类名、函数名遵循统一命名规范
+- [ ] 默认配置缺失时仍使用代码内安全默认值
+- [ ] 调整 token/scoring/grounding 不需要改源码
+- [ ] 配置读取错误有明确错误信息
+- [ ] 5 场景基线状态不变
 
 ---
 
-### 长期（P2）：可观测性与持续优化
+### P8：文件组织和命名统一
 
-#### 任务11: 日志 + trace 系统
+核心目标：**等行为和 pipeline 骨架稳定后，再做 import 路径和命名整理**。
 
 **要完成什么**:
-- 建立 Python 标准 logging，支持 DEBUG/INFO/WARNING/ERROR 级别
-- Stage 统一接口的 before/after/on_error hooks 自动记录：输入摘要、输出摘要、耗时、失败原因
-- 记录关键决策 reason：Grounding/Skill/Verification 为什么选 X、Memory commit 为什么写回
-- 保留现有 trace.py 的结构化 JSONL，logging 补充中间过程诊断
-
-**预期效果**:
-- 运行时故障可从日志追溯为什么失败，不再只看异常栈
-- 接真实机器人后，每个决策环节有可查的 reason log
+- 按职责拆子包：
+  - `cli/`
+  - `doctor/`
+  - `runtime/`
+  - `pipeline/`
+  - `stages/`
+  - `providers/`
+  - `skills/`
+  - `trace/`
+- 处理 `pipeline.py` 当前是 Stage01 smoke 的命名问题：
+  - Stage01 contract smoke 并入 doctor 或迁到 `doctor/contract_smoke.py`
+  - 新 pipeline 骨架统一放入 `pipeline/`
+- 旧 import 提供兼容 shim，避免一次性打爆测试。
+- 命名统一采用功能式命名，Stage 编号只作为报告/测试标签，不作为模块职责边界。
 
 **验收标准**:
-- [ ] 所有 Stage 执行有 before/after 日志
-- [ ] LLM raw response 摘要、JSON 解析失败有 DEBUG 级别日志
-- [ ] Embedding 成功/失败、retrieval_mode 有记录
-- [ ] Grounding/Skill/Verification 决策原因有记录
-- [ ] 支持日志级别动态调整
+- [ ] import 兼容层存在，旧测试不需要一次性大改
+- [ ] 新代码使用新子包路径
+- [ ] `pipeline.py` 命名歧义被消除
+- [ ] 5 场景基线状态不变
 
-#### 任务12: 性能优化 + 监控
+---
 
-- Memory 索引增量更新
-- LLM 调用并发优化（多 key 并行尝试）
-- Embedding cache TTL
-- Metrics 收集 + 健康检查接口
+### P9：Recovery 最后单独做
+
+核心目标：**Recovery 依赖 pipeline 可回退/重跑，不应在骨架稳定前硬塞进 executor**。
+
+**前置条件**:
+- `PipelineContext` 已稳定承载 Stage 输出。
+- StageRegistry 已能按名称重跑 Stage。
+- runtime_mode 已能表达降级和 mock/live 边界。
+- 日志能记录 recovery 尝试链路。
+
+**要完成什么**:
+- 让 `RecoveryDecision` 真正被消费。
+- 根据 action 分发：
+  - `retry_step`：重试当前 step
+  - `retrieve_again`：回到 Stage03 重新检索
+  - `replan`：回到 Stage05 重新规划
+  - `ask_user`：中断并返回澄清请求
+  - `finish_failed`：终止并写入失败证据
+- 增加最大恢复次数，默认 3。
+- 将 `fetch_cup_retry` 从“失败符合预期”的基线，单独升级为 Recovery 验收用例，而不是在前面阶段偷偷改变它。
+
+**验收标准**:
+- [ ] Recovery 成功/失败都有结构化日志和 trace
+- [ ] `retry_step` 不会无限循环
+- [ ] `retrieve_again` 和 `replan` 能通过 PipelineContext 清理旧结果并重跑
+- [ ] 旧五场景基线先保持不变；Recovery 用例通过单独 acceptance 更新
+
+---
+
+### 不合理点与调整结论
+
+1. **原计划把 Recovery 放太早**：不合理。Recovery 需要可重跑的 pipeline 和可回退的 context，否则会被硬塞进 `executor.py`，进一步加重大总管问题。
+2. **原计划把 Stage05 一次拆成 5 个子 Stage 放在 P0**：偏激进。第一轮只需要 adapter 化；子拆分等 SkillRegistry/runtime_mode 稳定后再做。
+3. **Prompt 外置时自动注入 schema**：不建议同阶段做。用户要求“只搬不改”，自动 schema 会改变 prompt 内容和模型行为。
+4. **文件组织重构不应靠前**：合理后置。当前测试和 import 边界多，先搬文件会制造大量噪音 diff。
+5. **Embedding BM25-only 不应太晚**：建议提前到 P4。它改动面小，能显著提升 Stage03 稳定性，也能被日志/runtime_mode 清楚标记。
+6. **Stage01 并入 doctor 是对的，但不是第一优先级**：除非它阻塞新 pipeline 文件命名，否则放到 P8 文件组织阶段更稳。
+7. **Contract 全 frozen 风险较高**：ExecutionState 当前有大量可变更新，直接冻结会引发连锁改动；先建立 PipelineContext 边界，再单独治理状态不变性。
+8. **统一 Memory 不应做成新的运行时 Stage**：这是 Stage03 RAG 的数据前提，应在 P-1 建共享 Memory Corpus 和 scenario memory profile；否则会增加 pipeline 概念负担，且仍然测不到真实 RAG 压力。
+
 ## 四、风险评估
 
 ### 技术风险
@@ -1278,7 +1560,7 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 | 风险项 | 概率 | 影响 | 缓解措施 |
 |--------|------|------|----------|
 | Pipeline重构引入bug | 中 | 高 | 充分测试，灰度发布 |
-| 日志系统性能影响 | 低 | 中 | 异步日志，采样率控制 |
+| 最小日志产生噪声或性能影响 | 低 | 中 | 默认 INFO 级别，只记录摘要，不记录大 payload |
 | 依赖升级不兼容 | 低 | 中 | 锁定版本，充分测试 |
 
 ### 业务风险
@@ -1314,11 +1596,11 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 
 HomeMaster V1.2 项目在功能实现上已经达到预期目标，核心 pipeline 运行正常，测试结果符合设计。从"可扩展、模块化、易管理、方便增删"的核心需求视角，主要改进空间在于：
 
-1. **架构重组**：task_runner 调度过度中心化 → 建立 Pipeline 框架 + Stage 抽象 + PipelineContext；Stage05 拆分为独立子 Stage；Stage01 并入 doctor；Recovery 形成闭环
-2. **扩展性设计**：Skill Literal 硬编码是最大扩展瓶颈 → 注册式 Skill 机制；Contract 演化无策略 → Optional+default 规则；Public API 边界未定义 → `__all__` + Robot API；降级框架不系统 → 每个 Stage 定义 fallback
-3. **配置化**：prompt 外置为模板文件；硬编码配置化；live/mock 通过 runtime mode 配置
-4. **代码组织**：36 文件平铺 → 按职责拆子包；命名规范统一；ExecutionState 不变性一致
-5. **可观测性**：建立标准 logging，补充 trace 覆盖（决策原因、降级标记、失败上下文）
-6. **错误处理**：LLM 网络级退避重试；Embedding BM25-only 降级；API 客户端抽取基类
+1. **执行顺序重排**：先冻结当前五场景快照，再让场景和 Memory Corpus 支持扩增，再把五场景基线切到 manifest 驱动，然后做最小 PipelineContext + StageRegistry，把 `task_runner.py` 从“大总管”收敛为任务启动器。
+2. **架构重组降风险**：第一阶段只做 Stage adapter 和 pipeline 骨架，不同时推进 Stage05 子拆分、Recovery 闭环、Contract 全冻结或文件大搬迁。
+3. **运行边界清晰化**：用 `RuntimeMode` 明确 live/mock/static/programmatic 边界，避免 `live_models=True` 被误解为全链路 live。
+4. **扩展性设计渐进推进**：SkillRegistry 注册化先解决 Skill 新增改动面，Prompt 外置坚持“只搬不改”，配置化只处理确实会调参的硬编码。
+5. **可靠性修复提前**：Embedding 失败降级 BM25-only 建议提前做，因为改动小、收益高，且可被 runtime_mode 和日志清晰标记。
+6. **Recovery 后置**：Recovery 需要可重跑的 pipeline、可回退的 context 和日志链路，最后作为独立阶段实施。
 
-建议按五阶段计划推进：架构重组（含 Skill 注册 + PipelineContext）→ 配置化 + Prompt 外置 → 日志系统 → 错误处理 + 降级框架 + 代码质量 → 持续优化。
+建议按以下顺序推进：当前五场景快照冻结 → 场景与 Memory 扩增能力 → manifest 驱动五场景基线 → 最小 Stage 化 → runtime_mode → 最小日志 → Embedding BM25-only 降级 → SkillRegistry → Prompt 外置 → 配置化 → 文件组织/命名 → Recovery。

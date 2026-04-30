@@ -1,0 +1,550 @@
+{
+  "schema_version": "1.0",
+  "home_id": "elder_home_v1",
+  "description": "统一家庭环境 - 老人家居场景",
+  "rooms": [
+    {"room_id": "kitchen", "display_text": "厨房"},
+    {"room_id": "living_room", "display_text": "客厅"},
+    {"room_id": "pantry", "display_text": "储物间"},
+    {"room_id": "bedroom", "display_text": "卧室"},
+    {"room_id": "entryway", "display_text": "门口"},
+    {"room_id": "study", "display_text": "书房"}
+  ],
+  "viewpoints": {
+    "anchor_kitchen_table_1_vp": {
+      "room_id": "kitchen",
+      "visible_object_ids": ["obj_cup_1", "obj_tissue_2", "obj_bowl_1", "obj_fruit_bowl_1"],
+      "visible_anchor_ids": ["anchor_kitchen_table_1"]
+    },
+    "anchor_kitchen_cabinet_1_vp": {
+      "room_id": "kitchen",
+      "visible_object_ids": ["obj_medicine_box_1", "obj_plate_1"],
+      "visible_anchor_ids": ["anchor_kitchen_cabinet_1"]
+    },
+    "anchor_kitchen_counter_1_vp": {
+      "room_id": "kitchen",
+      "visible_object_ids": ["obj_cup_2", "obj_water_bottle_1"],
+      "visible_anchor_ids": ["anchor_kitchen_counter_1"]
+    },
+    "anchor_living_side_table_1_vp": {
+      "room_id": "living_room",
+      "visible_object_ids": ["obj_medicine_box_2", "obj_remote_1"],
+      "visible_anchor_ids": ["anchor_living_side_table_1"]
+    },
+    "anchor_living_coffee_table_1_vp": {
+      "room_id": "living_room",
+      "visible_object_ids": ["obj_remote_2", "obj_tissue_1"],
+      "visible_anchor_ids": ["anchor_living_coffee_table_1"]
+    },
+    "anchor_living_sofa_1_vp": {
+      "room_id": "living_room",
+      "visible_object_ids": [],
+      "visible_anchor_ids": ["anchor_living_sofa_1"]
+    },
+    "anchor_pantry_shelf_1_vp": {
+      "room_id": "pantry",
+      "visible_object_ids": ["obj_mug_1", "obj_plate_2"],
+      "visible_anchor_ids": ["anchor_pantry_shelf_1"]
+    },
+    "anchor_pantry_rack_1_vp": {
+      "room_id": "pantry",
+      "visible_object_ids": [],
+      "visible_anchor_ids": ["anchor_pantry_rack_1"]
+    },
+    "anchor_bedroom_nightstand_1_vp": {
+      "room_id": "bedroom",
+      "visible_object_ids": ["obj_glasses_1", "obj_medicine_box_3"],
+      "visible_anchor_ids": ["anchor_bedroom_nightstand_1"]
+    },
+    "anchor_bedroom_dresser_1_vp": {
+      "room_id": "bedroom",
+      "visible_object_ids": [],
+      "visible_anchor_ids": ["anchor_bedroom_dresser_1"]
+    },
+    "anchor_entryway_cabinet_1_vp": {
+      "room_id": "entryway",
+      "visible_object_ids": ["obj_keys_1", "obj_umbrella_1"],
+      "visible_anchor_ids": ["anchor_entryway_cabinet_1"]
+    },
+    "anchor_entryway_shelf_1_vp": {
+      "room_id": "entryway",
+      "visible_object_ids": ["obj_bag_1"],
+      "visible_anchor_ids": ["anchor_entryway_shelf_1"]
+    },
+    "anchor_study_desk_1_vp": {
+      "room_id": "study",
+      "visible_object_ids": ["obj_glasses_2", "obj_book_1", "obj_phone_1"],
+      "visible_anchor_ids": ["anchor_study_desk_1"]
+    },
+    "anchor_study_bookshelf_1_vp": {
+      "room_id": "study",
+      "visible_object_ids": [],
+      "visible_anchor_ids": ["anchor_study_bookshelf_1"]
+    }
+  },
+  "furniture": [
+    {
+      "anchor_id": "anchor_kitchen_table_1",
+      "room_id": "kitchen",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_kitchen_table_1_vp",
+      "display_text": "厨房餐桌"
+    },
+    {
+      "anchor_id": "anchor_kitchen_cabinet_1",
+      "room_id": "kitchen",
+      "anchor_type": "cabinet",
+      "viewpoint_id": "anchor_kitchen_cabinet_1_vp",
+      "display_text": "厨房药柜"
+    },
+    {
+      "anchor_id": "anchor_kitchen_counter_1",
+      "room_id": "kitchen",
+      "anchor_type": "counter",
+      "viewpoint_id": "anchor_kitchen_counter_1_vp",
+      "display_text": "厨房操作台"
+    },
+    {
+      "anchor_id": "anchor_living_side_table_1",
+      "room_id": "living_room",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_living_side_table_1_vp",
+      "display_text": "客厅边桌"
+    },
+    {
+      "anchor_id": "anchor_living_coffee_table_1",
+      "room_id": "living_room",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_living_coffee_table_1_vp",
+      "display_text": "客厅茶几"
+    },
+    {
+      "anchor_id": "anchor_living_sofa_1",
+      "room_id": "living_room",
+      "anchor_type": "sofa",
+      "viewpoint_id": "anchor_living_sofa_1_vp",
+      "display_text": "客厅沙发"
+    },
+    {
+      "anchor_id": "anchor_pantry_shelf_1",
+      "room_id": "pantry",
+      "anchor_type": "shelf",
+      "viewpoint_id": "anchor_pantry_shelf_1_vp",
+      "display_text": "储物间搁架"
+    },
+    {
+      "anchor_id": "anchor_pantry_rack_1",
+      "room_id": "pantry",
+      "anchor_type": "shelf",
+      "viewpoint_id": "anchor_pantry_rack_1_vp",
+      "display_text": "储物间置物架"
+    },
+    {
+      "anchor_id": "anchor_bedroom_nightstand_1",
+      "room_id": "bedroom",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_bedroom_nightstand_1_vp",
+      "display_text": "卧室床头柜"
+    },
+    {
+      "anchor_id": "anchor_bedroom_dresser_1",
+      "room_id": "bedroom",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_bedroom_dresser_1_vp",
+      "display_text": "卧室梳妆台"
+    },
+    {
+      "anchor_id": "anchor_entryway_cabinet_1",
+      "room_id": "entryway",
+      "anchor_type": "cabinet",
+      "viewpoint_id": "anchor_entryway_cabinet_1_vp",
+      "display_text": "门口柜"
+    },
+    {
+      "anchor_id": "anchor_entryway_shelf_1",
+      "room_id": "entryway",
+      "anchor_type": "shelf",
+      "viewpoint_id": "anchor_entryway_shelf_1_vp",
+      "display_text": "门口搁架"
+    },
+    {
+      "anchor_id": "anchor_study_desk_1",
+      "room_id": "study",
+      "anchor_type": "table",
+      "viewpoint_id": "anchor_study_desk_1_vp",
+      "display_text": "书房书桌"
+    },
+    {
+      "anchor_id": "anchor_study_bookshelf_1",
+      "room_id": "study",
+      "anchor_type": "shelf",
+      "viewpoint_id": "anchor_study_bookshelf_1_vp",
+      "display_text": "书房书架"
+    }
+  ],
+  "objects": [
+    {
+      "object_id": "obj_cup_1",
+      "category": "cup",
+      "aliases": ["水杯", "杯子", "cup"],
+      "attributes": ["white", "ceramic"],
+      "detector_id": "det-cup-1",
+      "memory_id": "mem-cup-1",
+      "confidence_level": "high",
+      "state_summary": "upright",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_cup_2",
+      "category": "cup",
+      "aliases": ["水杯", "杯子", "cup"],
+      "attributes": ["blue", "plastic"],
+      "detector_id": "det-cup-2",
+      "memory_id": "mem-cup-2",
+      "confidence_level": "medium",
+      "state_summary": "upright",
+      "spatial_relation": "on_counter"
+    },
+    {
+      "object_id": "obj_medicine_box_1",
+      "category": "medicine_box",
+      "aliases": ["药盒", "药箱", "medicine_box"],
+      "attributes": ["white", "plastic"],
+      "detector_id": "det-med-1",
+      "memory_id": "mem-medicine-1",
+      "confidence_level": "high",
+      "state_summary": "closed_box",
+      "spatial_relation": "in_cabinet"
+    },
+    {
+      "object_id": "obj_medicine_box_2",
+      "category": "medicine_box",
+      "aliases": ["药盒", "药箱", "medicine_box"],
+      "attributes": ["blue", "plastic"],
+      "detector_id": "det-med-2",
+      "memory_id": "mem-medicine-2",
+      "confidence_level": "high",
+      "state_summary": "sealed",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_medicine_box_3",
+      "category": "medicine_box",
+      "aliases": ["药盒", "药箱", "medicine_box"],
+      "attributes": ["green", "plastic"],
+      "detector_id": "det-med-3",
+      "memory_id": "mem-medicine-3",
+      "confidence_level": "medium",
+      "state_summary": "sealed",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_remote_1",
+      "category": "remote_control",
+      "aliases": ["遥控器", "remote_control"],
+      "attributes": ["black"],
+      "detector_id": "det-remote-1",
+      "memory_id": "mem-remote-1",
+      "confidence_level": "high",
+      "state_summary": "idle",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_remote_2",
+      "category": "remote_control",
+      "aliases": ["遥控器", "remote_control"],
+      "attributes": ["grey"],
+      "detector_id": "det-remote-2",
+      "memory_id": "mem-remote-2",
+      "confidence_level": "medium",
+      "state_summary": "idle",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_glasses_1",
+      "category": "glasses",
+      "aliases": ["眼镜", "glasses"],
+      "attributes": ["black", "frame"],
+      "detector_id": "det-glasses-1",
+      "memory_id": "mem-glasses-1",
+      "confidence_level": "high",
+      "state_summary": "folded",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_glasses_2",
+      "category": "glasses",
+      "aliases": ["眼镜", "glasses"],
+      "attributes": ["brown", "frame"],
+      "detector_id": "det-glasses-2",
+      "memory_id": "mem-glasses-2",
+      "confidence_level": "medium",
+      "state_summary": "folded",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_keys_1",
+      "category": "keys",
+      "aliases": ["钥匙", "keys"],
+      "attributes": ["silver"],
+      "detector_id": "det-keys-1",
+      "memory_id": "mem-keys-1",
+      "confidence_level": "high",
+      "state_summary": "bunch",
+      "spatial_relation": "in_cabinet"
+    },
+    {
+      "object_id": "obj_tissue_1",
+      "category": "tissue",
+      "aliases": ["纸巾", "纸巾盒", "tissue"],
+      "attributes": ["white", "box"],
+      "detector_id": "det-tissue-1",
+      "memory_id": "mem-tissue-1",
+      "confidence_level": "high",
+      "state_summary": "full",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_tissue_2",
+      "category": "tissue",
+      "aliases": ["纸巾", "纸巾盒", "tissue"],
+      "attributes": ["white", "box"],
+      "detector_id": "det-tissue-2",
+      "memory_id": "mem-tissue-2",
+      "confidence_level": "medium",
+      "state_summary": "half_full",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_water_bottle_1",
+      "category": "water_bottle",
+      "aliases": ["水瓶", "water_bottle"],
+      "attributes": ["blue", "plastic"],
+      "detector_id": "det-bottle-1",
+      "memory_id": "mem-bottle-1",
+      "confidence_level": "high",
+      "state_summary": "upright",
+      "spatial_relation": "on_counter"
+    },
+    {
+      "object_id": "obj_book_1",
+      "category": "book",
+      "aliases": ["书", "book"],
+      "attributes": ["blue", "hardcover"],
+      "detector_id": "det-book-1",
+      "memory_id": "mem-book-1",
+      "confidence_level": "high",
+      "state_summary": "closed",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_phone_1",
+      "category": "phone",
+      "aliases": ["手机", "phone"],
+      "attributes": ["black"],
+      "detector_id": "det-phone-1",
+      "memory_id": "mem-phone-1",
+      "confidence_level": "high",
+      "state_summary": "screen_off",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_fruit_bowl_1",
+      "category": "fruit_bowl",
+      "aliases": ["水果盘", "水果", "fruit_bowl"],
+      "attributes": ["mixed_fruit"],
+      "detector_id": "det-fruit-1",
+      "memory_id": "mem-fruit-1",
+      "confidence_level": "medium",
+      "state_summary": "mixed",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_bowl_1",
+      "category": "bowl",
+      "aliases": ["碗", "bowl"],
+      "attributes": ["white", "ceramic"],
+      "detector_id": "det-bowl-1",
+      "memory_id": "mem-bowl-1",
+      "confidence_level": "high",
+      "state_summary": "upright",
+      "spatial_relation": "on_table"
+    },
+    {
+      "object_id": "obj_mug_1",
+      "category": "mug",
+      "aliases": ["马克杯", "mug"],
+      "attributes": ["blue", "ceramic"],
+      "detector_id": "det-mug-1",
+      "memory_id": "mem-mug-1",
+      "confidence_level": "medium",
+      "state_summary": "upright",
+      "spatial_relation": "on_shelf"
+    },
+    {
+      "object_id": "obj_plate_1",
+      "category": "plate",
+      "aliases": ["盘子", "plate"],
+      "attributes": ["white", "ceramic"],
+      "detector_id": "det-plate-1",
+      "memory_id": "mem-plate-1",
+      "confidence_level": "medium",
+      "state_summary": "stacked",
+      "spatial_relation": "in_cabinet"
+    },
+    {
+      "object_id": "obj_plate_2",
+      "category": "plate",
+      "aliases": ["盘子", "plate"],
+      "attributes": ["white", "ceramic"],
+      "detector_id": "det-plate-2",
+      "memory_id": "mem-plate-2",
+      "confidence_level": "medium",
+      "state_summary": "stacked",
+      "spatial_relation": "on_shelf"
+    },
+    {
+      "object_id": "obj_umbrella_1",
+      "category": "umbrella",
+      "aliases": ["雨伞", "umbrella"],
+      "attributes": ["black", "foldable"],
+      "detector_id": "det-umbrella-1",
+      "memory_id": "mem-umbrella-1",
+      "confidence_level": "medium",
+      "state_summary": "folded",
+      "spatial_relation": "in_cabinet"
+    },
+    {
+      "object_id": "obj_bag_1",
+      "category": "bag",
+      "aliases": ["包", "bag"],
+      "attributes": ["brown", "leather"],
+      "detector_id": "det-bag-1",
+      "memory_id": "mem-bag-1",
+      "confidence_level": "medium",
+      "state_summary": "empty",
+      "spatial_relation": "on_shelf"
+    }
+  ],
+  "visibility": {
+    "anchor_kitchen_table_1_vp": {
+      "objects": ["obj_cup_1", "obj_tissue_2", "obj_bowl_1", "obj_fruit_bowl_1"],
+      "anchors": ["anchor_kitchen_table_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_cup_1", "target_object_id": "anchor_kitchen_table_1", "text": "水杯在餐桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_tissue_2", "target_object_id": "anchor_kitchen_table_1", "text": "纸巾在餐桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_bowl_1", "target_object_id": "anchor_kitchen_table_1", "text": "碗在餐桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_fruit_bowl_1", "target_object_id": "anchor_kitchen_table_1", "text": "水果盘在餐桌上"}
+      ]
+    },
+    "anchor_kitchen_cabinet_1_vp": {
+      "objects": ["obj_medicine_box_1", "obj_plate_1"],
+      "anchors": ["anchor_kitchen_cabinet_1"],
+      "scene_relations": [
+        {"relation_type": "in", "subject_object_id": "obj_medicine_box_1", "target_object_id": "anchor_kitchen_cabinet_1", "text": "药盒在药柜里"},
+        {"relation_type": "in", "subject_object_id": "obj_plate_1", "target_object_id": "anchor_kitchen_cabinet_1", "text": "盘子在药柜里"}
+      ]
+    },
+    "anchor_kitchen_counter_1_vp": {
+      "objects": ["obj_cup_2", "obj_water_bottle_1"],
+      "anchors": ["anchor_kitchen_counter_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_cup_2", "target_object_id": "anchor_kitchen_counter_1", "text": "水杯在操作台上"},
+        {"relation_type": "on", "subject_object_id": "obj_water_bottle_1", "target_object_id": "anchor_kitchen_counter_1", "text": "水瓶在操作台上"}
+      ]
+    },
+    "anchor_living_side_table_1_vp": {
+      "objects": ["obj_medicine_box_2", "obj_remote_1"],
+      "anchors": ["anchor_living_side_table_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_medicine_box_2", "target_object_id": "anchor_living_side_table_1", "text": "药盒在边桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_remote_1", "target_object_id": "anchor_living_side_table_1", "text": "遥控器在边桌上"}
+      ]
+    },
+    "anchor_living_coffee_table_1_vp": {
+      "objects": ["obj_remote_2", "obj_tissue_1"],
+      "anchors": ["anchor_living_coffee_table_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_remote_2", "target_object_id": "anchor_living_coffee_table_1", "text": "遥控器在茶几上"},
+        {"relation_type": "on", "subject_object_id": "obj_tissue_1", "target_object_id": "anchor_living_coffee_table_1", "text": "纸巾在茶几上"}
+      ]
+    },
+    "anchor_living_sofa_1_vp": {
+      "objects": [],
+      "anchors": ["anchor_living_sofa_1"],
+      "scene_relations": []
+    },
+    "anchor_pantry_shelf_1_vp": {
+      "objects": ["obj_mug_1", "obj_plate_2"],
+      "anchors": ["anchor_pantry_shelf_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_mug_1", "target_object_id": "anchor_pantry_shelf_1", "text": "马克杯在搁架上"},
+        {"relation_type": "on", "subject_object_id": "obj_plate_2", "target_object_id": "anchor_pantry_shelf_1", "text": "盘子在搁架上"}
+      ]
+    },
+    "anchor_pantry_rack_1_vp": {
+      "objects": [],
+      "anchors": ["anchor_pantry_rack_1"],
+      "scene_relations": []
+    },
+    "anchor_bedroom_nightstand_1_vp": {
+      "objects": ["obj_glasses_1", "obj_medicine_box_3"],
+      "anchors": ["anchor_bedroom_nightstand_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_glasses_1", "target_object_id": "anchor_bedroom_nightstand_1", "text": "眼镜在床头柜上"},
+        {"relation_type": "on", "subject_object_id": "obj_medicine_box_3", "target_object_id": "anchor_bedroom_nightstand_1", "text": "药盒在床头柜上"}
+      ]
+    },
+    "anchor_bedroom_dresser_1_vp": {
+      "objects": [],
+      "anchors": ["anchor_bedroom_dresser_1"],
+      "scene_relations": []
+    },
+    "anchor_entryway_cabinet_1_vp": {
+      "objects": ["obj_keys_1", "obj_umbrella_1"],
+      "anchors": ["anchor_entryway_cabinet_1"],
+      "scene_relations": [
+        {"relation_type": "in", "subject_object_id": "obj_keys_1", "target_object_id": "anchor_entryway_cabinet_1", "text": "钥匙在门口柜里"},
+        {"relation_type": "in", "subject_object_id": "obj_umbrella_1", "target_object_id": "anchor_entryway_cabinet_1", "text": "雨伞在门口柜里"}
+      ]
+    },
+    "anchor_entryway_shelf_1_vp": {
+      "objects": ["obj_bag_1"],
+      "anchors": ["anchor_entryway_shelf_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_bag_1", "target_object_id": "anchor_entryway_shelf_1", "text": "包在门口搁架上"}
+      ]
+    },
+    "anchor_study_desk_1_vp": {
+      "objects": ["obj_glasses_2", "obj_book_1", "obj_phone_1"],
+      "anchors": ["anchor_study_desk_1"],
+      "scene_relations": [
+        {"relation_type": "on", "subject_object_id": "obj_glasses_2", "target_object_id": "anchor_study_desk_1", "text": "眼镜在书桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_book_1", "target_object_id": "anchor_study_desk_1", "text": "书在书桌上"},
+        {"relation_type": "on", "subject_object_id": "obj_phone_1", "target_object_id": "anchor_study_desk_1", "text": "手机在书桌上"}
+      ]
+    },
+    "anchor_study_bookshelf_1_vp": {
+      "objects": [],
+      "anchors": ["anchor_study_bookshelf_1"],
+      "scene_relations": []
+    }
+  },
+  "symbolic_predicates": [
+    {"name": "visible_category", "args": ["cup"]},
+    {"name": "visible_category", "args": ["medicine_box"]},
+    {"name": "visible_category", "args": ["remote_control"]},
+    {"name": "visible_category", "args": ["glasses"]},
+    {"name": "visible_category", "args": ["keys"]},
+    {"name": "visible_category", "args": ["tissue"]},
+    {"name": "visible_category", "args": ["water_bottle"]},
+    {"name": "visible_category", "args": ["book"]},
+    {"name": "visible_category", "args": ["phone"]},
+    {"name": "visible_category", "args": ["fruit_bowl"]},
+    {"name": "visible_category", "args": ["bowl"]},
+    {"name": "visible_category", "args": ["mug"]},
+    {"name": "visible_category", "args": ["plate"]},
+    {"name": "visible_category", "args": ["umbrella"]},
+    {"name": "visible_category", "args": ["bag"]}
+  ]
+}

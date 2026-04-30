@@ -1,0 +1,23 @@
+{
+  "object_memory": [
+    {
+      "memory_id": "mem-cup-no-hint-distractor",
+      "object_category": "cup",
+      "aliases": [
+        "水杯",
+        "杯子"
+      ],
+      "anchor": {
+        "room_id": "pantry",
+        "anchor_id": "anchor_pantry_shelf_1",
+        "anchor_type": "shelf",
+        "viewpoint_id": "pantry_shelf_viewpoint",
+        "display_text": "储物间搁架"
+      },
+      "evidence_source": "direct_observation",
+      "confidence_level": "medium",
+      "last_confirmed_at": "2026-04-19T09:00:00Z",
+      "belief_state": "confirmed"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "failure_rules": [
+    {
+      "rule_type": "operation_failure_once",
+      "enabled": true,
+      "attempt": 1,
+      "skill": "operation",
+      "reason": "object_slipped"
+    }
+  ]
+}
