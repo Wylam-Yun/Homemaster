@@ -8,7 +8,8 @@
       "tags": ["check_presence", "success", "medicine_box"],
       "purpose": "基础检查药盒存在路径。",
       "status": "active",
-      "data_source": "homeworld_profile"
+      "data_source": "homeworld_profile",
+      "suites": ["legacy_compat"]
     },
     {
       "name": "check_medicine_stale_recover",
@@ -17,7 +18,8 @@
       "tags": ["check_presence", "success", "stale_recover", "medicine_box"],
       "purpose": "记忆过期后恢复路径。",
       "status": "active",
-      "data_source": "homeworld_profile"
+      "data_source": "homeworld_profile",
+      "suites": ["legacy_compat"]
     },
     {
       "name": "fetch_cup_retry",
@@ -26,7 +28,8 @@
       "tags": ["fetch_object", "success", "retry", "cup"],
       "purpose": "首次失败后重试成功。",
       "status": "active",
-      "data_source": "homeworld_profile"
+      "data_source": "homeworld_profile",
+      "suites": ["legacy_compat"]
     },
     {
       "name": "object_not_found",
@@ -35,7 +38,8 @@
       "tags": ["fetch_object", "failure", "not_found", "cup"],
       "purpose": "物体不存在导致任务失败。",
       "status": "active",
-      "data_source": "homeworld_profile"
+      "data_source": "homeworld_profile",
+      "suites": ["legacy_compat"]
     },
     {
       "name": "distractor_rejected",
@@ -44,16 +48,18 @@
       "tags": ["fetch_object", "failure", "distractor", "cup"],
       "purpose": "干扰物被正确拒绝。",
       "status": "active",
-      "data_source": "homeworld_profile"
+      "data_source": "homeworld_profile",
+      "suites": ["legacy_compat"]
     },
     {
       "name": "fetch_cup_table_success",
       "utterance": "去厨房餐桌找水杯，然后拿给我。",
       "expected_final_status": "completed",
-      "tags": ["fetch_object", "success", "location_hint", "cup"],
-      "purpose": "基础取杯成功路径。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "tags": ["fetch_object", "success", "location_hint", "cup", "full_corpus"],
+      "purpose": "基础取杯成功路径，full_corpus RAG smoke。",
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline", "corpus_profile_smoke"]
     },
     {
       "name": "fetch_cup_alias_success",
@@ -61,8 +67,9 @@
       "expected_final_status": "completed",
       "tags": ["fetch_object", "success", "alias", "cup"],
       "purpose": "验证\"杯子\"别名能命中 cup。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_mug_not_cup_rejected",
@@ -160,8 +167,9 @@
       "expected_final_status": "completed",
       "tags": ["fetch_object", "no_location_hint", "memory_conflict", "remote_control"],
       "purpose": "无位置提示，多条遥控器记忆冲突。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_cup_negative_evidence_second_place",
@@ -178,8 +186,9 @@
       "expected_final_status": "failed",
       "tags": ["fetch_object", "failure", "object_not_found", "cup"],
       "purpose": "memory 指向厨房但 world 中不可见目标物。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_all_locations_not_found",
@@ -241,8 +250,9 @@
       "expected_final_status": "completed",
       "tags": ["fetch_object", "success", "no_location_hint", "multi_memory"],
       "purpose": "无位置提示，多条 memory，选最近可靠候选。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_cup_no_hint_stale_first",
@@ -250,8 +260,9 @@
       "expected_final_status": "completed",
       "tags": ["fetch_object", "success", "no_location_hint", "stale_memory"],
       "purpose": "top memory stale，转向次优位置。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_cup_no_hint_all_missing",
@@ -268,8 +279,9 @@
       "expected_final_status": "failed",
       "tags": ["fetch_object", "failure", "no_location_hint", "distractor"],
       "purpose": "无位置提示，可见 mug 干扰物。",
-      "status": "draft",
-      "data_source": "legacy_files"
+      "status": "active",
+      "data_source": "homeworld_profile",
+      "suites": ["llm_baseline"]
     },
     {
       "name": "fetch_medicine_no_hint_success",

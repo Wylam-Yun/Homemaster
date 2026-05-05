@@ -1,0 +1,9 @@
+{
+  "name": "fetch_cup_table_success",
+  "home_id": "elder_home_v1",
+  "utterance": "去厨房餐桌找水杯，然后拿给我。",
+  "expected_final_status": "completed",
+  "tags": ["fetch_object", "success", "location_hint", "cup", "full_corpus"],
+  "purpose": "基础取杯成功路径，full_corpus RAG smoke。",
+  "runtime_modes": ["deterministic", "live"]
+}

@@ -206,6 +206,17 @@
       "spatial_relation": "on_counter"
     },
     {
+      "object_id": "obj_cup_3",
+      "category": "cup",
+      "aliases": ["水杯", "杯子", "cup"],
+      "attributes": ["red", "ceramic"],
+      "detector_id": "det-cup-3",
+      "memory_id": "mem-cup-3",
+      "confidence_level": "low",
+      "state_summary": "upright",
+      "spatial_relation": "on_table"
+    },
+    {
       "object_id": "obj_medicine_box_1",
       "category": "medicine_box",
       "aliases": ["药盒", "药箱", "medicine_box"],

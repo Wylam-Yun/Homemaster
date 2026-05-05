@@ -1,0 +1,9 @@
+{
+  "name": "fetch_cup_no_hint_multi_memory_recent",
+  "home_id": "elder_home_v1",
+  "utterance": "帮我把水杯拿过来。",
+  "expected_final_status": "completed",
+  "tags": ["fetch_object", "success", "no_location_hint", "multi_memory"],
+  "purpose": "无位置提示，多条 memory，选最近可靠候选。",
+  "runtime_modes": ["deterministic", "live"]
+}

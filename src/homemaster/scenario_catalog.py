@@ -43,3 +43,25 @@ def active_scenario_names(
     if catalog is None:
         catalog = load_catalog()
     return [entry.name for entry in catalog if entry.status == "active"]
+
+
+def baseline_scenario_names(
+    catalog: list[ScenarioCatalogEntry] | None = None,
+) -> list[str]:
+    """Return names of llm_baseline + corpus_profile_smoke scenarios."""
+    if catalog is None:
+        catalog = load_catalog()
+    return [
+        entry.name
+        for entry in catalog
+        if "llm_baseline" in entry.suites or "corpus_profile_smoke" in entry.suites
+    ]
+
+
+def legacy_compat_names(
+    catalog: list[ScenarioCatalogEntry] | None = None,
+) -> list[str]:
+    """Return names of legacy_compat scenarios."""
+    if catalog is None:
+        catalog = load_catalog()
+    return [entry.name for entry in catalog if "legacy_compat" in entry.suites]

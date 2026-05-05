@@ -1,11 +1,10 @@
 {
   "failure_rules": [
     {
-      "rule_type": "wrong_object_visible",
+      "rule_type": "force_no_object",
       "enabled": true,
       "target_category": "cup",
-      "visible_category": "mug",
-      "expected_failure_reason": "mug should not satisfy cup request"
+      "expected_failure_reason": "no cup visible, only mug distractor at pantry shelf"
     }
   ]
 }

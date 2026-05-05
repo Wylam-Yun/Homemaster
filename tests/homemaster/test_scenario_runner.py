@@ -26,13 +26,12 @@ def test_scenario_runner_uses_isolated_runtime_memory_roots(tmp_path: Path) -> N
     assert matrix["model_boundary"]["real_robot"] == "not_integrated"
 
 
-def test_stage_07_scenario_catalog_has_baseline_five() -> None:
-    """The baseline five scenarios must all exist in the scenario set."""
-    baseline_five = {
-        "check_medicine_success",
-        "check_medicine_stale_recover",
-        "fetch_cup_retry",
-        "object_not_found",
-        "distractor_rejected",
-    }
-    assert baseline_five.issubset(set(STAGE_07_SCENARIOS))
+def test_stage_07_scenario_catalog_has_baseline_scenarios() -> None:
+    """The llm_baseline scenarios must exist in the catalog."""
+    from homemaster.scenario_catalog import load_catalog
+
+    catalog = load_catalog()
+    baseline_names = {e.name for e in catalog if "llm_baseline" in e.suites}
+    assert len(baseline_names) >= 7
+    assert "fetch_cup_table_success" in baseline_names
+    assert "fetch_object_not_found" in baseline_names

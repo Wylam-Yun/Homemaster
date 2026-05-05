@@ -29,12 +29,17 @@ EXPECTED_FINAL_STATUS: dict[str, set[str]] = {
 
 
 def _load_scenarios() -> dict[str, str]:
-    """Load active scenarios from catalog, falling back to hardcoded dict."""
+    """Load baseline scenarios from catalog, falling back to hardcoded dict."""
     try:
         from homemaster.scenario_catalog import load_catalog
 
         catalog = load_catalog()
-        active = {e.name: e.utterance for e in catalog if e.status == "active"}
+        active = {
+            e.name: e.utterance
+            for e in catalog
+            if "llm_baseline" in e.suites
+            or "corpus_profile_smoke" in e.suites
+        }
         if active:
             return active
     except Exception:
@@ -51,7 +56,8 @@ def _load_expected_statuses() -> dict[str, set[str]]:
         active = {
             e.name: {e.expected_final_status}
             for e in catalog
-            if e.status == "active"
+            if "llm_baseline" in e.suites
+            or "corpus_profile_smoke" in e.suites
         }
         if active:
             return active
@@ -111,7 +117,23 @@ def _scenario_items(
 ) -> list[tuple[str, str]]:
     if isinstance(scenarios, dict):
         return list(scenarios.items())
-    return [(name, STAGE_07_SCENARIOS[name]) for name in scenarios]
+    catalog_lookup: dict[str, str] = {}
+    try:
+        from homemaster.scenario_catalog import load_catalog
+
+        for entry in load_catalog():
+            catalog_lookup[entry.name] = entry.utterance
+    except Exception:
+        pass
+    result: list[tuple[str, str]] = []
+    for name in scenarios:
+        if name in catalog_lookup:
+            result.append((name, catalog_lookup[name]))
+        elif name in STAGE_07_SCENARIOS:
+            result.append((name, STAGE_07_SCENARIOS[name]))
+        else:
+            raise KeyError(f"Scenario {name!r} not found in catalog or hardcoded dict")
+    return result
 
 
 def _acceptance_matrix(

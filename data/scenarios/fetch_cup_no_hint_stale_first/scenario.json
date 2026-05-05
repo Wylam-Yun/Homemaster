@@ -1,0 +1,9 @@
+{
+  "name": "fetch_cup_no_hint_stale_first",
+  "home_id": "elder_home_v1",
+  "utterance": "找水杯拿给我。",
+  "expected_final_status": "completed",
+  "tags": ["fetch_object", "success", "no_location_hint", "stale_memory"],
+  "purpose": "top memory stale，转向次优位置。",
+  "runtime_modes": ["deterministic", "live"]
+}

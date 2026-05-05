@@ -1,0 +1,9 @@
+{
+  "name": "fetch_remote_conflicting_memory",
+  "home_id": "elder_home_v1",
+  "utterance": "找遥控器拿给我。",
+  "expected_final_status": "completed",
+  "tags": ["fetch_object", "no_location_hint", "memory_conflict", "remote_control"],
+  "purpose": "无位置提示，多条遥控器记忆冲突。",
+  "runtime_modes": ["deterministic", "live"]
+}

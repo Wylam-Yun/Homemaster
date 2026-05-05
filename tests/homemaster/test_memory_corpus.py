@@ -69,7 +69,7 @@ def test_corpus_loads_without_error(corpus: dict):
 
 
 def test_corpus_has_exact_entry_count(entries: list[dict]):
-    assert len(entries) == 35, f"Expected 35 entries, got {len(entries)}"
+    assert len(entries) == 36, f"Expected 36 entries, got {len(entries)}"
 
 
 def test_corpus_memory_ids_unique(entries: list[dict]):
@@ -178,7 +178,7 @@ def test_corpus_evidence_sources_cover_both(entries: list[dict]):
 
 def test_corpus_build_memory_documents_all_executable(corpus: dict):
     docs = build_memory_documents(corpus)
-    assert len(docs) == 35, f"Expected 35 documents, got {len(docs)}"
+    assert len(docs) == 36, f"Expected 36 documents, got {len(docs)}"
     for doc in docs:
         assert doc.executable, f"{doc.document_id} not executable: {doc.invalid_reason}"
         assert doc.invalid_reason is None, f"{doc.document_id} has invalid_reason: {doc.invalid_reason}"

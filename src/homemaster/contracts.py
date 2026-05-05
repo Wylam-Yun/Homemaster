@@ -656,6 +656,7 @@ class ScenarioCatalogEntry(ContractModel):
     purpose: str = ""
     status: Literal["active", "draft"] = "active"
     data_source: Literal["legacy_files", "homeworld_profile"] = "legacy_files"
+    suites: list[str] = Field(default_factory=list)
 
     @field_validator("name", "utterance")
     @classmethod

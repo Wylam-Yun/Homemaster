@@ -812,9 +812,11 @@ def validate_all(
         scope = entry.name
 
         # Required files for all active scenarios
-        required_files = ["world.json", "memory.json", "failures.json", "scenario.json"]
+        required_files = ["failures.json", "scenario.json"]
         if entry.data_source == "homeworld_profile":
             required_files.extend(["memory_profile.json", "world_overlay.json"])
+        else:
+            required_files.extend(["world.json", "memory.json"])
 
         for fname in required_files:
             if not (scenario_dir / fname).is_file():
@@ -823,16 +825,42 @@ def validate_all(
                     f"Active scenario missing required file: {fname}",
                 ))
 
-        # Load scenario files (safe)
-        world_path_s = scenario_dir / "world.json"
-        memory_path = scenario_dir / "memory.json"
         failures_path = scenario_dir / "failures.json"
-        overlay_path = scenario_dir / "world_overlay.json"
-
-        world = _load_json(world_path_s) if world_path_s.is_file() else None
-        memory = _load_json(memory_path) if memory_path.is_file() else None
         failures = _load_json(failures_path) if failures_path.is_file() else None
-        overlay = _load_json(overlay_path) if overlay_path.is_file() else None
+
+        # Load world + memory based on data_source
+        if entry.data_source == "homeworld_profile":
+            # Use global HomeWorld + overlay and corpus + profile
+            overlay_path = scenario_dir / "world_overlay.json"
+            overlay = _load_json(overlay_path) if overlay_path.is_file() else None
+            world = home_world  # global HomeWorld
+            memory = None
+            profile, profile_issues = _safe_load_profile(entry.name)
+            all_issues.extend(profile_issues)
+            if profile is not None and overlay is not None:
+                from homemaster.world_overlay import apply_world_overlay
+                try:
+                    world = apply_world_overlay(home_world, overlay)
+                except Exception as exc:
+                    all_issues.append(_issue(
+                        "overlay_apply_error", scope,
+                        f"Failed to apply world overlay: {exc}",
+                    ))
+                try:
+                    materialized = materialize_memory(corpus, profile)
+                    memory = materialized
+                except Exception as exc:
+                    all_issues.append(_issue(
+                        "materialization_error", scope,
+                        f"Failed to materialize memory: {exc}",
+                    ))
+        else:
+            # Legacy: use per-scenario world.json and memory.json
+            world_path_s = scenario_dir / "world.json"
+            memory_path = scenario_dir / "memory.json"
+            world = _load_json(world_path_s) if world_path_s.is_file() else None
+            memory = _load_json(memory_path) if memory_path.is_file() else None
+            overlay = None
 
         # V5: Metadata (safe)
         manifest, manifest_issues = _safe_load_manifest(entry.name)
@@ -864,12 +892,12 @@ def validate_all(
         if overlay is not None:
             all_issues.extend(validate_world_overlay(entry.name, overlay, home_world))
 
-        # V9: Materialization (safe)
-        profile, profile_issues = _safe_load_profile(entry.name)
-        all_issues.extend(profile_issues)
-        if profile is not None:
-            require = entry.data_source == "homeworld_profile"
-            all_issues.extend(validate_materialization(entry.name, corpus, profile, require_nonempty=require))
+        # V9: Materialization (safe) — skip for homeworld_profile (already done above)
+        if entry.data_source != "homeworld_profile":
+            profile, profile_issues = _safe_load_profile(entry.name)
+            all_issues.extend(profile_issues)
+            if profile is not None:
+                all_issues.extend(validate_materialization(entry.name, corpus, profile, require_nonempty=False))
 
     return ValidationResult(issues=all_issues)
 

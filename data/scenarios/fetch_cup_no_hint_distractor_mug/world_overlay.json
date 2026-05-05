@@ -1,0 +1,5 @@
+{
+  "present_object_ids": ["obj_mug_1", "obj_plate_2"],
+  "active_viewpoint_ids": ["anchor_pantry_shelf_1_vp"],
+  "visibility_overrides": {}
+}

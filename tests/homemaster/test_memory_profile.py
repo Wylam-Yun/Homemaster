@@ -30,6 +30,13 @@ BASELINE_SCENARIOS = [
     "fetch_cup_retry",
     "object_not_found",
     "distractor_rejected",
+    "fetch_cup_table_success",
+    "fetch_cup_alias_success",
+    "fetch_cup_no_hint_multi_memory_recent",
+    "fetch_cup_no_hint_stale_first",
+    "fetch_cup_no_hint_distractor_mug",
+    "fetch_remote_conflicting_memory",
+    "fetch_object_not_found",
 ]
 
 
@@ -50,7 +57,7 @@ def corpus_memory_ids(corpus) -> set[str]:
 def test_materialize_full_corpus(corpus: dict):
     profile = MemoryProfile(full_corpus=True)
     result = materialize_memory(corpus, profile)
-    assert len(result["object_memory"]) == 35
+    assert len(result["object_memory"]) == 36
 
 
 def test_materialize_include_ids(corpus: dict):
@@ -65,7 +72,7 @@ def test_materialize_exclude_ids(corpus: dict):
     result = materialize_memory(corpus, profile)
     ids = {e["memory_id"] for e in result["object_memory"]}
     assert "mem-cup-1" not in ids
-    assert len(result["object_memory"]) == 34
+    assert len(result["object_memory"]) == 35
 
 
 def test_materialize_include_then_exclude(corpus: dict):
@@ -157,10 +164,10 @@ def test_catalog_json_loads_and_validates():
         assert isinstance(entry, ScenarioCatalogEntry)
 
 
-def test_catalog_active_scenarios_are_five():
+def test_catalog_active_scenarios_are_twelve():
     catalog = load_catalog()
     active = [e for e in catalog if e.status == "active"]
-    assert len(active) == 5
+    assert len(active) == 12
     names = {e.name for e in active}
     assert names == set(BASELINE_SCENARIOS)
 
@@ -185,7 +192,7 @@ def test_baseline_scenario_json_loads():
 def test_catalog_draft_scenarios_schema_only():
     catalog = load_catalog()
     draft = [e for e in catalog if e.status == "draft"]
-    assert len(draft) >= 25
+    assert len(draft) >= 20
     for entry in draft:
         assert isinstance(entry, ScenarioCatalogEntry)
         assert entry.name
