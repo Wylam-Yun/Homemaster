@@ -784,11 +784,27 @@ def validate_all(
         if entry.status == "draft":
             if not include_draft:
                 continue
-            # Draft: only validate catalog entry + manifest if present
+            scenario_dir = scenarios_root / entry.name
+            # Draft: validate catalog entry + manifest if present
             manifest, manifest_issues = _safe_load_manifest(entry.name)
             all_issues.extend(manifest_issues)
             if manifest is not None:
                 all_issues.extend(validate_scenario_metadata(entry.name, manifest, entry))
+            # Validate memory_profile if present (P-1E.3)
+            profile_path = scenario_dir / "memory_profile.json"
+            if profile_path.is_file():
+                profile, profile_issues = _safe_load_profile(entry.name)
+                all_issues.extend(profile_issues)
+                if profile is not None:
+                    all_issues.extend(validate_materialization(
+                        entry.name, corpus, profile, require_nonempty=False,
+                    ))
+            # Validate failures.json if present (P-1E fix)
+            failures_path = scenario_dir / "failures.json"
+            if failures_path.is_file():
+                failures_data = _load_json(failures_path)
+                if failures_data is not None:
+                    all_issues.extend(validate_failures(entry.name, failures_data))
             continue
 
         # Active scenario: require files based on data_source

@@ -1,0 +1,5 @@
+{
+  "present_object_ids": ["obj_bowl_1", "obj_medicine_box_1", "obj_plate_2"],
+  "active_viewpoint_ids": ["anchor_kitchen_counter_1_vp", "anchor_pantry_shelf_1_vp"],
+  "visibility_overrides": {}
+}

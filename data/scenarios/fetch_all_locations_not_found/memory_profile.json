@@ -1,0 +1,10 @@
+{
+  "full_corpus": false,
+  "include_memory_ids": [
+    "mem-cup-1",
+    "mem-cup-2",
+    "mem-cup-3",
+    "mem-cup-4"
+  ],
+  "exclude_memory_ids": []
+}

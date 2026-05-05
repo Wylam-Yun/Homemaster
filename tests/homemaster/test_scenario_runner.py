@@ -26,11 +26,13 @@ def test_scenario_runner_uses_isolated_runtime_memory_roots(tmp_path: Path) -> N
     assert matrix["model_boundary"]["real_robot"] == "not_integrated"
 
 
-def test_stage_07_scenario_catalog_has_five_cases() -> None:
-    assert set(STAGE_07_SCENARIOS) == {
+def test_stage_07_scenario_catalog_has_baseline_five() -> None:
+    """The baseline five scenarios must all exist in the scenario set."""
+    baseline_five = {
         "check_medicine_success",
         "check_medicine_stale_recover",
         "fetch_cup_retry",
         "object_not_found",
         "distractor_rejected",
     }
+    assert baseline_five.issubset(set(STAGE_07_SCENARIOS))

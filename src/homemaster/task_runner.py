@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from homemaster.failure_rule_provider import FailureRuleProvider
+
 from homemaster.contracts import (
     EvidenceBundle,
     ExecutionState,
@@ -144,8 +146,14 @@ class KeywordEmbeddingProvider:
 
 
 class StaticScenarioDecisionProvider:
-    def __init__(self, *, scenario: str) -> None:
+    def __init__(
+        self,
+        *,
+        scenario: str,
+        failure_provider: FailureRuleProvider | None = None,
+    ) -> None:
         self.scenario = scenario
+        self.failure_provider = failure_provider
         self._navigation_attempts = 0
 
     def next_decision(
@@ -165,7 +173,8 @@ class StaticScenarioDecisionProvider:
                 "subtask_id": subtask.id,
                 "subtask_intent": subtask.intent,
             }
-            if self.scenario in {"object_not_found", "distractor_rejected"}:
+            target_cat = context.retrieval_query.target_category if context.retrieval_query else None
+            if self.failure_provider and self.failure_provider.should_force_no_object(target_category=target_cat):
                 skill_input["force_no_object"] = True
             return StepDecision(
                 subtask_id=subtask.id,
@@ -203,9 +212,16 @@ class StaticScenarioDecisionProvider:
 
 
 class LiveStepDecisionProvider:
-    def __init__(self, provider: ProviderConfig, *, scenario: str) -> None:
+    def __init__(
+        self,
+        provider: ProviderConfig,
+        *,
+        scenario: str,
+        failure_provider: FailureRuleProvider | None = None,
+    ) -> None:
         self.provider = provider
         self.scenario = scenario
+        self.failure_provider = failure_provider
 
     def next_decision(
         self,
@@ -224,13 +240,15 @@ class LiveStepDecisionProvider:
         )
         decision = result.decision
         if (
-            self.scenario in {"object_not_found", "distractor_rejected"}
+            self.failure_provider
             and decision.selected_skill == "navigation"
             and decision.skill_input.get("goal_type") == "find_object"
         ):
-            skill_input = dict(decision.skill_input)
-            skill_input["force_no_object"] = True
-            decision = decision.model_copy(update={"skill_input": skill_input})
+            target_cat = context.retrieval_query.target_category if context.retrieval_query else None
+            if self.failure_provider.should_force_no_object(target_category=target_cat):
+                skill_input = dict(decision.skill_input)
+                skill_input["force_no_object"] = True
+                decision = decision.model_copy(update={"skill_input": skill_input})
         return decision
 
 
@@ -255,15 +273,53 @@ def run_homemaster_task(
     scenario_root = REPO_ROOT / "data" / "scenarios" / scenario
     if not scenario_root.is_dir():
         raise HomeMasterRunError(f"unknown scenario: {scenario}")
-    resolved_world = _resolve_path(world_path, scenario_root / "world.json")
-    resolved_memory = _resolve_path(memory_path, scenario_root / "memory.json")
-    if not resolved_world.is_file():
-        raise HomeMasterRunError(f"missing world file: {resolved_world}")
-    if not resolved_memory.is_file():
-        raise HomeMasterRunError(f"missing memory file: {resolved_memory}")
+
+    failure_provider = FailureRuleProvider.from_scenario(scenario, scenario_root)
 
     runtime_memory_dir = Path(runtime_memory_root) / run_id / "memory"
     case_dir = Path(debug_root) / "stage_07" / run_id
+
+    # Determine data source from catalog
+    from homemaster.scenario_catalog import load_catalog, load_memory_profile
+    catalog_entries = load_catalog()
+    catalog_entry = next((e for e in catalog_entries if e.name == scenario), None)
+
+    if catalog_entry and catalog_entry.data_source == "homeworld_profile":
+        # Load global HomeWorld + apply overlay → write to run-isolated dir
+        from homemaster.world_overlay import apply_world_overlay
+        global_world_path = REPO_ROOT / "data" / "homes" / "elder_home_v1" / "world.json"
+        overlay_path = scenario_root / "world_overlay.json"
+        if not overlay_path.is_file():
+            raise HomeMasterRunError(
+                f"homeworld_profile scenario {scenario!r} missing world_overlay.json"
+            )
+        world_dict = json.loads(global_world_path.read_text(encoding="utf-8"))
+        world_dict = apply_world_overlay(world_dict, json.loads(overlay_path.read_text(encoding="utf-8")))
+        case_dir.mkdir(parents=True, exist_ok=True)
+        resolved_world = case_dir / "resolved_world.json"
+        resolved_world.write_text(json.dumps(world_dict, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        # Load corpus + materialize via profile → write to runtime_memory_dir
+        corpus_path = REPO_ROOT / "data" / "memory" / "elder_home_v1" / "object_memory_corpus.json"
+        profile = load_memory_profile(scenario)
+        if not profile:
+            raise HomeMasterRunError(
+                f"homeworld_profile scenario {scenario!r} missing memory_profile.json"
+            )
+        corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+        from homemaster.memory_profile import materialize_memory
+        materialized = materialize_memory(corpus, profile)
+        runtime_memory_dir.mkdir(parents=True, exist_ok=True)
+        resolved_memory = runtime_memory_dir / "base_object_memory.json"
+        resolved_memory.write_text(json.dumps(materialized, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        # Legacy path
+        resolved_world = _resolve_path(world_path, scenario_root / "world.json")
+        resolved_memory = _resolve_path(memory_path, scenario_root / "memory.json")
+        if not resolved_world.is_file():
+            raise HomeMasterRunError(f"missing world file: {resolved_world}")
+        if not resolved_memory.is_file():
+            raise HomeMasterRunError(f"missing memory file: {resolved_memory}")
     results_dir = STAGE_07_RESULTS_DIR
     paths = {
         "world_path": str(resolved_world),
@@ -342,7 +398,10 @@ def run_homemaster_task(
             config_path=config_path,
             provider_name=provider_name,
         )
-        decision_provider = StaticScenarioDecisionProvider(scenario=scenario)
+        decision_provider = StaticScenarioDecisionProvider(
+            scenario=scenario,
+            failure_provider=failure_provider,
+        )
         execution_result = execute_stage_05_plan(
             planning_context,
             orchestration_plan,

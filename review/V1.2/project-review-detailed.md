@@ -934,37 +934,37 @@ class RobotTaskResponse:
 ```
 4. 标注 API 稳定性级别：`stable`（不可随意改）、`experimental`（可改但需通知）、`internal`（不保证）
 
-#### 问题20: 降级框架不系统，只有 BM25 一个降级场景
+#### 问题20: 服务不可用时边界不清晰，容易把测试替身误当产品降级
 
 **现状分析**:
 
-Review 中问题 12 覆盖了 BM25-only 降级，但这只是众多降级场景之一。其他关键场景完全未设计：
+Review 中问题 12 覆盖了 BM25-only 行为，但在 LLM-only 路线下，P0/P1 的主验收不能把 deterministic/static fallback 当成产品基线。服务不可用时应区分三件事：LLM baseline 明确失败或 skipped；validator/materializer 这类纯数据检查继续可跑；单元测试可以用 test-double，但不能报告为 baseline pass。
 
-| 降级场景 | 当前处理 | 应有处理 |
+| 场景 | 当前处理 | 应有处理 |
 |---------|---------|---------|
-| Embedding 不可用 | 整个 Stage 03 报错 | BM25-only 降级 |
-| LLM 不可用 | 所有 LLM Stage 报错 | 确定性 fallback（关键词匹配、模板规划） |
-| Memory RAG 全失败 | Stage 03 报错 | 空 memory context + 继续规划 |
-| VLM 验证不可用 | 无替代 | 无验证继续执行 + 降级标记 |
-| 机器人连接断开 | `not_integrated` | 模拟执行 + 延迟重连 |
+| Embedding 不可用 | 整个 Stage 03 报错或隐式 fallback | LLM baseline 明确 FAIL/SKIP；纯 BM25 只作为 diagnostic，不算 baseline |
+| LLM 不可用 | 所有 LLM Stage 报错 | LLM baseline 明确 FAIL/SKIP；deterministic provider 只用于 unit tests |
+| Memory RAG 全失败 | Stage 03 报错 | baseline FAIL，并在结果中记录失败 stage 与原因 |
+| VLM 验证不可用 | 无替代 | 当前阶段显式标记 `verification=mock_symbolic`，不伪装成真实 VLM |
+| 机器人连接断开 | `not_integrated` | 当前阶段显式标记 `skills=mock_skill`，真实机器人留到后续阶段 |
 
-**应有的最小可行 pipeline**:
+**P0/P1 应有的最小可行 baseline pipeline**:
 ```
-全功能模式:  Stage02(live) → Stage03(hybrid) → Stage04 → Stage05(live) → Stage06(live)
-降级模式1:  Stage02(keyword) → Stage03(bm25_only) → Stage04 → Stage05(deterministic) → Stage06(template)
-降级模式2:  Stage02(keyword) → Stage03(skip) → Stage04(no_memory) → Stage05(deterministic) → Stage06(template)
-紧急模式:   Stage02(keyword) → Stage03(skip) → Stage04(no_memory) → Stage05(hardcoded) → Stage06(skip)
+LLM baseline: Stage02(live_llm) → Stage03(live_llm + live_embedding + BM25 fusion) → Stage04 → Stage05(live_llm) → Stage06(live_llm)
+能力边界:     skills(mock_skill) + verification(mock_symbolic)  # robot/VLM not integrated
+数据校验:     validator/materializer/schema tests               # no LLM, not baseline
+单元测试:     deterministic/static providers                    # test-double only
 ```
 
 **改进建议**:
 
-为每个 Stage 定义降级输出（fallback result），确保 pipeline 不会因为单个服务不可用而完全中断：
+为每个 Stage 定义服务依赖和失败表达，确保 baseline 不会静默降级为另一套输入：
 ```python
-class StageDegradationPolicy:
+class StageRuntimeRequirement:
     stage_name: str
-    fallback: Callable[[], StageResult]  # 该 Stage 的降级输出
-    condition: Callable[Exception, bool]  # 哪些异常触发降级
-    notify: bool  # 是否在结果中标记降级
+    required_services: tuple[str, ...]  # 如 ("mimo_llm", "bge_m3")
+    failure_policy: Literal["fail_baseline", "skip_if_not_configured"]
+    test_double_allowed: bool  # 只允许单元测试使用，不允许 baseline 使用
 ```
 
 #### Stage 07测试情况说明
@@ -972,7 +972,7 @@ class StageDegradationPolicy:
 **实际测试结果**（用户确认）:
 - ✅ check_medicine_success - 成功（符合预期）
 - ✅ check_medicine_stale_recover - 成功（符合预期）  
-- ❌ fetch_cup_retry - 失败（符合预期，测试重试机制）
+- ✅ fetch_cup_retry - 成功（符合预期，测试取杯重试后成功路径）
 - ❌ object_not_found - 失败（符合预期，测试找不到物体）
 - ❌ distractor_rejected - 失败（符合预期，测试干扰物排除）
 
@@ -1020,9 +1020,9 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 
 ## 三、改进实施计划（修订版）
 
-> 修订结论：用户提出的方向整体合理，尤其是 **先让场景和 Memory 支持扩增**、**再统一五场景基线**、**只做最小 Stage 化**、**Recovery 最后单独做**。原计划不合理之处在于第一阶段塞入了 Recovery 闭环、Stage05 子拆分、Contract 全冻结、Prompt schema 自动生成、文件重构等高耦合改动，容易把 `task_runner.py` 瘦身这件核心事拖散。
+> 修订结论：用户提出的方向整体合理，尤其是 **先让场景和 Memory 支持扩增**、**再建立 LLM baseline + legacy compatibility check**、**只做最小 Stage 化**、**Recovery 最后单独做**。原计划不合理之处在于第一阶段塞入了 Recovery 闭环、Stage05 子拆分、Contract 全冻结、Prompt schema 自动生成、文件重构等高耦合改动，容易把 `task_runner.py` 瘦身这件核心事拖散。
 
-> 新优先级：先冻结当前五场景快照，再把场景从代码硬编码变成可扩增测试资产，同时把每场景独立小 memory 改为共享 Memory Corpus + 场景 overlay/profile；之后把五场景基线切到 manifest 驱动，再搭 pipeline 骨架；先让 `task_runner.py` 从“大总管”变成“启动器”，再逐步做 runtime mode、最小日志、SkillRegistry、Prompt 外置、配置化、文件组织和 Recovery。
+> 新优先级：先冻结当前五场景快照，再把场景从代码硬编码变成可扩增测试资产，同时把每场景独立小 memory 改为共享 Memory Corpus + 场景 overlay/profile；之后把 LLM baseline、Corpus/Profile RAG gate 和 legacy compatibility check 切到 manifest 驱动，再搭 pipeline 骨架；先让 `task_runner.py` 从“大总管”变成“启动器”，再逐步做 LLM runtime contract、最小日志、SkillRegistry、Prompt 外置、配置化、文件组织和 Recovery。
 
 ---
 
@@ -1047,12 +1047,12 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
   - 实际 final_status
   - stage_statuses 摘要
   - debug asset 路径
-  - deterministic/mock 与 live 的运行边界
+  - model boundary 与真实 LLM/Embedding 调用边界
 - 这个快照只作为迁移前后对比依据，不等于最终 manifest 形态。
 
 **验收计划**:
 - [ ] 当前 5 个场景都能从现有 `scenario_runner.py` 跑出结果
-- [ ] 快照中明确 `fetch_cup_retry`、`object_not_found`、`distractor_rejected` 现阶段仍是失败符合预期
+- [ ] 快照中明确 `fetch_cup_retry` 当前为 `completed` 成功路径；`object_not_found`、`distractor_rejected` 当前为 `failed` 失败路径
 - [ ] 迁移到 HomeWorld + Memory Profile 后，能逐项对比 final_status 和关键 stage_status
 - [ ] 没有这个快照，不进入 P-1A/P-1E 迁移
 
@@ -1166,20 +1166,27 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 #### P-1E：迁移基线与候选任务
 
 **要完成什么**:
-- 先迁移现有 5 个基线场景到 HomeWorld + Memory Profile。
+- 先迁移现有 5 个 legacy 兼容场景到 HomeWorld + Memory Profile。
 - 再把 30 个候选任务从“每场景独立 memory”改为 profile 引用；候选任务明确标记为 `draft/candidate`，不直接进入基线矩阵。
-- 让 `failures.json` 不再只是预留文件，先支持最小失败规则：
-  - `force_no_object`
+- 明确四层测试资产边界：
+  - `llm_baseline`：从候选任务中 promote 的 6-8 个 LLM/RAG 诊断场景，作为 P0 之后的主验收矩阵
+  - `corpus_profile_smoke`：少量使用共享 Memory Corpus 和 memory_profile 的 Stage03/RAG smoke 场景
+  - `legacy_compat`：现有 5 个旧回归场景，只用于保护迁移不改坏历史行为，不作为 LLM 能力主基线
+  - `draft_candidate`：其余候选任务先只要求 validator PASS，稳定后再 promote 到 `llm_baseline`
+- 让 `failures.json` 不再只是预留文件，先支持最小失败规则 `force_no_object`：
+  - `target_category`
   - `expected_failure_reason`
   - 后续可扩展 `drop_object`、`wrong_object_visible`、`verification_fail_once`
 - 禁止继续在 `task_runner.py` / executor 中按 scenario name 写失败注入分支。
 
 **验收计划**:
-- [ ] 现有 5 个场景迁移后运行结果不变
-- [ ] 30 个候选任务不再复制独立小 memory，改用 profile 引用 corpus，并标记为 draft/candidate
+- [ ] 现有 5 个 legacy 场景迁移后运行结果不变，并标记为 `legacy_compat`
+- [ ] 30 个候选任务不再复制独立小 memory，改用 profile 引用 corpus，并标记为 `draft_candidate` 或 promote 到 `llm_baseline`
+- [ ] 从候选任务中选出 6-8 个 LLM baseline scenarios，覆盖别名、无位置提示、多候选、stale memory、近似类别干扰、full corpus/include profile、not_found
+- [ ] 测试分层清楚：`llm_baseline` 是主验收矩阵；`legacy_compat` 只做迁移兼容；`draft_candidate` 不默认进入每阶段回归矩阵
 - [ ] 新增一个找不到物体场景可以通过 `failures.json` 触发 `force_no_object`，不需要在 `task_runner.py` 写场景名判断
 - [ ] `task_runner.py` / executor 不再出现 `object_not_found`、`distractor_rejected` 这类按场景名触发失败注入的判断
-- [ ] `tests/homemaster/test_scenario_runner.py` 不再断言“只能有五个场景”，改为断言“基线五场景都存在”
+- [ ] `tests/homemaster/test_scenario_runner.py` 不再断言“只能有五个场景”，改为断言 `legacy_compat` 五场景存在，且 `llm_baseline` 场景集存在
 
 **不做什么**:
 - 不改 Stage02-06 行为。
@@ -1194,38 +1201,65 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 - [ ] 场景不再以复制 1-2 条 memory 作为主要扩增方式
 - [ ] 至少一个场景使用 full corpus，至少一个场景使用 include_memory_ids 子集
 - [ ] memory_profile 能物化为 Stage03 兼容的 base memory
-- [ ] 五场景基线结果不变
+- [ ] `llm_baseline`、`corpus_profile_smoke`、`legacy_compat`、`draft_candidate` 的边界写入 catalog/manifest 约定
+- [ ] legacy 五场景兼容检查结果不变
+- [ ] P0 主验收场景已从候选任务中 promote，能覆盖 LLM/RAG 的真实问题面
 - [ ] 校验器 PASS 后再允许进入 P0
 
 ---
 
-### P0：统一五场景测试基线
+### P0：LLM Scenario Baseline + Corpus/Profile RAG Gate
 
-核心目标：**在场景支持扩增之后，把“五场景不能被改坏”从代码常量固化为 manifest 驱动的回归基线**。
+核心目标：**建立唯一的 LLM 主验收基线，用真实 Mimo LLM + BGE-M3 Embedding 验证 Stage02/03/05/06 与共享 Memory Corpus / Memory Profile 的端到端行为**。
+
+旧五场景只保留为 `legacy_compat`：它们保护迁移前行为不被改坏，但不再作为 P0 主基线。P0 主基线必须使用新 promote 的 LLM baseline scenarios，因为旧五场景覆盖不到无位置提示、多候选排序、stale memory、近似类别干扰和 full corpus 噪声。
 
 **要完成什么**:
-- 固化 5 个 Stage07 场景作为回归基线：
+- 从候选任务中 promote 6-8 个 `llm_baseline` 场景，建议首批覆盖：
+  - `fetch_cup_table_success`：基础 location hint + 成功取物
+  - `fetch_cup_alias_success`：用户别名/同义词理解
+  - `fetch_cup_no_hint_multi_memory_recent`：无位置提示 + 多候选排序
+  - `fetch_cup_no_hint_stale_first`：stale memory 与 recent memory 冲突
+  - `fetch_cup_no_hint_distractor_mug`：cup/mug 近似类别干扰
+  - `fetch_remote_conflicting_memory`：同目标多记忆冲突
+  - `fetch_object_not_found`：通过 `failures.json` 驱动 not_found
+  - `fetch_object_ambiguous_no_hint`：歧义目标；若当前 `needs_user` 未完全支持，则继续留在 draft
+- 保留 5 个 Stage07 legacy 场景作为 `legacy_compat`：
   - `check_medicine_success`：成功，符合预期
   - `check_medicine_stale_recover`：成功，符合预期
-  - `fetch_cup_retry`：失败，符合预期，用于覆盖重试/失败路径
+  - `fetch_cup_retry`：成功，符合预期，用于覆盖取杯重试后成功路径
   - `object_not_found`：失败，符合预期，用于覆盖找不到物体
   - `distractor_rejected`：失败，符合预期，用于覆盖干扰物排除
-- 明确两套基线：
-  - deterministic/mock 基线：默认 CI 可跑，不依赖 Mimo/BGE-M3
-  - live 基线：需要 `HOMEMASTER_RUN_LIVE_LLM=1` 和 `HOMEMASTER_RUN_LIVE_EMBEDDING=1`
-- 把当前 `report/2026-04-29-stage07-live-5-scenarios-report.md` 和 `tests/homemaster/test_stage_07_scenarios_live.py` 对齐为验收依据。
+- 建立 Corpus/Profile RAG gate，至少覆盖：
+  - 一个 `full_corpus` Stage03 smoke，验证共享 corpus 不会导致 top_k 退化为空
+  - 一个 `include_memory_ids` 定向场景，验证 profile 子集物化可被 Stage03 读取
+  - 一个无位置提示或多候选记忆场景，验证扩增后的 RAG 入口确实参与验收
+- 明确 catalog/manifest 中的场景状态：
+  - `llm_baseline`：P0 主验收矩阵，必须跑真实 LLM/Embedding
+  - `corpus_profile_smoke`：RAG/profile 最小 smoke gate
+  - `legacy_compat`：旧五场景兼容检查，不代表能力基线
+  - `draft_candidate`：只做 validator / 数据完整性校验，不默认进入每阶段回归矩阵
+- 明确唯一 baseline：
+  - LLM baseline：需要 `HOMEMASTER_RUN_LIVE_LLM=1` 和 `HOMEMASTER_RUN_LIVE_EMBEDDING=1`
+  - 无 API key / 无服务环境只跑 schema、validator、materializer、纯函数单测；这些不叫 baseline，也不能作为 P0 通过证据
+- 把 `report/2026-04-29-stage07-live-5-scenarios-report.md` 和 `tests/homemaster/test_stage_07_scenarios_live.py` 从“五场景 live 报告”调整为 LLM baseline 报告；旧五场景报告另列为 legacy compatibility。
 
 **不做什么**:
 - 不改变 Stage 行为。
 - 不改 prompt。
 - 不引入 Recovery 新逻辑。
 - 不搬文件。
+- 不建立 deterministic/mock baseline；deterministic/static provider 只作为单元测试替身或历史 snapshot 工具。
+- 不接真实 robot/VLM。`navigation`、`operation`、`verification` 仍可 mock，但报告中必须明确这是 robot/VLM 能力未接入，不是 LLM baseline 降级。
 
 **验收标准**:
-- [ ] 5 场景的预期状态来自 catalog/manifest，而不是散落在代码里
-- [ ] deterministic/mock 路径能在本地稳定跑通
-- [ ] live 路径仍保持 opt-in，不进入默认测试
-- [ ] 后续每个阶段结束都先跑这套基线
+- [ ] `llm_baseline` 的预期状态来自 catalog/manifest，而不是散落在代码里
+- [ ] P0 名称和报告中明确旧五场景只是 `legacy_compat`，不是主基线
+- [ ] `llm_baseline` 至少包含别名、无位置提示、多候选、stale memory、近似类别干扰、full corpus/include profile、not_found
+- [ ] Corpus/Profile RAG gate 至少包含 full_corpus、include_memory_ids、多候选/无位置提示三类最小用例
+- [ ] 有 Mimo/BGE-M3 环境时，LLM baseline 必须通过；无环境时只能报告 skipped/not-run，不能报告 baseline pass
+- [ ] `model_boundary` 中 Stage02、Stage03 query、Stage03 embedding、Stage05 plan/step、Stage06 summary 均标记为 live；skills/robot/VLM mock 边界单独标注
+- [ ] 后续每个阶段结束都先跑 LLM baseline + Corpus/Profile RAG gate；legacy 五场景只作为兼容检查同步跑
 
 ---
 
@@ -1241,7 +1275,7 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 - 新增最小 `PipelineContext`，承载：
   - run 信息：`run_id`、`scenario`、`utterance`
   - 路径：home/world/memory/runtime/debug/results
-  - runtime 边界：`live_models`、`mock_skills`、provider 名称
+  - runtime contract：LLM/Embedding provider 名称、robot/VLM mock 边界、test-double 标记
   - Stage 输出：`task_card`、`memory_result`、`planning_context`、`orchestration_plan`、`execution_result`、`evidence_bundle`、`task_summary`、`memory_commit`
   - `stage_statuses`、`model_boundary`、`paths`
 - 提供 `with_updates()` 或等价方法，先支持线性累积，不要求 Recovery 回退。
@@ -1298,16 +1332,18 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 - [ ] `tests/homemaster/test_task_runner.py` 通过
 - [ ] `HomeMasterRunResult.to_dict()` 输出字段与现有兼容
 - [ ] debug asset 路径与现有结构兼容
-- [ ] 非 live 路径不调用真实 LLM/embedding
+- [ ] 单元测试替身路径必须显式标记为 test-double，不能被报告为 baseline
 
 #### P1E：P1 回归门槛
 
 **要完成什么**:
 - 对 P1A-D 做整体回归。
-- 跑五场景基线和一两个 profile/corpus 新场景 smoke。
+- 跑 LLM baseline、Corpus/Profile RAG gate 和 legacy compatibility check。
 
 **验收计划**:
-- [ ] 五场景 baseline final_status 不变
+- [ ] LLM baseline final_status 和关键 stage_status 符合 catalog/manifest 预期
+- [ ] legacy 五场景 compatibility check final_status 不变
+- [ ] Corpus/Profile RAG gate 仍至少覆盖 full_corpus、include_memory_ids、多候选/无位置提示三类用例
 - [ ] `stage_statuses` 字段结构不变或有兼容映射
 - [ ] runtime memory 仍按 run 隔离
 - [ ] 新 pipeline 路径和旧入口 `run_homemaster_task()` 行为一致
@@ -1322,37 +1358,42 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 - [ ] P1A-E 全部达标
 - [ ] `run_homemaster_task()` 不再手写 Stage02-06 的线性大流程
 - [ ] Stage02-06 通过 registry/adapter 顺序执行
-- [ ] 五场景基线状态不变
+- [ ] LLM baseline 状态不变
+- [ ] legacy 五场景 compatibility check 状态不变
+- [ ] Corpus/Profile RAG gate 状态不变
 - [ ] `tests/homemaster/test_task_runner.py` 和 Stage07 场景测试通过
 
 ---
 
-### P2：明确 live/mock runtime_mode
+### P2：明确 LLM runtime contract 与 mock 能力边界
 
-核心目标：**把 `live_models=True` 这种总开关拆成清晰边界**。
+核心目标：**把“LLM baseline 必须 live”和“robot/VLM 暂未接入所以 skills 可 mock”这两个边界分清楚，避免再把 deterministic/static 路径包装成 baseline**。
 
 **要完成什么**:
-- 新增最小 `RuntimeMode` 数据结构，先从代码默认值开始，不急着完整 YAML 化。
-- 明确每个组件的模式：
+- 新增最小 `RuntimeContract` / `RuntimeMode` 数据结构，先从代码默认值开始，不急着完整 YAML 化。
+- 明确 LLM baseline 的组件契约：
   ```yaml
-  task_understanding: live | deterministic
-  memory_query: live | static
-  embedding: live | keyword
-  planning: live | deterministic
-  step_decision: live | static
-  skills: mock | robot
-  verification: mock | vlm
-  summary: live | deterministic
+  task_understanding: live_llm
+  memory_query: live_llm
+  embedding: live_embedding
+  planning: live_llm
+  step_decision: live_llm
+  skills: mock_skill        # robot/VLA not integrated, not an LLM fallback
+  verification: mock_symbolic | future_vlm
+  summary: live_llm
   memory_commit: programmatic
+  test_doubles: unit_test_only
   ```
-- 保留 `live_models` / `mock_skills` 作为兼容入口，内部映射到 `RuntimeMode`。
-- 修正当前边界表达不准的问题：`live_models=True` 时 Stage05 执行循环仍主要是 mock/static，不能在报告里被误读为全链路 live。
+- 保留 `live_models` / `mock_skills` 作为兼容入口，但内部映射必须遵守 LLM baseline 契约。
+- 当用户请求 LLM baseline 且缺少 Mimo/BGE-M3 环境时，必须 fail-fast 或明确 skipped/not-run，不能回退到 deterministic/static 后仍报告 baseline pass。
+- 修正当前边界表达不准的问题：`mock_skills=True` 只表示 robot/VLM 能力 mock，不表示 Stage02/03/05/06 可以 deterministic。
 
 **验收标准**:
 - [ ] `model_boundary` 来源于 `RuntimeMode`，不是散落的字符串拼接
-- [ ] CLI/测试仍可继续传 `live_models`、`mock_skills`
-- [ ] Stage07 result 中能看出每个组件真实模式
-- [ ] 5 场景基线状态不变
+- [ ] CLI/测试仍可继续传 `live_models`、`mock_skills`，但 LLM baseline 缺服务时不会静默降级
+- [ ] Stage07 / baseline result 中能看出每个组件真实模式：LLM/Embedding live，skills/robot/VLM mock
+- [ ] deterministic/static provider 只在单元测试、validator 或历史 snapshot 中出现，并标记为 test-double
+- [ ] LLM baseline 状态不变；legacy 五场景 compatibility check 状态不变
 
 ---
 
@@ -1532,13 +1573,13 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
   - `ask_user`：中断并返回澄清请求
   - `finish_failed`：终止并写入失败证据
 - 增加最大恢复次数，默认 3。
-- 将 `fetch_cup_retry` 从“失败符合预期”的基线，单独升级为 Recovery 验收用例，而不是在前面阶段偷偷改变它。
+- 不复用或改写 `fetch_cup_retry` 的 legacy 成功语义；Recovery 验收用例单独新增，避免在前面阶段偷偷改变旧基线。
 
 **验收标准**:
 - [ ] Recovery 成功/失败都有结构化日志和 trace
 - [ ] `retry_step` 不会无限循环
 - [ ] `retrieve_again` 和 `replan` 能通过 PipelineContext 清理旧结果并重跑
-- [ ] 旧五场景基线先保持不变；Recovery 用例通过单独 acceptance 更新
+- [ ] legacy 五场景 compatibility check 先保持不变；Recovery 用例通过单独 acceptance 更新
 
 ---
 
@@ -1596,11 +1637,11 @@ def check_embedding_quality(self, vector: List[float]) -> bool:
 
 HomeMaster V1.2 项目在功能实现上已经达到预期目标，核心 pipeline 运行正常，测试结果符合设计。从"可扩展、模块化、易管理、方便增删"的核心需求视角，主要改进空间在于：
 
-1. **执行顺序重排**：先冻结当前五场景快照，再让场景和 Memory Corpus 支持扩增，再把五场景基线切到 manifest 驱动，然后做最小 PipelineContext + StageRegistry，把 `task_runner.py` 从“大总管”收敛为任务启动器。
+1. **执行顺序重排**：先冻结当前五场景快照，再让场景和 Memory Corpus 支持扩增，再把 LLM baseline + Corpus/Profile RAG gate + legacy compatibility check 切到 manifest 驱动，然后做最小 PipelineContext + StageRegistry，把 `task_runner.py` 从“大总管”收敛为任务启动器。
 2. **架构重组降风险**：第一阶段只做 Stage adapter 和 pipeline 骨架，不同时推进 Stage05 子拆分、Recovery 闭环、Contract 全冻结或文件大搬迁。
-3. **运行边界清晰化**：用 `RuntimeMode` 明确 live/mock/static/programmatic 边界，避免 `live_models=True` 被误解为全链路 live。
+3. **运行边界清晰化**：用 `RuntimeContract` 明确 LLM/Embedding 必须 live、robot/VLM 暂时 mock、deterministic/static 仅为 test-double，避免 mock 路径被误报为 baseline。
 4. **扩展性设计渐进推进**：SkillRegistry 注册化先解决 Skill 新增改动面，Prompt 外置坚持“只搬不改”，配置化只处理确实会调参的硬编码。
-5. **可靠性修复提前**：Embedding 失败降级 BM25-only 建议提前做，因为改动小、收益高，且可被 runtime_mode 和日志清晰标记。
+5. **可靠性修复提前**：Embedding/LLM 服务不可用时应 fail-fast 或明确 skipped/not-run；BM25-only 只能作为 diagnostic/test-double，不作为 LLM baseline 通过证据。
 6. **Recovery 后置**：Recovery 需要可重跑的 pipeline、可回退的 context 和日志链路，最后作为独立阶段实施。
 
-建议按以下顺序推进：当前五场景快照冻结 → 场景与 Memory 扩增能力 → manifest 驱动五场景基线 → 最小 Stage 化 → runtime_mode → 最小日志 → Embedding BM25-only 降级 → SkillRegistry → Prompt 外置 → 配置化 → 文件组织/命名 → Recovery。
+建议按以下顺序推进：当前五场景快照冻结 → 场景与 Memory 扩增能力 → manifest 驱动 LLM baseline + Corpus/Profile RAG gate + legacy compatibility check → 最小 Stage 化 → LLM runtime contract → 最小日志 → 服务依赖 fail-fast/skip 表达 → SkillRegistry → Prompt 外置 → 配置化 → 文件组织/命名 → Recovery。

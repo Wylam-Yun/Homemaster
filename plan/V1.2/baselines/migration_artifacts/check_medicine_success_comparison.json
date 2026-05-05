@@ -1,0 +1,32 @@
+{
+  "scenario": "check_medicine_success",
+  "legacy": {
+    "scenario": "check_medicine_success",
+    "final_status": "completed",
+    "stage_pass_fail": {
+      "stage02": "PASS",
+      "stage03": "PASS",
+      "stage04": "PASS",
+      "stage05": "PASS",
+      "stage06": "PASS"
+    },
+    "grounding_status": "grounded",
+    "selected_target": "mem-medicine-1"
+  },
+  "homeworld": {
+    "scenario": "check_medicine_success",
+    "final_status": "completed",
+    "stage_pass_fail": {
+      "stage02": "PASS",
+      "stage03": "PASS",
+      "stage04": "PASS",
+      "stage05": "PASS",
+      "stage06": "PASS"
+    },
+    "grounding_status": "grounded",
+    "selected_target": "mem-medicine-1"
+  },
+  "divergences": [],
+  "selected_target_id_match": true,
+  "selected_target_canonical_match": true
+}

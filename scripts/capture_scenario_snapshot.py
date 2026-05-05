@@ -21,6 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from homemaster.runtime import REPO_ROOT as HM_ROOT
+from homemaster.scenario_catalog import load_catalog
 from homemaster.scenario_runner import (
     EXPECTED_FINAL_STATUS,
     STAGE_07_SCENARIOS,
@@ -33,11 +34,29 @@ SNAPSHOT_PATH = HM_ROOT / "plan" / "V1.2" / "baselines" / "scenario_snapshot_v1.
 # under tests/homemaster/llm_cases/stage_07/.
 SNAPSHOT_WORK_ROOT = HM_ROOT / "var" / "homemaster" / "snapshots" / "p1_0"
 
+# Build SOURCE_FILES based on each scenario's data_source
+GLOBAL_HOMEWORLD = HM_ROOT / "data" / "homes" / "elder_home_v1" / "world.json"
+GLOBAL_CORPUS = HM_ROOT / "data" / "memory" / "elder_home_v1" / "object_memory_corpus.json"
+
+_catalog = {e.name: e.data_source for e in load_catalog()}
 SOURCE_FILES = []
+_homeworld_profile_added = False
 for _name in STAGE_07_SCENARIOS:
     _base = HM_ROOT / "data" / "scenarios" / _name
-    SOURCE_FILES.append(_base / "world.json")
-    SOURCE_FILES.append(_base / "memory.json")
+    _ds = _catalog.get(_name, "legacy_files")
+    if _ds == "homeworld_profile":
+        SOURCE_FILES.append(_base / "world_overlay.json")
+        SOURCE_FILES.append(_base / "memory_profile.json")
+        SOURCE_FILES.append(_base / "failures.json")
+        if not _homeworld_profile_added:
+            SOURCE_FILES.append(GLOBAL_HOMEWORLD)
+            SOURCE_FILES.append(GLOBAL_CORPUS)
+            _homeworld_profile_added = True
+    else:
+        SOURCE_FILES.append(_base / "world.json")
+        SOURCE_FILES.append(_base / "memory.json")
+        SOURCE_FILES.append(_base / "failures.json")
+SOURCE_FILES.append(HM_ROOT / "data" / "scenarios" / "catalog.json")
 SOURCE_FILES.append(HM_ROOT / "src" / "homemaster" / "scenario_runner.py")
 SOURCE_FILES.append(HM_ROOT / "src" / "homemaster" / "task_runner.py")
 

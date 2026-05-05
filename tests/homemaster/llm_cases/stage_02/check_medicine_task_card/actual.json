@@ -28,12 +28,12 @@
       "provider": {
         "attempts": [
           {
-            "elapsed_ms": 0.08016699939616956,
+            "elapsed_ms": 0.07750000804662704,
             "key_index": 1,
             "status_code": 200
           }
         ],
-        "elapsed_ms": 0.08016699939616956,
+        "elapsed_ms": 0.07750000804662704,
         "model": "mimo-v2-pro",
         "protocol": "anthropic",
         "provider_name": "Mimo"
@@ -84,12 +84,12 @@
   "provider": {
     "attempts": [
       {
-        "elapsed_ms": 0.08016699939616956,
+        "elapsed_ms": 0.07750000804662704,
         "key_index": 1,
         "status_code": 200
       }
     ],
-    "elapsed_ms": 0.08016699939616956,
+    "elapsed_ms": 0.07750000804662704,
     "model": "mimo-v2-pro",
     "protocol": "anthropic",
     "provider_name": "Mimo"

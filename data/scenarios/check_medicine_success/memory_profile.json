@@ -1,0 +1,5 @@
+{
+  "full_corpus": false,
+  "include_memory_ids": ["mem-medicine-1"],
+  "exclude_memory_ids": []
+}

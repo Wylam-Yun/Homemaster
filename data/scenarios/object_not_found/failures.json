@@ -1,3 +1,10 @@
 {
-  "failure_rules": []
+  "failure_rules": [
+    {
+      "rule_type": "force_no_object",
+      "enabled": true,
+      "target_category": "cup",
+      "expected_failure_reason": "cup not visible at kitchen table"
+    }
+  ]
 }

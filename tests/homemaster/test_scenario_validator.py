@@ -554,3 +554,15 @@ def test_schema_error_becomes_issue_not_crash(tmp_path):
     assert entries == []
     assert len(issues) == 1
     assert issues[0].error_type == "catalog_parse_error"
+
+
+def test_validate_failures_force_no_object_all_candidates_flagged():
+    """force_no_object_all_candidates is not in P-1E minimal rules — flagged as unknown."""
+    failures = {
+        "failure_rules": [
+            {"rule_type": "force_no_object_all_candidates", "enabled": True, "target_category": "cup"},
+        ],
+    }
+    issues = validate_failures("test_scenario", failures)
+    error_types = [i.error_type for i in issues]
+    assert "unknown_failure_rule_type" in error_types

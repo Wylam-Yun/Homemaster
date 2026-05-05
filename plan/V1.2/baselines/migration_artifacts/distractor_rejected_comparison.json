@@ -1,0 +1,32 @@
+{
+  "scenario": "distractor_rejected",
+  "legacy": {
+    "scenario": "distractor_rejected",
+    "final_status": "failed",
+    "stage_pass_fail": {
+      "stage02": "PASS",
+      "stage03": "PASS",
+      "stage04": "PASS",
+      "stage05": "PASS",
+      "stage06": "PASS"
+    },
+    "grounding_status": "grounded",
+    "selected_target": "mem-cup-2"
+  },
+  "homeworld": {
+    "scenario": "distractor_rejected",
+    "final_status": "failed",
+    "stage_pass_fail": {
+      "stage02": "PASS",
+      "stage03": "PASS",
+      "stage04": "PASS",
+      "stage05": "PASS",
+      "stage06": "PASS"
+    },
+    "grounding_status": "grounded",
+    "selected_target": "mem-cup-2"
+  },
+  "divergences": [],
+  "selected_target_id_match": true,
+  "selected_target_canonical_match": true
+}
