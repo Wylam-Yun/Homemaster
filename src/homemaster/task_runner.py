@@ -29,13 +29,14 @@ from homemaster.runtime import (
     REPO_ROOT,
     TEST_RESULTS_ROOT,
 )
+from homemaster.logger import get_logger
 from homemaster.stage_runtime import RuntimeMode, model_boundary as _model_boundary, validate_runtime_services
 from homemaster.trace import append_jsonl_event, sanitize_for_log, write_json
 
 STAGE_07_CASE_ROOT = LLM_CASE_ROOT / "stage_07"
 STAGE_07_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_07"
 DEFAULT_STAGE_07_RUNTIME_ROOT = REPO_ROOT / "var" / "homemaster" / "runs"
-DEFAULT_STAGE_07_DEBUG_ROOT = STAGE_07_CASE_ROOT.parent
+DEFAULT_STAGE_07_DEBUG_ROOT = REPO_ROOT / "var" / "homemaster" / "debug"
 
 
 class HomeMasterRunError(RuntimeError):
@@ -89,6 +90,37 @@ class HomeMasterRunResult:
             "results_dir": str(self.results_dir),
             "runtime_memory_root": str(self.runtime_memory_root),
         }
+
+
+# ---------------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------------
+
+
+def _compact_modes(modes: dict[str, str] | None) -> str:
+    """Format component_modes as compact 'k=v k=v' string for logging."""
+    if not modes:
+        return ""
+    return "  modes=" + " ".join(f"{k}={v}" for k, v in modes.items())
+
+
+_STAGE_MODE_KEYS: dict[str, list[str]] = {
+    "stage02": ["task_understanding"],
+    "stage03": ["memory_query", "embedding"],
+    "stage04": [],  # always programmatic, hardcoded below
+    "stage05": ["planning", "step_decision", "step_decision_smoke", "skills", "verification"],
+    "stage06": ["summary", "memory_commit"],
+}
+
+
+def _stage_modes(ctx: PipelineContext, stage_name: str) -> dict[str, str]:
+    """Extract component_modes for a stage from ctx.runtime_mode (pre-execution)."""
+    rm = ctx.runtime_mode
+    if stage_name == "stage04":
+        return {"grounding": "programmatic"}
+    if not rm:
+        return {}
+    return {k: getattr(rm, k, "unknown") for k in _STAGE_MODE_KEYS.get(stage_name, [])}
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +214,38 @@ def run_homemaster_task(
         runtime_mode=rm,
     )
 
+    # -- P3: run header --
+    logger = get_logger()
+    logger.info("[%s] run started  scenario=%s  live_models=%s  mock_skills=%s",
+                run_id, scenario, live_models, mock_skills)
+
     # -- Stage loop (no run_pipeline wrapper; ctx accessible in except) --
     try:
         registry = build_default_registry()
         for stage in registry.stages():
-            ctx = stage.execute(ctx)
+            modes = _stage_modes(ctx, stage.name)
+            logger.info("[%s] stage %s started  scenario=%s%s",
+                        run_id, stage.name, scenario, _compact_modes(modes))
+            t0 = time.monotonic()
+            try:
+                ctx = stage.execute(ctx)
+            except Exception as stage_exc:
+                elapsed = time.monotonic() - t0
+                logger.error(
+                    "[%s] ERROR in stage %s: %s: %s  elapsed=%.2fs%s",
+                    run_id, stage.name, type(stage_exc).__name__, stage_exc, elapsed,
+                    _compact_modes(modes),
+                )
+                raise
+            elapsed = time.monotonic() - t0
+            stage_status = ctx.stage_statuses.get(stage.name, {})
+            status = stage_status.get("status", "unknown")
+            modes = stage_status.get("component_modes") or modes
+            logger.info("[%s] stage %s completed in %.2fs  status=%s%s",
+                        run_id, stage.name, elapsed, status, _compact_modes(modes))
     except Exception as exc:
+        logger.error("[%s] run failed  error_type=%s  message=%s",
+                     run_id, type(exc).__name__, exc)
         if not ctx.stage_statuses:
             ctx = ctx.with_stage_status("stage07", {"status": "FAIL", "error": str(exc)})
         else:
@@ -217,6 +275,8 @@ def run_homemaster_task(
             status="FAIL",
         )
         raise
+
+    logger.info("[%s] run finished  final_status=%s", run_id, ctx.final_status)
 
     # -- Convert to HomeMasterRunResult --
     result = HomeMasterRunResult(

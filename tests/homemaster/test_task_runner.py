@@ -89,3 +89,41 @@ def test_mock_skills_false_raises(tmp_path: Path) -> None:
             live_models=False,
             mock_skills=False,
         )
+
+
+def test_stage_lifecycle_logging(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """P3: stage enter/exit/exception are logged with run_id and component_modes."""
+    # Force propagate=True so capfd can capture stderr output from the logger.
+    # Other tests may have called setup_logging() which sets propagate=False.
+    from homemaster.logger import get_logger, setup_logging
+    logger = get_logger()
+    logger.handlers.clear()
+    logger.propagate = False
+    setup_logging("INFO")
+
+    run_homemaster_task(
+        utterance="去厨房找水杯，然后拿给我",
+        scenario="fetch_cup_retry",
+        runtime_memory_root=tmp_path / "runs",
+        debug_root=tmp_path / "debug",
+        run_id="log-test",
+        live_models=False,
+    )
+    captured = capfd.readouterr()
+    lines = captured.err.splitlines()
+    # Run header
+    assert any("run started" in line and "log-test" in line for line in lines)
+    # Each stage — modes appear in both started and completed logs
+    for stage_name in ("stage02", "stage03", "stage04", "stage05", "stage06"):
+        assert any(f"stage {stage_name} started" in line for line in lines), stage_name
+        assert any(f"stage {stage_name} completed" in line for line in lines), stage_name
+    # component_modes in started AND completed logs (P3: runtime_mode in all log types)
+    started_lines = [l for l in lines if "started" in l]
+    assert any("task_understanding=test_double" in l and "stage02" in l for l in started_lines)
+    assert any("modes=" in l and "stage05" in l for l in started_lines)
+    # Run footer
+    assert any("run finished" in line for line in lines)
+
+    # Cleanup: restore default state for other tests
+    logger.handlers.clear()
+    logger.propagate = True

@@ -10,9 +10,11 @@ import typer
 from homemaster.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.frontdoor import understand_task
 from homemaster.interactive_shell import run_interactive_shell
+from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
 from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME
 from homemaster.task_runner import (
+    DEFAULT_STAGE_07_DEBUG_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
     HomeMasterRunError,
     run_homemaster_task,
@@ -45,6 +47,7 @@ def doctor_command(
 ) -> None:
     """Check HomeMaster local environment and optional live providers."""
 
+    setup_logging()
     report = run_doctor(live=live)
     if json_output:
         typer.echo(doctor_report_to_json(report))
@@ -79,7 +82,7 @@ def run_command(
     debug_root: Annotated[
         Path,
         typer.Option("--debug-root", help="Root for debug case reports."),
-    ] = Path("tests/homemaster/llm_cases"),
+    ] = DEFAULT_STAGE_07_DEBUG_ROOT,
     run_id: Annotated[
         str | None,
         typer.Option("--run-id", help="Stable run id for traces and runtime memory."),
@@ -99,9 +102,14 @@ def run_command(
         bool,
         typer.Option("--mock-skills/--no-mock-skills", help="Stage07 uses mock skills."),
     ] = True,
+    log_level: Annotated[
+        str,
+        typer.Option("--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)."),
+    ] = "INFO",
 ) -> None:
     """Run one HomeMaster task through Stage02-Stage06."""
 
+    setup_logging(level=log_level)
     if not scenario:
         typer.echo("run_failed: --scenario is required for Stage07 runs", err=True)
         raise typer.Exit(code=2)
@@ -150,6 +158,7 @@ def contract_smoke(
 ) -> None:
     """Run the Stage 01 real LLM TaskCard contract smoke."""
 
+    setup_logging()
     try:
         result = run_stage_01_contract_smoke(
             utterance=utterance,
@@ -186,6 +195,7 @@ def understand_command(
 ) -> None:
     """Run Stage 02 task understanding and print the validated TaskCard."""
 
+    setup_logging()
     try:
         result = understand_task(
             utterance,
