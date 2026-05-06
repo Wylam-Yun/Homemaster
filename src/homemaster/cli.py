@@ -88,7 +88,11 @@ def run_command(
         bool,
         typer.Option(
             "--live-models/--no-live-models",
-            help="Call real Mimo/BGE-M3 providers instead of deterministic test doubles.",
+            help=(
+                "Use real Mimo LLM + BGE-M3 for brain stages (02/03/05/06). "
+                "When false, brain stages use labeled test-doubles. "
+                "Independent of --mock-skills (robot-layer only)."
+            ),
         ),
     ] = False,
     mock_skills: Annotated[

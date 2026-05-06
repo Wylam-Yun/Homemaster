@@ -78,6 +78,9 @@ class PipelineContext:
     # Failure tracking
     failure_provider: Any = None
 
+    # P2: structured runtime mode (replaces scattered live_models/mock_skills logic)
+    runtime_mode: Any = None  # RuntimeMode | None; Any avoids circular import
+
     # -- Copy-on-write helpers ------------------------------------------------
 
     def with_updates(self, **kwargs: Any) -> PipelineContext:

@@ -52,7 +52,7 @@ def test_stage_07_llm_baseline_matrix(tmp_path: Path) -> None:
     assert boundary["stage03_query"] == "real_mimo"
     assert boundary["stage03_embedding"] == "real_bge_m3"
     assert boundary["stage05_plan"] == "real_mimo"
-    assert boundary["stage05_step"] == "real_mimo"
+    assert boundary["stage05_step"] == "deterministic"  # P2: honest label — StaticScenarioDecisionProvider
     assert boundary["stage06_summary"] == "real_mimo"
     # stage04, memory_commit are programmatic; skills/robot/VLM are mock/not_integrated
     assert boundary["stage05_navigation"] == "mock"

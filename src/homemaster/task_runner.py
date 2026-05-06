@@ -29,7 +29,7 @@ from homemaster.runtime import (
     REPO_ROOT,
     TEST_RESULTS_ROOT,
 )
-from homemaster.stage_runtime import model_boundary as _model_boundary
+from homemaster.stage_runtime import RuntimeMode, model_boundary as _model_boundary, validate_runtime_services
 from homemaster.trace import append_jsonl_event, sanitize_for_log, write_json
 
 STAGE_07_CASE_ROOT = LLM_CASE_ROOT / "stage_07"
@@ -123,13 +123,36 @@ def run_homemaster_task(
     runtime_memory_dir = Path(runtime_memory_root) / run_id / "memory"
     case_dir = Path(debug_root) / "stage_07" / run_id
 
+    # -- P2: runtime contract guards (before any file materialization) --
+    if not mock_skills:
+        raise HomeMasterRunError(
+            "mock_skills=False is not supported: robot/VLA/VLM not integrated. "
+            "Use mock_skills=True until real skill executors are available."
+        )
+
+    rm = RuntimeMode.from_flags(live_models=live_models, mock_skills=mock_skills)
+    if live_models:
+        checks = validate_runtime_services(
+            rm,
+            config_path=str(config_path),
+            provider_name=provider_name,
+            embedding_provider_name=embedding_provider_name,
+        )
+        unavailable = [c for c in checks if not c.available]
+        if unavailable:
+            names = ", ".join(f"{c.component}: {c.error}" for c in unavailable)
+            raise HomeMasterRunError(
+                f"live_models=True but services unavailable: {names}"
+            )
+
+    # -- Data-source resolution (may materialize files) --
     resolved_world, resolved_memory = _resolve_data_source(
         scenario, scenario_root, case_dir, runtime_memory_dir,
         world_path, memory_path,
     )
 
     results_dir = STAGE_07_RESULTS_DIR
-    mb = _model_boundary(live_models=live_models, mock_skills=mock_skills)
+    mb = rm.to_boundary_dict()
     paths = {
         "world_path": str(resolved_world),
         "base_memory_path": str(resolved_memory),
@@ -156,6 +179,7 @@ def run_homemaster_task(
         model_boundary=mb,
         paths=paths,
         failure_provider=failure_provider,
+        runtime_mode=rm,
     )
 
     # -- Stage loop (no run_pipeline wrapper; ctx accessible in except) --

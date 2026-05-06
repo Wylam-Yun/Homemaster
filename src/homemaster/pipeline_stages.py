@@ -35,9 +35,16 @@ class Stage02Adapter:
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
         )
+        rm = ctx.runtime_mode
         return ctx.with_updates(task_card=task_card).with_stage_status(
             "stage02",
-            {"status": "PASS", "mode": ctx.model_boundary.get("stage02", "unknown")},
+            {
+                "status": "PASS",
+                "mode": ctx.model_boundary.get("stage02", "unknown"),
+                "component_modes": {
+                    "task_understanding": rm.task_understanding if rm else "unknown",
+                },
+            },
         )
 
 
@@ -72,12 +79,17 @@ class Stage03Adapter:
             case_root=ctx.case_dir / "stage_03_cases",
             results_dir=ctx.results_dir,
         )
+        rm = ctx.runtime_mode
         return ctx.with_updates(memory_result=memory_result).with_stage_status(
             "stage03",
             {
                 "status": "PASS",
                 "mode": ctx.model_boundary.get("stage03_query", "unknown"),
                 "embedding": ctx.model_boundary.get("stage03_embedding", "unknown"),
+                "component_modes": {
+                    "memory_query": rm.memory_query if rm else "unknown",
+                    "embedding": rm.embedding if rm else "unknown",
+                },
             },
         )
 
@@ -102,6 +114,7 @@ class Stage04Adapter:
             ctx.task_card, ctx.memory_result.memory_result, world
         )
         planning_context = planning_build.context
+        rm = ctx.runtime_mode
         return ctx.with_updates(planning_context=planning_context).with_stage_status(
             "stage04",
             {
@@ -112,6 +125,9 @@ class Stage04Adapter:
                     if planning_context.selected_target
                     else None
                 ),
+                "component_modes": {
+                    "grounding": "programmatic",
+                },
             },
         )
 
@@ -169,6 +185,7 @@ class Stage05Adapter:
             decision_provider=decision_provider,
             initial_state=initial_state,
         )
+        rm = ctx.runtime_mode
         return (
             ctx.with_updates(
                 orchestration_plan=plan,
@@ -183,6 +200,13 @@ class Stage05Adapter:
                     "step_decision": live_step_status,
                     "final_task_status": execution_result.final_state.task_status,
                     "mock_skills": ctx.mock_skills,
+                    "component_modes": {
+                        "planning": rm.planning if rm else "unknown",
+                        "step_decision": rm.step_decision if rm else "unknown",
+                        "step_decision_smoke": rm.step_decision_smoke if rm else "unknown",
+                        "skills": rm.skills if rm else "unknown",
+                        "verification": rm.verification if rm else "unknown",
+                    },
                 },
             )
         )
@@ -242,6 +266,7 @@ class Stage06Adapter:
             plan=commit_plan,
             task_id=ctx.run_id,
         )
+        rm = ctx.runtime_mode
         return ctx.with_updates(
             evidence_bundle=evidence_bundle,
             task_summary=task_summary,
@@ -254,5 +279,9 @@ class Stage06Adapter:
                 "task_summary_result": task_summary.result,
                 "object_memory_update_count": len(commit_plan.object_memory_updates),
                 "fact_memory_write_count": len(commit_plan.fact_memory_writes),
+                "component_modes": {
+                    "summary": rm.summary if rm else "unknown",
+                    "memory_commit": rm.memory_commit if rm else "programmatic",
+                },
             },
         )

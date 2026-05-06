@@ -7,7 +7,8 @@ eliminating reverse dependencies.
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar, Literal
 
 from homemaster.contracts import (
     ExecutionState,
@@ -25,11 +26,168 @@ from homemaster.token_budget import initial_max_tokens
 
 
 # ---------------------------------------------------------------------------
+# P2: RuntimeMode — structured per-component mode declaration
+# ---------------------------------------------------------------------------
+
+
+ComponentMode = Literal[
+    "live_llm",          # Real Mimo LLM call
+    "live_embedding",    # Real BGE-M3 embedding call
+    "mock_skill",        # Mock navigation/operation/verification
+    "mock_symbolic",     # Deterministic symbolic verification
+    "programmatic",      # Pure code, no LLM or mock needed
+    "test_double",       # Deterministic provider used as test stand-in
+    "not_integrated",    # Component does not exist yet (robot/VLA/VLM)
+]
+
+
+@dataclass(frozen=True)
+class RuntimeMode:
+    """Structured declaration of each pipeline component's runtime mode.
+
+    Fields reflect the ACTUAL execution path, not aspirational labels.
+    - step_decision: always test_double (StaticScenarioDecisionProvider)
+    - step_decision_smoke: live_llm when live_models=True, else "n/a"
+    - skills/verification: mock_skill/mock_symbolic (robot/VLM not integrated)
+    """
+
+    task_understanding: ComponentMode
+    memory_query: ComponentMode
+    embedding: ComponentMode
+    planning: ComponentMode
+    step_decision: ComponentMode       # actual execution decision provider
+    step_decision_smoke: str           # "live_llm" or "n/a" (not ComponentMode)
+    skills: ComponentMode
+    verification: ComponentMode
+    summary: ComponentMode
+    memory_commit: ComponentMode
+    real_robot: ComponentMode
+    real_vla: ComponentMode
+    real_vlm: ComponentMode
+
+    @classmethod
+    def from_flags(cls, *, live_models: bool, mock_skills: bool) -> RuntimeMode:
+        """Map legacy boolean flags to structured RuntimeMode."""
+        brain: ComponentMode = "live_llm" if live_models else "test_double"
+        emb: ComponentMode = "live_embedding" if live_models else "test_double"
+        skill: ComponentMode = "mock_skill" if mock_skills else "test_double"
+        return cls(
+            task_understanding=brain,
+            memory_query=brain,
+            embedding=emb,
+            planning=brain,
+            step_decision="test_double",        # always: StaticScenarioDecisionProvider
+            step_decision_smoke="live_llm" if live_models else "n/a",
+            skills=skill,
+            verification="mock_symbolic",
+            summary=brain,
+            memory_commit="programmatic",
+            real_robot="not_integrated",
+            real_vla="not_integrated",
+            real_vlm="not_integrated",
+        )
+
+    def to_boundary_dict(self) -> dict[str, str]:
+        """Serialize to legacy model_boundary dict format (backward compat).
+
+        Maps internal ComponentMode to legacy string values.
+        """
+        _BRAIN: dict[str, str] = {
+            "live_llm": "real_mimo",
+            "test_double": "deterministic",
+        }
+        _EMB: dict[str, str] = {
+            "live_embedding": "real_bge_m3",
+            "test_double": "deterministic",
+        }
+        _VERIF: dict[str, str] = {
+            "mock_symbolic": "mock",
+            "mock_skill": "mock",
+            "test_double": "not_integrated",
+        }
+        _SKILL: dict[str, str] = {
+            "mock_skill": "mock",
+            "test_double": "not_integrated",
+            "not_integrated": "not_integrated",
+        }
+        return {
+            "stage02": _BRAIN[self.task_understanding],
+            "stage03_query": _BRAIN[self.memory_query],
+            "stage03_embedding": _EMB[self.embedding],
+            "stage04": "programmatic",
+            "stage05_plan": _BRAIN[self.planning],
+            "stage05_step": _BRAIN[self.step_decision],
+            "stage05_navigation": _SKILL.get(self.skills, "not_configured"),
+            "stage05_operation": _SKILL.get(self.skills, "not_configured"),
+            "stage05_verification": _VERIF.get(self.verification, "not_configured"),
+            "stage06_summary": _BRAIN[self.summary],
+            "stage06_memory_commit": "programmatic",
+            "real_robot": _SKILL.get(self.real_robot, "not_integrated"),
+            "real_vla": _SKILL.get(self.real_vla, "not_integrated"),
+            "real_vlm": _SKILL.get(self.real_vlm, "not_integrated"),
+        }
+
+
+@dataclass(frozen=True)
+class ServiceCheckResult:
+    """Result of checking whether a required service is available."""
+
+    component: str
+    mode_required: ComponentMode
+    available: bool
+    error: str | None = None
+
+
+def validate_runtime_services(
+    runtime_mode: RuntimeMode,
+    *,
+    config_path: str,
+    provider_name: str,
+    embedding_provider_name: str,
+) -> list[ServiceCheckResult]:
+    """Check that required services are available for the given RuntimeMode.
+
+    Returns a list of check results.  If any required service is unavailable,
+    the caller should fail-fast rather than silently falling back.
+    """
+    from homemaster.runtime import RuntimeConfigError
+
+    checks: list[ServiceCheckResult] = []
+    needs_llm = any(
+        getattr(runtime_mode, f) == "live_llm"
+        for f in ("task_understanding", "memory_query", "planning", "summary")
+    )
+    if needs_llm:
+        try:
+            load_provider_config(config_path, provider_name=provider_name)
+            checks.append(ServiceCheckResult("llm_provider", "live_llm", True))
+        except RuntimeConfigError as exc:
+            checks.append(
+                ServiceCheckResult("llm_provider", "live_llm", False, str(exc))
+            )
+    if runtime_mode.embedding == "live_embedding":
+        try:
+            load_provider_config(config_path, provider_name=embedding_provider_name)
+            checks.append(
+                ServiceCheckResult("embedding_provider", "live_embedding", True)
+            )
+        except RuntimeConfigError as exc:
+            checks.append(
+                ServiceCheckResult(
+                    "embedding_provider", "live_embedding", False, str(exc)
+                )
+            )
+    return checks
+
+
+# ---------------------------------------------------------------------------
 # Deterministic / mock providers
 # ---------------------------------------------------------------------------
 
 
 class StaticMemoryQueryProvider:
+    runtime_mode: ClassVar[ComponentMode] = "test_double"  # P2: labeled test-double
+
     def __init__(self, query: MemoryRetrievalQuery) -> None:
         self.query = query
 
@@ -44,6 +202,7 @@ class StaticMemoryQueryProvider:
 
 
 class KeywordEmbeddingProvider:
+    runtime_mode: ClassVar[ComponentMode] = "test_double"  # P2: labeled test-double
     provider_name = "deterministic-embedding"
     model = "keyword-vector-v1"
 
@@ -65,6 +224,8 @@ class KeywordEmbeddingProvider:
 
 
 class StaticScenarioDecisionProvider:
+    runtime_mode: ClassVar[ComponentMode] = "test_double"  # P2: labeled test-double
+
     def __init__(
         self,
         *,
@@ -456,8 +617,9 @@ def deterministic_plan(context: PlanningContext) -> OrchestrationPlan:
 
 
 def dummy_provider() -> ProviderConfig:
+    """Create a dummy ProviderConfig for test-double mode. NOT for production use."""
     return ProviderConfig(
-        name="deterministic",
+        name="test-double-deterministic",
         base_url="https://example.invalid/v1/messages",
         model="stage07-static",
         api_keys=("redacted",),
@@ -471,21 +633,6 @@ def dummy_provider() -> ProviderConfig:
 
 
 def model_boundary(*, live_models: bool, mock_skills: bool) -> dict[str, str]:
-    model = "real_mimo" if live_models else "deterministic"
-    embedding = "real_bge_m3" if live_models else "deterministic"
-    return {
-        "stage02": model,
-        "stage03_query": model,
-        "stage03_embedding": embedding,
-        "stage04": "programmatic",
-        "stage05_plan": model,
-        "stage05_step": model,
-        "stage05_navigation": "mock" if mock_skills else "not_configured",
-        "stage05_operation": "mock" if mock_skills else "not_configured",
-        "stage05_verification": "mock" if mock_skills else "not_configured",
-        "stage06_summary": model,
-        "stage06_memory_commit": "programmatic",
-        "real_robot": "not_integrated",
-        "real_vla": "not_integrated",
-        "real_vlm": "not_integrated",
-    }
+    """Build model boundary dict. Delegates to RuntimeMode for structured mapping."""
+    rm = RuntimeMode.from_flags(live_models=live_models, mock_skills=mock_skills)
+    return rm.to_boundary_dict()
