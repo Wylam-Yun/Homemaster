@@ -18,6 +18,7 @@ from homemaster.contracts import (
     TaskCard,
 )
 from homemaster.embedding_client import BGEEmbeddingClient, EmbeddingClientError
+from homemaster.logger import get_logger
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
 from homemaster.memory_index import (
     JsonEmbeddingCache,
@@ -313,32 +314,55 @@ def run_memory_rag(
     bm25_index = MemoryBM25Index.build(documents, tokenizer)
     bm25_hits = bm25_index.search(query.query_text, top_k=query.top_k)
 
-    cache = JsonEmbeddingCache(cache_dir)
-    document_vectors_list = cache.get_or_embed_documents(
-        documents,
-        provider_name=embedding_provider.provider_name,
-        model=embedding_provider.model,
-        embed_texts=embedding_provider.embed_texts,
-    )
-    document_vectors = dict(zip(
-        [document.document_id for document in documents],
-        document_vectors_list,
-        strict=True,
-    ))
-    query_vector = embedding_provider.embed_texts([query.query_text])[0]
-    dense_hits = _dense_hits(documents, document_vectors, query_vector, top_k=query.top_k)
+    # P4: embedding degradation — catch EmbeddingClientError, fall back to BM25-only
+    logger = get_logger()
+    embedding_summary = embedding_provider.public_summary()
+    degraded = False
+    degradation_reason: str | None = None
+    try:
+        cache = JsonEmbeddingCache(cache_dir)
+        document_vectors_list = cache.get_or_embed_documents(
+            documents,
+            provider_name=embedding_provider.provider_name,
+            model=embedding_provider.model,
+            embed_texts=embedding_provider.embed_texts,
+        )
+        document_vectors = dict(zip(
+            [document.document_id for document in documents],
+            document_vectors_list,
+            strict=True,
+        ))
+        query_vector = embedding_provider.embed_texts([query.query_text])[0]
+        dense_hits = _dense_hits(documents, document_vectors, query_vector, top_k=query.top_k)
+    except EmbeddingClientError as exc:
+        logger.warning(
+            "[%s] embedding degraded to bm25_only: %s: %s: %s",
+            case_name, type(exc).__name__, exc.error_type, exc.message,
+        )
+        degraded = True
+        degradation_reason = f"{type(exc).__name__}: {exc.error_type}: {exc.message}"
+        dense_hits = []
+        embedding_summary = {"provider_name": "degraded", "model": "n/a", "degraded": True}
+
+    retrieval_mode = "bm25_only" if degraded else "hybrid"
+    ranking_stage = "bm25_only" if degraded else "bm25_dense_fusion"
+
     memory_result = _fuse_hits(
         documents=documents,
         bm25_hits=bm25_hits,
         dense_hits=dense_hits,
         query=query,
         negative_evidence=negative_evidence or {},
-        embedding_provider_summary=embedding_provider.public_summary(),
+        embedding_provider_summary=embedding_summary,
+        ranking_stage=ranking_stage,
         index_snapshot={
             "document_count": len(documents),
             "domain_terms": domain_terms,
             "tokenized_query": tokenizer.tokenize(query.query_text),
-            "ranking_stage": "bm25_dense_fusion",
+            "ranking_stage": ranking_stage,
+            "retrieval_mode": retrieval_mode,
+            "degraded": degraded,
+            **({"degradation_reason": degradation_reason} if degradation_reason else {}),
         },
     )
     checks = validate_memory_rag_expectations(memory_result, expected_payload)
@@ -350,7 +374,10 @@ def run_memory_rag(
         "passed": passed,
         "task_card": task_card.model_dump(mode="json"),
         "query_provider": query_provider_summary,
-        "embedding_provider": embedding_provider.public_summary(),
+        "embedding_provider": embedding_summary,
+        "retrieval_mode": retrieval_mode,
+        "degraded": degraded,
+        **({"degradation_reason": degradation_reason} if degradation_reason else {}),
         "prompt": prompt,
         "raw_response": raw_response,
         "query_attempt_count": len(query_attempts),
@@ -405,7 +432,7 @@ def run_memory_rag(
         prompt=prompt,
         raw_response=raw_response,
         provider=query_provider_summary,
-        embedding_provider=embedding_provider.public_summary(),
+        embedding_provider=embedding_summary,
         case_dir=case_dir,
         results_dir=results_dir,
         elapsed_ms=elapsed_ms,
@@ -566,8 +593,7 @@ def validate_memory_rag_expectations(
     checks: dict[str, bool] = {
         "schema_valid": True,
         "has_score_breakdown": all(
-            hit.ranking_stage == "bm25_dense_fusion"
-            and hit.ranking_reasons
+            hit.ranking_reasons
             and hit.final_score >= 0
             for hit in memory_result.hits
         ),
@@ -664,6 +690,7 @@ def _fuse_hits(
     negative_evidence: dict[str, Any],
     embedding_provider_summary: dict[str, Any],
     index_snapshot: dict[str, Any],
+    ranking_stage: str = "bm25_dense_fusion",
 ) -> MemoryRetrievalResult:
     bm25_by_id = {hit.document.document_id: hit for hit in bm25_hits}
     dense_by_id = {hit["document"].document_id: hit for hit in dense_hits}
@@ -708,6 +735,7 @@ def _fuse_hits(
             metadata_score=metadata_score,
             final_score=final_score,
             ranking_reasons=ranking_reasons,
+            ranking_stage=ranking_stage,
             executable=document.executable and invalid_reason is None,
             invalid_reason=invalid_reason,
         )
@@ -722,7 +750,7 @@ def _fuse_hits(
         hits=hits[: query.top_k],
         excluded=excluded,
         retrieval_query=query,
-        ranking_reasons=["bm25_dense_rrf_fusion", "metadata_guardrail"],
+        ranking_reasons=[ranking_stage, "metadata_guardrail"],
         retrieval_summary=f"returned {len(hits[: query.top_k])} hits and {len(excluded)} excluded",
         embedding_provider=embedding_provider_summary,
         index_snapshot=index_snapshot,
@@ -737,6 +765,7 @@ def _hit_from_document(
     metadata_score: float,
     final_score: float,
     ranking_reasons: list[str],
+    ranking_stage: str,
     executable: bool,
     invalid_reason: str | None,
 ) -> MemoryRetrievalHit:
@@ -764,7 +793,7 @@ def _hit_from_document(
         canonical_metadata=metadata,
         executable=executable,
         invalid_reason=invalid_reason,
-        ranking_stage="bm25_dense_fusion",
+        ranking_stage=ranking_stage,
         rerank_score=None,
         reranker_model=None,
     )
