@@ -20,7 +20,11 @@ from homemaster.contracts import (
 )
 from homemaster.failure_rule_provider import FailureRuleProvider
 from homemaster.logger import get_logger
-from homemaster.pipeline_core import PipelineContext, build_default_registry
+from homemaster.pipeline.core import PipelineContext, build_default_registry
+from homemaster.pipeline.stage_runtime import (
+    RuntimeMode,
+    validate_runtime_services,
+)
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
@@ -32,10 +36,6 @@ from homemaster.runtime import (
     LLM_CASE_ROOT,
     REPO_ROOT,
     TEST_RESULTS_ROOT,
-)
-from homemaster.stage_runtime import (
-    RuntimeMode,
-    validate_runtime_services,
 )
 from homemaster.trace import append_jsonl_event, sanitize_for_log, write_json
 

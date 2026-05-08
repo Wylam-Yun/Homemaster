@@ -497,13 +497,13 @@ def validate_scenario_metadata(
     if manifest.utterance != catalog_entry.utterance:
         issues.append(_issue(
             "catalog_manifest_utterance_mismatch", scope,
-            f"scenario.json utterance != catalog utterance",
+            "scenario.json utterance != catalog utterance",
         ))
 
     if manifest.expected_final_status != catalog_entry.expected_final_status:
         issues.append(_issue(
             "catalog_manifest_status_mismatch", scope,
-            f"scenario.json expected_final_status != catalog expected_final_status",
+            "scenario.json expected_final_status != catalog expected_final_status",
         ))
 
     return issues
@@ -734,14 +734,14 @@ def validate_materialization(
     if not isinstance(result, dict) or "object_memory" not in result:
         issues.append(_issue(
             "materialization_bad_structure", scope,
-            f"materialize_memory result missing 'object_memory' key",
+            "materialize_memory result missing 'object_memory' key",
         ))
         return issues
 
     if require_nonempty and not result["object_memory"]:
         issues.append(_issue(
             "materialization_empty", scope,
-            f"materialize_memory returned empty object_memory",
+            "materialize_memory returned empty object_memory",
         ))
 
     return issues

@@ -7,9 +7,8 @@ from typing import Annotated
 
 import typer
 
-from homemaster.doctor import doctor_report_to_json, render_doctor_text, run_doctor
-from homemaster.frontdoor import understand_task
-from homemaster.interactive_shell import run_interactive_shell
+from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
+from homemaster.cli.interactive_shell import run_interactive_shell
 from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
 from homemaster.runtime import (
@@ -18,6 +17,7 @@ from homemaster.runtime import (
     DEFAULT_MOCK_SKILLS,
     DEFAULT_PROVIDER_NAME,
 )
+from homemaster.stages.task_understanding import understand_task
 from homemaster.task_runner import (
     DEFAULT_STAGE_07_DEBUG_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
