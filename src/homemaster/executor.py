@@ -23,12 +23,38 @@ from homemaster.execution_state import (
 )
 from homemaster.failure_log import make_failure_record
 from homemaster.orchestration_validator import validate_orchestration_plan
+from homemaster.runtime import (
+    RuntimeConfigError,
+    get_config_section,
+    load_homemaster_config,
+)
 from homemaster.skill_registry import (
     SkillInputValidationError,
     SkillRegistry,
     get_default_skill_registry,
 )
 from homemaster.verifier import build_verification_input, verify_skill_result
+
+
+# P7: executor config with fail-fast validation
+def _load_executor_config() -> tuple[int, int]:
+    cfg = get_config_section(load_homemaster_config(), "executor")
+    if cfg is None:
+        return 3, 3
+    sm = cfg.get("step_multiplier", 3)
+    if not isinstance(sm, int) or sm < 1:
+        raise RuntimeConfigError(
+            f"executor.step_multiplier must be a positive int, got {sm!r}"
+        )
+    mms = cfg.get("minimum_max_steps", 3)
+    if not isinstance(mms, int) or mms < 1:
+        raise RuntimeConfigError(
+            f"executor.minimum_max_steps must be a positive int, got {mms!r}"
+        )
+    return sm, mms
+
+
+STEP_MULTIPLIER, MINIMUM_MAX_STEPS = _load_executor_config()
 
 
 class Stage05ExecutionError(RuntimeError):
@@ -110,7 +136,7 @@ def execute_stage_05_plan(
     failure_records: list[FailureRecord] = []
     step_decisions: list[StepDecision] = []
     subtask_by_id = {subtask.id: subtask for subtask in plan.subtasks}
-    max_steps = max_steps or max(len(plan.subtasks) * 3, 3)
+    max_steps = max_steps or max(len(plan.subtasks) * STEP_MULTIPLIER, MINIMUM_MAX_STEPS)
 
     for _ in range(max_steps):
         if _all_subtasks_verified(state):

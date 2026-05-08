@@ -15,9 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from homemaster.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
-from homemaster.memory_rag import DEFAULT_EMBEDDING_PROVIDER_NAME
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
+    DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     GENERIC_CONFIG_PATH,
     LEGACY_CONFIG_PATH,

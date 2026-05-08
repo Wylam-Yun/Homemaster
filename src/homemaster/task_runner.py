@@ -13,30 +13,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from homemaster.failure_rule_provider import FailureRuleProvider
-
 from homemaster.contracts import (
     EvidenceBundle,
     PlanningContext,
     TaskCard,
 )
+from homemaster.failure_rule_provider import FailureRuleProvider
+from homemaster.logger import get_logger
 from homemaster.pipeline_core import PipelineContext, build_default_registry
-from homemaster.memory_rag import DEFAULT_EMBEDDING_PROVIDER_NAME
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
+    DEFAULT_EMBEDDING_PROVIDER_NAME,
+    DEFAULT_LIVE_MODELS,
+    DEFAULT_MOCK_SKILLS,
     DEFAULT_PROVIDER_NAME,
+    DEFAULT_STAGE_07_DEBUG_ROOT,
+    DEFAULT_STAGE_07_RUNTIME_ROOT,
     LLM_CASE_ROOT,
     REPO_ROOT,
     TEST_RESULTS_ROOT,
 )
-from homemaster.logger import get_logger
-from homemaster.stage_runtime import RuntimeMode, model_boundary as _model_boundary, validate_runtime_services
+from homemaster.stage_runtime import (
+    RuntimeMode,
+    validate_runtime_services,
+)
 from homemaster.trace import append_jsonl_event, sanitize_for_log, write_json
 
 STAGE_07_CASE_ROOT = LLM_CASE_ROOT / "stage_07"
 STAGE_07_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_07"
-DEFAULT_STAGE_07_RUNTIME_ROOT = REPO_ROOT / "var" / "homemaster" / "runs"
-DEFAULT_STAGE_07_DEBUG_ROOT = REPO_ROOT / "var" / "homemaster" / "debug"
 
 
 class HomeMasterRunError(RuntimeError):
@@ -82,7 +86,9 @@ class HomeMasterRunResult:
             "paths": self.paths,
             "task_card": _ser(self.task_card) if self.task_card else None,
             "planning_context": _ser(self.planning_context) if self.planning_context else None,
-            "orchestration_plan": _ser(self.orchestration_plan) if self.orchestration_plan else None,
+            "orchestration_plan": (
+                _ser(self.orchestration_plan) if self.orchestration_plan else None
+            ),
             "execution_result": _ser(self.execution_result) if self.execution_result else None,
             "evidence_bundle": _ser(self.evidence_bundle) if self.evidence_bundle else None,
             "memory_commit": self.memory_commit,
@@ -137,8 +143,8 @@ def run_homemaster_task(
     runtime_memory_root: str | Path = DEFAULT_STAGE_07_RUNTIME_ROOT,
     debug_root: str | Path = DEFAULT_STAGE_07_DEBUG_ROOT,
     run_id: str | None = None,
-    live_models: bool = False,
-    mock_skills: bool = True,
+    live_models: bool = DEFAULT_LIVE_MODELS,
+    mock_skills: bool = DEFAULT_MOCK_SKILLS,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,

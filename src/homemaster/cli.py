@@ -12,7 +12,12 @@ from homemaster.frontdoor import understand_task
 from homemaster.interactive_shell import run_interactive_shell
 from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
-from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME
+from homemaster.runtime import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_LIVE_MODELS,
+    DEFAULT_MOCK_SKILLS,
+    DEFAULT_PROVIDER_NAME,
+)
 from homemaster.task_runner import (
     DEFAULT_STAGE_07_DEBUG_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
@@ -97,11 +102,11 @@ def run_command(
                 "Independent of --mock-skills (robot-layer only)."
             ),
         ),
-    ] = False,
+    ] = DEFAULT_LIVE_MODELS,
     mock_skills: Annotated[
         bool,
         typer.Option("--mock-skills/--no-mock-skills", help="Stage07 uses mock skills."),
-    ] = True,
+    ] = DEFAULT_MOCK_SKILLS,
     log_level: Annotated[
         str,
         typer.Option("--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)."),

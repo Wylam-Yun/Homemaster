@@ -34,12 +34,16 @@ from homemaster.memory_tokenizer import (
 from homemaster.prompt_loader import render
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
+    DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     LLM_CASE_ROOT,
     REPO_ROOT,
     TEST_RESULTS_ROOT,
     ProviderConfig,
+    RuntimeConfigError,
     ensure_stage_directories,
+    get_config_section,
+    load_homemaster_config,
     load_provider_config,
 )
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
@@ -47,9 +51,69 @@ from homemaster.trace import append_jsonl_event, write_json
 
 STAGE_03_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_03"
 STAGE_03_CASE_ROOT = LLM_CASE_ROOT / "stage_03"
-DEFAULT_EMBEDDING_PROVIDER_NAME = "MemoryEmbedding"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
 MEMORY_QUERY_RETRY_INSTRUCTION = render("stage_03_retry.txt")
+
+# ---------------------------------------------------------------------------
+# P7: retrieval scoring config
+# ---------------------------------------------------------------------------
+
+_DEFAULT_WEIGHTS: dict[str, float] = {
+    "target_category_match": 0.2,
+    "target_alias_match": 0.2,
+    "location_match": 0.15,
+    "high_confidence": 0.1,
+    "medium_confidence": 0.05,
+    "stale_penalty": -0.1,
+}
+_DEFAULT_RRF_K = 60
+_DEFAULT_TOP_K_LIMIT = 50
+
+
+def _load_scoring_config() -> dict[str, Any]:
+    section = get_config_section(load_homemaster_config(), "retrieval_scoring")
+    if section is None:
+        return {**_DEFAULT_WEIGHTS, "rrf_k": _DEFAULT_RRF_K, "top_k_limit": _DEFAULT_TOP_K_LIMIT}
+
+    weights = dict(_DEFAULT_WEIGHTS)
+    raw_weights = section.get("metadata_weights")
+    if raw_weights is not None:
+        if not isinstance(raw_weights, dict):
+            raise RuntimeConfigError("retrieval_scoring.metadata_weights must be a JSON object")
+        for k, v in raw_weights.items():
+            if k not in _DEFAULT_WEIGHTS:
+                continue
+            if not isinstance(v, (int, float)):
+                raise RuntimeConfigError(
+                    f"retrieval_scoring.metadata_weights.{k} must be a number, "
+                    f"got {type(v).__name__}"
+                )
+            weights[k] = float(v)
+
+    rrf_k = section.get("rrf_k", _DEFAULT_RRF_K)
+    if not isinstance(rrf_k, int) or rrf_k < 1:
+        raise RuntimeConfigError(
+            f"retrieval_scoring.rrf_k must be a positive int, got {rrf_k!r}"
+        )
+
+    top_k_limit = section.get("top_k_limit", _DEFAULT_TOP_K_LIMIT)
+    if not isinstance(top_k_limit, int) or not (1 <= top_k_limit <= 50):
+        raise RuntimeConfigError(
+            f"retrieval_scoring.top_k_limit must be int in [1, 50], got {top_k_limit!r}"
+        )
+
+    return {**weights, "rrf_k": rrf_k, "top_k_limit": top_k_limit}
+
+
+_scoring = _load_scoring_config()
+METADATA_WEIGHT_CATEGORY: float = _scoring["target_category_match"]
+METADATA_WEIGHT_ALIAS: float = _scoring["target_alias_match"]
+METADATA_WEIGHT_LOCATION: float = _scoring["location_match"]
+METADATA_WEIGHT_HIGH_CONFIDENCE: float = _scoring["high_confidence"]
+METADATA_WEIGHT_MEDIUM_CONFIDENCE: float = _scoring["medium_confidence"]
+METADATA_WEIGHT_STALE_PENALTY: float = _scoring["stale_penalty"]
+RRF_K: int = _scoring["rrf_k"]
+TOP_K_LIMIT: int = _scoring["top_k_limit"]
 
 
 class MemoryRagError(RuntimeError):
@@ -598,7 +662,7 @@ def _validate_query_boundaries(
             error_type="query_boundary_error",
             message="source_filter must be ['object_memory']",
         )
-    if query.top_k > 50:
+    if query.top_k > TOP_K_LIMIT:
         raise MemoryRagBoundaryError(
             error_type="query_boundary_error",
             message="top_k exceeds the schema limit",
@@ -778,25 +842,25 @@ def _metadata_score(
     score = 0.0
     reasons: list[str] = []
     if query.target_category and query.target_category.casefold() in searchable:
-        score += 0.2
+        score += METADATA_WEIGHT_CATEGORY
         reasons.append("metadata_target_category_match")
     if query.target_aliases and any(
         alias.casefold() in searchable for alias in query.target_aliases
     ):
-        score += 0.2
+        score += METADATA_WEIGHT_ALIAS
         reasons.append("metadata_target_alias_match")
     if query.location_terms and any(term.casefold() in searchable for term in query.location_terms):
-        score += 0.15
+        score += METADATA_WEIGHT_LOCATION
         reasons.append("metadata_location_match")
     confidence = str(metadata.get("confidence_level") or "").casefold()
     if confidence == "high":
-        score += 0.1
+        score += METADATA_WEIGHT_HIGH_CONFIDENCE
         reasons.append("metadata_high_confidence")
     elif confidence == "medium":
-        score += 0.05
+        score += METADATA_WEIGHT_MEDIUM_CONFIDENCE
         reasons.append("metadata_medium_confidence")
     if str(metadata.get("belief_state") or "").casefold() == "stale":
-        score -= 0.1
+        score += METADATA_WEIGHT_STALE_PENALTY
         reasons.append("metadata_stale_penalty")
     return score, reasons
 
@@ -936,7 +1000,7 @@ def _task_card_payload(
     }
 
 
-def _rrf_score(rank: int | None, *, k: int = 60) -> float:
+def _rrf_score(rank: int | None, *, k: int = RRF_K) -> float:
     return 0.0 if rank is None else 1.0 / (k + rank)
 
 

@@ -1,8 +1,8 @@
 {
   "snapshot_version": "1.0",
-  "created_at": "2026-05-06T13:39:15.320192+00:00",
+  "created_at": "2026-05-08T14:48:26.189592+00:00",
   "pipeline_mode": "deterministic",
-  "homemaster_commit": "6ef0826867e3e419e1d75c686942250aba1589ee",
+  "homemaster_commit": "a286054ac734de52731e8d1aee775e60bc32a0ce",
   "source_file_hashes": {
     "data/scenarios/check_medicine_success/world_overlay.json": "a2cf4dd7ee68c204231afd9929e0848170f48ca84cc8a4482be39fd20ca47014",
     "data/scenarios/check_medicine_success/memory_profile.json": "39eee20e2818a6bca6bfc950f1bad42512126653bf9c1afa6b9eb8ba5064a82a",
@@ -23,7 +23,7 @@
     "data/scenarios/distractor_rejected/failures.json": "ba13a5fd7da316ed8448fc40b4e2818e534b2e7e91d88783e98aa59f97d4edc5",
     "data/scenarios/catalog.json": "d41e450ce08ade6673ae899e7508002d385e84fc6659d7a797c35f54f326f4e9",
     "src/homemaster/scenario_runner.py": "1f73aee673d40f64053ab2a5156260c5378c8661d8d1574aa2a9773a0423c6d8",
-    "src/homemaster/task_runner.py": "b3230943bb3198724ba7b1442b2fb4708a9f41c5666e28c9706f22947e24e423"
+    "src/homemaster/task_runner.py": "b95dc6270da3c4b9ab4def562f8f90d86bb5f48df16cb64069d2d059d2513767"
   },
   "scenarios": {
     "check_medicine_success": {

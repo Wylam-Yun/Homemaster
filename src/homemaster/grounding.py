@@ -11,12 +11,16 @@ from homemaster.contracts import (
     MemoryRetrievalResult,
     TaskCard,
 )
+from homemaster.runtime import RuntimeConfigError, get_config_section, load_homemaster_config
 
 ReliabilityStatus = Literal["reliable", "weak_lead", "unreliable"]
 GroundingStatus = Literal["grounded", "ungrounded"]
 
+# ---------------------------------------------------------------------------
+# P7: grounding hints — defaults + config override with merge semantics
+# ---------------------------------------------------------------------------
 
-ROOM_HINTS: dict[str, tuple[str, ...]] = {
+_DEFAULT_ROOM_HINTS: dict[str, tuple[str, ...]] = {
     "kitchen": ("厨房", "kitchen"),
     "living_room": ("客厅", "living room", "living_room"),
     "pantry": ("储物间", "pantry"),
@@ -25,7 +29,7 @@ ROOM_HINTS: dict[str, tuple[str, ...]] = {
     "entryway": ("门口", "entryway"),
 }
 
-ANCHOR_HINTS: dict[str, tuple[str, ...]] = {
+_DEFAULT_ANCHOR_HINTS: dict[str, tuple[str, ...]] = {
     "table": ("桌", "桌子", "table"),
     "cabinet": ("柜", "柜子", "药柜", "橱柜", "cabinet"),
     "shelf": ("搁架", "架子", "shelf"),
@@ -33,11 +37,58 @@ ANCHOR_HINTS: dict[str, tuple[str, ...]] = {
     "sofa": ("沙发", "sofa"),
 }
 
-SPECIFIC_ANCHOR_WORDS: dict[str, tuple[str, ...]] = {
+_DEFAULT_SPECIFIC_ANCHOR_WORDS: dict[str, tuple[str, ...]] = {
     "table": ("餐桌", "边桌", "茶几", "书桌", "床头柜", "梳妆台"),
     "shelf": ("置物架", "书架"),
     "counter": ("操作台",),
 }
+
+
+def _load_hint_dict(
+    raw: Any, key: str, default: dict[str, tuple[str, ...]]
+) -> dict[str, tuple[str, ...]]:
+    """Merge config over defaults. Config adds/overrides keys, does NOT delete defaults."""
+    if raw is None:
+        return dict(default)
+    if not isinstance(raw, dict):
+        raise RuntimeConfigError(f"grounding.{key} must be a JSON object")
+    merged = dict(default)
+    for k, v in raw.items():
+        if not isinstance(v, list):
+            raise RuntimeConfigError(f"grounding.{key}.{k} must be a JSON array")
+        for i, item in enumerate(v):
+            if not isinstance(item, str):
+                raise RuntimeConfigError(
+                    f"grounding.{key}.{k}[{i}] must be a string, got {type(item).__name__}"
+                )
+        merged[k] = tuple(v)
+    return merged
+
+
+def _load_grounding_config() -> tuple[
+    dict[str, tuple[str, ...]],
+    dict[str, tuple[str, ...]],
+    dict[str, tuple[str, ...]],
+]:
+    section = get_config_section(load_homemaster_config(), "grounding")
+    if section is None:
+        return (
+            dict(_DEFAULT_ROOM_HINTS),
+            dict(_DEFAULT_ANCHOR_HINTS),
+            dict(_DEFAULT_SPECIFIC_ANCHOR_WORDS),
+        )
+    return (
+        _load_hint_dict(section.get("room_hints"), "room_hints", _DEFAULT_ROOM_HINTS),
+        _load_hint_dict(section.get("anchor_hints"), "anchor_hints", _DEFAULT_ANCHOR_HINTS),
+        _load_hint_dict(
+            section.get("specific_anchor_words"),
+            "specific_anchor_words",
+            _DEFAULT_SPECIFIC_ANCHOR_WORDS,
+        ),
+    )
+
+
+ROOM_HINTS, ANCHOR_HINTS, SPECIFIC_ANCHOR_WORDS = _load_grounding_config()
 
 
 @dataclass(frozen=True)
