@@ -14,14 +14,11 @@ from homemaster.orchestration_validator import (
     Stage05ValidationError,
     validate_orchestration_payload,
 )
+from homemaster.prompt_loader import render
 from homemaster.runtime import ProviderConfig
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
-ORCHESTRATION_RETRY_INSTRUCTION = """上一次输出没有通过 OrchestrationPlan 校验。
-请修正为严格 JSON object，只包含 goal、subtasks、confidence。
-不要输出 selected_target、memory_id、candidate 字段或 skill 名称。
-每个 subtask 必须有 id、intent、success_criteria。
-可选字段只有 target_object、recipient、room_hint、anchor_hint、depends_on。"""
+ORCHESTRATION_RETRY_INSTRUCTION = render("stage_05_orchestration_retry.txt")
 
 
 class OrchestrationGenerationError(RuntimeError):
@@ -57,49 +54,11 @@ def build_orchestration_prompt(
 ) -> str:
     context_json = json.dumps(context.model_dump(mode="json"), ensure_ascii=False, indent=2)
     retry_section = f"\n\n{retry_feedback}" if retry_feedback else ""
-    return f"""你是 HomeMaster V1.2 的 Stage05 高层子任务编排组件。
-
-目标：根据 PlanningContext 生成一个 OrchestrationPlan JSON。
-你只负责拆成高层子任务 intent，不负责选择 skill，不负责导航或操作执行。
-
-必须只输出一个 JSON object。
-不要输出 Markdown。
-不要输出解释。
-不要输出代码块。
-不要输出思考过程。
-
-OrchestrationPlan schema:
-{{
-  "goal": "非空字符串，整体任务目标",
-  "subtasks": [
-    {{
-      "id": "稳定、唯一、非空字符串",
-      "intent": "高层子任务意图，例如 找到水杯 / 拿起水杯 / 回到用户位置 / 放下水杯",
-      "target_object": "字符串或 null",
-      "recipient": "字符串或 null",
-      "room_hint": "字符串或 null",
-      "anchor_hint": "字符串或 null",
-      "success_criteria": ["至少一个可验证完成条件"],
-      "depends_on": ["依赖的 subtask id"]
-    }}
-  ],
-  "confidence": 0.0
-}}
-
-边界:
-- 高层 subtask 不写 selected_skill、skill、module、navigation、operation 或 verification。
-- 不输出 selected_target、memory_id、candidate_id、selected_candidate_id、switch_candidate。
-- 不伪造 PlanningContext 中没有的 memory target。
-- 如果 PlanningContext.selected_target 为 null，不要假装有可靠记忆；先规划探索/寻找/观察或追问。
-- 如果任务是取物交付给用户，通常需要覆盖：
-  找到目标物、拿起目标物、回到用户位置、放下/交付目标物、确认完成。
-- 找用户首版使用 runtime 里记录的 user_location，不新增 find_user skill。
-- 可以用自然语言描述子任务，不要把原子动作当作独立执行接口。
-
-PlanningContext:
-{context_json}
-
-只输出 JSON object:{retry_section}"""
+    return render(
+        "stage_05_orchestration_prompt.txt",
+        context_json=context_json,
+        retry_section=retry_section,
+    )
 
 
 def generate_orchestration_plan(

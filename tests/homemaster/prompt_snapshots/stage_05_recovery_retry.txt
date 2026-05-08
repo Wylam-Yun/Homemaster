@@ -1,0 +1,6 @@
+上一次输出没有通过 RecoveryDecision 校验。
+请修正为严格 JSON object。
+只包含 action、reason、failure_record_ids、should_retrieve_again、should_replan、
+ask_user_question、final_failed_reason。
+action 只能是 retry_step、reobserve、retrieve_again、replan、ask_user、finish_failed。
+不要输出 switch_target 或 next_target_id。

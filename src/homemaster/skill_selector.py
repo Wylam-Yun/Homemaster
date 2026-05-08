@@ -11,11 +11,11 @@ from pydantic import ValidationError
 
 from homemaster.contracts import ExecutionState, PlanningContext, StepDecision, Subtask
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
+from homemaster.prompt_loader import render
 from homemaster.runtime import ProviderConfig
 from homemaster.skill_registry import (
     SkillInputValidationError,
     get_default_skill_registry,
-    get_stage_05_skill_prompt_payload,
     validate_skill_input,
 )
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
@@ -80,43 +80,15 @@ def build_step_decision_prompt(
         indent=2,
     )
     retry_section = f"\n\n{retry_feedback}" if retry_feedback else ""
-    return f"""你是 HomeMaster V1.2 的 Stage05 单步 skill 选择组件。
-
-目标：根据当前 subtask、ExecutionState 和可选 skill manifest，选择下一步 action skill。
-只能从 action skill 中选择（{names_str}）。
-不能选择非 action skill；非 action skill 由程序自动调用。
-
-必须只输出一个 JSON object。
-不要输出 Markdown、解释、代码块或思考过程。
-
-StepDecision schema:
-{{
-  "subtask_id": "当前 subtask id",
-  "selected_skill": "{names_str}",
-  "skill_input": {{}},
-  "expected_result": "字符串或 null",
-  "reason": "字符串或 null"
-}}
-
-当前 subtask:
-{subtask_json}
-
-ExecutionState:
-{state_json}
-
-PlanningContext 摘要:
-{context_json}
-
-可选 action skill manifest:
-{skills_json}
-
-规则:
-- 找目标物或移动到位置时选择 navigation。
-- 拿起、放下、交付等操作时选择 operation。
-- 找用户首版使用 ExecutionState.user_location，navigation goal_type 使用 go_to_location。
-- operation 的 skill_input 只放当前子任务、目标、接收对象和当前观察；不要输出原子动作序列。
-
-只输出 JSON object:{retry_section}"""
+    return render(
+        "stage_05_step_decision_prompt.txt",
+        names_str=names_str,
+        subtask_json=subtask_json,
+        state_json=state_json,
+        context_json=context_json,
+        skills_json=skills_json,
+        retry_section=retry_section,
+    )
 
 
 def build_retry_instruction() -> str:
@@ -124,10 +96,7 @@ def build_retry_instruction() -> str:
     registry = get_default_skill_registry()
     action_names = registry.get_action_names()
     names_str = "、".join(action_names)
-    return f"""上一次输出没有通过 StepDecision 校验。
-请修正为严格 JSON object，只包含 subtask_id、selected_skill、skill_input、expected_result、reason。
-selected_skill 只能从 action skill 中选择（{names_str}）。
-不要选择非 action skill；非 action skill 由程序自动后置调用。"""
+    return render("stage_05_step_decision_retry.txt", names_str=names_str)
 
 
 def generate_step_decision(

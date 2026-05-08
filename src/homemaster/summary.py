@@ -10,13 +10,11 @@ import httpx
 
 from homemaster.contracts import EvidenceBundle, ExecutionState, TaskCard, TaskSummary
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
+from homemaster.prompt_loader import render
 from homemaster.runtime import ProviderConfig
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
-SUMMARY_RETRY_INSTRUCTION = """上一次输出没有通过 TaskSummary 校验。
-请修正为严格 JSON object，只包含 result、confirmed_facts、unconfirmed_facts、
-recovery_attempts、user_reply、failure_summary、evidence_refs。
-不要编造 evidence_refs；只能使用输入中列出的 evidence_id。"""
+SUMMARY_RETRY_INSTRUCTION = render("stage_06_summary_retry.txt")
 
 
 class TaskSummaryGenerationError(RuntimeError):
@@ -62,40 +60,13 @@ def build_task_summary_prompt(
         indent=2,
     )
     retry_section = f"\n\n{retry_feedback}" if retry_feedback else ""
-    return f"""你是 HomeMaster V1.2 的 Stage06 任务总结组件。
-
-目标：只根据输入证据生成 TaskSummary JSON，给用户和开发者阅读。
-你不负责长期记忆写回，不能决定 object_memory 或 fact_memory 写什么。
-
-必须只输出一个 JSON object。
-不要输出 Markdown。
-不要输出解释。
-不要输出代码块。
-不要输出思考过程。
-不要编造没有证据的成功结果。
-不要编造 evidence_refs，只能引用 EvidenceBundle 里已有的 evidence_id。
-
-TaskSummary schema:
-{{
-  "result": "success | failed | needs_user",
-  "confirmed_facts": ["由验证证据支持的事实"],
-  "unconfirmed_facts": ["没有被验证或失败的事实"],
-  "recovery_attempts": ["发生过的恢复尝试，没有则 []"],
-  "user_reply": "给用户看的简短回复或 null",
-  "failure_summary": "失败摘要或 null",
-  "evidence_refs": ["引用 EvidenceBundle.evidence_refs 中的 evidence_id"]
-}}
-
-TaskCard:
-{task_json}
-
-ExecutionState:
-{state_json}
-
-EvidenceBundle:
-{evidence_json}
-
-只输出 JSON object:{retry_section}"""
+    return render(
+        "stage_06_summary_prompt.txt",
+        task_json=task_json,
+        state_json=state_json,
+        evidence_json=evidence_json,
+        retry_section=retry_section,
+    )
 
 
 def generate_task_summary(

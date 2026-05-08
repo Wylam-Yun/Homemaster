@@ -1,0 +1,5 @@
+上一次输出没有通过 OrchestrationPlan 校验。
+请修正为严格 JSON object，只包含 goal、subtasks、confidence。
+不要输出 selected_target、memory_id、candidate 字段或 skill 名称。
+每个 subtask 必须有 id、intent、success_criteria。
+可选字段只有 target_object、recipient、room_hint、anchor_hint、depends_on。

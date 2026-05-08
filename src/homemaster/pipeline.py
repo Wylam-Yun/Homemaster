@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from homemaster.contracts import TaskCard
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
+from homemaster.prompt_loader import render
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_PROVIDER_NAME,
@@ -25,9 +26,7 @@ from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_to
 from homemaster.trace import append_jsonl_event, write_json
 
 DEFAULT_STAGE_01_UTTERANCE = "去桌子那边看看药盒是不是还在。"
-STAGE_01_RETRY_INSTRUCTION = """上一次输出没有通过 TaskCard 校验。
-请修正为严格 JSON object，只包含 TaskCard schema 中列出的字段。
-不要添加额外字段。"""
+STAGE_01_RETRY_INSTRUCTION = render("stage_01_retry.txt")
 
 
 class Stage01SmokeError(RuntimeError):
@@ -46,42 +45,7 @@ class Stage01SmokeResult:
 
 
 def build_stage_01_task_card_prompt(utterance: str) -> str:
-    return f"""你是 HomeMaster V1.2 的任务理解 smoke 测试组件。
-
-只做一件事：把用户一句话转换成 TaskCard JSON。
-必须只输出一个 JSON object。
-不要输出 Markdown。
-不要输出解释。
-不要输出代码块。
-不要输出思考过程。
-不要编造用户没有说过的真实位置。
-
-TaskCard schema:
-{{
-  "task_type": "check_presence | fetch_object | unknown",
-  "target": "非空字符串，目标物名称；可以使用中文名或中英别名",
-  "delivery_target": "字符串或 null；只有取物/交付任务需要",
-  "location_hint": "字符串或 null；只记录用户明说的位置提示",
-  "success_criteria": ["至少一个可验证的完成条件"],
-  "needs_clarification": true,
-  "clarification_question": "字符串或 null",
-  "confidence": 0.0
-}}
-
-规则:
-- 用户说“看看、还在不在、是否在”时，task_type 使用 "check_presence"。
-- 用户说“找、拿给我、取来、送来”时，task_type 使用 "fetch_object"。
-- 如果目标物不明确，task_type 使用 "unknown"，needs_clarification 使用 true，
-  并给出 clarification_question。
-- 如果不需要澄清，needs_clarification 使用 false，clarification_question 使用 null。
-- success_criteria 必须能被后续观察或验证模块判断。
-- confidence 使用 0 到 1 之间的小数。
-
-输入:
-{{"utterance": "{utterance}"}}
-
-只输出 JSON object:
-"""
+    return render("stage_01_task_card_prompt.txt", utterance=utterance)
 
 
 def run_stage_01_contract_smoke(

@@ -1,0 +1,4 @@
+上一次输出没有通过 TaskSummary 校验。
+请修正为严格 JSON object，只包含 result、confirmed_facts、unconfirmed_facts、
+recovery_attempts、user_reply、failure_summary、evidence_refs。
+不要编造 evidence_refs；只能使用输入中列出的 evidence_id。

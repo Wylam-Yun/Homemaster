@@ -18,8 +18,8 @@ from homemaster.contracts import (
     TaskCard,
 )
 from homemaster.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.logger import get_logger
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
+from homemaster.logger import get_logger
 from homemaster.memory_index import (
     JsonEmbeddingCache,
     MemoryBM25Index,
@@ -31,6 +31,7 @@ from homemaster.memory_tokenizer import (
     JiebaMemoryTokenizer,
     build_domain_terms_from_object_memory,
 )
+from homemaster.prompt_loader import render
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_PROVIDER_NAME,
@@ -48,11 +49,7 @@ STAGE_03_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_03"
 STAGE_03_CASE_ROOT = LLM_CASE_ROOT / "stage_03"
 DEFAULT_EMBEDDING_PROVIDER_NAME = "MemoryEmbedding"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
-MEMORY_QUERY_RETRY_INSTRUCTION = """上一次输出没有通过 MemoryRetrievalQuery 校验。
-请修正为严格 JSON object，只包含 MemoryRetrievalQuery schema 中列出的字段。
-不要添加额外字段。
-source_filter 必须是 ["object_memory"]。
-excluded_memory_ids 和 excluded_location_keys 只能来自 runtime negative evidence。"""
+MEMORY_QUERY_RETRY_INSTRUCTION = render("stage_03_retry.txt")
 
 
 class MemoryRagError(RuntimeError):
@@ -168,46 +165,11 @@ def build_memory_retrieval_query_prompt(
 ) -> str:
     task_card_json = task_card.model_dump_json(indent=2)
     negative_json = json.dumps(negative_evidence or {}, ensure_ascii=False, indent=2)
-    return f"""你是 HomeMaster V1.2 的 memory RAG query 构造组件。
-
-目标：根据 TaskCard 生成一个 MemoryRetrievalQuery JSON。
-你只负责构造检索 query，不读取 memory，不返回 memory hit，不选择目标地点。
-
-必须只输出一个 JSON object。
-不要输出 Markdown。
-不要输出解释。
-不要输出代码块。
-不要输出思考过程。
-不要编造 memory_id、anchor_id、viewpoint_id 或真实位置。
-
-MemoryRetrievalQuery schema:
-{{
-  "query_text": "非空字符串；包含目标物、别名、位置提示和稳定英文别名",
-  "target_category": "字符串或 null",
-  "target_aliases": ["目标物别名；可来自 TaskCard 或常识别名"],
-  "location_terms": ["位置词；只来自 TaskCard 明说的位置或常识位置别名"],
-  "source_filter": ["object_memory"],
-  "top_k": 5,
-  "excluded_memory_ids": ["只能来自 runtime negative evidence"],
-  "excluded_location_keys": ["只能来自 runtime negative evidence"],
-  "reason": "字符串或 null"
-}}
-
-边界:
-- source_filter 必须是 ["object_memory"]。
-- top_k 使用 5，除非任务明显需要更多候选；不要超过 10。
-- query_text 由你进行语义构造；程序不会替你补写语义别名。
-- excluded_memory_ids / excluded_location_keys 只能复制 runtime negative evidence 中已有值。
-- 不要编造 memory_id。
-
-TaskCard:
-{task_card_json}
-
-Runtime negative evidence:
-{negative_json}
-
-只输出 JSON object:
-"""
+    return render(
+        "stage_03_memory_query_prompt.txt",
+        task_card_json=task_card_json,
+        negative_json=negative_json,
+    )
 
 
 def run_memory_rag(

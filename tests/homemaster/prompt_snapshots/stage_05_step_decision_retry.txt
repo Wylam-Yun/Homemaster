@@ -1,0 +1,4 @@
+上一次输出没有通过 StepDecision 校验。
+请修正为严格 JSON object，只包含 subtask_id、selected_skill、skill_input、expected_result、reason。
+selected_skill 只能从 action skill 中选择（navigation、operation）。
+不要选择非 action skill；非 action skill 由程序自动后置调用。

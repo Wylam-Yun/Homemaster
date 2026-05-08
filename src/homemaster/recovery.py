@@ -11,15 +11,11 @@ from pydantic import ValidationError
 
 from homemaster.contracts import ExecutionState, FailureRecord, RecoveryDecision
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
+from homemaster.prompt_loader import render
 from homemaster.runtime import ProviderConfig
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 
-RECOVERY_RETRY_INSTRUCTION = """上一次输出没有通过 RecoveryDecision 校验。
-请修正为严格 JSON object。
-只包含 action、reason、failure_record_ids、should_retrieve_again、should_replan、
-ask_user_question、final_failed_reason。
-action 只能是 retry_step、reobserve、retrieve_again、replan、ask_user、finish_failed。
-不要输出 switch_target 或 next_target_id。"""
+RECOVERY_RETRY_INSTRUCTION = render("stage_05_recovery_retry.txt")
 
 
 class RecoveryDecisionGenerationError(RuntimeError):
@@ -61,36 +57,12 @@ def build_recovery_prompt(
         indent=2,
     )
     retry_section = f"\n\n{retry_feedback}" if retry_feedback else ""
-    return f"""你是 HomeMaster V1.2 的 Stage05 恢复决策组件。
-
-目标：根据 ExecutionState 和 FailureRecord 列表，决定下一步恢复动作。
-
-必须只输出一个 JSON object。
-不要输出 Markdown、解释、代码块或思考过程。
-
-RecoveryDecision schema:
-{{
-  "action": "retry_step | reobserve | retrieve_again | replan | ask_user | finish_failed",
-  "reason": "字符串或 null",
-  "failure_record_ids": ["相关 failure id"],
-  "should_retrieve_again": false,
-  "should_replan": false,
-  "ask_user_question": "字符串或 null",
-  "final_failed_reason": "字符串或 null"
-}}
-
-边界:
-- 如果当前 grounded target 已经验证失败，需要换目标时，action 使用 retrieve_again。
-- 不允许直接编造新的目标 id 或目标切换字段。
-- replan 必须考虑 FailureRecord 和 negative evidence，避免重复失败动作。
-
-ExecutionState:
-{state_json}
-
-FailureRecord list:
-{failure_json}
-
-只输出 JSON object:{retry_section}"""
+    return render(
+        "stage_05_recovery_prompt.txt",
+        state_json=state_json,
+        failure_json=failure_json,
+        retry_section=retry_section,
+    )
 
 
 def generate_recovery_decision(
