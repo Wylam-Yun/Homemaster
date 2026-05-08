@@ -228,6 +228,7 @@ def run_homemaster_task(
     # -- Stage loop (no run_pipeline wrapper; ctx accessible in except) --
     try:
         registry = build_default_registry()
+        ctx = ctx.with_updates(registry=registry)
         for stage in registry.stages():
             modes = _stage_modes(ctx, stage.name)
             logger.info("[%s] stage %s started  scenario=%s%s",

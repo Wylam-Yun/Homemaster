@@ -65,6 +65,21 @@ class Stage03Adapter:
         object_memory = runtime_memory_dir / "object_memory.json"
         memory_path = object_memory if object_memory.exists() else ctx.resolved_memory_path
 
+        # P9: convert list-of-dicts negative_evidence to dict format for run_memory_rag
+        neg_evidence_dict = None
+        if ctx.negative_evidence:
+            excluded_ids = [
+                e["memory_id"] for e in ctx.negative_evidence if "memory_id" in e
+            ]
+            excluded_locs = [
+                e["location_key"] for e in ctx.negative_evidence if "location_key" in e
+            ]
+            neg_evidence_dict = {}
+            if excluded_ids:
+                neg_evidence_dict["excluded_memory_ids"] = excluded_ids
+            if excluded_locs:
+                neg_evidence_dict["excluded_location_keys"] = excluded_locs
+
         memory_result = run_stage03(
             task_card=ctx.task_card,
             memory_path=memory_path,
@@ -76,6 +91,7 @@ class Stage03Adapter:
             embedding_provider_name=ctx.embedding_provider_name,
             case_root=ctx.case_dir / "stage_03_cases",
             results_dir=ctx.results_dir,
+            negative_evidence=neg_evidence_dict,
         )
         rm = ctx.runtime_mode
         return ctx.with_updates(memory_result=memory_result).with_stage_status(
@@ -152,7 +168,7 @@ class Stage05Adapter:
             live_step_decision_smoke,
             run_stage05_plan,
         )
-        from homemaster.stages.executor import execute_stage_05_plan
+        from homemaster.stages.recovery_loop import run_stage05_with_recovery
 
         plan = run_stage05_plan(
             context=ctx.planning_context,
@@ -177,17 +193,20 @@ class Stage05Adapter:
             scenario=ctx.scenario,
             failure_provider=ctx.failure_provider,
         )
-        execution_result = execute_stage_05_plan(
-            ctx.planning_context,
-            plan,
+        execution_result, recovery_attempts = run_stage05_with_recovery(
+            ctx=ctx,
+            plan=plan,
             decision_provider=decision_provider,
-            initial_state=initial_state,
+            live_models=ctx.live_models,
+            config_path=str(ctx.config_path),
+            provider_name=ctx.provider_name,
         )
         rm = ctx.runtime_mode
         return (
             ctx.with_updates(
                 orchestration_plan=plan,
                 execution_result=execution_result,
+                recovery_attempts=recovery_attempts or None,
             )
             .with_final_status(execution_result.final_state.task_status)
             .with_stage_status(
@@ -198,6 +217,7 @@ class Stage05Adapter:
                     "step_decision": live_step_status,
                     "final_task_status": execution_result.final_state.task_status,
                     "mock_skills": ctx.mock_skills,
+                    "recovery_attempts_count": len(recovery_attempts),
                     "component_modes": {
                         "planning": rm.planning if rm else "unknown",
                         "step_decision": rm.step_decision if rm else "unknown",
@@ -246,6 +266,7 @@ class Stage06Adapter:
             live_models=ctx.live_models,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
+            recovery_attempts=ctx.recovery_attempts,
         )
         commit_plan = build_memory_commit_plan(
             task_id=ctx.run_id,

@@ -81,6 +81,11 @@ class PipelineContext:
     # P2: structured runtime mode (replaces scattered live_models/mock_skills logic)
     runtime_mode: Any = None  # RuntimeMode | None; Any avoids circular import
 
+    # P9: recovery support
+    registry: Any = None  # StageRegistry | None; set by task_runner, used by recovery loop
+    recovery_attempts: list[dict[str, Any]] | None = None  # set by recovery loop
+    negative_evidence: list[dict[str, Any]] | None = None  # injected for retrieve_again
+
     # -- Copy-on-write helpers ------------------------------------------------
 
     def with_updates(self, **kwargs: Any) -> PipelineContext:
@@ -121,6 +126,13 @@ class StageRegistry:
 
     def stages(self) -> Sequence[Stage]:
         return tuple(self._stages)
+
+    def get_stage(self, name: str) -> Stage:
+        """Return a stage by name. Raises KeyError if not found."""
+        for stage in self._stages:
+            if stage.name == name:
+                return stage
+        raise KeyError(f"stage {name!r} not registered")
 
     def has(self, name: str) -> bool:
         return name in self._names

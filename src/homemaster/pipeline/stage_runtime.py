@@ -370,6 +370,7 @@ def run_stage03(
     embedding_provider_name: str,
     case_root: Any,
     results_dir: Any,
+    negative_evidence: dict[str, Any] | None = None,
 ):
     """Stage 03: TaskCard → MemoryRagResult."""
     from homemaster.memory_rag import (
@@ -399,6 +400,7 @@ def run_stage03(
                 ),
                 embedding_provider=EmbeddingClientAdapter(bge_client),
                 llm_provider=llm_provider,
+                negative_evidence=negative_evidence,
                 expected={"case_name": f"stage07_{run_id}_memory_rag"},
                 case_root=case_root,
                 results_dir=results_dir,
@@ -413,6 +415,7 @@ def run_stage03(
         query_provider=StaticMemoryQueryProvider(deterministic_query(task_card)),
         embedding_provider=KeywordEmbeddingProvider(),
         llm_provider=llm_provider,
+        negative_evidence=negative_evidence,
         expected={"case_name": f"stage07_{run_id}_memory_rag"},
         case_root=case_root,
         results_dir=results_dir,
@@ -479,6 +482,7 @@ def run_stage06_summary(
     live_models: bool,
     config_path: str,
     provider_name: str,
+    recovery_attempts: list[dict[str, Any]] | None = None,
 ) -> TaskSummary:
     """Stage 06a: generate TaskSummary (live or deterministic)."""
     if live_models:
@@ -497,7 +501,10 @@ def run_stage06_summary(
         result=result,  # type: ignore[arg-type]
         confirmed_facts=list(evidence_bundle.verified_facts),
         unconfirmed_facts=list(evidence_bundle.failure_facts),
-        recovery_attempts=[],
+        recovery_attempts=[
+            f"round {a['round']}: {a['action']}"
+            for a in (recovery_attempts or [])
+        ],
         user_reply="任务完成" if result == "success" else "任务未能完成",
         failure_summary="; ".join(evidence_bundle.failure_facts) or None,
         evidence_refs=[ref.evidence_id for ref in evidence_bundle.evidence_refs],

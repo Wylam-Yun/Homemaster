@@ -66,6 +66,27 @@ def mark_subtask_verified(
     return updated
 
 
+def reset_subtask_to_pending(
+    state: ExecutionState,
+    subtask_id: str,
+) -> ExecutionState:
+    """Return a copy of state with one subtask reset to pending.
+
+    Used by the recovery loop to enable retry_step / reobserve actions.
+    """
+    updated = state.model_copy(deep=True)
+    for subtask in updated.subtasks:
+        if subtask.subtask_id == subtask_id:
+            subtask.status = "pending"
+            subtask.last_verification_result = None
+            subtask.last_observation = None
+            break
+    if subtask_id in updated.completed_subtask_ids:
+        updated.completed_subtask_ids.remove(subtask_id)
+    updated.task_status = "running"
+    return updated
+
+
 def append_failure_record_id(
     state: ExecutionState, subtask_id: str, failure_id: str
 ) -> ExecutionState:
