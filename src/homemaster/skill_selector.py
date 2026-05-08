@@ -14,15 +14,11 @@ from homemaster.llm_client import LLMClientError, RawJsonLLMClient
 from homemaster.runtime import ProviderConfig
 from homemaster.skill_registry import (
     SkillInputValidationError,
+    get_default_skill_registry,
     get_stage_05_skill_prompt_payload,
     validate_skill_input,
 )
 from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
-
-STEP_DECISION_RETRY_INSTRUCTION = """上一次输出没有通过 StepDecision 校验。
-请修正为严格 JSON object，只包含 subtask_id、selected_skill、skill_input、expected_result、reason。
-selected_skill 只能是 navigation 或 operation。
-不要选择 verification；verification 由程序自动后置调用。"""
 
 
 class StepDecisionGenerationError(RuntimeError):
@@ -58,6 +54,10 @@ def build_step_decision_prompt(
     *,
     retry_feedback: str | None = None,
 ) -> str:
+    registry = get_default_skill_registry()
+    action_names = registry.get_action_names()
+    names_str = " | ".join(action_names)
+
     subtask_json = json.dumps(subtask.model_dump(mode="json"), ensure_ascii=False, indent=2)
     state_json = json.dumps(state.model_dump(mode="json"), ensure_ascii=False, indent=2)
     context_json = json.dumps(
@@ -75,7 +75,7 @@ def build_step_decision_prompt(
         indent=2,
     )
     skills_json = json.dumps(
-        get_stage_05_skill_prompt_payload(action_only=True),
+        registry.get_prompt_payload(action_only=True),
         ensure_ascii=False,
         indent=2,
     )
@@ -83,8 +83,8 @@ def build_step_decision_prompt(
     return f"""你是 HomeMaster V1.2 的 Stage05 单步 skill 选择组件。
 
 目标：根据当前 subtask、ExecutionState 和可选 skill manifest，选择下一步 action skill。
-只能选择 navigation 或 operation。
-不能选择 verification；verification 由程序在 action skill 后自动调用。
+只能从 action skill 中选择（{names_str}）。
+不能选择非 action skill；非 action skill 由程序自动调用。
 
 必须只输出一个 JSON object。
 不要输出 Markdown、解释、代码块或思考过程。
@@ -92,7 +92,7 @@ def build_step_decision_prompt(
 StepDecision schema:
 {{
   "subtask_id": "当前 subtask id",
-  "selected_skill": "navigation | operation",
+  "selected_skill": "{names_str}",
   "skill_input": {{}},
   "expected_result": "字符串或 null",
   "reason": "字符串或 null"
@@ -119,6 +119,17 @@ PlanningContext 摘要:
 只输出 JSON object:{retry_section}"""
 
 
+def build_retry_instruction() -> str:
+    """Build dynamic retry instruction from registry action names."""
+    registry = get_default_skill_registry()
+    action_names = registry.get_action_names()
+    names_str = "、".join(action_names)
+    return f"""上一次输出没有通过 StepDecision 校验。
+请修正为严格 JSON object，只包含 subtask_id、selected_skill、skill_input、expected_result、reason。
+selected_skill 只能从 action skill 中选择（{names_str}）。
+不要选择非 action skill；非 action skill 由程序自动后置调用。"""
+
+
 def generate_step_decision(
     subtask: Subtask,
     state: ExecutionState,
@@ -136,7 +147,7 @@ def generate_step_decision(
                 subtask,
                 state,
                 context,
-                retry_feedback=STEP_DECISION_RETRY_INSTRUCTION if attempt_index > 1 else None,
+                retry_feedback=build_retry_instruction() if attempt_index > 1 else None,
             )
             attempt_max_tokens = max_tokens_for_attempt(max_tokens, attempt_index)
             attempt: dict[str, Any] = {

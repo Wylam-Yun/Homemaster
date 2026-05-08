@@ -23,7 +23,11 @@ from homemaster.execution_state import (
 )
 from homemaster.failure_log import make_failure_record
 from homemaster.orchestration_validator import validate_orchestration_plan
-from homemaster.skill_registry import SkillInputValidationError, validate_skill_input
+from homemaster.skill_registry import (
+    SkillInputValidationError,
+    SkillRegistry,
+    get_default_skill_registry,
+)
 from homemaster.verifier import build_verification_input, verify_skill_result
 
 
@@ -91,11 +95,13 @@ def execute_stage_05_plan(
     plan: OrchestrationPlan,
     *,
     decision_provider: StepDecisionProvider,
+    skill_registry: SkillRegistry | None = None,
     initial_state: ExecutionState | None = None,
     max_steps: int | None = None,
 ) -> Stage05ExecutionResult:
     """Execute a Stage 05 plan with mock navigation/operation and auto verification."""
 
+    registry = skill_registry or get_default_skill_registry()
     plan = validate_orchestration_plan(plan)
     state = _initial_state_from_plan(plan, initial_state)
     skill_results: list[ModuleExecutionResult] = []
@@ -119,7 +125,7 @@ def execute_stage_05_plan(
 
         try:
             decision = decision_provider.next_decision(subtask, state, context)
-            _validate_decision_for_subtask(decision, subtask, state)
+            _validate_decision_for_subtask(decision, subtask, state, registry)
         except (Stage05ExecutionError, SkillInputValidationError) as exc:
             _append_failure(
                 state=state,
@@ -134,7 +140,21 @@ def execute_stage_05_plan(
             break
 
         step_decisions.append(decision)
-        skill_result = _run_mock_skill(decision, subtask, state)
+        try:
+            skill_result = registry.execute(decision.selected_skill, decision, subtask, state)
+        except (SkillInputValidationError, Exception) as exc:
+            _append_failure(
+                state=state,
+                failure_records=failure_records,
+                subtask=subtask,
+                failure_type="skill_failed",
+                failed_reason=f"{type(exc).__name__}: {exc}",
+                decision=decision,
+                retry_count=state.retry_counts.get(subtask.id, 0),
+            )
+            _mark_subtask_failed(state, subtask.id)
+            state.task_status = "failed"
+            break
         skill_results.append(skill_result)
         state.last_skill_call = decision.model_dump(mode="json")
         state.last_skill_result = skill_result
@@ -205,13 +225,14 @@ def _validate_decision_for_subtask(
     decision: StepDecision,
     subtask: Subtask,
     state: ExecutionState,
+    registry: SkillRegistry,
 ) -> None:
     if decision.subtask_id != subtask.id:
         raise SkillInputValidationError(
             error_type="wrong_subtask_id",
             message=f"StepDecision points to {decision.subtask_id}, expected {subtask.id}",
         )
-    validate_skill_input(decision.selected_skill, decision.skill_input)
+    registry.validate_input(decision.selected_skill, decision.skill_input)
     if decision.selected_skill == "operation":
         _validate_operation_preconditions(subtask, state)
 
@@ -230,92 +251,6 @@ def _validate_operation_preconditions(subtask: Subtask, state: ExecutionState) -
                 error_type="operation_precondition_failed",
                 message="operation requires held_object to match target before delivery",
             )
-
-
-def _run_mock_skill(
-    decision: StepDecision,
-    subtask: Subtask,
-    state: ExecutionState,
-) -> ModuleExecutionResult:
-    if decision.selected_skill == "navigation":
-        return _run_mock_navigation(decision, subtask, state)
-    return _run_mock_operation(decision, subtask, state)
-
-
-def _run_mock_navigation(
-    decision: StepDecision,
-    subtask: Subtask,
-    state: ExecutionState,
-) -> ModuleExecutionResult:
-    skill_input = decision.skill_input
-    goal_type = skill_input.get("goal_type")
-    observation: dict[str, object] = {}
-    if goal_type == "find_object":
-        target_object = str(skill_input.get("target_object") or subtask.target_object or "")
-        if skill_input.get("force_no_object"):
-            observation.update(
-                {
-                    "target_object_visible": False,
-                    "visible_objects": [],
-                    "current_location": state.current_location or subtask.room_hint,
-                }
-            )
-        else:
-            observation.update(
-                {
-                    "target_object_visible": True,
-                    "visible_objects": [target_object],
-                    "target_object_location": subtask.anchor_hint
-                    or subtask.room_hint
-                    or skill_input.get("room_hint")
-                    or "mock_visible_location",
-                    "current_location": subtask.room_hint or state.current_location,
-                }
-            )
-    elif goal_type == "go_to_location":
-        target_location = str(skill_input.get("target_location") or state.user_location or "")
-        observation.update({"current_location": target_location})
-        if target_location:
-            observation["user_location"] = state.user_location
-    return ModuleExecutionResult(
-        skill="navigation",
-        status="success",
-        skill_output={
-            "goal_type": goal_type,
-            "navigated": True,
-        },
-        observation=observation,
-    )
-
-
-def _run_mock_operation(
-    decision: StepDecision,
-    subtask: Subtask,
-    state: ExecutionState,
-) -> ModuleExecutionResult:
-    target = str(decision.skill_input.get("target_object") or subtask.target_object or "")
-    intent = subtask.intent
-    observation: dict[str, object] = {}
-    planned_actions: list[str] = []
-    if any(term in intent for term in ("拿", "取", "抓", "拾")):
-        observation["held_object"] = target
-        planned_actions = ["approach", "grasp", "lift"]
-    elif any(term in intent for term in ("放", "交付", "递", "给")):
-        observation["held_object"] = None
-        observation["delivered_object"] = target
-        observation["delivery_complete"] = True
-        planned_actions = ["approach_recipient", "release"]
-    else:
-        planned_actions = ["operate"]
-    return ModuleExecutionResult(
-        skill="operation",
-        status="success",
-        skill_output={
-            "vla_instruction": f"根据当前观察执行：{intent}",
-            "planned_atomic_actions": planned_actions,
-        },
-        observation=observation,
-    )
 
 
 def _append_failure(

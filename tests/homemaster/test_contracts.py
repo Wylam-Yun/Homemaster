@@ -271,12 +271,8 @@ def test_step_decision_rejects_legacy_module_fields_and_manual_verification() ->
             verify_after=False,
         )
 
-    with pytest.raises(ValidationError):
-        StepDecision(
-            subtask_id="verify_cup",
-            selected_skill="verification",
-            skill_input={"scope": "subtask"},
-        )
+    # Note: "verification" is now rejected at runtime by validate_skill_input(),
+    # not at the Pydantic schema level (selected_skill is str, not Literal).
 
 
 def test_module_execution_result_rejects_legacy_module_field() -> None:

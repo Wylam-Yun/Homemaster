@@ -73,7 +73,8 @@ def test_step_decision_prompt_contains_subtask_state_and_skill_manifest() -> Non
     assert '"navigation"' in prompt
     assert '"operation"' in prompt
     assert '"verification"' not in prompt
-    assert "只能选择 navigation 或 operation" in prompt
+    assert "只能从 action skill 中选择" in prompt
+    assert "navigation | operation" in prompt
 
 
 def test_generate_step_decision_retries_after_invalid_json(tmp_path: Path) -> None:
@@ -182,4 +183,8 @@ def test_generate_step_decision_rejects_manual_verification(tmp_path: Path) -> N
                 client=client,
             )
 
-    assert exc_info.value.error_type in {"step_schema_error", "skill_input_error"}
+    assert exc_info.value.error_type in {
+        "step_schema_error",
+        "skill_input_error",
+        "skill_not_selectable",
+    }

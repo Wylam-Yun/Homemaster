@@ -219,7 +219,7 @@ class OrchestrationPlan(ContractModel):
 
 class StepDecision(ContractModel):
     subtask_id: str
-    selected_skill: Literal["navigation", "operation"]
+    selected_skill: str
     skill_input: dict[str, Any] = Field(default_factory=dict)
     expected_result: str | None = None
     reason: str | None = None
@@ -242,7 +242,7 @@ class StepDecision(ContractModel):
 
 
 class ModuleExecutionResult(ContractModel):
-    skill: Literal["navigation", "operation", "verification"]
+    skill: str
     status: Literal["success", "failed", "blocked"]
     skill_output: dict[str, Any] = Field(default_factory=dict)
     observation: dict[str, Any] | None = None
@@ -270,7 +270,7 @@ class SubtaskRuntimeState(ContractModel):
     attempt_count: int = Field(default=0, ge=0)
     last_started_at: str | None = None
     last_completed_at: str | None = None
-    last_skill: Literal["navigation", "operation", "verification"] | None = None
+    last_skill: str | None = None
     last_observation: dict[str, Any] | None = None
     last_verification_result: VerificationResult | None = None
     failure_record_ids: list[str] = Field(default_factory=list)
@@ -343,7 +343,7 @@ class FailureRecord(ContractModel):
     failure_id: str
     subtask_id: str | None = None
     subtask_intent: str | None = None
-    skill: Literal["navigation", "operation", "verification"] | None = None
+    skill: str | None = None
     failure_type: FailureType
     failed_reason: str
     skill_input: dict[str, Any] = Field(default_factory=dict)
