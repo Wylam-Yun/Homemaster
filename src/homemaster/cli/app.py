@@ -13,8 +13,6 @@ from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
-    DEFAULT_LIVE_MODELS,
-    DEFAULT_MOCK_SKILLS,
     DEFAULT_PROVIDER_NAME,
 )
 from homemaster.stages.task_understanding import understand_task
@@ -92,21 +90,6 @@ def run_command(
         str | None,
         typer.Option("--run-id", help="Stable run id for traces and runtime memory."),
     ] = None,
-    live_models: Annotated[
-        bool,
-        typer.Option(
-            "--live-models/--no-live-models",
-            help=(
-                "Use real Mimo LLM + BGE-M3 for brain stages (02/03/05/06). "
-                "When false, brain stages use labeled test-doubles. "
-                "Independent of --mock-skills (robot-layer only)."
-            ),
-        ),
-    ] = DEFAULT_LIVE_MODELS,
-    mock_skills: Annotated[
-        bool,
-        typer.Option("--mock-skills/--no-mock-skills", help="Stage07 uses mock skills."),
-    ] = DEFAULT_MOCK_SKILLS,
     log_level: Annotated[
         str,
         typer.Option("--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)."),
@@ -118,9 +101,6 @@ def run_command(
     if not scenario:
         typer.echo("run_failed: --scenario is required for Stage07 runs", err=True)
         raise typer.Exit(code=2)
-    if not mock_skills:
-        typer.echo("run_failed: Stage07 only supports --mock-skills", err=True)
-        raise typer.Exit(code=2)
     try:
         result = run_homemaster_task(
             utterance=utterance,
@@ -130,8 +110,6 @@ def run_command(
             runtime_memory_root=runtime_memory_root,
             debug_root=debug_root,
             run_id=run_id,
-            live_models=live_models,
-            mock_skills=mock_skills,
         )
     except (HomeMasterRunError, Exception) as exc:
         typer.echo(f"run_failed: {type(exc).__name__}: {exc}", err=True)

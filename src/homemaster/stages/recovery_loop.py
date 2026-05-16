@@ -1,7 +1,6 @@
 """Stage 05 recovery loop — wraps executor with RecoveryDecision dispatch.
 
 Extracted from Stage05Adapter for independent testability.
-When live_models=False, recovery is skipped (deterministic mode).
 """
 
 from __future__ import annotations
@@ -32,15 +31,11 @@ def run_stage05_with_recovery(
     ctx: PipelineContext,
     plan: OrchestrationPlan,
     decision_provider: StepDecisionProvider,
-    live_models: bool,
     config_path: str,
     provider_name: str,
     max_recovery_attempts: int = MAX_RECOVERY_ATTEMPTS,
 ) -> tuple[Stage05ExecutionResult, list[dict[str, Any]]]:
-    """Execute a Stage05 plan with optional recovery loop.
-
-    If ``live_models`` is False, recovery is skipped and the executor runs
-    exactly once (preserving deterministic-mode behaviour).
+    """Execute a Stage05 plan with recovery loop.
 
     Returns ``(execution_result, recovery_attempts)`` where
     ``recovery_attempts`` is a list of dicts describing each recovery round.
@@ -51,17 +46,6 @@ def run_stage05_with_recovery(
         current_location="robot_start",
     )
 
-    # Deterministic mode: no recovery, same as pre-P9 behaviour
-    if not live_models:
-        result = execute_stage_05_plan(
-            ctx.planning_context,
-            plan,
-            decision_provider=decision_provider,
-            initial_state=initial_state,
-        )
-        return result, []
-
-    # Live mode: recovery loop
     provider = load_provider_config(config_path, provider_name=provider_name)
     current_plan = plan
     current_ctx = ctx
@@ -70,10 +54,6 @@ def run_stage05_with_recovery(
     current_state = initial_state
 
     for recovery_round in range(max_recovery_attempts + 1):
-        # Build a fresh decision provider each round (StaticScenarioDecisionProvider
-        # is stateful — it pops decisions from a list)
-        decision_provider = _fresh_decision_provider(ctx)
-
         execution_result = execute_stage_05_plan(
             current_ctx.planning_context,
             current_plan,
@@ -200,16 +180,6 @@ def _find_failed_subtask_id(result: Stage05ExecutionResult) -> str | None:
     return result.failure_records[-1].subtask_id
 
 
-def _fresh_decision_provider(ctx: PipelineContext) -> StepDecisionProvider:
-    """Build a fresh StaticScenarioDecisionProvider for a recovery round."""
-    from homemaster.pipeline.stage_runtime import StaticScenarioDecisionProvider
-
-    return StaticScenarioDecisionProvider(
-        scenario=ctx.scenario,
-        failure_provider=ctx.failure_provider,
-    )
-
-
 def _replan(
     ctx: PipelineContext,
     config_path: str,
@@ -220,7 +190,6 @@ def _replan(
 
     return run_stage05_plan(
         context=ctx.planning_context,
-        live_models=ctx.live_models,
         config_path=config_path,
         provider_name=provider_name,
     )

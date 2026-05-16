@@ -49,9 +49,7 @@ def run_interactive_shell() -> None:
                 utterance=utterance,
                 scenario=scenario,
                 runtime_memory_root=DEFAULT_STAGE_07_RUNTIME_ROOT,
-                debug_root=Path("tests/homemaster/llm_cases"),
                 run_id=run_id,
-                live_models=False,
             )
         except Exception as exc:
             last_status = "failed"

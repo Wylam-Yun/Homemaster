@@ -53,8 +53,6 @@ class PipelineContext:
     results_dir: Path
 
     # Runtime contract flags
-    live_models: bool
-    mock_skills: bool
     config_path: Path
     provider_name: str
     embedding_provider_name: str
@@ -78,7 +76,7 @@ class PipelineContext:
     # Failure tracking
     failure_provider: Any = None
 
-    # P2: structured runtime mode (replaces scattered live_models/mock_skills logic)
+    # P2: structured runtime mode
     runtime_mode: Any = None  # RuntimeMode | None; Any avoids circular import
 
     # P9: recovery support

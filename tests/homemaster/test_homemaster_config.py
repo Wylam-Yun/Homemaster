@@ -238,17 +238,54 @@ assert mod.MINIMUM_MAX_STEPS == 10, f"expected 10, got {mod.MINIMUM_MAX_STEPS}"
 """)
 
 
-def test_runtime_defaults_override(tmp_path: Path) -> None:
+def test_runtime_defaults_live_models_raises(tmp_path: Path) -> None:
     _write_config(tmp_path, {"runtime_defaults": {"live_models": True}})
-    # Cannot use _assert_subprocess_pass: importlib.reload(runtime) re-executes
-    # module body which resets HOMEMASTER_CONFIG_PATH BEFORE reading config.
-    # Instead, call load_runtime_defaults_config() directly after patching.
+    _assert_subprocess_raises(tmp_path, """
+    import homemaster.runtime as rt
+    rt.load_runtime_defaults_config()
+""", "no longer supported")
+
+
+def test_runtime_defaults_mock_skills_raises(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"runtime_defaults": {"mock_skills": True}})
+    _assert_subprocess_raises(tmp_path, """
+    import homemaster.runtime as rt
+    rt.load_runtime_defaults_config()
+""", "no longer supported")
+
+
+def test_runtime_defaults_skill_mode_simulated_ok(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"runtime_defaults": {"skill_mode": "simulated"}})
     _assert_subprocess_pass(tmp_path, """
 import homemaster.runtime as rt
 result = rt.load_runtime_defaults_config()
-assert result.get("live_models") is True, f"expected True, got {result.get('live_models')}"
-assert "mock_skills" not in result, "mock_skills not in config"
+assert result.get("skill_mode") == "simulated"
 """)
+
+
+def test_runtime_defaults_skill_mode_real_ok(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"runtime_defaults": {"skill_mode": "real"}})
+    _assert_subprocess_pass(tmp_path, """
+import homemaster.runtime as rt
+result = rt.load_runtime_defaults_config()
+assert result.get("skill_mode") == "real"
+""")
+
+
+def test_runtime_defaults_skill_mode_invalid_raises(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"runtime_defaults": {"skill_mode": "invalid"}})
+    _assert_subprocess_raises(tmp_path, """
+    import homemaster.runtime as rt
+    rt.load_runtime_defaults_config()
+""", "must be 'simulated' or 'real'")
+
+
+def test_runtime_defaults_skill_mode_bad_type_raises(tmp_path: Path) -> None:
+    _write_config(tmp_path, {"runtime_defaults": {"skill_mode": 123}})
+    _assert_subprocess_raises(tmp_path, """
+    import homemaster.runtime as rt
+    rt.load_runtime_defaults_config()
+""", "must be str")
 
 
 # ---------------------------------------------------------------------------
@@ -353,12 +390,12 @@ def test_runtime_paths_bad_type_raises(tmp_path: Path) -> None:
 """, "must be a string or null")
 
 
-def test_runtime_defaults_bad_type_raises(tmp_path: Path) -> None:
+def test_runtime_defaults_bad_type_live_models_raises(tmp_path: Path) -> None:
     _write_config(tmp_path, {"runtime_defaults": {"live_models": "yes"}})
     _assert_subprocess_raises(tmp_path, """
     import homemaster.runtime as rt
     rt.load_runtime_defaults_config()
-""", "must be bool")
+""", "no longer supported")
 
 
 def test_executor_bad_step_multiplier_raises(tmp_path: Path) -> None:
@@ -414,8 +451,7 @@ from homemaster.grounding import ANCHOR_HINTS, ROOM_HINTS
 from homemaster.runtime import (
     DEFAULT_PROVIDER_NAME,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
-    DEFAULT_LIVE_MODELS,
-    DEFAULT_MOCK_SKILLS,
+    DEFAULT_SKILL_MODE,
 )
 from homemaster.executor import STEP_MULTIPLIER, MINIMUM_MAX_STEPS
 
@@ -428,8 +464,7 @@ assert TOP_K_LIMIT == 50
 assert ROOM_HINTS["kitchen"] == ("厨房", "kitchen")
 assert "桌子" in ANCHOR_HINTS["table"]
 assert DEFAULT_PROVIDER_NAME == "Mimo"
-assert DEFAULT_LIVE_MODELS is False
-assert DEFAULT_MOCK_SKILLS is True
+assert DEFAULT_SKILL_MODE == "simulated"
 assert STEP_MULTIPLIER == 3
 assert MINIMUM_MAX_STEPS == 3
 assert DEFAULT_EMBEDDING_PROVIDER_NAME == "MemoryEmbedding"

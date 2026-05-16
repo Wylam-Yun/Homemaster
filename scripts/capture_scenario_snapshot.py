@@ -90,16 +90,15 @@ def main() -> None:
     print("HomeMaster Scenario Snapshot Capture")
     print("=" * 60)
 
-    # Run all 5 scenarios in deterministic mode
+    # Run all 5 scenarios in live mode (simulated skills).
     # Use isolated work dirs to avoid polluting git-tracked test artifacts.
     snapshot_runtime = SNAPSHOT_WORK_ROOT / "runs"
     snapshot_debug = SNAPSHOT_WORK_ROOT / "debug"
     print(f"\nWork directory: {SNAPSHOT_WORK_ROOT.relative_to(HM_ROOT)}")
-    print("Running 5 baseline scenarios (deterministic mode)...")
+    print("Running 5 baseline scenarios (live mode, simulated skills)...")
     matrix = run_stage_07_scenario_matrix(
         runtime_root=snapshot_runtime,
         debug_root=snapshot_debug,
-        live_models=False,
         scenarios=STAGE_07_SCENARIOS,
     )
 
@@ -122,7 +121,7 @@ def main() -> None:
     snapshot = {
         "snapshot_version": "1.0",
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "pipeline_mode": "deterministic",
+        "pipeline_mode": "live_simulated",
         "homemaster_commit": _git_commit(),
         "source_file_hashes": source_file_hashes,
         "scenarios": scenarios_snapshot,

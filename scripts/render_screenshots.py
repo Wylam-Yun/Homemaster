@@ -319,7 +319,7 @@ def render_test_screenshot():
 
     draw.text((col1_x, y), "P9 Recovery Tests (9 tests)", fill=YELLOW, font=font_lg)
     p9_tests = [
-        "deterministic_mode_skips_recovery",
+        "recovery_always_executes",
         "finish_failed_stops_loop",
         "ask_user_sets_needs_user_input",
         "retry_step_succeeds_on_second_try",
@@ -508,10 +508,9 @@ def render_architecture_screenshot():
         ("embedding", "BGE-M3", True),
         ("grounding", "programmatic", False),
         ("planning", "Mimo", True),
-        ("step_decision", "test_double", False),
-        ("step_decision_smoke", "Mimo", True),
-        ("skills", "mock", False),
-        ("verification", "mock", False),
+        ("step_decision", "Mimo", True),
+        ("skills", "simulated", False),
+        ("verification", "simulated", False),
         ("summary", "Mimo", True),
         ("memory_commit", "programmatic", False),
     ]

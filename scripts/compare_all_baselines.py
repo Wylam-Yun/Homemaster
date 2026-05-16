@@ -95,7 +95,6 @@ def _run_scenario(scenario: str, label: str, work_root: Path) -> dict:
     matrix = run_stage_07_scenario_matrix(
         runtime_root=work_root / label / "runs",
         debug_root=work_root / label / "debug",
-        live_models=False,
         scenarios=[scenario],
     )
     r = matrix.case_results[0]

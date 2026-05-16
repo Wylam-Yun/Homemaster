@@ -2,9 +2,9 @@
 
 LLM-first task brain for HomeMaster.
 
-当前主入口是新的 `homemaster` 链路：任务理解、记忆检索、可靠记忆判定、高层编排、mock skill 执行、任务总结和记忆写回。
+当前主入口是新的 `homemaster` 链路：任务理解、记忆检索、可靠记忆判定、高层编排、simulated skill 执行、任务总结和记忆写回。
 
-> 现在的 Stage07 会真实调用 Mimo 和 BGE-M3；navigation / operation / verification 仍是 mock skill，还没有接真实机器人、VLA、VLM。
+> 现在的 Stage07 会真实调用 Mimo 和 BGE-M3；navigation / operation / verification 仍是 simulated skill，还没有接真实机器人、VLA、VLM。
 
 ## 环境配置
 
@@ -71,9 +71,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
   --scenario fetch_cup_retry \
   --run-id live-fetch-cup-001 \
   --runtime-memory-root var/homemaster/runs \
-  --debug-root tests/homemaster/llm_cases \
-  --live-models \
-  --mock-skills
+  --debug-root var/homemaster/debug
 ```
 
 药盒场景：
@@ -84,15 +82,13 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
   --scenario check_medicine_success \
   --run-id live-check-medicine-001 \
   --runtime-memory-root var/homemaster/runs \
-  --debug-root tests/homemaster/llm_cases \
-  --live-models \
-  --mock-skills
+  --debug-root var/homemaster/debug
 ```
 
 看结果：
 
 ```bash
-open tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/result.md
+open var/homemaster/debug/stage_07/live-fetch-cup-001/result.md
 open var/homemaster/runs/live-fetch-cup-001/memory
 ```
 
@@ -100,7 +96,7 @@ open var/homemaster/runs/live-fetch-cup-001/memory
 
 ```bash
 cd /Users/wylam/Documents/workspace/HomeMaster
-HOMEMASTER_LIVE_FLAG=--live-models ./scripts/run_homemaster_scenarios.sh
+./scripts/run_homemaster_scenarios.sh
 ```
 
 5 个场景：
@@ -147,7 +143,7 @@ cp -R data/scenarios/fetch_cup_retry data/scenarios/my_new_case
 
 - `world.json`：真实世界里有哪些房间、观察点、家具锚点、物体。
 - `memory.json`：机器人记得目标物可能在哪里。
-- `failures.json`：当前主要预留给失败规则；Stage07 里实际失败还由 mock skill 场景逻辑控制。
+- `failures.json`：当前主要预留给失败规则；Stage07 里实际失败还由 simulated skill 场景逻辑控制。
 
 关键 ID 必须对齐：
 
@@ -164,9 +160,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
   --scenario my_new_case \
   --run-id live-my-new-case-001 \
   --runtime-memory-root var/homemaster/runs \
-  --debug-root tests/homemaster/llm_cases \
-  --live-models \
-  --mock-skills
+  --debug-root var/homemaster/debug
 ```
 
 加入 5 场景矩阵时，更新：

@@ -78,7 +78,6 @@ def run_stage_07_scenario_matrix(
     *,
     runtime_root: Path,
     debug_root: Path,
-    live_models: bool,
     scenarios: dict[str, str] | list[str] | tuple[str, ...] | None = None,
 ) -> Stage07ScenarioMatrixResult:
     if scenarios is None:
@@ -94,11 +93,10 @@ def run_stage_07_scenario_matrix(
                 runtime_memory_root=runtime_root,
                 debug_root=debug_root,
                 run_id=run_id,
-                live_models=live_models,
             )
         )
 
-    matrix = _acceptance_matrix(case_results, live_models=live_models)
+    matrix = _acceptance_matrix(case_results)
     results_dir = TEST_RESULTS_ROOT / "stage_07"
     acceptance_matrix_path = results_dir / "acceptance_matrix.json"
     summary_path = results_dir / "scenario_summary.md"
@@ -138,8 +136,6 @@ def _scenario_items(
 
 def _acceptance_matrix(
     results: list[HomeMasterRunResult],
-    *,
-    live_models: bool,
 ) -> dict[str, Any]:
     expected_statuses = _load_expected_statuses()
     cases = []
@@ -166,7 +162,6 @@ def _acceptance_matrix(
     model_boundary = results[0].model_boundary if results else {}
     return {
         "passed": all(case["passed"] for case in cases),
-        "live_models": live_models,
         "model_boundary": model_boundary,
         "cases": cases,
     }

@@ -24,11 +24,10 @@ class Stage02Adapter:
         return "stage02"
 
     def execute(self, ctx: PipelineContext) -> PipelineContext:
-        from homemaster.stage_runtime import run_stage02
+        from homemaster.pipeline.stage_runtime import run_stage02
 
         task_card = run_stage02(
             utterance=ctx.utterance,
-            live_models=ctx.live_models,
             run_id=ctx.run_id,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
@@ -59,7 +58,7 @@ class Stage03Adapter:
         return "stage03"
 
     def execute(self, ctx: PipelineContext) -> PipelineContext:
-        from homemaster.stage_runtime import run_stage03
+        from homemaster.pipeline.stage_runtime import run_stage03
 
         runtime_memory_dir = ctx.runtime_memory_dir
         object_memory = runtime_memory_dir / "object_memory.json"
@@ -85,7 +84,6 @@ class Stage03Adapter:
             memory_path=memory_path,
             scenario=ctx.scenario,
             run_id=ctx.run_id,
-            live_models=ctx.live_models,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
             embedding_provider_name=ctx.embedding_provider_name,
@@ -162,34 +160,23 @@ class Stage05Adapter:
         return "stage05"
 
     def execute(self, ctx: PipelineContext) -> PipelineContext:
-        from homemaster.contracts import ExecutionState
-        from homemaster.stage_runtime import (
-            StaticScenarioDecisionProvider,
-            live_step_decision_smoke,
+        from homemaster.pipeline.stage_runtime import (
+            LiveStepDecisionProvider,
             run_stage05_plan,
         )
+        from homemaster.runtime import load_provider_config
         from homemaster.stages.recovery_loop import run_stage05_with_recovery
 
         plan = run_stage05_plan(
             context=ctx.planning_context,
-            live_models=ctx.live_models,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
         )
-        initial_state = ExecutionState(
-            task_status="running",
-            user_location="user_start",
-            current_location="robot_start",
+        provider = load_provider_config(
+            str(ctx.config_path), provider_name=ctx.provider_name,
         )
-        live_step_status = live_step_decision_smoke(
-            context=ctx.planning_context,
-            plan=plan,
-            initial_state=initial_state,
-            live_models=ctx.live_models,
-            config_path=str(ctx.config_path),
-            provider_name=ctx.provider_name,
-        )
-        decision_provider = StaticScenarioDecisionProvider(
+        decision_provider = LiveStepDecisionProvider(
+            provider,
             scenario=ctx.scenario,
             failure_provider=ctx.failure_provider,
         )
@@ -197,7 +184,6 @@ class Stage05Adapter:
             ctx=ctx,
             plan=plan,
             decision_provider=decision_provider,
-            live_models=ctx.live_models,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
         )
@@ -214,14 +200,11 @@ class Stage05Adapter:
                 {
                     "status": "PASS",
                     "mode": ctx.model_boundary.get("stage05_plan", "unknown"),
-                    "step_decision": live_step_status,
                     "final_task_status": execution_result.final_state.task_status,
-                    "mock_skills": ctx.mock_skills,
                     "recovery_attempts_count": len(recovery_attempts),
                     "component_modes": {
                         "planning": rm.planning if rm else "unknown",
                         "step_decision": rm.step_decision if rm else "unknown",
-                        "step_decision_smoke": rm.step_decision_smoke if rm else "unknown",
                         "skills": rm.skills if rm else "unknown",
                         "verification": rm.verification if rm else "unknown",
                     },
@@ -248,7 +231,7 @@ class Stage06Adapter:
             build_memory_commit_plan,
             utc_now_iso,
         )
-        from homemaster.stage_runtime import run_stage06_summary
+        from homemaster.pipeline.stage_runtime import run_stage06_summary
         from homemaster.stages.summary_runner import persist_stage_06_commit
 
         evidence_bundle = build_evidence_bundle(
@@ -263,7 +246,6 @@ class Stage06Adapter:
             task_card=ctx.task_card,
             execution_state=ctx.execution_result.final_state,
             evidence_bundle=evidence_bundle,
-            live_models=ctx.live_models,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
             recovery_attempts=ctx.recovery_attempts,

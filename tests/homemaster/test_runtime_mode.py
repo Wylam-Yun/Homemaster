@@ -3,60 +3,68 @@
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
 
 import pytest
 
-from homemaster.stage_runtime import (
-    KeywordEmbeddingProvider,
+from homemaster.pipeline.stage_runtime import (
     RuntimeMode,
     ServiceCheckResult,
-    StaticMemoryQueryProvider,
-    StaticScenarioDecisionProvider,
     model_boundary,
     validate_runtime_services,
+)
+from homemaster.runtime import RuntimeConfigError
+from tests.homemaster.test_doubles.runtime_providers import (
+    KeywordEmbeddingProvider,
+    StaticMemoryQueryProvider,
+    StaticScenarioDecisionProvider,
 )
 
 
 # ---------------------------------------------------------------------------
-# RuntimeMode.from_flags
+# RuntimeMode.live
 # ---------------------------------------------------------------------------
 
 
-class TestRuntimeModeFromFlags:
-    def test_from_flags_live(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=True, mock_skills=True)
+class TestRuntimeModeLive:
+    def test_live(self) -> None:
+        rm = RuntimeMode.live()
         assert rm.task_understanding == "live_llm"
         assert rm.memory_query == "live_llm"
         assert rm.embedding == "live_embedding"
         assert rm.planning == "live_llm"
-        assert rm.step_decision == "test_double"  # always test_double
-        assert rm.step_decision_smoke == "live_llm"
-        assert rm.skills == "mock_skill"
-        assert rm.verification == "mock_symbolic"
+        assert rm.step_decision == "live_llm"
+        assert rm.skills == "simulated_skill"
+        assert rm.verification == "simulated_verification"
         assert rm.summary == "live_llm"
         assert rm.memory_commit == "programmatic"
         assert rm.real_robot == "not_integrated"
         assert rm.real_vla == "not_integrated"
         assert rm.real_vlm == "not_integrated"
 
-    def test_from_flags_deterministic(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=False, mock_skills=True)
-        assert rm.task_understanding == "test_double"
-        assert rm.memory_query == "test_double"
-        assert rm.embedding == "test_double"
-        assert rm.planning == "test_double"
-        assert rm.step_decision == "test_double"
-        assert rm.step_decision_smoke == "n/a"
-        assert rm.skills == "mock_skill"
-        assert rm.verification == "mock_symbolic"
-        assert rm.summary == "test_double"
-        assert rm.memory_commit == "programmatic"
+    def test_live_no_step_decision_smoke(self) -> None:
+        rm = RuntimeMode.live()
+        assert not hasattr(rm, "step_decision_smoke")
 
-    def test_from_flags_no_mock(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=False, mock_skills=False)
-        assert rm.skills == "test_double"
-        assert rm.task_understanding == "test_double"
+    def test_live_real_skill_mode_raises(self) -> None:
+        from homemaster.runtime import RuntimeConfigError
+
+        with pytest.raises(RuntimeConfigError, match="not integrated"):
+            RuntimeMode.live(skill_mode="real")
+
+
+# ---------------------------------------------------------------------------
+# RuntimeMode.from_flags (legacy compat)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeModeFromFlags:
+    def test_from_flags_live_raises(self) -> None:
+        with pytest.raises(RuntimeConfigError, match="have been removed"):
+            RuntimeMode.from_flags(live_models=True, mock_skills=True)
+
+    def test_from_flags_deterministic_raises(self) -> None:
+        with pytest.raises(RuntimeConfigError, match="have been removed"):
+            RuntimeMode.from_flags(live_models=False, mock_skills=True)
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +74,7 @@ class TestRuntimeModeFromFlags:
 
 class TestBoundaryCompat:
     def test_to_boundary_compat_live(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=True, mock_skills=True)
+        rm = RuntimeMode.live()
         boundary = rm.to_boundary_dict()
         assert boundary == {
             "stage02": "real_mimo",
@@ -74,10 +82,10 @@ class TestBoundaryCompat:
             "stage03_embedding": "real_bge_m3",
             "stage04": "programmatic",
             "stage05_plan": "real_mimo",
-            "stage05_step": "deterministic",  # honest: StaticScenarioDecisionProvider
-            "stage05_navigation": "mock",
-            "stage05_operation": "mock",
-            "stage05_verification": "mock",  # mock_symbolic -> "mock"
+            "stage05_step": "real_mimo",
+            "stage05_navigation": "simulated",
+            "stage05_operation": "simulated",
+            "stage05_verification": "simulated",
             "stage06_summary": "real_mimo",
             "stage06_memory_commit": "programmatic",
             "real_robot": "not_integrated",
@@ -85,35 +93,12 @@ class TestBoundaryCompat:
             "real_vlm": "not_integrated",
         }
 
-    def test_to_boundary_compat_deterministic(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=False, mock_skills=True)
-        boundary = rm.to_boundary_dict()
-        assert boundary == {
-            "stage02": "deterministic",
-            "stage03_query": "deterministic",
-            "stage03_embedding": "deterministic",
-            "stage04": "programmatic",
-            "stage05_plan": "deterministic",
-            "stage05_step": "deterministic",
-            "stage05_navigation": "mock",
-            "stage05_operation": "mock",
-            "stage05_verification": "mock",
-            "stage06_summary": "deterministic",
-            "stage06_memory_commit": "programmatic",
-            "real_robot": "not_integrated",
-            "real_vla": "not_integrated",
-            "real_vlm": "not_integrated",
-        }
-
     def test_model_boundary_delegates(self) -> None:
-        for live in (True, False):
-            for mock in (True, False):
-                rm = RuntimeMode.from_flags(live_models=live, mock_skills=mock)
-                assert model_boundary(live_models=live, mock_skills=mock) == rm.to_boundary_dict()
+        assert model_boundary() == RuntimeMode.live().to_boundary_dict()
 
 
 # ---------------------------------------------------------------------------
-# Provider test-double labels
+# Provider test-double labels (from test_doubles/)
 # ---------------------------------------------------------------------------
 
 
@@ -135,7 +120,7 @@ class TestProviderLabels:
 
 class TestRuntimeModeFrozen:
     def test_frozen(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=False, mock_skills=True)
+        rm = RuntimeMode.live()
         with pytest.raises(dataclasses.FrozenInstanceError):
             rm.task_understanding = "live_llm"  # type: ignore[misc]
 
@@ -147,7 +132,7 @@ class TestRuntimeModeFrozen:
 
 class TestValidateRuntimeServices:
     def test_missing_config(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=True, mock_skills=True)
+        rm = RuntimeMode.live()
         checks = validate_runtime_services(
             rm,
             config_path="/nonexistent/config.json",
@@ -158,13 +143,3 @@ class TestValidateRuntimeServices:
         assert all(not c.available for c in checks)
         assert checks[0].component == "llm_provider"
         assert checks[1].component == "embedding_provider"
-
-    def test_test_double_no_check(self) -> None:
-        rm = RuntimeMode.from_flags(live_models=False, mock_skills=True)
-        checks = validate_runtime_services(
-            rm,
-            config_path="/nonexistent/config.json",
-            provider_name="Mimo",
-            embedding_provider_name="BGE",
-        )
-        assert checks == []

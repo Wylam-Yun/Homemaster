@@ -1,29 +1,26 @@
 """Tests for the Stage 05 recovery loop (P9).
 
 Uses mock recovery decision providers and custom step decision providers
-to verify loop control logic deterministically.
+to verify loop control logic.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 from homemaster.contracts import (
     ExecutionState,
-    ModuleExecutionResult,
     OrchestrationPlan,
     PlanningContext,
     RecoveryDecision,
     StepDecision,
     Subtask,
     TaskCard,
-    VerificationResult,
 )
 from homemaster.pipeline.core import PipelineContext
-from homemaster.stages.executor import Stage05ExecutionResult, StepDecisionProvider
+from homemaster.stages.executor import StepDecisionProvider
 from homemaster.stages.recovery_loop import run_stage05_with_recovery
 
 
@@ -93,7 +90,6 @@ def _two_subtask_plan() -> OrchestrationPlan:
 
 def _ctx(
     *,
-    live_models: bool = False,
     scenario: str = "fetch_cup_retry",
     planning_context: PlanningContext | None = None,
     registry: Any = None,
@@ -107,8 +103,6 @@ def _ctx(
         runtime_memory_dir=Path("/tmp/test_memory"),
         case_dir=Path("/tmp/test_case"),
         results_dir=Path("/tmp/test_results"),
-        live_models=live_models,
-        mock_skills=True,
         config_path=Path("/dev/null"),
         provider_name="Mimo",
         embedding_provider_name="MemoryEmbedding",
@@ -202,22 +196,29 @@ def _mock_recovery_result(action: str, reason: str = "test") -> Any:
 # ---------------------------------------------------------------------------
 
 
-def test_deterministic_mode_skips_recovery() -> None:
-    """live_models=False: no recovery, behaviour unchanged from pre-P9."""
+def test_recovery_always_executes() -> None:
+    """Recovery loop always runs (deterministic mode no longer exists)."""
     plan = _single_subtask_plan()
     provider = _AlwaysFailingProvider()
 
-    result, recovery_attempts = run_stage05_with_recovery(
-        ctx=_ctx(live_models=False),
-        plan=plan,
-        decision_provider=provider,
-        live_models=False,
-        config_path="/dev/null",
-        provider_name="Mimo",
-    )
+    with patch(
+        "homemaster.stages.recovery_loop.load_provider_config",
+        return_value="dummy",
+    ), patch(
+        "homemaster.stages.recovery_loop.generate_recovery_decision",
+        return_value=_mock_recovery_result("finish_failed", "no hope"),
+    ):
+        result, recovery_attempts = run_stage05_with_recovery(
+            ctx=_ctx(),
+            plan=plan,
+            decision_provider=provider,
+            config_path="/dev/null",
+            provider_name="Mimo",
+        )
 
     assert result.final_state.task_status == "failed"
-    assert recovery_attempts == []
+    assert len(recovery_attempts) == 1
+    assert recovery_attempts[0]["action"] == "finish_failed"
 
 
 def test_finish_failed_stops_loop() -> None:
@@ -231,15 +232,11 @@ def test_finish_failed_stops_loop() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("finish_failed", "no hope"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
             max_recovery_attempts=3,
@@ -261,15 +258,11 @@ def test_ask_user_sets_needs_user_input() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("ask_user", "which cup?"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
         )
@@ -283,24 +276,18 @@ def test_retry_step_succeeds_on_second_try() -> None:
     plan = _single_subtask_plan()
     provider = _FailingThenPassingProvider()
 
-    # First call: retry_step.  Monkeypatch _fresh_decision_provider so
-    # round 0 uses the _FailingThenPassingProvider (already passed in) and
-    # round 1 also uses it (it will return a passing decision).
+    # First call: retry_step.  The passed-in provider is used for all rounds.
     with patch(
         "homemaster.stages.recovery_loop.load_provider_config",
         return_value="dummy",
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("retry_step", "try again"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
         )
@@ -329,15 +316,11 @@ def test_max_attempts_enforced() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         side_effect=mock_recovery,
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
             max_recovery_attempts=max_attempts,
@@ -362,15 +345,11 @@ def test_no_infinite_loop() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("retry_step", "keep trying"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
             max_recovery_attempts=3,
@@ -399,15 +378,11 @@ def test_recovery_decision_generation_failure_graceful() -> None:
             error_type="recovery_generation_failed",
             message="LLM timeout",
         ),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
         )
@@ -429,15 +404,11 @@ def test_recovery_attempts_populated_on_success() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("retry_step", "try again"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
         )
@@ -459,15 +430,11 @@ def test_reobserve_treated_as_retry_step() -> None:
     ), patch(
         "homemaster.stages.recovery_loop.generate_recovery_decision",
         return_value=_mock_recovery_result("reobserve", "look again"),
-    ), patch(
-        "homemaster.stages.recovery_loop._fresh_decision_provider",
-        return_value=provider,
     ):
         result, recovery_attempts = run_stage05_with_recovery(
-            ctx=_ctx(live_models=True),
+            ctx=_ctx(),
             plan=plan,
             decision_provider=provider,
-            live_models=True,
             config_path="/dev/null",
             provider_name="Mimo",
         )

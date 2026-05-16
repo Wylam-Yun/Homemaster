@@ -1,8 +1,7 @@
 """Non-live Stage 07 scenario structure and RAG gate tests.
 
 Verifies catalog structure, memory profile materialization, world overlay
-validity, and validator compliance. Does NOT run deterministic scenario
-matrix — deterministic results are not P0 baseline evidence.
+validity, and validator compliance. Does NOT run the live scenario matrix.
 """
 
 from __future__ import annotations

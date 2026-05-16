@@ -9,10 +9,8 @@ from homemaster.contracts import (
     SubtaskRuntimeState,
     TaskCard,
 )
-from homemaster.executor import (
-    StaticStepDecisionProvider,
-    execute_stage_05_plan,
-)
+from homemaster.executor import execute_stage_05_plan
+from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 
 
 def _task_card() -> TaskCard:

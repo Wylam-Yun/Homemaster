@@ -1,8 +1,8 @@
 """Stage 07 single-task runner that wires Stage 02 through Stage 06.
 
 After P1 refactoring, run_homemaster_task() delegates stage execution to
-PipelineContext + StageRegistry adapters.  Stage helpers and deterministic
-providers live in stage_runtime.py.
+PipelineContext + StageRegistry adapters.  Stage helpers live in
+stage_runtime.py.
 """
 
 from __future__ import annotations
@@ -28,8 +28,6 @@ from homemaster.pipeline.stage_runtime import (
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
-    DEFAULT_LIVE_MODELS,
-    DEFAULT_MOCK_SKILLS,
     DEFAULT_PROVIDER_NAME,
     DEFAULT_STAGE_07_DEBUG_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
@@ -114,7 +112,7 @@ _STAGE_MODE_KEYS: dict[str, list[str]] = {
     "stage02": ["task_understanding"],
     "stage03": ["memory_query", "embedding"],
     "stage04": [],  # always programmatic, hardcoded below
-    "stage05": ["planning", "step_decision", "step_decision_smoke", "skills", "verification"],
+    "stage05": ["planning", "step_decision", "skills", "verification"],
     "stage06": ["summary", "memory_commit"],
 }
 
@@ -143,8 +141,6 @@ def run_homemaster_task(
     runtime_memory_root: str | Path = DEFAULT_STAGE_07_RUNTIME_ROOT,
     debug_root: str | Path = DEFAULT_STAGE_07_DEBUG_ROOT,
     run_id: str | None = None,
-    live_models: bool = DEFAULT_LIVE_MODELS,
-    mock_skills: bool = DEFAULT_MOCK_SKILLS,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
@@ -162,26 +158,17 @@ def run_homemaster_task(
     case_dir = Path(debug_root) / "stage_07" / run_id
 
     # -- P2: runtime contract guards (before any file materialization) --
-    if not mock_skills:
-        raise HomeMasterRunError(
-            "mock_skills=False is not supported: robot/VLA/VLM not integrated. "
-            "Use mock_skills=True until real skill executors are available."
-        )
-
-    rm = RuntimeMode.from_flags(live_models=live_models, mock_skills=mock_skills)
-    if live_models:
-        checks = validate_runtime_services(
-            rm,
-            config_path=str(config_path),
-            provider_name=provider_name,
-            embedding_provider_name=embedding_provider_name,
-        )
-        unavailable = [c for c in checks if not c.available]
-        if unavailable:
-            names = ", ".join(f"{c.component}: {c.error}" for c in unavailable)
-            raise HomeMasterRunError(
-                f"live_models=True but services unavailable: {names}"
-            )
+    rm = RuntimeMode.live()
+    checks = validate_runtime_services(
+        rm,
+        config_path=str(config_path),
+        provider_name=provider_name,
+        embedding_provider_name=embedding_provider_name,
+    )
+    unavailable = [c for c in checks if not c.available]
+    if unavailable:
+        names = ", ".join(f"{c.component}: {c.error}" for c in unavailable)
+        raise HomeMasterRunError(f"required services unavailable: {names}")
 
     # -- Data-source resolution (may materialize files) --
     resolved_world, resolved_memory = _resolve_data_source(
@@ -209,8 +196,6 @@ def run_homemaster_task(
         runtime_memory_dir=runtime_memory_dir,
         case_dir=case_dir,
         results_dir=results_dir,
-        live_models=live_models,
-        mock_skills=mock_skills,
         config_path=Path(config_path),
         provider_name=provider_name,
         embedding_provider_name=embedding_provider_name,
@@ -222,8 +207,8 @@ def run_homemaster_task(
 
     # -- P3: run header --
     logger = get_logger()
-    logger.info("[%s] run started  scenario=%s  live_models=%s  mock_skills=%s",
-                run_id, scenario, live_models, mock_skills)
+    logger.info("[%s] run started  scenario=%s  runtime_mode=live(simulated)",
+                run_id, scenario)
 
     # -- Stage loop (no run_pipeline wrapper; ctx accessible in except) --
     try:

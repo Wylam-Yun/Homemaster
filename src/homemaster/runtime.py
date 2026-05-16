@@ -116,9 +116,22 @@ def load_runtime_defaults_config() -> dict[str, Any]:
     if cfg is None:
         return {}
     if "live_models" in cfg:
-        _require_type(cfg["live_models"], bool, "runtime_defaults.live_models")
+        raise RuntimeConfigError(
+            "runtime_defaults.live_models is no longer supported. "
+            "Deterministic runtime mode has been removed."
+        )
     if "mock_skills" in cfg:
-        _require_type(cfg["mock_skills"], bool, "runtime_defaults.mock_skills")
+        raise RuntimeConfigError(
+            "runtime_defaults.mock_skills is no longer supported. "
+            "Use skill_mode='simulated' instead."
+        )
+    if "skill_mode" in cfg:
+        _require_type(cfg["skill_mode"], str, "runtime_defaults.skill_mode")
+        if cfg["skill_mode"] not in ("simulated", "real"):
+            raise RuntimeConfigError(
+                f"runtime_defaults.skill_mode must be 'simulated' or 'real', "
+                f"got {cfg['skill_mode']!r}"
+            )
     for key in ("default_provider_name", "default_embedding_provider_name"):
         if key in cfg:
             _require_type(cfg[key], str, f"runtime_defaults.{key}")
@@ -136,8 +149,7 @@ DEFAULT_PROVIDER_NAME: str = _defaults_cfg.get("default_provider_name", "Mimo")
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = _defaults_cfg.get(
     "default_embedding_provider_name", "MemoryEmbedding"
 )
-DEFAULT_LIVE_MODELS: bool = _defaults_cfg.get("live_models", False)
-DEFAULT_MOCK_SKILLS: bool = _defaults_cfg.get("mock_skills", True)
+DEFAULT_SKILL_MODE: str = _defaults_cfg.get("skill_mode", "simulated")
 
 _llm_case_root = _paths_cfg.get("llm_case_root")
 LLM_CASE_ROOT = (

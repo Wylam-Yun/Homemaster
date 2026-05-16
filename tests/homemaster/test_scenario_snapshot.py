@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -47,6 +48,7 @@ def snapshot() -> dict:
     return json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
 
 
+@pytest.mark.live_api
 @pytest.mark.parametrize(
     "scenario_name",
     list(STAGE_07_SCENARIOS.keys()),
@@ -58,6 +60,9 @@ def test_scenario_matches_snapshot(
     tmp_path: Path,
 ) -> None:
     """Run one scenario and assert stable fields match the snapshot."""
+    if os.getenv("HOMEMASTER_RUN_LIVE_LLM") != "1":
+        pytest.skip("set HOMEMASTER_RUN_LIVE_LLM=1 to run real Mimo Stage 07 cases")
+
     expected_entry = snapshot["scenarios"].get(scenario_name)
     assert expected_entry is not None, f"Scenario {scenario_name!r} not in snapshot"
 
@@ -68,7 +73,6 @@ def test_scenario_matches_snapshot(
         runtime_memory_root=tmp_path / "runs",
         debug_root=tmp_path / "debug",
         run_id=f"snapshot-check-{scenario_name}",
-        live_models=False,
     )
 
     # 1. final_status must match

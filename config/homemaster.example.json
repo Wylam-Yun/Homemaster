@@ -64,7 +64,6 @@
   "runtime_defaults": {
     "default_provider_name": "Mimo",
     "default_embedding_provider_name": "MemoryEmbedding",
-    "live_models": false,
-    "mock_skills": true
+    "skill_mode": "simulated"
   }
 }

@@ -25,8 +25,6 @@ def _minimal_ctx(**overrides: object) -> PipelineContext:
         runtime_memory_dir=Path("/tmp/test_memory"),
         case_dir=Path("/tmp/test_case"),
         results_dir=Path("/tmp/test_results"),
-        live_models=False,
-        mock_skills=True,
         config_path=Path("/dev/null"),
         provider_name="test",
         embedding_provider_name="test",
@@ -70,10 +68,10 @@ class TestPipelineContext:
     def test_with_stage_status_accumulates(self) -> None:
         ctx = _minimal_ctx()
         ctx2 = ctx.with_stage_status("stage02", {"status": "PASS"})
-        ctx3 = ctx2.with_stage_status("stage03", {"status": "PASS", "mode": "deterministic"})
+        ctx3 = ctx2.with_stage_status("stage03", {"status": "PASS", "mode": "real_mimo"})
         assert ctx3.stage_statuses == {
             "stage02": {"status": "PASS"},
-            "stage03": {"status": "PASS", "mode": "deterministic"},
+            "stage03": {"status": "PASS", "mode": "real_mimo"},
         }
         # ctx2 still only has stage02
         assert ctx2.stage_statuses == {"stage02": {"status": "PASS"}}

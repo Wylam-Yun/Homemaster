@@ -6,7 +6,6 @@ cd "$ROOT_DIR"
 
 RUNTIME_ROOT="${HOMEMASTER_RUNTIME_ROOT:-var/homemaster/runs}"
 DEBUG_ROOT="${HOMEMASTER_DEBUG_ROOT:-tests/homemaster/llm_cases}"
-LIVE_FLAG="${HOMEMASTER_LIVE_FLAG:---live-models}"
 
 declare -A UTTERANCES=(
   [check_medicine_success]="去厨房看看药盒是不是还在。"
@@ -30,7 +29,5 @@ do
     --scenario "$scenario" \
     --run-id "$run_id" \
     --runtime-memory-root "$RUNTIME_ROOT" \
-    --debug-root "$DEBUG_ROOT" \
-    "$LIVE_FLAG" \
-    --mock-skills
+    --debug-root "$DEBUG_ROOT"
 done

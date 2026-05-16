@@ -3,6 +3,9 @@
 These tests are the P0 LLM baseline. Without API keys they report skipped,
 never baseline-pass.
 
+Offline tests (no live_api marker) verify scenario catalog structure and
+RuntimeMode boundary values without requiring API access.
+
 Usage:
     HOMEMASTER_RUN_LIVE_LLM=1 HOMEMASTER_RUN_LIVE_EMBEDDING=1 \
         .venv/bin/pytest tests/homemaster/test_stage_07_scenarios_live.py -v
@@ -37,7 +40,6 @@ def test_stage_07_llm_baseline_matrix(tmp_path: Path) -> None:
     result = run_stage_07_scenario_matrix(
         runtime_root=tmp_path / "runs",
         debug_root=tmp_path / "debug",
-        live_models=True,
         scenarios=names,
     )
 
@@ -52,10 +54,10 @@ def test_stage_07_llm_baseline_matrix(tmp_path: Path) -> None:
     assert boundary["stage03_query"] == "real_mimo"
     assert boundary["stage03_embedding"] == "real_bge_m3"
     assert boundary["stage05_plan"] == "real_mimo"
-    assert boundary["stage05_step"] == "deterministic"  # P2: honest label — StaticScenarioDecisionProvider
+    assert boundary["stage05_step"] == "real_mimo"
     assert boundary["stage06_summary"] == "real_mimo"
     # stage04, memory_commit are programmatic; skills/robot/VLM are mock/not_integrated
-    assert boundary["stage05_navigation"] == "mock"
+    assert boundary["stage05_navigation"] == "simulated"
     assert boundary["real_robot"] == "not_integrated"
 
     for case in result.case_results:
@@ -73,9 +75,51 @@ def test_stage_07_legacy_compat_matrix(tmp_path: Path) -> None:
     result = run_stage_07_scenario_matrix(
         runtime_root=tmp_path / "runs",
         debug_root=tmp_path / "debug",
-        live_models=True,
         scenarios=names,
     )
 
     assert result.passed is True
     assert len(result.case_results) == 5
+
+
+# ---------------------------------------------------------------------------
+# Offline tests (no live_api marker) — scenario structure and boundary checks
+# ---------------------------------------------------------------------------
+
+
+def test_baseline_scenario_catalog_has_minimum_scenarios() -> None:
+    """The catalog must expose at least 7 baseline scenarios."""
+    names = baseline_scenario_names()
+    assert len(names) >= 7, f"Expected >=7 baseline scenarios, got {len(names)}"
+
+
+def test_legacy_compat_scenario_count() -> None:
+    """Legacy compat suite must expose exactly 5 scenarios."""
+    names = legacy_compat_names()
+    assert len(names) == 5
+
+
+def test_runtime_mode_boundary_values() -> None:
+    """RuntimeMode.live() boundary dict must have expected values."""
+    from homemaster.pipeline.stage_runtime import RuntimeMode
+
+    boundary = RuntimeMode.live().to_boundary_dict()
+    assert boundary["stage02"] == "real_mimo"
+    assert boundary["stage03_query"] == "real_mimo"
+    assert boundary["stage03_embedding"] == "real_bge_m3"
+    assert boundary["stage04"] == "programmatic"
+    assert boundary["stage05_plan"] == "real_mimo"
+    assert boundary["stage05_step"] == "real_mimo"
+    assert boundary["stage05_navigation"] == "simulated"
+    assert boundary["stage05_operation"] == "simulated"
+    assert boundary["stage05_verification"] == "simulated"
+    assert boundary["stage06_summary"] == "real_mimo"
+    assert boundary["stage06_memory_commit"] == "programmatic"
+    assert boundary["real_robot"] == "not_integrated"
+
+
+def test_scenario_runner_function_exists() -> None:
+    """run_stage_07_scenario_matrix must be importable and callable."""
+    from homemaster.scenario_runner import run_stage_07_scenario_matrix
+
+    assert callable(run_stage_07_scenario_matrix)

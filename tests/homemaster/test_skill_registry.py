@@ -11,10 +11,8 @@ from homemaster.contracts import (
     Subtask,
     TaskCard,
 )
-from homemaster.executor import (
-    StaticStepDecisionProvider,
-    execute_stage_05_plan,
-)
+from homemaster.executor import execute_stage_05_plan
+from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 from homemaster.skill_registry import (
     SkillInputValidationError,
     SkillManifest,
