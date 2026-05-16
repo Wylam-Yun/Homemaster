@@ -19,7 +19,7 @@ dev = [
 ]
 
 [project.scripts]
-homemaster = "homemaster.cli:app"
+homemaster = "homemaster.cli.app:app"
 
 [build-system]
 requires = ["setuptools>=68"]
