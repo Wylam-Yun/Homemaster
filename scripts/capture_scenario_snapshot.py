@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Capture a frozen snapshot of the 5 baseline Stage07 scenarios.
 
+LEGACY/TEST-ONLY: Retained for manual baseline regeneration; not called by CI or pytest.
+
 Run explicitly to generate or update the committed baseline snapshot.
 This script is NOT called by pytest — it produces a committed artifact.
 
@@ -28,7 +30,11 @@ from homemaster.scenario_runner import (
     run_stage_07_scenario_matrix,
 )
 
-SNAPSHOT_PATH = HM_ROOT / "plan" / "V1.2" / "baselines" / "scenario_snapshot_v1.json"
+# Committed baseline (read-only reference for test_scenario_snapshot.py)
+SNAPSHOT_BASELINE = HM_ROOT / "plan" / "V1.2" / "baselines" / "scenario_snapshot_v1.json"
+
+# Script output goes to gitignored var/ — copy to baseline manually to update
+SNAPSHOT_PATH = HM_ROOT / "var" / "homemaster" / "snapshots" / "scenario_snapshot_v1.json"
 
 # Use isolated output dirs so we don't overwrite git-tracked test artifacts
 # under tests/homemaster/llm_cases/stage_07/.
@@ -133,6 +139,8 @@ def main() -> None:
 
     # Print summary
     print(f"\nSnapshot written to: {SNAPSHOT_PATH.relative_to(HM_ROOT)}")
+    print(f"Committed baseline: {SNAPSHOT_BASELINE.relative_to(HM_ROOT)}")
+    print("To update the committed baseline, copy the output to the baseline path.")
     print(f"Git commit: {snapshot['homemaster_commit']}")
     print(f"\n{'Scenario':<35} {'Expected':<12} {'Actual':<12} {'All PASS?'}")
     print("-" * 75)

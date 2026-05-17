@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from homemaster.runtime import TEST_RESULTS_ROOT
+from homemaster.runtime import DEFAULT_STAGE_07_RESULTS_ROOT
 from homemaster.task_runner import HomeMasterRunResult, run_homemaster_task
 from homemaster.trace import write_json
 
@@ -78,6 +78,7 @@ def run_stage_07_scenario_matrix(
     *,
     runtime_root: Path,
     debug_root: Path,
+    results_root: Path | None = None,
     scenarios: dict[str, str] | list[str] | tuple[str, ...] | None = None,
 ) -> Stage07ScenarioMatrixResult:
     if scenarios is None:
@@ -92,12 +93,16 @@ def run_stage_07_scenario_matrix(
                 scenario=scenario,
                 runtime_memory_root=runtime_root,
                 debug_root=debug_root,
+                results_root=results_root,
                 run_id=run_id,
             )
         )
 
     matrix = _acceptance_matrix(case_results)
-    results_dir = TEST_RESULTS_ROOT / "stage_07"
+    if results_root:
+        results_dir = Path(results_root) / "stage_07"
+    else:
+        results_dir = DEFAULT_STAGE_07_RESULTS_ROOT / "stage_07"
     acceptance_matrix_path = results_dir / "acceptance_matrix.json"
     summary_path = results_dir / "scenario_summary.md"
     write_json(acceptance_matrix_path, matrix)

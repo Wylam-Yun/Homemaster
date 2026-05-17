@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.scenario_runner import STAGE_07_SCENARIOS, run_stage_07_scenario_matrix
+from homemaster.scenario_runner import run_stage_07_scenario_matrix
 
 
 @pytest.mark.live_api
@@ -40,3 +40,10 @@ def test_stage_07_scenario_catalog_has_baseline_scenarios() -> None:
     assert len(baseline_names) >= 7
     assert "fetch_cup_table_success" in baseline_names
     assert "fetch_object_not_found" in baseline_names
+
+
+def test_scenario_matrix_accepts_results_root() -> None:
+    """run_stage_07_scenario_matrix must accept results_root."""
+    import inspect
+
+    assert "results_root" in inspect.signature(run_stage_07_scenario_matrix).parameters

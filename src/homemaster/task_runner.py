@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from homemaster.config.runtime_paths import validate_run_id
 from homemaster.contracts import (
     EvidenceBundle,
     PlanningContext,
@@ -30,6 +31,7 @@ from homemaster.runtime import (
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     DEFAULT_STAGE_07_DEBUG_ROOT,
+    DEFAULT_STAGE_07_RESULTS_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
     LLM_CASE_ROOT,
     REPO_ROOT,
@@ -140,6 +142,7 @@ def run_homemaster_task(
     memory_path: str | Path | None = None,
     runtime_memory_root: str | Path = DEFAULT_STAGE_07_RUNTIME_ROOT,
     debug_root: str | Path = DEFAULT_STAGE_07_DEBUG_ROOT,
+    results_root: str | Path = DEFAULT_STAGE_07_RESULTS_ROOT,
     run_id: str | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
@@ -149,6 +152,7 @@ def run_homemaster_task(
     if not scenario:
         raise HomeMasterRunError("scenario is required for Stage07 run")
     run_id = run_id or _slug_run_id(scenario)
+    validate_run_id(run_id)
     scenario_root = REPO_ROOT / "data" / "scenarios" / scenario
     if not scenario_root.is_dir():
         raise HomeMasterRunError(f"unknown scenario: {scenario}")
@@ -176,7 +180,7 @@ def run_homemaster_task(
         world_path, memory_path,
     )
 
-    results_dir = STAGE_07_RESULTS_DIR
+    results_dir = Path(results_root)
     mb = rm.to_boundary_dict()
     paths = {
         "world_path": str(resolved_world),

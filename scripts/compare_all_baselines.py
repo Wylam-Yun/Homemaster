@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Compare legacy_files vs homeworld_profile for all 5 baseline scenarios.
 
+LEGACY/TEST-ONLY: Retained for manual migration verification; not called by CI or pytest.
+
 Uses canonical identity (object_category + room_id + anchor_id) for
 selected_target equivalence instead of raw memory_id string match.
 
@@ -153,7 +155,7 @@ def main() -> None:
     _build_canonical_index()
 
     work_root = HM_ROOT / "var" / "homemaster" / "migration_compare_all"
-    artifacts_dir = HM_ROOT / "plan" / "V1.2" / "baselines" / "migration_artifacts"
+    artifacts_dir = HM_ROOT / "var" / "homemaster" / "migration_artifacts"
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     all_divergences: dict[str, list[str]] = {}

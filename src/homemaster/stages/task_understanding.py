@@ -90,11 +90,13 @@ class MimoTaskUnderstandingProvider:
         self,
         provider: ProviderConfig,
         *,
+        case_root: Path = STAGE_02_CASE_ROOT,
         results_dir: Path = STAGE_02_RESULTS_DIR,
         client: httpx.Client | None = None,
         max_tokens: int = initial_max_tokens("stage_02_task_card"),
     ) -> None:
         self._provider = provider
+        self._case_root = case_root
         self._results_dir = results_dir
         self._client = client
         self._max_tokens = max_tokens
@@ -106,7 +108,7 @@ class MimoTaskUnderstandingProvider:
         case_name: str = DEFAULT_UNDERSTAND_CASE_NAME,
         expected: dict[str, Any] | None = None,
     ) -> TaskUnderstandingResult:
-        case_dir = STAGE_02_CASE_ROOT / case_name
+        case_dir = self._case_root / case_name
         expected_payload = expected or minimal_task_card_expectation(case_name=case_name)
         ensure_stage_directories(case_dir=case_dir, results_dir=self._results_dir)
 
@@ -250,6 +252,7 @@ def understand_task(
     expected: dict[str, Any] | None = None,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
+    case_root: Path = STAGE_02_CASE_ROOT,
     client: httpx.Client | None = None,
     max_tokens: int = initial_max_tokens("stage_02_task_card"),
 ) -> TaskUnderstandingResult:
@@ -262,6 +265,7 @@ def understand_task(
     )
     task_provider = MimoTaskUnderstandingProvider(
         provider,
+        case_root=case_root,
         client=client,
         max_tokens=max_tokens,
     )

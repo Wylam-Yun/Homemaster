@@ -14,6 +14,7 @@ from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contrac
 from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_PROVIDER_NAME,
+    DEFAULT_STAGE_07_RESULTS_ROOT,
 )
 from homemaster.stages.task_understanding import understand_task
 from homemaster.task_runner import (
@@ -86,6 +87,10 @@ def run_command(
         Path,
         typer.Option("--debug-root", help="Root for debug case reports."),
     ] = DEFAULT_STAGE_07_DEBUG_ROOT,
+    results_root: Annotated[
+        Path,
+        typer.Option("--results-root", help="Root for Stage07 results (llm_samples, traces)."),
+    ] = DEFAULT_STAGE_07_RESULTS_ROOT,
     run_id: Annotated[
         str | None,
         typer.Option("--run-id", help="Stable run id for traces and runtime memory."),
@@ -109,6 +114,7 @@ def run_command(
             memory_path=memory_path,
             runtime_memory_root=runtime_memory_root,
             debug_root=debug_root,
+            results_root=results_root,
             run_id=run_id,
         )
     except (HomeMasterRunError, Exception) as exc:

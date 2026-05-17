@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 RUNTIME_ROOT="${HOMEMASTER_RUNTIME_ROOT:-var/homemaster/runs}"
-DEBUG_ROOT="${HOMEMASTER_DEBUG_ROOT:-tests/homemaster/llm_cases}"
+DEBUG_ROOT="${HOMEMASTER_DEBUG_ROOT:-var/homemaster/debug}"
 
 declare -A UTTERANCES=(
   [check_medicine_success]="去厨房看看药盒是不是还在。"

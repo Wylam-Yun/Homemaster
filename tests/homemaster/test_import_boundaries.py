@@ -124,8 +124,29 @@ print("OK")
 # ---------------------------------------------------------------------------
 
 
+# Root-level shim files that still use `import *` (Phase 7 cleanup scope).
+# These are backward-compatibility re-exports. The test verifies no NEW shims
+# are added; existing ones are tracked here until Phase 7 replaces them with
+# explicit named imports.
+_KNOWN_STAR_IMPORT_SHIMS = {
+    "doctor.py",
+    "frontdoor.py",
+    "interactive_shell.py",
+    "orchestrator.py",
+    "pipeline_core.py",
+    "pipeline_stages.py",
+    "recovery.py",
+    "stage_04.py",
+    "stage_05.py",
+    "stage_06.py",
+    "skill_selector.py",
+    "summary.py",
+    "verifier.py",
+}
+
+
 def test_phase2_files_no_star_import() -> None:
-    """Phase 2 files (new packages + modified shims) must not use `import *`."""
+    """Phase 2 files (new packages + cleaned shims) must not use `import *`."""
     # Check new packages
     offenders: list[str] = []
     for pkg in _NEW_PACKAGES:
@@ -157,6 +178,31 @@ def test_phase2_files_no_star_import() -> None:
         pytest.fail(
             "Phase 2 files use `import *`:\n"
             + "\n".join(f"  {o}" for o in offenders)
+        )
+
+
+def test_no_new_star_import_shims() -> None:
+    """No new root-level `import *` shims beyond the known set (Phase 7 cleanup)."""
+    new_shims: list[str] = []
+    for path in sorted(HOMEMASTER_ROOT.glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        has_star = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.names:
+                for alias in node.names:
+                    if alias.name == "*":
+                        has_star = True
+                        break
+        if has_star and path.name not in _KNOWN_STAR_IMPORT_SHIMS:
+            new_shims.append(path.name)
+
+    if new_shims:
+        pytest.fail(
+            "New `import *` shims added (add to _KNOWN_STAR_IMPORT_SHIMS or fix):\n"
+            + "\n".join(f"  {s}" for s in new_shims)
         )
 
 

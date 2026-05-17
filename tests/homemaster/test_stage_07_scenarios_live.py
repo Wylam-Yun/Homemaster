@@ -82,6 +82,21 @@ def test_stage_07_legacy_compat_matrix(tmp_path: Path) -> None:
     assert len(result.case_results) == 5
 
 
+@pytest.mark.live_api
+def test_scenario_matrix_uses_custom_results_root(tmp_path: Path) -> None:
+    """When results_root is provided, matrix output goes there."""
+    _require_live_env()
+    custom_results = tmp_path / "custom_results"
+    result = run_stage_07_scenario_matrix(
+        runtime_root=tmp_path / "runs",
+        debug_root=tmp_path / "debug",
+        results_root=custom_results,
+        scenarios=["check_medicine_success"],
+    )
+    assert result.acceptance_matrix_path.parent == custom_results / "stage_07"
+    assert result.acceptance_matrix_path.is_file()
+
+
 # ---------------------------------------------------------------------------
 # Offline tests (no live_api marker) — scenario structure and boundary checks
 # ---------------------------------------------------------------------------

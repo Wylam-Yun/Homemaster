@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from homemaster.config.runtime_paths import InvalidRunIdError
 from homemaster.runtime import REPO_ROOT
 from homemaster.task_runner import HomeMasterRunError, run_homemaster_task
 
@@ -136,3 +137,31 @@ def test_stage_lifecycle_logging(tmp_path: Path, capfd: pytest.CaptureFixture[st
     # Cleanup: restore default state for other tests
     logger.handlers.clear()
     logger.propagate = True
+
+
+def test_invalid_run_id_fails_before_file_write(tmp_path: Path) -> None:
+    """Path-traversal run_id must fail before any file materialization."""
+    with pytest.raises(InvalidRunIdError):
+        run_homemaster_task(
+            utterance="test",
+            scenario="fetch_cup_retry",
+            runtime_memory_root=tmp_path / "runs",
+            debug_root=tmp_path / "debug",
+            run_id="../escape",
+        )
+
+
+def test_run_homemaster_task_accepts_results_root() -> None:
+    """Function signature must accept results_root parameter."""
+    import inspect
+
+    assert "results_root" in inspect.signature(run_homemaster_task).parameters
+
+
+def test_run_homemaster_task_default_results_root_is_var() -> None:
+    """Default results_root must point to var/homemaster/results, not plan/."""
+    import inspect
+
+    sig = inspect.signature(run_homemaster_task)
+    default = sig.parameters["results_root"].default
+    assert "var/homemaster" in str(default), f"Expected var/homemaster path, got {default}"

@@ -20,7 +20,10 @@ tmp/
 data/runs/
 trace.jsonl
 plan/V1.2/test_results/
+plan/V1.2/baselines/migration_artifacts/
 var/homemaster/memory/
 var/homemaster/runs/
 var/homemaster/snapshots/
+var/homemaster/migration_artifacts/
 var/homemaster/debug/
+var/homemaster/results/

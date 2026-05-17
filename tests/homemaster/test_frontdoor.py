@@ -97,6 +97,7 @@ def test_understanding_accepts_mock_mimo_check_presence(tmp_path: Path) -> None:
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         result = MimoTaskUnderstandingProvider(
             provider,
+            case_root=tmp_path / "cases",
             results_dir=tmp_path / "results",
             client=http_client,
         ).understand(
@@ -135,6 +136,7 @@ def test_understanding_accepts_mock_mimo_fetch_object(tmp_path: Path) -> None:
             case_name="fetch_cup_task_card",
             expected=stage_02_case_expectations()["fetch_cup_task_card"],
             config_path=config_path,
+            case_root=tmp_path / "cases",
             client=http_client,
         )
 
@@ -166,6 +168,7 @@ def test_understanding_retries_once_after_invalid_json(tmp_path: Path) -> None:
             case_name="check_medicine_task_card",
             expected=stage_02_case_expectations()["check_medicine_task_card"],
             config_path=config_path,
+            case_root=tmp_path / "cases",
             client=http_client,
         )
 
@@ -190,6 +193,7 @@ def test_understanding_fails_after_second_invalid_output(tmp_path: Path) -> None
                 case_name="check_medicine_task_card",
                 expected=stage_02_case_expectations()["check_medicine_task_card"],
                 config_path=config_path,
+                case_root=tmp_path / "cases",
                 client=http_client,
             )
 
@@ -209,6 +213,7 @@ def test_frontdoor_debug_assets_do_not_contain_secrets(tmp_path: Path) -> None:
             case_name="check_medicine_task_card",
             expected=stage_02_case_expectations()["check_medicine_task_card"],
             config_path=config_path,
+            case_root=tmp_path / "cases",
             client=http_client,
         )
 

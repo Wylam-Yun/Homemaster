@@ -118,9 +118,11 @@ tests/homemaster/test_stage_07_scenarios_live.py -m live_api
 验收矩阵：
 
 ```text
-plan/V1.2/test_results/stage_07/acceptance_matrix.json
-plan/V1.2/test_results/stage_07/scenario_summary.md
+var/homemaster/results/stage_07/acceptance_matrix.json
+var/homemaster/results/stage_07/scenario_summary.md
 ```
+
+注意：pytest live 测试使用 `tmp_path` 隔离，结果不写入项目目录。上述路径是手动运行 `homemaster run` 或 shell script 时的默认输出位置。
 
 ## 构造新场景
 

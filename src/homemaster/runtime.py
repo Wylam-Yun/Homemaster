@@ -184,6 +184,12 @@ DEFAULT_STAGE_07_DEBUG_ROOT = (
     else REPO_ROOT / "var" / "homemaster" / "debug"
 )
 
+_results_root = _paths_cfg.get("results_root")
+DEFAULT_STAGE_07_RESULTS_ROOT = (
+    Path(_results_root) if _results_root
+    else REPO_ROOT / "var" / "homemaster" / "results"
+)
+
 
 # ---------------------------------------------------------------------------
 # Provider config loading
