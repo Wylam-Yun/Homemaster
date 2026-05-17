@@ -10,11 +10,11 @@ import pytest
 from homemaster.contracts import ExecutionState, FailureRecord
 from homemaster.memory_commit import build_evidence_bundle, build_memory_commit_plan
 from homemaster.runtime import ProviderConfig
-from homemaster.stage_06 import (
+from homemaster.stages.summary import TaskSummaryGenerationError, generate_task_summary
+from homemaster.stages.summary_runner import (
     build_stage_06_case_inputs,
     run_live_stage_06_summary_memory_case,
 )
-from homemaster.summary import TaskSummaryGenerationError, generate_task_summary
 
 
 @pytest.mark.live_api

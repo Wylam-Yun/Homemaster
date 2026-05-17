@@ -34,6 +34,7 @@ def run_stage05_with_recovery(
     config_path: str,
     provider_name: str,
     max_recovery_attempts: int = MAX_RECOVERY_ATTEMPTS,
+    event_sink: Any = None,  # EventSink | None
 ) -> tuple[Stage05ExecutionResult, list[dict[str, Any]]]:
     """Execute a Stage05 plan with recovery loop.
 
@@ -53,12 +54,25 @@ def run_stage05_with_recovery(
     execution_result: Stage05ExecutionResult | None = None
     current_state = initial_state
 
+    def _emit(event_type: str, **kwargs: Any) -> None:
+        if event_sink is None:
+            return
+        from homemaster.events.runtime_events import RuntimeEvent
+        payload = kwargs.pop("payload", {})
+        event_sink.emit(RuntimeEvent(
+            turn_index=0, event_type=event_type, run_id=ctx.run_id, payload=payload, **kwargs,
+        ))
+
     for recovery_round in range(max_recovery_attempts + 1):
+        _emit("recovery_started", payload={"round": recovery_round})
+
         execution_result = execute_stage_05_plan(
             current_ctx.planning_context,
             current_plan,
             decision_provider=decision_provider,
             initial_state=current_state,
+            event_sink=event_sink,
+            run_id=ctx.run_id,
         )
 
         if execution_result.final_state.task_status != "failed":
@@ -70,6 +84,10 @@ def run_stage05_with_recovery(
                     recovery_round,
                     execution_result.final_state.task_status,
                 )
+            _emit("recovery_completed", payload={
+                "round": recovery_round,
+                "final_status": execution_result.final_state.task_status,
+            })
             break
 
         # Failed — try recovery
@@ -108,6 +126,11 @@ def run_stage05_with_recovery(
             break
 
         recovery_attempts.append({
+            "round": recovery_round,
+            "action": decision.action,
+            "reason": decision.reason,
+        })
+        _emit("recovery_decision_generated", payload={
             "round": recovery_round,
             "action": decision.action,
             "reason": decision.reason,
@@ -172,6 +195,11 @@ def run_stage05_with_recovery(
             continue
 
     assert execution_result is not None
+    if execution_result.final_state.task_status == "failed":
+        _emit("recovery_failed", payload={
+            "round": len(recovery_attempts),
+            "final_status": "failed",
+        })
     return execution_result, recovery_attempts
 
 

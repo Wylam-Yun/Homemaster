@@ -275,6 +275,7 @@ def run_stage03(
     case_root: Any,
     results_dir: Any,
     negative_evidence: dict[str, Any] | None = None,
+    event_sink: Any = None,
 ):
     """Stage 03: TaskCard → MemoryRagResult (live only)."""
     from homemaster.embedding_client import BGEEmbeddingClient
@@ -296,7 +297,9 @@ def run_stage03(
                 llm_provider,
                 max_tokens=initial_max_tokens("stage_03_memory_query"),
             ),
-            embedding_provider=EmbeddingClientAdapter(bge_client),
+            embedding_provider=EmbeddingClientAdapter(
+                bge_client, event_sink=event_sink, run_id=run_id,
+            ),
             llm_provider=llm_provider,
             negative_evidence=negative_evidence,
             expected={"case_name": f"stage07_{run_id}_memory_rag"},

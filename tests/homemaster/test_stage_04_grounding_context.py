@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from homemaster.stage_04 import run_stage_04_case, stage_04_case_expectations
+from homemaster.stages.grounding_runner import run_stage_04_case, stage_04_case_expectations
 
 
 def test_stage_04_case_runner_generates_grounded_debug_report(tmp_path) -> None:

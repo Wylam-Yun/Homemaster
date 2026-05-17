@@ -12,12 +12,12 @@ from homemaster.contracts import (
     RecoveryDecision,
     VerificationResult,
 )
-from homemaster.recovery import (
+from homemaster.runtime import load_provider_config
+from homemaster.stages.recovery import (
     RecoveryDecisionGenerationError,
     build_recovery_prompt,
     generate_recovery_decision,
 )
-from homemaster.runtime import load_provider_config
 
 
 def _config_path(tmp_path: Path) -> Path:

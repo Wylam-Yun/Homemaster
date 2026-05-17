@@ -22,7 +22,7 @@ from homemaster.runtime import (
     ensure_stage_directories,
     load_provider_config,
 )
-from homemaster.skill_registry import validate_skill_input
+from homemaster.stages.executor import validate_skill_input
 from homemaster.stages.orchestrator import (
     OrchestrationGenerationError,
     generate_orchestration_plan,

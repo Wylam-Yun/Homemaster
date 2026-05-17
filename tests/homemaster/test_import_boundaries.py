@@ -124,25 +124,8 @@ print("OK")
 # ---------------------------------------------------------------------------
 
 
-# Root-level shim files that still use `import *` (Phase 7 cleanup scope).
-# These are backward-compatibility re-exports. The test verifies no NEW shims
-# are added; existing ones are tracked here until Phase 7 replaces them with
-# explicit named imports.
-_KNOWN_STAR_IMPORT_SHIMS = {
-    "doctor.py",
-    "frontdoor.py",
-    "interactive_shell.py",
-    "orchestrator.py",
-    "pipeline_core.py",
-    "pipeline_stages.py",
-    "recovery.py",
-    "stage_04.py",
-    "stage_05.py",
-    "stage_06.py",
-    "skill_selector.py",
-    "summary.py",
-    "verifier.py",
-}
+# All Phase 7/8/9 shims have been removed. This set is now empty.
+_KNOWN_STAR_IMPORT_SHIMS: set[str] = set()
 
 
 def test_phase2_files_no_star_import() -> None:
@@ -162,17 +145,7 @@ def test_phase2_files_no_star_import() -> None:
                         if alias.name == "*":
                             offenders.append(f"{pkg}/{path.name}:{node.lineno}")
 
-    # Check Phase 1 cleaned shims (stage_runtime.py, executor.py)
-    for shim in ("stage_runtime.py", "executor.py"):
-        path = HOMEMASTER_ROOT / shim
-        if path.exists():
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source, filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and node.names:
-                    for alias in node.names:
-                        if alias.name == "*":
-                            offenders.append(f"{shim}:{node.lineno}")
+    # Phase 8 shims (stage_runtime.py, executor.py) have been removed
 
     if offenders:
         pytest.fail(
@@ -284,63 +257,20 @@ def test_no_test_imports_in_src() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_executor_shim_does_not_export_test_doubles() -> None:
-    """executor.py must only re-export live/runtime-safe symbols."""
-    path = HOMEMASTER_ROOT / "executor.py"
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
-
-    exported_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name != "*":
-                    exported_names.add(alias.name)
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "__all__":
-                    if isinstance(node.value, (ast.List, ast.Tuple)):
-                        for elt in node.value.elts:
-                            if isinstance(elt, ast.Constant):
-                                exported_names.add(elt.value)
-
-    test_double_indicators = {"Static", "test_double", "dummy", "fake"}
-    offenders = [
-        name for name in exported_names
-        if any(indicator in name.lower() for indicator in test_double_indicators)
-    ]
-    if offenders:
-        pytest.fail(
-            f"executor.py exports test-double symbols: {offenders}"
-        )
+def test_phase8_shims_removed() -> None:
+    """Phase 8 overdue shims (executor.py, stage_runtime.py, skill_registry.py) must be deleted."""
+    for name in ("executor.py", "stage_runtime.py", "skill_registry.py"):
+        path = HOMEMASTER_ROOT / name
+        assert not path.exists(), f"Phase 8 shim {name} should have been removed"
 
 
-def test_stage_runtime_shim_does_not_export_test_doubles() -> None:
-    """stage_runtime.py must only re-export live/runtime-safe symbols."""
-    path = HOMEMASTER_ROOT / "stage_runtime.py"
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
-
-    exported_names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                if alias.name != "*":
-                    exported_names.add(alias.name)
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "__all__":
-                    if isinstance(node.value, (ast.List, ast.Tuple)):
-                        for elt in node.value.elts:
-                            if isinstance(elt, ast.Constant):
-                                exported_names.add(elt.value)
-
-    test_double_indicators = {"Static", "test_double", "dummy", "fake"}
-    offenders = [
-        name for name in exported_names
-        if any(indicator in name.lower() for indicator in test_double_indicators)
-    ]
-    if offenders:
-        pytest.fail(
-            f"stage_runtime.py exports test-double symbols: {offenders}"
-        )
+def test_phase9_shims_removed() -> None:
+    """Phase 9 shims must be deleted."""
+    phase9_shims = (
+        "frontdoor.py", "orchestrator.py", "pipeline_core.py", "pipeline_stages.py",
+        "doctor.py", "interactive_shell.py", "stage_04.py", "stage_05.py",
+        "stage_06.py", "skill_selector.py", "summary.py", "verifier.py", "recovery.py",
+    )
+    for name in phase9_shims:
+        path = HOMEMASTER_ROOT / name
+        assert not path.exists(), f"Phase 9 shim {name} should have been removed"

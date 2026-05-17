@@ -7,7 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
-from homemaster.frontdoor import (
+from homemaster.runtime import load_provider_config
+from homemaster.stages.task_understanding import (
     MimoTaskUnderstandingProvider,
     TaskUnderstandingError,
     TaskUnderstandingInput,
@@ -15,7 +16,6 @@ from homemaster.frontdoor import (
     stage_02_case_expectations,
     understand_task,
 )
-from homemaster.runtime import load_provider_config
 
 
 def _write_config(path: Path) -> None:

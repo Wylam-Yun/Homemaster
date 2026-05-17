@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from homemaster.frontdoor import run_stage_02_case, stage_02_case_expectations
+from homemaster.stages.task_understanding import run_stage_02_case, stage_02_case_expectations
 
 
 @pytest.mark.live_api

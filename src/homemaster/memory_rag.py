@@ -209,8 +209,12 @@ class MimoMemoryQueryProvider:
 class EmbeddingClientAdapter:
     """Adapter from BGEEmbeddingClient to the simple provider protocol used by RAG."""
 
-    def __init__(self, client: BGEEmbeddingClient) -> None:
+    def __init__(
+        self, client: BGEEmbeddingClient, *, event_sink: Any = None, run_id: str = "",
+    ) -> None:
         self._client = client
+        self._event_sink = event_sink
+        self._run_id = run_id
         summary = client.public_summary()
         self.provider_name = str(summary["provider_name"])
         self.model = str(summary["model"])
@@ -219,6 +223,39 @@ class EmbeddingClientAdapter:
         return self._client.public_summary()
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if self._event_sink is not None:
+            from homemaster.events.runtime_events import RuntimeEvent
+
+            self._event_sink.emit(RuntimeEvent(
+                turn_index=0, event_type="embedding_call_started",
+                run_id=self._run_id,
+                provider_name=self.provider_name,
+                payload={"model": self.model, "text_count": len(texts)},
+            ))
+            t0 = time.perf_counter()
+            try:
+                result = self._client.embed_texts(texts).embeddings
+            except Exception as exc:
+                self._event_sink.emit(RuntimeEvent(
+                    turn_index=0, event_type="embedding_call_failed",
+                    run_id=self._run_id,
+                    provider_name=self.provider_name,
+                    duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+                    payload={
+                        "model": self.model,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                    },
+                ))
+                raise
+            self._event_sink.emit(RuntimeEvent(
+                turn_index=0, event_type="embedding_call_completed",
+                run_id=self._run_id,
+                provider_name=self.provider_name,
+                duration_ms=round((time.perf_counter() - t0) * 1000, 1),
+                payload={"model": self.model, "text_count": len(texts)},
+            ))
+            return result
         return self._client.embed_texts(texts).embeddings
 
 

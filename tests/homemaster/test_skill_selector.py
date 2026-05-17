@@ -9,7 +9,7 @@ import pytest
 
 from homemaster.contracts import ExecutionState, PlanningContext, Subtask, SubtaskRuntimeState
 from homemaster.runtime import load_provider_config
-from homemaster.skill_selector import (
+from homemaster.stages.skill_selector import (
     StepDecisionGenerationError,
     build_step_decision_prompt,
     generate_step_decision,

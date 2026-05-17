@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-_SECRET_KEY_PARTS = ("api_key", "apikey", "authorization", "x-api-key", "token", "secret")
+_SECRET_KEY_PARTS = (
+    "api_key", "apikey", "authorization", "x-api-key", "token", "secret", "password",
+)
 
 
 def append_jsonl_event(path: Path, *, event: str, payload: dict[str, Any]) -> None:

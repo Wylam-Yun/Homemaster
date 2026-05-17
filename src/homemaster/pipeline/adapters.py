@@ -90,6 +90,7 @@ class Stage03Adapter:
             case_root=ctx.case_dir / "stage_03_cases",
             results_dir=ctx.results_dir,
             negative_evidence=neg_evidence_dict,
+            event_sink=ctx.event_sink,
         )
         rm = ctx.runtime_mode
         return ctx.with_updates(memory_result=memory_result).with_stage_status(
@@ -185,6 +186,7 @@ class Stage05Adapter:
             decision_provider=decision_provider,
             config_path=str(ctx.config_path),
             provider_name=ctx.provider_name,
+            event_sink=ctx.event_sink,
         )
         rm = ctx.runtime_mode
         return (

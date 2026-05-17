@@ -27,7 +27,7 @@ def export_all() -> None:
     _write("stage_01_retry.txt", STAGE_01_RETRY_INSTRUCTION)
 
     # --- Stage 02 ---
-    from homemaster.frontdoor import (
+    from homemaster.stages.task_understanding import (
         RETRY_INSTRUCTION,
         TaskUnderstandingInput,
         build_task_understanding_prompt,
@@ -72,7 +72,10 @@ def export_all() -> None:
 
     # --- Stage 05 orchestration ---
     from homemaster.contracts import PlanningContext
-    from homemaster.orchestrator import ORCHESTRATION_RETRY_INSTRUCTION, build_orchestration_prompt
+    from homemaster.stages.orchestrator import (
+        ORCHESTRATION_RETRY_INSTRUCTION,
+        build_orchestration_prompt,
+    )
 
     context = PlanningContext(
         task_card=TaskCard(
@@ -90,7 +93,7 @@ def export_all() -> None:
 
     # --- Stage 05 step decision ---
     from homemaster.contracts import ExecutionState, Subtask, SubtaskRuntimeState
-    from homemaster.skill_selector import build_retry_instruction, build_step_decision_prompt
+    from homemaster.stages.skill_selector import build_retry_instruction, build_step_decision_prompt
 
     subtask = Subtask(
         id="find_cup",
@@ -107,14 +110,14 @@ def export_all() -> None:
     _write("stage_05_step_decision_retry.txt", build_retry_instruction())
 
     # --- Stage 05 recovery ---
-    from homemaster.recovery import RECOVERY_RETRY_INSTRUCTION, build_recovery_prompt
+    from homemaster.stages.recovery import RECOVERY_RETRY_INSTRUCTION, build_recovery_prompt
 
     _write("stage_05_recovery_prompt.txt", build_recovery_prompt(state, []))
     _write("stage_05_recovery_retry.txt", RECOVERY_RETRY_INSTRUCTION)
 
     # --- Stage 06 summary ---
     from homemaster.contracts import EvidenceBundle
-    from homemaster.summary import SUMMARY_RETRY_INSTRUCTION, build_task_summary_prompt
+    from homemaster.stages.summary import SUMMARY_RETRY_INSTRUCTION, build_task_summary_prompt
 
     _write(
         "stage_06_summary_prompt.txt",

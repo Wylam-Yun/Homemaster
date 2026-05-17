@@ -1,4 +1,4 @@
-"""Typer CLI entrypoint for HomeMaster V1.2."""
+"""Typer CLI entrypoint for HomeMaster V1.3."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from typing import Annotated
 import typer
 
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
+from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.interactive_shell import run_interactive_shell
+from homemaster.cli.run_command import handle_run
 from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
 from homemaster.runtime import (
@@ -20,45 +22,17 @@ from homemaster.stages.task_understanding import understand_task
 from homemaster.task_runner import (
     DEFAULT_STAGE_07_DEBUG_ROOT,
     DEFAULT_STAGE_07_RUNTIME_ROOT,
-    HomeMasterRunError,
-    run_homemaster_task,
 )
 
 app = typer.Typer(
     add_completion=False,
-    invoke_without_command=True,
-    help="HomeMaster V1.2 LLM-first task brain CLI.",
+    help="HomeMaster V1.3 — AgentRuntime task brain CLI.",
 )
 
-
-@app.callback()
-def main(ctx: typer.Context) -> None:
-    """HomeMaster command group."""
-    if ctx.invoked_subcommand is None:
-        run_interactive_shell()
-
-
-@app.command("doctor")
-def doctor_command(
-    live: Annotated[
-        bool,
-        typer.Option("--live", help="Run live Mimo and BGE-M3 provider smoke checks."),
-    ] = False,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help="Print machine-readable JSON."),
-    ] = False,
-) -> None:
-    """Check HomeMaster local environment and optional live providers."""
-
-    setup_logging()
-    report = run_doctor(live=live)
-    if json_output:
-        typer.echo(doctor_report_to_json(report))
-    else:
-        typer.echo(render_doctor_text(report))
-    if report.has_failures:
-        raise typer.Exit(code=1)
+stage_app = typer.Typer(help="Run individual pipeline stages.")
+smoke_app = typer.Typer(help="Run contract and smoke tests.")
+app.add_typer(stage_app, name="stage")
+app.add_typer(smoke_app, name="smoke")
 
 
 @app.command("run")
@@ -103,15 +77,14 @@ def run_command(
         str,
         typer.Option("--skill-mode", help="Skill execution mode (simulated or real)."),
     ] = "simulated",
+    progress: Annotated[
+        bool,
+        typer.Option("--progress/--no-progress", help="Show high-level progress events on stderr."),
+    ] = False,
 ) -> None:
-    """Run one HomeMaster task through Stage02-Stage06."""
-
-    setup_logging(level=log_level)
-    if not scenario:
-        typer.echo("run_failed: --scenario is required for Stage07 runs", err=True)
-        raise typer.Exit(code=2)
+    """Run one HomeMaster task with AgentRuntime, live Mimo decisions, and simulated robot tools."""
     try:
-        result = run_homemaster_task(
+        handle_run(
             utterance=utterance,
             scenario=scenario,
             world_path=world_path,
@@ -120,23 +93,43 @@ def run_command(
             debug_root=debug_root,
             results_root=results_root,
             run_id=run_id,
+            log_level=log_level,
             skill_mode=skill_mode,
+            progress=progress,
         )
-    except (HomeMasterRunError, Exception) as exc:
-        typer.echo(f"run_failed: {type(exc).__name__}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    typer.echo(f"run_id: {result.run_id}")
-    typer.echo(f"scenario: {result.scenario}")
-    typer.echo(f"final_status: {result.final_status}")
-    typer.echo(f"debug_path: {result.case_dir / 'result.md'}")
-    typer.echo(f"runtime_memory_root: {result.runtime_memory_root}")
-    if result.final_status == "failed":
-        typer.echo("run_result: task failed safely; see debug_path for failure details")
+    except Exception as exc:
+        render_error_and_exit(exc)
 
 
-@app.command("contract-smoke")
-def contract_smoke(
+@app.command("doctor")
+def doctor_command(
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Run live Mimo and BGE-M3 provider smoke checks."),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Print machine-readable JSON."),
+    ] = False,
+) -> None:
+    """Check HomeMaster local environment and optional live providers."""
+    try:
+        setup_logging()
+        report = run_doctor(live=live)
+        if json_output:
+            typer.echo(doctor_report_to_json(report))
+        else:
+            typer.echo(render_doctor_text(report))
+        if report.has_failures:
+            raise typer.Exit(code=1)
+    except (typer.Exit, SystemExit):
+        raise
+    except Exception as exc:
+        render_error_and_exit(exc)
+
+
+@smoke_app.command("contract")
+def smoke_contract(
     utterance: Annotated[
         str,
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
@@ -151,17 +144,15 @@ def contract_smoke(
     ] = DEFAULT_PROVIDER_NAME,
 ) -> None:
     """Run the Stage 01 real LLM TaskCard contract smoke."""
-
-    setup_logging()
     try:
+        setup_logging()
         result = run_stage_01_contract_smoke(
             utterance=utterance,
             config_path=config_path,
             provider_name=provider_name,
         )
     except Exception as exc:
-        typer.echo(f"contract_smoke_failed: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        render_error_and_exit(exc)
 
     typer.echo("contract_smoke: PASS")
     typer.echo(f"provider: {result.provider['name']}")
@@ -172,8 +163,8 @@ def contract_smoke(
     typer.echo(f"results_dir: {result.results_dir}")
 
 
-@app.command("understand")
-def understand_command(
+@stage_app.command("understand")
+def stage_understand(
     utterance: Annotated[
         str,
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
@@ -188,17 +179,15 @@ def understand_command(
     ] = DEFAULT_PROVIDER_NAME,
 ) -> None:
     """Run Stage 02 task understanding and print the validated TaskCard."""
-
-    setup_logging()
     try:
+        setup_logging()
         result = understand_task(
             utterance,
             config_path=config_path,
             provider_name=provider_name,
         )
     except Exception as exc:
-        typer.echo(f"understand_failed: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        render_error_and_exit(exc)
 
     task_card = result.task_card
     typer.echo("understand: PASS")
@@ -210,6 +199,55 @@ def understand_command(
     typer.echo(f"delivery_target: {task_card.delivery_target}")
     typer.echo(f"needs_clarification: {task_card.needs_clarification}")
     typer.echo(f"case_dir: {result.case_dir}")
+
+
+# ---------------------------------------------------------------------------
+# Deprecated top-level commands (removal target: Phase 10)
+# ---------------------------------------------------------------------------
+
+
+@app.command("contract-smoke", deprecated=True)
+def contract_smoke_deprecated(
+    utterance: Annotated[
+        str,
+        typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
+    ] = DEFAULT_STAGE_01_UTTERANCE,
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Provider config path."),
+    ] = DEFAULT_CONFIG_PATH,
+    provider_name: Annotated[
+        str,
+        typer.Option("--provider", help="Provider name in the config file."),
+    ] = DEFAULT_PROVIDER_NAME,
+) -> None:
+    """[deprecated: use 'homemaster smoke contract'] Run the Stage 01 contract smoke."""
+    smoke_contract(utterance=utterance, config_path=config_path, provider_name=provider_name)
+
+
+@app.command("understand", deprecated=True)
+def understand_deprecated(
+    utterance: Annotated[
+        str,
+        typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
+    ],
+    config_path: Annotated[
+        Path,
+        typer.Option("--config", help="Provider config path."),
+    ] = DEFAULT_CONFIG_PATH,
+    provider_name: Annotated[
+        str,
+        typer.Option("--provider", help="Provider name in the config file."),
+    ] = DEFAULT_PROVIDER_NAME,
+) -> None:
+    """[deprecated: use 'homemaster stage understand'] Run Stage 02 task understanding."""
+    stage_understand(utterance=utterance, config_path=config_path, provider_name=provider_name)
+
+
+@app.command("shell")
+def shell_command() -> None:
+    """Launch the interactive HomeMaster shell."""
+    run_interactive_shell()
 
 
 if __name__ == "__main__":

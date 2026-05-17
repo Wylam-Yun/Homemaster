@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from homemaster.contracts import OrchestrationPlan, PlanningContext, StepDecision, Subtask
-from homemaster.executor import execute_stage_05_plan
-from homemaster.stage_05 import write_stage_05_debug_assets
+from homemaster.stages.executor import execute_stage_05_plan
+from homemaster.stages.orchestration_runner import write_stage_05_debug_assets
 from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 
 

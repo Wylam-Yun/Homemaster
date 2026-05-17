@@ -9,7 +9,7 @@ from homemaster.contracts import (
     SubtaskRuntimeState,
     TaskCard,
 )
-from homemaster.executor import execute_stage_05_plan
+from homemaster.stages.executor import execute_stage_05_plan
 from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 
 

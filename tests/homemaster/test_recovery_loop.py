@@ -439,3 +439,65 @@ def test_reobserve_treated_as_retry_step() -> None:
 
     assert result.final_state.task_status == "completed"
     assert recovery_attempts[0]["action"] == "reobserve"
+
+
+def test_recovery_loop_accepts_event_sink() -> None:
+    """run_stage05_with_recovery accepts optional event_sink parameter."""
+    import inspect
+
+    sig = inspect.signature(run_stage05_with_recovery)
+    assert "event_sink" in sig.parameters
+    assert sig.parameters["event_sink"].default is None
+
+
+def test_recovery_loop_emits_events_to_sink(tmp_path: Path) -> None:
+    """When event_sink is provided, recovery events are emitted."""
+    from homemaster.events.sinks import JsonlEventSink
+
+    sink = JsonlEventSink(tmp_path)
+    plan = _single_subtask_plan()
+    provider = _AlwaysFailingProvider()
+
+    with patch(
+        "homemaster.stages.recovery_loop.load_provider_config",
+        return_value="dummy",
+    ), patch(
+        "homemaster.stages.recovery_loop.generate_recovery_decision",
+        return_value=_mock_recovery_result("finish_failed", "no hope"),
+    ):
+        run_stage05_with_recovery(
+            ctx=_ctx(),
+            plan=plan,
+            decision_provider=provider,
+            config_path="/dev/null",
+            provider_name="Mimo",
+            event_sink=sink,
+        )
+
+    event_types = [e.event_type for e in sink.events]
+    assert "recovery_started" in event_types
+    assert "recovery_decision_generated" in event_types
+
+
+def test_recovery_loop_no_sink_backward_compat() -> None:
+    """Without event_sink, recovery loop works identically to before."""
+    plan = _single_subtask_plan()
+    provider = _AlwaysFailingProvider()
+
+    with patch(
+        "homemaster.stages.recovery_loop.load_provider_config",
+        return_value="dummy",
+    ), patch(
+        "homemaster.stages.recovery_loop.generate_recovery_decision",
+        return_value=_mock_recovery_result("finish_failed", "no hope"),
+    ):
+        result, recovery_attempts = run_stage05_with_recovery(
+            ctx=_ctx(),
+            plan=plan,
+            decision_provider=provider,
+            config_path="/dev/null",
+            provider_name="Mimo",
+        )
+
+    assert result.final_state.task_status == "failed"
+    assert len(recovery_attempts) == 1

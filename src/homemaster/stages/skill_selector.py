@@ -13,7 +13,7 @@ from homemaster.contracts import ExecutionState, PlanningContext, StepDecision, 
 from homemaster.llm_client import LLMClientError, RawJsonLLMClient
 from homemaster.prompt_loader import render
 from homemaster.runtime import ProviderConfig
-from homemaster.skill_registry import (
+from homemaster.stages.executor import (
     SkillInputValidationError,
     get_default_skill_registry,
     validate_skill_input,

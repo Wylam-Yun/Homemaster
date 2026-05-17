@@ -15,7 +15,10 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    pass
 
 # ---------------------------------------------------------------------------
 # Stage Protocol
@@ -88,6 +91,9 @@ class PipelineContext:
     registry: Any = None  # StageRegistry | None; set by task_runner, used by recovery loop
     recovery_attempts: list[dict[str, Any]] | None = None  # set by recovery loop
     negative_evidence: list[dict[str, Any]] | None = None  # injected for retrieve_again
+
+    # P8: event sink for runtime event tracing
+    event_sink: Any = None  # EventSink | None; Any avoids circular import
 
     # -- Copy-on-write helpers ------------------------------------------------
 
@@ -169,10 +175,25 @@ class PipelineRunner:
         *,
         stage_modes_fn: Callable[[PipelineContext, str], dict[str, str]] | None = None,
         logger: logging.Logger | None = None,
+        event_sink: Any = None,  # EventSink | None
     ) -> None:
         self._registry = registry
         self._stage_modes_fn = stage_modes_fn
         self._logger = logger
+        self._event_sink = event_sink
+
+    def _emit(self, event_type: str, ctx: PipelineContext, **kwargs: Any) -> None:
+        """Emit a RuntimeEvent if event_sink is set."""
+        if self._event_sink is None:
+            return
+        from homemaster.events.runtime_events import RuntimeEvent
+        self._event_sink.emit(RuntimeEvent(
+            turn_index=0,
+            event_type=event_type,
+            run_id=ctx.run_id,
+            source="pipeline",
+            **kwargs,
+        ))
 
     def run(self, ctx: PipelineContext) -> PipelineContext:
         """Execute all registered stages in order.
@@ -182,8 +203,15 @@ class PipelineRunner:
         """
         run_id = ctx.run_id
         logger = self._logger
+        stages = self._registry.stages()
 
-        for stage in self._registry.stages():
+        self._emit("run_started", ctx, payload={
+            "scenario": ctx.scenario, "stage_count": len(stages),
+        })
+
+        run_t0 = time.monotonic()
+
+        for stage in stages:
             modes = self._stage_modes_fn(ctx, stage.name) if self._stage_modes_fn else {}
             if logger:
                 logger.info(
@@ -191,11 +219,26 @@ class PipelineRunner:
                     run_id, stage.name, ctx.scenario,
                     _compact_modes(modes),
                 )
+            self._emit("stage_started", ctx, stage=stage.name, payload={
+                "scenario": ctx.scenario, "modes": modes,
+            })
             t0 = time.monotonic()
             try:
                 ctx = stage.execute(ctx)
             except Exception as stage_exc:
                 elapsed = time.monotonic() - t0
+                self._emit("stage_failed", ctx, stage=stage.name, payload={
+                    "error": str(stage_exc), "error_type": type(stage_exc).__name__,
+                    "duration_ms": round(elapsed * 1000, 1),
+                }, duration_ms=round(elapsed * 1000, 1))
+                total_ms = round((time.monotonic() - run_t0) * 1000, 1)
+                self._emit("run_failed", ctx, payload={
+                    "final_status": "failed",
+                    "failed_stage": stage.name,
+                    "error": str(stage_exc),
+                    "error_type": type(stage_exc).__name__,
+                    "duration_ms": total_ms,
+                }, duration_ms=total_ms)
                 if logger:
                     logger.error(
                         "[%s] ERROR in stage %s: %s: %s  elapsed=%.2fs%s",
@@ -207,12 +250,21 @@ class PipelineRunner:
             stage_status = ctx.stage_statuses.get(stage.name, {})
             status = stage_status.get("status", "unknown")
             modes = stage_status.get("component_modes") or modes
+            self._emit("stage_completed", ctx, stage=stage.name, payload={
+                "status": status, "duration_ms": round(elapsed * 1000, 1),
+                "modes": modes,
+            }, status=status, duration_ms=round(elapsed * 1000, 1))
             if logger:
                 logger.info(
                     "[%s] stage %s completed in %.2fs  status=%s%s",
                     run_id, stage.name, elapsed, status,
                     _compact_modes(modes),
                 )
+
+        total_ms = round((time.monotonic() - run_t0) * 1000, 1)
+        self._emit("run_completed", ctx, payload={
+            "final_status": ctx.final_status, "duration_ms": total_ms,
+        }, duration_ms=total_ms)
 
         return ctx
 

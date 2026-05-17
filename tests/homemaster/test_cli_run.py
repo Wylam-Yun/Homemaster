@@ -46,6 +46,37 @@ def test_cli_run_unknown_flag_rejected(tmp_path: Path) -> None:
     assert result.exit_code != 0
 
 
+def test_cli_run_accepts_progress_flag(tmp_path: Path) -> None:
+    """--progress flag is accepted (fails at scenario validation, not flag parsing)."""
+    result = CliRunner().invoke(
+        app,
+        [
+            "run",
+            "--utterance",
+            "去厨房找水杯",
+            "--progress",
+        ],
+    )
+    # Should fail because --scenario is required, not because --progress is unknown
+    assert result.exit_code != 0
+    assert "scenario" in result.stderr
+
+
+def test_cli_run_accepts_no_progress_flag(tmp_path: Path) -> None:
+    """--no-progress flag is accepted."""
+    result = CliRunner().invoke(
+        app,
+        [
+            "run",
+            "--utterance",
+            "去厨房找水杯",
+            "--no-progress",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "scenario" in result.stderr
+
+
 @pytest.mark.live_api
 def test_cli_run_writes_debug_and_runtime_memory(tmp_path: Path) -> None:
     if os.getenv("HOMEMASTER_RUN_LIVE_LLM") != "1":

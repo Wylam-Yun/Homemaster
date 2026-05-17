@@ -4,26 +4,26 @@ This document tracks every root-level `.py` file in `src/homemaster/`, its purpo
 
 ## Shim Lifecycle Table
 
-These files are backward-compatibility re-exports. They exist so that legacy import paths (`from homemaster.frontdoor import ...`) continue to work during the transition.
+All backward-compatibility shims have been removed as of Phase 9. Legacy import paths are no longer supported.
 
-| Shim path | New import path | Compat window | Target removal | Type |
-|-----------|----------------|---------------|----------------|------|
-| `homemaster.executor` | `homemaster.stages.executor` | Phase 1-7 | Phase 8 (when stages/executor.py migrated) | selective re-export |
-| `homemaster.stage_runtime` | `homemaster.pipeline.stage_runtime` | Phase 1-7 | Phase 8 | selective re-export |
-| `homemaster.skill_registry` | `homemaster.skills.registry` | Phase 1-7 | Phase 8 (when stages/executor.py migrated) | legacy impl (355 lines, not a pure re-export) |
-| `homemaster.frontdoor` | `homemaster.stages.task_understanding` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.orchestrator` | `homemaster.stages.orchestrator` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.pipeline_core` | `homemaster.pipeline.core` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.pipeline_stages` | `homemaster.pipeline.adapters` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.doctor` | `homemaster.cli.doctor` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.interactive_shell` | `homemaster.cli.interactive_shell` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.stage_04` | `homemaster.stages.grounding_runner` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.stage_05` | `homemaster.stages.orchestration_runner` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.stage_06` | `homemaster.stages.summary_runner` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.skill_selector` | `homemaster.stages.skill_selector` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.summary` | `homemaster.stages.summary` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.verifier` | `homemaster.stages.verifier` | Phase 1-7 | Phase 9 | star-import |
-| `homemaster.recovery` | `homemaster.stages.recovery` | Phase 1-7 | Phase 9 | star-import |
+| Shim path | New import path | Removed in |
+|-----------|----------------|------------|
+| `homemaster.executor` | `homemaster.stages.executor` | Phase 9 |
+| `homemaster.stage_runtime` | `homemaster.pipeline.stage_runtime` | Phase 9 |
+| `homemaster.skill_registry` | `homemaster.stages.executor` (impl moved) | Phase 9 |
+| `homemaster.frontdoor` | `homemaster.stages.task_understanding` | Phase 9 |
+| `homemaster.orchestrator` | `homemaster.stages.orchestrator` | Phase 9 |
+| `homemaster.pipeline_core` | `homemaster.pipeline.core` | Phase 9 |
+| `homemaster.pipeline_stages` | `homemaster.pipeline.adapters` | Phase 9 |
+| `homemaster.doctor` | `homemaster.cli.doctor` | Phase 9 |
+| `homemaster.interactive_shell` | `homemaster.cli.interactive_shell` | Phase 9 |
+| `homemaster.stage_04` | `homemaster.stages.grounding_runner` | Phase 9 |
+| `homemaster.stage_05` | `homemaster.stages.orchestration_runner` | Phase 9 |
+| `homemaster.stage_06` | `homemaster.stages.summary_runner` | Phase 9 |
+| `homemaster.skill_selector` | `homemaster.stages.skill_selector` | Phase 9 |
+| `homemaster.summary` | `homemaster.stages.summary` | Phase 9 |
+| `homemaster.verifier` | `homemaster.stages.verifier` | Phase 9 |
+| `homemaster.recovery` | `homemaster.stages.recovery` | Phase 9 |
 
 ## Root-Level Implementation Files
 

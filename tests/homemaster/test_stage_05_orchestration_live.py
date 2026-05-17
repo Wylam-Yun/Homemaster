@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from homemaster.stage_05 import (
+from homemaster.stages.orchestration_runner import (
     run_live_stage_05_orchestration_case,
     run_live_stage_05_step_case,
 )

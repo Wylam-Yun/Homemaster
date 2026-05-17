@@ -9,6 +9,7 @@ Stub implementation for testing lives in the test helpers package.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Protocol
 
 from homemaster.agent.decision import AgentDecision, parse_agent_decision
@@ -34,8 +35,9 @@ class LiveMimoDecisionClient:
     If parsing fails, returns FinishDecision(status="failed").
     """
 
-    def __init__(self, provider_config: ProviderConfig) -> None:
+    def __init__(self, provider_config: ProviderConfig, *, event_sink: Any = None) -> None:
         self._provider = provider_config
+        self._event_sink = event_sink
 
     def decide(
         self,
@@ -47,18 +49,51 @@ class LiveMimoDecisionClient:
         from homemaster.llm_client import RawJsonLLMClient
 
         client = RawJsonLLMClient(self._provider)
-        # Build prompt from context + tools (Phase 4 will refine this)
         prompt = self._build_prompt(context, tools)
-        raw = client.call_json(prompt)
-        return parse_agent_decision(raw)
+
+        self._emit("llm_call_started", settings, payload={
+            "provider_name": self._provider.name,
+            "model": self._provider.model,
+        })
+
+        t0 = time.perf_counter()
+        try:
+            raw = client.complete_json(prompt)
+        except Exception as exc:
+            self._emit("llm_call_failed", settings, payload={
+                "provider_name": self._provider.name,
+                "model": self._provider.model,
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "duration_ms": round((time.perf_counter() - t0) * 1000, 1),
+            })
+            raise
+
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+        self._emit("llm_call_completed", settings, payload={
+            "provider_name": self._provider.name,
+            "model": self._provider.model,
+            "duration_ms": elapsed_ms,
+        }, provider_name=self._provider.name, duration_ms=elapsed_ms)
+
+        return parse_agent_decision(raw.json_payload if hasattr(raw, 'json_payload') else raw)
+
+    def _emit(self, event_type: str, settings: Any, **kwargs: Any) -> None:
+        """Emit a RuntimeEvent if event_sink is set."""
+        if self._event_sink is None:
+            return
+        from homemaster.events.runtime_events import RuntimeEvent
+        self._event_sink.emit(RuntimeEvent(
+            turn_index=0,
+            event_type=event_type,
+            run_id=getattr(settings, 'run_id', ''),
+            **kwargs,
+        ))
 
     def _build_prompt(
         self, context: dict[str, Any], tools: list[dict[str, Any]]
     ) -> str:
-        """Build a minimal prompt from context and tool manifests.
-
-        Phase 4 will replace this with proper prompt construction.
-        """
+        """Build a minimal prompt from context and tool manifests."""
         import json
 
         return (

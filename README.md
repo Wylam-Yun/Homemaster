@@ -1,10 +1,10 @@
-# HomeMaster V1.2
+# HomeMaster V1.3
 
 LLM-first task brain for HomeMaster.
 
-当前主入口是新的 `homemaster` 链路：任务理解、记忆检索、可靠记忆判定、高层编排、simulated skill 执行、任务总结和记忆写回。
+默认入口是 **AgentRuntime**（Mimo 驱动的 tool loop）：任务理解、记忆检索、可靠记忆判定、高层编排、simulated skill 执行、任务总结和记忆写回。
 
-> 现在的 Stage07 会真实调用 Mimo 和 BGE-M3；navigation / operation / verification 仍是 simulated skill，还没有接真实机器人、VLA、VLM。
+> `skill_mode=simulated` 是当前支持的运行模式。navigation / operation / verification skill 使用模拟执行器，未接真实机器人、VLA、VLM。真实 VLA/VLN/VLM 执行器尚未集成。
 
 ## 环境配置
 
@@ -71,7 +71,8 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
   --scenario fetch_cup_retry \
   --run-id live-fetch-cup-001 \
   --runtime-memory-root var/homemaster/runs \
-  --debug-root var/homemaster/debug
+  --debug-root var/homemaster/debug \
+  --progress
 ```
 
 药盒场景：
@@ -91,6 +92,25 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
 open var/homemaster/debug/stage_07/live-fetch-cup-001/result.md
 open var/homemaster/runs/live-fetch-cup-001/memory
 ```
+
+## Runtime Event Trace
+
+Every `homemaster run` writes `runtime_events.jsonl` to the run's trace directory.
+
+```bash
+cat var/homemaster/debug/stage_07/live-fetch-cup-001/trace/runtime_events.jsonl | jq .
+```
+
+Event types include: `run_start`, `run_end`, `stage_start`, `stage_end`, `tool_call`,
+`tool_result`, `llm_request`, `llm_response`, `embedding_request`, `embedding_response`,
+`recovery_attempt`, `memory_commit`, and more. See `src/homemaster/events/schema.py` for
+the full `RuntimeEvent` definition (19 fields, 47 event types).
+
+Use `--progress` to stream a compact progress summary to stderr during the run.
+
+> **Security note:** Runtime event traces contain tool call names and result status codes
+> but never raw LLM prompts, responses, or API keys. The `sanitize_for_log()` function
+> strips sensitive content before writing to the trace sink.
 
 ## 跑 5 个验收场景
 

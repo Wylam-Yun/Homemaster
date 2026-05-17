@@ -231,7 +231,7 @@ assert mod._DEFAULT_CONNECT_TIMEOUT_S == 10.0, "unchanged"
 def test_executor_override(tmp_path: Path) -> None:
     _write_config(tmp_path, {"executor": {"step_multiplier": 5, "minimum_max_steps": 10}})
     _assert_subprocess_pass(tmp_path, """
-import homemaster.executor as mod
+import homemaster.stages.executor as mod
 importlib.reload(mod)
 assert mod.STEP_MULTIPLIER == 5, f"expected 5, got {mod.STEP_MULTIPLIER}"
 assert mod.MINIMUM_MAX_STEPS == 10, f"expected 10, got {mod.MINIMUM_MAX_STEPS}"
@@ -401,7 +401,7 @@ def test_runtime_defaults_bad_type_live_models_raises(tmp_path: Path) -> None:
 def test_executor_bad_step_multiplier_raises(tmp_path: Path) -> None:
     _write_config(tmp_path, {"executor": {"step_multiplier": "three"}})
     _assert_subprocess_raises(tmp_path, """
-    import homemaster.executor as mod
+    import homemaster.stages.executor as mod
     importlib.reload(mod)
 """, "positive int")
 
@@ -409,7 +409,7 @@ def test_executor_bad_step_multiplier_raises(tmp_path: Path) -> None:
 def test_executor_negative_step_multiplier_raises(tmp_path: Path) -> None:
     _write_config(tmp_path, {"executor": {"step_multiplier": -1}})
     _assert_subprocess_raises(tmp_path, """
-    import homemaster.executor as mod
+    import homemaster.stages.executor as mod
     importlib.reload(mod)
 """, "positive int")
 
@@ -441,7 +441,7 @@ for mod_name in (
     "homemaster.grounding",
     "homemaster.llm_client",
     "homemaster.embedding_client",
-    "homemaster.executor",
+    "homemaster.stages.executor",
 ):
     importlib.reload(importlib.import_module(mod_name))
 
@@ -453,7 +453,7 @@ from homemaster.runtime import (
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_SKILL_MODE,
 )
-from homemaster.executor import STEP_MULTIPLIER, MINIMUM_MAX_STEPS
+from homemaster.stages.executor import STEP_MULTIPLIER, MINIMUM_MAX_STEPS
 
 assert MAX_LLM_ATTEMPTS == 3, f"MAX_LLM_ATTEMPTS={{MAX_LLM_ATTEMPTS}}"
 assert INITIAL_MAX_TOKENS["stage_01_smoke"] == 4096

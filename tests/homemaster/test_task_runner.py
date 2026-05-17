@@ -165,3 +165,18 @@ def test_run_homemaster_task_default_results_root_is_var() -> None:
     sig = inspect.signature(run_homemaster_task)
     default = sig.parameters["results_root"].default
     assert "var/homemaster" in str(default), f"Expected var/homemaster path, got {default}"
+
+
+def test_run_homemaster_task_accepts_progress() -> None:
+    """Function signature must accept progress parameter."""
+    import inspect
+
+    assert "progress" in inspect.signature(run_homemaster_task).parameters
+
+
+def test_run_homemaster_task_progress_default_false() -> None:
+    """progress parameter defaults to False."""
+    import inspect
+
+    sig = inspect.signature(run_homemaster_task)
+    assert sig.parameters["progress"].default is False

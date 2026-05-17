@@ -143,6 +143,7 @@ def run_homemaster_task(
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
     use_agent_runtime: bool = True,
     skill_mode: str = "simulated",
+    progress: bool = False,
 ) -> HomeMasterRunResult:
     # -- Phase 0: validation & data-source resolution --
     if not scenario:
@@ -204,6 +205,7 @@ def run_homemaster_task(
             mb=mb,
             paths=paths,
             skill_mode=skill_mode,
+            progress=progress,
         )
         _write_stage_07_assets(
             case_dir=case_dir,
@@ -241,12 +243,25 @@ def run_homemaster_task(
 
     # -- Stage loop via PipelineRunner (compat layer) --
     try:
+        from homemaster.events.sinks import (
+            ConsoleProgressEventSink,
+            FanoutEventSink,
+            JsonlEventSink,
+        )
+
         registry = build_default_registry()
-        ctx = ctx.with_updates(registry=registry)
+        trace_dir = case_dir / "trace"
+        jsonl_sink = JsonlEventSink(output_dir=trace_dir)
+        if progress:
+            pipe_event_sink = FanoutEventSink([jsonl_sink, ConsoleProgressEventSink()])
+        else:
+            pipe_event_sink = jsonl_sink
+        ctx = ctx.with_updates(registry=registry, event_sink=pipe_event_sink)
         runner = PipelineRunner(
             registry,
             stage_modes_fn=_stage_modes,
             logger=logger,
+            event_sink=pipe_event_sink,
         )
         ctx = runner.run(ctx)
     except Exception as exc:
@@ -347,6 +362,7 @@ def _run_agent_runtime(
     mb: dict[str, str],
     paths: dict[str, str],
     skill_mode: str = "simulated",
+    progress: bool = False,
 ) -> HomeMasterRunResult:
     """Run a task using AgentRuntime instead of the legacy stage pipeline."""
     from homemaster.agent.context_builder import ContextBuilder
@@ -380,12 +396,21 @@ def _run_agent_runtime(
     tool_registry = build_tool_registry(skill_registry=skill_registry, skill_mode=skill_mode)
     provider_config = load_provider_config(str(config_path), provider_name=provider_name)
 
+    from homemaster.events.sinks import ConsoleProgressEventSink, FanoutEventSink
+
+    trace_dir = case_dir / "trace"
+    jsonl_sink = JsonlEventSink(output_dir=trace_dir)
+    if progress:
+        event_sink = FanoutEventSink([jsonl_sink, ConsoleProgressEventSink()])
+    else:
+        event_sink = jsonl_sink
+
     runtime = AgentRuntime(
         settings=settings,
-        decision_client=LiveMimoDecisionClient(provider_config),
+        decision_client=LiveMimoDecisionClient(provider_config, event_sink=event_sink),
         tool_registry=tool_registry,
         skill_registry=skill_registry,
-        event_sink=JsonlEventSink(output_dir=results_dir),
+        event_sink=event_sink,
         context_builder=ContextBuilder(),
         dispatcher=ToolDispatcher(),
         state_updater=StateUpdater(),
@@ -673,7 +698,9 @@ def _write_stage_07_assets(
     write_json(case_dir / "input.json", safe_expected)
     write_json(case_dir / "expected.json", safe_expected)
     write_json(case_dir / "actual.json", safe_actual)
-    _write_stage_07_markdown(case_dir / "result.md", status=status, actual=safe_actual)
+    _write_stage_07_markdown(
+        case_dir / "result.md", status=status, actual=safe_actual, case_dir=case_dir,
+    )
     append_jsonl_event(results_dir / "llm_samples.jsonl", event="stage_07", payload=safe_actual)
     append_jsonl_event(
         results_dir / "trace" / f"{actual.get('run_id', case_dir.name)}.jsonl",
@@ -682,8 +709,24 @@ def _write_stage_07_assets(
     )
 
 
-def _write_stage_07_markdown(path: Path, *, status: str, actual: dict[str, Any]) -> None:
+def _write_stage_07_markdown(
+    path: Path, *, status: str, actual: dict[str, Any], case_dir: Path | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    trace_path = ""
+    if case_dir is not None:
+        full_trace = case_dir / "trace" / "runtime_events.jsonl"
+        try:
+            trace_path = full_trace.relative_to(path.parent)
+        except ValueError:
+            trace_path = full_trace
+    trace_section = ""
+    if trace_path:
+        trace_section = f"""
+## Runtime Event Trace
+
+- [{trace_path}]({trace_path})
+"""
     text = f"""# Stage 07 Run - {actual.get("run_id", path.parent.name)}
 
 Status: {status}
@@ -693,7 +736,7 @@ Status: {status}
 - Scenario: {actual.get("scenario")}
 - Utterance: {actual.get("utterance")}
 - Final status: {actual.get("final_status")}
-
+{trace_section}
 ## Stage Statuses
 
 ```json

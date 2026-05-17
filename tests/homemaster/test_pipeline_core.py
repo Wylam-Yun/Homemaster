@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.pipeline_core import PipelineContext, StageRegistry
+from homemaster.pipeline.core import PipelineContext, StageRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -133,7 +133,7 @@ class TestStageRegistry:
 
 class TestBuildDefaultRegistry:
     def test_has_five_stages(self) -> None:
-        from homemaster.pipeline_core import build_default_registry
+        from homemaster.pipeline.core import build_default_registry
 
         reg = build_default_registry()
         assert len(reg) == 5

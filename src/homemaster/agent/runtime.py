@@ -7,6 +7,7 @@ RECOVER pipeline. Mimo selects each tool via structured decision.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,6 +64,17 @@ class AgentRuntime:
         self._state_updater = state_updater
         self._context_snapshot = context_snapshot
 
+    def _emit(self, state: AgentState, event_type: str, **kwargs: Any) -> None:
+        """Emit a RuntimeEvent with source="agent_runtime" and common fields."""
+        self._event_sink.emit(RuntimeEvent(
+            turn_index=state.turn_index,
+            event_type=event_type,
+            run_id=self._settings.run_id,
+            source="agent_runtime",
+            state_status=state.status,
+            **kwargs,
+        ))
+
     def run(
         self,
         user_request: str,
@@ -83,19 +95,54 @@ class AgentRuntime:
             self._settings.run_id, max_turns, len(tool_manifests),
         )
 
+        run_started_at = time.perf_counter()
+        self._emit(state, "run_started", payload={
+            "user_request": user_request, "max_turns": max_turns,
+        })
+
         while state.status == "running" and state.turn_index < max_turns:
+            turn_started_at = time.perf_counter()
+            self._emit(state, "turn_started", payload={"turn_index": state.turn_index})
+
             # Refresh snapshots if stale
             state = self._context_snapshot.refresh_if_stale(state)
 
             # Build compact context
+            ctx_started = time.perf_counter()
             context = self._context_builder.build(
                 state, tool_manifests, skill_summaries, max_turns
             )
+            self._emit(state, "context_built", payload={
+                "duration_ms": round((time.perf_counter() - ctx_started) * 1000, 1),
+            })
 
             # Ask Mimo for decision
-            decision = self._decision_client.decide(
-                context=context, tools=tool_manifests, settings=self._settings
-            )
+            self._emit(state, "decision_started", payload={})
+            dec_started = time.perf_counter()
+            try:
+                decision = self._decision_client.decide(
+                    context=context, tools=tool_manifests, settings=self._settings
+                )
+            except Exception as exc:
+                self._emit(state, "decision_failed", payload={
+                    "error": str(exc), "error_type": type(exc).__name__,
+                    "duration_ms": round((time.perf_counter() - dec_started) * 1000, 1),
+                })
+                state.status = "failed"
+                self._emit(state, "run_failed", payload={
+                    "final_status": "failed",
+                    "error": str(exc), "error_type": type(exc).__name__,
+                    "duration_ms": round(
+                        (time.perf_counter() - run_started_at) * 1000, 1,
+                    ),
+                })
+                raise
+            dec_ms = round((time.perf_counter() - dec_started) * 1000, 1)
+            self._emit(state, "decision_completed", payload={
+                "decision_type": type(decision).__name__, "duration_ms": dec_ms,
+            })
+
+            # Legacy compat event
             self._event_sink.emit(RuntimeEvent(
                 turn_index=state.turn_index,
                 event_type="decision",
@@ -108,6 +155,11 @@ class AgentRuntime:
             # FinishDecision → terminate
             if isinstance(decision, FinishDecision):
                 state.status = "completed" if decision.status == "completed" else "failed"
+                self._emit(state, "finish_decision_received", payload={
+                    "decision_status": decision.status, "summary": decision.summary,
+                    "duration_ms": round((time.perf_counter() - turn_started_at) * 1000, 1),
+                })
+                # Legacy compat event
                 self._event_sink.emit(RuntimeEvent(
                     turn_index=state.turn_index,
                     event_type="state_transition",
@@ -133,6 +185,10 @@ class AgentRuntime:
                     "tool": decision.tool,
                     "error": "invalid or non-selectable tool",
                 })
+                self._emit(state, "tool_call_rejected", payload={
+                    "tool": decision.tool, "reason": "invalid or non-selectable",
+                })
+                # Legacy compat event
                 self._event_sink.emit(RuntimeEvent(
                     turn_index=state.turn_index,
                     event_type="error",
@@ -148,7 +204,16 @@ class AgentRuntime:
                 state.turn_index += 1
                 continue
 
+            # Tool validated
+            self._emit(state, "tool_call_validated", payload={
+                "tool": decision.tool, "executor_mode": spec.executor_mode,
+            })
+
             # Dispatch tool
+            self._emit(state, "tool_call_started", payload={
+                "tool": decision.tool, "arguments": decision.arguments,
+            }, tool_name=decision.tool, executor_mode=spec.executor_mode)
+            # Legacy compat event
             self._event_sink.emit(RuntimeEvent(
                 turn_index=state.turn_index,
                 event_type="tool_call",
@@ -158,9 +223,20 @@ class AgentRuntime:
                 status="calling",
             ))
 
+            dispatch_started = time.perf_counter()
             result = self._dispatcher.dispatch(
                 spec=spec, arguments=decision.arguments, state=state, settings=self._settings
             )
+            dispatch_ms = round((time.perf_counter() - dispatch_started) * 1000, 1)
+
+            tool_event_type = "tool_call_completed" if result.success else "tool_call_failed"
+            self._emit(state, tool_event_type, payload={
+                "tool": result.tool_name, "success": result.success,
+                "executor_mode": result.executor_mode, "failure_reason": result.failure_reason,
+                "duration_ms": dispatch_ms,
+            }, tool_name=result.tool_name, executor_mode=result.executor_mode,
+               duration_ms=dispatch_ms)
+            # Legacy compat event
             self._event_sink.emit(RuntimeEvent(
                 turn_index=state.turn_index,
                 event_type="tool_result",
@@ -177,13 +253,15 @@ class AgentRuntime:
 
             # Update state
             state = self._state_updater.apply(state=state, result=result, spec=spec)
+            self._emit(state, "state_transitioned", payload={
+                "triggered_by": result.tool_name, "success": result.success,
+                "duration_ms": round((time.perf_counter() - turn_started_at) * 1000, 1),
+            }, tool_name=result.tool_name, executor_mode=result.executor_mode)
+            # Legacy compat event
             self._event_sink.emit(RuntimeEvent(
                 turn_index=state.turn_index,
                 event_type="state_transition",
-                payload={
-                    "triggered_by": result.tool_name,
-                    "success": result.success,
-                },
+                payload={"triggered_by": result.tool_name, "success": result.success},
                 run_id=self._settings.run_id,
                 phase_label="update",
                 status="updated",
@@ -203,6 +281,11 @@ class AgentRuntime:
         # max_turns exceeded → failed
         if state.status == "running":
             state.status = "failed"
+            self._emit(state, "max_turns_exceeded", payload={
+                "max_turns": max_turns,
+                "duration_ms": round((time.perf_counter() - run_started_at) * 1000, 1),
+            })
+            # Legacy compat event
             self._event_sink.emit(RuntimeEvent(
                 turn_index=state.turn_index,
                 event_type="error",
@@ -212,6 +295,12 @@ class AgentRuntime:
                 status="error",
             ))
             logger.warning("[%s] max_turns exceeded  status=failed", self._settings.run_id)
+
+        total_ms = round((time.perf_counter() - run_started_at) * 1000, 1)
+        final_event = "run_completed" if state.status == "completed" else "run_failed"
+        self._emit(state, final_event, payload={
+            "final_status": state.status, "duration_ms": total_ms,
+        }, duration_ms=total_ms)
 
         logger.info(
             "[%s] AgentRuntime.run finished  status=%s",

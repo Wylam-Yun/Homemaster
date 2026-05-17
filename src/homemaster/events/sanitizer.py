@@ -1,37 +1,46 @@
-"""Event trace sanitization — basic implementation.
+"""Event trace sanitization — delegates to trace.sanitize_for_log for redaction.
 
-Phase 8 will add full PII redaction and structured sanitization rules.
-This module provides basic secret-pattern redaction and payload truncation.
+Adds truncation for large payloads and raw prompt/response content.
+Secret-pattern redaction is handled by trace.sanitize_for_log (handles
+dicts, lists, tuples, substring matching on key names).
 """
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-_REDACT_PATTERNS = [
-    re.compile(r"(api[_-]?key|token|secret|password|authorization)", re.IGNORECASE),
-]
+from homemaster.trace import sanitize_for_log
 
 _MAX_PAYLOAD_LEN = 4000
+_MAX_PROMPT_VALUE_LEN = 200
+
+# Keys whose string values are truncated to _MAX_PROMPT_VALUE_LEN
+# to prevent raw prompt/response content from entering the default trace.
+_PROMPT_KEYS = frozenset({"prompt", "response", "content", "message"})
 
 
 def sanitize_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Redact potential secrets and truncate large payloads."""
-    sanitized = _redact_dict(payload)
+    """Redact secrets via trace.sanitize_for_log, then truncate large values."""
+    sanitized: dict[str, Any] = sanitize_for_log(payload)
+    sanitized = _truncate_prompt_values(sanitized)
     serialized = str(sanitized)
     if len(serialized) > _MAX_PAYLOAD_LEN:
         sanitized["_truncated"] = True
+        sanitized["_truncated_len"] = len(serialized)
     return sanitized
 
 
-def _redact_dict(d: dict[str, Any]) -> dict[str, Any]:
-    result = {}
+def _truncate_prompt_values(d: dict[str, Any]) -> dict[str, Any]:
+    """Truncate long string values under prompt-like keys."""
+    result: dict[str, Any] = {}
     for key, value in d.items():
-        if any(p.search(key) for p in _REDACT_PATTERNS):
-            result[key] = "[REDACTED]"
+        if isinstance(value, str) and len(value) > _MAX_PROMPT_VALUE_LEN:
+            if any(pk in key.lower() for pk in _PROMPT_KEYS):
+                result[key] = f"[TRUNCATED: {_MAX_PROMPT_VALUE_LEN}/{len(value)} chars]"
+            else:
+                result[key] = value
         elif isinstance(value, dict):
-            result[key] = _redact_dict(value)
+            result[key] = _truncate_prompt_values(value)
         else:
             result[key] = value
     return result

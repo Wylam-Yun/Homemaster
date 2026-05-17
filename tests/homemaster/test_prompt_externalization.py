@@ -101,7 +101,10 @@ def test_stage_01_retry_snapshot() -> None:
 
 
 def test_stage_02_prompt_snapshot() -> None:
-    from homemaster.frontdoor import TaskUnderstandingInput, build_task_understanding_prompt
+    from homemaster.stages.task_understanding import (
+        TaskUnderstandingInput,
+        build_task_understanding_prompt,
+    )
 
     assert build_task_understanding_prompt(
         TaskUnderstandingInput(
@@ -114,7 +117,7 @@ def test_stage_02_prompt_snapshot() -> None:
 
 
 def test_stage_02_retry_snapshot() -> None:
-    from homemaster.frontdoor import RETRY_INSTRUCTION
+    from homemaster.stages.task_understanding import RETRY_INSTRUCTION
 
     assert RETRY_INSTRUCTION == _load_snapshot("stage_02_retry.txt")
 
@@ -145,7 +148,7 @@ def test_stage_03_retry_snapshot() -> None:
 
 def test_stage_05_orchestration_prompt_snapshot() -> None:
     from homemaster.contracts import PlanningContext, TaskCard
-    from homemaster.orchestrator import build_orchestration_prompt
+    from homemaster.stages.orchestrator import build_orchestration_prompt
 
     context = PlanningContext(
         task_card=TaskCard(
@@ -163,7 +166,7 @@ def test_stage_05_orchestration_prompt_snapshot() -> None:
 
 
 def test_stage_05_orchestration_retry_snapshot() -> None:
-    from homemaster.orchestrator import ORCHESTRATION_RETRY_INSTRUCTION
+    from homemaster.stages.orchestrator import ORCHESTRATION_RETRY_INSTRUCTION
 
     assert ORCHESTRATION_RETRY_INSTRUCTION == _load_snapshot("stage_05_orchestration_retry.txt")
 
@@ -176,7 +179,7 @@ def test_stage_05_step_decision_prompt_snapshot() -> None:
         SubtaskRuntimeState,
         TaskCard,
     )
-    from homemaster.skill_selector import build_step_decision_prompt
+    from homemaster.stages.skill_selector import build_step_decision_prompt
 
     subtask = Subtask(
         id="find_cup",
@@ -206,14 +209,14 @@ def test_stage_05_step_decision_prompt_snapshot() -> None:
 
 
 def test_stage_05_step_decision_retry_snapshot() -> None:
-    from homemaster.skill_selector import build_retry_instruction
+    from homemaster.stages.skill_selector import build_retry_instruction
 
     assert build_retry_instruction() == _load_snapshot("stage_05_step_decision_retry.txt")
 
 
 def test_stage_05_recovery_prompt_snapshot() -> None:
     from homemaster.contracts import ExecutionState, SubtaskRuntimeState
-    from homemaster.recovery import build_recovery_prompt
+    from homemaster.stages.recovery import build_recovery_prompt
 
     state = ExecutionState(
         current_subtask_id="find_cup",
@@ -223,14 +226,14 @@ def test_stage_05_recovery_prompt_snapshot() -> None:
 
 
 def test_stage_05_recovery_retry_snapshot() -> None:
-    from homemaster.recovery import RECOVERY_RETRY_INSTRUCTION
+    from homemaster.stages.recovery import RECOVERY_RETRY_INSTRUCTION
 
     assert RECOVERY_RETRY_INSTRUCTION == _load_snapshot("stage_05_recovery_retry.txt")
 
 
 def test_stage_06_summary_prompt_snapshot() -> None:
     from homemaster.contracts import EvidenceBundle, ExecutionState, SubtaskRuntimeState, TaskCard
-    from homemaster.summary import build_task_summary_prompt
+    from homemaster.stages.summary import build_task_summary_prompt
 
     task_card = TaskCard(
         task_type="fetch_object",
@@ -253,6 +256,6 @@ def test_stage_06_summary_prompt_snapshot() -> None:
 
 
 def test_stage_06_summary_retry_snapshot() -> None:
-    from homemaster.summary import SUMMARY_RETRY_INSTRUCTION
+    from homemaster.stages.summary import SUMMARY_RETRY_INSTRUCTION
 
     assert SUMMARY_RETRY_INSTRUCTION == _load_snapshot("stage_06_summary_retry.txt")
