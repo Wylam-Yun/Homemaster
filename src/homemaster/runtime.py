@@ -141,6 +141,12 @@ def load_runtime_defaults_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # P7: derived constants from config (with safe defaults)
 # ---------------------------------------------------------------------------
+# NOTE: These import-time config reads are intentionally preserved.
+# The subprocess+reload test pattern in test_homemaster_config.py depends on
+# module-level _load_*_config() calls: subprocess sets HOMEMASTER_CONFIG_PATH
+# before import, and importlib.reload() re-triggers these calls to apply
+# overrides. Removing them breaks 4+ existing tests (scoring, grounding, etc.).
+# New code should use explicit loaders from config/runtime_settings.py instead.
 
 _defaults_cfg = load_runtime_defaults_config()
 _paths_cfg = load_runtime_paths_config()
