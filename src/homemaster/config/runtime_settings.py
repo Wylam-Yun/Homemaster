@@ -11,7 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, model_validator
+
+
+class RuntimeSettingsError(RuntimeError):
+    """Raised when RuntimeSettings configuration is invalid."""
 
 
 class RuntimeSettings(BaseModel):
@@ -29,10 +33,24 @@ class RuntimeSettings(BaseModel):
     results_root: Path
     provider_name: str = "Mimo"
     embedding_provider_name: str = "MemoryEmbedding"
+    config_path: Path | None = None
+    scenario: str | None = None
+    scenario_root: Path | None = None
+    memory_path: Path | None = None
+    world_path: Path | None = None
+    case_dir: Path | None = None
+    recovery_max_attempts: int = 3
+    executor_step_multiplier: float = 1.0
+    executor_minimum_max_steps: int = 5
 
-
-class RuntimeSettingsError(RuntimeError):
-    """Raised when RuntimeSettings configuration is invalid."""
+    @model_validator(mode="after")
+    def _reject_real_skill_mode(self) -> RuntimeSettings:
+        if self.skill_mode == "real":
+            raise RuntimeSettingsError(
+                "skill_mode='real' is not yet supported. "
+                "Real executor is not integrated. Use skill_mode='simulated'."
+            )
+        return self
 
 
 _DEPRECATED_KEYS = {"live_models", "mock_skills"}

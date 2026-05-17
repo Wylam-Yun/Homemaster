@@ -49,6 +49,7 @@ def _apply_retrieve_memory(state: AgentState, result: ToolResult) -> None:
 
 def _apply_ground_target(state: AgentState, result: ToolResult) -> None:
     state.target_candidates = result.data.get("candidates", [])
+    state.selected_target = result.data.get("selected_target")
 
 
 def _apply_get_skill(state: AgentState, result: ToolResult) -> None:

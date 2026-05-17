@@ -1,14 +1,18 @@
 """Pipeline skeleton for HomeMaster Stage 02-06 execution.
 
 Provides PipelineContext (immutable state snapshot), Stage Protocol,
-and StageRegistry (ordered stage collection).  No run_pipeline() —
-stage loop lives in task_runner.py so the except block retains access
-to the latest partial context.
+StageRegistry (ordered stage collection), and PipelineRunner (compat
+layer wrapping the stage loop previously inline in task_runner.py).
+
+PipelineRunner is the legacy-compatible entrypoint.  AgentRuntime is
+the forward-path entrypoint.  Both produce HomeMasterRunResult.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import logging
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -137,6 +141,86 @@ class StageRegistry:
 
     def __len__(self) -> int:
         return len(self._stages)
+
+
+# ---------------------------------------------------------------------------
+# PipelineRunner — compat layer for legacy stage loop
+# ---------------------------------------------------------------------------
+
+# Compat annotations: this runner wraps the legacy Stage 02-06 loop.
+# AgentRuntime is the forward-path entrypoint.
+RUNTIME_ENTRYPOINT = "pipeline_compat"
+MIGRATION_REQUIRED = True
+DEFAULT_ENTRYPOINT = False
+
+
+class PipelineRunner:
+    """Runs the Stage 02-06 pipeline loop with error handling and status tracking.
+
+    This is a compatibility wrapper around the stage loop that was previously
+    inline in task_runner.py.  It preserves the same logging, timing, and
+    error-propagation semantics while making the loop reusable and testable.
+    """
+
+    def __init__(
+        self,
+        registry: StageRegistry,
+        *,
+        stage_modes_fn: Callable[[PipelineContext, str], dict[str, str]] | None = None,
+        logger: logging.Logger | None = None,
+    ) -> None:
+        self._registry = registry
+        self._stage_modes_fn = stage_modes_fn
+        self._logger = logger
+
+    def run(self, ctx: PipelineContext) -> PipelineContext:
+        """Execute all registered stages in order.
+
+        Returns the final PipelineContext.  Raises on stage failure
+        (the caller is responsible for writing error assets).
+        """
+        run_id = ctx.run_id
+        logger = self._logger
+
+        for stage in self._registry.stages():
+            modes = self._stage_modes_fn(ctx, stage.name) if self._stage_modes_fn else {}
+            if logger:
+                logger.info(
+                    "[%s] stage %s started  scenario=%s%s",
+                    run_id, stage.name, ctx.scenario,
+                    _compact_modes(modes),
+                )
+            t0 = time.monotonic()
+            try:
+                ctx = stage.execute(ctx)
+            except Exception as stage_exc:
+                elapsed = time.monotonic() - t0
+                if logger:
+                    logger.error(
+                        "[%s] ERROR in stage %s: %s: %s  elapsed=%.2fs%s",
+                        run_id, stage.name, type(stage_exc).__name__,
+                        stage_exc, elapsed, _compact_modes(modes),
+                    )
+                raise
+            elapsed = time.monotonic() - t0
+            stage_status = ctx.stage_statuses.get(stage.name, {})
+            status = stage_status.get("status", "unknown")
+            modes = stage_status.get("component_modes") or modes
+            if logger:
+                logger.info(
+                    "[%s] stage %s completed in %.2fs  status=%s%s",
+                    run_id, stage.name, elapsed, status,
+                    _compact_modes(modes),
+                )
+
+        return ctx
+
+
+def _compact_modes(modes: dict[str, str] | None) -> str:
+    """Format component_modes as compact 'k=v k=v' string for logging."""
+    if not modes:
+        return ""
+    return "  modes=" + " ".join(f"{k}={v}" for k, v in modes.items())
 
 
 # ---------------------------------------------------------------------------

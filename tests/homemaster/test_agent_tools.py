@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from homemaster.agent.state import AgentState
 from homemaster.config.runtime_settings import RuntimeSettings
 from homemaster.tools.builtin import build_tool_registry
@@ -187,3 +190,77 @@ def test_all_executors_return_tool_name_and_mode() -> None:
         result = spec.executor(arguments={}, state=state, settings=settings)
         assert result.tool_name == name, f"{name}: tool_name mismatch"
         assert result.executor_mode, f"{name}: executor_mode empty"
+
+
+def test_update_memory_persists_to_store(tmp_path: Path) -> None:
+    """update_memory writes to RuntimeMemoryStore when memory_path exists."""
+    # Set up a base memory file
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    base_memory = memory_dir / "object_memory.json"
+    base_memory.write_text(json.dumps({
+        "object_memory": [
+            {"memory_id": "m1", "object_category": "cup", "room_id": "kitchen",
+             "anchor_id": "table-1", "belief_state": "stale"},
+        ]
+    }), encoding="utf-8")
+
+    settings = RuntimeSettings(
+        run_id="test-persist",
+        runtime_root=tmp_path / "runs",
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
+        memory_path=base_memory,
+    )
+    state = AgentState(
+        memory_hits=[{
+            "memory_id": "m1", "object_category": "cup",
+            "room_id": "kitchen", "anchor_id": "table-1",
+        }],
+    )
+
+    registry = build_tool_registry()
+    spec = registry.get("update_memory")
+    result = spec.executor(
+        arguments={"proposal": {
+            "object_category": "cup",
+            "room_id": "kitchen",
+            "anchor_id": "table-1",
+            "belief_state": "verified",
+        }},
+        state=state, settings=settings,
+    )
+    assert result.success is True
+    assert result.data["committed"] is True
+    assert result.data["memory_id"] == "m1"
+
+    # Verify the store was written
+    store_path = tmp_path / "runs" / "test-persist" / "memory" / "object_memory.json"
+    assert store_path.exists()
+    stored = json.loads(store_path.read_text(encoding="utf-8"))
+    memories = stored["object_memory"]
+    assert memories[0]["belief_state"] == "verified"
+
+
+def test_update_memory_graceful_without_memory_path() -> None:
+    """update_memory succeeds even without memory_path (graceful degradation)."""
+    settings = RuntimeSettings(
+        run_id="test-no-path",
+        runtime_root=Path("/tmp/runs"),
+        debug_root=Path("/tmp/debug"),
+        results_root=Path("/tmp/results"),
+        # memory_path is None
+    )
+    state = AgentState()
+    registry = build_tool_registry()
+    spec = registry.get("update_memory")
+    result = spec.executor(
+        arguments={"proposal": {
+            "object_category": "cup",
+            "room_id": "kitchen",
+            "anchor_id": "table-1",
+        }},
+        state=state, settings=settings,
+    )
+    assert result.success is True
+    assert result.data["committed"] is True

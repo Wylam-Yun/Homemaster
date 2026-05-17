@@ -69,15 +69,16 @@ def test_recent_dynamics_contains_turn_index_and_failures() -> None:
     assert len(dynamics["failures"]) == 1
 
 
-def test_context_builder_does_not_include_full_trace() -> None:
+def test_context_builder_includes_loaded_skill_contexts() -> None:
     builder = ContextBuilder()
     state = _make_state()
-    state.loaded_skill_contexts["fetch_object"] = {"content": "FULL SKILL CONTENT"}
+    state.loaded_skill_contexts["fetch_object"] = {"content": "skill data"}
     context = builder.build(state, tool_manifests=[], skill_summaries=[], max_turns=12)
 
-    # Full SKILL.md should NOT be in stable_context
-    stable_str = str(context["stable_context"])
-    assert "FULL SKILL CONTENT" not in stable_str
+    # loaded_skill_contexts should be in stable_context (Finding 7)
+    stable = context["stable_context"]
+    assert "loaded_skill_contexts" in stable
+    assert "fetch_object" in stable["loaded_skill_contexts"]
 
 
 def test_context_builder_limits_recent_items() -> None:

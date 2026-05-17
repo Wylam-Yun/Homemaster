@@ -30,6 +30,6 @@ class AgentState(BaseModel):
     loaded_skill_contexts: dict[str, dict[str, Any]] = Field(default_factory=dict)
     memory_context_snapshot: str | None = None
     user_context_snapshot: str | None = None
+    selected_target: dict[str, Any] | None = None
     status: Literal["running", "completed", "failed"] = "running"
     turn_index: int = 0
-    runtime_settings: dict[str, Any] | None = None

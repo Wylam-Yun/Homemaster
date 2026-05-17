@@ -21,7 +21,7 @@ from homemaster.contracts import (
 )
 from homemaster.failure_rule_provider import FailureRuleProvider
 from homemaster.logger import get_logger
-from homemaster.pipeline.core import PipelineContext, build_default_registry
+from homemaster.pipeline.core import PipelineContext, PipelineRunner, build_default_registry
 from homemaster.pipeline.stage_runtime import (
     RuntimeMode,
     validate_runtime_services,
@@ -103,12 +103,6 @@ class HomeMasterRunResult:
 # ---------------------------------------------------------------------------
 
 
-def _compact_modes(modes: dict[str, str] | None) -> str:
-    """Format component_modes as compact 'k=v k=v' string for logging."""
-    if not modes:
-        return ""
-    return "  modes=" + " ".join(f"{k}={v}" for k, v in modes.items())
-
 
 _STAGE_MODE_KEYS: dict[str, list[str]] = {
     "stage02": ["task_understanding"],
@@ -147,7 +141,7 @@ def run_homemaster_task(
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
-    use_agent_runtime: bool = False,
+    use_agent_runtime: bool = True,
 ) -> HomeMasterRunResult:
     # -- Phase 0: validation & data-source resolution --
     if not scenario:
@@ -205,6 +199,7 @@ def run_homemaster_task(
             runtime_memory_dir=runtime_memory_dir,
             case_dir=case_dir,
             results_dir=results_dir,
+            scenario_root=scenario_root,
             mb=mb,
             paths=paths,
         )
@@ -233,31 +228,16 @@ def run_homemaster_task(
     logger.info("[%s] run started  scenario=%s  runtime_mode=live(simulated)",
                 run_id, scenario)
 
-    # -- Stage loop (no run_pipeline wrapper; ctx accessible in except) --
+    # -- Stage loop via PipelineRunner (compat layer) --
     try:
         registry = build_default_registry()
         ctx = ctx.with_updates(registry=registry)
-        for stage in registry.stages():
-            modes = _stage_modes(ctx, stage.name)
-            logger.info("[%s] stage %s started  scenario=%s%s",
-                        run_id, stage.name, scenario, _compact_modes(modes))
-            t0 = time.monotonic()
-            try:
-                ctx = stage.execute(ctx)
-            except Exception as stage_exc:
-                elapsed = time.monotonic() - t0
-                logger.error(
-                    "[%s] ERROR in stage %s: %s: %s  elapsed=%.2fs%s",
-                    run_id, stage.name, type(stage_exc).__name__, stage_exc, elapsed,
-                    _compact_modes(modes),
-                )
-                raise
-            elapsed = time.monotonic() - t0
-            stage_status = ctx.stage_statuses.get(stage.name, {})
-            status = stage_status.get("status", "unknown")
-            modes = stage_status.get("component_modes") or modes
-            logger.info("[%s] stage %s completed in %.2fs  status=%s%s",
-                        run_id, stage.name, elapsed, status, _compact_modes(modes))
+        runner = PipelineRunner(
+            registry,
+            stage_modes_fn=_stage_modes,
+            logger=logger,
+        )
+        ctx = runner.run(ctx)
     except Exception as exc:
         logger.error("[%s] run failed  error_type=%s  message=%s",
                      run_id, type(exc).__name__, exc)
@@ -292,6 +272,18 @@ def run_homemaster_task(
         raise
 
     logger.info("[%s] run finished  final_status=%s", run_id, ctx.final_status)
+
+    # -- Compat annotations: mark pipeline path boundary --
+    from homemaster.pipeline.core import (
+        DEFAULT_ENTRYPOINT,
+        MIGRATION_REQUIRED,
+        RUNTIME_ENTRYPOINT,
+    )
+    ctx = ctx.with_stage_status("_pipeline_compat_meta", {
+        "runtime_entrypoint": RUNTIME_ENTRYPOINT,
+        "migration_required": MIGRATION_REQUIRED,
+        "default_entrypoint": DEFAULT_ENTRYPOINT,
+    })
 
     # -- Convert to HomeMasterRunResult --
     result = HomeMasterRunResult(
@@ -340,6 +332,7 @@ def _run_agent_runtime(
     runtime_memory_dir: Path,
     case_dir: Path,
     results_dir: Path,
+    scenario_root: Path,
     mb: dict[str, str],
     paths: dict[str, str],
 ) -> HomeMasterRunResult:
@@ -362,6 +355,12 @@ def _run_agent_runtime(
         results_root=results_dir,
         provider_name=provider_name,
         embedding_provider_name=embedding_provider_name,
+        config_path=Path(config_path),
+        scenario=scenario,
+        scenario_root=scenario_root,
+        memory_path=resolved_memory,
+        world_path=resolved_world,
+        case_dir=case_dir,
     )
 
     tool_registry = build_tool_registry()
@@ -377,21 +376,10 @@ def _run_agent_runtime(
         context_builder=ContextBuilder(),
         dispatcher=ToolDispatcher(),
         state_updater=StateUpdater(),
-        context_snapshot=ContextSnapshot(),
+        context_snapshot=ContextSnapshot(output_dir=results_dir),
     )
 
-    extra_runtime_info = {
-        "config_path": str(config_path),
-        "memory_path": str(resolved_memory),
-        "scenario": scenario,
-        "case_dir": str(case_dir),
-        "results_dir": str(results_dir),
-        "runtime_memory_root": str(runtime_memory_dir),
-        "world_path": str(resolved_world),
-        "max_turns": settings.max_turns,
-    }
-
-    agent_result = runtime.run(utterance, extra_runtime_info=extra_runtime_info)
+    agent_result = runtime.run(utterance)
 
     return _agent_result_to_home_master_result(
         agent_result,
@@ -416,21 +404,166 @@ def _agent_result_to_home_master_result(
     results_dir: Path,
     runtime_memory_root: Path,
 ) -> HomeMasterRunResult:
-    """Convert AgentRunResult to HomeMasterRunResult (lossy — Phase 5 adds full mapping)."""
+    """Convert AgentRunResult to HomeMasterRunResult by synthesizing from state + events."""
+    from homemaster.contracts import (
+        EvidenceBundle,
+        EvidenceRef,
+        GroundedMemoryTarget,
+        MemoryRetrievalHit,
+        MemoryRetrievalResult,
+        PlanningContext,
+        TaskCard,
+    )
+    from homemaster.memory_commit import utc_now_iso
+
+    state = agent_result.state
+    run_id = agent_result.run_id
+
+    # 6a: task_card
+    task_card = None
+    if state.task_card:
+        try:
+            task_card = TaskCard.model_validate(state.task_card)
+        except Exception:
+            pass
+
+    # 6b: stage_statuses from event log
+    tool_to_stage = {
+        "understand_task": "stage02",
+        "retrieve_memory": "stage03",
+        "ground_target": "stage04",
+        "get_skill": "stage05",
+        "navigate": "stage05",
+        "observe": "stage05",
+        "manipulate": "stage05",
+        "verify": "stage05",
+        "update_memory": "stage06",
+        "update_user_profile": "stage06",
+    }
+    stage_statuses: dict[str, dict[str, Any]] = {}
+    for event in agent_result.events:
+        if event.event_type == "tool_call":
+            tool_name = event.payload.get("tool", "")
+            stage = tool_to_stage.get(tool_name, "agent_other")
+            if stage not in stage_statuses:
+                stage_statuses[stage] = {"status": "PASS", "tools": []}
+            stage_statuses[stage]["tools"].append(tool_name)
+        elif event.event_type == "tool_result":
+            tool_name = event.payload.get("tool", "")
+            stage = tool_to_stage.get(tool_name, "agent_other")
+            if stage in stage_statuses and not event.payload.get("success", True):
+                stage_statuses[stage]["status"] = "FAIL"
+    stage_statuses["agent_runtime"] = {
+        "status": "PASS" if agent_result.final_status == "completed" else "FAIL",
+    }
+
+    # 6c: planning_context
+    planning_context = None
+    if state.task_card and state.memory_hits:
+        try:
+            tc = TaskCard.model_validate(state.task_card)
+            hits = [MemoryRetrievalHit.model_validate(h) for h in state.memory_hits]
+            memory_result = MemoryRetrievalResult(hits=hits)
+            selected = None
+            rejected: list[MemoryRetrievalHit] = []
+            if state.selected_target:
+                selected = GroundedMemoryTarget(
+                    memory_id=state.selected_target.get("memory_id", ""),
+                    room_id=state.selected_target.get("room_id", ""),
+                    anchor_id=state.selected_target.get("anchor_id", ""),
+                    viewpoint_id=state.selected_target.get("viewpoint_id", ""),
+                )
+            selected_id = selected.memory_id if selected else None
+            for c in state.target_candidates:
+                if c.get("memory_id") != selected_id:
+                    rejected.append(
+                        MemoryRetrievalHit(
+                            document_id=c.get("memory_id", ""),
+                            memory_id=c.get("memory_id"),
+                            object_category=c.get("object_category"),
+                            room_id=c.get("room_id"),
+                            anchor_id=c.get("anchor_id"),
+                        )
+                    )
+            planning_context = PlanningContext(
+                task_card=tc,
+                memory_evidence=memory_result,
+                selected_target=selected,
+                rejected_hits=rejected,
+            )
+        except Exception:
+            planning_context = None
+
+    # 6d: evidence_bundle
+    evidence_refs: list[EvidenceRef] = []
+    verified_facts: list[str] = []
+    failure_facts: list[str] = []
+    now = utc_now_iso()
+    for i, v in enumerate(state.verifications, 1):
+        vr = v.get("result", {})
+        verified = vr.get("verified", False)
+        if verified:
+            verified_facts.append(f"verified {vr.get('target_object', 'unknown')}")
+        evidence_refs.append(EvidenceRef(
+            evidence_id=f"verification:{run_id}:{i}",
+            evidence_type="verification_result",
+            source_id=f"verification-{i}",
+            created_at=now,
+            summary=f"verified={verified}",
+        ))
+    for i, obs in enumerate(state.observations, 1):
+        obs_result = obs.get("result", {})
+        evidence_refs.append(EvidenceRef(
+            evidence_id=f"observation:{run_id}:{i}",
+            evidence_type="observation",
+            source_id=f"observation-{i}",
+            created_at=now,
+            summary=f"observed {obs_result.get('object', 'unknown')}",
+        ))
+    for i, f in enumerate(state.failures, 1):
+        failure_facts.append(f.get("error", "unknown failure"))
+        evidence_refs.append(EvidenceRef(
+            evidence_id=f"failure:{run_id}:{i}",
+            evidence_type="failure_record",
+            source_id=f"failure-{i}",
+            created_at=now,
+            summary=f.get("error", "unknown"),
+        ))
+    evidence_bundle = EvidenceBundle(
+        task_id=run_id,
+        evidence_refs=evidence_refs,
+        verified_facts=verified_facts,
+        failure_facts=failure_facts,
+    )
+
+    # 6e: execution_result
+    execution_result = {
+        "final_status": agent_result.final_status,
+        "turn_count": state.turn_index,
+        "current_location": state.current_location,
+        "holding_object": state.holding_object,
+    }
+
+    # 6f: memory_commit
+    memory_commit = None
+    update_actions = [a for a in state.actions if a.get("tool") == "update_memory"]
+    if update_actions:
+        memory_commit = {"committed": True, "actions": update_actions}
+
     return HomeMasterRunResult(
-        run_id=agent_result.run_id,
+        run_id=run_id,
         scenario=scenario,
         utterance=utterance,
         final_status=agent_result.final_status,
-        stage_statuses={"agent_runtime": {"status": agent_result.final_status}},
+        stage_statuses=stage_statuses,
         model_boundary=model_boundary,
         paths=paths,
-        task_card=None,
-        planning_context=None,
+        task_card=task_card,
+        planning_context=planning_context,
         orchestration_plan=None,
-        execution_result=None,
-        evidence_bundle=None,
-        memory_commit=None,
+        execution_result=execution_result,
+        evidence_bundle=evidence_bundle,
+        memory_commit=memory_commit,
         case_dir=case_dir,
         results_dir=results_dir,
         runtime_memory_root=runtime_memory_root,

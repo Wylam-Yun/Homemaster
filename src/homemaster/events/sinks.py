@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.events.sanitizer import sanitize_event_payload
 
 
 class JsonlEventSink:
@@ -20,10 +21,15 @@ class JsonlEventSink:
         self._events.append(event)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         path = self._output_dir / "agent_runtime_events.jsonl"
+        sanitized_payload = sanitize_event_payload(event.payload)
         entry = {
+            "run_id": event.run_id,
+            "event_id": event.event_id,
             "turn_index": event.turn_index,
             "event_type": event.event_type,
-            "payload": event.payload,
+            "phase_label": event.phase_label,
+            "status": event.status,
+            "payload": sanitized_payload,
             "timestamp": event.timestamp,
         }
         with path.open("a", encoding="utf-8") as f:

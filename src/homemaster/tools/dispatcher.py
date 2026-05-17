@@ -31,6 +31,18 @@ class ToolDispatcher:
         Returns ToolResult on success or executor failure.
         Returns ToolResult(success=False) on validation failure.
         """
+        # Validate arguments against input_schema required fields
+        schema = spec.input_schema
+        required = schema.get("required", [])
+        missing = [f for f in required if f not in arguments]
+        if missing:
+            return ToolResult(
+                success=False,
+                tool_name=spec.name,
+                executor_mode=spec.executor_mode,
+                failure_reason=f"missing required arguments: {missing}",
+            )
+
         # Validate tool is allowed by active skill (if any)
         if state.active_skills:
             allowed = self._get_allowed_tools(state)

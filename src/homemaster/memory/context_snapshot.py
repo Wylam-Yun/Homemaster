@@ -16,8 +16,10 @@ Refresh rules:
 from __future__ import annotations
 
 import hashlib
+import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from homemaster.agent.state import AgentState
@@ -36,7 +38,8 @@ class SnapshotResult:
 class ContextSnapshot:
     """Generates and manages MEMORY.md / USER.md prompt snapshots."""
 
-    def __init__(self) -> None:
+    def __init__(self, output_dir: Path | None = None) -> None:
+        self._output_dir = output_dir
         self._memory_snapshot: SnapshotResult | None = None
         self._user_snapshot: SnapshotResult | None = None
         self._memory_hits_at_snapshot: list[dict[str, Any]] | None = None
@@ -73,6 +76,8 @@ class ContextSnapshot:
         )
         self._memory_snapshot = result
         self._memory_hits_at_snapshot = list(object_memory_records)
+        if self._output_dir:
+            _atomic_write(self._output_dir / "MEMORY.md", content)
         return result
 
     def generate_user_snapshot(
@@ -100,6 +105,8 @@ class ContextSnapshot:
             generated_at=generated_at,
         )
         self._user_snapshot = result
+        if self._output_dir:
+            _atomic_write(self._output_dir / "USER.md", content)
         return result
 
     def refresh_if_stale(self, state: AgentState) -> AgentState:
@@ -133,3 +140,16 @@ class ContextSnapshot:
     @property
     def last_user_snapshot(self) -> SnapshotResult | None:
         return self._user_snapshot
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    """Write content atomically via temp file + rename."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        Path(tmp).rename(path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise

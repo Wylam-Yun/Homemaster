@@ -67,14 +67,12 @@ class AgentRuntime:
         self,
         user_request: str,
         initial_state: AgentState | None = None,
-        extra_runtime_info: dict[str, Any] | None = None,
     ) -> AgentRunResult:
         """Execute the tool loop until finish, failure, or max_turns."""
         logger = get_logger()
 
         state = initial_state or AgentState(run_id=self._settings.run_id)
         state.user_request = user_request
-        state.runtime_settings = extra_runtime_info or {}
 
         tool_manifests = self._tool_registry.tool_manifests()
         skill_summaries = self._skill_registry.candidate_summaries()
@@ -102,6 +100,9 @@ class AgentRuntime:
                 turn_index=state.turn_index,
                 event_type="decision",
                 payload={"decision_type": type(decision).__name__},
+                run_id=self._settings.run_id,
+                phase_label="decide",
+                status="deciding",
             ))
 
             # FinishDecision → terminate
@@ -111,6 +112,9 @@ class AgentRuntime:
                     turn_index=state.turn_index,
                     event_type="state_transition",
                     payload={"status": state.status, "summary": decision.summary},
+                    run_id=self._settings.run_id,
+                    phase_label="finish",
+                    status=state.status,
                 ))
                 logger.info(
                     "[%s] finish decision  status=%s  summary=%s",
@@ -133,6 +137,9 @@ class AgentRuntime:
                     turn_index=state.turn_index,
                     event_type="error",
                     payload={"tool": decision.tool, "error": "invalid or non-selectable"},
+                    run_id=self._settings.run_id,
+                    phase_label="reject",
+                    status="error",
                 ))
                 logger.warning(
                     "[%s] rejected tool_call  tool=%s  reason=invalid_or_non_selectable",
@@ -146,6 +153,9 @@ class AgentRuntime:
                 turn_index=state.turn_index,
                 event_type="tool_call",
                 payload={"tool": decision.tool, "arguments": decision.arguments},
+                run_id=self._settings.run_id,
+                phase_label="dispatch",
+                status="calling",
             ))
 
             result = self._dispatcher.dispatch(
@@ -159,6 +169,9 @@ class AgentRuntime:
                     "success": result.success,
                     "failure_reason": result.failure_reason,
                 },
+                run_id=self._settings.run_id,
+                phase_label="result",
+                status="success" if result.success else "failure",
             ))
 
             # Update state
@@ -170,6 +183,9 @@ class AgentRuntime:
                     "triggered_by": result.tool_name,
                     "success": result.success,
                 },
+                run_id=self._settings.run_id,
+                phase_label="update",
+                status="updated",
             ))
 
             # Refresh snapshots after memory/profile updates
@@ -190,6 +206,9 @@ class AgentRuntime:
                 turn_index=state.turn_index,
                 event_type="error",
                 payload={"error": "max_turns_exceeded", "max_turns": max_turns},
+                run_id=self._settings.run_id,
+                phase_label="timeout",
+                status="error",
             ))
             logger.warning("[%s] max_turns exceeded  status=failed", self._settings.run_id)
 

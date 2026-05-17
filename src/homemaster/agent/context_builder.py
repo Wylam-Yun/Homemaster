@@ -45,6 +45,7 @@ class ContextBuilder:
             },
             "tool_manifests": tool_manifests,
             "skill_summaries": skill_summaries,
+            "loaded_skill_contexts": state.loaded_skill_contexts,
             "memory_snapshot": state.memory_context_snapshot,
             "user_snapshot": state.user_context_snapshot,
         }

@@ -6,6 +6,7 @@ state_transition, error. EventSink is the append-only writer.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
@@ -21,6 +22,10 @@ class RuntimeEvent:
     ]
     payload: dict[str, Any]
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    run_id: str = ""
+    event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    phase_label: str = ""
+    status: str = ""
 
 
 class EventSink(Protocol):

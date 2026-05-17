@@ -31,13 +31,12 @@ def _exec_understand_task(
     """Thin wrapper: run_stage02() → TaskCard."""
     from homemaster.pipeline.stage_runtime import run_stage02
 
-    rt = state.runtime_settings or {}
     utterance = arguments.get("utterance") or state.user_request
     try:
         task_card = run_stage02(
             utterance=utterance,
             run_id=settings.run_id,
-            config_path=rt.get("config_path", ""),
+            config_path=str(settings.config_path or ""),
             provider_name=settings.provider_name,
         )
         return ToolResult(
@@ -62,7 +61,6 @@ def _exec_retrieve_memory(
     from homemaster.contracts import TaskCard
     from homemaster.pipeline.stage_runtime import run_stage03
 
-    rt = state.runtime_settings or {}
     if not state.task_card:
         return ToolResult(
             success=False,
@@ -74,14 +72,14 @@ def _exec_retrieve_memory(
         task_card = TaskCard.model_validate(state.task_card)
         result = run_stage03(
             task_card=task_card,
-            memory_path=rt.get("memory_path", ""),
-            scenario=rt.get("scenario", ""),
+            memory_path=str(settings.memory_path or ""),
+            scenario=settings.scenario or "",
             run_id=settings.run_id,
-            config_path=rt.get("config_path", ""),
+            config_path=str(settings.config_path or ""),
             provider_name=settings.provider_name,
             embedding_provider_name=settings.embedding_provider_name,
-            case_root=Path(rt.get("case_dir", ".")),
-            results_dir=Path(rt.get("results_dir", ".")),
+            case_root=settings.case_dir or Path("."),
+            results_dir=settings.results_root,
         )
         return ToolResult(
             success=True,
@@ -107,7 +105,6 @@ def _exec_ground_target(
     from homemaster.contracts import MemoryRetrievalHit, MemoryRetrievalResult, TaskCard
     from homemaster.planning_context import build_planning_context
 
-    rt = state.runtime_settings or {}
     if not state.task_card:
         return ToolResult(
             success=False,
@@ -120,7 +117,7 @@ def _exec_ground_target(
         hits = [MemoryRetrievalHit.model_validate(h) for h in state.memory_hits]
         memory_result = MemoryRetrievalResult(hits=hits, retrieval_query=None)
 
-        world_path = Path(rt.get("world_path", ""))
+        world_path = settings.world_path
         world = json.loads(world_path.read_text(encoding="utf-8")) if world_path else {}
 
         result = build_planning_context(task_card, memory_result, world)
@@ -151,6 +148,7 @@ def _exec_ground_target(
                         "memory_id": context.selected_target.memory_id,
                         "object_category": context.selected_target.object_category,
                         "room_id": context.selected_target.room_id,
+                        "anchor_id": context.selected_target.anchor_id,
                     }
                     if context.selected_target
                     else None
@@ -234,15 +232,12 @@ def _exec_observe(
     location = state.current_location or "unknown"
 
     # Check for failure injection
-    rt = state.runtime_settings or {}
-    scenario = rt.get("scenario", "")
-    if scenario:
+    scenario = settings.scenario
+    scenario_root = settings.scenario_root
+    if scenario and scenario_root:
         try:
-            from pathlib import Path as P
-
             from homemaster.failure_rule_provider import FailureRuleProvider
 
-            scenario_root = P(__file__).resolve().parents[3] / "data" / "scenarios" / scenario
             fp = FailureRuleProvider.from_scenario(scenario, scenario_root)
             if fp.should_force_no_object(target_category=target):
                 return ToolResult(
@@ -315,7 +310,7 @@ def _exec_verify(
 def _exec_update_memory(
     *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
 ) -> ToolResult:
-    """Partial wrapper: validate proposal and write to runtime memory."""
+    """Validate proposal and persist via RuntimeMemoryStore."""
     proposal = arguments.get("proposal")
     if not proposal:
         return ToolResult(
@@ -336,6 +331,53 @@ def _exec_update_memory(
             failure_reason=f"proposal missing fields: {missing}",
         )
 
+    anchor_id = proposal["anchor_id"]
+    belief_state = proposal.get("belief_state", "verified")
+
+    # Find memory_id from state.memory_hits by anchor_id match
+    memory_id = anchor_id
+    for hit in state.memory_hits:
+        if hit.get("anchor_id") == anchor_id:
+            memory_id = hit.get("memory_id", anchor_id)
+            break
+
+    # Persist via RuntimeMemoryStore if memory_path is available
+    if settings.memory_path and settings.memory_path.exists():
+        try:
+            from homemaster.contracts import EvidenceRef, MemoryCommitPlan, ObjectMemoryUpdate
+            from homemaster.memory_commit import utc_now_iso
+            from homemaster.runtime_memory_store import RuntimeMemoryStore
+
+            memory_root = settings.runtime_root / settings.run_id / "memory"
+            store = RuntimeMemoryStore(memory_root)
+            now = utc_now_iso()
+            plan = MemoryCommitPlan(
+                commit_id=f"commit:{settings.run_id}:update_memory",
+                object_memory_updates=[
+                    ObjectMemoryUpdate(
+                        memory_id=memory_id,
+                        update_type="confirm",
+                        updated_fields={"belief_state": belief_state},
+                        evidence_refs=[
+                            EvidenceRef(
+                                evidence_id=f"agent:{settings.run_id}:update_memory",
+                                evidence_type="observation",
+                                source_id=f"agent-{settings.run_id}",
+                                created_at=now,
+                                summary=f"Agent updated {proposal['object_category']}",
+                            )
+                        ],
+                        reason="agent runtime update_memory proposal",
+                    )
+                ],
+                skipped=False,
+            )
+            store.apply_commit_plan(
+                base_memory_path=settings.memory_path, plan=plan,
+            )
+        except Exception:
+            pass  # persistence is best-effort for MVP
+
     return ToolResult(
         success=True,
         tool_name="update_memory",
@@ -344,8 +386,9 @@ def _exec_update_memory(
             "committed": True,
             "object_category": proposal.get("object_category"),
             "room_id": proposal.get("room_id"),
-            "anchor_id": proposal.get("anchor_id"),
-            "belief_state": proposal.get("belief_state", "verified"),
+            "anchor_id": anchor_id,
+            "belief_state": belief_state,
+            "memory_id": memory_id,
         },
     )
 

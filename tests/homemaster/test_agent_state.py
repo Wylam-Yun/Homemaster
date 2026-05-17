@@ -13,7 +13,7 @@ def test_agent_state_default_construction() -> None:
     assert state.task_card is None
     assert state.memory_hits == []
     assert state.failures == []
-    assert state.runtime_settings is None
+    assert state.selected_target is None
 
 
 def test_agent_state_with_values() -> None:
@@ -44,16 +44,12 @@ def test_agent_state_serialization_roundtrip() -> None:
     assert len(restored.memory_hits) == 1
 
 
-def test_agent_state_runtime_settings_dict() -> None:
-    settings_dict = {
-        "config_path": "/tmp/config.json",
-        "memory_path": "/tmp/memory.json",
-        "scenario": "fetch_cup",
-    }
-    state = AgentState(runtime_settings=settings_dict)
-    assert state.runtime_settings is not None
-    assert state.runtime_settings["config_path"] == "/tmp/config.json"
-    assert state.runtime_settings["scenario"] == "fetch_cup"
+def test_agent_state_selected_target() -> None:
+    target = {"memory_id": "m1", "room_id": "kitchen", "anchor_id": "a1"}
+    state = AgentState(selected_target=target)
+    assert state.selected_target is not None
+    assert state.selected_target["memory_id"] == "m1"
+    assert state.selected_target["room_id"] == "kitchen"
 
 
 def test_agent_state_mutable_lists() -> None:
