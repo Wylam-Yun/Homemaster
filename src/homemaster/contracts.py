@@ -290,6 +290,8 @@ class SubtaskRuntimeState(ContractModel):
 
 
 class ExecutionState(ContractModel):
+    # legacy_compat_only: "needs_user_input" is used by legacy Stage05 recovery_loop
+    # (ask_user action). AgentRuntime does not support ask_user — Mimo must act or finish.
     task_status: Literal["running", "completed", "failed", "needs_user_input"] = "running"
     current_subtask_id: str | None = None
     subtasks: list[SubtaskRuntimeState] = Field(default_factory=list)
@@ -373,6 +375,8 @@ class FailureRecord(ContractModel):
 
 
 class RecoveryDecision(ContractModel):
+    # legacy_compat_only: "ask_user" is a legacy Stage05 recovery action.
+    # AgentRuntime does not expose ask_user — Mimo must act or finish.
     action: Literal[
         "retry_step",
         "reobserve",

@@ -147,6 +147,7 @@ def run_homemaster_task(
     config_path: str | Path = DEFAULT_CONFIG_PATH,
     provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
+    use_agent_runtime: bool = False,
 ) -> HomeMasterRunResult:
     # -- Phase 0: validation & data-source resolution --
     if not scenario:
@@ -189,6 +190,24 @@ def run_homemaster_task(
         "case_dir": str(case_dir),
         "results_dir": str(results_dir),
     }
+
+    # -- Phase 4: AgentRuntime opt-in path --
+    if use_agent_runtime:
+        return _run_agent_runtime(
+            utterance=utterance,
+            scenario=scenario,
+            run_id=run_id,
+            config_path=config_path,
+            provider_name=provider_name,
+            embedding_provider_name=embedding_provider_name,
+            resolved_world=resolved_world,
+            resolved_memory=resolved_memory,
+            runtime_memory_dir=runtime_memory_dir,
+            case_dir=case_dir,
+            results_dir=results_dir,
+            mb=mb,
+            paths=paths,
+        )
 
     # -- Build PipelineContext --
     ctx = PipelineContext(
@@ -301,6 +320,121 @@ def run_homemaster_task(
         status="PASS",
     )
     return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: AgentRuntime opt-in path
+# ---------------------------------------------------------------------------
+
+
+def _run_agent_runtime(
+    *,
+    utterance: str,
+    scenario: str,
+    run_id: str,
+    config_path: str | Path,
+    provider_name: str,
+    embedding_provider_name: str,
+    resolved_world: Path,
+    resolved_memory: Path,
+    runtime_memory_dir: Path,
+    case_dir: Path,
+    results_dir: Path,
+    mb: dict[str, str],
+    paths: dict[str, str],
+) -> HomeMasterRunResult:
+    """Run a task using AgentRuntime instead of the legacy stage pipeline."""
+    from homemaster.agent.context_builder import ContextBuilder
+    from homemaster.agent.runtime import AgentRuntime
+    from homemaster.config.runtime_settings import RuntimeSettings
+    from homemaster.events.sinks import JsonlEventSink
+    from homemaster.memory.context_snapshot import ContextSnapshot
+    from homemaster.providers.mimo_decision_client import LiveMimoDecisionClient
+    from homemaster.runtime import load_provider_config
+    from homemaster.tools.builtin import build_skill_registry, build_tool_registry
+    from homemaster.tools.dispatcher import ToolDispatcher
+    from homemaster.tools.state_updater import StateUpdater
+
+    settings = RuntimeSettings(
+        run_id=run_id,
+        runtime_root=runtime_memory_dir.parent,
+        debug_root=case_dir.parent,
+        results_root=results_dir,
+        provider_name=provider_name,
+        embedding_provider_name=embedding_provider_name,
+    )
+
+    tool_registry = build_tool_registry()
+    skill_registry = build_skill_registry()
+    provider_config = load_provider_config(str(config_path), provider_name=provider_name)
+
+    runtime = AgentRuntime(
+        settings=settings,
+        decision_client=LiveMimoDecisionClient(provider_config),
+        tool_registry=tool_registry,
+        skill_registry=skill_registry,
+        event_sink=JsonlEventSink(output_dir=results_dir),
+        context_builder=ContextBuilder(),
+        dispatcher=ToolDispatcher(),
+        state_updater=StateUpdater(),
+        context_snapshot=ContextSnapshot(),
+    )
+
+    extra_runtime_info = {
+        "config_path": str(config_path),
+        "memory_path": str(resolved_memory),
+        "scenario": scenario,
+        "case_dir": str(case_dir),
+        "results_dir": str(results_dir),
+        "runtime_memory_root": str(runtime_memory_dir),
+        "world_path": str(resolved_world),
+        "max_turns": settings.max_turns,
+    }
+
+    agent_result = runtime.run(utterance, extra_runtime_info=extra_runtime_info)
+
+    return _agent_result_to_home_master_result(
+        agent_result,
+        scenario=scenario,
+        utterance=utterance,
+        paths=paths,
+        model_boundary=mb,
+        case_dir=case_dir,
+        results_dir=results_dir,
+        runtime_memory_root=runtime_memory_dir,
+    )
+
+
+def _agent_result_to_home_master_result(
+    agent_result: Any,
+    *,
+    scenario: str,
+    utterance: str,
+    paths: dict[str, str],
+    model_boundary: dict[str, str],
+    case_dir: Path,
+    results_dir: Path,
+    runtime_memory_root: Path,
+) -> HomeMasterRunResult:
+    """Convert AgentRunResult to HomeMasterRunResult (lossy — Phase 5 adds full mapping)."""
+    return HomeMasterRunResult(
+        run_id=agent_result.run_id,
+        scenario=scenario,
+        utterance=utterance,
+        final_status=agent_result.final_status,
+        stage_statuses={"agent_runtime": {"status": agent_result.final_status}},
+        model_boundary=model_boundary,
+        paths=paths,
+        task_card=None,
+        planning_context=None,
+        orchestration_plan=None,
+        execution_result=None,
+        evidence_bundle=None,
+        memory_commit=None,
+        case_dir=case_dir,
+        results_dir=results_dir,
+        runtime_memory_root=runtime_memory_root,
+    )
 
 
 # ---------------------------------------------------------------------------

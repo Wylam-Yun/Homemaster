@@ -15,6 +15,8 @@ class ToolResult(BaseModel):
     """Outcome of a tool execution."""
 
     success: bool
+    tool_name: str = ""
+    executor_mode: str = ""
     data: dict[str, Any] = Field(default_factory=dict)
     evidence_refs: list[str] = Field(default_factory=list)
     failure_reason: str | None = None

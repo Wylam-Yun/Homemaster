@@ -124,6 +124,8 @@ def run_stage05_with_recovery(
         if decision.action == "finish_failed":
             break
 
+        # legacy_compat_only: ask_user is a legacy recovery action.
+        # AgentRuntime does not expose ask_user — Mimo must act or finish.
         if decision.action == "ask_user":
             execution_result.final_state.task_status = "needs_user_input"
             break

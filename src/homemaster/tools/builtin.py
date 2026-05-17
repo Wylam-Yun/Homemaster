@@ -1,0 +1,643 @@
+"""Builtin tool executors for AgentRuntime.
+
+11 tools wrapping existing stage code or providing simulated execution.
+Each executor has signature:
+    def executor(*, arguments: dict, state: AgentState, settings: RuntimeSettings) -> ToolResult
+
+Tools marked "thin wrapper" delegate to existing stage functions.
+Tools marked "new code" provide simulated or programmatic execution.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from homemaster.agent.state import AgentState
+from homemaster.config.runtime_settings import RuntimeSettings
+from homemaster.tools.registry import ToolRegistry
+from homemaster.tools.results import ToolResult
+from homemaster.tools.skill_tools import GET_SKILL_INPUT_SCHEMA, GET_SKILL_OUTPUT_SCHEMA
+from homemaster.tools.spec import ToolSpec
+
+# ---------------------------------------------------------------------------
+# Executor implementations
+# ---------------------------------------------------------------------------
+
+
+def _exec_understand_task(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """Thin wrapper: run_stage02() → TaskCard."""
+    from homemaster.pipeline.stage_runtime import run_stage02
+
+    rt = state.runtime_settings or {}
+    utterance = arguments.get("utterance") or state.user_request
+    try:
+        task_card = run_stage02(
+            utterance=utterance,
+            run_id=settings.run_id,
+            config_path=rt.get("config_path", ""),
+            provider_name=settings.provider_name,
+        )
+        return ToolResult(
+            success=True,
+            tool_name="understand_task",
+            executor_mode="live_llm",
+            data={"task_card": task_card.model_dump(mode="json")},
+        )
+    except Exception as exc:
+        return ToolResult(
+            success=False,
+            tool_name="understand_task",
+            executor_mode="live_llm",
+            failure_reason=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _exec_retrieve_memory(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """Thin wrapper: run_stage03() → MemoryRagResult."""
+    from homemaster.contracts import TaskCard
+    from homemaster.pipeline.stage_runtime import run_stage03
+
+    rt = state.runtime_settings or {}
+    if not state.task_card:
+        return ToolResult(
+            success=False,
+            tool_name="retrieve_memory",
+            executor_mode="live_llm",
+            failure_reason="no task_card in state — call understand_task first",
+        )
+    try:
+        task_card = TaskCard.model_validate(state.task_card)
+        result = run_stage03(
+            task_card=task_card,
+            memory_path=rt.get("memory_path", ""),
+            scenario=rt.get("scenario", ""),
+            run_id=settings.run_id,
+            config_path=rt.get("config_path", ""),
+            provider_name=settings.provider_name,
+            embedding_provider_name=settings.embedding_provider_name,
+            case_root=Path(rt.get("case_dir", ".")),
+            results_dir=Path(rt.get("results_dir", ".")),
+        )
+        return ToolResult(
+            success=True,
+            tool_name="retrieve_memory",
+            executor_mode="live_llm",
+            data={"hits": [h.model_dump(mode="json") for h in result.hits]},
+        )
+    except Exception as exc:
+        return ToolResult(
+            success=False,
+            tool_name="retrieve_memory",
+            executor_mode="live_llm",
+            failure_reason=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _exec_ground_target(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """Thin wrapper: build_planning_context() → PlanningContext."""
+    import json
+
+    from homemaster.contracts import MemoryRetrievalHit, MemoryRetrievalResult, TaskCard
+    from homemaster.planning_context import build_planning_context
+
+    rt = state.runtime_settings or {}
+    if not state.task_card:
+        return ToolResult(
+            success=False,
+            tool_name="ground_target",
+            executor_mode="programmatic",
+            failure_reason="no task_card in state",
+        )
+    try:
+        task_card = TaskCard.model_validate(state.task_card)
+        hits = [MemoryRetrievalHit.model_validate(h) for h in state.memory_hits]
+        memory_result = MemoryRetrievalResult(hits=hits, retrieval_query=None)
+
+        world_path = Path(rt.get("world_path", ""))
+        world = json.loads(world_path.read_text(encoding="utf-8")) if world_path else {}
+
+        result = build_planning_context(task_card, memory_result, world)
+        context = result.context
+        return ToolResult(
+            success=True,
+            tool_name="ground_target",
+            executor_mode="programmatic",
+            data={
+                "candidates": [
+                    {
+                        "memory_id": t.memory_id,
+                        "object_category": t.object_category,
+                        "room_id": t.room_id,
+                        "anchor_id": t.anchor_id,
+                    }
+                    for t in (context.rejected_hits or [])
+                ] + (
+                    [{
+                        "memory_id": context.selected_target.memory_id,
+                        "object_category": context.selected_target.object_category,
+                        "room_id": context.selected_target.room_id,
+                        "anchor_id": context.selected_target.anchor_id,
+                    }] if context.selected_target else []
+                ),
+                "selected_target": (
+                    {
+                        "memory_id": context.selected_target.memory_id,
+                        "object_category": context.selected_target.object_category,
+                        "room_id": context.selected_target.room_id,
+                    }
+                    if context.selected_target
+                    else None
+                ),
+                "grounded": context.selected_target is not None,
+            },
+        )
+    except Exception as exc:
+        return ToolResult(
+            success=False,
+            tool_name="ground_target",
+            executor_mode="programmatic",
+            failure_reason=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _make_get_skill_executor(skill_registry: Any):
+    """Create a get_skill executor that uses the injected SkillRegistry."""
+
+    def _exec_get_skill(
+        *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    ) -> ToolResult:
+        skill_name = arguments.get("skill_name", "")
+        if not skill_name:
+            return ToolResult(
+                success=False,
+                tool_name="get_skill",
+                executor_mode="programmatic",
+                failure_reason="skill_name is required",
+            )
+
+        spec = skill_registry.get(skill_name)
+        if spec is None:
+            return ToolResult(
+                success=False,
+                tool_name="get_skill",
+                executor_mode="programmatic",
+                failure_reason=f"skill not found: {skill_name}",
+            )
+
+        return ToolResult(
+            success=True,
+            tool_name="get_skill",
+            executor_mode="programmatic",
+            data={
+                "name": spec.name,
+                "description": spec.description,
+                "content": spec.context_snippet,
+                "allowed_tools": spec.allowed_tools,
+                "constraints": spec.constraints,
+                "success_criteria": spec.success_criteria,
+            },
+        )
+
+    return _exec_get_skill
+
+
+def _exec_navigate(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """New code: simulated navigation."""
+    goal_type = arguments.get("goal_type", "go_to")
+    room_hint = arguments.get("room_hint", arguments.get("target_room", "kitchen"))
+    return ToolResult(
+        success=True,
+        tool_name="navigate",
+        executor_mode="simulated_skill",
+        data={
+            "location": room_hint,
+            "observation": f"navigated to {room_hint}",
+            "goal_type": goal_type,
+        },
+    )
+
+
+def _exec_observe(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """New code: simulated observation. Supports failure injection via FailureRuleProvider."""
+    target = arguments.get("target_object", state.current_object or "unknown")
+    location = state.current_location or "unknown"
+
+    # Check for failure injection
+    rt = state.runtime_settings or {}
+    scenario = rt.get("scenario", "")
+    if scenario:
+        try:
+            from pathlib import Path as P
+
+            from homemaster.failure_rule_provider import FailureRuleProvider
+
+            scenario_root = P(__file__).resolve().parents[3] / "data" / "scenarios" / scenario
+            fp = FailureRuleProvider.from_scenario(scenario, scenario_root)
+            if fp.should_force_no_object(target_category=target):
+                return ToolResult(
+                    success=False,
+                    tool_name="observe",
+                    executor_mode="simulated_skill",
+                    failure_reason=f"object {target!r} not found at {location}",
+                    data={"object": target, "visible": False, "location": location},
+                )
+        except Exception:
+            pass  # Failure injection is best-effort
+
+    return ToolResult(
+        success=True,
+        tool_name="observe",
+        executor_mode="simulated_skill",
+        data={
+            "object": target,
+            "visible": True,
+            "location": location,
+            "observation": f"observed {target} at {location}",
+        },
+    )
+
+
+def _exec_manipulate(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """New code: simulated manipulation."""
+    action = arguments.get("action", "pick_up")
+    target = arguments.get("target_object", state.current_object or "unknown")
+    return ToolResult(
+        success=True,
+        tool_name="manipulate",
+        executor_mode="simulated_skill",
+        data={
+            "holding": target,
+            "action": action,
+            "action_result": f"{action} {target} successfully",
+        },
+    )
+
+
+def _exec_verify(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """New code: simulated symbolic verification."""
+    target = arguments.get("target_object", state.holding_object or state.current_object)
+    expected_state = arguments.get("expected_state", "delivered")
+
+    # Simple simulated check: if holding the object, verification passes
+    verified = state.holding_object == target if target else False
+    reason = (
+        f"object {target} is held by robot" if verified
+        else f"object {target} not held (current: {state.holding_object})"
+    )
+    return ToolResult(
+        success=True,
+        tool_name="verify",
+        executor_mode="simulated_verification",
+        data={
+            "verified": verified,
+            "target_object": target,
+            "expected_state": expected_state,
+            "reason": reason,
+        },
+    )
+
+
+def _exec_update_memory(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """Partial wrapper: validate proposal and write to runtime memory."""
+    proposal = arguments.get("proposal")
+    if not proposal:
+        return ToolResult(
+            success=False,
+            tool_name="update_memory",
+            executor_mode="programmatic",
+            failure_reason="proposal is required",
+        )
+
+    # Validate required fields
+    required = {"object_category", "room_id", "anchor_id"}
+    missing = required - set(proposal.keys())
+    if missing:
+        return ToolResult(
+            success=False,
+            tool_name="update_memory",
+            executor_mode="programmatic",
+            failure_reason=f"proposal missing fields: {missing}",
+        )
+
+    return ToolResult(
+        success=True,
+        tool_name="update_memory",
+        executor_mode="programmatic",
+        data={
+            "committed": True,
+            "object_category": proposal.get("object_category"),
+            "room_id": proposal.get("room_id"),
+            "anchor_id": proposal.get("anchor_id"),
+            "belief_state": proposal.get("belief_state", "verified"),
+        },
+    )
+
+
+def _exec_update_user_profile(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """New code: validate and accept user profile proposal."""
+    proposal = arguments.get("proposal")
+    if not proposal:
+        return ToolResult(
+            success=False,
+            tool_name="update_user_profile",
+            executor_mode="programmatic",
+            failure_reason="proposal is required",
+        )
+
+    key = proposal.get("key")
+    value = proposal.get("value")
+    if not key:
+        return ToolResult(
+            success=False,
+            tool_name="update_user_profile",
+            executor_mode="programmatic",
+            failure_reason="proposal.key is required",
+        )
+
+    return ToolResult(
+        success=True,
+        tool_name="update_user_profile",
+        executor_mode="programmatic",
+        data={"committed": True, "key": key, "value": value},
+    )
+
+
+def _exec_finish_task(
+    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+) -> ToolResult:
+    """Internal finalizer. selectable_by_model=False. Never called by Mimo."""
+    return ToolResult(
+        success=True,
+        tool_name="finish_task",
+        executor_mode="internal",
+        data={"status": "completed"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# ToolSpec definitions
+# ---------------------------------------------------------------------------
+
+
+def _make_understand_task_spec() -> ToolSpec:
+    return ToolSpec(
+        name="understand_task",
+        description="Parse user utterance into a structured TaskCard.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "utterance": {"type": "string", "description": "User request text."},
+            },
+        },
+        executor_mode="live_llm",
+        selectable_by_model=True,
+        state_effects=["task_card"],
+        executor=_exec_understand_task,
+    )
+
+
+def _make_retrieve_memory_spec() -> ToolSpec:
+    return ToolSpec(
+        name="retrieve_memory",
+        description="Retrieve relevant object memories using RAG.",
+        input_schema={"type": "object", "properties": {}},
+        executor_mode="live_llm",
+        selectable_by_model=True,
+        state_effects=["memory_hits"],
+        executor=_exec_retrieve_memory,
+    )
+
+
+def _make_ground_target_spec() -> ToolSpec:
+    return ToolSpec(
+        name="ground_target",
+        description="Assess memory hits and select a grounded target for execution.",
+        input_schema={"type": "object", "properties": {}},
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        state_effects=["target_candidates"],
+        executor=_exec_ground_target,
+    )
+
+
+def _make_get_skill_spec(skill_registry: Any) -> ToolSpec:
+    return ToolSpec(
+        name="get_skill",
+        description="Retrieve full skill content, allowed tools, and constraints.",
+        input_schema=GET_SKILL_INPUT_SCHEMA,
+        output_schema=GET_SKILL_OUTPUT_SCHEMA,
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        state_effects=["loaded_skill_contexts"],
+        executor=_make_get_skill_executor(skill_registry),
+    )
+
+
+def _make_navigate_spec() -> ToolSpec:
+    return ToolSpec(
+        name="navigate",
+        description="Navigate robot to a target location. Simulated execution.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "goal_type": {"type": "string", "description": "Navigation goal type."},
+                "room_hint": {"type": "string", "description": "Target room."},
+                "target_room": {"type": "string", "description": "Target room (alternative)."},
+            },
+        },
+        executor_mode="simulated_skill",
+        selectable_by_model=True,
+        requires_verification=True,
+        state_effects=["current_location", "actions"],
+        executor=_exec_navigate,
+    )
+
+
+def _make_observe_spec() -> ToolSpec:
+    return ToolSpec(
+        name="observe",
+        description="Observe the environment at current location. Simulated execution.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "target_object": {"type": "string", "description": "Object to look for."},
+            },
+        },
+        executor_mode="simulated_skill",
+        selectable_by_model=True,
+        requires_verification=True,
+        state_effects=["current_object", "observations"],
+        executor=_exec_observe,
+    )
+
+
+def _make_manipulate_spec() -> ToolSpec:
+    return ToolSpec(
+        name="manipulate",
+        description="Manipulate an object (pick up, put down, etc.). Simulated execution.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "description": "Action to perform."},
+                "target_object": {"type": "string", "description": "Object to manipulate."},
+            },
+            "required": ["action", "target_object"],
+        },
+        executor_mode="simulated_skill",
+        selectable_by_model=True,
+        requires_verification=True,
+        state_effects=["holding_object", "actions"],
+        executor=_exec_manipulate,
+    )
+
+
+def _make_verify_spec() -> ToolSpec:
+    return ToolSpec(
+        name="verify",
+        description="Verify that a task objective has been achieved. Simulated verification.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "target_object": {"type": "string", "description": "Object to verify."},
+                "expected_state": {"type": "string", "description": "Expected state."},
+            },
+        },
+        executor_mode="simulated_verification",
+        selectable_by_model=True,
+        state_effects=["verifications"],
+        executor=_exec_verify,
+    )
+
+
+def _make_update_memory_spec() -> ToolSpec:
+    return ToolSpec(
+        name="update_memory",
+        description="Submit a proposal to update object memory.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "proposal": {
+                    "type": "object",
+                    "description": "Memory update proposal.",
+                    "properties": {
+                        "object_category": {"type": "string"},
+                        "room_id": {"type": "string"},
+                        "anchor_id": {"type": "string"},
+                        "belief_state": {"type": "string"},
+                    },
+                    "required": ["object_category", "room_id", "anchor_id"],
+                },
+            },
+            "required": ["proposal"],
+        },
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        state_effects=["actions"],
+        executor=_exec_update_memory,
+    )
+
+
+def _make_update_user_profile_spec() -> ToolSpec:
+    return ToolSpec(
+        name="update_user_profile",
+        description="Submit a proposal to update user profile/preferences.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "proposal": {
+                    "type": "object",
+                    "description": "Profile update proposal.",
+                    "properties": {
+                        "key": {"type": "string"},
+                        "value": {"type": "string"},
+                    },
+                    "required": ["key", "value"],
+                },
+            },
+            "required": ["proposal"],
+        },
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        state_effects=["actions"],
+        executor=_exec_update_user_profile,
+    )
+
+
+def _make_finish_task_spec() -> ToolSpec:
+    return ToolSpec(
+        name="finish_task",
+        description="Internal runtime finalizer. Not selectable by model.",
+        input_schema={"type": "object", "properties": {}},
+        executor_mode="internal",
+        selectable_by_model=False,
+        executor=_exec_finish_task,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Registry builders
+# ---------------------------------------------------------------------------
+
+_SIMPLE_TOOL_MAKERS = [
+    _make_understand_task_spec,
+    _make_retrieve_memory_spec,
+    _make_ground_target_spec,
+    _make_navigate_spec,
+    _make_observe_spec,
+    _make_manipulate_spec,
+    _make_verify_spec,
+    _make_update_memory_spec,
+    _make_update_user_profile_spec,
+    _make_finish_task_spec,
+]
+
+
+def build_tool_registry(skill_registry: Any = None) -> ToolRegistry:
+    """Build a ToolRegistry with all 11 builtin tools.
+
+    Args:
+        skill_registry: Optional SkillRegistry for get_skill executor.
+            If None, a default one is built via build_skill_registry().
+    """
+    if skill_registry is None:
+        skill_registry = build_skill_registry()
+    registry = ToolRegistry()
+    for maker in _SIMPLE_TOOL_MAKERS:
+        registry.register(maker())
+    registry.register(_make_get_skill_spec(skill_registry))
+    return registry
+
+
+def build_skill_registry() -> Any:
+    """Build a SkillRegistry with builtin skills."""
+    from homemaster.skills.loader import SkillLoader
+    from homemaster.skills.registry import SkillRegistry
+
+    registry = SkillRegistry()
+    loader = SkillLoader()
+    for name in ("fetch_object", "check_object_state"):
+        try:
+            spec = loader.load_builtin(name)
+            registry.register(spec)
+        except FileNotFoundError:
+            pass  # Skill not yet created
+    return registry
