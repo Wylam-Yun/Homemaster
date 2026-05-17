@@ -67,9 +67,13 @@ class RuntimeMode:
         skill_mode="simulated" uses simulated_skill/simulated_verification (robot not integrated).
         skill_mode="real" fails fast — real VLA/VLN/VLM executors are not integrated.
         """
-        if skill_mode == "real":
-            from homemaster.runtime import RuntimeConfigError
+        from homemaster.runtime import RuntimeConfigError
 
+        if skill_mode not in ("simulated", "real"):
+            raise RuntimeConfigError(
+                f"skill_mode must be 'simulated' or 'real', got {skill_mode!r}"
+            )
+        if skill_mode == "real":
             raise RuntimeConfigError(
                 "real VLA/VLN/VLM skill executors are not integrated. "
                 "Use skill_mode='simulated' until real executors are available."

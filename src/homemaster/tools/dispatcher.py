@@ -18,6 +18,9 @@ from homemaster.tools.spec import ToolSpec
 class ToolDispatcher:
     """Validates tool call and invokes executor. Does not mutate AgentState."""
 
+    def __init__(self, event_sink: Any = None) -> None:
+        self._event_sink = event_sink
+
     def dispatch(
         self,
         *,
@@ -64,7 +67,12 @@ class ToolDispatcher:
             )
 
         try:
-            return spec.executor(arguments=arguments, state=state, settings=settings)
+            return spec.executor(
+                arguments=arguments,
+                state=state,
+                settings=settings,
+                event_sink=self._event_sink,
+            )
         except Exception as exc:
             return ToolResult(
                 success=False,

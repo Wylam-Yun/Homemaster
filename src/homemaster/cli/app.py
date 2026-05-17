@@ -13,16 +13,7 @@ from homemaster.cli.interactive_shell import run_interactive_shell
 from homemaster.cli.run_command import handle_run
 from homemaster.logger import setup_logging
 from homemaster.pipeline import DEFAULT_STAGE_01_UTTERANCE, run_stage_01_contract_smoke
-from homemaster.runtime import (
-    DEFAULT_CONFIG_PATH,
-    DEFAULT_PROVIDER_NAME,
-    DEFAULT_STAGE_07_RESULTS_ROOT,
-)
 from homemaster.stages.task_understanding import understand_task
-from homemaster.task_runner import (
-    DEFAULT_STAGE_07_DEBUG_ROOT,
-    DEFAULT_STAGE_07_RUNTIME_ROOT,
-)
 
 app = typer.Typer(
     add_completion=False,
@@ -54,17 +45,17 @@ def run_command(
         typer.Option("--memory", help="Optional base memory.json override."),
     ] = None,
     runtime_memory_root: Annotated[
-        Path,
+        Path | None,
         typer.Option("--runtime-memory-root", help="Root for isolated runtime memory."),
-    ] = DEFAULT_STAGE_07_RUNTIME_ROOT,
+    ] = None,
     debug_root: Annotated[
-        Path,
+        Path | None,
         typer.Option("--debug-root", help="Root for debug case reports."),
-    ] = DEFAULT_STAGE_07_DEBUG_ROOT,
+    ] = None,
     results_root: Annotated[
-        Path,
+        Path | None,
         typer.Option("--results-root", help="Root for Stage07 results (llm_samples, traces)."),
-    ] = DEFAULT_STAGE_07_RESULTS_ROOT,
+    ] = None,
     run_id: Annotated[
         str | None,
         typer.Option("--run-id", help="Stable run id for traces and runtime memory."),
@@ -135,16 +126,21 @@ def smoke_contract(
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
     ] = DEFAULT_STAGE_01_UTTERANCE,
     config_path: Annotated[
-        Path,
+        Path | None,
         typer.Option("--config", help="Provider config path."),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
     provider_name: Annotated[
-        str,
+        str | None,
         typer.Option("--provider", help="Provider name in the config file."),
-    ] = DEFAULT_PROVIDER_NAME,
+    ] = None,
 ) -> None:
     """Run the Stage 01 real LLM TaskCard contract smoke."""
     try:
+        from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME
+        if config_path is None:
+            config_path = DEFAULT_CONFIG_PATH
+        if provider_name is None:
+            provider_name = DEFAULT_PROVIDER_NAME
         setup_logging()
         result = run_stage_01_contract_smoke(
             utterance=utterance,
@@ -170,16 +166,21 @@ def stage_understand(
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
     ],
     config_path: Annotated[
-        Path,
+        Path | None,
         typer.Option("--config", help="Provider config path."),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
     provider_name: Annotated[
-        str,
+        str | None,
         typer.Option("--provider", help="Provider name in the config file."),
-    ] = DEFAULT_PROVIDER_NAME,
+    ] = None,
 ) -> None:
     """Run Stage 02 task understanding and print the validated TaskCard."""
     try:
+        from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME
+        if config_path is None:
+            config_path = DEFAULT_CONFIG_PATH
+        if provider_name is None:
+            provider_name = DEFAULT_PROVIDER_NAME
         setup_logging()
         result = understand_task(
             utterance,
@@ -213,13 +214,13 @@ def contract_smoke_deprecated(
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
     ] = DEFAULT_STAGE_01_UTTERANCE,
     config_path: Annotated[
-        Path,
+        Path | None,
         typer.Option("--config", help="Provider config path."),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
     provider_name: Annotated[
-        str,
+        str | None,
         typer.Option("--provider", help="Provider name in the config file."),
-    ] = DEFAULT_PROVIDER_NAME,
+    ] = None,
 ) -> None:
     """[deprecated: use 'homemaster smoke contract'] Run the Stage 01 contract smoke."""
     smoke_contract(utterance=utterance, config_path=config_path, provider_name=provider_name)
@@ -232,13 +233,13 @@ def understand_deprecated(
         typer.Option("--utterance", help="Chinese user instruction to convert into TaskCard."),
     ],
     config_path: Annotated[
-        Path,
+        Path | None,
         typer.Option("--config", help="Provider config path."),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
     provider_name: Annotated[
-        str,
+        str | None,
         typer.Option("--provider", help="Provider name in the config file."),
-    ] = DEFAULT_PROVIDER_NAME,
+    ] = None,
 ) -> None:
     """[deprecated: use 'homemaster stage understand'] Run Stage 02 task understanding."""
     stage_understand(utterance=utterance, config_path=config_path, provider_name=provider_name)

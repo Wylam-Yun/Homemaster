@@ -25,6 +25,7 @@ class MimoDecisionClient(Protocol):
         context: dict[str, Any],
         tools: list[dict[str, Any]],
         settings: Any,  # RuntimeSettings
+        turn_index: int = 0,
     ) -> AgentDecision: ...
 
 
@@ -45,13 +46,14 @@ class LiveMimoDecisionClient:
         context: dict[str, Any],
         tools: list[dict[str, Any]],
         settings: Any,
+        turn_index: int = 0,
     ) -> AgentDecision:
         from homemaster.llm_client import RawJsonLLMClient
 
         client = RawJsonLLMClient(self._provider)
         prompt = self._build_prompt(context, tools)
 
-        self._emit("llm_call_started", settings, payload={
+        self._emit("llm_call_started", settings, turn_index=turn_index, payload={
             "provider_name": self._provider.name,
             "model": self._provider.model,
         })
@@ -60,7 +62,7 @@ class LiveMimoDecisionClient:
         try:
             raw = client.complete_json(prompt)
         except Exception as exc:
-            self._emit("llm_call_failed", settings, payload={
+            self._emit("llm_call_failed", settings, turn_index=turn_index, payload={
                 "provider_name": self._provider.name,
                 "model": self._provider.model,
                 "error": str(exc),
@@ -70,7 +72,7 @@ class LiveMimoDecisionClient:
             raise
 
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-        self._emit("llm_call_completed", settings, payload={
+        self._emit("llm_call_completed", settings, turn_index=turn_index, payload={
             "provider_name": self._provider.name,
             "model": self._provider.model,
             "duration_ms": elapsed_ms,
@@ -78,13 +80,13 @@ class LiveMimoDecisionClient:
 
         return parse_agent_decision(raw.json_payload if hasattr(raw, 'json_payload') else raw)
 
-    def _emit(self, event_type: str, settings: Any, **kwargs: Any) -> None:
+    def _emit(self, event_type: str, settings: Any, turn_index: int = 0, **kwargs: Any) -> None:
         """Emit a RuntimeEvent if event_sink is set."""
         if self._event_sink is None:
             return
         from homemaster.events.runtime_events import RuntimeEvent
         self._event_sink.emit(RuntimeEvent(
-            turn_index=0,
+            turn_index=turn_index,
             event_type=event_type,
             run_id=getattr(settings, 'run_id', ''),
             **kwargs,

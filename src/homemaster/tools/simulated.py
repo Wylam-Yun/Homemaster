@@ -20,7 +20,11 @@ from homemaster.tools.spec import ToolSpec
 
 
 def exec_navigate(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Simulated navigation: move robot to target location."""
     goal_type = arguments.get("goal_type", "go_to")
@@ -38,7 +42,11 @@ def exec_navigate(
 
 
 def exec_observe(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Simulated observation. Supports failure injection via FailureRuleProvider."""
     target = arguments.get("target_object", state.current_object or "unknown")
@@ -77,7 +85,11 @@ def exec_observe(
 
 
 def exec_manipulate(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Simulated manipulation: pick up, put down, etc."""
     action = arguments.get("action", "pick_up")
@@ -95,7 +107,11 @@ def exec_manipulate(
 
 
 def exec_verify(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Simulated symbolic verification: check task objective achieved."""
     target = arguments.get("target_object", state.holding_object or state.current_object)

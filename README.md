@@ -101,10 +101,14 @@ Every `homemaster run` writes `runtime_events.jsonl` to the run's trace director
 cat var/homemaster/debug/stage_07/live-fetch-cup-001/trace/runtime_events.jsonl | jq .
 ```
 
-Event types include: `run_start`, `run_end`, `stage_start`, `stage_end`, `tool_call`,
-`tool_result`, `llm_request`, `llm_response`, `embedding_request`, `embedding_response`,
-`recovery_attempt`, `memory_commit`, and more. See `src/homemaster/events/schema.py` for
-the full `RuntimeEvent` definition (19 fields, 47 event types).
+Event types include: `run_started`, `run_completed`, `run_failed`, `turn_started`,
+`decision_started`, `decision_completed`, `decision_failed`, `tool_call_started`,
+`tool_call_completed`, `tool_call_failed`, `llm_call_started`, `llm_call_completed`,
+`llm_call_failed`, `embedding_call_started`, `embedding_call_completed`,
+`embedding_call_failed`, `stage_started`, `stage_completed`, `stage_failed`,
+`recovery_started`, `recovery_completed`, `memory_commit`, and more.
+See `src/homemaster/events/runtime_events.py` for the full `RuntimeEvent` definition
+(20 fields, 45 known event types).
 
 Use `--progress` to stream a compact progress summary to stderr during the run.
 

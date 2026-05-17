@@ -23,7 +23,7 @@
     "data/scenarios/distractor_rejected/failures.json": "ba13a5fd7da316ed8448fc40b4e2818e534b2e7e91d88783e98aa59f97d4edc5",
     "data/scenarios/catalog.json": "d41e450ce08ade6673ae899e7508002d385e84fc6659d7a797c35f54f326f4e9",
     "src/homemaster/scenario_runner.py": "7a949606162ec7341d396454ba0354f56274891e6ddd63806386718e1f6ec878",
-    "src/homemaster/task_runner.py": "aedd18610dfe8dac28b3e5cdfa31cc8c69f6d7cabb89ea7824076df5d9896ef1"
+    "src/homemaster/task_runner.py": "c81b5f2c22382d8941c2b79d63c359527454409df1ff9cdf2451cc409567d36d"
   },
   "scenarios": {
     "check_medicine_success": {

@@ -7,12 +7,7 @@ from pathlib import Path
 import typer
 
 from homemaster.logger import setup_logging
-from homemaster.runtime import DEFAULT_STAGE_07_RESULTS_ROOT
-from homemaster.task_runner import (
-    DEFAULT_STAGE_07_DEBUG_ROOT,
-    DEFAULT_STAGE_07_RUNTIME_ROOT,
-    run_homemaster_task,
-)
+from homemaster.task_runner import run_homemaster_task
 
 
 def handle_run(
@@ -21,9 +16,9 @@ def handle_run(
     scenario: str | None,
     world_path: Path | None,
     memory_path: Path | None,
-    runtime_memory_root: Path = DEFAULT_STAGE_07_RUNTIME_ROOT,
-    debug_root: Path = DEFAULT_STAGE_07_DEBUG_ROOT,
-    results_root: Path = DEFAULT_STAGE_07_RESULTS_ROOT,
+    runtime_memory_root: Path | None = None,
+    debug_root: Path | None = None,
+    results_root: Path | None = None,
     run_id: str | None = None,
     log_level: str = "INFO",
     skill_mode: str = "simulated",

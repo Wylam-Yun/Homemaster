@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 
 from homemaster.cli.doctor import render_doctor_text, run_doctor
-from homemaster.task_runner import DEFAULT_STAGE_07_RUNTIME_ROOT, run_homemaster_task
+from homemaster.task_runner import run_homemaster_task
 
 
 def run_interactive_shell() -> None:
@@ -46,7 +46,6 @@ def run_interactive_shell() -> None:
             result = run_homemaster_task(
                 utterance=utterance,
                 scenario=scenario,
-                runtime_memory_root=DEFAULT_STAGE_07_RUNTIME_ROOT,
                 run_id=run_id,
             )
         except Exception as exc:

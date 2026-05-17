@@ -27,12 +27,6 @@ from homemaster.pipeline.stage_runtime import (
     validate_runtime_services,
 )
 from homemaster.runtime import (
-    DEFAULT_CONFIG_PATH,
-    DEFAULT_EMBEDDING_PROVIDER_NAME,
-    DEFAULT_PROVIDER_NAME,
-    DEFAULT_STAGE_07_DEBUG_ROOT,
-    DEFAULT_STAGE_07_RESULTS_ROOT,
-    DEFAULT_STAGE_07_RUNTIME_ROOT,
     LLM_CASE_ROOT,
     REPO_ROOT,
     TEST_RESULTS_ROOT,
@@ -134,17 +128,37 @@ def run_homemaster_task(
     scenario: str,
     world_path: str | Path | None = None,
     memory_path: str | Path | None = None,
-    runtime_memory_root: str | Path = DEFAULT_STAGE_07_RUNTIME_ROOT,
-    debug_root: str | Path = DEFAULT_STAGE_07_DEBUG_ROOT,
-    results_root: str | Path = DEFAULT_STAGE_07_RESULTS_ROOT,
+    runtime_memory_root: str | Path | None = None,
+    debug_root: str | Path | None = None,
+    results_root: str | Path | None = None,
     run_id: str | None = None,
-    config_path: str | Path = DEFAULT_CONFIG_PATH,
-    provider_name: str = DEFAULT_PROVIDER_NAME,
-    embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
+    config_path: str | Path | None = None,
+    provider_name: str | None = None,
+    embedding_provider_name: str | None = None,
     use_agent_runtime: bool = True,
     skill_mode: str = "simulated",
     progress: bool = False,
 ) -> HomeMasterRunResult:
+    # -- Phase 0: resolve defaults at runtime (not import-time) --
+    if runtime_memory_root is None:
+        from homemaster.runtime import DEFAULT_STAGE_07_RUNTIME_ROOT
+        runtime_memory_root = DEFAULT_STAGE_07_RUNTIME_ROOT
+    if debug_root is None:
+        from homemaster.runtime import DEFAULT_STAGE_07_DEBUG_ROOT
+        debug_root = DEFAULT_STAGE_07_DEBUG_ROOT
+    if results_root is None:
+        from homemaster.runtime import DEFAULT_STAGE_07_RESULTS_ROOT
+        results_root = DEFAULT_STAGE_07_RESULTS_ROOT
+    if config_path is None:
+        from homemaster.runtime import DEFAULT_CONFIG_PATH
+        config_path = DEFAULT_CONFIG_PATH
+    if provider_name is None:
+        from homemaster.runtime import DEFAULT_PROVIDER_NAME
+        provider_name = DEFAULT_PROVIDER_NAME
+    if embedding_provider_name is None:
+        from homemaster.runtime import DEFAULT_EMBEDDING_PROVIDER_NAME
+        embedding_provider_name = DEFAULT_EMBEDDING_PROVIDER_NAME
+
     # -- Phase 0: validation & data-source resolution --
     if not scenario:
         raise HomeMasterRunError("scenario is required for Stage07 run")
@@ -412,7 +426,7 @@ def _run_agent_runtime(
         skill_registry=skill_registry,
         event_sink=event_sink,
         context_builder=ContextBuilder(),
-        dispatcher=ToolDispatcher(),
+        dispatcher=ToolDispatcher(event_sink=event_sink),
         state_updater=StateUpdater(),
         context_snapshot=ContextSnapshot(output_dir=results_dir),
     )

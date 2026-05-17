@@ -121,7 +121,10 @@ class AgentRuntime:
             dec_started = time.perf_counter()
             try:
                 decision = self._decision_client.decide(
-                    context=context, tools=tool_manifests, settings=self._settings
+                    context=context,
+                    tools=tool_manifests,
+                    settings=self._settings,
+                    turn_index=state.turn_index,
                 )
             except Exception as exc:
                 self._emit(state, "decision_failed", payload={

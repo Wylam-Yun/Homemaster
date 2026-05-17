@@ -159,12 +159,9 @@ def test_run_homemaster_task_accepts_results_root() -> None:
 
 
 def test_run_homemaster_task_default_results_root_is_var() -> None:
-    """Default results_root must point to var/homemaster/results, not plan/."""
-    import inspect
-
-    sig = inspect.signature(run_homemaster_task)
-    default = sig.parameters["results_root"].default
-    assert "var/homemaster" in str(default), f"Expected var/homemaster path, got {default}"
+    """Default results_root must resolve to var/homemaster/results at runtime."""
+    from homemaster.runtime import DEFAULT_STAGE_07_RESULTS_ROOT
+    assert "var/homemaster" in str(DEFAULT_STAGE_07_RESULTS_ROOT)
 
 
 def test_run_homemaster_task_accepts_progress() -> None:

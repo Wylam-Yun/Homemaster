@@ -40,7 +40,13 @@ def _make_spec(name: str = "test_tool", **kwargs) -> ToolSpec:
 
 
 def test_dispatch_invokes_executor() -> None:
-    def _ok_executor(*, arguments: dict, state: AgentState, settings: Any) -> ToolResult:
+    def _ok_executor(
+        *,
+        arguments: dict,
+        state: AgentState,
+        settings: Any,
+        event_sink: Any = None,
+    ) -> ToolResult:
         return ToolResult(success=True, tool_name="test_tool", data={"ok": True})
 
     spec = _make_spec(executor=_ok_executor)
@@ -65,7 +71,13 @@ def test_dispatch_returns_failure_when_no_executor() -> None:
 
 
 def test_dispatch_returns_failure_on_executor_exception() -> None:
-    def _bad_executor(*, arguments: dict, state: AgentState, settings: Any) -> ToolResult:
+    def _bad_executor(
+        *,
+        arguments: dict,
+        state: AgentState,
+        settings: Any,
+        event_sink: Any = None,
+    ) -> ToolResult:
         raise ValueError("boom")
 
     spec = _make_spec(executor=_bad_executor)
@@ -79,7 +91,13 @@ def test_dispatch_returns_failure_on_executor_exception() -> None:
 
 
 def test_dispatch_blocks_tool_not_in_active_skill() -> None:
-    def _ok_executor(*, arguments: dict, state: AgentState, settings: Any) -> ToolResult:
+    def _ok_executor(
+        *,
+        arguments: dict,
+        state: AgentState,
+        settings: Any,
+        event_sink: Any = None,
+    ) -> ToolResult:
         return ToolResult(success=True, tool_name="blocked_tool")
 
     spec = _make_spec(name="blocked_tool", executor=_ok_executor)
@@ -96,7 +114,13 @@ def test_dispatch_blocks_tool_not_in_active_skill() -> None:
 
 
 def test_dispatch_allows_tool_when_no_active_skill() -> None:
-    def _ok_executor(*, arguments: dict, state: AgentState, settings: Any) -> ToolResult:
+    def _ok_executor(
+        *,
+        arguments: dict,
+        state: AgentState,
+        settings: Any,
+        event_sink: Any = None,
+    ) -> ToolResult:
         return ToolResult(success=True, tool_name="any_tool")
 
     spec = _make_spec(name="any_tool", executor=_ok_executor)

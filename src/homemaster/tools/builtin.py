@@ -27,7 +27,11 @@ from homemaster.tools.spec import ToolSpec
 
 
 def _exec_understand_task(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Thin wrapper: run_stage02() → TaskCard."""
     from homemaster.pipeline.stage_runtime import run_stage02
@@ -56,7 +60,11 @@ def _exec_understand_task(
 
 
 def _exec_retrieve_memory(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Thin wrapper: run_stage03() → MemoryRagResult."""
     from homemaster.contracts import TaskCard
@@ -81,6 +89,7 @@ def _exec_retrieve_memory(
             embedding_provider_name=settings.embedding_provider_name,
             case_root=settings.case_dir or Path("."),
             results_dir=settings.results_root,
+            event_sink=event_sink,
         )
         return ToolResult(
             success=True,
@@ -98,7 +107,11 @@ def _exec_retrieve_memory(
 
 
 def _exec_ground_target(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Thin wrapper: build_planning_context() → PlanningContext."""
     import json
@@ -170,7 +183,11 @@ def _make_get_skill_executor(skill_registry: Any):
     """Create a get_skill executor that uses the injected SkillRegistry."""
 
     def _exec_get_skill(
-        *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+        *,
+        arguments: dict[str, Any],
+        state: AgentState,
+        settings: RuntimeSettings,
+        event_sink: Any = None,
     ) -> ToolResult:
         skill_name = arguments.get("skill_name", "")
         if not skill_name:
@@ -208,7 +225,11 @@ def _make_get_skill_executor(skill_registry: Any):
 
 
 def _exec_update_memory(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Validate proposal and persist via RuntimeMemoryStore."""
     proposal = arguments.get("proposal")
@@ -294,7 +315,11 @@ def _exec_update_memory(
 
 
 def _exec_update_user_profile(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """New code: validate and accept user profile proposal."""
     proposal = arguments.get("proposal")
@@ -325,7 +350,11 @@ def _exec_update_user_profile(
 
 
 def _exec_finish_task(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
+    *,
+    arguments: dict[str, Any],
+    state: AgentState,
+    settings: RuntimeSettings,
+    event_sink: Any = None,
 ) -> ToolResult:
     """Internal finalizer. selectable_by_model=False. Never called by Mimo."""
     return ToolResult(
