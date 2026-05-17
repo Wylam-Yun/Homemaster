@@ -99,6 +99,10 @@ def run_command(
         str,
         typer.Option("--log-level", help="Logging level (DEBUG/INFO/WARNING/ERROR)."),
     ] = "INFO",
+    skill_mode: Annotated[
+        str,
+        typer.Option("--skill-mode", help="Skill execution mode (simulated or real)."),
+    ] = "simulated",
 ) -> None:
     """Run one HomeMaster task through Stage02-Stage06."""
 
@@ -116,6 +120,7 @@ def run_command(
             debug_root=debug_root,
             results_root=results_root,
             run_id=run_id,
+            skill_mode=skill_mode,
         )
     except (HomeMasterRunError, Exception) as exc:
         typer.echo(f"run_failed: {type(exc).__name__}: {exc}", err=True)

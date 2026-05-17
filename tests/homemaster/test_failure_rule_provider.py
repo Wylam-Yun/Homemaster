@@ -5,10 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from homemaster.failure_rule_provider import FailureRuleProvider
-
 
 # ── should_force_no_object ───────────────────────────────────────────────────
 

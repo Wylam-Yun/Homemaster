@@ -191,7 +191,7 @@ def main() -> None:
 
         if divs:
             all_divergences[scenario] = divs
-            print(f"  *** DIVERGENCES: ***")
+            print("  *** DIVERGENCES: ***")
             for d in divs:
                 print(f"    - {d}")
         else:
@@ -202,7 +202,7 @@ def main() -> None:
 
     # Summary
     print(f"\n{'='*60}")
-    print(f"  SUMMARY")
+    print("  SUMMARY")
     print(f"{'='*60}")
     print(f"Artifacts written to: {artifacts_dir.relative_to(HM_ROOT)}")
 
@@ -213,7 +213,7 @@ def main() -> None:
                 print(f"  {scenario}: {d}")
         sys.exit(1)
     else:
-        print(f"\n✓ All 5 baselines: no functional divergences.")
+        print("\n✓ All 5 baselines: no functional divergences.")
         print("  (memory_id string diffs are expected for corpus migration)")
         sys.exit(0)
 

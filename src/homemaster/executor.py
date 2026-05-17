@@ -1,7 +1,7 @@
 """Backward-compatibility shim — moved to homemaster.stages.executor.
 
-Only re-exports live/runtime-safe symbols.  StaticStepDecisionProvider has
-been moved to tests/homemaster/test_doubles/.
+Only re-exports live/runtime-safe symbols.  Stub providers for testing
+have been moved to the test helpers package.
 """
 
 from homemaster.stages.executor import (

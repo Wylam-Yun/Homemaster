@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 RESULT_DIR = Path("/Users/wylam/Documents/workspace/result")
@@ -39,7 +40,7 @@ def get_font(size: int = 20):
     for p in candidates:
         try:
             return ImageFont.truetype(p, size)
-        except (OSError, IOError):
+        except OSError:
             continue
     return ImageFont.load_default()
 
@@ -206,10 +207,10 @@ def render_pipeline_flow():
                 {"text": "Embed: BGE-M3 + BM25", "color": TEXT},
                 {"text": f"Query: \"{pc['retrieval_query']['query_text']}\"", "color": TEXT},
                 {"text": f"Result: {len(hits)} hits", "color": GREEN, "gap_after": 8},
-                {"text": f"[mem-cup-1] 厨房餐桌", "color": CYAN},
-                {"text": f"  score=0.33  conf=high", "color": DIM},
-                {"text": f"[mem-cup-2] 厨房操作台", "color": CYAN},
-                {"text": f"  score=0.28  conf=med", "color": DIM, "gap_after": 8},
+                {"text": "[mem-cup-1] 厨房餐桌", "color": CYAN},
+                {"text": "  score=0.33  conf=high", "color": DIM},
+                {"text": "[mem-cup-2] 厨房操作台", "color": CYAN},
+                {"text": "  score=0.28  conf=med", "color": DIM, "gap_after": 8},
                 {"text": "Hybrid ranking fusion", "color": DIM},
             ],
         },
@@ -263,7 +264,7 @@ def render_pipeline_flow():
             "badge_color": MAGENTA,
             "lines": [
                 {"text": "Summary & Commit", "color": MAGENTA, "font": get_font(16), "spacing": 6, "gap_after": 8},
-                {"text": f"Result: success", "color": GREEN},
+                {"text": "Result: success", "color": GREEN},
                 {"text": f"Memory: {mc['object_memory_update_count']} update", "color": TEXT},
                 {"text": f"Facts:  {mc['fact_memory_write_count']} writes", "color": TEXT, "gap_after": 8},
                 {"text": "Verified facts:", "color": DIM},
@@ -331,7 +332,7 @@ def render_test_screenshot():
     ]
     ty = y + 32
     for t in p9_tests:
-        draw.text((col1_x + 10, ty), f"[PASS]", fill=GREEN, font=font_sm)
+        draw.text((col1_x + 10, ty), "[PASS]", fill=GREEN, font=font_sm)
         draw.text((col1_x + 70, ty), t, fill=TEXT, font=font_sm)
         ty += 26
 
@@ -344,7 +345,7 @@ def render_test_screenshot():
     ]
     ty = y + 32
     for name, count in infra:
-        draw.text((col2_x + 10, ty), f"[PASS]", fill=GREEN, font=font_sm)
+        draw.text((col2_x + 10, ty), "[PASS]", fill=GREEN, font=font_sm)
         draw.text((col2_x + 70, ty), name, fill=TEXT, font=font_sm)
         draw.text((col2_x + 340, ty), count, fill=DIM, font=font_sm)
         ty += 26

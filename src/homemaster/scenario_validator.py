@@ -90,7 +90,9 @@ def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _safe_load_catalog(path: Path) -> tuple[list[ScenarioCatalogEntry], list[ScenarioValidationIssue]]:
+def _safe_load_catalog(
+    path: Path,
+) -> tuple[list[ScenarioCatalogEntry], list[ScenarioValidationIssue]]:
     """Load catalog, converting parse/schema errors into issues."""
     try:
         entries = load_catalog(path)
@@ -272,7 +274,8 @@ def validate_corpus(
         if anchor.get("viewpoint_id") not in hw_vp_ids:
             issues.append(_issue(
                 "corpus_viewpoint_not_in_homeworld", scope,
-                f"Corpus {mid}: anchor.viewpoint_id {anchor.get('viewpoint_id')!r} not in HomeWorld",
+                f"Corpus {mid}: anchor.viewpoint_id "
+                f"{anchor.get('viewpoint_id')!r} not in HomeWorld",
             ))
 
     return issues
@@ -398,7 +401,8 @@ def validate_scenario_memory(
         if anchor.get("viewpoint_id") not in vp_ids:
             issues.append(_issue(
                 "memory_viewpoint_not_found", scope,
-                f"Memory {mid}: anchor.viewpoint_id {anchor.get('viewpoint_id')!r} not in scenario world",
+                f"Memory {mid}: anchor.viewpoint_id "
+                f"{anchor.get('viewpoint_id')!r} not in scenario world",
             ))
 
         cl = entry.get("confidence_level")
@@ -485,7 +489,8 @@ def validate_scenario_metadata(
     if manifest.expected_final_status not in VALID_EXPECTED_FINAL_STATUSES:
         issues.append(_issue(
             "invalid_expected_final_status", scope,
-            f"expected_final_status {manifest.expected_final_status!r} not in {VALID_EXPECTED_FINAL_STATUSES}",
+            f"expected_final_status {manifest.expected_final_status!r} "
+            f"not in {VALID_EXPECTED_FINAL_STATUSES}",
         ))
 
     if manifest.name != catalog_entry.name:
@@ -622,7 +627,8 @@ def validate_failures(
                     if field_name not in rule:
                         issues.append(_issue(
                             "invalid_failure_rule", scope,
-                            f"failure_rules[{i}]: rule_type {rt!r} missing required field {field_name!r}",
+                            f"failure_rules[{i}]: rule_type {rt!r} "
+                            f"missing required field {field_name!r}",
                         ))
         else:
             issues.append(_issue(
@@ -897,7 +903,9 @@ def validate_all(
             profile, profile_issues = _safe_load_profile(entry.name)
             all_issues.extend(profile_issues)
             if profile is not None:
-                all_issues.extend(validate_materialization(entry.name, corpus, profile, require_nonempty=False))
+                all_issues.extend(validate_materialization(
+                    entry.name, corpus, profile, require_nonempty=False,
+                ))
 
     return ValidationResult(issues=all_issues)
 
@@ -906,7 +914,9 @@ def validate_all(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scenario & Memory Validator")
-    parser.add_argument("--include-draft", action="store_true", help="Also validate draft scenarios")
+    parser.add_argument(
+        "--include-draft", action="store_true", help="Also validate draft scenarios",
+    )
     args = parser.parse_args()
 
     result = validate_all(include_draft=args.include_draft)

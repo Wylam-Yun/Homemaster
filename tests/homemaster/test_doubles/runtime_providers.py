@@ -19,7 +19,6 @@ from homemaster.contracts import (
 from homemaster.failure_rule_provider import FailureRuleProvider
 from homemaster.runtime import ProviderConfig
 
-
 # ---------------------------------------------------------------------------
 # Deterministic / mock providers
 # ---------------------------------------------------------------------------
@@ -82,7 +81,6 @@ class StaticScenarioDecisionProvider:
         state: Any,
         context: PlanningContext,
     ) -> StepDecision:
-        from homemaster.contracts import ExecutionState
 
         intent = subtask.intent
         if any(term in intent for term in ("找", "寻找", "观察", "查看", "确认")):
@@ -95,8 +93,11 @@ class StaticScenarioDecisionProvider:
                 "subtask_id": subtask.id,
                 "subtask_intent": subtask.intent,
             }
-            target_cat = context.retrieval_query.target_category if context.retrieval_query else None
-            if self.failure_provider and self.failure_provider.should_force_no_object(target_category=target_cat):
+            rq = context.retrieval_query
+            target_cat = rq.target_category if rq else None
+            if self.failure_provider and self.failure_provider.should_force_no_object(
+                target_category=target_cat
+            ):
                 skill_input["force_no_object"] = True
             return StepDecision(
                 subtask_id=subtask.id,
@@ -268,8 +269,8 @@ def live_step_decision_smoke(
     if not live_models or not plan.subtasks:
         return {"mode": "deterministic", "status": "SKIPPED"}
 
-    from homemaster.stages.skill_selector import generate_step_decision
     from homemaster.runtime import load_provider_config
+    from homemaster.stages.skill_selector import generate_step_decision
     from homemaster.token_budget import initial_max_tokens
 
     provider = load_provider_config(config_path, provider_name=provider_name)

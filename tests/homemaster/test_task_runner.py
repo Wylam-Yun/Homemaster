@@ -128,9 +128,9 @@ def test_stage_lifecycle_logging(tmp_path: Path, capfd: pytest.CaptureFixture[st
         assert any(f"stage {stage_name} started" in line for line in lines), stage_name
         assert any(f"stage {stage_name} completed" in line for line in lines), stage_name
     # component_modes in started AND completed logs (P3: runtime_mode in all log types)
-    started_lines = [l for l in lines if "started" in l]
-    assert any("task_understanding=live_llm" in l and "stage02" in l for l in started_lines)
-    assert any("modes=" in l and "stage05" in l for l in started_lines)
+    started_lines = [ln for ln in lines if "started" in ln]
+    assert any("task_understanding=live_llm" in ln and "stage02" in ln for ln in started_lines)
+    assert any("modes=" in ln and "stage05" in ln for ln in started_lines)
     # Run footer
     assert any("run finished" in line for line in lines)
 

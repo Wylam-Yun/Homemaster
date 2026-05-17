@@ -8,7 +8,6 @@ import pytest
 
 from homemaster.pipeline_core import PipelineContext, StageRegistry
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

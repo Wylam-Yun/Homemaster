@@ -7,8 +7,6 @@ Must never be imported by production src/homemaster code.
 
 from __future__ import annotations
 
-from typing import Any
-
 from homemaster.contracts import (
     ExecutionState,
     PlanningContext,

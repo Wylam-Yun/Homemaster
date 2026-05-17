@@ -126,7 +126,6 @@ class Stage04Adapter:
             ctx.task_card, ctx.memory_result.memory_result, world
         )
         planning_context = planning_build.context
-        rm = ctx.runtime_mode
         return ctx.with_updates(planning_context=planning_context).with_stage_status(
             "stage04",
             {

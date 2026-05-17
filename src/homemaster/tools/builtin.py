@@ -17,6 +17,7 @@ from homemaster.agent.state import AgentState
 from homemaster.config.runtime_settings import RuntimeSettings
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.results import ToolResult
+from homemaster.tools.simulated import SIMULATED_TOOL_MAKERS
 from homemaster.tools.skill_tools import GET_SKILL_INPUT_SCHEMA, GET_SKILL_OUTPUT_SCHEMA
 from homemaster.tools.spec import ToolSpec
 
@@ -204,107 +205,6 @@ def _make_get_skill_executor(skill_registry: Any):
         )
 
     return _exec_get_skill
-
-
-def _exec_navigate(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
-) -> ToolResult:
-    """New code: simulated navigation."""
-    goal_type = arguments.get("goal_type", "go_to")
-    room_hint = arguments.get("room_hint", arguments.get("target_room", "kitchen"))
-    return ToolResult(
-        success=True,
-        tool_name="navigate",
-        executor_mode="simulated_skill",
-        data={
-            "location": room_hint,
-            "observation": f"navigated to {room_hint}",
-            "goal_type": goal_type,
-        },
-    )
-
-
-def _exec_observe(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
-) -> ToolResult:
-    """New code: simulated observation. Supports failure injection via FailureRuleProvider."""
-    target = arguments.get("target_object", state.current_object or "unknown")
-    location = state.current_location or "unknown"
-
-    # Check for failure injection
-    scenario = settings.scenario
-    scenario_root = settings.scenario_root
-    if scenario and scenario_root:
-        try:
-            from homemaster.failure_rule_provider import FailureRuleProvider
-
-            fp = FailureRuleProvider.from_scenario(scenario, scenario_root)
-            if fp.should_force_no_object(target_category=target):
-                return ToolResult(
-                    success=False,
-                    tool_name="observe",
-                    executor_mode="simulated_skill",
-                    failure_reason=f"object {target!r} not found at {location}",
-                    data={"object": target, "visible": False, "location": location},
-                )
-        except Exception:
-            pass  # Failure injection is best-effort
-
-    return ToolResult(
-        success=True,
-        tool_name="observe",
-        executor_mode="simulated_skill",
-        data={
-            "object": target,
-            "visible": True,
-            "location": location,
-            "observation": f"observed {target} at {location}",
-        },
-    )
-
-
-def _exec_manipulate(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
-) -> ToolResult:
-    """New code: simulated manipulation."""
-    action = arguments.get("action", "pick_up")
-    target = arguments.get("target_object", state.current_object or "unknown")
-    return ToolResult(
-        success=True,
-        tool_name="manipulate",
-        executor_mode="simulated_skill",
-        data={
-            "holding": target,
-            "action": action,
-            "action_result": f"{action} {target} successfully",
-        },
-    )
-
-
-def _exec_verify(
-    *, arguments: dict[str, Any], state: AgentState, settings: RuntimeSettings
-) -> ToolResult:
-    """New code: simulated symbolic verification."""
-    target = arguments.get("target_object", state.holding_object or state.current_object)
-    expected_state = arguments.get("expected_state", "delivered")
-
-    # Simple simulated check: if holding the object, verification passes
-    verified = state.holding_object == target if target else False
-    reason = (
-        f"object {target} is held by robot" if verified
-        else f"object {target} not held (current: {state.holding_object})"
-    )
-    return ToolResult(
-        success=True,
-        tool_name="verify",
-        executor_mode="simulated_verification",
-        data={
-            "verified": verified,
-            "target_object": target,
-            "expected_state": expected_state,
-            "reason": reason,
-        },
-    )
 
 
 def _exec_update_memory(
@@ -495,82 +395,6 @@ def _make_get_skill_spec(skill_registry: Any) -> ToolSpec:
     )
 
 
-def _make_navigate_spec() -> ToolSpec:
-    return ToolSpec(
-        name="navigate",
-        description="Navigate robot to a target location. Simulated execution.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "goal_type": {"type": "string", "description": "Navigation goal type."},
-                "room_hint": {"type": "string", "description": "Target room."},
-                "target_room": {"type": "string", "description": "Target room (alternative)."},
-            },
-        },
-        executor_mode="simulated_skill",
-        selectable_by_model=True,
-        requires_verification=True,
-        state_effects=["current_location", "actions"],
-        executor=_exec_navigate,
-    )
-
-
-def _make_observe_spec() -> ToolSpec:
-    return ToolSpec(
-        name="observe",
-        description="Observe the environment at current location. Simulated execution.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "target_object": {"type": "string", "description": "Object to look for."},
-            },
-        },
-        executor_mode="simulated_skill",
-        selectable_by_model=True,
-        requires_verification=True,
-        state_effects=["current_object", "observations"],
-        executor=_exec_observe,
-    )
-
-
-def _make_manipulate_spec() -> ToolSpec:
-    return ToolSpec(
-        name="manipulate",
-        description="Manipulate an object (pick up, put down, etc.). Simulated execution.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "description": "Action to perform."},
-                "target_object": {"type": "string", "description": "Object to manipulate."},
-            },
-            "required": ["action", "target_object"],
-        },
-        executor_mode="simulated_skill",
-        selectable_by_model=True,
-        requires_verification=True,
-        state_effects=["holding_object", "actions"],
-        executor=_exec_manipulate,
-    )
-
-
-def _make_verify_spec() -> ToolSpec:
-    return ToolSpec(
-        name="verify",
-        description="Verify that a task objective has been achieved. Simulated verification.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "target_object": {"type": "string", "description": "Object to verify."},
-                "expected_state": {"type": "string", "description": "Expected state."},
-            },
-        },
-        executor_mode="simulated_verification",
-        selectable_by_model=True,
-        state_effects=["verifications"],
-        executor=_exec_verify,
-    )
-
-
 def _make_update_memory_spec() -> ToolSpec:
     return ToolSpec(
         name="update_memory",
@@ -644,25 +468,25 @@ _SIMPLE_TOOL_MAKERS = [
     _make_understand_task_spec,
     _make_retrieve_memory_spec,
     _make_ground_target_spec,
-    _make_navigate_spec,
-    _make_observe_spec,
-    _make_manipulate_spec,
-    _make_verify_spec,
+    *SIMULATED_TOOL_MAKERS,
     _make_update_memory_spec,
     _make_update_user_profile_spec,
     _make_finish_task_spec,
 ]
 
 
-def build_tool_registry(skill_registry: Any = None) -> ToolRegistry:
+def build_tool_registry(
+    skill_registry: Any = None, skill_mode: str = "simulated",
+) -> ToolRegistry:
     """Build a ToolRegistry with all 11 builtin tools.
 
     Args:
         skill_registry: Optional SkillRegistry for get_skill executor.
             If None, a default one is built via build_skill_registry().
+        skill_mode: "simulated" or "real". "real" raises RuntimeError.
     """
     if skill_registry is None:
-        skill_registry = build_skill_registry()
+        skill_registry = build_skill_registry(skill_mode=skill_mode)
     registry = ToolRegistry()
     for maker in _SIMPLE_TOOL_MAKERS:
         registry.register(maker())
@@ -670,8 +494,18 @@ def build_tool_registry(skill_registry: Any = None) -> ToolRegistry:
     return registry
 
 
-def build_skill_registry() -> Any:
-    """Build a SkillRegistry with builtin skills."""
+def build_skill_registry(skill_mode: str = "simulated") -> Any:
+    """Build a SkillRegistry with builtin skills.
+
+    Args:
+        skill_mode: "simulated" or "real". "real" raises RuntimeError
+            because real VLA/VLN/VLM executors are not integrated.
+    """
+    if skill_mode == "real":
+        raise RuntimeError(
+            "skill_mode='real' is not yet supported. "
+            "Real VLA/VLN/VLM skill executors are not integrated."
+        )
     from homemaster.skills.loader import SkillLoader
     from homemaster.skills.registry import SkillRegistry
 

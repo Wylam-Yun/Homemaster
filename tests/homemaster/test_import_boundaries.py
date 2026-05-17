@@ -277,3 +277,70 @@ def test_no_test_imports_in_src() -> None:
             "src/homemaster imports from tests:\n"
             + "\n".join(f"  {o}" for o in offenders)
         )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: selective re-export shims must not export test-double symbols
+# ---------------------------------------------------------------------------
+
+
+def test_executor_shim_does_not_export_test_doubles() -> None:
+    """executor.py must only re-export live/runtime-safe symbols."""
+    path = HOMEMASTER_ROOT / "executor.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+
+    exported_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    exported_names.add(alias.name)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Constant):
+                                exported_names.add(elt.value)
+
+    test_double_indicators = {"Static", "test_double", "dummy", "fake"}
+    offenders = [
+        name for name in exported_names
+        if any(indicator in name.lower() for indicator in test_double_indicators)
+    ]
+    if offenders:
+        pytest.fail(
+            f"executor.py exports test-double symbols: {offenders}"
+        )
+
+
+def test_stage_runtime_shim_does_not_export_test_doubles() -> None:
+    """stage_runtime.py must only re-export live/runtime-safe symbols."""
+    path = HOMEMASTER_ROOT / "stage_runtime.py"
+    source = path.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(path))
+
+    exported_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if alias.name != "*":
+                    exported_names.add(alias.name)
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Constant):
+                                exported_names.add(elt.value)
+
+    test_double_indicators = {"Static", "test_double", "dummy", "fake"}
+    offenders = [
+        name for name in exported_names
+        if any(indicator in name.lower() for indicator in test_double_indicators)
+    ]
+    if offenders:
+        pytest.fail(
+            f"stage_runtime.py exports test-double symbols: {offenders}"
+        )

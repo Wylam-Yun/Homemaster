@@ -20,9 +20,7 @@ from homemaster.contracts import (
     TaskCard,
 )
 from homemaster.pipeline.core import PipelineContext
-from homemaster.stages.executor import StepDecisionProvider
 from homemaster.stages.recovery_loop import run_stage05_with_recovery
-
 
 # ---------------------------------------------------------------------------
 # Helpers

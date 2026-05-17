@@ -7,7 +7,6 @@ validity, and validator compliance. Does NOT run the live scenario matrix.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 

@@ -1,4 +1,5 @@
-"""RuntimeEvent contracts (added in later phase).
+"""Events — structured runtime event tracing for AgentRuntime.
 
-Reserved for structured event tracing during AgentRuntime execution.
+RuntimeEvent schema, event sinks (JSONL, console), and sanitizer for
+redacting sensitive data from trace output. Phase 8 target.
 """

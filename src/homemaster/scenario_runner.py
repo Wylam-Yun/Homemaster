@@ -80,6 +80,7 @@ def run_stage_07_scenario_matrix(
     debug_root: Path,
     results_root: Path | None = None,
     scenarios: dict[str, str] | list[str] | tuple[str, ...] | None = None,
+    skill_mode: str = "simulated",
 ) -> Stage07ScenarioMatrixResult:
     if scenarios is None:
         scenarios = _load_scenarios()
@@ -87,16 +88,17 @@ def run_stage_07_scenario_matrix(
     case_results: list[HomeMasterRunResult] = []
     for scenario, utterance in items:
         run_id = f"stage07-{scenario}"
-        case_results.append(
-            run_homemaster_task(
-                utterance=utterance,
-                scenario=scenario,
-                runtime_memory_root=runtime_root,
-                debug_root=debug_root,
-                results_root=results_root,
-                run_id=run_id,
-            )
-        )
+        kw: dict[str, Any] = {
+            "utterance": utterance,
+            "scenario": scenario,
+            "runtime_memory_root": runtime_root,
+            "debug_root": debug_root,
+            "run_id": run_id,
+            "skill_mode": skill_mode,
+        }
+        if results_root is not None:
+            kw["results_root"] = results_root
+        case_results.append(run_homemaster_task(**kw))
 
     matrix = _acceptance_matrix(case_results)
     if results_root:
@@ -146,10 +148,15 @@ def _acceptance_matrix(
     cases = []
     for result in results:
         expected = expected_statuses.get(result.scenario, {"completed", "failed"})
-        case_passed = (
-            result.final_status in expected
-            and all(item.get("status") == "PASS" for item in result.stage_statuses.values())
-        )
+        final_ok = result.final_status in expected
+        # For expected-failure scenarios, only check final_status —
+        # stage-level FAIL is expected when the task is supposed to fail.
+        if expected == {"failed"}:
+            case_passed = final_ok
+        else:
+            case_passed = final_ok and all(
+                item.get("status") == "PASS" for item in result.stage_statuses.values()
+            )
         cases.append(
             {
                 "scenario": result.scenario,

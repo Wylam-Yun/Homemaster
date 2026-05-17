@@ -87,9 +87,13 @@ def apply_world_overlay(world: dict[str, Any], overlay: dict[str, Any]) -> dict[
             continue
         filtered_override: dict[str, Any] = {}
         if "objects" in override:
-            filtered_override["objects"] = [oid for oid in override["objects"] if oid in present_ids]
+            filtered_override["objects"] = [
+                oid for oid in override["objects"] if oid in present_ids
+            ]
         if "anchors" in override:
-            filtered_override["anchors"] = [aid for aid in override["anchors"] if aid in active_anchor_ids]
+            filtered_override["anchors"] = [
+                aid for aid in override["anchors"] if aid in active_anchor_ids
+            ]
         if "scene_relations" in override:
             all_valid = present_ids | active_anchor_ids
             filtered_override["scene_relations"] = [

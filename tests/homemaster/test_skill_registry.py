@@ -12,7 +12,6 @@ from homemaster.contracts import (
     TaskCard,
 )
 from homemaster.executor import execute_stage_05_plan
-from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 from homemaster.skill_registry import (
     SkillInputValidationError,
     SkillManifest,
@@ -24,6 +23,7 @@ from homemaster.skill_registry import (
     get_stage_05_skill_prompt_payload,
     validate_skill_input,
 )
+from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 
 
 def test_stage_05_skill_manifests_are_serializable_and_action_list_excludes_verification() -> None:

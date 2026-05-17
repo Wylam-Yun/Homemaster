@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
-from homemaster.skills.spec import SkillSpec
 from homemaster.skills.registry import SkillRegistry
+from homemaster.skills.spec import SkillSpec
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.spec import ToolSpec
 

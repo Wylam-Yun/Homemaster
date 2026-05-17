@@ -4,8 +4,8 @@ from pathlib import Path
 
 from homemaster.contracts import OrchestrationPlan, PlanningContext, StepDecision, Subtask
 from homemaster.executor import execute_stage_05_plan
-from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 from homemaster.stage_05 import write_stage_05_debug_assets
+from tests.homemaster.test_doubles.decision_provider import StaticStepDecisionProvider
 
 
 def test_stage_05_debug_assets_do_not_contain_secrets(tmp_path: Path) -> None:

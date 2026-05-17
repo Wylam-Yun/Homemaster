@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from homemaster.agent.decision import AgentDecision, FinishDecision
-from homemaster.providers.mimo_decision_client import MimoDecisionClient
 
 
 class FakeMimoDecisionClient:

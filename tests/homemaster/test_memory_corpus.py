@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -97,11 +96,12 @@ def test_corpus_refs_resolve_in_homeworld(
         assert anchor["room_id"] == hw["room_id"], (
             f"{entry['memory_id']}: room_id {anchor['room_id']!r} != HomeWorld {hw['room_id']!r}"
         )
+        mid = entry["memory_id"]
         assert anchor["anchor_type"] == hw["anchor_type"], (
-            f"{entry['memory_id']}: anchor_type {anchor['anchor_type']!r} != HomeWorld {hw['anchor_type']!r}"
+            f"{mid}: anchor_type {anchor['anchor_type']!r} != HomeWorld {hw['anchor_type']!r}"
         )
         assert anchor["viewpoint_id"] == hw["viewpoint_id"], (
-            f"{entry['memory_id']}: viewpoint_id {anchor['viewpoint_id']!r} != HomeWorld {hw['viewpoint_id']!r}"
+            f"{mid}: viewpoint_id {anchor['viewpoint_id']!r} != HomeWorld {hw['viewpoint_id']!r}"
         )
         assert anchor["room_id"] in world_room_ids
         assert anchor["viewpoint_id"] in world_viewpoint_ids
@@ -180,8 +180,9 @@ def test_corpus_build_memory_documents_all_executable(corpus: dict):
     docs = build_memory_documents(corpus)
     assert len(docs) == 36, f"Expected 36 documents, got {len(docs)}"
     for doc in docs:
-        assert doc.executable, f"{doc.document_id} not executable: {doc.invalid_reason}"
-        assert doc.invalid_reason is None, f"{doc.document_id} has invalid_reason: {doc.invalid_reason}"
+        did = doc.document_id
+        assert doc.executable, f"{did} not executable: {doc.invalid_reason}"
+        assert doc.invalid_reason is None, f"{did} has invalid_reason: {doc.invalid_reason}"
 
 
 # --- BM25 retrieval ---

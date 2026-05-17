@@ -16,7 +16,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -126,7 +126,7 @@ def main() -> None:
 
     snapshot = {
         "snapshot_version": "1.0",
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "pipeline_mode": "live_simulated",
         "homemaster_commit": _git_commit(),
         "source_file_hashes": source_file_hashes,

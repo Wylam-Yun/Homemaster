@@ -7,7 +7,6 @@ references, and meets the minimum coverage requirements for P-1A.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -91,8 +90,9 @@ def test_anchor_room_references_valid(world: dict):
 def test_anchor_viewpoint_references_valid(world: dict):
     viewpoint_ids = set(world.get("viewpoints", {}).keys())
     for anchor in world.get("furniture", []):
-        assert anchor["viewpoint_id"] in viewpoint_ids, (
-            f"Anchor {anchor['anchor_id']!r} references unknown viewpoint {anchor['viewpoint_id']!r}"
+        vp = anchor["viewpoint_id"]
+        assert vp in viewpoint_ids, (
+            f"Anchor {anchor['anchor_id']!r} references unknown viewpoint {vp!r}"
         )
 
 
@@ -206,11 +206,13 @@ def test_scene_relations_reference_valid_ids(world: dict):
     all_ids = object_ids | anchor_ids
     for vp_id, vis in world.get("visibility", {}).items():
         for rel in vis.get("scene_relations", []):
-            assert rel["subject_object_id"] in all_ids, (
-                f"scene_relation in {vp_id!r} references unknown subject {rel['subject_object_id']!r}"
+            subj = rel["subject_object_id"]
+            tgt = rel["target_object_id"]
+            assert subj in all_ids, (
+                f"scene_relation in {vp_id!r} references unknown subject {subj!r}"
             )
-            assert rel["target_object_id"] in all_ids, (
-                f"scene_relation in {vp_id!r} references unknown target {rel['target_object_id']!r}"
+            assert tgt in all_ids, (
+                f"scene_relation in {vp_id!r} references unknown target {tgt!r}"
             )
 
 

@@ -4,7 +4,7 @@ Hard constraints:
   - SkillSpec does NOT contain executor
   - SkillSpec does NOT return ToolResult
   - SkillSpec does NOT directly modify AgentState
-  - SkillSpec does NOT allow deterministic/test_double fallback
+  - SkillSpec does NOT allow fallback to stub implementations
   - SkillRegistry does NOT decide next action, only provides candidate metadata
 """
 

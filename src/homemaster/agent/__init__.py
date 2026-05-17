@@ -1,6 +1,6 @@
-"""AgentRuntime contracts and future loop.
+"""AgentRuntime — active implementation of the Mimo-driven tool loop.
 
-Defines decision contracts (ToolCallDecision, FinishDecision),
-AgentState placeholder, and will host the AgentRuntime.run() main loop
-in a later phase.
+Contains AgentRuntime.run(), AgentState, decision contracts, and the
+ToolDispatcher/StateUpdater wiring. This is the default entrypoint
+(replaces the legacy pipeline stage loop).
 """

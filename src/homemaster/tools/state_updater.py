@@ -91,6 +91,12 @@ def _apply_verify(state: AgentState, result: ToolResult) -> None:
         "tool": "verify",
         "result": result.data,
     })
+    if not result.success:
+        state.failures.append({
+            "turn": state.turn_index,
+            "tool": "verify",
+            "reason": result.failure_reason or "verification failed",
+        })
 
 
 def _apply_update_memory(state: AgentState, result: ToolResult) -> None:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
 from homemaster.cli.doctor import render_doctor_text, run_doctor

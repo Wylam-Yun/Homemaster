@@ -179,3 +179,41 @@ src/homemaster/scenario_runner.py
 - 程序：Stage04 可靠记忆判定、Stage06 记忆写回。
 - 模拟：navigation、operation、verification skill。
 - 旧 `task_brain` 链路已从当前工程入口中清理；当前只维护 `homemaster` 主链。
+
+## 架构
+
+默认入口是 **AgentRuntime**（`src/homemaster/agent/runtime.py`），一个 Mimo 驱动的
+tool loop。Mimo 在每一轮选择一个 tool 调用，Dispatcher 执行，StateUpdater 更新状态，
+直到 Mimo 选择 finish_task 或达到 max_turns。
+
+**Tool 系统**：11 个 tool（7 个 programmatic + 4 个 simulated）。
+- programmatic：understand_task, retrieve_memory, ground_target, get_skill,
+  update_memory, update_user_profile, finish_task
+- simulated：navigate, observe, manipulate, verify（模拟机器人技能，未接真实机器人/VLA/VLM）
+
+**Skills**：通过 get_skill 实现 progressive disclosure。Mimo 按需加载 skill context
+（fetch_object, check_object_state），而不是一次性获取所有 skill 信息。
+
+**Pipeline 兼容**：旧的 Stage02-06 stage loop 仍可通过 `use_agent_runtime=False` 激活，
+但不是默认路径。详见 `src/homemaster/pipeline/` 和 `src/homemaster/stages/`。
+
+**phase_label**：trace/status 标签，用于事件追踪和日志分类，不是流程控制机制。
+AgentRuntime 不使用 phase_label 控制执行流，Mimo 自主决定下一步 action。
+
+**目录结构**：
+
+```text
+agent/      AgentRuntime 实现（tool loop, state, decisions）
+tools/      ToolSpec / ToolRegistry / Dispatcher / simulated executors
+skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
+memory/     RAG / profile / fact memory / runtime memory store
+events/     RuntimeEvent schema, sinks, sanitizer
+config/     RuntimeSettings 和 path/config helpers
+providers/  LLM/embedding/Mimo decision provider clients
+pipeline/   兼容层（旧 stage loop）
+stages/     过渡期 Stage02-06 handlers
+cli/        CLI 入口（run, doctor, interactive shell）
+```
+
+根目录下的 `.py` 文件要么是 public facade（contracts, runtime, trace），
+要么是 backward-compatibility shim。详见 `docs/shim_lifecycle.md`。

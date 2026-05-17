@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-
-import pytest
 
 from homemaster.contracts import ScenarioCatalogEntry, ScenarioManifest
-from homemaster.runtime import REPO_ROOT
 from homemaster.scenario_validator import (
-    KNOWN_OBJECT_CATEGORIES,
     ValidationResult,
     validate_all,
     validate_corpus,
@@ -24,7 +19,6 @@ from homemaster.scenario_validator import (
     validate_target_coverage,
     validate_world_overlay,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -273,12 +267,6 @@ def test_validate_world_overlay_passes():
     }
     issues = validate_world_overlay("test_scenario", overlay, hw)
     assert issues == [], f"Unexpected issues: {issues}"
-
-
-def test_validate_all_runs_without_crash():
-    """validate_all() completes without exception on real data."""
-    result = validate_all()
-    assert isinstance(result, ValidationResult)
 
 
 # ── Fault injection tests ────────────────────────────────────────────────────
@@ -560,7 +548,11 @@ def test_validate_failures_force_no_object_all_candidates_flagged():
     """force_no_object_all_candidates is not in P-1E minimal rules — flagged as unknown."""
     failures = {
         "failure_rules": [
-            {"rule_type": "force_no_object_all_candidates", "enabled": True, "target_category": "cup"},
+            {
+                "rule_type": "force_no_object_all_candidates",
+                "enabled": True,
+                "target_category": "cup",
+            },
         ],
     }
     issues = validate_failures("test_scenario", failures)

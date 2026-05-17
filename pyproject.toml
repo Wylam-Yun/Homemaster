@@ -44,3 +44,24 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy shim files — star-imports for backward compat (shims are currently clean;
+# these ignores document the intentional pattern and prevent future violations)
+"src/homemaster/doctor.py" = ["F401", "F403"]
+"src/homemaster/frontdoor.py" = ["F401", "F403"]
+"src/homemaster/interactive_shell.py" = ["F401", "F403"]
+"src/homemaster/orchestrator.py" = ["F401", "F403"]
+"src/homemaster/pipeline_core.py" = ["F401", "F403"]
+"src/homemaster/pipeline_stages.py" = ["F401", "F403"]
+"src/homemaster/recovery.py" = ["F401", "F403"]
+"src/homemaster/stage_04.py" = ["F401", "F403"]
+"src/homemaster/stage_05.py" = ["F401", "F403"]
+"src/homemaster/stage_06.py" = ["F401", "F403"]
+"src/homemaster/skill_selector.py" = ["F401", "F403"]
+"src/homemaster/summary.py" = ["F401", "F403"]
+"src/homemaster/verifier.py" = ["F401", "F403"]
+# Test files — E402 from sys.path manipulation in test fixtures
+"tests/**" = ["E402"]
+# Scripts — standalone demo/dev tools, not part of the package
+"scripts/**" = ["E402", "E501", "E741", "F841"]

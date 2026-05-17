@@ -19,4 +19,4 @@ stage_xx/<case_name>/
 - `actual.json` 保存 Mimo 返回的结构化输出和程序裁剪后的关键执行结果。
 - `result.md` 保存通过/失败结论、失败原因、对应日志路径和 debug 备注。
 - 真实 LLM 默认使用 `config/api_config.json` 中的 `Mimo / mimo-v2-pro`；如果该文件不存在，当前代码会兼容回退到旧 provider config。
-- 规则通过、fake provider 通过、schema 单测通过都不算阶段通过；必须真实调用 LLM 并通过阶段校验。
+- 规则通过和 schema 单测通过不算阶段通过；必须真实调用 LLM 并通过阶段校验。模拟 provider 仅用于单元测试隔离，不代表生产能力。

@@ -10,8 +10,7 @@ from typing import Any
 from homemaster.contracts import MemoryRetrievalQuery, TaskCard
 from homemaster.embedding_client import EmbeddingProviderNetworkError
 from homemaster.memory_rag import run_memory_rag
-from homemaster.runtime import ProviderConfig, REPO_ROOT
-
+from homemaster.runtime import ProviderConfig
 
 # ---------------------------------------------------------------------------
 # Test doubles

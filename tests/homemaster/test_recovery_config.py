@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from homemaster.recovery_config import _load_recovery_config
 
 
@@ -27,7 +29,6 @@ def test_config_override_max_recovery_attempts(
     )
     monkeypatch.chdir(tmp_path)
     # Reload config from the temporary path
-    from homemaster.runtime import load_homemaster_config
 
     result = _load_recovery_config()
     assert result >= 1  # at minimum the default

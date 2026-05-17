@@ -2,9 +2,9 @@
 
 Protocol:
   MimoDecisionClient.decide() takes context + tools + settings,
-  returns AgentDecision. No deterministic fallback.
+  returns AgentDecision. No fallback — fails fast on error.
 
-FakeMimoDecisionClient lives in tests/homemaster/test_doubles/.
+Stub implementation for testing lives in the test helpers package.
 """
 
 from __future__ import annotations

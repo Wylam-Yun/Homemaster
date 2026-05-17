@@ -1,12 +1,11 @@
-"""HomeMaster pipeline framework sub-package.
+"""Pipeline — compatibility layer for the legacy stage loop.
 
-Backward compatibility: re-export key symbols so that
-  from homemaster.pipeline import PipelineContext, build_default_registry
-continues to work.
+This package is the legacy Stage02-06 pipeline runner. It is NOT the default
+entrypoint — AgentRuntime (in agent/) is the default. The pipeline path is
+activated via use_agent_runtime=False for backward compatibility.
 
-NOTE: does NOT re-export stage_runtime to avoid namespace collision
-with homemaster.runtime. Use full path:
-  from homemaster.pipeline.stage_runtime import RuntimeMode
+Re-exports PipelineContext, StageRegistry, build_default_registry, and
+Stage01-06 adapters for legacy import paths.
 """
 
 from homemaster.pipeline.adapters import (

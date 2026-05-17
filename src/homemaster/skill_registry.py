@@ -1,9 +1,11 @@
 """Stage 05 skill registry: manifest, validation, and execution dispatch.
 
-SkillRegistry is the single source of truth for Stage 05 skills.
-Skills are registered with manifest + validator + optional executor.
-The default registry (build_default_skill_registry) registers
-navigation, operation, and verification with their mock handlers.
+Compatibility module — the old SkillRegistry class stays here because
+stages/executor.py depends on its API (register(manifest, validator),
+get_manifest(), validate_input(), execute()). The new-style SkillSpec-based
+SkillRegistry lives in homemaster.skills.registry.
+
+Target removal: Phase 7+ (when stages/executor.py is migrated).
 """
 
 from __future__ import annotations
@@ -163,7 +165,7 @@ class SkillRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Mock skill handlers (migrated from executor.py)
+# Simulated skill handlers (simplified for AgentRuntime compat)
 # ---------------------------------------------------------------------------
 
 
@@ -172,44 +174,26 @@ def _run_mock_navigation(
     subtask: Subtask,
     state: ExecutionState,
 ) -> ModuleExecutionResult:
-    """Mock navigation executor: simulates finding objects or moving to locations."""
+    """Simulated navigation: returns location and visibility observation."""
     skill_input = decision.skill_input
     goal_type = skill_input.get("goal_type")
     observation: dict[str, object] = {}
     if goal_type == "find_object":
         target_object = str(skill_input.get("target_object") or subtask.target_object or "")
         if skill_input.get("force_no_object"):
-            observation.update(
-                {
-                    "target_object_visible": False,
-                    "visible_objects": [],
-                    "current_location": state.current_location or subtask.room_hint,
-                }
-            )
+            observation["target_object_visible"] = False
+            observation["visible_objects"] = []
         else:
-            observation.update(
-                {
-                    "target_object_visible": True,
-                    "visible_objects": [target_object],
-                    "target_object_location": subtask.anchor_hint
-                    or subtask.room_hint
-                    or skill_input.get("room_hint")
-                    or "mock_visible_location",
-                    "current_location": subtask.room_hint or state.current_location,
-                }
-            )
+            observation["target_object_visible"] = True
+            observation["visible_objects"] = [target_object]
+        observation["current_location"] = subtask.room_hint or state.current_location
     elif goal_type == "go_to_location":
         target_location = str(skill_input.get("target_location") or state.user_location or "")
-        observation.update({"current_location": target_location})
-        if target_location:
-            observation["user_location"] = state.user_location
+        observation["current_location"] = target_location
     return ModuleExecutionResult(
         skill="navigation",
         status="success",
-        skill_output={
-            "goal_type": goal_type,
-            "navigated": True,
-        },
+        skill_output={"goal_type": goal_type, "navigated": True},
         observation=observation,
     )
 
@@ -219,27 +203,22 @@ def _run_mock_operation(
     subtask: Subtask,
     state: ExecutionState,
 ) -> ModuleExecutionResult:
-    """Mock operation executor: simulates pick-up, put-down, delivery actions."""
+    """Simulated operation: returns manipulation result based on intent."""
     target = str(decision.skill_input.get("target_object") or subtask.target_object or "")
     intent = subtask.intent
     observation: dict[str, object] = {}
-    planned_actions: list[str] = []
     if any(term in intent for term in ("拿", "取", "抓", "拾")):
         observation["held_object"] = target
-        planned_actions = ["approach", "grasp", "lift"]
     elif any(term in intent for term in ("放", "交付", "递", "给")):
         observation["held_object"] = None
         observation["delivered_object"] = target
         observation["delivery_complete"] = True
-        planned_actions = ["approach_recipient", "release"]
-    else:
-        planned_actions = ["operate"]
     return ModuleExecutionResult(
         skill="operation",
         status="success",
         skill_output={
             "vla_instruction": f"根据当前观察执行：{intent}",
-            "planned_atomic_actions": planned_actions,
+            "planned_atomic_actions": ["operate"],
         },
         observation=observation,
     )
@@ -251,11 +230,7 @@ def _run_mock_operation(
 
 
 def build_default_skill_registry() -> SkillRegistry:
-    """Build the default SkillRegistry with navigation, operation, verification.
-
-    Navigation and operation have mock executors registered.
-    Verification has manifest + validator only (auto-invoked by verifier.py).
-    """
+    """Build the default SkillRegistry with navigation, operation, verification."""
     registry = SkillRegistry()
 
     registry.register(
@@ -307,7 +282,6 @@ def build_default_skill_registry() -> SkillRegistry:
             },
         ),
         validator=lambda skill_input: dict(skill_input),
-        # no executor — verification is auto-invoked by verifier.py
     )
 
     return registry

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -15,9 +14,9 @@ from homemaster.contracts import (
 from homemaster.memory_profile import materialize_memory
 from homemaster.runtime import REPO_ROOT
 from homemaster.scenario_catalog import (
+    active_scenario_names,
     load_catalog,
     load_scenario_manifest,
-    active_scenario_names,
 )
 
 CORPUS_PATH = REPO_ROOT / "data" / "memory" / "elder_home_v1" / "object_memory_corpus.json"
@@ -121,7 +120,7 @@ def test_scenario_manifest_contract():
 
 
 def test_scenario_manifest_rejects_extra_fields():
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         ScenarioManifest(
             name="test",
             home_id="elder_home_v1",

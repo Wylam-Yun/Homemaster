@@ -51,7 +51,9 @@ def test_tool_manifests_filters_non_selectable() -> None:
 def test_finish_task_not_in_manifests() -> None:
     registry = ToolRegistry()
     registry.register(_make_tool("navigate"))
-    registry.register(_make_tool("finish_task", selectable_by_model=False, executor_mode="internal"))
+    registry.register(_make_tool(
+        "finish_task", selectable_by_model=False, executor_mode="internal",
+    ))
     names = [m["name"] for m in registry.tool_manifests()]
     assert "navigate" in names
     assert "finish_task" not in names
@@ -98,3 +100,19 @@ def test_dispatcher_calls_executor() -> None:
     result = spec.executor(arguments={}, state=AgentState(), settings=None)
     assert result.success is True
     assert called == [True]
+
+
+def test_ask_user_not_in_tool_manifests() -> None:
+    """ask_user must not appear in tool_manifests() — invariant lock."""
+    from homemaster.tools.builtin import build_tool_registry
+    registry = build_tool_registry()
+    names = [m["name"] for m in registry.tool_manifests()]
+    assert "ask_user" not in names
+
+
+def test_finish_task_not_in_tool_manifests() -> None:
+    """finish_task is internal (selectable_by_model=False), not in manifests."""
+    from homemaster.tools.builtin import build_tool_registry
+    registry = build_tool_registry()
+    names = [m["name"] for m in registry.tool_manifests()]
+    assert "finish_task" not in names

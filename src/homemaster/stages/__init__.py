@@ -1,4 +1,9 @@
-"""HomeMaster stages sub-package — stage implementations and runners."""
+"""Stages — transitional Stage02-06 handler implementations.
+
+These are the individual stage handlers used by both the pipeline compat path
+and (selectively) by the new tool system. Full removal is deferred until the
+pipeline compat path is retired.
+"""
 
 __all__ = [
     "executor",

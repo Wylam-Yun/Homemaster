@@ -60,6 +60,7 @@ class PipelineContext:
     config_path: Path
     provider_name: str
     embedding_provider_name: str
+    skill_mode: str = "simulated"
 
     # Stage outputs (None until produced)
     task_card: Any = None

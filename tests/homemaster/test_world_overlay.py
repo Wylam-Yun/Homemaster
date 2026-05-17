@@ -5,8 +5,6 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-import pytest
-
 from homemaster.world_overlay import apply_world_overlay
 
 

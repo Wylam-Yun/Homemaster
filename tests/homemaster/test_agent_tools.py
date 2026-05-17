@@ -86,8 +86,9 @@ def test_verify_executor_fails_when_not_holding() -> None:
         arguments={"target_object": "cup"},
         state=state, settings=_make_settings(),
     )
-    assert result.success is True  # tool itself succeeds
-    assert result.data["verified"] is False  # but verification fails
+    assert result.success is False  # success=verified
+    assert result.data["verified"] is False
+    assert result.failure_reason is not None
 
 
 def test_get_skill_executor_returns_skill_content() -> None:
@@ -264,3 +265,54 @@ def test_update_memory_graceful_without_memory_path() -> None:
     )
     assert result.success is True
     assert result.data["committed"] is True
+
+
+# ---------------------------------------------------------------------------
+# Phase 6: skill_mode and registry tests
+# ---------------------------------------------------------------------------
+
+
+def test_build_tool_registry_returns_11_tools() -> None:
+    registry = build_tool_registry()
+    assert len(registry.all_names()) == 11
+
+
+def test_build_skill_registry_real_raises() -> None:
+    import pytest
+
+    from homemaster.tools.builtin import build_skill_registry
+    with pytest.raises(RuntimeError, match="not yet supported"):
+        build_skill_registry("real")
+
+
+def test_build_skill_registry_simulated_has_builtins() -> None:
+    from homemaster.tools.builtin import build_skill_registry
+    registry = build_skill_registry("simulated")
+    names = registry.all_names()
+    assert "fetch_object" in names
+    assert "check_object_state" in names
+
+
+def test_mock_skills_config_raises_deprecation(tmp_path: Path) -> None:
+    """mock_skills in config is rejected as deprecated."""
+    import pytest
+
+    from homemaster.config.runtime_settings import RuntimeSettingsError, load_runtime_settings
+    config_file = tmp_path / "config.json"
+    config_file.write_text(
+        json.dumps({"runtime_defaults": {"mock_skills": True}}), encoding="utf-8",
+    )
+    with pytest.raises(RuntimeSettingsError, match="no longer supported"):
+        load_runtime_settings(config_path=config_file,
+                              run_id="test", runtime_root=tmp_path,
+                              debug_root=tmp_path, results_root=tmp_path)
+
+
+def test_simulated_tools_have_enriched_descriptions() -> None:
+    """Simulated tool descriptions contain state effects and failure semantics."""
+    registry = build_tool_registry()
+    for name in ("navigate", "observe", "manipulate", "verify"):
+        spec = registry.get(name)
+        desc = spec.description.lower()
+        assert "simulated" in desc, f"{name} missing 'simulated' in description"
+        assert len(desc) > 50, f"{name} description too short"

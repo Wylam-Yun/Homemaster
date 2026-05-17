@@ -8,7 +8,6 @@ import pytest
 
 from homemaster.pipeline.stage_runtime import (
     RuntimeMode,
-    ServiceCheckResult,
     model_boundary,
     validate_runtime_services,
 )
@@ -18,7 +17,6 @@ from tests.homemaster.test_doubles.runtime_providers import (
     StaticMemoryQueryProvider,
     StaticScenarioDecisionProvider,
 )
-
 
 # ---------------------------------------------------------------------------
 # RuntimeMode.live

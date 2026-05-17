@@ -142,6 +142,7 @@ def run_homemaster_task(
     provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
     use_agent_runtime: bool = True,
+    skill_mode: str = "simulated",
 ) -> HomeMasterRunResult:
     # -- Phase 0: validation & data-source resolution --
     if not scenario:
@@ -157,7 +158,7 @@ def run_homemaster_task(
     case_dir = Path(debug_root) / "stage_07" / run_id
 
     # -- P2: runtime contract guards (before any file materialization) --
-    rm = RuntimeMode.live()
+    rm = RuntimeMode.live(skill_mode=skill_mode)
     checks = validate_runtime_services(
         rm,
         config_path=str(config_path),
@@ -187,7 +188,7 @@ def run_homemaster_task(
 
     # -- Phase 4: AgentRuntime opt-in path --
     if use_agent_runtime:
-        return _run_agent_runtime(
+        result = _run_agent_runtime(
             utterance=utterance,
             scenario=scenario,
             run_id=run_id,
@@ -202,7 +203,16 @@ def run_homemaster_task(
             scenario_root=scenario_root,
             mb=mb,
             paths=paths,
+            skill_mode=skill_mode,
         )
+        _write_stage_07_assets(
+            case_dir=case_dir,
+            results_dir=results_dir,
+            expected={"scenario": scenario, "utterance": utterance},
+            actual=result.to_dict(),
+            status="PASS" if result.final_status == "completed" else "FAIL",
+        )
+        return result
 
     # -- Build PipelineContext --
     ctx = PipelineContext(
@@ -217,6 +227,7 @@ def run_homemaster_task(
         config_path=Path(config_path),
         provider_name=provider_name,
         embedding_provider_name=embedding_provider_name,
+        skill_mode=skill_mode,
         model_boundary=mb,
         paths=paths,
         failure_provider=failure_provider,
@@ -335,6 +346,7 @@ def _run_agent_runtime(
     scenario_root: Path,
     mb: dict[str, str],
     paths: dict[str, str],
+    skill_mode: str = "simulated",
 ) -> HomeMasterRunResult:
     """Run a task using AgentRuntime instead of the legacy stage pipeline."""
     from homemaster.agent.context_builder import ContextBuilder
@@ -361,10 +373,11 @@ def _run_agent_runtime(
         memory_path=resolved_memory,
         world_path=resolved_world,
         case_dir=case_dir,
+        skill_mode=skill_mode,
     )
 
-    tool_registry = build_tool_registry()
-    skill_registry = build_skill_registry()
+    skill_registry = build_skill_registry(skill_mode=skill_mode)
+    tool_registry = build_tool_registry(skill_registry=skill_registry, skill_mode=skill_mode)
     provider_config = load_provider_config(str(config_path), provider_name=provider_name)
 
     runtime = AgentRuntime(
@@ -451,8 +464,13 @@ def _agent_result_to_home_master_result(
         elif event.event_type == "tool_result":
             tool_name = event.payload.get("tool", "")
             stage = tool_to_stage.get(tool_name, "agent_other")
-            if stage in stage_statuses and not event.payload.get("success", True):
-                stage_statuses[stage]["status"] = "FAIL"
+            executor_mode = event.payload.get("executor_mode", "")
+            if stage in stage_statuses:
+                if not event.payload.get("success", True):
+                    stage_statuses[stage]["status"] = "FAIL"
+                if executor_mode:
+                    modes = stage_statuses[stage].setdefault("component_modes", {})
+                    modes[tool_name] = executor_mode
     stage_statuses["agent_runtime"] = {
         "status": "PASS" if agent_result.final_status == "completed" else "FAIL",
     }

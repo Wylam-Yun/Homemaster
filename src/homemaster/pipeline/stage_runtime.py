@@ -230,7 +230,8 @@ class LiveStepDecisionProvider:
             and decision.selected_skill == "navigation"
             and decision.skill_input.get("goal_type") == "find_object"
         ):
-            target_cat = context.retrieval_query.target_category if context.retrieval_query else None
+            rq = context.retrieval_query
+            target_cat = rq.target_category if rq else None
             if self.failure_provider.should_force_no_object(target_category=target_cat):
                 skill_input = dict(decision.skill_input)
                 skill_input["force_no_object"] = True
@@ -276,12 +277,12 @@ def run_stage03(
     negative_evidence: dict[str, Any] | None = None,
 ):
     """Stage 03: TaskCard → MemoryRagResult (live only)."""
+    from homemaster.embedding_client import BGEEmbeddingClient
     from homemaster.memory_rag import (
         EmbeddingClientAdapter,
         MimoMemoryQueryProvider,
         run_memory_rag,
     )
-    from homemaster.embedding_client import BGEEmbeddingClient
 
     llm_provider = load_provider_config(config_path, provider_name=provider_name)
     embedding_config = load_provider_config(config_path, provider_name=embedding_provider_name)

@@ -167,6 +167,7 @@ class AgentRuntime:
                 payload={
                     "tool": result.tool_name,
                     "success": result.success,
+                    "executor_mode": result.executor_mode,
                     "failure_reason": result.failure_reason,
                 },
                 run_id=self._settings.run_id,
