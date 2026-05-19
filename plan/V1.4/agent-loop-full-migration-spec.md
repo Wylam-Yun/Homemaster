@@ -119,187 +119,100 @@ task_summarizer
 - `memory_writer`：写回任务记录和事实记忆。
 - `task_summarizer`：生成面向用户和长期记忆的任务总结。
 
-## 迁移阶段
+## 迁移批次
 
-### 阶段 0：基线保护和禁止词清单
+详细执行计划见 `plan/V1.4/agent-loop-full-migration-execution-plan.md`。本 spec 只保留压缩后的 5 个批次，避免再次被拆成 8 个以上的小阶段。
 
-目的：
-- 在大改前记录当前 dirty worktree、tracked/untracked 产物、旧编号流水线命中面。
-- 建立清理 guard 的最终标准，避免后续又把旧命名引回来。
-
-主要工作：
-- 生成 baseline 报告到 `plan/V1.4/baseline/`。
-- 列出需要删除、改名、迁移、保留但重写的文件集合。
-- 新增 `scripts/guard_no_legacy_terms.py`，禁止 tracked files 中出现旧编号流水线英文命名和旧目录词。
-- guard 暂时可配置为 report-only，直到最后阶段切为强制失败。
-
-验收标准：
-- baseline 文件包含 git status、旧命名命中列表、tracked runtime artifact 列表。
-- guard 脚本可以运行并输出当前违规列表。
-- 不修改既有业务代码。
-
-### 阶段 1：删除历史产物和旧文档残留
+### 批次 0：基线、守门脚本、静态清理
 
 目的：
-- 先清掉不参与运行的历史包袱，让后续迁移面更清楚。
+- 记录当前 dirty worktree、旧命名命中面和 tracked runtime artifact。
+- 先删除不参与新运行链路的历史记录、报告、日志、旧计划、tracked `var/` 产物、旧截图/场景脚本。
+- 新增 guard，先 report-only，最后强制失败。
 
-主要工作：
-- 删除仓库内旧计划、记录、报告、日志、历史运行产物。
-- 删除 tracked `var/` 运行结果。
-- 删除本地交互误生成的 untracked fixture。
-- 清理 build/cache/egg-info 等本地产物，只保留 `.gitignore` 规则。
-- README 和 docs 重写为 V1.4 agent loop 语义。
+核心文件处理：
+- 新增 `plan/V1.4/baseline/` 下的 baseline 报告。
+- 新增 `scripts/guard_no_legacy_terms.py`。
+- 新增 `tests/homemaster/test_cleanup_guard.py`。
+- 更新 `.gitignore`。
+- 删除 `docs/shim_lifecycle.md`、`record/`、`report/`、`log/`、`plan/V1.2/`、`plan/V1.3/`、`plan/v1.0/`、`plan/v1.1/`、tracked `var/homemaster/...` 和旧 scenario/screenshot 脚本。
 
 验收标准：
-- `git ls-files var` 无输出。
-- `git ls-files plan record report log` 中只保留 V1.4 有效规划文件，不再包含旧编号流水线文档。
-- 仓库根目录 `rg` 旧英文命名只剩 guard 脚本自身的规则定义，且该文件在 guard 白名单内。
-- README 不再描述固定流程。
+- baseline 文件齐全。
+- guard 可以 report-only 运行。
+- tracked runtime/debug artifact 不再保留。
 
-### 阶段 2：建立通用消息和 transport contract
+### 批次 1：通用消息、会话、Transport、Runtime 主链
 
 目的：
-- 把主链从自定义 decision JSON 改为通用 message/tool-call contract。
+- 把 runtime 从自定义 decision JSON 改为 message/tool-call/tool-result loop。
+- provider-specific 响应解析只存在于 transport。
 
-主要工作：
-- 新增或重写：
-  - `agent/messages.py`
-  - `agent/session.py`
-  - `agent/transport.py`
-  - `agent/normalized.py`
-- 定义 `AgentMessage`、`AssistantMessage`、`ToolCall`、`ToolResultMessage`、`NormalizedAssistantMessage`。
-- 重写 MiMo provider：优先使用 Anthropic 协议的 tool use；如果 endpoint 不支持原生工具，则在 transport 内部做适配转换。
-- 删除自定义 decision contract 的主链依赖。
+核心文件处理：
+- 新增 `src/homemaster/agent/messages.py`、`session.py`、`normalized.py`、`context.py`。
+- 新增 `src/homemaster/providers/transport.py`、`mimo_transport.py`。
+- 重写 `src/homemaster/agent/runtime.py`、`src/homemaster/llm_client.py`。
+- 修改 `src/homemaster/events/runtime_events.py` 和 `src/homemaster/events/sinks.py`，删除旧 stage lifecycle 事件字段。
+- 删除 `src/homemaster/agent/decision.py`、`src/homemaster/providers/mimo_decision_client.py` 及对应测试。
 
 验收标准：
-- 单测覆盖：content-only response、tool-call response、reasoning-only response、empty response、truncated response。
-- AgentRuntime 测试不 import 任何 domain tool 模块。
-- Provider 测试证明 runtime 只消费 NormalizedAssistantMessage。
+- Runtime 单测只依赖 fake transport 和 fake tools，不 import home domain。
+- MiMo transport 测试覆盖 content-only、tool-use、reasoning/empty/truncated response。
+- 工具失败会作为 tool result message 进入下一轮模型上下文。
 
-### 阶段 3：重写 AgentRuntime 主循环
+### 批次 2：家庭机器人能力迁移为 Domain Tools，并删除旧运行包
 
 目的：
-- 实现真正的通用 agent loop。
+- 保留任务理解、记忆检索、目标定位、模拟机器人动作、验证、总结、写回能力。
+- 删除旧固定流程 runtime、pipeline、stages、scenario runner。
 
-主要工作：
-- AgentRuntime 改为：
-  1. 接收 AgentSession。
-  2. 追加用户消息。
-  3. 调 ContextComposer 构造 API messages。
-  4. 调 LLMTransport。
-  5. 追加 assistant message。
-  6. 有 tool calls 时执行并追加 tool result messages。
-  7. 无 tool calls 时返回 assistant reply。
-- 加入迭代预算、中断、空回复恢复、无效工具名恢复、无效 JSON 参数恢复。
-- RuntimeEvent 覆盖：
-  - run started/completed/failed
-  - turn started/completed
-  - model call started/completed/failed
-  - assistant message received
-  - tool call started/completed/failed
-  - final reply emitted
+核心文件处理：
+- 新增 `src/homemaster/domain/home/` 包，包含 contracts、state、tools、tool_registry、grounding、planning_context、world_overlay。
+- 把 memory 相关顶层文件移入 `src/homemaster/memory/`。
+- 删除 `src/homemaster/pipeline/`、`src/homemaster/stages/`、`src/homemaster/task_runner.py`、`src/homemaster/scenario_catalog.py`、`src/homemaster/scenario_runner.py`、`src/homemaster/scenario_validator.py`。
+- 删除旧 pipeline/task/scenario 测试，新增 domain tool 和 import boundary 测试。
 
 验收标准：
-- `你好` 在 shell 中返回自然语言回复，不创建机器人任务产物。
-- 一个 fake provider 场景可跑通：user -> assistant tool call -> tool result -> assistant final reply。
-- 工具失败会进入下一轮模型上下文，而不是只写内部状态。
-- CLI 可实时看到模型调用和工具调用事件。
+- home tool registry 暴露 `task_interpreter`、`memory_retriever`、`target_grounder`、`skill_view`、`robot_navigate`、`robot_observe`、`robot_manipulate`、`robot_verify`、`memory_writer`、`task_summarizer`。
+- domain tools 不 import AgentRuntime。
+- AgentRuntime 不 import domain tools。
+- old runtime packages 不存在。
 
-### 阶段 4：迁移家庭机器人能力为 domain tools
-
-目的：
-- 保留 HomeMaster 的取物、观察、验证、记忆能力，但全部通过工具边界进入主链。
-
-主要工作：
-- 新建 `domain/` 或 `home/` 包承载家庭机器人数据结构和工具实现。
-- 把当前任务理解、记忆检索、目标定位、模拟动作、验证、总结、写回能力迁移成 domain tools。
-- 工具输入输出改为 domain-native schema，不携带旧流程编号。
-- ToolResultMessage 中包含人可读 summary、结构化 data、failure reason、retryable。
-
-验收标准：
-- `帮我拿个水` 可通过通用 loop 完成，并在 trace 中体现每个工具调用。
-- `帮我看看药还在不在` 可通过相同 loop 完成。
-- 记忆检索失败不会导致 Python attribute error；会作为工具失败消息返回模型。
-- domain tools 不 import AgentRuntime；AgentRuntime 不 import domain tools 的具体实现。
-
-### 阶段 5：CLI shell 和 run 命令重建
+### 批次 3：CLI、配置、Prompts、Fixtures 重建
 
 目的：
 - CLI 成为真正的 agent 会话入口。
+- 测试资产和 prompt 资产全部改为 agent/tool 语义。
 
-主要工作：
-- shell 支持连续会话、`/new`、`/status`、`/debug`、`/events`、`/exit`。
-- 默认显示实时 progress events。
-- 删除 scenario guessing。
-- `run` 命令支持单轮任务，输出 final assistant reply、status、trace path。
-- debug 路径改为 `var/homemaster/runs/<run_id>/...` 语义，但不跟踪到 git。
-
-验收标准：
-- shell 输入 `你好` 输出 assistant reply，不输出任务 completed 状态。
-- shell 输入 `帮我拿个水` 能实时显示 model/tool progress。
-- 同一 shell 内连续两轮会复用 session history。
-- 每次交互使用唯一 run id，不覆盖上一轮 debug。
-
-### 阶段 6：测试和 fixture 体系重建
-
-目的：
-- 测试资产跟随新架构重命名，删除旧编号 fixture。
-
-主要工作：
-- 删除旧 live case 目录和 prompt snapshots。
-- 新建：
-  - `tests/homemaster/fixtures/agent_loop/`
-  - `tests/homemaster/fixtures/domain_tools/`
-  - `tests/homemaster/fixtures/sessions/`
-- 测试名称改为：
-  - `test_agent_loop.py`
-  - `test_agent_session.py`
-  - `test_transport_mimo.py`
-  - `test_domain_tools.py`
-  - `test_cli_shell.py`
-  - `test_cleanup_guard.py`
-- 把高价值断言迁移为新测试，不保留旧命名。
+核心文件处理：
+- 重写 `src/homemaster/cli/app.py`、`interactive_shell.py`、`run_command.py`、`doctor.py`、`errors.py`。
+- 重写 `src/homemaster/runtime.py`、`src/homemaster/token_budget.py`、`config/homemaster.example.json`、`README.md`、`pyproject.toml`。
+- 删除 `src/homemaster/prompts/stage_*.txt`，新增 `agent_system_prompt.txt`、`task_interpreter_prompt.txt`、`memory_query_prompt.txt`、`task_summary_prompt.txt`。
+- 删除 `tests/homemaster/llm_cases/`、`tests/homemaster/prompt_snapshots/`、`tests/homemaster/prompt_snapshot_export.py`。
+- 把少量高价值 home task fixtures 移到 `tests/homemaster/fixtures/home_tasks/`，删除生产 `data/scenarios/`。
 
 验收标准：
-- `pytest` 通过。
-- `ruff check .` 通过。
-- `rg` 旧英文命名在 `tests/` 无命中。
-- 测试不依赖 tracked runtime artifact。
+- CLI help 只显示 `run`、`shell`、`doctor`。
+- 没有 `--scenario`、`stage`、`smoke`、`contract-smoke`、`understand` 入口。
+- `你好` 返回 assistant reply，不输出 final_status/task completed。
+- `帮我拿个水` 显示实时 model/tool progress。
 
-### 阶段 7：配置、文档、包边界收口
-
-目的：
-- 清理配置和工程边界，让新贡献者只看到 agent loop 架构。
-
-主要工作：
-- `config/homemaster.example.json` token budget key 改为 agent/tool 语义。
-- 删除旧入口转发 ignore 和过期 import-boundary 例外。
-- README 写明新 CLI、配置、事件、工具扩展方式。
-- 增加 package boundary tests：
-  - runtime core 不依赖 domain implementation。
-  - domain tools 不依赖 CLI。
-  - provider transport 不依赖 domain tools。
-
-验收标准：
-- `pyproject.toml` 无已删除文件 ignore。
-- `config/` 无旧流程编号 key。
-- import boundary tests 通过。
-- README 中的启动命令可以实际运行。
-
-### 阶段 8：最终强制守门
+### 批次 4：最终强制守门和全量验收
 
 目的：
-- 防止旧编号流水线残留和回潮。
+- 防止旧架构回潮。
+- 用自动化和手工 CLI 验收证明迁移完成。
 
-主要工作：
-- guard 从 report-only 切为强制测试。
-- CI/本地测试默认运行 guard。
-- 最终跑一次全仓库扫描、pytest、ruff。
+核心文件处理：
+- `scripts/guard_no_legacy_terms.py` 从 report-only 切成默认强制。
+- `tests/homemaster/test_cleanup_guard.py` 默认跑强制 guard。
+- `tests/homemaster/test_import_boundaries.py` 只验证新包边界。
+- README 保留最终启动、配置、事件、工具扩展说明。
 
 验收标准：
 - `python scripts/guard_no_legacy_terms.py` 返回 0。
-- `pytest -q` 通过。
-- `ruff check .` 通过。
+- `PYTHONPATH=src .venv/bin/python -m pytest -q` 通过。
+- `PYTHONPATH=src .venv/bin/python -m ruff check .` 通过。
 - `git status --short --ignored` 中无需要提交的 runtime/cache/debug 产物。
 - CLI 手工验收通过：
   - `PYTHONPATH=src .venv/bin/python -m homemaster.cli shell`
