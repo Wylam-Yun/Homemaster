@@ -43,6 +43,12 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
     "recovery_completed", "recovery_failed",
     # Legacy compat (5 original event types)
     "decision", "tool_call", "tool_result", "state_transition", "error",
+    # Generic agent loop events (V1.4)
+    "runtime.turn_started", "runtime.turn_completed", "runtime.turn_failed",
+    "runtime.budget_exhausted", "runtime.cancelled",
+    "transport.request_started", "transport.delta",
+    "transport.response_completed", "transport.request_failed",
+    "tool.call_started", "tool.call_completed", "tool.call_failed",
 })
 
 

@@ -316,3 +316,10 @@ class AgentRuntime:
             state=state,
             events=self._event_sink.events,
         )
+
+
+# Re-export GenericAgentRuntime for convenience; old AgentRuntime above stays
+# source-compatible until Batch 2 cuts CLI over.
+from homemaster.agent.generic_runtime import GenericAgentRuntime  # noqa: E402
+
+__all__ = ["AgentRuntime", "AgentRunResult", "GenericAgentRuntime"]

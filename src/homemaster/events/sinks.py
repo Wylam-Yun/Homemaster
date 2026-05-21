@@ -59,6 +59,12 @@ _PROGRESS_EVENT_TYPES: frozenset[str] = frozenset({
     "finish_decision_received",
     "max_turns_exceeded",
     "stage_started", "stage_completed", "stage_failed",
+    # Generic agent loop events (V1.4)
+    "runtime.turn_started", "runtime.turn_completed", "runtime.turn_failed",
+    "runtime.budget_exhausted",
+    "transport.request_started", "transport.response_completed",
+    "transport.request_failed",
+    "tool.call_started", "tool.call_completed", "tool.call_failed",
 })
 
 
