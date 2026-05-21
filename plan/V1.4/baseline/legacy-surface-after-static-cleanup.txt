@@ -1,0 +1,541 @@
+BLOCKED TEXT ['Stage', 'stage_', 'pipeline', 'scenario', 'shim_lifecycle']: README.md
+BLOCKED TEXT ['stage_']: config/homemaster.example.json
+BLOCKED PATH: data/scenarios/catalog.json
+BLOCKED PATH: data/scenarios/check_medicine_presence_success/failures.json
+BLOCKED PATH: data/scenarios/check_medicine_presence_success/memory.json
+BLOCKED PATH: data/scenarios/check_medicine_presence_success/memory_profile.json
+BLOCKED PATH: data/scenarios/check_medicine_presence_success/world.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/failures.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/memory.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/memory_profile.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/scenario.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/world.json
+BLOCKED PATH: data/scenarios/check_medicine_stale_recover/world_overlay.json
+BLOCKED PATH: data/scenarios/check_medicine_success/failures.json
+BLOCKED PATH: data/scenarios/check_medicine_success/memory.json
+BLOCKED PATH: data/scenarios/check_medicine_success/memory_profile.json
+BLOCKED PATH: data/scenarios/check_medicine_success/scenario.json
+BLOCKED PATH: data/scenarios/check_medicine_success/world.json
+BLOCKED PATH: data/scenarios/check_medicine_success/world_overlay.json
+BLOCKED PATH: data/scenarios/check_remote_presence_missing/failures.json
+BLOCKED PATH: data/scenarios/check_remote_presence_missing/memory.json
+BLOCKED PATH: data/scenarios/check_remote_presence_missing/memory_profile.json
+BLOCKED PATH: data/scenarios/check_remote_presence_missing/world.json
+BLOCKED PATH: data/scenarios/distractor_rejected/failures.json
+BLOCKED PATH: data/scenarios/distractor_rejected/memory.json
+BLOCKED PATH: data/scenarios/distractor_rejected/memory_profile.json
+BLOCKED PATH: data/scenarios/distractor_rejected/scenario.json
+BLOCKED PATH: data/scenarios/distractor_rejected/world.json
+BLOCKED PATH: data/scenarios/distractor_rejected/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_all_locations_not_found/failures.json
+BLOCKED PATH: data/scenarios/fetch_all_locations_not_found/memory.json
+BLOCKED PATH: data/scenarios/fetch_all_locations_not_found/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_all_locations_not_found/world.json
+BLOCKED PATH: data/scenarios/fetch_book_shelf_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_book_shelf_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_book_shelf_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_book_shelf_success/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_alias_success/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_cup_negative_evidence_second_place/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_negative_evidence_second_place/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_negative_evidence_second_place/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_negative_evidence_second_place/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_all_missing/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_all_missing/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_all_missing/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_all_missing/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_distractor_mug/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_memory_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_memory_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_memory_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_memory_success/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_multi_memory_recent/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_no_hint_stale_first/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_retry/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_cup_stale_memory_recover/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_stale_memory_recover/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_stale_memory_recover/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_stale_memory_recover/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/scenario.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/world.json
+BLOCKED PATH: data/scenarios/fetch_cup_table_success/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_glasses_bedroom_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_glasses_bedroom_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_glasses_bedroom_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_glasses_bedroom_success/world.json
+BLOCKED PATH: data/scenarios/fetch_glasses_no_hint_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_glasses_no_hint_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_glasses_no_hint_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_glasses_no_hint_success/world.json
+BLOCKED PATH: data/scenarios/fetch_keys_entry_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_keys_entry_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_keys_entry_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_keys_entry_success/world.json
+BLOCKED PATH: data/scenarios/fetch_keys_no_hint_not_found/failures.json
+BLOCKED PATH: data/scenarios/fetch_keys_no_hint_not_found/memory.json
+BLOCKED PATH: data/scenarios/fetch_keys_no_hint_not_found/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_keys_no_hint_not_found/world.json
+BLOCKED PATH: data/scenarios/fetch_medicine_no_hint_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_medicine_no_hint_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_medicine_no_hint_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_medicine_no_hint_success/world.json
+BLOCKED PATH: data/scenarios/fetch_medicine_to_grandma/failures.json
+BLOCKED PATH: data/scenarios/fetch_medicine_to_grandma/memory.json
+BLOCKED PATH: data/scenarios/fetch_medicine_to_grandma/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_medicine_to_grandma/world.json
+BLOCKED PATH: data/scenarios/fetch_medicine_wrong_memory_recover/failures.json
+BLOCKED PATH: data/scenarios/fetch_medicine_wrong_memory_recover/memory.json
+BLOCKED PATH: data/scenarios/fetch_medicine_wrong_memory_recover/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_medicine_wrong_memory_recover/world.json
+BLOCKED PATH: data/scenarios/fetch_mug_not_cup_rejected/failures.json
+BLOCKED PATH: data/scenarios/fetch_mug_not_cup_rejected/memory.json
+BLOCKED PATH: data/scenarios/fetch_mug_not_cup_rejected/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_mug_not_cup_rejected/world.json
+BLOCKED PATH: data/scenarios/fetch_object_ambiguous_no_hint/failures.json
+BLOCKED PATH: data/scenarios/fetch_object_ambiguous_no_hint/memory.json
+BLOCKED PATH: data/scenarios/fetch_object_ambiguous_no_hint/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_object_ambiguous_no_hint/world.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/failures.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/memory.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/scenario.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/world.json
+BLOCKED PATH: data/scenarios/fetch_object_not_found/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_operation_retry_candidate/failures.json
+BLOCKED PATH: data/scenarios/fetch_operation_retry_candidate/memory.json
+BLOCKED PATH: data/scenarios/fetch_operation_retry_candidate/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_operation_retry_candidate/world.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/failures.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/memory.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/scenario.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/world.json
+BLOCKED PATH: data/scenarios/fetch_remote_conflicting_memory/world_overlay.json
+BLOCKED PATH: data/scenarios/fetch_remote_living_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_remote_living_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_remote_living_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_remote_living_success/world.json
+BLOCKED PATH: data/scenarios/fetch_remote_no_hint_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_remote_no_hint_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_remote_no_hint_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_remote_no_hint_success/world.json
+BLOCKED PATH: data/scenarios/fetch_tissue_table_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_tissue_table_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_tissue_table_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_tissue_table_success/world.json
+BLOCKED PATH: data/scenarios/fetch_water_bottle_success/failures.json
+BLOCKED PATH: data/scenarios/fetch_water_bottle_success/memory.json
+BLOCKED PATH: data/scenarios/fetch_water_bottle_success/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_water_bottle_success/world.json
+BLOCKED PATH: data/scenarios/fetch_wrong_color_rejected/failures.json
+BLOCKED PATH: data/scenarios/fetch_wrong_color_rejected/memory.json
+BLOCKED PATH: data/scenarios/fetch_wrong_color_rejected/memory_profile.json
+BLOCKED PATH: data/scenarios/fetch_wrong_color_rejected/world.json
+BLOCKED PATH: data/scenarios/object_not_found/failures.json
+BLOCKED PATH: data/scenarios/object_not_found/memory.json
+BLOCKED PATH: data/scenarios/object_not_found/memory_profile.json
+BLOCKED PATH: data/scenarios/object_not_found/scenario.json
+BLOCKED PATH: data/scenarios/object_not_found/world.json
+BLOCKED PATH: data/scenarios/object_not_found/world_overlay.json
+BLOCKED PATH: data/scenarios/proposed_fetch_scenario_catalog.json
+BLOCKED TEXT ['stage_', 'pipeline']: pyproject.toml
+BLOCKED TEXT ['Stage', 'pipeline', 'shim_lifecycle']: src/homemaster/__init__.py
+BLOCKED TEXT ['pipeline']: src/homemaster/agent/__init__.py
+BLOCKED TEXT ['pipeline']: src/homemaster/agent/runtime.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'pipeline', 'scenario']: src/homemaster/cli/app.py
+BLOCKED TEXT ['Stage', 'stage_', 'scenario']: src/homemaster/cli/doctor.py
+BLOCKED TEXT ['scenario']: src/homemaster/cli/interactive_shell.py
+BLOCKED TEXT ['scenario']: src/homemaster/cli/run_command.py
+BLOCKED TEXT ['scenario', 'mock_skills', 'live_models']: src/homemaster/config/runtime_settings.py
+BLOCKED TEXT ['Stage', 'pipeline', 'scenario']: src/homemaster/contracts.py
+BLOCKED TEXT ['Stage']: src/homemaster/embedding_client.py
+BLOCKED TEXT ['Stage', 'stage_', 'pipeline']: src/homemaster/events/runtime_events.py
+BLOCKED TEXT ['stage_']: src/homemaster/events/sinks.py
+BLOCKED TEXT ['Stage']: src/homemaster/execution_state.py
+BLOCKED TEXT ['Stage']: src/homemaster/fact_memory.py
+BLOCKED TEXT ['Stage']: src/homemaster/failure_log.py
+BLOCKED TEXT ['scenario']: src/homemaster/failure_rule_provider.py
+BLOCKED TEXT ['Stage']: src/homemaster/grounding.py
+BLOCKED TEXT ['Stage']: src/homemaster/memory/__init__.py
+BLOCKED TEXT ['Stage']: src/homemaster/memory_commit.py
+BLOCKED TEXT ['Stage']: src/homemaster/memory_index.py
+BLOCKED TEXT ['Stage']: src/homemaster/memory_profile.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'scenario']: src/homemaster/memory_rag.py
+BLOCKED TEXT ['Stage']: src/homemaster/memory_tokenizer.py
+BLOCKED TEXT ['Stage']: src/homemaster/orchestration_validator.py
+BLOCKED PATH: src/homemaster/pipeline/__init__.py
+BLOCKED PATH: src/homemaster/pipeline/adapters.py
+BLOCKED PATH: src/homemaster/pipeline/core.py
+BLOCKED PATH: src/homemaster/pipeline/stage_01_smoke.py
+BLOCKED PATH: src/homemaster/pipeline/stage_runtime.py
+BLOCKED TEXT ['Stage']: src/homemaster/planning_context.py
+BLOCKED TEXT ['stage_']: src/homemaster/prompt_loader.py
+BLOCKED TEXT ['Stage']: src/homemaster/prompts/stage_05_orchestration_prompt.txt
+BLOCKED TEXT ['Stage']: src/homemaster/prompts/stage_05_recovery_prompt.txt
+BLOCKED TEXT ['Stage']: src/homemaster/prompts/stage_05_step_decision_prompt.txt
+BLOCKED TEXT ['Stage']: src/homemaster/prompts/stage_06_summary_prompt.txt
+BLOCKED TEXT ['deterministic']: src/homemaster/providers/mimo_decision_client.py
+BLOCKED TEXT ['stage_', 'mock_skills', 'live_models']: src/homemaster/runtime.py
+BLOCKED TEXT ['Stage', 'scenario']: src/homemaster/runtime_memory_store.py
+BLOCKED TEXT ['scenario']: src/homemaster/scenario_catalog.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'stage_statuses', 'scenario']: src/homemaster/scenario_runner.py
+BLOCKED TEXT ['pipeline', 'scenario']: src/homemaster/scenario_validator.py
+BLOCKED PATH: src/homemaster/stages/__init__.py
+BLOCKED PATH: src/homemaster/stages/executor.py
+BLOCKED PATH: src/homemaster/stages/grounding_runner.py
+BLOCKED PATH: src/homemaster/stages/orchestration_runner.py
+BLOCKED PATH: src/homemaster/stages/orchestrator.py
+BLOCKED PATH: src/homemaster/stages/recovery.py
+BLOCKED PATH: src/homemaster/stages/recovery_loop.py
+BLOCKED PATH: src/homemaster/stages/skill_selector.py
+BLOCKED PATH: src/homemaster/stages/summary.py
+BLOCKED PATH: src/homemaster/stages/summary_runner.py
+BLOCKED PATH: src/homemaster/stages/task_understanding.py
+BLOCKED PATH: src/homemaster/stages/verifier.py
+BLOCKED TEXT ['Stage']: src/homemaster/task_record.py
+BLOCKED TEXT ['Stage', 'stage_', 'stage_statuses', 'pipeline', 'scenario', 'pipeline_compat']: src/homemaster/task_runner.py
+BLOCKED TEXT ['stage_']: src/homemaster/token_budget.py
+BLOCKED TEXT ['stage_', 'run_stage', 'pipeline', 'scenario']: src/homemaster/tools/builtin.py
+BLOCKED TEXT ['scenario']: src/homemaster/tools/simulated.py
+BLOCKED TEXT ['scenario']: src/homemaster/world_overlay.py
+BLOCKED PATH: tests/homemaster/llm_cases/README.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_01/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_01/stage_01_llm_contract_smoke/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_01/stage_01_llm_contract_smoke/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_01/stage_01_llm_contract_smoke/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_01/stage_01_llm_contract_smoke/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/ambiguous_task_card/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/ambiguous_task_card/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/ambiguous_task_card/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/ambiguous_task_card/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/check_medicine_task_card/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/check_medicine_task_card/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/check_medicine_task_card/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/check_medicine_task_card/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/fetch_cup_task_card/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/fetch_cup_task_card/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/fetch_cup_task_card/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/fetch_cup_task_card/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/kitchen_hint_task_card/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/kitchen_hint_task_card/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/kitchen_hint_task_card/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/kitchen_hint_task_card/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_stale_recover-1778258562_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_stale_recover-1778258562_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_stale_recover-1778258562_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_stale_recover-1778258562_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778257868_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778257868_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778257868_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778257868_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778258000_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778258000_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778258000_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_check_medicine_success-1778258000_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-live-medicine_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-live-medicine_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-live-medicine_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-live-medicine_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-shape_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-shape_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-shape_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-shape_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-tokens_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-tokens_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-tokens_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_debug-step-tokens_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778258196_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778258196_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778258196_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778258196_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332383_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332383_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332383_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332383_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332685_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332685_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332685_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332685_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332893_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332893_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332893_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_cup_retry-1778332893_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_medicine_to_grandma-1778258853_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_medicine_to_grandma-1778258853_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_medicine_to_grandma-1778258853_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_fetch_medicine_to_grandma-1778258853_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_interactive-fetch_cup_retry_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_interactive-fetch_cup_retry_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_interactive-fetch_cup_retry_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_interactive-fetch_cup_retry_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-check-medicine-001_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-check-medicine-001_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-check-medicine-001_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-check-medicine-001_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-fetch-cup-001_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-fetch-cup-001_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-fetch-cup-001_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_live-fetch-cup-001_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_object_not_found-1778258350_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_object_not_found-1778258350_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_object_not_found-1778258350_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_object_not_found-1778258350_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_stale_recover_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_stale_recover_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_stale_recover_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_stale_recover_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_success_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_success_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_success_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-check_medicine_success_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-distractor_rejected_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-distractor_rejected_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-distractor_rejected_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-distractor_rejected_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-fetch_cup_retry_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-fetch_cup_retry_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-fetch_cup_retry_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-fetch_cup_retry_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-object_not_found_task_understanding/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-object_not_found_task_understanding/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-object_not_found_task_understanding/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_02/stage07_stage07-object_not_found_task_understanding/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/cup_object_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/cup_object_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/cup_object_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/cup_object_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/medicine_object_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/medicine_object_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/medicine_object_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/medicine_object_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/mimo_memory_retrieval_query/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/mimo_memory_retrieval_query/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/mimo_memory_retrieval_query/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/mimo_memory_retrieval_query/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/negative_evidence_excludes_location/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/negative_evidence_excludes_location/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/negative_evidence_excludes_location/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/negative_evidence_excludes_location/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/reranker_not_required_stage_03/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/reranker_not_required_stage_03/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/reranker_not_required_stage_03/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_03/reranker_not_required_stage_03/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_cup_target/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_cup_target/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_cup_target/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_cup_target/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_medicine_target/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_medicine_target/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_medicine_target/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_medicine_target/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_negative_evidence_target/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_negative_evidence_target/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_negative_evidence_target/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ground_negative_evidence_target/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/planning_context_for_orchestration/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/planning_context_for_orchestration/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/planning_context_for_orchestration/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/planning_context_for_orchestration/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_all_hits_invalid/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_all_hits_invalid/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_all_hits_invalid/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_all_hits_invalid/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_no_memory_context/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_no_memory_context/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_no_memory_context/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_04/ungrounded_no_memory_context/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/check_medicine_orchestration_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/check_medicine_orchestration_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/check_medicine_orchestration_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/check_medicine_orchestration_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/fetch_cup_orchestration_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/fetch_cup_orchestration_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/fetch_cup_orchestration_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/fetch_cup_orchestration_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/find_cup_step_decision_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/find_cup_step_decision_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/find_cup_step_decision_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/find_cup_step_decision_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/pick_cup_step_decision_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/pick_cup_step_decision_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/pick_cup_step_decision_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/pick_cup_step_decision_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/ungrounded_exploration_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/ungrounded_exploration_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/ungrounded_exploration_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_05/ungrounded_exploration_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/check_medicine_summary_memory_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/check_medicine_summary_memory_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/check_medicine_summary_memory_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/check_medicine_summary_memory_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/fetch_cup_success_fact_memory_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/fetch_cup_success_fact_memory_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/fetch_cup_success_fact_memory_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/fetch_cup_success_fact_memory_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/object_not_found_summary_memory_live/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/object_not_found_summary_memory_live/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/object_not_found_summary_memory_live/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_06/object_not_found_summary_memory_live/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/check_medicine_success-1777895799/resolved_world.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/stage_03_cases/stage07_live-check-medicine-001_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/stage_03_cases/stage07_live-check-medicine-001_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/stage_03_cases/stage07_live-check-medicine-001_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-check-medicine-001/stage_03_cases/stage07_live-check-medicine-001_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/stage_03_cases/stage07_live-fetch-cup-001_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/stage_03_cases/stage07_live-fetch-cup-001_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/stage_03_cases/stage07_live-fetch-cup-001_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/live-fetch-cup-001/stage_03_cases/stage07_live-fetch-cup-001_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/stage_03_cases/stage07_stage07-check_medicine_stale_recover_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/stage_03_cases/stage07_stage07-check_medicine_stale_recover_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/stage_03_cases/stage07_stage07-check_medicine_stale_recover_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_stale_recover/stage_03_cases/stage07_stage07-check_medicine_stale_recover_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/stage_03_cases/stage07_stage07-check_medicine_success_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/stage_03_cases/stage07_stage07-check_medicine_success_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/stage_03_cases/stage07_stage07-check_medicine_success_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-check_medicine_success/stage_03_cases/stage07_stage07-check_medicine_success_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/stage_03_cases/stage07_stage07-distractor_rejected_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/stage_03_cases/stage07_stage07-distractor_rejected_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/stage_03_cases/stage07_stage07-distractor_rejected_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-distractor_rejected/stage_03_cases/stage07_stage07-distractor_rejected_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/stage_03_cases/stage07_stage07-fetch_cup_retry_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/stage_03_cases/stage07_stage07-fetch_cup_retry_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/stage_03_cases/stage07_stage07-fetch_cup_retry_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-fetch_cup_retry/stage_03_cases/stage07_stage07-fetch_cup_retry_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/stage_03_cases/stage07_stage07-object_not_found_memory_rag/actual.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/stage_03_cases/stage07_stage07-object_not_found_memory_rag/expected.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/stage_03_cases/stage07_stage07-object_not_found_memory_rag/input.json
+BLOCKED PATH: tests/homemaster/llm_cases/stage_07/stage07-object_not_found/stage_03_cases/stage07_stage07-object_not_found_memory_rag/result.md
+BLOCKED PATH: tests/homemaster/llm_cases/stage_08/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_09/.gitkeep
+BLOCKED PATH: tests/homemaster/llm_cases/stage_10/.gitkeep
+BLOCKED TEXT ['Stage', 'stage_', 'pipeline']: tests/homemaster/prompt_snapshot_export.py
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_01_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_01_task_card_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_02_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_02_task_understanding_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_03_memory_query_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_03_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_orchestration_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_orchestration_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_recovery_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_recovery_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_step_decision_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_05_step_decision_retry.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_06_summary_prompt.txt
+BLOCKED PATH: tests/homemaster/prompt_snapshots/stage_06_summary_retry.txt
+BLOCKED TEXT ['stage_', 'stage_statuses', 'scenario']: tests/homemaster/test_agent_result_mapping.py
+BLOCKED TEXT ['pipeline', 'scenario']: tests/homemaster/test_agent_runtime.py
+BLOCKED TEXT ['mock_skills']: tests/homemaster/test_agent_tools.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_cli_help.py
+BLOCKED TEXT ['Stage', 'stage_']: tests/homemaster/test_cli_interactive.py
+BLOCKED TEXT ['Stage', 'stage_', 'scenario']: tests/homemaster/test_cli_run.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_contracts.py
+BLOCKED TEXT ['stage_', 'pipeline', 'deterministic']: tests/homemaster/test_doubles/__init__.py
+BLOCKED TEXT ['Stage', 'deterministic']: tests/homemaster/test_doubles/decision_provider.py
+BLOCKED TEXT ['pipeline']: tests/homemaster/test_doubles/fake_mimo_client.py
+BLOCKED TEXT ['Stage', 'stage_', 'pipeline', 'scenario', 'deterministic', 'live_models']: tests/homemaster/test_doubles/runtime_providers.py
+BLOCKED TEXT ['Stage', 'scenario']: tests/homemaster/test_embedding_degradation.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_executor.py
+BLOCKED TEXT ['scenario']: tests/homemaster/test_failure_rule_provider.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_frontdoor.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_grounding.py
+BLOCKED TEXT ['stage_', 'mock_skills', 'live_models']: tests/homemaster/test_homemaster_config.py
+BLOCKED TEXT ['stage_', 'pipeline']: tests/homemaster/test_import_boundaries.py
+BLOCKED TEXT ['scenario']: tests/homemaster/test_memory_index.py
+BLOCKED TEXT ['scenario']: tests/homemaster/test_memory_profile.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_memory_rag.py
+BLOCKED TEXT ['scenario']: tests/homemaster/test_memory_tokenizer.py
+BLOCKED TEXT ['deterministic']: tests/homemaster/test_mimo_decision_client.py
+BLOCKED TEXT ['Stage']: tests/homemaster/test_orchestration_validator.py
+BLOCKED TEXT ['Stage', 'stage_', 'stage_statuses', 'pipeline', 'scenario']: tests/homemaster/test_pipeline_core.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_planning_context.py
+BLOCKED TEXT ['stage_', 'pipeline']: tests/homemaster/test_prompt_externalization.py
+BLOCKED TEXT ['Stage', 'run_stage', 'pipeline', 'scenario', 'deterministic']: tests/homemaster/test_recovery_loop.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'stage_statuses', 'pipeline', 'scenario']: tests/homemaster/test_runtime_events.py
+BLOCKED TEXT ['stage_', 'pipeline', 'scenario', 'deterministic', 'mock_skills', 'live_models', 'legacy compat']: tests/homemaster/test_runtime_mode.py
+BLOCKED TEXT ['scenario', 'mock_skills', 'live_models']: tests/homemaster/test_runtime_settings.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'scenario']: tests/homemaster/test_scenario_runner.py
+BLOCKED TEXT ['Stage', 'stage_', 'stage_statuses', 'scenario']: tests/homemaster/test_scenario_snapshot.py
+BLOCKED TEXT ['scenario']: tests/homemaster/test_scenario_validator.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_skill_registry.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_stage_01_04_review_regression.py
+BLOCKED TEXT ['stage_', 'run_stage', 'pipeline']: tests/homemaster/test_stage_01_llm_contract_smoke.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'pipeline']: tests/homemaster/test_stage_01_pipeline.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage']: tests/homemaster/test_stage_02_task_understanding_live.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage']: tests/homemaster/test_stage_03_memory_rag_live.py
+BLOCKED TEXT ['stage_', 'run_stage']: tests/homemaster/test_stage_04_grounding_context.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_stage_05_debug_assets_do_not_contain_secrets.py
+BLOCKED TEXT ['Stage', 'stage_']: tests/homemaster/test_stage_05_orchestration_live.py
+BLOCKED TEXT ['Stage', 'stage_']: tests/homemaster/test_stage_06_contracts.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_stage_06_debug_assets_do_not_contain_secrets.py
+BLOCKED TEXT ['stage_', 'scenario']: tests/homemaster/test_stage_06_runtime_memory_store.py
+BLOCKED TEXT ['Stage', 'stage_']: tests/homemaster/test_stage_06_summary_memory_live.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'scenario']: tests/homemaster/test_stage_07_debug_assets_do_not_contain_secrets.py
+BLOCKED TEXT ['Stage', 'scenario']: tests/homemaster/test_stage_07_scenario_structure.py
+BLOCKED TEXT ['Stage', 'stage_', 'run_stage', 'pipeline', 'scenario']: tests/homemaster/test_stage_07_scenarios_live.py
+BLOCKED TEXT ['Stage', 'stage_', 'pipeline']: tests/homemaster/test_stage_registry.py
+BLOCKED TEXT ['Stage', 'stage_', 'stage_statuses', 'scenario']: tests/homemaster/test_task_runner.py
+BLOCKED TEXT ['stage_', 'stage_statuses', 'scenario']: tests/homemaster/test_task_runner_agent.py
+BLOCKED TEXT ['stage_']: tests/homemaster/test_token_budget.py
