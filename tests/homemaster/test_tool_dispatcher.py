@@ -1,18 +1,18 @@
-"""Tests for ToolDispatcher and StateUpdater."""
+"""Tests for ToolDispatcher — new dispatch(list[ToolCall]) → list[ToolResultMessage] API."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from homemaster.agent.state import AgentState
+from homemaster.agent.messages import ToolCall, ToolResultMessage
+from homemaster.agent.normalized import RunContext
 from homemaster.config.runtime_settings import RuntimeSettings
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
-from homemaster.tools.state_updater import StateUpdater
 
 
-def _make_settings(**kwargs) -> RuntimeSettings:
+def _make_settings(**kwargs: Any) -> RuntimeSettings:
     defaults = {
         "run_id": "test-001",
         "runtime_root": "/tmp/runs",
@@ -23,15 +23,15 @@ def _make_settings(**kwargs) -> RuntimeSettings:
     return RuntimeSettings(**defaults)
 
 
-def _make_spec(name: str = "test_tool", **kwargs) -> ToolSpec:
+def _make_run_context(settings: RuntimeSettings | None = None, **kwargs: Any) -> RunContext:
     defaults = {
-        "name": name,
-        "description": "A test tool",
-        "executor_mode": "programmatic",
-        "selectable_by_model": True,
+        "session_id": "s1",
+        "run_id": "r1",
+        "turn_index": 0,
+        "event_sink": None,
     }
     defaults.update(kwargs)
-    return ToolSpec(**defaults)
+    return RunContext(settings=settings or _make_settings(), **defaults)
 
 
 # ---------------------------------------------------------------------------
@@ -39,191 +39,203 @@ def _make_spec(name: str = "test_tool", **kwargs) -> ToolSpec:
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_invokes_executor() -> None:
-    def _ok_executor(
-        *,
-        arguments: dict,
-        state: AgentState,
-        settings: Any,
-        event_sink: Any = None,
-    ) -> ToolResult:
-        return ToolResult(success=True, tool_name="test_tool", data={"ok": True})
+def test_dispatcher_accepts_generic_agent_state(tmp_path: Any) -> None:
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        assert run_context.deps == {}
+        return ToolResult(
+            success=True,
+            tool_name="echo",
+            executor_mode="programmatic",
+            data=arguments,
+        )
 
-    spec = _make_spec(executor=_ok_executor)
+    spec = ToolSpec(
+        name="echo",
+        description="Echo input",
+        input_schema={"type": "object", "required": ["text"]},
+        executor_mode="programmatic",
+        executor=executor,
+    )
+    settings = RuntimeSettings(
+        run_id="r1",
+        runtime_root=tmp_path,
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
+    )
     dispatcher = ToolDispatcher()
-    state = AgentState()
-    settings = _make_settings()
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="echo", arguments={"text": "hi"})],
+        run_context=_make_run_context(settings),
+    )
+    assert result[0].tool_call_id == "call_1"
+    assert result[0].is_error is False
 
-    result = dispatcher.dispatch(spec=spec, arguments={}, state=state, settings=settings)
-    assert result.success is True
-    assert result.data == {"ok": True}
 
+def test_dispatcher_passes_run_context_deps_without_interpreting_them(tmp_path: Any) -> None:
+    sentinel_home = object()
 
-def test_dispatch_returns_failure_when_no_executor() -> None:
-    spec = _make_spec(executor=None)
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        assert run_context.deps["home"] is sentinel_home
+        return ToolResult(
+            success=True,
+            tool_name="uses_home",
+            executor_mode="programmatic",
+            data={},
+        )
+
+    spec = ToolSpec(
+        name="uses_home",
+        description="Uses opaque home deps",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=executor,
+    )
+    settings = RuntimeSettings(
+        run_id="r1",
+        runtime_root=tmp_path,
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
+    )
     dispatcher = ToolDispatcher()
-    state = AgentState()
-    settings = _make_settings()
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="uses_home", arguments={})],
+        run_context=RunContext(
+            session_id="s1",
+            run_id="r1",
+            turn_index=0,
+            settings=settings,
+            event_sink=None,
+            deps={"home": sentinel_home},
+        ),
+    )
+    assert result[0].tool_call_id == "call_1"
 
-    result = dispatcher.dispatch(spec=spec, arguments={}, state=state, settings=settings)
-    assert result.success is False
-    assert "no executor" in result.failure_reason
+
+def test_dispatch_returns_error_for_unknown_tool() -> None:
+    dispatcher = ToolDispatcher()
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="nonexistent", arguments={})],
+        run_context=_make_run_context(),
+    )
+    assert len(result) == 1
+    assert result[0].is_error is True
+    assert "unknown tool" in result[0].content[0].text
 
 
-def test_dispatch_returns_failure_on_executor_exception() -> None:
-    def _bad_executor(
-        *,
-        arguments: dict,
-        state: AgentState,
-        settings: Any,
-        event_sink: Any = None,
-    ) -> ToolResult:
+def test_dispatch_returns_error_when_no_executor() -> None:
+    spec = ToolSpec(
+        name="empty",
+        description="No executor",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=None,
+    )
+    dispatcher = ToolDispatcher()
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="empty", arguments={})],
+        run_context=_make_run_context(),
+    )
+    assert result[0].is_error is True
+    assert "no executor" in result[0].content[0].text
+
+
+def test_dispatch_returns_error_on_executor_exception() -> None:
+    def bad_executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
         raise ValueError("boom")
 
-    spec = _make_spec(executor=_bad_executor)
+    spec = ToolSpec(
+        name="bad",
+        description="Raises",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=bad_executor,
+    )
     dispatcher = ToolDispatcher()
-    state = AgentState()
-    settings = _make_settings()
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="bad", arguments={})],
+        run_context=_make_run_context(),
+    )
+    assert result[0].is_error is True
+    assert "boom" in result[0].content[0].text
 
-    result = dispatcher.dispatch(spec=spec, arguments={}, state=state, settings=settings)
-    assert result.success is False
-    assert "boom" in result.failure_reason
 
+def test_dispatch_validates_required_arguments() -> None:
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        return ToolResult(success=True, tool_name="echo")
 
-def test_dispatch_blocks_tool_not_in_active_skill() -> None:
-    def _ok_executor(
-        *,
-        arguments: dict,
-        state: AgentState,
-        settings: Any,
-        event_sink: Any = None,
-    ) -> ToolResult:
-        return ToolResult(success=True, tool_name="blocked_tool")
-
-    spec = _make_spec(name="blocked_tool", executor=_ok_executor)
+    spec = ToolSpec(
+        name="echo",
+        description="Requires text",
+        input_schema={"type": "object", "required": ["text"]},
+        executor_mode="programmatic",
+        executor=executor,
+    )
     dispatcher = ToolDispatcher()
-    state = AgentState(
-        active_skills=["fetch_object"],
-        loaded_skill_contexts={"fetch_object": {"allowed_tools": ["navigate", "observe"]}},
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="echo", arguments={})],
+        run_context=_make_run_context(),
     )
-    settings = _make_settings()
-
-    result = dispatcher.dispatch(spec=spec, arguments={}, state=state, settings=settings)
-    assert result.success is False
-    assert "not allowed" in result.failure_reason
+    assert result[0].is_error is True
+    assert "missing required" in result[0].content[0].text
 
 
-def test_dispatch_allows_tool_when_no_active_skill() -> None:
-    def _ok_executor(
-        *,
-        arguments: dict,
-        state: AgentState,
-        settings: Any,
-        event_sink: Any = None,
-    ) -> ToolResult:
-        return ToolResult(success=True, tool_name="any_tool")
+def test_dispatcher_callable_adapter(tmp_path: Any) -> None:
+    """ToolDispatcher.__call__(name, args) works for GenericAgentRuntime compatibility."""
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        return ToolResult(success=True, tool_name="echo", data=arguments)
 
-    spec = _make_spec(name="any_tool", executor=_ok_executor)
+    spec = ToolSpec(
+        name="echo",
+        description="Echo",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=executor,
+    )
+    settings = RuntimeSettings(
+        run_id="r1",
+        runtime_root=tmp_path,
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
+    )
     dispatcher = ToolDispatcher()
-    state = AgentState()  # no active_skills
-    settings = _make_settings()
-
-    result = dispatcher.dispatch(spec=spec, arguments={}, state=state, settings=settings)
-    assert result.success is True
-
-
-# ---------------------------------------------------------------------------
-# StateUpdater tests
-# ---------------------------------------------------------------------------
-
-
-def test_state_updater_appends_failure_on_failed_result() -> None:
-    updater = StateUpdater()
-    spec = _make_spec()
-    state = AgentState()
-    result = ToolResult(success=False, tool_name="test", failure_reason="boom")
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert len(updated.failures) == 1
-    assert updated.failures[0]["error"] == "boom"
+    dispatcher.register(spec)
+    dispatcher.set_run_context(RunContext(
+        session_id="s1",
+        run_id="r1",
+        turn_index=0,
+        settings=settings,
+        event_sink=None,
+    ))
+    result = dispatcher("echo", {"text": "hi"})
+    assert isinstance(result, ToolResultMessage)
+    assert result.is_error is False
 
 
-def test_state_updater_sets_task_card_from_understand_task() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="understand_task")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="understand_task",
-        data={"task_card": {"target": "cup", "intent": "fetch"}},
+def test_dispatch_preserves_parallel_tool_call_ids() -> None:
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        return ToolResult(success=True, tool_name="echo", data=arguments)
+
+    spec = ToolSpec(
+        name="echo",
+        description="Echo",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=executor,
     )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert updated.task_card == {"target": "cup", "intent": "fetch"}
-
-
-def test_state_updater_sets_memory_hits_from_retrieve_memory() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="retrieve_memory")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="retrieve_memory",
-        data={"hits": [{"memory_id": "m1"}, {"memory_id": "m2"}]},
+    dispatcher = ToolDispatcher()
+    dispatcher.register(spec)
+    result = dispatcher.dispatch(
+        tool_calls=[
+            ToolCall(id="call_1", name="echo", arguments={"a": 1}),
+            ToolCall(id="call_2", name="echo", arguments={"b": 2}),
+        ],
+        run_context=_make_run_context(),
     )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert len(updated.memory_hits) == 2
-
-
-def test_state_updater_sets_current_location_from_navigate() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="navigate")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="navigate",
-        data={"location": "kitchen", "observation": "arrived"},
-    )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert updated.current_location == "kitchen"
-    assert len(updated.actions) == 1
-
-
-def test_state_updater_sets_holding_from_manipulate() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="manipulate")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="manipulate",
-        data={"holding": "cup", "action": "pick_up"},
-    )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert updated.holding_object == "cup"
-
-
-def test_state_updater_appends_verification() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="verify")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="verify",
-        data={"verified": True, "reason": "object held"},
-    )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert len(updated.verifications) == 1
-    assert updated.verifications[0]["result"]["verified"] is True
-
-
-def test_state_updater_sets_loaded_skill_context_from_get_skill() -> None:
-    updater = StateUpdater()
-    spec = _make_spec(name="get_skill")
-    state = AgentState()
-    result = ToolResult(
-        success=True, tool_name="get_skill",
-        data={"name": "fetch_object", "content": "...", "allowed_tools": ["navigate"]},
-    )
-
-    updated = updater.apply(state=state, result=result, spec=spec)
-    assert "fetch_object" in updated.loaded_skill_contexts
-    assert updated.loaded_skill_contexts["fetch_object"]["content"] == "..."
+    assert len(result) == 2
+    assert result[0].tool_call_id == "call_1"
+    assert result[1].tool_call_id == "call_2"

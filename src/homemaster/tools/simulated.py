@@ -2,15 +2,14 @@
 
 These executors simulate robot actions (navigate, observe, manipulate, verify)
 when real VLA/VLN/VLM executors are not integrated. Each executor has signature:
-    def executor(*, arguments: dict, state: AgentState, settings: RuntimeSettings) -> ToolResult
+    def executor(*, arguments: dict, run_context: RunContext) -> ToolResult
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from homemaster.agent.state import AgentState
-from homemaster.config.runtime_settings import RuntimeSettings
+from homemaster.agent.normalized import RunContext
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
 
@@ -22,9 +21,7 @@ from homemaster.tools.spec import ToolSpec
 def exec_navigate(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
     """Simulated navigation: move robot to target location."""
     goal_type = arguments.get("goal_type", "go_to")
@@ -44,33 +41,10 @@ def exec_navigate(
 def exec_observe(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
-    """Simulated observation. Supports failure injection via FailureRuleProvider."""
-    target = arguments.get("target_object", state.current_object or "unknown")
-    location = state.current_location or "unknown"
-
-    # Check for failure injection
-    scenario = settings.scenario
-    scenario_root = settings.scenario_root
-    if scenario and scenario_root:
-        try:
-            from homemaster.failure_rule_provider import FailureRuleProvider
-
-            fp = FailureRuleProvider.from_scenario(scenario, scenario_root)
-            if fp.should_force_no_object(target_category=target):
-                return ToolResult(
-                    success=False,
-                    tool_name="observe",
-                    executor_mode="simulated_skill",
-                    failure_reason=f"object {target!r} not found at {location}",
-                    data={"object": target, "visible": False, "location": location},
-                )
-        except Exception:
-            pass  # Failure injection is best-effort
-
+    """Simulated observation."""
+    target = arguments.get("target_object", "unknown")
     return ToolResult(
         success=True,
         tool_name="observe",
@@ -78,8 +52,7 @@ def exec_observe(
         data={
             "object": target,
             "visible": True,
-            "location": location,
-            "observation": f"observed {target} at {location}",
+            "observation": f"observed {target}",
         },
     )
 
@@ -87,13 +60,11 @@ def exec_observe(
 def exec_manipulate(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
     """Simulated manipulation: pick up, put down, etc."""
     action = arguments.get("action", "pick_up")
-    target = arguments.get("target_object", state.current_object or "unknown")
+    target = arguments.get("target_object", "unknown")
     return ToolResult(
         success=True,
         tool_name="manipulate",
@@ -109,20 +80,15 @@ def exec_manipulate(
 def exec_verify(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
     """Simulated symbolic verification: check task objective achieved."""
-    target = arguments.get("target_object", state.holding_object or state.current_object)
+    target = arguments.get("target_object", "unknown")
     expected_state = arguments.get("expected_state", "delivered")
 
-    # Simple simulated check: if holding the object, verification passes
-    verified = state.holding_object == target if target else False
-    reason = (
-        f"object {target} is held by robot" if verified
-        else f"object {target} not held (current: {state.holding_object})"
-    )
+    # In generic mode, verification always succeeds for simulated tools
+    verified = True
+    reason = f"simulated verification passed for {target}"
     return ToolResult(
         success=verified,
         tool_name="verify",

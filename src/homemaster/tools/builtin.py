@@ -1,20 +1,14 @@
-"""Builtin tool executors for AgentRuntime.
+"""Builtin tool executors for GenericAgentRuntime.
 
-11 tools wrapping existing stage code or providing simulated execution.
 Each executor has signature:
-    def executor(*, arguments: dict, state: AgentState, settings: RuntimeSettings) -> ToolResult
-
-Tools marked "thin wrapper" delegate to existing stage functions.
-Tools marked "new code" provide simulated or programmatic execution.
+    def executor(*, arguments: dict, run_context: RunContext) -> ToolResult
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from homemaster.agent.state import AgentState
-from homemaster.config.runtime_settings import RuntimeSettings
+from homemaster.agent.normalized import RunContext
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.results import ToolResult
 from homemaster.tools.simulated import SIMULATED_TOOL_MAKERS
@@ -29,156 +23,43 @@ from homemaster.tools.spec import ToolSpec
 def _exec_understand_task(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
-    """Thin wrapper: run_stage02() → TaskCard."""
-    from homemaster.pipeline.stage_runtime import run_stage02
-
-    utterance = arguments.get("utterance") or state.user_request
-    try:
-        task_card = run_stage02(
-            utterance=utterance,
-            run_id=settings.run_id,
-            config_path=str(settings.config_path or ""),
-            provider_name=settings.provider_name,
-            event_sink=event_sink,
-        )
-        return ToolResult(
-            success=True,
-            tool_name="understand_task",
-            executor_mode="live_llm",
-            data={"task_card": task_card.model_dump(mode="json")},
-        )
-    except Exception as exc:
-        return ToolResult(
-            success=False,
-            tool_name="understand_task",
-            executor_mode="live_llm",
-            failure_reason=f"{type(exc).__name__}: {exc}",
-        )
+    """Stub: understand_task will be migrated in Batch 3."""
+    return ToolResult(
+        success=False,
+        tool_name="understand_task",
+        executor_mode="live_llm",
+        failure_reason="understand_task not yet migrated to generic runtime",
+    )
 
 
 def _exec_retrieve_memory(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
-    """Thin wrapper: run_stage03() → MemoryRagResult."""
-    from homemaster.contracts import TaskCard
-    from homemaster.pipeline.stage_runtime import run_stage03
-
-    if not state.task_card:
-        return ToolResult(
-            success=False,
-            tool_name="retrieve_memory",
-            executor_mode="live_llm",
-            failure_reason="no task_card in state — call understand_task first",
-        )
-    try:
-        task_card = TaskCard.model_validate(state.task_card)
-        result = run_stage03(
-            task_card=task_card,
-            memory_path=str(settings.memory_path or ""),
-            scenario=settings.scenario or "",
-            run_id=settings.run_id,
-            config_path=str(settings.config_path or ""),
-            provider_name=settings.provider_name,
-            embedding_provider_name=settings.embedding_provider_name,
-            case_root=settings.case_dir or Path("."),
-            results_dir=settings.results_root,
-            event_sink=event_sink,
-            turn_index=state.turn_index,
-        )
-        return ToolResult(
-            success=True,
-            tool_name="retrieve_memory",
-            executor_mode="live_llm",
-            data={"hits": [h.model_dump(mode="json") for h in result.hits]},
-        )
-    except Exception as exc:
-        return ToolResult(
-            success=False,
-            tool_name="retrieve_memory",
-            executor_mode="live_llm",
-            failure_reason=f"{type(exc).__name__}: {exc}",
-        )
+    """Stub: retrieve_memory will be migrated in Batch 3."""
+    return ToolResult(
+        success=False,
+        tool_name="retrieve_memory",
+        executor_mode="live_llm",
+        failure_reason="retrieve_memory not yet migrated to generic runtime",
+    )
 
 
 def _exec_ground_target(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
-    """Thin wrapper: build_planning_context() → PlanningContext."""
-    import json
-
-    from homemaster.contracts import MemoryRetrievalHit, MemoryRetrievalResult, TaskCard
-    from homemaster.planning_context import build_planning_context
-
-    if not state.task_card:
-        return ToolResult(
-            success=False,
-            tool_name="ground_target",
-            executor_mode="programmatic",
-            failure_reason="no task_card in state",
-        )
-    try:
-        task_card = TaskCard.model_validate(state.task_card)
-        hits = [MemoryRetrievalHit.model_validate(h) for h in state.memory_hits]
-        memory_result = MemoryRetrievalResult(hits=hits, retrieval_query=None)
-
-        world_path = settings.world_path
-        world = json.loads(world_path.read_text(encoding="utf-8")) if world_path else {}
-
-        result = build_planning_context(task_card, memory_result, world)
-        context = result.context
-        return ToolResult(
-            success=True,
-            tool_name="ground_target",
-            executor_mode="programmatic",
-            data={
-                "candidates": [
-                    {
-                        "memory_id": t.memory_id,
-                        "object_category": t.object_category,
-                        "room_id": t.room_id,
-                        "anchor_id": t.anchor_id,
-                    }
-                    for t in (context.rejected_hits or [])
-                ] + (
-                    [{
-                        "memory_id": context.selected_target.memory_id,
-                        "object_category": context.selected_target.object_category,
-                        "room_id": context.selected_target.room_id,
-                        "anchor_id": context.selected_target.anchor_id,
-                    }] if context.selected_target else []
-                ),
-                "selected_target": (
-                    {
-                        "memory_id": context.selected_target.memory_id,
-                        "object_category": context.selected_target.object_category,
-                        "room_id": context.selected_target.room_id,
-                        "anchor_id": context.selected_target.anchor_id,
-                    }
-                    if context.selected_target
-                    else None
-                ),
-                "grounded": context.selected_target is not None,
-            },
-        )
-    except Exception as exc:
-        return ToolResult(
-            success=False,
-            tool_name="ground_target",
-            executor_mode="programmatic",
-            failure_reason=f"{type(exc).__name__}: {exc}",
-        )
+    """Stub: ground_target will be migrated in Batch 3."""
+    return ToolResult(
+        success=False,
+        tool_name="ground_target",
+        executor_mode="programmatic",
+        failure_reason="ground_target not yet migrated to generic runtime",
+    )
 
 
 def _make_get_skill_executor(skill_registry: Any):
@@ -187,9 +68,7 @@ def _make_get_skill_executor(skill_registry: Any):
     def _exec_get_skill(
         *,
         arguments: dict[str, Any],
-        state: AgentState,
-        settings: RuntimeSettings,
-        event_sink: Any = None,
+        run_context: RunContext,
     ) -> ToolResult:
         skill_name = arguments.get("skill_name", "")
         if not skill_name:
@@ -229,9 +108,7 @@ def _make_get_skill_executor(skill_registry: Any):
 def _exec_update_memory(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
     """Validate proposal and persist via RuntimeMemoryStore."""
     proposal = arguments.get("proposal")
@@ -256,13 +133,9 @@ def _exec_update_memory(
 
     anchor_id = proposal["anchor_id"]
     belief_state = proposal.get("belief_state", "verified")
-
-    # Find memory_id from state.memory_hits by anchor_id match
     memory_id = anchor_id
-    for hit in state.memory_hits:
-        if hit.get("anchor_id") == anchor_id:
-            memory_id = hit.get("memory_id", anchor_id)
-            break
+
+    settings = run_context.settings
 
     # Persist via RuntimeMemoryStore if memory_path is available
     if settings.memory_path and settings.memory_path.exists():
@@ -319,11 +192,9 @@ def _exec_update_memory(
 def _exec_update_user_profile(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
-    """New code: validate and accept user profile proposal."""
+    """Validate and accept user profile proposal."""
     proposal = arguments.get("proposal")
     if not proposal:
         return ToolResult(
@@ -354,9 +225,7 @@ def _exec_update_user_profile(
 def _exec_finish_task(
     *,
     arguments: dict[str, Any],
-    state: AgentState,
-    settings: RuntimeSettings,
-    event_sink: Any = None,
+    run_context: RunContext,
 ) -> ToolResult:
     """Internal finalizer. selectable_by_model=False. Never called by Mimo."""
     return ToolResult(

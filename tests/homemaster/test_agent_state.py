@@ -1,8 +1,12 @@
-"""Tests for AgentState — construction, defaults, serialization."""
+"""Tests for AgentState — construction, defaults, and boundary assertions."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from homemaster.agent.state import AgentState
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_agent_state_default_construction() -> None:
@@ -10,10 +14,9 @@ def test_agent_state_default_construction() -> None:
     assert state.run_id == ""
     assert state.status == "running"
     assert state.turn_index == 0
-    assert state.task_card is None
-    assert state.memory_hits == []
-    assert state.failures == []
-    assert state.selected_target is None
+    assert state.metadata == {}
+    assert state.tool_results == []
+    assert state.last_assistant_text is None
 
 
 def test_agent_state_with_values() -> None:
@@ -22,39 +25,57 @@ def test_agent_state_with_values() -> None:
         user_request="fetch the cup",
         status="running",
         turn_index=3,
-        current_location="kitchen",
-        holding_object="cup",
     )
     assert state.run_id == "test-001"
     assert state.user_request == "fetch the cup"
-    assert state.current_location == "kitchen"
-    assert state.holding_object == "cup"
+    assert state.turn_index == 3
 
 
 def test_agent_state_serialization_roundtrip() -> None:
     state = AgentState(
         run_id="test-002",
-        task_card={"target": "cup", "intent": "fetch"},
-        memory_hits=[{"memory_id": "m1", "object_category": "cup"}],
+        metadata={"debug": True},
+        tool_results=[{"tool": "navigate", "success": True}],
     )
     dumped = state.model_dump(mode="json")
     restored = AgentState.model_validate(dumped)
     assert restored.run_id == "test-002"
-    assert restored.task_card == {"target": "cup", "intent": "fetch"}
-    assert len(restored.memory_hits) == 1
+    assert restored.metadata == {"debug": True}
+    assert len(restored.tool_results) == 1
 
 
-def test_agent_state_selected_target() -> None:
-    target = {"memory_id": "m1", "room_id": "kitchen", "anchor_id": "a1"}
-    state = AgentState(selected_target=target)
-    assert state.selected_target is not None
-    assert state.selected_target["memory_id"] == "m1"
-    assert state.selected_target["room_id"] == "kitchen"
+def test_agent_state_has_no_home_task_fields() -> None:
+    fields = set(AgentState.model_fields)
+    assert "task_card" not in fields
+    assert "memory_hits" not in fields
+    assert "current_location" not in fields
+    assert "holding_object" not in fields
+    assert "selected_target" not in fields
+    assert "target_candidates" not in fields
+    assert "current_object" not in fields
+    assert "actions" not in fields
+    assert "observations" not in fields
+    assert "verifications" not in fields
+    assert "failures" not in fields
+    assert "active_skills" not in fields
+    assert "loaded_skill_contexts" not in fields
+    assert "memory_context_snapshot" not in fields
+    assert "user_context_snapshot" not in fields
 
 
-def test_agent_state_mutable_lists() -> None:
+def test_agent_context_composer_has_no_home_task_fields() -> None:
+    for rel in ("src/homemaster/agent/context.py", "src/homemaster/agent/context_builder.py"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "task_card" not in text
+        assert "target_candidates" not in text
+        assert "current_location" not in text
+        assert "holding_object" not in text
+        assert "memory_hits" not in text
+
+
+def test_agent_state_mutable_metadata() -> None:
     state = AgentState()
-    state.failures.append({"tool": "observe", "error": "not found"})
-    state.actions.append({"tool": "navigate", "result": {}})
-    assert len(state.failures) == 1
-    assert len(state.actions) == 1
+    state.metadata["key"] = "value"
+    state.tool_results.append({"tool": "test", "success": True})
+    assert state.metadata["key"] == "value"
+    assert len(state.tool_results) == 1

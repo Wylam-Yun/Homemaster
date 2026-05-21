@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homemaster.agent.state import AgentState
+from homemaster.agent.normalized import RunContext
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.results import ToolResult
 from homemaster.tools.skill_tools import make_get_skill_spec
@@ -23,7 +23,7 @@ def _make_tool(name: str, **overrides: Any) -> ToolSpec:
 
 
 def test_to_mimo_manifest_excludes_executor() -> None:
-    def my_executor(*, arguments, state, settings):
+    def my_executor(*, arguments: Any, run_context: RunContext) -> ToolResult:
         return ToolResult(success=True)
 
     spec = _make_tool("test_tool", executor=my_executor)
@@ -82,24 +82,6 @@ def test_tool_registry_all_names() -> None:
     registry.register(_make_tool("a"))
     registry.register(_make_tool("b"))
     assert set(registry.all_names()) == {"a", "b"}
-
-
-def test_dispatcher_calls_executor() -> None:
-    """ToolSpec holds executor but does not call it — Dispatcher does."""
-    called = []
-
-    def my_executor(*, arguments, state, settings):
-        called.append(True)
-        return ToolResult(success=True)
-
-    spec = _make_tool("test", executor=my_executor)
-    # ToolSpec has the executor reference
-    assert spec.executor is not None
-    # But calling it directly is a Dispatcher responsibility
-    # Simulate Dispatcher behavior:
-    result = spec.executor(arguments={}, state=AgentState(), settings=None)
-    assert result.success is True
-    assert called == [True]
 
 
 def test_ask_user_not_in_tool_manifests() -> None:

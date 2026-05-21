@@ -6,47 +6,32 @@ from pathlib import Path
 
 import typer
 
+from homemaster.agent.turn import run_single_turn
 from homemaster.logger import setup_logging
-from homemaster.task_runner import run_homemaster_task
 
 
 def handle_run(
     *,
     utterance: str,
-    scenario: str | None,
-    world_path: Path | None,
-    memory_path: Path | None,
-    runtime_memory_root: Path | None = None,
-    debug_root: Path | None = None,
-    results_root: Path | None = None,
+    world_path: Path | None = None,
+    memory_path: Path | None = None,
     run_id: str | None = None,
     log_level: str = "INFO",
-    skill_mode: str = "simulated",
     progress: bool = False,
 ) -> None:
-    """Execute a HomeMaster task run.
-
-    No CLI-level policy checks — task_runner raises HomeMasterRunError /
-    RuntimeConfigError which the CLI renders via render_error_and_exit().
-    """
+    """Execute a single agent turn via the generic runtime."""
     setup_logging(level=log_level)
-    result = run_homemaster_task(
+    result = run_single_turn(
         utterance=utterance,
-        scenario=scenario,
+        run_id=run_id,
         world_path=world_path,
         memory_path=memory_path,
-        runtime_memory_root=runtime_memory_root,
-        debug_root=debug_root,
-        results_root=results_root,
-        run_id=run_id,
-        skill_mode=skill_mode,
         progress=progress,
     )
     typer.echo(f"run_id: {result.run_id}")
-    typer.echo(f"scenario: {result.scenario}")
-    typer.echo(f"final_status: {result.final_status}")
-    typer.echo(f"debug_path: {result.case_dir / 'result.md'}")
-    typer.echo(f"event_trace: {result.case_dir / 'trace' / 'runtime_events.jsonl'}")
-    typer.echo(f"runtime_memory_root: {result.runtime_memory_root}")
-    if result.final_status == "failed":
-        typer.echo("run_result: task failed safely; see debug_path for failure details")
+    typer.echo(f"assistant: {result.final_reply}")
+    typer.echo(f"status: {result.status}")
+    if result.trace_path:
+        typer.echo(f"trace: {result.trace_path}")
+    if result.run_dir:
+        typer.echo(f"run_dir: {result.run_dir}")

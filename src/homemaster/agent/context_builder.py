@@ -2,8 +2,8 @@
 
 Output is a three-layer dict:
   stable_context:      runtime constraints, tool manifest, skill summaries, snapshots
-  task_state_context:  user request, task card, candidates, embodied state
-  recent_dynamics:     actions, observations, verifications, failures
+  task_state_context:  user request, metadata
+  recent_dynamics:     tool results, metadata
 
 Does NOT include full trace, raw prompt, secrets, or full SKILL.md.
 """
@@ -45,31 +45,18 @@ class ContextBuilder:
             },
             "tool_manifests": tool_manifests,
             "skill_summaries": skill_summaries,
-            "loaded_skill_contexts": state.loaded_skill_contexts,
-            "memory_snapshot": state.memory_context_snapshot,
-            "user_snapshot": state.user_context_snapshot,
         }
 
     def _build_task_state(self, state: AgentState) -> dict[str, Any]:
         return {
             "user_request": state.user_request,
-            "task_card": state.task_card,
-            "target_candidates": state.target_candidates,
-            "current_location": state.current_location,
-            "current_object": state.current_object,
-            "holding_object": state.holding_object,
-            "memory_hits_summary": [
-                {"memory_id": h.get("memory_id"), "object_category": h.get("object_category")}
-                for h in state.memory_hits[:10]
-            ],
+            "metadata": state.metadata,
         }
 
     def _build_dynamics(self, state: AgentState, max_turns: int) -> dict[str, Any]:
         return {
-            "recent_actions": state.actions[-5:],
-            "recent_observations": state.observations[-5:],
-            "recent_verifications": state.verifications[-5:],
-            "failures": state.failures[-3:],
+            "recent_tool_results": state.tool_results[-5:],
+            "failures": state.metadata.get("failures", [])[-3:],
             "turn_index": state.turn_index,
             "max_turns": max_turns,
         }

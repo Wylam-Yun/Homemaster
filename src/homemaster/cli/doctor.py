@@ -7,7 +7,6 @@ import importlib
 import json
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,7 +24,6 @@ from homemaster.runtime import (
     RuntimeConfigError,
     load_provider_config,
 )
-from homemaster.runtime_memory_store import RuntimeMemoryStore
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
 
@@ -63,7 +61,6 @@ def run_doctor(*, live: bool = False) -> DoctorReport:
     checks.append(_config_check(config_source))
     checks.append(_embedding_endpoint_check())
     checks.append(_ignored_paths_check())
-    checks.append(_runtime_memory_store_check())
     checks.append(_import_boundary_check())
     if live:
         checks.extend(_live_provider_checks())
@@ -187,9 +184,7 @@ def _embedding_endpoint_check() -> DoctorCheck:
 def _ignored_paths_check() -> DoctorCheck:
     paths = [
         ".cache/homemaster/embeddings/example.json",
-        "plan/V1.2/test_results/stage_07/example.log",
         "var/homemaster/memory/example.json",
-        "var/homemaster/runs/example/memory/object_memory.json",
     ]
     missed = [path for path in paths if not _git_check_ignore(path)]
     return DoctorCheck(
@@ -214,29 +209,6 @@ def _git_check_ignore(path: str) -> bool:
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
-
-
-def _runtime_memory_store_check() -> DoctorCheck:
-    base_memory_path = REPO_ROOT / "data" / "scenarios" / "fetch_cup_retry" / "memory.json"
-    try:
-        with tempfile.TemporaryDirectory(prefix="homemaster-doctor-") as tmp:
-            store = RuntimeMemoryStore(Path(tmp) / "memory")
-            payload = store.load_runtime_or_base(base_memory_path)
-            ok = isinstance(payload.get("object_memory"), list)
-    except Exception as exc:  # pragma: no cover - environment failure
-        return DoctorCheck(
-            name="runtime_memory_store",
-            status="FAIL",
-            message=f"runtime memory check failed: {type(exc).__name__}",
-            suggestion="Check scenario memory fixtures and writable temp directories.",
-        )
-    return DoctorCheck(
-        name="runtime_memory_store",
-        status="PASS" if ok else "FAIL",
-        message="runtime object memory overlay can read base memory"
-        if ok
-        else "base memory payload missing object_memory",
-    )
 
 
 def _import_boundary_check() -> DoctorCheck:

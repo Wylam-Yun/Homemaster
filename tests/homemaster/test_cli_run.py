@@ -1,108 +1,63 @@
+"""Tests for CLI run command — V1.4 generic agent loop."""
+
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
-from homemaster.cli import app
+from homemaster.cli.app import app
 
 
-def test_cli_run_requires_explicit_scenario_context(tmp_path: Path) -> None:
-    result = CliRunner().invoke(
-        app,
-        [
-            "run",
-            "--utterance",
-            "去厨房找水杯，然后拿给我",
-            "--run-id",
-            "missing-scenario",
-            "--runtime-memory-root",
-            str(tmp_path / "memory"),
-            "--debug-root",
-            str(tmp_path / "debug"),
-        ],
+@dataclass(frozen=True)
+class FakeTurn:
+    run_id: str = "r1"
+    status: str = "replied"
+    final_reply: str = "已完成。"
+    trace_path: Path | None = None
+    run_dir: Path | None = None
+    tool_events: list = field(default_factory=list)
+
+
+def test_run_command_prints_assistant_reply_and_trace(monkeypatch, tmp_path: Path) -> None:
+    trace = tmp_path / "runs" / "r1" / "events.jsonl"
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.run_single_turn",
+        lambda **kwargs: FakeTurn("r1", "replied", "已完成。", trace, tmp_path / "runs" / "r1", []),
     )
+    result = CliRunner().invoke(app, ["run", "--utterance", "帮我拿个水"])
+    assert result.exit_code == 0
+    assert "assistant: 已完成。" in result.stdout
+    assert "trace:" in result.stdout
+    assert "stage" not in result.stdout.lower()
+    assert "scenario" not in result.stdout.lower()
 
-    assert result.exit_code != 0
-    assert "scenario" in result.stdout or "scenario" in result.stderr
 
-
-def test_cli_run_unknown_flag_rejected(tmp_path: Path) -> None:
-    """--no-live-models is no longer a valid flag."""
-    result = CliRunner().invoke(
-        app,
-        [
-            "run",
-            "--utterance",
-            "去厨房找水杯",
-            "--scenario",
-            "fetch_cup_retry",
-            "--no-live-models",
-        ],
+def test_run_command_accepts_progress_flag(monkeypatch, tmp_path: Path) -> None:
+    """--progress flag is accepted."""
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.run_single_turn",
+        lambda **kwargs: FakeTurn(),
     )
+    result = CliRunner().invoke(app, ["run", "--utterance", "test", "--progress"])
+    assert result.exit_code == 0
 
-    assert result.exit_code != 0
 
-
-def test_cli_run_accepts_progress_flag(tmp_path: Path) -> None:
-    """--progress flag is accepted (fails at scenario validation, not flag parsing)."""
+def test_run_command_no_scenario_flag() -> None:
+    """--scenario is no longer a valid flag."""
     result = CliRunner().invoke(
         app,
-        [
-            "run",
-            "--utterance",
-            "去厨房找水杯",
-            "--progress",
-        ],
-    )
-    # Should fail because --scenario is required, not because --progress is unknown
-    assert result.exit_code != 0
-    assert "scenario" in result.stderr
-
-
-def test_cli_run_accepts_no_progress_flag(tmp_path: Path) -> None:
-    """--no-progress flag is accepted."""
-    result = CliRunner().invoke(
-        app,
-        [
-            "run",
-            "--utterance",
-            "去厨房找水杯",
-            "--no-progress",
-        ],
+        ["run", "--utterance", "test", "--scenario", "fetch_cup_retry"],
     )
     assert result.exit_code != 0
-    assert "scenario" in result.stderr
 
 
-@pytest.mark.live_api
-def test_cli_run_writes_debug_and_runtime_memory(tmp_path: Path) -> None:
-    if os.getenv("HOMEMASTER_RUN_LIVE_LLM") != "1":
-        pytest.skip("set HOMEMASTER_RUN_LIVE_LLM=1 to run real Mimo Stage 07 cases")
-    runtime_root = tmp_path / "runs"
-    debug_root = tmp_path / "debug"
-    result = CliRunner().invoke(
-        app,
-        [
-            "run",
-            "--utterance",
-            "去厨房找水杯，然后拿给我",
-            "--scenario",
-            "fetch_cup_retry",
-            "--run-id",
-            "cli-fetch-cup",
-            "--runtime-memory-root",
-            str(runtime_root),
-            "--debug-root",
-            str(debug_root),
-        ],
+def test_run_command_status_field(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.run_single_turn",
+        lambda **kwargs: FakeTurn(status="replied"),
     )
-
-    assert result.exit_code == 0, result.stdout
-    assert "final_status" in result.stdout
-    assert "cli-fetch-cup" in result.stdout
-    assert (runtime_root / "cli-fetch-cup" / "memory" / "object_memory.json").is_file()
-    assert (runtime_root / "cli-fetch-cup" / "memory" / "task_records.jsonl").is_file()
-    assert (debug_root / "stage_07" / "cli-fetch-cup" / "result.md").is_file()
+    result = CliRunner().invoke(app, ["run", "--utterance", "test"])
+    assert result.exit_code == 0
+    assert "status: replied" in result.stdout

@@ -1,10 +1,12 @@
+"""Tests for CLI doctor command."""
+
 from __future__ import annotations
 
 import json
 
 from typer.testing import CliRunner
 
-from homemaster.cli import app
+from homemaster.cli.app import app
 from homemaster.cli.doctor import run_doctor
 
 SECRET_MARKERS = ("Authorization", "Bearer", "x-api-key", "api_keys", "sk-")

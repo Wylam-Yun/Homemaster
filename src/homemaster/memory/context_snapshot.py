@@ -22,8 +22,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from homemaster.agent.state import AgentState
-
 
 @dataclass
 class SnapshotResult:
@@ -42,7 +40,6 @@ class ContextSnapshot:
         self._output_dir = output_dir
         self._memory_snapshot: SnapshotResult | None = None
         self._user_snapshot: SnapshotResult | None = None
-        self._memory_hits_at_snapshot: list[dict[str, Any]] | None = None
 
     def generate_memory_snapshot(
         self,
@@ -75,7 +72,6 @@ class ContextSnapshot:
             generated_at=generated_at,
         )
         self._memory_snapshot = result
-        self._memory_hits_at_snapshot = list(object_memory_records)
         if self._output_dir:
             _atomic_write(self._output_dir / "MEMORY.md", content)
         return result
@@ -108,30 +104,6 @@ class ContextSnapshot:
         if self._output_dir:
             _atomic_write(self._output_dir / "USER.md", content)
         return result
-
-    def refresh_if_stale(self, state: AgentState) -> AgentState:
-        """Check if snapshots are stale and regenerate if needed.
-
-        A snapshot is stale if:
-        - state has memory hits but no snapshot content
-        - state has memory hits that differ from what was used to generate
-          the current snapshot (data changed since last generation)
-        Returns the (possibly updated) AgentState.
-        """
-        if state.memory_hits:
-            needs_refresh = (
-                state.memory_context_snapshot is None
-                or state.memory_hits != self._memory_hits_at_snapshot
-            )
-            if needs_refresh:
-                result = self.generate_memory_snapshot(state.memory_hits)
-                state.memory_context_snapshot = result.content
-
-        if state.user_context_snapshot is None:
-            result = self.generate_user_snapshot()
-            state.user_context_snapshot = result.content
-
-        return state
 
     @property
     def last_memory_snapshot(self) -> SnapshotResult | None:

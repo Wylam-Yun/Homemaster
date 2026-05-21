@@ -16,7 +16,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from homemaster.agent.state import AgentState
+from homemaster.agent.normalized import RunContext
 from homemaster.tools.results import ToolResult
 
 
@@ -27,8 +27,7 @@ class ToolExecutor(Protocol):
         self,
         *,
         arguments: dict[str, Any],
-        state: AgentState,
-        settings: Any,  # RuntimeSettings — forward reference to avoid circular import
+        run_context: RunContext,
     ) -> ToolResult: ...
 
 
