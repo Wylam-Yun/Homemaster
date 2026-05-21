@@ -106,7 +106,7 @@ Event types include: `run_started`, `run_completed`, `run_failed`, `turn_started
 `tool_call_completed`, `tool_call_failed`, `llm_call_started`, `llm_call_completed`,
 `llm_call_failed`, `embedding_call_started`, `embedding_call_completed`,
 `embedding_call_failed`, `stage_started`, `stage_completed`, `stage_failed`,
-`recovery_started`, `recovery_completed`, `memory_commit`, and more.
+`recovery_started`, `recovery_completed`, and more.
 See `src/homemaster/events/runtime_events.py` for the full `RuntimeEvent` definition
 (20 fields, 45 known event types).
 

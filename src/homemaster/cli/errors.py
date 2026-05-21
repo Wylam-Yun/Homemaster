@@ -6,6 +6,8 @@ import logging
 
 import typer
 
+from homemaster.embedding_client import EmbeddingClientError
+from homemaster.llm_client import LLMClientError
 from homemaster.runtime import RuntimeConfigError
 from homemaster.task_runner import HomeMasterRunError
 
@@ -22,6 +24,9 @@ def render_error_and_exit(exc: Exception) -> None:
         typer.echo(f"config_failed: {exc}", err=True)
         raise typer.Exit(code=2)
     if isinstance(exc, HomeMasterRunError):
+        typer.echo(f"run_failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if isinstance(exc, (LLMClientError, EmbeddingClientError)):
         typer.echo(f"run_failed: {exc}", err=True)
         raise typer.Exit(code=1)
     # Unexpected — log traceback, show generic message

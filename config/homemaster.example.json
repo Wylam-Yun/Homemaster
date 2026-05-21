@@ -8,7 +8,8 @@
       "stage_05_orchestration": 16384,
       "stage_05_step_decision": 4096,
       "stage_05_recovery": 8192,
-      "stage_06_summary": 16384
+      "stage_06_summary": 16384,
+      "agent_runtime_decision": 4096
     }
   },
   "retrieval_scoring": {

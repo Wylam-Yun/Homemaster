@@ -94,12 +94,16 @@ class MimoTaskUnderstandingProvider:
         results_dir: Path = STAGE_02_RESULTS_DIR,
         client: httpx.Client | None = None,
         max_tokens: int = initial_max_tokens("stage_02_task_card"),
+        event_sink: Any = None,
+        run_id: str = "",
     ) -> None:
         self._provider = provider
         self._case_root = case_root
         self._results_dir = results_dir
         self._client = client
         self._max_tokens = max_tokens
+        self._event_sink = event_sink
+        self._run_id = run_id
 
     def understand(
         self,
@@ -125,7 +129,12 @@ class MimoTaskUnderstandingProvider:
         )
         write_json(case_dir / "expected.json", expected_payload)
 
-        llm_client = RawJsonLLMClient(self._provider, client=self._client)
+        llm_client = RawJsonLLMClient(
+            self._provider,
+            client=self._client,
+            event_sink=self._event_sink,
+            run_id=self._run_id,
+        )
         attempts: list[dict[str, Any]] = []
         try:
             for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
@@ -255,6 +264,8 @@ def understand_task(
     case_root: Path = STAGE_02_CASE_ROOT,
     client: httpx.Client | None = None,
     max_tokens: int = initial_max_tokens("stage_02_task_card"),
+    event_sink: Any = None,
+    run_id: str = "",
 ) -> TaskUnderstandingResult:
     provider = load_provider_config(config_path, provider_name=provider_name)
     task_input = TaskUnderstandingInput(
@@ -268,6 +279,8 @@ def understand_task(
         case_root=case_root,
         client=client,
         max_tokens=max_tokens,
+        event_sink=event_sink,
+        run_id=run_id,
     )
     return task_provider.understand(task_input, case_name=case_name, expected=expected)
 

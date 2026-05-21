@@ -10,6 +10,7 @@ def test_stage_token_budget_starts_at_doubled_schedule_and_doubles_on_retry() ->
     assert initial_max_tokens("stage_05_step_decision") == 4096
     assert initial_max_tokens("stage_05_recovery") == 8192
     assert initial_max_tokens("stage_06_summary") == 16384
+    assert initial_max_tokens("agent_runtime_decision") == 4096
 
     assert max_tokens_for_attempt(4096, 1) == 4096
     assert max_tokens_for_attempt(4096, 2) == 8192

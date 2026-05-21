@@ -1,4 +1,4 @@
-"""Interactive HomeMaster shell for Stage 07."""
+"""Interactive HomeMaster shell for AgentRuntime."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from homemaster.task_runner import run_homemaster_task
 
 
 def run_interactive_shell() -> None:
-    typer.echo("HomeMaster V1.2")
+    typer.echo("HomeMaster V1.3")
     report = run_doctor(live=False)
     if report.has_failures:
         typer.echo(render_doctor_text(report))
@@ -41,7 +41,7 @@ def run_interactive_shell() -> None:
 
         scenario = _guess_scenario(utterance)
         run_id = f"interactive-{scenario}"
-        typer.echo("Stage02 -> Stage06 running...")
+        typer.echo("AgentRuntime tool loop running...")
         try:
             result = run_homemaster_task(
                 utterance=utterance,

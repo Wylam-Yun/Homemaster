@@ -14,6 +14,7 @@ LLMCallKind = Literal[
     "stage_05_step_decision",
     "stage_05_recovery",
     "stage_06_summary",
+    "agent_runtime_decision",
 ]
 
 _DEFAULT_MAX_LLM_ATTEMPTS = 3
@@ -28,6 +29,7 @@ _DEFAULT_INITIAL_MAX_TOKENS: dict[LLMCallKind, int] = {
     "stage_05_step_decision": 4096,
     "stage_05_recovery": 8192,
     "stage_06_summary": 16384,
+    "agent_runtime_decision": 4096,
 }
 
 

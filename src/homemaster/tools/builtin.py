@@ -43,6 +43,7 @@ def _exec_understand_task(
             run_id=settings.run_id,
             config_path=str(settings.config_path or ""),
             provider_name=settings.provider_name,
+            event_sink=event_sink,
         )
         return ToolResult(
             success=True,
@@ -90,6 +91,7 @@ def _exec_retrieve_memory(
             case_root=settings.case_dir or Path("."),
             results_dir=settings.results_root,
             event_sink=event_sink,
+            turn_index=state.turn_index,
         )
         return ToolResult(
             success=True,

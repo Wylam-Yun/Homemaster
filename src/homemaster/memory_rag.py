@@ -174,10 +174,14 @@ class MimoMemoryQueryProvider:
         *,
         client: httpx.Client | None = None,
         max_tokens: int = initial_max_tokens("stage_03_memory_query"),
+        event_sink: Any = None,
+        run_id: str = "",
     ) -> None:
         self._provider = provider
         self._client = client
         self._max_tokens = max_tokens
+        self._event_sink = event_sink
+        self._run_id = run_id
 
     def generate_query(
         self,
@@ -185,7 +189,12 @@ class MimoMemoryQueryProvider:
         *,
         max_tokens: int | None = None,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
-        llm_client = RawJsonLLMClient(self._provider, client=self._client)
+        llm_client = RawJsonLLMClient(
+            self._provider,
+            client=self._client,
+            event_sink=self._event_sink,
+            run_id=self._run_id,
+        )
         try:
             response = llm_client.complete_json(
                 prompt,
@@ -210,11 +219,17 @@ class EmbeddingClientAdapter:
     """Adapter from BGEEmbeddingClient to the simple provider protocol used by RAG."""
 
     def __init__(
-        self, client: BGEEmbeddingClient, *, event_sink: Any = None, run_id: str = "",
+        self,
+        client: BGEEmbeddingClient,
+        *,
+        event_sink: Any = None,
+        run_id: str = "",
+        turn_index: int = 0,
     ) -> None:
         self._client = client
         self._event_sink = event_sink
         self._run_id = run_id
+        self._turn_index = turn_index
         summary = client.public_summary()
         self.provider_name = str(summary["provider_name"])
         self.model = str(summary["model"])
@@ -227,7 +242,8 @@ class EmbeddingClientAdapter:
             from homemaster.events.runtime_events import RuntimeEvent
 
             self._event_sink.emit(RuntimeEvent(
-                turn_index=0, event_type="embedding_call_started",
+                turn_index=self._turn_index,
+                event_type="embedding_call_started",
                 run_id=self._run_id,
                 provider_name=self.provider_name,
                 payload={"model": self.model, "text_count": len(texts)},
@@ -237,7 +253,8 @@ class EmbeddingClientAdapter:
                 result = self._client.embed_texts(texts).embeddings
             except Exception as exc:
                 self._event_sink.emit(RuntimeEvent(
-                    turn_index=0, event_type="embedding_call_failed",
+                    turn_index=self._turn_index,
+                    event_type="embedding_call_failed",
                     run_id=self._run_id,
                     provider_name=self.provider_name,
                     duration_ms=round((time.perf_counter() - t0) * 1000, 1),
@@ -249,7 +266,8 @@ class EmbeddingClientAdapter:
                 ))
                 raise
             self._event_sink.emit(RuntimeEvent(
-                turn_index=0, event_type="embedding_call_completed",
+                turn_index=self._turn_index,
+                event_type="embedding_call_completed",
                 run_id=self._run_id,
                 provider_name=self.provider_name,
                 duration_ms=round((time.perf_counter() - t0) * 1000, 1),

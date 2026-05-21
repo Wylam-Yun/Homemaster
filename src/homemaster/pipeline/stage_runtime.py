@@ -254,6 +254,7 @@ def run_stage02(
     run_id: str,
     config_path: str,
     provider_name: str,
+    event_sink: Any = None,
 ) -> TaskCard:
     """Stage 02: utterance → TaskCard (live only)."""
     from homemaster.stages.task_understanding import understand_task
@@ -264,6 +265,8 @@ def run_stage02(
         config_path=config_path,
         provider_name=provider_name,
         max_tokens=initial_max_tokens("stage_02_task_card"),
+        event_sink=event_sink,
+        run_id=run_id,
     ).task_card
 
 
@@ -280,6 +283,7 @@ def run_stage03(
     results_dir: Any,
     negative_evidence: dict[str, Any] | None = None,
     event_sink: Any = None,
+    turn_index: int = 0,
 ):
     """Stage 03: TaskCard → MemoryRagResult (live only)."""
     from homemaster.embedding_client import BGEEmbeddingClient
@@ -300,9 +304,14 @@ def run_stage03(
             query_provider=MimoMemoryQueryProvider(
                 llm_provider,
                 max_tokens=initial_max_tokens("stage_03_memory_query"),
+                event_sink=event_sink,
+                run_id=run_id,
             ),
             embedding_provider=EmbeddingClientAdapter(
-                bge_client, event_sink=event_sink, run_id=run_id,
+                bge_client,
+                event_sink=event_sink,
+                run_id=run_id,
+                turn_index=turn_index,
             ),
             llm_provider=llm_provider,
             negative_evidence=negative_evidence,

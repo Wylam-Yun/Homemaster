@@ -49,18 +49,21 @@ class LiveMimoDecisionClient:
         turn_index: int = 0,
     ) -> AgentDecision:
         from homemaster.llm_client import RawJsonLLMClient
+        from homemaster.token_budget import initial_max_tokens
 
         client = RawJsonLLMClient(self._provider)
         prompt = self._build_prompt(context, tools)
+        max_tokens = initial_max_tokens("agent_runtime_decision")
 
         self._emit("llm_call_started", settings, turn_index=turn_index, payload={
             "provider_name": self._provider.name,
             "model": self._provider.model,
+            "max_tokens": max_tokens,
         })
 
         t0 = time.perf_counter()
         try:
-            raw = client.complete_json(prompt)
+            raw = client.complete_json(prompt, max_tokens=max_tokens, temperature=0.0)
         except Exception as exc:
             self._emit("llm_call_failed", settings, turn_index=turn_index, payload={
                 "provider_name": self._provider.name,

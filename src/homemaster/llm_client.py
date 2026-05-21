@@ -73,8 +73,12 @@ class RawJsonLLMClient:
         *,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
         client: httpx.Client | None = None,
+        event_sink: Any = None,
+        run_id: str = "",
     ) -> None:
         self._provider = provider
+        self._event_sink = event_sink
+        self._run_id = run_id
         self._owns_client = client is None
         timeout = httpx.Timeout(
             connect=_DEFAULT_CONNECT_TIMEOUT_S,
@@ -98,6 +102,22 @@ class RawJsonLLMClient:
         errors: list[str] = []
         attempts: list[dict[str, Any]] = []
         last_raw_content: str | None = None
+
+        if self._event_sink is not None:
+            from homemaster.events.runtime_events import RuntimeEvent
+
+            self._event_sink.emit(RuntimeEvent(
+                turn_index=0,
+                event_type="llm_call_started",
+                run_id=self._run_id,
+                provider_name=self._provider.name,
+                payload={
+                    "model": self._provider.model,
+                    "protocol": self._provider.protocol,
+                    "max_tokens": max_tokens,
+                },
+            ))
+        llm_started = time.perf_counter()
 
         for key_index, api_key in enumerate(self._provider.api_keys, start=1):
             started = time.perf_counter()
@@ -143,6 +163,20 @@ class RawJsonLLMClient:
                 errors.append(f"key#{key_index}:{exc.error_type}")
                 continue
 
+            if self._event_sink is not None:
+                from homemaster.events.runtime_events import RuntimeEvent
+
+                self._event_sink.emit(RuntimeEvent(
+                    turn_index=0,
+                    event_type="llm_call_completed",
+                    run_id=self._run_id,
+                    provider_name=self._provider.name,
+                    duration_ms=round((time.perf_counter() - llm_started) * 1000, 1),
+                    payload={
+                        "model": self._provider.model,
+                        "protocol": self._provider.protocol,
+                    },
+                ))
             return LLMJsonResponse(
                 provider_name=self._provider.name,
                 model=self._provider.model,
@@ -153,6 +187,20 @@ class RawJsonLLMClient:
                 attempts=tuple(attempts),
             )
 
+        if self._event_sink is not None:
+            from homemaster.events.runtime_events import RuntimeEvent
+
+            self._event_sink.emit(RuntimeEvent(
+                turn_index=0,
+                event_type="llm_call_failed",
+                run_id=self._run_id,
+                provider_name=self._provider.name,
+                duration_ms=round((time.perf_counter() - llm_started) * 1000, 1),
+                payload={
+                    "model": self._provider.model,
+                    "errors": errors,
+                },
+            ))
         if any("network_error" in item for item in errors):
             raise LLMProviderNetworkError(
                 error_type="provider_network_error",
@@ -213,11 +261,30 @@ class RawJsonLLMClient:
             ) from exc
 
         raw_content = _json_preview(body)
+        truncated = _response_was_truncated(body)
         if self._provider.protocol == "anthropic":
-            content = _extract_anthropic_content(body, raw_content=raw_content)
+            try:
+                content = _extract_anthropic_content(body, raw_content=raw_content)
+            except LLMProviderResponseError as exc:
+                if truncated:
+                    raise LLMProviderResponseError(
+                        error_type="response_truncated",
+                        message="provider stopped because max_tokens was reached",
+                        raw_content=exc.raw_content or raw_content,
+                    ) from exc
+                raise
         else:
-            content = _extract_openai_content(body, raw_content=raw_content)
-        if _response_was_truncated(body):
+            try:
+                content = _extract_openai_content(body, raw_content=raw_content)
+            except LLMProviderResponseError as exc:
+                if truncated:
+                    raise LLMProviderResponseError(
+                        error_type="response_truncated",
+                        message="provider stopped because max_tokens was reached",
+                        raw_content=exc.raw_content or raw_content,
+                    ) from exc
+                raise
+        if truncated:
             raise LLMProviderResponseError(
                 error_type="response_truncated",
                 message="provider stopped because max_tokens was reached",

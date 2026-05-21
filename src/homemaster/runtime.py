@@ -1,4 +1,10 @@
-"""Runtime configuration helpers for HomeMaster stage runs."""
+"""Runtime configuration helpers for HomeMaster stage runs.
+
+NOTE: Module-level constants (DEFAULT_PROVIDER_NAME, DEFAULT_STAGE_07_RUNTIME_ROOT, etc.)
+are legacy. They are preserved for backward compatibility with the subprocess+reload
+test pattern in test_homemaster_config.py. New code should use config/runtime_settings.py
+(run-scoped RuntimeSettings) instead of importing these constants.
+"""
 
 from __future__ import annotations
 
