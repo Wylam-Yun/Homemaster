@@ -87,6 +87,33 @@ Keep but rewrite these responsibilities:
 - Before running any listed `git add`, run `git diff -- <file>` for every already-modified file in that batch. If the diff contains unrelated user work, stage only the intended hunks with patch staging or stop for coordinator confirmation.
 - New prompt files must be written fresh. Do not copy old numbered prompt text and rename it.
 
+## Mandatory Per-Batch Execution Protocol
+
+Every batch must be executed through this control loop. Do not start editing batch files until the planning and plan-review gates are complete.
+
+1. Switch the implementing agent into Plan mode.
+2. In Plan mode, write a concrete per-batch execution plan for the current batch only. The plan must list exact files, intended edits, tests, risk points, and rollback/compatibility constraints.
+3. Start a subagent review of that per-batch plan. The reviewer must compare it against this execution plan, the V1.4 spec, and current repository details.
+4. If the reviewer finds issues, revise the per-batch plan and repeat review until there are no blocking findings.
+5. Execute the batch implementation from the reviewed per-batch plan.
+6. After implementation and local verification, start a second subagent review focused on completed work. The reviewer must compare actual diffs, tests, imports, and behavior against the per-batch plan, the V1.4 spec, and current project details.
+7. If the completion review finds issues, fix them and rerun the relevant checks. Repeat completion review when the fix changes the reviewed surface materially.
+8. After review findings are resolved, run `/compact` in the agent session to compress context before moving on.
+9. Commit only the files intended for the current batch.
+10. Push the batch commit. If `git push` is slow or appears stuck, run the user's custom `proxy` command in the terminal to enable the proxy, then retry `git push`.
+
+Required subagent review prompts:
+
+```text
+Plan review:
+Review this per-batch implementation plan against HomeMaster V1.4 spec, the execution plan, and the actual repository. Focus on missing files, ordering hazards, compatibility breaks, stale imports, test gaps, and any way this could reintroduce the old fixed-flow runtime. Return blocking findings first with file/path references.
+```
+
+```text
+Completion review:
+Review the completed batch changes against the reviewed per-batch plan, HomeMaster V1.4 spec, and the actual repository. Check whether the intended files changed, whether tests and import boundaries are sufficient, whether old runtime concepts remain reachable, and whether any user/unrelated work was accidentally staged. Return blocking findings first with file/path references.
+```
+
 ## Cross-Layer Contract Rules
 
 Batch 1 starts with schema-first work. Before writing runtime behavior, define and test these normalized contracts:
