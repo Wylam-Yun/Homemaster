@@ -14,7 +14,7 @@ class RuntimeMemoryStoreError(RuntimeError):
 
 
 class RuntimeMemoryStore:
-    """Persist object memory overlays outside tracked scenario fixtures."""
+    """Persist object memory overlays outside tracked fixtures."""
 
     def __init__(self, root: Path) -> None:
         self.root = root

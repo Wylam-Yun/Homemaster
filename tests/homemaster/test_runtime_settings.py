@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from homemaster.config.runtime_settings import (
     RuntimeSettings,
-    RuntimeSettingsError,
     load_runtime_settings,
 )
 
@@ -23,7 +19,6 @@ def test_construction_with_defaults() -> None:
     )
     assert settings.provider_name == "Mimo"
     assert settings.embedding_provider_name == "MemoryEmbedding"
-    assert settings.skill_mode == "simulated"
     assert settings.max_turns == 12
 
 
@@ -38,17 +33,6 @@ def test_construction_with_overrides() -> None:
     )
     assert settings.provider_name == "Custom"
     assert settings.max_turns == 20
-
-
-def test_direct_construction_rejects_skill_mode_real() -> None:
-    with pytest.raises(RuntimeSettingsError, match="skill_mode='real'"):
-        RuntimeSettings(
-            run_id="test-real",
-            runtime_root=Path("/tmp/runs"),
-            debug_root=Path("/tmp/debug"),
-            results_root=Path("/tmp/results"),
-            skill_mode="real",
-        )
 
 
 def test_two_instances_independent() -> None:
@@ -70,51 +54,16 @@ def test_two_instances_independent() -> None:
     assert s2.provider_name == "P2"
 
 
-# ---------------------------------------------------------------------------
-# Loader validation tests
-# ---------------------------------------------------------------------------
-
-
-def _write_config(tmp_path: Path, data: dict) -> Path:
-    cfg = {"runtime_defaults": data}
-    path = tmp_path / "homemaster.json"
-    path.write_text(json.dumps(cfg), encoding="utf-8")
-    return path
-
-
-def test_loader_rejects_live_models(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {"live_models": True})
-    with pytest.raises(RuntimeSettingsError, match="live_models.*no longer supported"):
-        load_runtime_settings(cfg_path)
-
-
-def test_loader_rejects_mock_skills(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {"mock_skills": True})
-    with pytest.raises(RuntimeSettingsError, match="mock_skills.*no longer supported"):
-        load_runtime_settings(cfg_path)
-
-
-def test_loader_rejects_skill_mode_real(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {"skill_mode": "real"})
-    with pytest.raises(RuntimeSettingsError, match="skill_mode='real'.*not yet supported"):
-        load_runtime_settings(cfg_path)
-
-
-def test_loader_rejects_skill_mode_real_via_override(tmp_path: Path) -> None:
-    with pytest.raises(RuntimeSettingsError, match="skill_mode='real'.*not yet supported"):
-        load_runtime_settings(None, skill_mode="real")
-
-
-def test_loader_accepts_skill_mode_simulated(tmp_path: Path) -> None:
-    cfg_path = _write_config(tmp_path, {"skill_mode": "simulated"})
-    settings = load_runtime_settings(
-        cfg_path,
+def test_optional_fields_default_none() -> None:
+    settings = RuntimeSettings(
         run_id="test",
         runtime_root=Path("/tmp/runs"),
         debug_root=Path("/tmp/debug"),
         results_root=Path("/tmp/results"),
     )
-    assert settings.skill_mode == "simulated"
+    assert settings.config_path is None
+    assert settings.memory_path is None
+    assert settings.world_path is None
 
 
 def test_loader_no_config_uses_defaults() -> None:
@@ -125,44 +74,17 @@ def test_loader_no_config_uses_defaults() -> None:
         debug_root=Path("/tmp/debug"),
         results_root=Path("/tmp/results"),
     )
-    assert settings.skill_mode == "simulated"
     assert settings.provider_name == "Mimo"
 
 
-def test_new_fields_default_none() -> None:
+def test_settings_does_not_have_old_fields() -> None:
+    """RuntimeSettings must not have old stage/scenario fields."""
     settings = RuntimeSettings(
         run_id="test",
         runtime_root=Path("/tmp/runs"),
         debug_root=Path("/tmp/debug"),
         results_root=Path("/tmp/results"),
     )
-    assert settings.config_path is None
-    assert settings.scenario is None
-    assert settings.scenario_root is None
-    assert settings.memory_path is None
-    assert settings.world_path is None
-    assert settings.case_dir is None
-    assert settings.recovery_max_attempts == 3
-    assert settings.executor_step_multiplier == 1.0
-    assert settings.executor_minimum_max_steps == 5
-
-
-def test_new_fields_can_be_set() -> None:
-    settings = RuntimeSettings(
-        run_id="test",
-        runtime_root=Path("/tmp/runs"),
-        debug_root=Path("/tmp/debug"),
-        results_root=Path("/tmp/results"),
-        config_path=Path("/tmp/config.json"),
-        scenario="fetch_cup",
-        scenario_root=Path("/tmp/scenarios/fetch_cup"),
-        memory_path=Path("/tmp/memory.json"),
-        world_path=Path("/tmp/world.json"),
-        case_dir=Path("/tmp/case"),
-    )
-    assert settings.config_path == Path("/tmp/config.json")
-    assert settings.scenario == "fetch_cup"
-    assert settings.scenario_root == Path("/tmp/scenarios/fetch_cup")
-    assert settings.memory_path == Path("/tmp/memory.json")
-    assert settings.world_path == Path("/tmp/world.json")
-    assert settings.case_dir == Path("/tmp/case")
+    assert not hasattr(settings, "scenario") or settings.model_fields.get("scenario") is None
+    assert not hasattr(settings, "skill_mode") or settings.model_fields.get("skill_mode") is None
+    assert not hasattr(settings, "case_dir") or settings.model_fields.get("case_dir") is None

@@ -110,86 +110,12 @@ def _exec_update_memory(
     arguments: dict[str, Any],
     run_context: RunContext,
 ) -> ToolResult:
-    """Validate proposal and persist via RuntimeMemoryStore."""
-    proposal = arguments.get("proposal")
-    if not proposal:
-        return ToolResult(
-            success=False,
-            tool_name="update_memory",
-            executor_mode="programmatic",
-            failure_reason="proposal is required",
-        )
-
-    # Validate required fields
-    required = {"object_category", "room_id", "anchor_id"}
-    missing = required - set(proposal.keys())
-    if missing:
-        return ToolResult(
-            success=False,
-            tool_name="update_memory",
-            executor_mode="programmatic",
-            failure_reason=f"proposal missing fields: {missing}",
-        )
-
-    anchor_id = proposal["anchor_id"]
-    belief_state = proposal.get("belief_state", "verified")
-    memory_id = anchor_id
-
-    settings = run_context.settings
-
-    # Persist via RuntimeMemoryStore if memory_path is available
-    if settings.memory_path and settings.memory_path.exists():
-        try:
-            from homemaster.domain.home.contracts import (
-                EvidenceRef,
-                MemoryCommitPlan,
-                ObjectMemoryUpdate,
-            )
-            from homemaster.memory.commit import utc_now_iso
-            from homemaster.memory.runtime_store import RuntimeMemoryStore
-
-            memory_root = settings.runtime_root / settings.run_id / "memory"
-            store = RuntimeMemoryStore(memory_root)
-            now = utc_now_iso()
-            plan = MemoryCommitPlan(
-                commit_id=f"commit:{settings.run_id}:update_memory",
-                object_memory_updates=[
-                    ObjectMemoryUpdate(
-                        memory_id=memory_id,
-                        update_type="confirm",
-                        updated_fields={"belief_state": belief_state},
-                        evidence_refs=[
-                            EvidenceRef(
-                                evidence_id=f"agent:{settings.run_id}:update_memory",
-                                evidence_type="observation",
-                                source_id=f"agent-{settings.run_id}",
-                                created_at=now,
-                                summary=f"Agent updated {proposal['object_category']}",
-                            )
-                        ],
-                        reason="agent runtime update_memory proposal",
-                    )
-                ],
-                skipped=False,
-            )
-            store.apply_commit_plan(
-                base_memory_path=settings.memory_path, plan=plan,
-            )
-        except Exception:
-            pass  # persistence is best-effort for MVP
-
+    """Stub: update_memory is now handled by domain/home/tools.py memory_writer."""
     return ToolResult(
-        success=True,
+        success=False,
         tool_name="update_memory",
         executor_mode="programmatic",
-        data={
-            "committed": True,
-            "object_category": proposal.get("object_category"),
-            "room_id": proposal.get("room_id"),
-            "anchor_id": anchor_id,
-            "belief_state": belief_state,
-            "memory_id": memory_id,
-        },
+        failure_reason="update_memory migrated to domain home tools (memory_writer)",
     )
 
 
@@ -380,17 +306,11 @@ _SIMPLE_TOOL_MAKERS = [
 
 
 def build_tool_registry(
-    skill_registry: Any = None, skill_mode: str = "simulated",
+    skill_registry: Any = None,
 ) -> ToolRegistry:
-    """Build a ToolRegistry with all 11 builtin tools.
-
-    Args:
-        skill_registry: Optional SkillRegistry for get_skill executor.
-            If None, a default one is built via build_skill_registry().
-        skill_mode: "simulated" or "real". "real" raises RuntimeError.
-    """
+    """Build a ToolRegistry with all 11 builtin tools."""
     if skill_registry is None:
-        skill_registry = build_skill_registry(skill_mode=skill_mode)
+        skill_registry = build_skill_registry()
     registry = ToolRegistry()
     for maker in _SIMPLE_TOOL_MAKERS:
         registry.register(maker())
@@ -398,18 +318,8 @@ def build_tool_registry(
     return registry
 
 
-def build_skill_registry(skill_mode: str = "simulated") -> Any:
-    """Build a SkillRegistry with builtin skills.
-
-    Args:
-        skill_mode: "simulated" or "real". "real" raises RuntimeError
-            because real VLA/VLN/VLM executors are not integrated.
-    """
-    if skill_mode == "real":
-        raise RuntimeError(
-            "skill_mode='real' is not yet supported. "
-            "Real VLA/VLN/VLM skill executors are not integrated."
-        )
+def build_skill_registry() -> Any:
+    """Build a SkillRegistry with builtin skills."""
     from homemaster.skills.loader import SkillLoader
     from homemaster.skills.registry import SkillRegistry
 

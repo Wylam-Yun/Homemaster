@@ -25,12 +25,11 @@ from homemaster.runtime import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
-    LLM_CASE_ROOT,
+    MEMORY_CASE_ROOT,
+    MEMORY_RESULTS_ROOT,
     REPO_ROOT,
-    TEST_RESULTS_ROOT,
     ProviderConfig,
     RuntimeConfigError,
-    ensure_stage_directories,
     get_config_section,
     load_homemaster_config,
     load_provider_config,
@@ -50,10 +49,10 @@ from .tokenizer import (
     build_domain_terms_from_object_memory,
 )
 
-STAGE_03_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_03"
-STAGE_03_CASE_ROOT = LLM_CASE_ROOT / "stage_03"
+RESULTS_DIR = MEMORY_RESULTS_ROOT / "memory_retrieval"
+CASE_ROOT = MEMORY_CASE_ROOT / "memory_retrieval"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
-MEMORY_QUERY_RETRY_INSTRUCTION = render("stage_03_retry.txt")
+MEMORY_QUERY_RETRY_INSTRUCTION = render("memory_query_retry")
 
 # ---------------------------------------------------------------------------
 # P7: retrieval scoring config
@@ -174,7 +173,7 @@ class MimoMemoryQueryProvider:
         provider: ProviderConfig,
         *,
         client: httpx.Client | None = None,
-        max_tokens: int = initial_max_tokens("stage_03_memory_query"),
+        max_tokens: int = initial_max_tokens("tool_memory_query"),
         event_sink: Any = None,
         run_id: str = "",
     ) -> None:
@@ -286,7 +285,7 @@ def build_memory_retrieval_query_prompt(
     task_card_json = task_card.model_dump_json(indent=2)
     negative_json = json.dumps(negative_evidence or {}, ensure_ascii=False, indent=2)
     return render(
-        "stage_03_memory_query_prompt.txt",
+        "memory_query_prompt",
         task_card_json=task_card_json,
         negative_json=negative_json,
     )
@@ -302,16 +301,17 @@ def run_memory_rag(
     llm_provider: ProviderConfig,
     negative_evidence: dict[str, Any] | None = None,
     expected: dict[str, Any] | None = None,
-    case_root: Path = STAGE_03_CASE_ROOT,
-    results_dir: Path = STAGE_03_RESULTS_DIR,
+    case_root: Path = CASE_ROOT,
+    results_dir: Path = RESULTS_DIR,
     cache_dir: Path = EMBEDDING_CACHE_DIR,
-    query_initial_max_tokens: int = initial_max_tokens("stage_03_memory_query"),
+    query_initial_max_tokens: int = initial_max_tokens("tool_memory_query"),
 ) -> MemoryRagResult:
     started = time.perf_counter()
     case_dir = case_root / case_name
-    ensure_stage_directories(case_dir=case_dir, results_dir=results_dir)
+    case_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "trace").mkdir(parents=True, exist_ok=True)
     memory_payload = json.loads(memory_path.read_text(encoding="utf-8"))
-    expected_payload = expected or minimal_stage_03_expectation(case_name=case_name)
+    expected_payload = expected or minimal_retrieval_expectation(case_name=case_name)
 
     prompt = build_memory_retrieval_query_prompt(task_card, negative_evidence=negative_evidence)
     query_attempts: list[dict[str, Any]] = []
@@ -367,7 +367,7 @@ def run_memory_rag(
 
     if query is None:
         elapsed_ms = (time.perf_counter() - started) * 1000
-        actual = _stage_03_failure_actual(
+        actual = _retrieval_failure_actual(
             case_name=case_name,
             task_card=task_card,
             query_provider=query_provider_summary,
@@ -379,7 +379,7 @@ def run_memory_rag(
             message=last_error_message,
             elapsed_ms=elapsed_ms,
         )
-        _write_stage_03_assets(
+        _write_retrieval_assets(
             case_dir=case_dir,
             results_dir=results_dir,
             expected=expected_payload,
@@ -492,7 +492,7 @@ def run_memory_rag(
         "checks": checks,
         "elapsed_ms": elapsed_ms,
     }
-    _write_stage_03_assets(
+    _write_retrieval_assets(
         case_dir=case_dir,
         results_dir=results_dir,
         expected=expected_payload,
@@ -521,7 +521,7 @@ def run_memory_rag(
     )
 
 
-def run_stage_03_case(
+def run_memory_retrieval_case(
     case_name: str,
     *,
     config_path: str | Path = DEFAULT_CONFIG_PATH,
@@ -530,7 +530,7 @@ def run_stage_03_case(
     llm_client: httpx.Client | None = None,
     embedding_client: httpx.Client | None = None,
 ) -> MemoryRagResult:
-    cases = stage_03_case_expectations()
+    cases = retrieval_case_expectations()
     if case_name not in cases:
         raise MemoryRagError(
             error_type="unknown_case",
@@ -565,11 +565,11 @@ def run_stage_03_case(
         bge_client.close()
 
 
-def stage_03_case_expectations() -> dict[str, dict[str, Any]]:
+def retrieval_case_expectations() -> dict[str, dict[str, Any]]:
     return {
         "mimo_memory_retrieval_query": {
             "case_name": "mimo_memory_retrieval_query",
-            "memory_path": "data/scenarios/fetch_cup_retry/memory.json",
+            "memory_path": "tests/homemaster/fixtures/home_tasks/fetch_cup_retry/memory.json",
             "task_card": _task_card_payload("fetch_object", "水杯", "厨房", "user"),
             "expected_query_keywords": ["水杯", "杯", "cup"],
             "expected_location_keywords": ["厨房", "kitchen"],
@@ -577,14 +577,15 @@ def stage_03_case_expectations() -> dict[str, dict[str, Any]]:
         },
         "medicine_object_memory_rag": {
             "case_name": "medicine_object_memory_rag",
-            "memory_path": "data/scenarios/check_medicine_success/memory.json",
+            "memory_path": "tests/homemaster/fixtures/home_tasks/"
+                         "check_medicine_success/memory.json",
             "task_card": _task_card_payload("check_presence", "药盒", "桌子那边", None),
             "expected_query_keywords": ["药盒", "药", "medicine"],
             "expected_top_memory_ids": ["mem-medicine-1", "mem-medicine-2"],
         },
         "cup_object_memory_rag": {
             "case_name": "cup_object_memory_rag",
-            "memory_path": "data/scenarios/fetch_cup_retry/memory.json",
+            "memory_path": "tests/homemaster/fixtures/home_tasks/fetch_cup_retry/memory.json",
             "task_card": _task_card_payload("fetch_object", "水杯", "厨房", "user"),
             "expected_query_keywords": ["水杯", "杯", "cup"],
             "expected_location_keywords": ["厨房", "kitchen"],
@@ -592,15 +593,15 @@ def stage_03_case_expectations() -> dict[str, dict[str, Any]]:
         },
         "negative_evidence_excludes_location": {
             "case_name": "negative_evidence_excludes_location",
-            "memory_path": "data/scenarios/object_not_found/memory.json",
+            "memory_path": "tests/homemaster/fixtures/home_tasks/object_not_found/memory.json",
             "task_card": _task_card_payload("fetch_object", "水杯", "厨房", "user"),
             "negative_evidence": {"excluded_memory_ids": ["mem-cup-1"]},
             "expected_query_keywords": ["水杯", "杯", "cup"],
             "excluded_memory_ids": ["mem-cup-1"],
         },
-        "reranker_not_required_stage_03": {
-            "case_name": "reranker_not_required_stage_03",
-            "memory_path": "data/scenarios/fetch_cup_retry/memory.json",
+        "reranker_not_required": {
+            "case_name": "reranker_not_required",
+            "memory_path": "tests/homemaster/fixtures/home_tasks/fetch_cup_retry/memory.json",
             "task_card": _task_card_payload("fetch_object", "水杯", "厨房", "user"),
             "expected_query_keywords": ["水杯", "杯", "cup"],
             "expected_ranking_stage": "bm25_dense_fusion",
@@ -609,7 +610,7 @@ def stage_03_case_expectations() -> dict[str, dict[str, Any]]:
     }
 
 
-def minimal_stage_03_expectation(*, case_name: str) -> dict[str, Any]:
+def minimal_retrieval_expectation(*, case_name: str) -> dict[str, Any]:
     return {
         "case_name": case_name,
         "required_checks": [
@@ -626,7 +627,7 @@ def _memory_query_attempt_prompt(prompt: str, attempt_index: int) -> str:
     return f"{prompt.rstrip()}\n\n{MEMORY_QUERY_RETRY_INSTRUCTION}\n"
 
 
-def _stage_03_failure_actual(
+def _retrieval_failure_actual(
     *,
     case_name: str,
     task_card: TaskCard,
@@ -702,7 +703,7 @@ def validate_memory_rag_expectations(
             for hit in memory_result.hits + memory_result.excluded
         )
     if "expected_ranking_stage" in expected:
-        checks["ranking_stage_matches"] = all(
+        checks["ranking_matches"] = all(
             hit.ranking_stage == expected["expected_ranking_stage"]
             for hit in memory_result.hits + memory_result.excluded
         )
@@ -921,7 +922,7 @@ def _metadata_score(
     return score, reasons
 
 
-def _write_stage_03_assets(
+def _write_retrieval_assets(
     *,
     case_dir: Path,
     results_dir: Path,
@@ -935,25 +936,25 @@ def _write_stage_03_assets(
     )
     write_json(case_dir / "expected.json", expected)
     write_json(case_dir / "actual.json", actual)
-    _write_stage_03_markdown(
-        case_dir / "result.md",
+    _write_retrieval_markdown(
+        case_dir / ("result" + ".md"),
         expected=expected,
         actual=actual,
         status=status,
     )
     append_jsonl_event(
-        results_dir / "llm_samples.jsonl",
-        event="stage_03_memory_rag",
+        results_dir / ("llm_samples" + ".jsonl"),
+        event="memory_rag",
         payload=actual,
     )
     append_jsonl_event(
         results_dir / "trace" / f"{actual['case_name']}.jsonl",
-        event="stage_03_memory_rag",
+        event="memory_rag",
         payload=actual,
     )
 
 
-def _write_stage_03_markdown(
+def _write_retrieval_markdown(
     path: Path,
     *,
     expected: dict[str, Any],

@@ -1,4 +1,4 @@
-"""Public contracts for the HomeMaster V1.2 pipeline."""
+"""Public contracts for HomeMaster domain objects."""
 
 from __future__ import annotations
 
@@ -621,56 +621,4 @@ class MemoryProfile(ContractModel):
     @field_validator("include_memory_ids", "exclude_memory_ids")
     @classmethod
     def _strip_profile_ids(cls, value: list[str]) -> list[str]:
-        return [item.strip() for item in value if item.strip()]
-
-
-class ScenarioManifest(ContractModel):
-    """Declarative scenario metadata loaded from scenario.json."""
-
-    name: str
-    home_id: str
-    utterance: str
-    expected_final_status: Literal["completed", "failed", "needs_user"]
-    tags: list[str] = Field(default_factory=list)
-    purpose: str = ""
-    runtime_modes: list[str] = Field(default_factory=list)
-    memory_profile: MemoryProfile | None = None
-
-    @field_validator("name", "home_id", "utterance")
-    @classmethod
-    def _strip_manifest_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("manifest text fields must not be blank")
-        return value
-
-    @field_validator("tags", "runtime_modes")
-    @classmethod
-    def _strip_manifest_lists(cls, value: list[str]) -> list[str]:
-        return [item.strip() for item in value if item.strip()]
-
-
-class ScenarioCatalogEntry(ContractModel):
-    """One entry in the global scenario catalog."""
-
-    name: str
-    utterance: str
-    expected_final_status: Literal["completed", "failed", "needs_user"]
-    tags: list[str] = Field(default_factory=list)
-    purpose: str = ""
-    status: Literal["active", "draft"] = "active"
-    data_source: Literal["legacy_files", "homeworld_profile"] = "legacy_files"
-    suites: list[str] = Field(default_factory=list)
-
-    @field_validator("name", "utterance")
-    @classmethod
-    def _strip_catalog_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("catalog text fields must not be blank")
-        return value
-
-    @field_validator("tags")
-    @classmethod
-    def _strip_catalog_tags(cls, value: list[str]) -> list[str]:
         return [item.strip() for item in value if item.strip()]

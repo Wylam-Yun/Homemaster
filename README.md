@@ -1,6 +1,6 @@
-# HomeMaster V1.3
+# HomeMaster V1.4
 
-LLM-first task brain for HomeMaster.
+LLM-first generic agent runtime with home-robot domain tools.
 
 默认入口是 **AgentRuntime**（Mimo 驱动的 tool loop）：任务理解、记忆检索、可靠记忆判定、高层编排、simulated skill 执行、任务总结和记忆写回。
 
@@ -22,7 +22,7 @@ cd <HomeMaster 项目目录>
 uv venv --python 3.11 .venv
 uv pip install --python .venv/bin/python ".[dev]"
 
-# Stage03 RAG 依赖
+# RAG 依赖
 uv pip install --python .venv/bin/python "bm25s>=0.2" "jieba>=0.42"
 
 # 验证包能导入
@@ -42,7 +42,7 @@ API 配置默认从 `config/api_config.json` 读取；如果没有，会兼容�
 - Mimo：用于任务理解、检索 query、编排、总结。
 - BGE-M3：用于 `/v1/embeddings` 生成向量。
 
-配置好之后，用 `doctor --live` 检查，不要先直接跑场景。
+配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
 ## 体检
 
@@ -59,56 +59,30 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - BGE-M3 `/v1/embeddings` 调用
 - runtime memory 目录是否可写
 
-## 跑一个真实场景
-
-水杯场景：
+## 跑一个任务
 
 ```bash
 cd /Users/wylam/Documents/workspace/HomeMaster
 
 PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
   --utterance "去厨房找水杯，然后拿给我" \
-  --scenario fetch_cup_retry \
-  --run-id live-fetch-cup-001 \
-  --runtime-memory-root var/homemaster/runs \
-  --debug-root var/homemaster/debug \
   --progress
 ```
 
-药盒场景：
+交互式 shell：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
-  --utterance "去厨房看看药盒是不是还在。" \
-  --scenario check_medicine_success \
-  --run-id live-check-medicine-001 \
-  --runtime-memory-root var/homemaster/runs \
-  --debug-root var/homemaster/debug
-```
-
-看结果：
-
-```bash
-open var/homemaster/debug/stage_07/live-fetch-cup-001/result.md
-open var/homemaster/runs/live-fetch-cup-001/memory
+PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 ```
 
 ## Runtime Event Trace
 
 Every `homemaster run` writes `runtime_events.jsonl` to the run's trace directory.
 
-```bash
-cat var/homemaster/debug/stage_07/live-fetch-cup-001/trace/runtime_events.jsonl | jq .
-```
-
 Event types include: `run_started`, `run_completed`, `run_failed`, `turn_started`,
-`decision_started`, `decision_completed`, `decision_failed`, `tool_call_started`,
-`tool_call_completed`, `tool_call_failed`, `llm_call_started`, `llm_call_completed`,
-`llm_call_failed`, `embedding_call_started`, `embedding_call_completed`,
-`embedding_call_failed`, `stage_started`, `stage_completed`, `stage_failed`,
-`recovery_started`, `recovery_completed`, and more.
-See `src/homemaster/events/runtime_events.py` for the full `RuntimeEvent` definition
-(20 fields, 45 known event types).
+`turn_completed`, `llm_call_started`, `llm_call_completed`, `llm_call_failed`,
+`tool_call_started`, `tool_call_completed`, `tool_call_failed`, and more.
+See `src/homemaster/events/runtime_events.py` for the full `RuntimeEvent` definition.
 
 Use `--progress` to stream a compact progress summary to stderr during the run.
 
@@ -116,128 +90,36 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 > but never raw LLM prompts, responses, or API keys. The `sanitize_for_log()` function
 > strips sensitive content before writing to the trace sink.
 
-## 跑 5 个验收场景
-
-```bash
-cd /Users/wylam/Documents/workspace/HomeMaster
-./scripts/run_homemaster_scenarios.sh
-```
-
-5 个场景：
-
-- `check_medicine_success`
-- `check_medicine_stale_recover`
-- `fetch_cup_retry`
-- `object_not_found`
-- `distractor_rejected`
-
-pytest 版 live matrix：
-
-```bash
-HOMEMASTER_RUN_LIVE_LLM=1 HOMEMASTER_RUN_LIVE_EMBEDDING=1 \
-PYTHONPATH=src .venv/bin/pytest -q \
-tests/homemaster/test_stage_07_scenarios_live.py -m live_api
-```
-
-验收矩阵：
-
-```text
-var/homemaster/results/stage_07/acceptance_matrix.json
-var/homemaster/results/stage_07/scenario_summary.md
-```
-
-注意：pytest live 测试使用 `tmp_path` 隔离，结果不写入项目目录。上述路径是手动运行 `homemaster run` 或 shell script 时的默认输出位置。
-
-## 构造新场景
-
-场景目录放在：
-
-```text
-data/scenarios/<scenario_name>/
-  world.json
-  memory.json
-  failures.json
-```
-
-最快方式：
-
-```bash
-cp -R data/scenarios/fetch_cup_retry data/scenarios/my_new_case
-```
-
-然后修改：
-
-- `world.json`：真实世界里有哪些房间、观察点、家具锚点、物体。
-- `memory.json`：机器人记得目标物可能在哪里。
-- `failures.json`：当前主要预留给失败规则；Stage07 里实际失败还由 simulated skill 场景逻辑控制。
-
-关键 ID 必须对齐：
-
-- `memory.json.object_memory[].anchor.viewpoint_id` 必须存在于 `world.json.viewpoints`
-- `memory.json.object_memory[].anchor.anchor_id` 必须存在于 `world.json.furniture`
-- `world.json.furniture[].viewpoint_id` 要和对应 viewpoint 对得上
-- 目标物的 `aliases` 或 `object_category` 要能匹配用户指令
-
-临时跑新场景：
-
-```bash
-PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
-  --utterance "你的用户指令" \
-  --scenario my_new_case \
-  --run-id live-my-new-case-001 \
-  --runtime-memory-root var/homemaster/runs \
-  --debug-root var/homemaster/debug
-```
-
-加入 5 场景矩阵时，更新：
-
-```text
-src/homemaster/scenario_runner.py
-```
-
-把新场景加入 `STAGE_07_SCENARIOS` 和 `EXPECTED_FINAL_STATUS`。
-
 ## 当前边界
 
 - 真实：Mimo、BGE-M3。
-- 程序：Stage04 可靠记忆判定、Stage06 记忆写回。
+- 程序：可靠记忆判定、记忆写回。
 - 模拟：navigation、operation、verification skill。
 - 旧 `task_brain` 链路已从当前工程入口中清理；当前只维护 `homemaster` 主链。
 
 ## 架构
 
-默认入口是 **AgentRuntime**（`src/homemaster/agent/runtime.py`），一个 Mimo 驱动的
-tool loop。Mimo 在每一轮选择一个 tool 调用，Dispatcher 执行，StateUpdater 更新状态，
-直到 Mimo 选择 finish_task 或达到 max_turns。
+默认入口是 **AgentRuntime**（`src/homemaster/agent/`），一个 Mimo 驱动的
+tool loop。Mimo 在每一轮选择 tool 调用，Dispatcher 执行，结果返回给 Mimo，
+直到 Mimo 选择结束或达到 max_turns。
 
-**Tool 系统**：11 个 tool（7 个 programmatic + 4 个 simulated）。
-- programmatic：understand_task, retrieve_memory, ground_target, get_skill,
-  update_memory, update_user_profile, finish_task
-- simulated：navigate, observe, manipulate, verify（模拟机器人技能，未接真实机器人/VLA/VLM）
+**Tool 系统**：10 个 home domain tools（task_interpreter, memory_retriever,
+target_grounder, skill_view, robot_navigate, robot_observe, robot_manipulate,
+robot_verify, memory_writer, task_summarizer）。
 
-**Skills**：通过 get_skill 实现 progressive disclosure。Mimo 按需加载 skill context
+**Skills**：通过 skill_view 实现 progressive disclosure。Mimo 按需加载 skill context
 （fetch_object, check_object_state），而不是一次性获取所有 skill 信息。
-
-**Pipeline 兼容**：旧的 Stage02-06 stage loop 仍可通过 `use_agent_runtime=False` 激活，
-但不是默认路径。详见 `src/homemaster/pipeline/` 和 `src/homemaster/stages/`。
-
-**phase_label**：trace/status 标签，用于事件追踪和日志分类，不是流程控制机制。
-AgentRuntime 不使用 phase_label 控制执行流，Mimo 自主决定下一步 action。
 
 **目录结构**：
 
 ```text
-agent/      AgentRuntime 实现（tool loop, state, decisions）
-tools/      ToolSpec / ToolRegistry / Dispatcher / simulated executors
+agent/      AgentRuntime 实现（tool loop, context, turn）
+tools/      ToolSpec / ToolRegistry / Dispatcher
+domain/     Home domain tools and contracts
 skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
 memory/     RAG / profile / fact memory / runtime memory store
 events/     RuntimeEvent schema, sinks, sanitizer
 config/     RuntimeSettings 和 path/config helpers
-providers/  LLM/embedding/Mimo decision provider clients
-pipeline/   兼容层（旧 stage loop）
-stages/     过渡期 Stage02-06 handlers
+providers/  LLM/embedding provider clients
 cli/        CLI 入口（run, doctor, interactive shell）
 ```
-
-根目录下的 `.py` 文件要么是 public facade（contracts, runtime, trace），
-要么是 backward-compatibility shim。详见 `docs/shim_lifecycle.md`。

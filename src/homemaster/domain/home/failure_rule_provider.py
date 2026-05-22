@@ -13,22 +13,22 @@ class FailureRuleProvider:
     """Evaluates declarative failure rules from failures.json at runtime."""
 
     rules: list[dict[str, Any]]
-    scenario: str
+    name: str
 
     @classmethod
-    def from_scenario(cls, scenario: str, scenario_root: Path) -> FailureRuleProvider:
-        """Load failures.json from scenario_root; missing file yields empty rules."""
-        failures_path = scenario_root / "failures.json"
+    def from_data_dir(cls, name: str, data_dir: Path) -> FailureRuleProvider:
+        """Load failures.json from data_dir; missing file yields empty rules."""
+        failures_path = data_dir / "failures.json"
         if not failures_path.is_file():
-            return cls(rules=[], scenario=scenario)
+            return cls(rules=[], name=name)
         try:
             data = json.loads(failures_path.read_text(encoding="utf-8"))
             rules = data.get("failure_rules", [])
             if not isinstance(rules, list):
-                return cls(rules=[], scenario=scenario)
-            return cls(rules=rules, scenario=scenario)
+                return cls(rules=[], name=name)
+            return cls(rules=rules, name=name)
         except (json.JSONDecodeError, OSError):
-            return cls(rules=[], scenario=scenario)
+            return cls(rules=[], name=name)
 
     def should_force_no_object(self, *, target_category: str | None = None) -> bool:
         """Return True if any enabled force_no_object rule matches.

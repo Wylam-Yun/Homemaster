@@ -1,4 +1,4 @@
-"""Tokenization helpers for Stage 03 object memory retrieval."""
+"""Tokenization helpers  object memory retrieval."""
 
 from __future__ import annotations
 

@@ -2,8 +2,6 @@
 
 Provides run_single_turn() for one-shot CLI runs and run_agent_turn()
 for multi-turn interactive shell sessions.
-
-No imports from homemaster.task_runner, homemaster.pipeline, or homemaster.stages.
 """
 
 from __future__ import annotations

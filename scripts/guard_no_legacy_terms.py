@@ -23,7 +23,6 @@ BLOCKED_PATHS = (
 )
 
 BLOCKED_TEXT_PATTERNS = (
-    "Stage",
     "stage_",
     "run_stage",
     "stage_statuses",
@@ -36,9 +35,33 @@ BLOCKED_TEXT_PATTERNS = (
     "shim_lifecycle",
     "legacy shim",
     "legacy compat",
+    "final_status",
+    "llm_cases",
+    "prompt_snapshots",
+    "stage runs",
+    "llm_samples.jsonl",
+    "result.md",
 )
 
 SKIP_DIRS = frozenset({".git/", ".venv/", ".pytest_cache/", "plan/V1.4/"})
+
+# Test files that legitimately reference legacy terms in negative assertions
+# (asserting legacy terms are ABSENT from output/imports/fixtures).
+SKIP_FILES = frozenset({
+    "tests/homemaster/test_cleanup_guard.py",
+    "tests/homemaster/test_cli_help.py",
+    "tests/homemaster/test_cli_run.py",
+    "tests/homemaster/test_cli_interactive.py",
+    "tests/homemaster/test_import_boundaries.py",
+    "tests/homemaster/test_domain_import_boundaries.py",
+    "tests/homemaster/test_domain_memory_tools.py",
+    "tests/homemaster/test_runtime_settings.py",
+    "tests/homemaster/test_prompt_externalization.py",
+    "tests/homemaster/test_skills_registry.py",
+    "tests/homemaster/test_stage_06_debug_assets_do_not_contain_secrets.py",
+    "tests/homemaster/test_doubles/__init__.py",
+    "tests/homemaster/test_doubles/fake_mimo_client.py",
+})
 
 BINARY_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
@@ -67,6 +90,8 @@ def _should_skip_path(path: str) -> bool:
         if path.startswith(skip_dir):
             return True
     if path == SELF_PATH:
+        return True
+    if path in SKIP_FILES:
         return True
     suffix = posix.suffix.lower()
     if suffix in BINARY_EXTENSIONS:

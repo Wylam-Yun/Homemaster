@@ -1,8 +1,7 @@
 """GenericAgentRuntime — message/tool-call/tool-result agent loop.
 
-This runtime does not import homemaster.domain.home, homemaster.pipeline,
-homemaster.stages, or homemaster.task_runner. It operates purely on
-normalized messages, tool calls, and tool results.
+This runtime does not import any domain-specific modules. It operates purely
+on normalized messages, tool calls, and tool results.
 """
 
 from __future__ import annotations

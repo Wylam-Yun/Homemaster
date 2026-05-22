@@ -7,7 +7,7 @@ from typing import Any
 
 
 def apply_world_overlay(world: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """Apply world_overlay.json to a global HomeWorld, producing a scenario-specific world.
+    """Apply world_overlay.json to a global HomeWorld, producing a configured world.
 
     Filters all reference layers to prevent dangling refs:
     - objects → only ``present_object_ids``

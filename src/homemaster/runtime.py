@@ -1,9 +1,9 @@
-"""Runtime configuration helpers for HomeMaster stage runs.
+"""Runtime configuration helpers for HomeMaster.
 
-NOTE: Module-level constants (DEFAULT_PROVIDER_NAME, DEFAULT_STAGE_07_RUNTIME_ROOT, etc.)
-are legacy. They are preserved for backward compatibility with the subprocess+reload
-test pattern in test_homemaster_config.py. New code should use config/runtime_settings.py
-(run-scoped RuntimeSettings) instead of importing these constants.
+Module-level constants (DEFAULT_PROVIDER_NAME, etc.) are preserved for backward
+compatibility with the subprocess+reload test pattern. New code should use
+config/runtime_settings.py (run-scoped RuntimeSettings) instead of importing
+these constants.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERIC_CONFIG_PATH = REPO_ROOT / "config" / "api_config.json"
 LEGACY_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
 DEFAULT_CONFIG_PATH = GENERIC_CONFIG_PATH if GENERIC_CONFIG_PATH.exists() else LEGACY_CONFIG_PATH
-DEFAULT_STAGE_01_CASE_NAME = "stage_01_llm_contract_smoke"
 
 
 class RuntimeConfigError(RuntimeError):
@@ -121,23 +120,6 @@ def load_runtime_defaults_config() -> dict[str, Any]:
     cfg = get_config_section(load_homemaster_config(), "runtime_defaults")
     if cfg is None:
         return {}
-    if "live_models" in cfg:
-        raise RuntimeConfigError(
-            "runtime_defaults.live_models is no longer supported. "
-            "Deterministic runtime mode has been removed."
-        )
-    if "mock_skills" in cfg:
-        raise RuntimeConfigError(
-            "runtime_defaults.mock_skills is no longer supported. "
-            "Use skill_mode='simulated' instead."
-        )
-    if "skill_mode" in cfg:
-        _require_type(cfg["skill_mode"], str, "runtime_defaults.skill_mode")
-        if cfg["skill_mode"] not in ("simulated", "real"):
-            raise RuntimeConfigError(
-                f"runtime_defaults.skill_mode must be 'simulated' or 'real', "
-                f"got {cfg['skill_mode']!r}"
-            )
     for key in ("default_provider_name", "default_embedding_provider_name"):
         if key in cfg:
             _require_type(cfg[key], str, f"runtime_defaults.{key}")
@@ -145,13 +127,10 @@ def load_runtime_defaults_config() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# P7: derived constants from config (with safe defaults)
+# Derived constants from config (with safe defaults)
 # ---------------------------------------------------------------------------
 # NOTE: These import-time config reads are intentionally preserved.
-# The subprocess+reload test pattern in test_homemaster_config.py depends on
-# module-level _load_*_config() calls: subprocess sets HOMEMASTER_CONFIG_PATH
-# before import, and importlib.reload() re-triggers these calls to apply
-# overrides. Removing them breaks 4+ existing tests (scoring, grounding, etc.).
+# The subprocess+reload test pattern depends on module-level config calls.
 # New code should use explicit loaders from config/runtime_settings.py instead.
 
 _defaults_cfg = load_runtime_defaults_config()
@@ -161,39 +140,17 @@ DEFAULT_PROVIDER_NAME: str = _defaults_cfg.get("default_provider_name", "Mimo")
 DEFAULT_EMBEDDING_PROVIDER_NAME: str = _defaults_cfg.get(
     "default_embedding_provider_name", "MemoryEmbedding"
 )
-DEFAULT_SKILL_MODE: str = _defaults_cfg.get("skill_mode", "simulated")
 
-_llm_case_root = _paths_cfg.get("llm_case_root")
-LLM_CASE_ROOT = (
-    Path(_llm_case_root) if _llm_case_root
-    else REPO_ROOT / "tests" / "homemaster" / "llm_cases"
+_memory_case_root = _paths_cfg.get("memory_case_root")
+MEMORY_CASE_ROOT = (
+    Path(_memory_case_root) if _memory_case_root
+    else REPO_ROOT / "tests" / "homemaster" / "memory_cases"
 )
 
-_test_results_root = _paths_cfg.get("test_results_root")
-TEST_RESULTS_ROOT = (
-    Path(_test_results_root) if _test_results_root
-    else REPO_ROOT / "plan" / "V1.2" / "test_results"
-)
-
-STAGE_01_CASE_DIR = LLM_CASE_ROOT / "stage_01" / DEFAULT_STAGE_01_CASE_NAME
-STAGE_01_RESULTS_DIR = TEST_RESULTS_ROOT / "stage_01"
-
-_runtime_root = _paths_cfg.get("runtime_root")
-DEFAULT_STAGE_07_RUNTIME_ROOT = (
-    Path(_runtime_root) if _runtime_root
-    else REPO_ROOT / "var" / "homemaster" / "runs"
-)
-
-_debug_root = _paths_cfg.get("debug_root")
-DEFAULT_STAGE_07_DEBUG_ROOT = (
-    Path(_debug_root) if _debug_root
-    else REPO_ROOT / "var" / "homemaster" / "debug"
-)
-
-_results_root = _paths_cfg.get("results_root")
-DEFAULT_STAGE_07_RESULTS_ROOT = (
-    Path(_results_root) if _results_root
-    else REPO_ROOT / "var" / "homemaster" / "results"
+_memory_results_root = _paths_cfg.get("memory_results_root")
+MEMORY_RESULTS_ROOT = (
+    Path(_memory_results_root) if _memory_results_root
+    else REPO_ROOT / "plan" / "test_results"
 )
 
 
@@ -253,15 +210,6 @@ def load_provider_config(
         raise RuntimeConfigError(f"provider {provider_name!r} not found in {path}")
 
     return _provider_from_payload(payload, fallback_name=provider_name)
-
-
-def ensure_stage_directories(
-    *,
-    case_dir: Path = STAGE_01_CASE_DIR,
-    results_dir: Path = STAGE_01_RESULTS_DIR,
-) -> None:
-    case_dir.mkdir(parents=True, exist_ok=True)
-    (results_dir / "trace").mkdir(parents=True, exist_ok=True)
 
 
 def _provider_from_payload(payload: dict[str, Any], *, fallback_name: str) -> ProviderConfig:
