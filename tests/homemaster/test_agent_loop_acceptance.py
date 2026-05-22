@@ -29,6 +29,9 @@ class FakeTransport(LLMTransport):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         if self._index >= len(self._responses):
             resp = {"content": "I'm here to help!", "stop_reason": "end_turn"}

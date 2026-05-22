@@ -242,10 +242,11 @@ class EmbeddingClientAdapter:
             from homemaster.events.runtime_events import RuntimeEvent
 
             self._event_sink.emit(RuntimeEvent(
-                turn_index=self._turn_index,
-                event_type="embedding_call_started",
+                type="embedding_call_started",
+                session_id="",
                 run_id=self._run_id,
-                provider_name=self.provider_name,
+                turn_index=self._turn_index,
+                name=self.provider_name,
                 payload={"model": self.model, "text_count": len(texts)},
             ))
             t0 = time.perf_counter()
@@ -253,10 +254,11 @@ class EmbeddingClientAdapter:
                 result = self._client.embed_texts(texts).embeddings
             except Exception as exc:
                 self._event_sink.emit(RuntimeEvent(
-                    turn_index=self._turn_index,
-                    event_type="embedding_call_failed",
+                    type="embedding_call_failed",
+                    session_id="",
                     run_id=self._run_id,
-                    provider_name=self.provider_name,
+                    turn_index=self._turn_index,
+                    name=self.provider_name,
                     duration_ms=round((time.perf_counter() - t0) * 1000, 1),
                     payload={
                         "model": self.model,
@@ -266,10 +268,11 @@ class EmbeddingClientAdapter:
                 ))
                 raise
             self._event_sink.emit(RuntimeEvent(
-                turn_index=self._turn_index,
-                event_type="embedding_call_completed",
+                type="embedding_call_completed",
+                session_id="",
                 run_id=self._run_id,
-                provider_name=self.provider_name,
+                turn_index=self._turn_index,
+                name=self.provider_name,
                 duration_ms=round((time.perf_counter() - t0) * 1000, 1),
                 payload={"model": self.model, "text_count": len(texts)},
             ))

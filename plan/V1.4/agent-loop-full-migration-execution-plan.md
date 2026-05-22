@@ -114,6 +114,24 @@ Completion review:
 Review the completed batch changes against the reviewed per-batch plan, HomeMaster V1.4 spec, and the actual repository. Check whether the intended files changed, whether tests and import boundaries are sufficient, whether old runtime concepts remain reachable, and whether any user/unrelated work was accidentally staged. Return blocking findings first with file/path references.
 ```
 
+Use this exact local closeout sequence for every batch after verification passes and completion review findings are fixed:
+
+```bash
+git status --short
+git diff --cached --name-only
+git commit -m "<batch commit message>"
+git push
+```
+
+If push is slow:
+
+```bash
+proxy
+git push
+```
+
+After the completion review is clean and before moving to the next batch, run `/compact` in the agent session. `/compact` is an agent command, not a shell command.
+
 ## Cross-Layer Contract Rules
 
 Batch 1 starts with schema-first work. Before writing runtime behavior, define and test these normalized contracts:
@@ -141,6 +159,8 @@ Runtime invariants:
 ## Batch 0: Baseline, Guard, And Static Cleanup
 
 **Purpose:** Record the current surface, delete non-runtime historical artifacts, and install a report-only guard before code migration starts.
+
+**Batch gate:** Execute the Mandatory Per-Batch Execution Protocol first. In Plan mode, write a Batch 0-only plan, run a subagent plan review, revise until clean, implement, run a subagent completion review, fix findings, run `/compact`, then commit and push.
 
 **Files:**
 - Create: `plan/V1.4/baseline/git-status-before.md`
@@ -304,15 +324,18 @@ Commit:
 git add .gitignore scripts/guard_no_legacy_terms.py tests/homemaster/test_cleanup_guard.py plan/V1.4/baseline/git-status-before.md plan/V1.4/baseline/legacy-surface-before.txt plan/V1.4/baseline/tracked-artifacts-before.txt plan/V1.4/baseline/legacy-surface-after-static-cleanup.txt
 git status --short
 git commit -m "chore: remove historical runtime artifacts"
+git push
 ```
 
-Before committing, verify that the staged diff contains only Batch 0 files and deletions.
+Before committing, run the completion subagent review and fix any blocking findings. Verify that the staged diff contains only Batch 0 files and deletions. After commit, push; if push is slow, run `proxy` and retry `git push`.
 
 ---
 
 ## Batch 1: Generic Agent Messages, Session, And Transport
 
 **Purpose:** Replace custom decision JSON with a generic message/tool-call/tool-result contract while leaving current CLI entrypoints intact.
+
+**Batch gate:** Execute the Mandatory Per-Batch Execution Protocol first. In Plan mode, write a Batch 1-only plan, run a subagent plan review, revise until clean, implement, run a subagent completion review, fix findings, run `/compact`, then commit and push.
 
 **Files:**
 - Create: `src/homemaster/agent/messages.py`
@@ -853,15 +876,18 @@ git diff -- src/homemaster/llm_client.py src/homemaster/events/runtime_events.py
 git add src/homemaster/agent/messages.py src/homemaster/agent/session.py src/homemaster/agent/normalized.py src/homemaster/agent/context.py src/homemaster/agent/generic_runtime.py src/homemaster/agent/runtime.py src/homemaster/providers/transport.py src/homemaster/providers/mimo_transport.py src/homemaster/llm_client.py src/homemaster/events/runtime_events.py src/homemaster/events/sinks.py src/homemaster/events/sanitizer.py tests/homemaster/test_agent_messages.py tests/homemaster/test_agent_session.py tests/homemaster/test_context_composer.py tests/homemaster/test_transport_mimo.py tests/homemaster/test_agent_runtime.py tests/homemaster/test_llm_client.py
 git status --short
 git commit -m "feat: add generic agent message transport loop"
+git push
 ```
 
-Before committing, verify that no `task_runner.py`, `pipeline/`, `stages/`, or `mimo_decision_client.py` deletion is staged.
+Before committing, run the completion subagent review and fix any blocking findings. Verify that no `task_runner.py`, `pipeline/`, `stages/`, or `mimo_decision_client.py` deletion is staged. After commit, push; if push is slow, run `proxy` and retry `git push`.
 
 ---
 
 ## Batch 2: CLI Cutover, Generic State, And Tool Contract Boundary
 
 **Purpose:** Make the visible product run through the generic runtime before old runtime packages are removed.
+
+**Batch gate:** Execute the Mandatory Per-Batch Execution Protocol first. In Plan mode, write a Batch 2-only plan, run a subagent plan review, revise until clean, implement, run a subagent completion review, fix findings, run `/compact`, then commit and push.
 
 **Files:**
 - Modify: `src/homemaster/agent/runtime.py`
@@ -1272,15 +1298,18 @@ git diff -- src/homemaster/agent/runtime.py src/homemaster/agent/state.py src/ho
 git add src/homemaster/agent/runtime.py src/homemaster/agent/state.py src/homemaster/agent/context_builder.py src/homemaster/agent/turn.py src/homemaster/tools/spec.py src/homemaster/tools/dispatcher.py src/homemaster/tools/results.py src/homemaster/tools/registry.py src/homemaster/tools/state_updater.py src/homemaster/tools/builtin.py src/homemaster/tools/simulated.py src/homemaster/tools/skill_tools.py src/homemaster/cli/app.py src/homemaster/cli/run_command.py src/homemaster/cli/interactive_shell.py src/homemaster/cli/doctor.py src/homemaster/cli/errors.py tests/homemaster/test_agent_state.py tests/homemaster/test_tool_dispatcher.py tests/homemaster/test_tool_registry.py tests/homemaster/test_cli_help.py tests/homemaster/test_cli_interactive.py tests/homemaster/test_cli_run.py tests/homemaster/test_cli_doctor.py
 git status --short
 git commit -m "feat: cut cli over to generic agent turns"
+git push
 ```
 
-Before committing, verify that old runtime package deletions are not staged yet.
+Before committing, run the completion subagent review and fix any blocking findings. Verify that old runtime package deletions are not staged yet. After commit, push; if push is slow, run `proxy` and retry `git push`.
 
 ---
 
 ## Batch 3: Domain Tool Migration, Fixture Sanitization, And Old Runtime Deletion
 
 **Purpose:** Preserve home-robot capabilities as tools, move memory code into its package, sanitize test fixtures, and delete the old fixed-flow runtime.
+
+**Batch gate:** Execute the Mandatory Per-Batch Execution Protocol first. In Plan mode, write a Batch 3-only plan, run a subagent plan review, revise until clean, implement, run a subagent completion review, fix findings, run `/compact`, then commit and push.
 
 **Files:**
 - Create: `src/homemaster/domain/home/__init__.py`
@@ -1819,9 +1848,10 @@ git add tests/homemaster/fixtures/home_tasks/fetch_cup_retry/case.json tests/hom
 git add tests/homemaster/test_domain_home_tools.py tests/homemaster/test_domain_memory_tools.py tests/homemaster/test_domain_import_boundaries.py tests/homemaster/test_embedding_degradation.py tests/homemaster/test_recovery_config.py plan/V1.4/baseline/old-test-imports-before-batch3.txt plan/V1.4/baseline/moved-or-deleted-imports-before-batch3.txt plan/V1.4/baseline/scenario-fixtures-before-deletion.txt
 git status --short
 git commit -m "feat: migrate home capabilities to domain tools"
+git push
 ```
 
-Before committing, inspect both inventory files and stage their entries manually. Use `git rm -- <path>` for tests that were deleted with the old architecture, `git add <path>` only for tests intentionally rewritten in this batch, and patch staging for any already-dirty file with unrelated user edits. Do not use command substitution or broad staging against the inventory output. `git diff --cached --name-only` must include old runtime deletions caused by `git rm` and every intentionally rewritten/deleted test from the two inventory files, but it must not include unrelated pre-existing user edits.
+Before committing, run the completion subagent review and fix any blocking findings. Inspect both inventory files and stage their entries manually. Use `git rm -- <path>` for tests that were deleted with the old architecture, `git add <path>` only for tests intentionally rewritten in this batch, and patch staging for any already-dirty file with unrelated user edits. Do not use command substitution or broad staging against the inventory output. `git diff --cached --name-only` must include old runtime deletions caused by `git rm` and every intentionally rewritten/deleted test from the two inventory files, but it must not include unrelated pre-existing user edits. After commit, push; if push is slow, run `proxy` and retry `git push`.
 
 Batch 3 is not expected to make the entire repository pass the final legacy-term guard. README, config, `pyproject.toml`, and final prompt-loader cleanup are intentionally left for Batch 4. Batch 3 verification is scoped to `src/homemaster` and `tests/homemaster` after the old runtime packages and old tests are removed.
 
@@ -1830,6 +1860,8 @@ Batch 3 is not expected to make the entire repository pass the final legacy-term
 ## Batch 4: Config, Prompts, Final Guard, And Acceptance
 
 **Purpose:** Make cleanup irreversible, replace user-facing docs/config with agent-loop language, and prove the new main chain works.
+
+**Batch gate:** Execute the Mandatory Per-Batch Execution Protocol first. In Plan mode, write a Batch 4-only plan, run a subagent plan review, revise until clean, implement, run a subagent completion review, fix findings, run `/compact`, then commit and push.
 
 **Files:**
 - Modify: `config/homemaster.example.json`
@@ -2164,9 +2196,10 @@ git diff -- README.md config/homemaster.example.json src/homemaster/runtime.py s
 git add README.md pyproject.toml config/homemaster.example.json src/homemaster/runtime.py src/homemaster/token_budget.py src/homemaster/config/runtime_settings.py src/homemaster/prompts/agent_system_prompt.txt src/homemaster/prompts/task_interpreter_prompt.txt src/homemaster/prompts/memory_query_prompt.txt src/homemaster/prompts/task_summary_prompt.txt src/homemaster/prompt_loader.py scripts/guard_no_legacy_terms.py tests/homemaster/test_cleanup_guard.py tests/homemaster/test_import_boundaries.py tests/homemaster/test_homemaster_config.py tests/homemaster/test_runtime_settings.py tests/homemaster/test_token_budget.py tests/homemaster/test_prompt_externalization.py tests/homemaster/test_agent_loop_acceptance.py
 git status --short
 git commit -m "test: enforce generic agent loop boundary"
+git push
 ```
 
-If `tests/homemaster/test_prompt_externalization.py` was deleted in Batch 3, omit it from `git add`.
+Before committing, run the completion subagent review and fix any blocking findings. If `tests/homemaster/test_prompt_externalization.py` was deleted in Batch 3, omit it from `git add`. After commit, push; if push is slow, run `proxy` and retry `git push`.
 
 ## Handoff Rules For Low-Level Agents
 

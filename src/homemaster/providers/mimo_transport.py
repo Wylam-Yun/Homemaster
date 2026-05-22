@@ -54,6 +54,9 @@ class MimoTransport(LLMTransport):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         """Stream deltas from the MiMo/Anthropic API."""
         payload = self._build_request_payload(messages, tools)
@@ -62,18 +65,27 @@ class MimoTransport(LLMTransport):
             from homemaster.events.runtime_events import RuntimeEvent
 
             event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="transport.request_started",
+                type="transport.request_started",
+                session_id=session_id,
                 run_id=run_id,
-                payload={"model": self._model, "protocol": self._protocol},
+                turn_index=turn_index,
+                payload={
+                    "model": self._model,
+                    "protocol": self._protocol,
+                    "iteration": iteration,
+                },
             ))
 
         t0 = time.perf_counter()
 
         if self._protocol == "anthropic":
-            yield from self._stream_anthropic(payload, event_sink, run_id, t0)
+            yield from self._stream_anthropic(
+                payload, event_sink, run_id, session_id, turn_index, t0,
+            )
         else:
-            yield from self._stream_openai(payload, event_sink, run_id, t0)
+            yield from self._stream_openai(
+                payload, event_sink, run_id, session_id, turn_index, t0,
+            )
 
     def complete(
         self,
@@ -82,83 +94,28 @@ class MimoTransport(LLMTransport):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> AssistantMessage:
-        """Non-streaming complete — sends the request and parses the response."""
-        payload = self._build_request_payload(messages, tools)
-
-        if event_sink is not None:
-            from homemaster.events.runtime_events import RuntimeEvent
-
-            event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="transport.request_started",
-                run_id=run_id,
-                payload={"model": self._model, "protocol": self._protocol},
-            ))
-
-        t0 = time.perf_counter()
-
-        if self._protocol == "anthropic":
-            url = f"{self._base_url}/v1/messages"
-            headers = {
-                "x-api-key": self._api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            }
-        else:
-            url = f"{self._base_url}/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            }
-
-        response = self._client.post(url, headers=headers, json=payload)
-        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-
-        if response.status_code >= 400:
-            error_msg = f"HTTP {response.status_code}"
-            try:
-                body = response.json()
-                if isinstance(body, dict) and "error" in body:
-                    error_msg = str(body["error"])
-            except ValueError:
-                pass
-
-            if event_sink is not None:
-                from homemaster.events.runtime_events import RuntimeEvent
-
-                event_sink.emit(RuntimeEvent(
-                    turn_index=0,
-                    event_type="transport.request_failed",
-                    run_id=run_id,
-                    payload={"error": error_msg, "status_code": response.status_code},
-                ))
-            raise RuntimeError(f"Transport request failed: {error_msg}")
-
-        body = response.json()
-        msg = self.parse_response_payload(body)
-
-        if event_sink is not None:
-            from homemaster.events.runtime_events import RuntimeEvent
-
-            event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="transport.response_completed",
-                run_id=run_id,
-                payload={
-                    "finish_reason": msg.finish_reason,
-                    "tool_call_count": len(msg.tool_calls),
-                },
-                duration_ms=elapsed_ms,
-            ))
-
-        return msg
+        """Aggregate the primary streaming path into an AssistantMessage."""
+        return super().complete(
+            messages,
+            tools,
+            event_sink=event_sink,
+            run_id=run_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            iteration=iteration,
+        )
 
     def _stream_anthropic(
         self,
         payload: dict[str, Any],
         event_sink: Any,
         run_id: str,
+        session_id: str,
+        turn_index: int | None,
         t0: float,
     ) -> Iterator[TransportDelta]:
         url = f"{self._base_url}/v1/messages"
@@ -174,16 +131,18 @@ class MimoTransport(LLMTransport):
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 
         if response.status_code >= 400:
+            error_msg = _extract_response_error(response)
             if event_sink is not None:
                 from homemaster.events.runtime_events import RuntimeEvent
 
                 event_sink.emit(RuntimeEvent(
-                    turn_index=0,
-                    event_type="transport.request_failed",
+                    type="transport.request_failed",
+                    session_id=session_id,
                     run_id=run_id,
-                    payload={"status_code": response.status_code},
+                    turn_index=turn_index,
+                    payload={"status_code": response.status_code, "error": error_msg},
                 ))
-            raise RuntimeError(f"Transport request failed: HTTP {response.status_code}")
+            raise RuntimeError(f"Transport request failed: {error_msg}")
 
         body = response.json()
         msg = self.parse_response_payload(body)
@@ -196,9 +155,10 @@ class MimoTransport(LLMTransport):
                     from homemaster.events.runtime_events import RuntimeEvent
 
                     event_sink.emit(RuntimeEvent(
-                        turn_index=0,
-                        event_type="transport.delta",
+                        type="transport.delta",
+                        session_id=session_id,
                         run_id=run_id,
+                        turn_index=turn_index,
                         payload={"text_delta": block.text},
                     ))
 
@@ -219,9 +179,10 @@ class MimoTransport(LLMTransport):
             from homemaster.events.runtime_events import RuntimeEvent
 
             event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="transport.response_completed",
+                type="transport.response_completed",
+                session_id=session_id,
                 run_id=run_id,
+                turn_index=turn_index,
                 payload={
                     "finish_reason": msg.finish_reason,
                     "tool_call_count": len(msg.tool_calls),
@@ -234,6 +195,8 @@ class MimoTransport(LLMTransport):
         payload: dict[str, Any],
         event_sink: Any,
         run_id: str,
+        session_id: str,
+        turn_index: int | None,
         t0: float,
     ) -> Iterator[TransportDelta]:
         url = f"{self._base_url}/v1/chat/completions"
@@ -246,16 +209,18 @@ class MimoTransport(LLMTransport):
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 
         if response.status_code >= 400:
+            error_msg = _extract_response_error(response)
             if event_sink is not None:
                 from homemaster.events.runtime_events import RuntimeEvent
 
                 event_sink.emit(RuntimeEvent(
-                    turn_index=0,
-                    event_type="transport.request_failed",
+                    type="transport.request_failed",
+                    session_id=session_id,
                     run_id=run_id,
-                    payload={"status_code": response.status_code},
+                    turn_index=turn_index,
+                    payload={"status_code": response.status_code, "error": error_msg},
                 ))
-            raise RuntimeError(f"Transport request failed: HTTP {response.status_code}")
+            raise RuntimeError(f"Transport request failed: {error_msg}")
 
         body = response.json()
         msg = self._parse_openai_response(body)
@@ -281,9 +246,10 @@ class MimoTransport(LLMTransport):
             from homemaster.events.runtime_events import RuntimeEvent
 
             event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="transport.response_completed",
+                type="transport.response_completed",
+                session_id=session_id,
                 run_id=run_id,
+                turn_index=turn_index,
                 payload={
                     "finish_reason": msg.finish_reason,
                     "tool_call_count": len(msg.tool_calls),
@@ -399,6 +365,11 @@ class MimoTransport(LLMTransport):
                 })
             elif hasattr(msg, "role") and msg.role == "assistant":
                 content_blocks: list[dict[str, Any]] = []
+                if msg.reasoning_content:
+                    content_blocks.append({
+                        "type": "thinking",
+                        "thinking": msg.reasoning_content,
+                    })
                 if msg.content:
                     for b in msg.content:
                         content_blocks.append({"type": "text", "text": b.text})
@@ -416,7 +387,7 @@ class MimoTransport(LLMTransport):
                     "content": [{
                         "type": "tool_result",
                         "tool_use_id": msg.tool_call_id,
-                        "content": [{"type": "text", "text": b.text} for b in msg.content],
+                        "content": "\n".join(b.text for b in msg.content if b.text),
                         "is_error": msg.is_error,
                     }],
                 })
@@ -496,3 +467,25 @@ def _normalize_finish_reason(raw: str | None) -> str | None:
         "max_tokens": "length",
     }
     return mapping.get(raw, raw)
+
+
+def _extract_response_error(response: httpx.Response) -> str:
+    try:
+        body = response.json()
+    except ValueError:
+        text = response.text.strip()
+        if text:
+            return f"HTTP {response.status_code}: {text[:300]}"
+        return f"HTTP {response.status_code}"
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message:
+                return f"HTTP {response.status_code}: {message[:300]}"
+        if isinstance(error, str) and error:
+            return f"HTTP {response.status_code}: {error[:300]}"
+        message = body.get("message")
+        if isinstance(message, str) and message:
+            return f"HTTP {response.status_code}: {message[:300]}"
+    return f"HTTP {response.status_code}"

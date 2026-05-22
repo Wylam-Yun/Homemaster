@@ -12,8 +12,8 @@ SECRET_MARKERS = (
 )
 
 
-def test_stage_06_debug_assets_do_not_contain_secrets() -> None:
-    root = Path("tests/homemaster/llm_cases/stage_06")
+def test_debug_assets_do_not_contain_secrets() -> None:
+    root = Path("tests/homemaster/debug_assets")
     if not root.exists():
         return
     for path in root.rglob("*"):

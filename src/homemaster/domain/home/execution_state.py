@@ -1,4 +1,4 @@
-"""Small helpers for Stage 05 runtime state bookkeeping."""
+"""Small helpers for home task execution state bookkeeping."""
 
 from __future__ import annotations
 

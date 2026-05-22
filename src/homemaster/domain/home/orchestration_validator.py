@@ -1,4 +1,4 @@
-"""Lightweight validators for Stage 05 orchestration output."""
+"""Lightweight validators for home orchestration output."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ FORBIDDEN_STAGE_05_KEYS = {
 }
 
 
-class Stage05ValidationError(RuntimeError):
-    """Raised when Stage 05 model output violates structural boundaries."""
+class OrchestrationValidationError(RuntimeError):
+    """Raised when model output violates orchestration boundaries."""
 
     def __init__(self, *, error_type: str, message: str) -> None:
         self.error_type = error_type
@@ -36,14 +36,14 @@ def validate_orchestration_payload(payload: dict[str, Any]) -> OrchestrationPlan
 
     forbidden = _find_forbidden_keys(payload)
     if forbidden:
-        raise Stage05ValidationError(
+        raise OrchestrationValidationError(
             error_type="forbidden_orchestration_field",
-            message="forbidden Stage 05 field(s): " + ", ".join(sorted(forbidden)),
+            message="forbidden orchestration field(s): " + ", ".join(sorted(forbidden)),
         )
     try:
         plan = OrchestrationPlan.model_validate(payload)
     except ValidationError as exc:
-        raise Stage05ValidationError(
+        raise OrchestrationValidationError(
             error_type="orchestration_schema_error",
             message=str(exc),
         ) from exc
@@ -51,10 +51,10 @@ def validate_orchestration_payload(payload: dict[str, Any]) -> OrchestrationPlan
 
 
 def validate_orchestration_plan(plan: OrchestrationPlan) -> OrchestrationPlan:
-    """Validate Stage 05 plan relationships without judging semantic quality."""
+    """Validate plan relationships without judging semantic quality."""
 
     if not plan.subtasks:
-        raise Stage05ValidationError(
+        raise OrchestrationValidationError(
             error_type="empty_orchestration_plan",
             message="OrchestrationPlan must contain at least one subtask",
         )
@@ -62,13 +62,13 @@ def validate_orchestration_plan(plan: OrchestrationPlan) -> OrchestrationPlan:
     seen: set[str] = set()
     for subtask in plan.subtasks:
         if subtask.id in seen:
-            raise Stage05ValidationError(
+            raise OrchestrationValidationError(
                 error_type="duplicate_subtask_id",
                 message=f"duplicate subtask id: {subtask.id}",
             )
         seen.add(subtask.id)
         if not subtask.success_criteria:
-            raise Stage05ValidationError(
+            raise OrchestrationValidationError(
                 error_type="missing_success_criteria",
                 message=f"subtask {subtask.id} must include success_criteria",
             )
@@ -76,7 +76,7 @@ def validate_orchestration_plan(plan: OrchestrationPlan) -> OrchestrationPlan:
     for subtask in plan.subtasks:
         for dependency in subtask.depends_on:
             if dependency not in seen:
-                raise Stage05ValidationError(
+                raise OrchestrationValidationError(
                     error_type="unknown_dependency",
                     message=f"subtask {subtask.id} has unknown dependency {dependency}",
                 )
@@ -107,7 +107,7 @@ def _assert_no_dependency_cycles(plan: OrchestrationPlan) -> None:
         if subtask_id in visited:
             return
         if subtask_id in visiting:
-            raise Stage05ValidationError(
+            raise OrchestrationValidationError(
                 error_type="dependency_cycle",
                 message=f"dependency cycle detected at {subtask_id}",
             )

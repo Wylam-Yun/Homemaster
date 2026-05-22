@@ -58,8 +58,6 @@ SKIP_FILES = frozenset({
     "tests/homemaster/test_runtime_settings.py",
     "tests/homemaster/test_prompt_externalization.py",
     "tests/homemaster/test_skills_registry.py",
-    "tests/homemaster/test_stage_06_debug_assets_do_not_contain_secrets.py",
-    "tests/homemaster/test_doubles/__init__.py",
     "tests/homemaster/test_doubles/fake_mimo_client.py",
 })
 

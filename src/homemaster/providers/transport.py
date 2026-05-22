@@ -48,6 +48,9 @@ class LLMTransport(ABC):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         """Stream deltas from the provider. Yields transport.delta events."""
         ...
@@ -59,9 +62,20 @@ class LLMTransport(ABC):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> AssistantMessage:
         """Convenience wrapper: stream + aggregate into a single AssistantMessage."""
-        deltas = list(self.stream(messages, tools, event_sink=event_sink, run_id=run_id))
+        deltas = list(self.stream(
+            messages,
+            tools,
+            event_sink=event_sink,
+            run_id=run_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            iteration=iteration,
+        ))
         return self._aggregate(deltas)
 
     @staticmethod

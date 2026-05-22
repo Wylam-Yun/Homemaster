@@ -34,14 +34,14 @@ class FailureRuleProvider:
         """Return True if any enabled force_no_object rule matches.
 
         Matching logic:
-        - Skip rules without ``rule_type`` key (legacy attempt-based rules).
+        - Skip rules without ``rule_type`` key.
         - Skip rules where ``enabled`` is not True.
         - For ``force_no_object`` rules: match when ``target_category`` is
           absent/None in the rule, or equals the provided ``target_category``.
         """
         for rule in self.rules:
             if "rule_type" not in rule:
-                continue  # legacy format
+                continue
             if rule.get("enabled") is not True:
                 continue
             if rule["rule_type"] != "force_no_object":

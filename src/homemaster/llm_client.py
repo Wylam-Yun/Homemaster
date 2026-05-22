@@ -107,10 +107,11 @@ class RawJsonLLMClient:
             from homemaster.events.runtime_events import RuntimeEvent
 
             self._event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="llm_call_started",
+                type="llm_call_started",
+                session_id="",
                 run_id=self._run_id,
-                provider_name=self._provider.name,
+                turn_index=0,
+                name=self._provider.name,
                 payload={
                     "model": self._provider.model,
                     "protocol": self._provider.protocol,
@@ -167,10 +168,11 @@ class RawJsonLLMClient:
                 from homemaster.events.runtime_events import RuntimeEvent
 
                 self._event_sink.emit(RuntimeEvent(
-                    turn_index=0,
-                    event_type="llm_call_completed",
+                    type="llm_call_completed",
+                    session_id="",
                     run_id=self._run_id,
-                    provider_name=self._provider.name,
+                    turn_index=0,
+                    name=self._provider.name,
                     duration_ms=round((time.perf_counter() - llm_started) * 1000, 1),
                     payload={
                         "model": self._provider.model,
@@ -191,10 +193,11 @@ class RawJsonLLMClient:
             from homemaster.events.runtime_events import RuntimeEvent
 
             self._event_sink.emit(RuntimeEvent(
-                turn_index=0,
-                event_type="llm_call_failed",
+                type="llm_call_failed",
+                session_id="",
                 run_id=self._run_id,
-                provider_name=self._provider.name,
+                turn_index=0,
+                name=self._provider.name,
                 duration_ms=round((time.perf_counter() - llm_started) * 1000, 1),
                 payload={
                     "model": self._provider.model,

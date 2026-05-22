@@ -1,4 +1,4 @@
-"""Failure record helpers for Stage 05."""
+"""Failure record helpers for home task execution."""
 
 from __future__ import annotations
 

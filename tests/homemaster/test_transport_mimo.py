@@ -1,4 +1,10 @@
-from homemaster.agent.messages import AssistantMessage
+from homemaster.agent.messages import (
+    AssistantMessage,
+    ContentBlock,
+    ToolCall,
+    ToolResultMessage,
+    UserMessage,
+)
 from homemaster.providers.mimo_transport import MimoTransport
 
 
@@ -72,3 +78,61 @@ def test_parse_usage() -> None:
     }
     msg = MimoTransport.parse_response_payload(payload)
     assert msg.usage == {"input_tokens": 10, "output_tokens": 5}
+
+
+def test_complete_aggregates_stream(monkeypatch) -> None:
+    calls = {"stream": 0}
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+
+    def fake_stream(*args, **kwargs):
+        calls["stream"] += 1
+        from homemaster.providers.transport import TransportDelta
+
+        yield TransportDelta(type="transport.delta", text_delta="hi")
+        yield TransportDelta(type="transport.delta", finish_reason="stop")
+
+    monkeypatch.setattr(transport, "stream", fake_stream)
+    msg = transport.complete([UserMessage.from_text("hello")])
+    assert calls["stream"] == 1
+    assert msg.text == "hi"
+
+
+def test_anthropic_tool_result_content_is_text() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+    payload = transport._build_anthropic_payload([
+        ToolResultMessage(
+            tool_call_id="call_1",
+            name="task_interpreter",
+            content=[ContentBlock(text='{"success": true}')],
+        )
+    ])
+    content = payload["messages"][0]["content"][0]
+    assert content["type"] == "tool_result"
+    assert content["content"] == '{"success": true}'
+
+
+def test_anthropic_payload_replays_reasoning_before_tool_use() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+    payload = transport._build_anthropic_payload([
+        AssistantMessage(
+            reasoning_content="thinking",
+            tool_calls=[
+                ToolCall(id="call_1", name="task_interpreter", arguments={"utterance": "hi"})
+            ],
+        )
+    ])
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "thinking", "thinking": "thinking"}
+    assert content[1]["type"] == "tool_use"

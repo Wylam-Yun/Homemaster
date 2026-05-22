@@ -57,7 +57,6 @@ def run_interactive_shell() -> None:
             continue
 
         run_id = uuid.uuid4().hex[:12]
-        typer.echo("AgentRuntime tool loop running...")
         try:
             result = run_agent_turn(
                 session,

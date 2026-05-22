@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
 from homemaster.agent.normalized import RunContext
@@ -37,25 +38,34 @@ def _build_transport() -> LLMTransport:
     from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME, load_provider_config
 
     provider = load_provider_config(DEFAULT_CONFIG_PATH, provider_name=DEFAULT_PROVIDER_NAME)
+    api_key = provider.api_keys[0]
     return MimoTransport(
         base_url=provider.base_url,
         model=provider.model,
-        api_key=provider.api_key,
+        api_key=api_key,
         protocol=provider.protocol,
     )
 
 
 def _build_tool_dispatcher_and_specs(
     run_id: str,
+    *,
+    world_path: Path | None = None,
+    memory_path: Path | None = None,
+    runtime_memory_root: Path | None = None,
 ) -> tuple[ToolDispatcher, list[dict[str, object]]]:
-    """Build a ToolDispatcher with all builtin tools registered.
+    """Build a ToolDispatcher with all Home domain tools registered.
 
     Returns (dispatcher, tool_schemas) where tool_schemas are the
     generic_runtime.ToolSpec-compatible dicts for the model.
     """
-    from homemaster.tools.builtin import build_tool_registry
+    from homemaster.domain.home.tool_registry import build_home_tool_registry
 
-    registry = build_tool_registry()
+    registry = build_home_tool_registry(
+        world_path=world_path,
+        memory_path=memory_path,
+        runtime_memory_root=runtime_memory_root,
+    )
     dispatcher = ToolDispatcher()
     tool_schemas: list[dict[str, object]] = []
 
@@ -76,22 +86,51 @@ def _build_tool_dispatcher_and_specs(
 def _build_run_context(
     run_id: str,
     session_id: str,
+    *,
+    world_path: Path | None = None,
+    memory_path: Path | None = None,
+    event_sink: Any = None,
     turn_index: int = 0,
 ) -> RunContext:
-    """Build a RunContext with default RuntimeSettings."""
+    """Build a RunContext with explicit RuntimeSettings."""
     settings = RuntimeSettings(
         run_id=run_id,
         runtime_root=Path("/tmp/homemaster/runs"),
         debug_root=Path("/tmp/homemaster/debug"),
         results_root=Path("/tmp/homemaster/results"),
+        world_path=world_path,
+        memory_path=memory_path,
     )
     return RunContext(
         session_id=session_id,
         run_id=run_id,
         turn_index=turn_index,
         settings=settings,
-        event_sink=None,
+        event_sink=event_sink,
     )
+
+
+def _build_event_sink(
+    *,
+    run_id: str,
+    progress: bool,
+) -> tuple[Any, Path, Path]:
+    """Build the trace sink for a run."""
+    from homemaster.events.sinks import (
+        ConsoleProgressEventSink,
+        FanoutEventSink,
+        JsonlEventSink,
+    )
+
+    run_dir = Path("/tmp/homemaster/runs") / run_id
+    jsonl_sink = JsonlEventSink(run_dir)
+    if progress:
+        return (
+            FanoutEventSink([jsonl_sink, ConsoleProgressEventSink()]),
+            run_dir / "runtime_events.jsonl",
+            run_dir,
+        )
+    return jsonl_sink, run_dir / "runtime_events.jsonl", run_dir
 
 
 def run_single_turn(
@@ -134,10 +173,22 @@ def run_agent_turn(
     run_id = run_id or uuid.uuid4().hex[:12]
 
     transport = _build_transport()
-    dispatcher, tool_schemas = _build_tool_dispatcher_and_specs(run_id)
+    event_sink, trace_path, run_dir = _build_event_sink(run_id=run_id, progress=progress)
+    dispatcher, tool_schemas = _build_tool_dispatcher_and_specs(
+        run_id,
+        world_path=world_path,
+        memory_path=memory_path,
+        runtime_memory_root=run_dir / "memory",
+    )
 
     # Build RunContext and set it on the dispatcher for tool execution
-    run_context = _build_run_context(run_id, session.session_id)
+    run_context = _build_run_context(
+        run_id,
+        session.session_id,
+        world_path=world_path,
+        memory_path=memory_path,
+        event_sink=event_sink,
+    )
     dispatcher.set_run_context(run_context)
 
     runtime = GenericAgentRuntime(
@@ -150,10 +201,12 @@ def run_agent_turn(
         session,
         text,
         tools=_to_tool_specs(tool_schemas),
+        event_sink=event_sink,
         run_id=run_id,
+        settings=run_context.settings,
     )
 
-    return _to_turn_result(result, run_id)
+    return _to_turn_result(result, run_id, trace_path=trace_path, run_dir=run_dir)
 
 
 def _to_tool_specs(
@@ -172,13 +225,19 @@ def _to_tool_specs(
     ]
 
 
-def _to_turn_result(result: GenericRunResult, run_id: str) -> AgentTurnResult:
+def _to_turn_result(
+    result: GenericRunResult,
+    run_id: str,
+    *,
+    trace_path: Path | None = None,
+    run_dir: Path | None = None,
+) -> AgentTurnResult:
     """Convert a GenericRunResult to an AgentTurnResult."""
     return AgentTurnResult(
         run_id=result.run_id,
         status=result.status,
         final_reply=result.final_reply,
-        trace_path=None,
-        run_dir=None,
+        trace_path=trace_path,
+        run_dir=run_dir,
         tool_events=result.events,
     )

@@ -78,6 +78,9 @@ class FakeTransport(LLMTransport):
         *,
         event_sink: Any = None,
         run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         msg = self._get_next_response()
         if msg.content:
@@ -89,16 +92,6 @@ class FakeTransport(LLMTransport):
             type="transport.delta",
             finish_reason=msg.finish_reason,
         )
-
-    def complete(
-        self,
-        messages: list[Message],
-        tools: list[dict[str, Any]] | None = None,
-        *,
-        event_sink: Any = None,
-        run_id: str = "",
-    ) -> AssistantMessage:
-        return self._get_next_response()
 
     def _get_next_response(self) -> AssistantMessage:
         if hasattr(self, "_repeat_response"):
@@ -257,7 +250,7 @@ def test_runtime_stops_when_max_iterations_exceeded() -> None:
     )
     assert result.status == "failed"
     assert result.error_code == "max_tool_iterations_exceeded"
-    assert any(event.event_type == "runtime.budget_exhausted" for event in result.events)
+    assert any(event.type == "runtime.budget_exhausted" for event in result.events)
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +266,7 @@ def test_runtime_fails_when_tool_result_id_mismatch() -> None:
     result = _run("帮我找水杯", transport=transport, dispatcher=executor)
     assert result.status == "failed"
     assert result.error_code == "tool_result_id_mismatch"
-    assert any(event.event_type == "runtime.turn_failed" for event in result.events)
+    assert any(event.type == "runtime.turn_failed" for event in result.events)
 
 
 # ---------------------------------------------------------------------------

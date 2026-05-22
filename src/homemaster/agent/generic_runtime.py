@@ -84,10 +84,13 @@ class GenericAgentRuntime:
 
         def emit(event_type: str, **kwargs: Any) -> None:
             event = RuntimeEvent(
-                turn_index=0,
-                event_type=event_type,
+                type=event_type,
+                session_id=session.session_id,
                 run_id=run_id,
-                payload=kwargs.get("payload", {}),
+                turn_index=0,
+                tool_call_id=kwargs.pop("tool_call_id", None),
+                name=kwargs.pop("name", None),
+                payload=kwargs.pop("payload", {}),
                 **{k: v for k, v in kwargs.items() if k != "payload"},
             )
             events.append(event)
@@ -103,17 +106,19 @@ class GenericAgentRuntime:
         ]
 
         for iteration in range(self._max_tool_iterations):
-            # Call the model
-            emit("transport.request_started", payload={"iteration": iteration})
             t0 = time.perf_counter()
 
             try:
-                assistant_msg = self._transport.complete(
+                deltas = list(self._transport.stream(
                     session.messages,
                     tools=tool_schemas if tool_schemas else None,
                     event_sink=event_sink,
                     run_id=run_id,
-                )
+                    session_id=session.session_id,
+                    turn_index=0,
+                    iteration=iteration,
+                ))
+                assistant_msg = LLMTransport._aggregate(deltas)
             except Exception as exc:
                 emit("transport.request_failed", payload={
                     "error": str(exc),
@@ -165,14 +170,17 @@ class GenericAgentRuntime:
 
             # Dispatch tool calls
             tool_calls = assistant_msg.tool_calls
-            emit("tool.call_started", payload={
-                "tool_names": [tc.name for tc in tool_calls],
-                "tool_call_ids": [tc.id for tc in tool_calls],
-            })
+            for tc in tool_calls:
+                emit(
+                    "tool.call_started",
+                    tool_call_id=tc.id,
+                    name=tc.name,
+                    payload={"arguments": tc.arguments},
+                )
 
             dispatch_t0 = time.perf_counter()
             tool_results = self._dispatch_tools(
-                tool_calls, session, run_id, event_sink, events,
+                tool_calls, session, run_id, event_sink, settings, events,
             )
             dispatch_ms = round((time.perf_counter() - dispatch_t0) * 1000, 1)
 
@@ -196,10 +204,14 @@ class GenericAgentRuntime:
             for tr in tool_results:
                 session.append(tr)
 
-            emit("tool.call_completed", payload={
-                "tool_call_ids": [tr.tool_call_id for tr in tool_results],
-                "duration_ms": dispatch_ms,
-            })
+            for tr in tool_results:
+                emit(
+                    "tool.call_failed" if tr.is_error else "tool.call_completed",
+                    tool_call_id=tr.tool_call_id,
+                    name=tr.name,
+                    payload={"is_error": tr.is_error},
+                    duration_ms=dispatch_ms,
+                )
 
         # Max iterations exceeded
         emit("runtime.budget_exhausted", payload={
@@ -220,9 +232,31 @@ class GenericAgentRuntime:
         session: AgentSession,
         run_id: str,
         event_sink: Any,
+        settings: Any,
         events: list[RuntimeEvent],
     ) -> list[ToolResultMessage]:
         """Dispatch tool calls and return ToolResultMessages."""
+        if hasattr(self._tool_executor, "dispatch"):
+            try:
+                from homemaster.agent.normalized import RunContext
+
+                run_context = getattr(self._tool_executor, "_run_context", None)
+                if run_context is None and settings is not None:
+                    run_context = RunContext(
+                        session_id=session.session_id,
+                        run_id=run_id,
+                        turn_index=0,
+                        settings=settings,
+                        event_sink=event_sink,
+                    )
+                if run_context is not None:
+                    return self._tool_executor.dispatch(
+                        tool_calls=tool_calls,
+                        run_context=run_context,
+                    )
+            except TypeError:
+                pass
+
         results: list[ToolResultMessage] = []
 
         for tc in tool_calls:

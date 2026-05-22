@@ -1,7 +1,7 @@
-"""Tests for ContextBuilder output as MimoDecisionClient.decide() input.
+"""Tests for ContextBuilder output as agent context input.
 
 Verifies that the three-layer context produced by ContextBuilder is
-compatible with the decide() interface.
+serializable for provider calls.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from homemaster.agent.state import AgentState
 from homemaster.tools.builtin import build_skill_registry, build_tool_registry
 
 
-def test_context_builder_output_is_decide_compatible() -> None:
-    """ContextBuilder output can be passed as context= to decide()."""
+def test_context_builder_output_is_provider_context() -> None:
+    """ContextBuilder output can be passed as provider context."""
     builder = ContextBuilder()
     state = AgentState(
         run_id="test-ctx-001",
@@ -34,7 +34,7 @@ def test_context_builder_output_is_decide_compatible() -> None:
         max_turns=12,
     )
 
-    # Verify structure is compatible with decide() expectations
+    # Verify structure is suitable for provider context expectations
     assert isinstance(context, dict)
     assert "stable_context" in context
     assert "task_state_context" in context

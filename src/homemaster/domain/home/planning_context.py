@@ -69,8 +69,8 @@ def build_world_summary(world: dict[str, Any]) -> dict[str, Any]:
 
 def _planning_notes(grounding: GroundingResult) -> list[str]:
     if grounding.selected_target is not None:
-        return ["grounded reliable memory target is available for Stage 05 planning"]
-    notes = ["没有可靠执行记忆；Stage 05 should plan exploratory search/observe steps."]
+        return ["grounded reliable memory target is available for planning"]
+    notes = ["没有可靠执行记忆；agent should plan exploratory search/observe steps."]
     weak_hints = [
         assessment.suggested_search_hint
         for assessment in grounding.assessments

@@ -67,8 +67,8 @@ _PROGRESS_EVENT_TYPES: frozenset[str] = frozenset({
 class ConsoleProgressEventSink:
     """Wraps another sink, prints high-level events to stderr.
 
-    Only prints events whose event_type is in _PROGRESS_EVENT_TYPES
-    or whose event_type ends with '_failed'. Output goes to stderr
+    Only prints events whose type is in _PROGRESS_EVENT_TYPES
+    or whose type ends with '_failed'. Output goes to stderr
     so it does not interfere with stdout piping.
     """
 
@@ -82,11 +82,13 @@ class ConsoleProgressEventSink:
         return self._console
 
     def emit(self, event: RuntimeEvent) -> None:
-        if event.event_type in _PROGRESS_EVENT_TYPES or event.event_type.endswith("_failed"):
+        if event.type in _PROGRESS_EVENT_TYPES or event.type.endswith("_failed"):
             console = self._get_console()
-            parts = [f"[bold]{event.event_type}[/bold]"]
-            if event.tool_name:
-                parts.append(f"tool={event.tool_name}")
+            parts = [f"[bold]{event.type}[/bold]"]
+            if event.name:
+                parts.append(f"name={event.name}")
+            if event.tool_call_id:
+                parts.append(f"tool_call_id={event.tool_call_id}")
             if event.duration_ms is not None:
                 parts.append(f"{event.duration_ms:.0f}ms")
             console.print(" ".join(parts))
