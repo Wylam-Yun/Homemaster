@@ -1,27 +1,35 @@
 ---
 name: fetch_object
 description: Navigate to a location, find a target object, pick it up, and deliver it to the user.
-allowed_tools: ["understand_task", "retrieve_memory", "ground_target", "get_skill", "navigate", "observe", "manipulate", "verify", "update_memory"]
-constraints: ["Must verify object identity before picking up", "Must check delivery target before placing", "Recovery loop handles failed subtasks"]
+tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_navigate", "robot_observe", "robot_manipulate", "robot_verify", "memory_writer", "task_summarizer"]
+constraints: ["Must verify object identity before picking up", "Must check delivery target before placing"]
 success_criteria: ["Object delivered to user's location", "Memory updated with new object location"]
 ---
 
-## Strategy
-1. Understand the user's intent and extract target object
-2. Retrieve memory for object location candidates
-3. Ground the target by selecting the best memory anchor
-4. Load this skill's full context via get_skill if needed
-5. Navigate to the candidate location
-6. Observe to confirm object presence
-7. Manipulate to pick up the object
-8. Verify the object is correctly held
-9. Deliver to user and update memory
+## Capabilities
+
+This skill enables the robot to fetch a requested object for the user. It combines
+navigation, perception, and manipulation to locate, pick up, and deliver objects.
+
+## Contributed Tools
+
+- **task_interpreter**: Extracts target object from user request
+- **memory_retriever**: Queries object memory for likely locations
+- **target_grounder**: Selects best location candidate
+- **robot_navigate**: Moves robot to candidate location
+- **robot_observe**: Confirms object presence
+- **robot_manipulate**: Picks up and delivers the object
+- **robot_verify**: Confirms successful delivery
+- **memory_writer**: Updates object location after delivery
+- **task_summarizer**: Records task completion
 
 ## Constraints
+
 - Verify object identity before picking up
 - Check delivery target before placing
-- Failed subtasks produce evidence; Mimo decides recovery on next turn
+- Update memory after moving objects
 
 ## Success Criteria
+
 - Object delivered to user's location
 - Memory updated with new object location

@@ -1,7 +1,0 @@
-{
-  "full_corpus": false,
-  "include_memory_ids": [
-    "mem-remote-1"
-  ],
-  "exclude_memory_ids": []
-}

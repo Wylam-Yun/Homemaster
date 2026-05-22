@@ -1,27 +1,33 @@
 ---
 name: check_object_state
 description: Navigate to a location, observe a target object, and report its state to the user.
-allowed_tools: ["understand_task", "retrieve_memory", "ground_target", "get_skill", "navigate", "observe", "verify", "update_memory", "update_user_profile"]
-constraints: ["Must ground target before navigating", "Must verify observation before reporting", "Update user profile with findings"]
-success_criteria: ["Object state reported to user", "Memory and profile updated"]
+tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_navigate", "robot_observe", "robot_verify", "memory_writer", "task_summarizer"]
+constraints: ["Must ground target before navigating", "Must verify observation before reporting"]
+success_criteria: ["Object state reported to user", "Memory updated with findings"]
 ---
 
-## Strategy
-1. Understand the user's intent and extract target object
-2. Retrieve memory for object location candidates
-3. Ground the target by selecting the best memory anchor
-4. Load this skill's full context via get_skill if needed
-5. Navigate to the candidate location
-6. Observe to determine current object state
-7. Verify observation matches expectations
-8. Report findings to user
-9. Update user profile with observations
+## Capabilities
+
+This skill enables the robot to check the state of a requested object. It combines
+navigation and perception to locate and observe objects, then reports findings to the user.
+
+## Contributed Tools
+
+- **task_interpreter**: Extracts target object from user request
+- **memory_retriever**: Queries object memory for likely locations
+- **target_grounder**: Selects best location candidate
+- **robot_navigate**: Moves robot to candidate location
+- **robot_observe**: Observes object state
+- **robot_verify**: Confirms observation matches expectations
+- **memory_writer**: Updates memory with observations
+- **task_summarizer**: Records task completion
 
 ## Constraints
+
 - Observe and verify are primary actions; do not default to manipulate
-- User preference updates only via update_user_profile proposal
-- Failed observations are evidence for Mimo's next decision
+- Update memory with observations
 
 ## Success Criteria
+
 - Object state reported to user
-- Memory and user profile updated with findings
+- Memory updated with findings

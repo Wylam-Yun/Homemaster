@@ -1,0 +1,9 @@
+{
+  "rooms": {
+    "bedroom": {
+      "objects": [
+        {"category": "medicine", "anchor_id": "bedroom:medicine:1", "belief_state": "present"}
+      ]
+    }
+  }
+}

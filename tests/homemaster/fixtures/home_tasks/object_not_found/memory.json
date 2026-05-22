@@ -1,0 +1,11 @@
+{
+  "objects": [
+    {
+      "object_category": "remote_control",
+      "anchor": {"room_id": "living_room", "anchor_id": "living_room:remote:1"},
+      "belief_state": "stale",
+      "aliases": ["遥控器"],
+      "last_observed": "2026-05-01T10:00:00Z"
+    }
+  ]
+}

@@ -1,79 +1,63 @@
-"""Tests for new SkillSpec / SkillRegistry from homemaster.skills.registry."""
+"""Tests for the rewritten skills registry and loader."""
 
 from __future__ import annotations
 
+from homemaster.skills.loader import load_builtin_skills
 from homemaster.skills.registry import SkillRegistry
-from homemaster.skills.spec import SkillSpec
-from homemaster.tools.registry import ToolRegistry
-from homemaster.tools.spec import ToolSpec
 
 
-def _make_tool(name: str) -> ToolSpec:
-    return ToolSpec(
-        name=name,
-        description=f"Tool {name}",
-        executor_mode="simulated_skill",
-        failure_semantics="raise",
-    )
-
-
-def _make_skill(name: str, allowed_tools: list[str]) -> SkillSpec:
-    return SkillSpec(
-        name=name,
-        description=f"Skill {name}",
-        allowed_tools=allowed_tools,
-        context_snippet=f"Context for {name}",
-    )
-
-
-def test_skill_spec_no_executor_field() -> None:
-    """SkillSpec must not have an executor field."""
-    spec = _make_skill("test", ["navigate"])
-    assert not hasattr(spec, "executor") or spec.model_fields.get("executor") is None
-
-
-def test_skill_registry_register_and_get() -> None:
+def test_builtin_skills_register_as_metadata_packages() -> None:
     registry = SkillRegistry()
-    spec = _make_skill("my_skill", ["navigate"])
-    registry.register(spec)
-    assert registry.get("my_skill") is spec
-    assert registry.get("nonexistent") is None
+    load_builtin_skills(registry)
+    names = set(registry.all_names())
+    assert "fetch_object" in names
+    assert "check_object_state" in names
+    skill = registry.get("fetch_object")
+    assert skill.tool_names
+    assert hasattr(skill, "metadata")
+    assert hasattr(skill, "system_prompt_fragment")
 
 
-def test_skill_registry_all_names() -> None:
+def test_skills_do_not_define_runtime_modes() -> None:
     registry = SkillRegistry()
-    registry.register(_make_skill("a", ["navigate"]))
-    registry.register(_make_skill("b", ["observe"]))
-    assert set(registry.all_names()) == {"a", "b"}
+    load_builtin_skills(registry)
+    for skill in registry.all():
+        text = (skill.description or "") + " " + " ".join(skill.tool_names)
+        assert "mock_skills" not in text
+        assert "deterministic" not in text
 
 
-def test_skill_registry_candidate_summaries_no_body() -> None:
+def test_skill_view_uses_progressive_disclosure() -> None:
     registry = SkillRegistry()
-    registry.register(_make_skill("s1", ["navigate", "observe"]))
-    summaries = registry.candidate_summaries("test task")
-    assert len(summaries) == 1
-    assert summaries[0]["name"] == "s1"
-    assert "context_snippet" not in summaries[0]
+    load_builtin_skills(registry)
+    skill = registry.get("fetch_object")
+    assert "full_prompt" not in skill.metadata
+    assert set(skill.tool_names)
 
 
-def test_skill_registry_validate_tools_all_present() -> None:
-    tool_registry = ToolRegistry()
-    tool_registry.register(_make_tool("navigate"))
-    tool_registry.register(_make_tool("observe"))
-
-    skill_registry = SkillRegistry()
-    skill_registry.register(_make_skill("s1", ["navigate", "observe"]))
-
-    missing = skill_registry.validate_tools(tool_registry)
-    assert missing == []
+def test_skill_spec_uses_tool_names_not_allowed_tools() -> None:
+    registry = SkillRegistry()
+    load_builtin_skills(registry)
+    for skill in registry.all():
+        assert hasattr(skill, "tool_names")
+        assert isinstance(skill.tool_names, list)
+        assert len(skill.tool_names) > 0
 
 
-def test_skill_registry_validate_tools_missing_tool() -> None:
-    tool_registry = ToolRegistry()
-    tool_registry.register(_make_tool("navigate"))
+def test_skill_registry_all_returns_list() -> None:
+    registry = SkillRegistry()
+    load_builtin_skills(registry)
+    all_skills = registry.all()
+    assert isinstance(all_skills, list)
+    assert len(all_skills) >= 2
 
-    skill_registry = SkillRegistry()
-    skill_registry.register(_make_skill("s1", ["navigate", "nonexistent"]))
 
-    missing = skill_registry.validate_tools(tool_registry)
-    assert "nonexistent" in missing
+def test_skill_registry_candidate_summaries() -> None:
+    registry = SkillRegistry()
+    load_builtin_skills(registry)
+    summaries = registry.candidate_summaries()
+    assert len(summaries) >= 2
+    for summary in summaries:
+        assert "name" in summary
+        assert "description" in summary
+        assert "tool_names" in summary

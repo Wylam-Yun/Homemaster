@@ -1,0 +1,8 @@
+{
+  "name": "object_not_found",
+  "utterance": "帮我找一下遥控器",
+  "expected": {
+    "reply_contains_any": ["遥控器", "找不到", "没有"],
+    "tool_names_any": ["task_interpreter", "memory_retriever", "robot_observe"]
+  }
+}

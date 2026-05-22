@@ -1,0 +1,11 @@
+{
+  "objects": [
+    {
+      "object_category": "medicine",
+      "anchor": {"room_id": "bedroom", "anchor_id": "bedroom:medicine:1"},
+      "belief_state": "present",
+      "aliases": ["药", "药品"],
+      "last_observed": "2026-05-20T09:00:00Z"
+    }
+  ]
+}

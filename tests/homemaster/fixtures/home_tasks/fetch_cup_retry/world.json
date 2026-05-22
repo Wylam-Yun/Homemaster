@@ -1,0 +1,12 @@
+{
+  "rooms": {
+    "kitchen": {
+      "objects": [
+        {"category": "cup", "anchor_id": "kitchen:cup:1", "belief_state": "present"}
+      ]
+    },
+    "living_room": {
+      "objects": []
+    }
+  }
+}

@@ -1,6 +1,5 @@
-"""Providers — LLM, embedding, and Mimo decision client protocols.
+"""Providers — LLM and embedding transport adapters.
 
-MimoDecisionClient protocol + LiveMimoDecisionClient for agent decisions.
+LLMTransport for chat/completion calls.
 BGEEmbeddingClient for /v1/embeddings calls.
-Stub implementations for testing live in the test helpers package.
 """

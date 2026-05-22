@@ -186,12 +186,10 @@ def test_no_new_star_import_shims() -> None:
 # ---------------------------------------------------------------------------
 
 _KNOWN_IMPORT_TIME_CONFIG_MODULES = {
-    "runtime.py",       # _defaults_cfg, _paths_cfg
-    "token_budget.py",  # MAX_LLM_ATTEMPTS, INITIAL_MAX_TOKENS
-    "memory_rag.py",    # _scoring = _load_scoring_config()
-    "grounding.py",     # ROOM_HINTS, ANCHOR_HINTS, SPECIFIC_ANCHOR_WORDS
-    "recovery_config.py",
-    "stages/executor.py",
+    "runtime.py",               # _defaults_cfg, _paths_cfg
+    "token_budget.py",          # MAX_LLM_ATTEMPTS, INITIAL_MAX_TOKENS
+    "memory/retrieval.py",      # _scoring = _load_scoring_config()
+    "domain/home/grounding.py", # ROOM_HINTS, ANCHOR_HINTS, SPECIFIC_ANCHOR_WORDS
     "llm_client.py",
     "embedding_client.py",
 }

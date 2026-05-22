@@ -1,0 +1,11 @@
+{
+  "objects": [
+    {
+      "object_category": "cup",
+      "anchor": {"room_id": "kitchen", "anchor_id": "kitchen:cup:1"},
+      "belief_state": "present",
+      "aliases": ["水杯", "杯子"],
+      "last_observed": "2026-05-20T10:00:00Z"
+    }
+  ]
+}

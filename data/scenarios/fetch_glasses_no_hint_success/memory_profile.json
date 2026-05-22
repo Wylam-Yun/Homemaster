@@ -1,8 +1,0 @@
-{
-  "full_corpus": false,
-  "include_memory_ids": [
-    "mem-glasses-1",
-    "mem-glasses-2"
-  ],
-  "exclude_memory_ids": []
-}

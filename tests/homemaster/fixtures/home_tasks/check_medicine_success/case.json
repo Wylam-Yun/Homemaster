@@ -1,0 +1,8 @@
+{
+  "name": "check_medicine_success",
+  "utterance": "去看看奶奶的药还在不在床头柜上",
+  "expected": {
+    "reply_contains_any": ["药", "在", "床头柜"],
+    "tool_names_any": ["task_interpreter", "memory_retriever", "robot_observe"]
+  }
+}

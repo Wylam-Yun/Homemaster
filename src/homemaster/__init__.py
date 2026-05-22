@@ -1,30 +1,21 @@
-"""HomeMaster V1.2 LLM-first task brain package.
+"""HomeMaster — generic agent runtime with home-robot domain tools.
 
 Package layout:
-  agent/      Active AgentRuntime implementation (tool loop, state, decisions)
-  tools/      ToolSpec / ToolRegistry / Dispatcher / simulated executors / get_skill
-  skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md packages
-  memory/     RAG / profile / fact memory / MEMORY.md and USER.md snapshots
+  agent/      Generic runtime (messages, sessions, transport, tool loop)
+  tools/      ToolSpec / ToolRegistry / Dispatcher
+  domain/     Domain tool packages (home/ for robot capabilities)
+  memory/     RAG retrieval, profile/fact memory, runtime memory store
+  skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
   events/     RuntimeEvent schema, sinks, sanitizer
-  config/     Run-scoped RuntimeSettings and path/config helpers
-  providers/  LLM/embedding/Mimo decision provider clients
-  pipeline/   Compatibility layer only (legacy stage loop)
-  stages/     Transitional Stage02-06 handlers only
+  config/     RuntimeSettings and path/config helpers
+  providers/  LLM/embedding transport adapters
   cli/        CLI entry points (run, doctor, interactive shell)
-
-Root-level .py files are either public facade (contracts, runtime, trace) or
-backward-compatibility shims. See docs/shim_lifecycle.md for the full inventory.
 """
 
 __all__ = [
     "__version__",
     "cli",
-    "contracts",
-    "logger",
-    "pipeline",
     "runtime",
-    "stages",
-    "trace",
 ]
 
 __version__ = "0.1.0"

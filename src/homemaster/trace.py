@@ -1,4 +1,4 @@
-"""Trace and debug asset helpers for HomeMaster stage runs."""
+"""Trace and debug asset helpers — JSONL events, JSON writes, log sanitization."""
 
 from __future__ import annotations
 

@@ -51,20 +51,16 @@ class NullEventSink:
 
 # High-level event types shown by ConsoleProgressEventSink.
 _PROGRESS_EVENT_TYPES: frozenset[str] = frozenset({
-    "run_started", "run_completed", "run_failed",
-    "turn_started",
-    "decision_completed",
-    "tool_call_started", "tool_call_completed", "tool_call_failed",
-    "state_transitioned",
-    "finish_decision_received",
-    "max_turns_exceeded",
-    "stage_started", "stage_completed", "stage_failed",
-    # Generic agent loop events (V1.4)
-    "runtime.turn_started", "runtime.turn_completed", "runtime.turn_failed",
+    "runtime.turn_started",
+    "runtime.turn_completed",
+    "runtime.turn_failed",
     "runtime.budget_exhausted",
-    "transport.request_started", "transport.response_completed",
+    "transport.request_started",
+    "transport.response_completed",
     "transport.request_failed",
-    "tool.call_started", "tool.call_completed", "tool.call_failed",
+    "tool.call_started",
+    "tool.call_completed",
+    "tool.call_failed",
 })
 
 
@@ -91,12 +87,8 @@ class ConsoleProgressEventSink:
             parts = [f"[bold]{event.event_type}[/bold]"]
             if event.tool_name:
                 parts.append(f"tool={event.tool_name}")
-            if event.stage:
-                parts.append(f"stage={event.stage}")
             if event.duration_ms is not None:
                 parts.append(f"{event.duration_ms:.0f}ms")
-            if event.status:
-                parts.append(f"[{event.status}]")
             console.print(" ".join(parts))
 
     @property

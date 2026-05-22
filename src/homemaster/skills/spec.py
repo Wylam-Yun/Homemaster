@@ -11,6 +11,7 @@ Hard constraints:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -20,11 +21,10 @@ class SkillSpec(BaseModel):
 
     name: str
     description: str
-    allowed_tools: list[str] = Field(min_length=1)
-    activation_rules: list[str] = Field(default_factory=list)
-    context_snippet: str = ""
+    tool_names: list[str] = Field(min_length=1)
+    system_prompt_fragment: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     content_path: Path | None = None
-    examples: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     version: str = "v1"

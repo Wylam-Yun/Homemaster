@@ -1,7 +1,0 @@
-{
-  "full_corpus": false,
-  "include_memory_ids": [
-    "mem-tissue-1"
-  ],
-  "exclude_memory_ids": []
-}

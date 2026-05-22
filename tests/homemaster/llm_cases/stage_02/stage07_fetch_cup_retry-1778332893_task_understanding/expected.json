@@ -1,9 +1,0 @@
-{
-  "case_name": "stage07_fetch_cup_retry-1778332893_task_understanding",
-  "required_checks": [
-    "provider returns parseable JSON object",
-    "JSON validates as TaskCard",
-    "success_criteria has at least one item"
-  ],
-  "schema": "TaskCard"
-}

@@ -1,0 +1,8 @@
+{
+  "name": "fetch_cup_retry",
+  "utterance": "去厨房找水杯，然后拿给我",
+  "expected": {
+    "reply_contains_any": ["水杯", "完成", "我在处理"],
+    "tool_names_any": ["task_interpreter", "memory_retriever", "robot_observe"]
+  }
+}

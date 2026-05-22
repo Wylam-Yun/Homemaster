@@ -1,9 +1,0 @@
-{
-  "name": "fetch_cup_no_hint_distractor_mug",
-  "home_id": "elder_home_v1",
-  "utterance": "帮我拿水杯。",
-  "expected_final_status": "failed",
-  "tags": ["fetch_object", "failure", "no_location_hint", "distractor"],
-  "purpose": "无位置提示，可见 mug 干扰物。",
-  "runtime_modes": ["deterministic", "live"]
-}

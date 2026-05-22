@@ -1,4 +1,4 @@
-"""Embedding client for HomeMaster Stage 03 memory RAG."""
+"""Embedding client for HomeMaster memory retrieval."""
 
 from __future__ import annotations
 

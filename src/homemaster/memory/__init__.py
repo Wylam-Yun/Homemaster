@@ -1,6 +1,5 @@
-"""Memory — RAG retrieval, profile/fact memory, and runtime memory store.
+"""Memory — retrieval, profile, fact memory, and runtime store.
 
-Stage 03 RAG (memory_rag, memory_index, memory_tokenizer) retrieves object
-location candidates. Runtime memory store persists object overlays per run.
-Fact memory and memory profile are used by Stage 06 for evidence bundling.
+Provides object memory retrieval (RAG), memory profile materialization,
+fact memory persistence, and per-run runtime memory store.
 """

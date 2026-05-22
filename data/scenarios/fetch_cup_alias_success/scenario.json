@@ -1,9 +1,0 @@
-{
-  "name": "fetch_cup_alias_success",
-  "home_id": "elder_home_v1",
-  "utterance": "去厨房把杯子拿给我。",
-  "expected_final_status": "completed",
-  "tags": ["fetch_object", "success", "alias", "cup"],
-  "purpose": "验证\"杯子\"别名能命中 cup。",
-  "runtime_modes": ["deterministic", "live"]
-}

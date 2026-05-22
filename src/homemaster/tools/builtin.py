@@ -95,8 +95,8 @@ def _make_get_skill_executor(skill_registry: Any):
             data={
                 "name": spec.name,
                 "description": spec.description,
-                "content": spec.context_snippet,
-                "allowed_tools": spec.allowed_tools,
+                "content": spec.system_prompt_fragment,
+                "tool_names": spec.tool_names,
                 "constraints": spec.constraints,
                 "success_criteria": spec.success_criteria,
             },
@@ -140,9 +140,13 @@ def _exec_update_memory(
     # Persist via RuntimeMemoryStore if memory_path is available
     if settings.memory_path and settings.memory_path.exists():
         try:
-            from homemaster.contracts import EvidenceRef, MemoryCommitPlan, ObjectMemoryUpdate
-            from homemaster.memory_commit import utc_now_iso
-            from homemaster.runtime_memory_store import RuntimeMemoryStore
+            from homemaster.domain.home.contracts import (
+                EvidenceRef,
+                MemoryCommitPlan,
+                ObjectMemoryUpdate,
+            )
+            from homemaster.memory.commit import utc_now_iso
+            from homemaster.memory.runtime_store import RuntimeMemoryStore
 
             memory_root = settings.runtime_root / settings.run_id / "memory"
             store = RuntimeMemoryStore(memory_root)

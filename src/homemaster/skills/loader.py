@@ -2,9 +2,9 @@
 
 SKILL.md format:
   YAML-like frontmatter between --- delimiters, followed by markdown body.
-  Frontmatter fields: name, description, allowed_tools, activation_rules,
-                      constraints, success_criteria, examples, version
-  Body becomes context_snippet.
+  Frontmatter fields: name, description, tool_names, constraints,
+                      success_criteria, version
+  Body becomes system_prompt_fragment.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class SkillLoader:
         """Load a SkillSpec from a SKILL.md file."""
         raw = path.read_text(encoding="utf-8")
         meta, body = _parse_skill_md(raw)
-        meta["context_snippet"] = body.strip()
+        meta["system_prompt_fragment"] = body.strip() or None
         meta["content_path"] = path
         return SkillSpec.model_validate(meta)
 
@@ -35,6 +35,17 @@ class SkillLoader:
         if not skill_path.exists():
             raise FileNotFoundError(f"Builtin skill not found: {skill_path}")
         return self.load_from_file(skill_path)
+
+
+def load_builtin_skills(registry: Any) -> None:
+    """Load all builtin skills into a SkillRegistry."""
+    loader = SkillLoader()
+    for name in ("fetch_object", "check_object_state"):
+        try:
+            spec = loader.load_builtin(name)
+            registry.register(spec)
+        except FileNotFoundError:
+            pass
 
 
 def _parse_skill_md(raw: str) -> tuple[dict[str, Any], str]:
