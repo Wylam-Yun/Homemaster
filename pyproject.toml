@@ -17,6 +17,9 @@ dev = [
   "pytest>=8.2",
   "ruff>=0.6",
 ]
+alfworld = [
+  "pyyaml>=6.0",
+]
 
 [project.scripts]
 homemaster = "homemaster.cli.app:app"
@@ -36,6 +39,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
   "live_api: runs tests that call real external APIs",
+  "live_alfworld: runs tests that require an installed ALFWorld dataset/environment",
 ]
 
 [tool.ruff]

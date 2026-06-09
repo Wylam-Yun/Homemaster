@@ -280,3 +280,34 @@ def test_runtime_handles_finish_reason_length_as_failure() -> None:
     result = _run("你好", transport=transport)
     assert result.status == "failed"
     assert result.error_code == "model_output_truncated"
+
+
+def test_stop_condition_can_end_run_after_tool_results() -> None:
+    transport = FakeTransport()
+    transport.queue_tool_call("robot_verify", {}, call_id="call_1")
+    transport.queue_text("This response must not be requested.")
+
+    def stop_condition(session: AgentSession, tool_results: list[ToolResultMessage]):
+        assert session.messages[-1].role == "tool"
+        assert tool_results[0].name == "robot_verify"
+        from homemaster.agent.generic_runtime import RuntimeStopDecision
+
+        return RuntimeStopDecision(
+            status="failed",
+            error_code="benchmark_invalid_action_limit",
+            final_reply="",
+            payload={"reason": "invalid action limit reached"},
+        )
+
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=12,
+        stop_condition=stop_condition,
+    )
+    session = AgentSession(session_id="test-stop")
+    result = runtime.run(session, "run benchmark")
+
+    assert result.status == "failed"
+    assert result.error_code == "benchmark_invalid_action_limit"
+    assert transport.call_count == 1

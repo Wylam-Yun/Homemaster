@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,6 +52,22 @@ class GenericRunResult:
     error_code: str | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeStopDecision:
+    """Optional generic decision to stop a run after tool results are appended."""
+
+    status: str
+    final_reply: str = ""
+    error_code: str | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+StopCondition = Callable[
+    [AgentSession, list[ToolResultMessage]],
+    RuntimeStopDecision | None,
+]
+
+
 class GenericAgentRuntime:
     """Generic message/tool-call/tool-result agent loop.
 
@@ -63,10 +80,12 @@ class GenericAgentRuntime:
         transport: LLMTransport,
         tool_executor: Any,  # ToolDispatcher or callable
         max_tool_iterations: int = 12,
+        stop_condition: StopCondition | None = None,
     ) -> None:
         self._transport = transport
         self._tool_executor = tool_executor
         self._max_tool_iterations = max_tool_iterations
+        self._stop_condition = stop_condition
 
     def run(
         self,
@@ -212,6 +231,27 @@ class GenericAgentRuntime:
                     payload={"is_error": tr.is_error},
                     duration_ms=dispatch_ms,
                 )
+
+            if self._stop_condition is not None:
+                decision = self._stop_condition(session, tool_results)
+                if decision is not None:
+                    event_type = (
+                        "runtime.turn_completed"
+                        if decision.status == "replied"
+                        else "runtime.turn_failed"
+                    )
+                    emit(event_type, payload={
+                        "error_code": decision.error_code,
+                        **decision.payload,
+                    })
+                    return GenericRunResult(
+                        run_id=run_id,
+                        status=decision.status,
+                        session=session,
+                        events=events,
+                        final_reply=decision.final_reply,
+                        error_code=decision.error_code,
+                    )
 
         # Max iterations exceeded
         emit("runtime.budget_exhausted", payload={

@@ -102,21 +102,24 @@ class ToolDispatcher:
                     failure_reason=f"{type(exc).__name__}: {exc}",
                 )
 
-
             if isinstance(tool_result, ToolResult):
                 if tool_result.success:
-                    data = tool_result.data if tool_result.data else {"success": True}
-                    content_text = json.dumps(data, ensure_ascii=False)
+                    payload = dict(tool_result.data) if tool_result.data else {"success": True}
+                    payload.setdefault("success", True)
                 else:
-                    content_text = json.dumps(
-                        {"error": tool_result.failure_reason or "unknown error"},
-                        ensure_ascii=False,
-                    )
+                    payload = dict(tool_result.data) if tool_result.data else {}
+                    payload.setdefault("success", False)
+                    payload["failure_reason"] = tool_result.failure_reason or "unknown error"
+                    payload["error"] = tool_result.failure_reason or "unknown error"
+                    payload["retryable"] = tool_result.retryable
+
+                content_text = json.dumps(payload, ensure_ascii=False)
                 results.append(ToolResultMessage(
                     tool_call_id=tc.id,
                     name=tc.name,
                     content=[ContentBlock(text=content_text)],
                     is_error=not tool_result.success,
+                    data=payload,
                 ))
             elif isinstance(tool_result, ToolResultMessage):
                 if not tool_result.tool_call_id:

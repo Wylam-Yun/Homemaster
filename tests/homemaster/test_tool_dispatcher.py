@@ -239,3 +239,45 @@ def test_dispatch_preserves_parallel_tool_call_ids() -> None:
     assert len(result) == 2
     assert result[0].tool_call_id == "call_1"
     assert result[1].tool_call_id == "call_2"
+
+
+def test_dispatch_failure_preserves_data_for_model_context() -> None:
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        return ToolResult(
+            success=False,
+            tool_name="robot_navigate",
+            executor_mode="programmatic",
+            failure_reason="invalid_action",
+            data={
+                "attempted_command": "go to fridge 1",
+                "feedback": "Nothing happens.",
+                "observation": "You are in the kitchen.",
+                "done": False,
+                "won": False,
+                "invalid_action_count": 1,
+            },
+            retryable=True,
+        )
+
+    spec = ToolSpec(
+        name="robot_navigate",
+        description="Navigate",
+        input_schema={"type": "object"},
+        executor_mode="programmatic",
+        executor=executor,
+    )
+    dispatcher = ToolDispatcher()
+    dispatcher.register(spec)
+
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call_1", name="robot_navigate", arguments={})],
+        run_context=_make_run_context(),
+    )
+
+    message = result[0]
+    assert message.is_error is True
+    assert message.data is not None
+    assert message.data["failure_reason"] == "invalid_action"
+    assert message.data["observation"] == "You are in the kitchen."
+    assert "Nothing happens." in message.content[0].text
+    assert "admissible_commands" not in message.content[0].text
