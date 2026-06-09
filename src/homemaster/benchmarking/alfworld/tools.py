@@ -69,6 +69,12 @@ def _validation_failure(
     )
 
 
+def _write_trace(run_context: RunContext, step_result: Any) -> None:
+    trace = run_context.deps.get("alfworld_trace")
+    if trace is not None:
+        trace.write_event(step_result.to_trace_event())
+
+
 def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
     try:
         command = _translator(run_context).observe(
@@ -82,13 +88,13 @@ def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> Tool
             run_context=run_context,
             error=exc,
         )
-    return _result_from_step(
-        _adapter(run_context).step(
-            command,
-            tool_name="robot_observe",
-            tool_args=arguments,
-        )
+    step_result = _adapter(run_context).step(
+        command,
+        tool_name="robot_observe",
+        tool_args=arguments,
     )
+    _write_trace(run_context, step_result)
+    return _result_from_step(step_result)
 
 
 def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
@@ -103,13 +109,13 @@ def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> Too
             run_context=run_context,
             error=exc,
         )
-    return _result_from_step(
-        _adapter(run_context).step(
-            command,
-            tool_name="robot_navigate",
-            tool_args=arguments,
-        )
+    step_result = _adapter(run_context).step(
+        command,
+        tool_name="robot_navigate",
+        tool_args=arguments,
     )
+    _write_trace(run_context, step_result)
+    return _result_from_step(step_result)
 
 
 def _exec_manipulate(
@@ -126,13 +132,13 @@ def _exec_manipulate(
             run_context=run_context,
             error=exc,
         )
-    return _result_from_step(
-        _adapter(run_context).step(
-            command,
-            tool_name="robot_manipulate",
-            tool_args=arguments,
-        )
+    step_result = _adapter(run_context).step(
+        command,
+        tool_name="robot_manipulate",
+        tool_args=arguments,
     )
+    _write_trace(run_context, step_result)
+    return _result_from_step(step_result)
 
 
 def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:

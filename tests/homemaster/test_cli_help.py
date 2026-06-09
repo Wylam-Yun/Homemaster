@@ -15,6 +15,7 @@ def test_help_exposes_only_final_commands() -> None:
     assert "run" in result.stdout
     assert "shell" in result.stdout
     assert "doctor" in result.stdout
+    assert "benchmark-alfworld" in result.stdout
     assert "stage" not in result.stdout.lower()
     assert "smoke" not in result.stdout.lower()
     assert "scenario" not in result.stdout.lower()
