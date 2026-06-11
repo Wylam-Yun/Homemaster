@@ -21,7 +21,8 @@ class AlfworldBenchmarkConfig:
     episodes: int = 1
     memory_mode: MemoryMode = "disabled"
     max_invalid_actions: int = 100
-    max_tool_iterations: int = 150
+    max_env_steps: int = 50
+    max_tool_iterations: int = 300
     provider_config: Path | None = None
     provider_name: str = "Mimo"
     run_id: str | None = None
@@ -33,6 +34,8 @@ class AlfworldBenchmarkConfig:
             raise ValueError("episodes must be > 0")
         if self.max_invalid_actions <= 0:
             raise ValueError("max_invalid_actions must be > 0")
+        if self.max_env_steps <= 0:
+            raise ValueError("max_env_steps must be > 0")
         if self.max_tool_iterations <= 0:
             raise ValueError("max_tool_iterations must be > 0")
         if self.memory_mode not in {"disabled", "readonly", "full"}:

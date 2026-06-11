@@ -15,6 +15,7 @@ def build_episode_prompt(
     translator: AlfworldCommandTranslator,
     memory_mode: str,
     max_invalid_actions: int,
+    max_env_steps: int,
 ) -> str:
     action_reference = _format_action_reference(translator.public_action_schema())
     memory_line = (
@@ -38,6 +39,7 @@ def build_episode_prompt(
             "observation and feedback."
         ),
         "Success is determined only by ALFWorld won=true, not by a verbal completion claim.",
+        f"The episode fails after {max_env_steps} ALFWorld environment action steps.",
         f"The episode fails if invalid action count reaches {max_invalid_actions}.",
         memory_line,
         "",

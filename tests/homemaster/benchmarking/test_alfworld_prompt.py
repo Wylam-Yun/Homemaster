@@ -28,6 +28,7 @@ def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:
         translator=create_translator("AlfredTWEnv"),
         memory_mode="disabled",
         max_invalid_actions=100,
+        max_env_steps=50,
     )
 
     assert "must use tools" in prompt.lower()
@@ -36,3 +37,4 @@ def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:
     assert "go to countertop 1" not in prompt
     assert "admissible_commands" not in prompt
     assert "Memory tools are not available" in prompt
+    assert "50 ALFWorld environment action steps" in prompt

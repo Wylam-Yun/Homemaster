@@ -81,6 +81,33 @@ class FakeTransport(LLMTransport):
         yield TransportDelta(type="transport.delta", finish_reason=msg.finish_reason)
 
 
+class RepeatingLookTransport(LLMTransport):
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        event_sink: Any = None,
+        run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
+    ) -> Iterator[TransportDelta]:
+        self.call_count += 1
+        yield TransportDelta(
+            type="transport.delta",
+            tool_call_delta=ToolCall(
+                id=f"look_{self.call_count}",
+                name="robot_observe",
+                arguments={"mode": "look"},
+            ),
+        )
+        yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+
 class FakeBatchEnv:
     def __init__(self) -> None:
         self.admissible = ["look", "go to countertop 1"]
@@ -136,6 +163,39 @@ class FakeBatchEnv:
         )
 
 
+class NeverDoneLookEnv:
+    def __init__(self) -> None:
+        self.step_count = 0
+
+    def seed(self, seed: int) -> None:
+        pass
+
+    def reset(self):
+        return (
+            ["Your task is to: look around."],
+            {
+                "extra.gamefile": ["/games/look_at_obj_in_light/task/game.tw-pddl"],
+                "admissible_commands": [["look"]],
+                "won": [False],
+                "goal_condition_success_rate": [0.0],
+            },
+        )
+
+    def step(self, actions: list[str]):
+        self.step_count += 1
+        assert actions == ["look"]
+        return (
+            [f"You look around step {self.step_count}."],
+            [0.0],
+            [False],
+            {
+                "admissible_commands": [["look"]],
+                "won": [False],
+                "goal_condition_success_rate": [0.0],
+            },
+        )
+
+
 def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     tmp_path: Path,
 ) -> None:
@@ -168,3 +228,35 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     trace_text = summary.episodes[0].trace_path.read_text(encoding="utf-8")
     assert "move apple 1 to diningtable 1" in trace_text
     assert "admissible_commands" not in trace_text
+
+
+def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
+    transport = RepeatingLookTransport()
+    fake_env = NeverDoneLookEnv()
+    adapter = AlfworldEnvAdapter(
+        env=fake_env,
+        episode_prefix="fake",
+        seed=42,
+    )
+    config = AlfworldBenchmarkConfig(
+        alfworld_root=tmp_path / "alfworld",
+        alfworld_config=tmp_path / "base_config.yaml",
+        trace_root=tmp_path / "traces",
+        episodes=1,
+        max_env_steps=2,
+        max_tool_iterations=300,
+    )
+    runner = AlfworldBenchmarkRunner(
+        config=config,
+        transport_factory=lambda: transport,
+        adapter_factory=lambda _config: adapter,
+    )
+
+    summary = runner.run()
+
+    assert summary.success_rate == 0.0
+    assert summary.episodes[0].success is False
+    assert summary.episodes[0].steps == 2
+    assert summary.episodes[0].failure_reason == "benchmark_env_step_limit"
+    assert fake_env.step_count == 2
+    assert transport.call_count == 2

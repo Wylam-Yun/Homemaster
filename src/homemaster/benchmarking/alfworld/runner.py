@@ -123,6 +123,7 @@ class AlfworldBenchmarkRunner:
                 translator=translator,
                 memory_mode=self.config.memory_mode,
                 max_invalid_actions=self.config.max_invalid_actions,
+                max_env_steps=self.config.max_env_steps,
             ),
             tools=tool_specs,
             event_sink=runtime_sink,
@@ -196,6 +197,16 @@ class AlfworldBenchmarkRunner:
                     status="failed",
                     error_code="benchmark_invalid_action_limit",
                     payload={"reason": "invalid action limit reached"},
+                )
+            if state.step_index >= self.config.max_env_steps:
+                return RuntimeStopDecision(
+                    status="failed",
+                    error_code="benchmark_env_step_limit",
+                    payload={
+                        "max_env_steps": self.config.max_env_steps,
+                        "reason": "environment action step limit reached",
+                        "steps": state.step_index,
+                    },
                 )
             if state.done and not state.won:
                 return RuntimeStopDecision(

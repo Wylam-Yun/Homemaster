@@ -128,10 +128,17 @@ def benchmark_alfworld_command(
         int,
         typer.Option("--max-invalid-actions", help="Fail after this many invalid actions."),
     ] = 100,
+    max_env_steps: Annotated[
+        int,
+        typer.Option(
+            "--max-env-steps",
+            help="Fail after this many ALFWorld environment action steps.",
+        ),
+    ] = 50,
     max_tool_iterations: Annotated[
         int,
         typer.Option("--max-tool-iterations", help="Maximum HomeMaster tool iterations."),
-    ] = 150,
+    ] = 300,
     provider_config: Annotated[
         Path | None,
         typer.Option("--api-config", help="Optional provider config JSON override."),
@@ -160,6 +167,7 @@ def benchmark_alfworld_command(
             episodes=episodes,
             memory_mode=memory_mode,
             max_invalid_actions=max_invalid_actions,
+            max_env_steps=max_env_steps,
             max_tool_iterations=max_tool_iterations,
             provider_config=provider_config,
             provider_name=provider_name,
