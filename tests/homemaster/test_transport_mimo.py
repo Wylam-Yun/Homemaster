@@ -119,6 +119,31 @@ def test_anthropic_tool_result_content_is_text() -> None:
     assert content["content"] == '{"success": true}'
 
 
+def test_anthropic_payload_omits_max_tokens_by_default() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+
+    payload = transport._build_anthropic_payload([UserMessage.from_text("hello")])
+
+    assert "max_tokens" not in payload
+
+
+def test_anthropic_payload_uses_configured_max_tokens() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        max_tokens=16384,
+    )
+
+    payload = transport._build_anthropic_payload([UserMessage.from_text("hello")])
+
+    assert payload["max_tokens"] == 16384
+
+
 def test_anthropic_payload_replays_reasoning_before_tool_use() -> None:
     transport = MimoTransport(
         base_url="https://example.invalid",

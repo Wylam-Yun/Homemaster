@@ -62,7 +62,11 @@ class AlfworldBenchmarkRunner:
             self._run_episode(adapter=adapter, episode_index=index)
             for index in range(self.config.episodes)
         ]
-        summary = AlfworldSummary(run_id=self.run_id, episodes=episodes)
+        summary = AlfworldSummary(
+            run_id=self.run_id,
+            episodes=episodes,
+            config=self._summary_config(),
+        )
         summary_path = self.config.trace_root / self.run_id / "summary.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(
@@ -177,6 +181,20 @@ class AlfworldBenchmarkRunner:
                 )
         return tool_specs
 
+    def _summary_config(self) -> dict[str, object]:
+        return {
+            "env_type": self.config.env_type,
+            "split": self.config.split,
+            "episodes": self.config.episodes,
+            "memory_mode": self.config.memory_mode,
+            "max_invalid_actions": self.config.max_invalid_actions,
+            "max_env_steps": self.config.max_env_steps,
+            "max_tool_iterations": self.config.max_tool_iterations,
+            "max_output_tokens": self.config.max_output_tokens,
+            "provider_name": self.config.provider_name,
+            "seed": self.config.seed,
+        }
+
     def _stop_condition(
         self,
         adapter: AlfworldEnvAdapter,
@@ -228,6 +246,7 @@ class AlfworldBenchmarkRunner:
             model=provider.model,
             api_key=provider.api_keys[0],
             protocol=provider.protocol,
+            max_tokens=self.config.max_output_tokens,
         )
 
     @staticmethod

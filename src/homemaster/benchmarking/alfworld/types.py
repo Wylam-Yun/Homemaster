@@ -23,6 +23,7 @@ class AlfworldBenchmarkConfig:
     max_invalid_actions: int = 100
     max_env_steps: int = 50
     max_tool_iterations: int = 300
+    max_output_tokens: int | None = None
     provider_config: Path | None = None
     provider_name: str = "Mimo"
     run_id: str | None = None
@@ -38,6 +39,8 @@ class AlfworldBenchmarkConfig:
             raise ValueError("max_env_steps must be > 0")
         if self.max_tool_iterations <= 0:
             raise ValueError("max_tool_iterations must be > 0")
+        if self.max_output_tokens is not None and self.max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be > 0 when set")
         if self.memory_mode not in {"disabled", "readonly", "full"}:
             raise ValueError(f"unsupported memory_mode: {self.memory_mode}")
         if self.env_type not in {"AlfredTWEnv", "AlfredThorEnv"}:
@@ -131,6 +134,7 @@ class AlfworldEpisodeResult:
 class AlfworldSummary:
     run_id: str
     episodes: list[AlfworldEpisodeResult]
+    config: dict[str, Any] = field(default_factory=dict)
 
     @property
     def success_rate(self) -> float:
@@ -142,6 +146,7 @@ class AlfworldSummary:
         total = len(self.episodes)
         return {
             "run_id": self.run_id,
+            "config": self.config,
             "episode_count": total,
             "success_rate": self.success_rate,
             "average_goal_condition_success_rate": (

@@ -23,6 +23,7 @@ def test_config_defaults_keep_memory_disabled_and_invalid_limit_100(tmp_path: Pa
     assert config.max_invalid_actions == 100
     assert config.max_env_steps == 50
     assert config.max_tool_iterations == 300
+    assert config.max_output_tokens is None
 
 
 def test_config_rejects_non_positive_episode_count(tmp_path: Path) -> None:
@@ -42,6 +43,16 @@ def test_config_rejects_non_positive_env_step_limit(tmp_path: Path) -> None:
             alfworld_config=tmp_path / "base_config.yaml",
             trace_root=tmp_path / "traces",
             max_env_steps=0,
+        )
+
+
+def test_config_rejects_non_positive_output_token_limit(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_output_tokens"):
+        AlfworldBenchmarkConfig(
+            alfworld_root=tmp_path,
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            max_output_tokens=0,
         )
 
 
