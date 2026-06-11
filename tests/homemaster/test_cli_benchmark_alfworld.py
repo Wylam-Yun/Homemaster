@@ -64,8 +64,6 @@ def test_benchmark_alfworld_cli_invokes_handler(
             "50",
             "--max-tool-iterations",
             "300",
-            "--max-output-tokens",
-            "0",
         ],
     )
 
@@ -74,7 +72,6 @@ def test_benchmark_alfworld_cli_invokes_handler(
     assert captured["memory_mode"] == "disabled"
     assert captured["max_env_steps"] == 50
     assert captured["max_tool_iterations"] == 300
-    assert captured["max_output_tokens"] == 0
     assert "success_rate: 1.000" in result.stdout
 
 
@@ -84,6 +81,5 @@ def test_benchmark_alfworld_help_exposes_key_options() -> None:
     assert result.exit_code == 0
     assert "--alfworld-root" in result.stdout
     assert "--max-env-steps" in result.stdout
-    assert "--max-output-tokens" in result.stdout
     assert "--max-invalid-actions" in result.stdout
     assert "--memory-mode" in result.stdout

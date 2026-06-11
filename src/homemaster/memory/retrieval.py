@@ -34,7 +34,6 @@ from homemaster.runtime import (
     load_homemaster_config,
     load_provider_config,
 )
-from homemaster.token_budget import MAX_LLM_ATTEMPTS, initial_max_tokens, max_tokens_for_attempt
 from homemaster.trace import append_jsonl_event, write_json
 
 from .index import (
@@ -53,6 +52,7 @@ RESULTS_DIR = MEMORY_RESULTS_ROOT / "memory_retrieval"
 CASE_ROOT = MEMORY_CASE_ROOT / "memory_retrieval"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
 MEMORY_QUERY_RETRY_INSTRUCTION = render("memory_query_retry")
+MAX_LLM_ATTEMPTS = 3
 
 # ---------------------------------------------------------------------------
 # P7: retrieval scoring config
@@ -131,8 +131,6 @@ class MemoryQueryProvider(Protocol):
     def generate_query(
         self,
         prompt: str,
-        *,
-        max_tokens: int | None = None,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         """Generate a validated memory retrieval query from a prompt."""
 
@@ -173,21 +171,17 @@ class MimoMemoryQueryProvider:
         provider: ProviderConfig,
         *,
         client: httpx.Client | None = None,
-        max_tokens: int = initial_max_tokens("tool_memory_query"),
         event_sink: Any = None,
         run_id: str = "",
     ) -> None:
         self._provider = provider
         self._client = client
-        self._max_tokens = max_tokens
         self._event_sink = event_sink
         self._run_id = run_id
 
     def generate_query(
         self,
         prompt: str,
-        *,
-        max_tokens: int | None = None,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
         llm_client = RawJsonLLMClient(
             self._provider,
@@ -198,7 +192,6 @@ class MimoMemoryQueryProvider:
         try:
             response = llm_client.complete_json(
                 prompt,
-                max_tokens=max_tokens or self._max_tokens,
                 temperature=0.0,
             )
         except LLMClientError:
@@ -307,7 +300,6 @@ def run_memory_rag(
     case_root: Path = CASE_ROOT,
     results_dir: Path = RESULTS_DIR,
     cache_dir: Path = EMBEDDING_CACHE_DIR,
-    query_initial_max_tokens: int = initial_max_tokens("tool_memory_query"),
 ) -> MemoryRagResult:
     started = time.perf_counter()
     case_dir = case_root / case_name
@@ -326,20 +318,14 @@ def run_memory_rag(
 
     for attempt_index in range(1, MAX_LLM_ATTEMPTS + 1):
         attempt_prompt = _memory_query_attempt_prompt(prompt, attempt_index)
-        attempt_max_tokens = max_tokens_for_attempt(
-            query_initial_max_tokens,
-            attempt_index,
-        )
         attempt: dict[str, Any] = {
             "attempt": attempt_index,
             "prompt": attempt_prompt,
-            "max_tokens": attempt_max_tokens,
             "passed": False,
         }
         try:
             query, raw_response, query_provider_summary = query_provider.generate_query(
                 attempt_prompt,
-                max_tokens=attempt_max_tokens,
             )
             _validate_query_boundaries(query, negative_evidence or {})
             attempt.update(

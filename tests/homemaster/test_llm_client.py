@@ -50,7 +50,6 @@ def test_raw_json_client_reads_mimo_config_and_sends_anthropic_request(tmp_path:
                 "url": str(request.url),
                 "model": body["model"],
                 "temperature": body["temperature"],
-                "max_tokens": body["max_tokens"],
                 "prompt": body["messages"][0]["content"],
             }
         )
@@ -77,7 +76,7 @@ def test_raw_json_client_reads_mimo_config_and_sends_anthropic_request(tmp_path:
     provider = load_provider_config(config_path, provider_name="Mimo")
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         client = RawJsonLLMClient(provider, client=http_client)
-        response = client.complete_json("prompt body", max_tokens=512, temperature=0.0)
+        response = client.complete_json("prompt body", temperature=0.0)
 
     assert provider.name == "Mimo"
     assert provider.model == "mimo-v2-pro"
@@ -87,7 +86,6 @@ def test_raw_json_client_reads_mimo_config_and_sends_anthropic_request(tmp_path:
             "url": "https://mimo.example/anthropic/v1/messages",
             "model": "mimo-v2-pro",
             "temperature": 0.0,
-            "max_tokens": 512,
             "prompt": "prompt body",
         }
     ]
@@ -135,7 +133,7 @@ def test_llm_client_ignores_anthropic_thinking_for_json_parsing(tmp_path: Path) 
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         client = RawJsonLLMClient(provider, client=http_client)
         with pytest.raises(LLMProviderResponseError) as exc_info:
-            client.complete_json("prompt body", max_tokens=512, temperature=0.0)
+            client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_missing_text" in exc_info.value.message
@@ -168,13 +166,13 @@ def test_llm_client_records_raw_preview_when_text_missing(tmp_path: Path) -> Non
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         client = RawJsonLLMClient(provider, client=http_client)
         with pytest.raises(LLMProviderResponseError) as exc_info:
-            client.complete_json("prompt body", max_tokens=512, temperature=0.0)
+            client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.raw_content is not None
     assert '"content": []' in exc_info.value.raw_content
 
 
-def test_llm_client_treats_max_tokens_stop_as_truncation(tmp_path: Path) -> None:
+def test_llm_client_treats_provider_token_stop_as_truncation(tmp_path: Path) -> None:
     config_path = tmp_path / "api_config.json"
     config_path.write_text(
         json.dumps(
@@ -206,14 +204,14 @@ def test_llm_client_treats_max_tokens_stop_as_truncation(tmp_path: Path) -> None
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         client = RawJsonLLMClient(provider, client=http_client)
         with pytest.raises(LLMProviderResponseError) as exc_info:
-            client.complete_json("prompt body", max_tokens=16, temperature=0.0)
+            client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_truncated" in exc_info.value.message
     assert exc_info.value.raw_content == '{"task_type":"check_presence"'
 
 
-def test_llm_client_treats_thinking_only_max_tokens_as_truncation(tmp_path: Path) -> None:
+def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation(tmp_path: Path) -> None:
     config_path = tmp_path / "api_config.json"
     config_path.write_text(
         json.dumps(
@@ -250,7 +248,7 @@ def test_llm_client_treats_thinking_only_max_tokens_as_truncation(tmp_path: Path
     with httpx.Client(transport=httpx.MockTransport(handler), timeout=5.0) as http_client:
         client = RawJsonLLMClient(provider, client=http_client)
         with pytest.raises(LLMProviderResponseError) as exc_info:
-            client.complete_json("prompt body", max_tokens=16, temperature=0.0)
+            client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_truncated" in exc_info.value.message

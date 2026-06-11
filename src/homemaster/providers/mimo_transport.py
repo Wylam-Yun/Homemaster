@@ -34,13 +34,11 @@ class MimoTransport(LLMTransport):
         protocol: str = "anthropic",
         http_client: httpx.Client | None = None,
         timeout_s: float = 60.0,
-        max_tokens: int | None = None,
     ) -> None:
         self._base_url = base_url
         self._model = model
         self._api_key = api_key
         self._protocol = protocol
-        self._max_tokens = max_tokens
         self._owns_client = http_client is None
         timeout = httpx.Timeout(connect=10.0, read=timeout_s, write=15.0, pool=10.0)
         self._client = http_client or httpx.Client(timeout=timeout)
@@ -398,8 +396,6 @@ class MimoTransport(LLMTransport):
             "model": self._model,
             "messages": api_messages,
         }
-        if self._max_tokens is not None:
-            payload["max_tokens"] = self._max_tokens
         if tools:
             payload["tools"] = tools
         return payload
@@ -444,8 +440,6 @@ class MimoTransport(LLMTransport):
             "model": self._model,
             "messages": api_messages,
         }
-        if self._max_tokens is not None:
-            payload["max_tokens"] = self._max_tokens
         if tools:
             payload["tools"] = [
                 {

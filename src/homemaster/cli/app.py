@@ -139,13 +139,6 @@ def benchmark_alfworld_command(
         int,
         typer.Option("--max-tool-iterations", help="Maximum HomeMaster tool iterations."),
     ] = 300,
-    max_output_tokens: Annotated[
-        int,
-        typer.Option(
-            "--max-output-tokens",
-            help="Maximum model output tokens; 0 omits the provider max_tokens field.",
-        ),
-    ] = 0,
     provider_config: Annotated[
         Path | None,
         typer.Option("--api-config", help="Optional provider config JSON override."),
@@ -176,7 +169,6 @@ def benchmark_alfworld_command(
             max_invalid_actions=max_invalid_actions,
             max_env_steps=max_env_steps,
             max_tool_iterations=max_tool_iterations,
-            max_output_tokens=max_output_tokens,
             provider_config=provider_config,
             provider_name=provider_name,
             run_id=run_id,

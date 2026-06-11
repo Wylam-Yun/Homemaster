@@ -190,7 +190,6 @@ class AlfworldBenchmarkRunner:
             "max_invalid_actions": self.config.max_invalid_actions,
             "max_env_steps": self.config.max_env_steps,
             "max_tool_iterations": self.config.max_tool_iterations,
-            "max_output_tokens": self.config.max_output_tokens,
             "provider_name": self.config.provider_name,
             "seed": self.config.seed,
         }
@@ -246,7 +245,6 @@ class AlfworldBenchmarkRunner:
             model=provider.model,
             api_key=provider.api_keys[0],
             protocol=provider.protocol,
-            max_tokens=self.config.max_output_tokens,
         )
 
     @staticmethod

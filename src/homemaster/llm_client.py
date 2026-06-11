@@ -96,7 +96,6 @@ class RawJsonLLMClient:
         self,
         prompt: str,
         *,
-        max_tokens: int = 512,
         temperature: float = 0.0,
     ) -> LLMJsonResponse:
         errors: list[str] = []
@@ -115,7 +114,6 @@ class RawJsonLLMClient:
                 payload={
                     "model": self._provider.model,
                     "protocol": self._provider.protocol,
-                    "max_tokens": max_tokens,
                 },
             ))
         llm_started = time.perf_counter()
@@ -126,7 +124,6 @@ class RawJsonLLMClient:
                 response = self._send_prompt(
                     prompt,
                     api_key=api_key,
-                    max_tokens=max_tokens,
                     temperature=temperature,
                 )
             except httpx.RequestError as exc:
@@ -220,7 +217,6 @@ class RawJsonLLMClient:
         prompt: str,
         *,
         api_key: str,
-        max_tokens: int,
         temperature: float,
     ) -> httpx.Response:
         if self._provider.protocol == "anthropic":
@@ -233,7 +229,6 @@ class RawJsonLLMClient:
                 },
                 json={
                     "model": self._provider.model,
-                    "max_tokens": max_tokens,
                     "temperature": temperature,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -247,7 +242,6 @@ class RawJsonLLMClient:
             },
             json={
                 "model": self._provider.model,
-                "max_tokens": max_tokens,
                 "temperature": temperature,
                 "messages": [{"role": "user", "content": prompt}],
             },
@@ -272,7 +266,7 @@ class RawJsonLLMClient:
                 if truncated:
                     raise LLMProviderResponseError(
                         error_type="response_truncated",
-                        message="provider stopped because max_tokens was reached",
+                        message="provider reported output truncation",
                         raw_content=exc.raw_content or raw_content,
                     ) from exc
                 raise
@@ -283,14 +277,14 @@ class RawJsonLLMClient:
                 if truncated:
                     raise LLMProviderResponseError(
                         error_type="response_truncated",
-                        message="provider stopped because max_tokens was reached",
+                        message="provider reported output truncation",
                         raw_content=exc.raw_content or raw_content,
                     ) from exc
                 raise
         if truncated:
             raise LLMProviderResponseError(
                 error_type="response_truncated",
-                message="provider stopped because max_tokens was reached",
+                message="provider reported output truncation",
                 raw_content=content or raw_content,
             )
         return content

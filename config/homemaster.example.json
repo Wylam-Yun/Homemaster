@@ -1,13 +1,4 @@
 {
-  "token_budget": {
-    "max_llm_attempts": 3,
-    "initial_max_tokens": {
-      "agent_response": 4096,
-      "tool_task_interpreter": 4096,
-      "tool_memory_query": 4096,
-      "tool_task_summarizer": 8192
-    }
-  },
   "retrieval_scoring": {
     "metadata_weights": {
       "target_category_match": 0.2,

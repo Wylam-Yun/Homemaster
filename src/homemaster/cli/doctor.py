@@ -249,7 +249,6 @@ def _live_mimo_smoke() -> DoctorCheck:
         try:
             response = client.complete_json(
                 '只输出 JSON object: {"ok": true}',
-                max_tokens=1024,
                 temperature=0.0,
             )
         finally:
