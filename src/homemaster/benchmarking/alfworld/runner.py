@@ -22,7 +22,10 @@ from homemaster.benchmarking.alfworld.env_adapter import (
 )
 from homemaster.benchmarking.alfworld.prompt import build_episode_prompt
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
-from homemaster.benchmarking.alfworld.tracing import AlfworldTraceWriter
+from homemaster.benchmarking.alfworld.tracing import (
+    AlfworldTraceWriter,
+    write_run_readable_trajectories,
+)
 from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
@@ -73,6 +76,7 @@ class AlfworldBenchmarkRunner:
             json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        write_run_readable_trajectories(summary_path.parent, summary.to_dict())
         return summary
 
     def _run_episode(
@@ -87,6 +91,16 @@ class AlfworldBenchmarkRunner:
             self.config.trace_root / self.run_id / f"episode-{episode_index + 1:04d}"
         )
         trace = AlfworldTraceWriter(episode_dir)
+        trace.write_model_event({
+            "event_type": "episode_started",
+            "episode_index": episode_index + 1,
+            "run_id": episode_run_id,
+            "state": state.to_model_visible_dict(),
+            "max_env_steps": self.config.max_env_steps,
+            "max_invalid_actions": self.config.max_invalid_actions,
+            "max_tool_iterations": self.config.max_tool_iterations,
+            "memory_mode": self.config.memory_mode,
+        })
         runtime_sink = JsonlEventSink(episode_dir / "runtime")
         translator = create_translator(self.config.env_type)
         dispatcher = ToolDispatcher()
@@ -119,6 +133,10 @@ class AlfworldBenchmarkRunner:
             tool_executor=dispatcher,
             max_tool_iterations=self.config.max_tool_iterations,
             stop_condition=self._stop_condition(adapter),
+            observer=lambda event_type, payload: trace.write_model_event({
+                "event_type": event_type,
+                **payload,
+            }),
         )
         result = runtime.run(
             AgentSession(session_id=episode_run_id),
@@ -151,7 +169,7 @@ class AlfworldBenchmarkRunner:
             run_id=episode_run_id,
             trace_path=trace.trace_path,
         )
-        trace.write_summary({
+        episode_summary = {
             "episode_id": episode_result.episode_id,
             "failure_reason": episode_result.failure_reason,
             "goal_condition_success_rate": episode_result.goal_condition_success_rate,
@@ -160,7 +178,9 @@ class AlfworldBenchmarkRunner:
             "runtime_status": episode_result.runtime_status,
             "steps": episode_result.steps,
             "success": episode_result.success,
-        })
+        }
+        trace.write_summary(episode_summary)
+        trace.write_readable_trajectory(episode_summary)
         return episode_result
 
     def _register_tools(self, dispatcher: ToolDispatcher) -> list[RuntimeToolSpec]:

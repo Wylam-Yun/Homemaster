@@ -119,6 +119,7 @@ class FakeToolExecutor:
             tool_call_id="",  # Will be filled by runtime
             name=name,
             content=[ContentBlock(text='{"success": true}')],
+            data={"success": True},
         )
 
     def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
@@ -218,6 +219,29 @@ def test_parallel_tool_call_ids_are_preserved() -> None:
     result = _run("帮我拿水杯", transport=transport)
     tool_messages = [msg for msg in result.session.messages if msg.role == "tool"]
     assert [msg.tool_call_id for msg in tool_messages] == ["call_1", "call_2"]
+
+
+def test_runtime_observer_receives_assistant_and_tool_result_events() -> None:
+    transport = FakeTransport()
+    transport.queue_tool_call("memory_retriever", {"query": "水杯"})
+    transport.queue_text("我查到了。")
+    observed: list[tuple[str, dict[str, Any]]] = []
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        observer=lambda event_type, payload: observed.append((event_type, payload)),
+    )
+
+    result = runtime.run(AgentSession(session_id="test"), "帮我找水杯")
+
+    assert result.status == "replied"
+    assert [event_type for event_type, _payload in observed] == [
+        "assistant_message",
+        "tool_result",
+        "assistant_message",
+    ]
+    assert observed[0][1]["message"]["tool_calls"][0]["name"] == "memory_retriever"
+    assert observed[1][1]["message"]["data"]["success"] is True
 
 
 # ---------------------------------------------------------------------------

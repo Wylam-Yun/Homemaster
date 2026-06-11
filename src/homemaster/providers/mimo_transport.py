@@ -146,6 +146,7 @@ class MimoTransport(LLMTransport):
 
         body = response.json()
         msg = self.parse_response_payload(body)
+        msg.provider_metadata["raw_response"] = body
 
         # Yield deltas from the parsed message
         if msg.content:
@@ -224,6 +225,7 @@ class MimoTransport(LLMTransport):
 
         body = response.json()
         msg = self._parse_openai_response(body)
+        msg.provider_metadata["raw_response"] = body
 
         if msg.content:
             for block in msg.content:

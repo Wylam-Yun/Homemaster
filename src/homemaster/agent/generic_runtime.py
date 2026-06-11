@@ -66,6 +66,7 @@ StopCondition = Callable[
     [AgentSession, list[ToolResultMessage]],
     RuntimeStopDecision | None,
 ]
+RuntimeObserver = Callable[[str, dict[str, Any]], None]
 
 
 class GenericAgentRuntime:
@@ -81,11 +82,13 @@ class GenericAgentRuntime:
         tool_executor: Any,  # ToolDispatcher or callable
         max_tool_iterations: int = 12,
         stop_condition: StopCondition | None = None,
+        observer: RuntimeObserver | None = None,
     ) -> None:
         self._transport = transport
         self._tool_executor = tool_executor
         self._max_tool_iterations = max_tool_iterations
         self._stop_condition = stop_condition
+        self._observer = observer
 
     def run(
         self,
@@ -157,6 +160,16 @@ class GenericAgentRuntime:
 
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
             session.append(assistant_msg)
+            self._notify_observer(
+                "assistant_message",
+                {
+                    "elapsed_ms": elapsed_ms,
+                    "finish_reason": assistant_msg.finish_reason,
+                    "iteration": iteration,
+                    "message": assistant_msg.model_dump(mode="json"),
+                    "usage": assistant_msg.usage,
+                },
+            )
 
             # Handle finish_reason == "length" as failure
             if assistant_msg.finish_reason == "length":
@@ -222,6 +235,16 @@ class GenericAgentRuntime:
 
             for tr in tool_results:
                 session.append(tr)
+                self._notify_observer(
+                    "tool_result",
+                    {
+                        "is_error": tr.is_error,
+                        "iteration": iteration,
+                        "message": tr.model_dump(mode="json"),
+                        "name": tr.name,
+                        "tool_call_id": tr.tool_call_id,
+                    },
+                )
 
             for tr in tool_results:
                 emit(
@@ -265,6 +288,11 @@ class GenericAgentRuntime:
             events=events,
             error_code="max_tool_iterations_exceeded",
         )
+
+    def _notify_observer(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._observer is None:
+            return
+        self._observer(event_type, payload)
 
     def _dispatch_tools(
         self,

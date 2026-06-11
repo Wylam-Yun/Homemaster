@@ -15,6 +15,8 @@ class FakeTransport(LLMTransport):
     def __init__(self) -> None:
         self._responses = [
             AssistantMessage(
+                content=[ContentBlock(text="Moving to the countertop.")],
+                reasoning_content="Need the apple first.",
                 tool_calls=[
                     ToolCall(
                         id="call_1",
@@ -76,6 +78,11 @@ class FakeTransport(LLMTransport):
         self.call_count += 1
         for block in msg.content:
             yield TransportDelta(type="transport.delta", text_delta=block.text)
+        if msg.reasoning_content:
+            yield TransportDelta(
+                type="transport.delta",
+                reasoning_delta=msg.reasoning_content,
+            )
         for tool_call in msg.tool_calls:
             yield TransportDelta(type="transport.delta", tool_call_delta=tool_call)
         yield TransportDelta(type="transport.delta", finish_reason=msg.finish_reason)
@@ -228,6 +235,17 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     trace_text = summary.episodes[0].trace_path.read_text(encoding="utf-8")
     assert "move apple 1 to diningtable 1" in trace_text
     assert "admissible_commands" not in trace_text
+    episode_dir = summary.episodes[0].trace_path.parent
+    model_trace_text = (episode_dir / "model_trace.jsonl").read_text(encoding="utf-8")
+    assert "Moving to the countertop." in model_trace_text
+    assert "Need the apple first." in model_trace_text
+    readable_text = (episode_dir / "trajectory.md").read_text(encoding="utf-8")
+    assert "Moving to the countertop." in readable_text
+    assert "go to countertop 1" in readable_text
+    run_readable_text = (
+        tmp_path / "traces" / summary.run_id / "readable_trajectories.md"
+    ).read_text(encoding="utf-8")
+    assert "Episode 0001" in run_readable_text
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:

@@ -1,3 +1,5 @@
+import httpx
+
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -148,3 +150,26 @@ def test_anthropic_payload_replays_reasoning_before_tool_use() -> None:
     content = payload["messages"][0]["content"]
     assert content[0] == {"type": "thinking", "thinking": "thinking"}
     assert content[1]["type"] == "tool_use"
+
+
+def test_anthropic_stream_exposes_raw_provider_response_metadata() -> None:
+    raw_body = {
+        "content": [{"type": "text", "text": "hi"}],
+        "id": "msg_1",
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "output_tokens": 2},
+    }
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=raw_body)
+
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    deltas = list(transport.stream([UserMessage.from_text("hello")]))
+
+    assert deltas[-1].provider_metadata["raw_response"] == raw_body
