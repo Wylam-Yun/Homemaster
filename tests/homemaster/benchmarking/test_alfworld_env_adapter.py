@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     split_to_train_eval,
@@ -78,16 +82,56 @@ def test_adapter_reset_normalizes_initial_state_without_visible_admissible_comma
     ]
 
 
-def test_adapter_step_tracks_invalid_action_using_hidden_admissible_commands() -> None:
-    adapter = AlfworldEnvAdapter(env=FakeBatchEnv(), episode_prefix="episode", seed=123)
+def test_adapter_step_uses_environment_feedback_for_invalid_actions() -> None:
+    env = FakeBatchEnv()
+    env.current_admissible = ["look"]
+    adapter = AlfworldEnvAdapter(env=env, episode_prefix="episode", seed=123)
     adapter.reset()
 
     valid = adapter.step("go to countertop 1", tool_name="robot_navigate", tool_args={})
     invalid = adapter.step("go to fridge 1", tool_name="robot_navigate", tool_args={})
 
     assert valid.success is True
+    assert valid.failure_reason is None
     assert valid.state.invalid_action_count == 0
     assert invalid.success is False
     assert invalid.failure_reason == "invalid_action"
     assert invalid.state.invalid_action_count == 1
     assert "admissible_commands" not in invalid.to_model_visible_data()
+
+
+def test_adapter_saves_thor_frames_when_available(tmp_path: Path) -> None:
+    pytest.importorskip("PIL")
+    numpy = pytest.importorskip("numpy")
+
+    class Event:
+        frame = numpy.zeros((4, 4, 3), dtype=numpy.uint8)
+
+    class ThorEnv:
+        last_event = Event()
+
+    class InnerEnv:
+        env = ThorEnv()
+
+    env = FakeBatchEnv()
+    env.envs = [InnerEnv()]
+    adapter = AlfworldEnvAdapter(
+        env=env,
+        episode_prefix="episode",
+        seed=123,
+        frame_dir=tmp_path / "frames",
+    )
+
+    reset_state = adapter.reset()
+    step_result = adapter.step(
+        "go to countertop 1",
+        tool_name="robot_navigate",
+        tool_args={},
+    )
+
+    assert reset_state.frame_path is not None
+    assert Path(reset_state.frame_path).name == "frame-0000.png"
+    assert Path(reset_state.frame_path).exists()
+    assert step_result.state.frame_path is not None
+    assert Path(step_result.state.frame_path).name == "frame-0001.png"
+    assert Path(step_result.state.frame_path).exists()

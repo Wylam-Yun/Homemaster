@@ -1,3 +1,5 @@
+import httpx
+
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -119,6 +121,107 @@ def test_anthropic_tool_result_content_is_text() -> None:
     assert content["content"] == '{"success": true}'
 
 
+def test_anthropic_payload_supports_user_image_blocks(tmp_path) -> None:
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"fake-png")
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+
+    payload = transport._build_anthropic_payload([
+        UserMessage(
+            content=[
+                ContentBlock(text="Look at the scene."),
+                ContentBlock.from_image_path(image_path),
+            ]
+        )
+    ])
+
+    content = payload["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "Look at the scene."}
+    assert content[1]["type"] == "image"
+    assert content[1]["source"]["type"] == "base64"
+    assert content[1]["source"]["media_type"] == "image/png"
+    assert content[1]["source"]["data"]
+
+
+def test_anthropic_tool_result_can_carry_latest_image(tmp_path) -> None:
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"fake-png")
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+
+    payload = transport._build_anthropic_payload([
+        ToolResultMessage(
+            tool_call_id="call_1",
+            name="robot_observe",
+            content=[
+                ContentBlock(text='{"frame_path": "frame.png"}'),
+                ContentBlock.from_image_path(image_path),
+            ],
+        )
+    ])
+
+    content = payload["messages"][0]["content"]
+    assert content[0]["type"] == "tool_result"
+    assert content[1]["type"] == "image"
+
+
+def test_anthropic_payload_uses_only_latest_image_message(tmp_path) -> None:
+    first_image = tmp_path / "frame-0000.png"
+    latest_image = tmp_path / "frame-0001.png"
+    first_image.write_bytes(b"first-png")
+    latest_image.write_bytes(b"latest-png")
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+    )
+
+    payload = transport._build_anthropic_payload([
+        UserMessage(
+            content=[
+                ContentBlock(text="Initial scene."),
+                ContentBlock.from_image_path(first_image),
+            ]
+        ),
+        AssistantMessage(
+            tool_calls=[
+                ToolCall(id="call_1", name="robot_observe", arguments={"mode": "look"})
+            ],
+            finish_reason="tool_calls",
+        ),
+        ToolResultMessage(
+            tool_call_id="call_1",
+            name="robot_observe",
+            content=[
+                ContentBlock(text='{"frame_path": "frame-0001.png"}'),
+                ContentBlock.from_image_path(latest_image),
+            ],
+        ),
+    ])
+
+    image_blocks = [
+        block
+        for message in payload["messages"]
+        for block in message["content"]
+        if block["type"] == "image"
+    ]
+    assert len(image_blocks) == 1
+    assert image_blocks[0]["source"]["data"] == ContentBlock.from_image_path(
+        latest_image
+    ).source["data"]
+    assert payload["messages"][0]["content"] == [
+        {"type": "text", "text": "Initial scene."}
+    ]
+    assert payload["messages"][2]["content"][0]["type"] == "tool_result"
+
+
 def test_anthropic_payload_omits_max_tokens_by_default() -> None:
     transport = MimoTransport(
         base_url="https://example.invalid",
@@ -148,3 +251,72 @@ def test_anthropic_payload_replays_reasoning_before_tool_use() -> None:
     content = payload["messages"][0]["content"]
     assert content[0] == {"type": "thinking", "thinking": "thinking"}
     assert content[1]["type"] == "tool_use"
+
+
+def test_anthropic_transport_retries_multimodal_corruption_without_image(tmp_path) -> None:
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"fake-png")
+    request_payloads = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = request.read().decode()
+        request_payloads.append(payload)
+        if len(request_payloads) == 1:
+            return httpx.Response(
+                status_code=400,
+                json={
+                    "error": {
+                        "message": "Multimodal data is corrupted or cannot be processed."
+                    }
+                },
+            )
+        return httpx.Response(
+            status_code=200,
+            json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"},
+        )
+
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    msg = transport.complete([
+        UserMessage(
+            content=[
+                ContentBlock(text="Look"),
+                ContentBlock.from_image_path(image_path),
+            ]
+        )
+    ])
+
+    assert msg.text == "ok"
+    assert len(request_payloads) == 2
+    assert '"type":"image"' in request_payloads[0].replace(" ", "")
+    assert '"type":"image"' not in request_payloads[1].replace(" ", "")
+
+
+def test_anthropic_transport_retries_timeout() -> None:
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(
+            status_code=200,
+            json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn"},
+        )
+
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    msg = transport.complete([UserMessage.from_text("hello")])
+
+    assert msg.text == "ok"
+    assert attempts["count"] == 2

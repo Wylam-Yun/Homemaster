@@ -114,10 +114,17 @@ class ToolDispatcher:
                     payload["retryable"] = tool_result.retryable
 
                 content_text = json.dumps(payload, ensure_ascii=False)
+                content_blocks = [ContentBlock(text=content_text)]
+                frame_path = payload.get("frame_path")
+                if isinstance(frame_path, str) and frame_path:
+                    try:
+                        content_blocks.append(ContentBlock.from_image_path(frame_path))
+                    except OSError:
+                        pass
                 results.append(ToolResultMessage(
                     tool_call_id=tc.id,
                     name=tc.name,
-                    content=[ContentBlock(text=content_text)],
+                    content=content_blocks,
                     is_error=not tool_result.success,
                     data=payload,
                 ))

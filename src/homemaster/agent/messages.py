@@ -6,14 +6,33 @@ accept plain strings, but normalize_content() converts before storage.
 
 from __future__ import annotations
 
+import base64
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class ContentBlock(BaseModel):
-    type: Literal["text"] = "text"
-    text: str
+    type: Literal["text", "image"] = "text"
+    text: str = ""
+    source: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_image_path(
+        cls,
+        path: str | Path,
+        *,
+        media_type: str = "image/png",
+    ) -> ContentBlock:
+        image_path = Path(path)
+        data = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        return cls(
+            type="image",
+            source={"type": "base64", "media_type": media_type, "data": data},
+            metadata={"path": str(image_path)},
+        )
 
 
 def normalize_content(value: str | list[ContentBlock]) -> list[ContentBlock]:

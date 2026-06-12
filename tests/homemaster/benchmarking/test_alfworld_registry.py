@@ -7,12 +7,12 @@ def test_disabled_memory_registry_excludes_memory_tools() -> None:
     registry = build_alfworld_tool_registry(memory_mode="disabled")
     names = registry.all_names()
 
-    assert "task_interpreter" in names
     assert "robot_observe" in names
     assert "robot_navigate" in names
     assert "robot_manipulate" in names
     assert "robot_verify" in names
-    assert "task_summarizer" in names
+    assert "task_interpreter" not in names
+    assert "task_summarizer" not in names
     assert "memory_retriever" not in names
     assert "target_grounder" not in names
     assert "memory_writer" not in names

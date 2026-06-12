@@ -18,9 +18,12 @@ from __future__ import annotations
 import hashlib
 import tempfile
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# The benchmark environment currently runs Python 3.10, which lacks datetime.UTC.
+_UTC = timezone.utc  # noqa: UP017
 
 
 @dataclass
@@ -60,7 +63,7 @@ class ContextSnapshot:
 
         content = "\n".join(lines) + "\n"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        generated_at = datetime.now(UTC).isoformat()
+        generated_at = datetime.now(_UTC).isoformat()
 
         result = SnapshotResult(
             content=content,
@@ -92,7 +95,7 @@ class ContextSnapshot:
 
         content = "\n".join(lines) + "\n"
         content_hash = hashlib.sha256(content.encode()).hexdigest()
-        generated_at = datetime.now(UTC).isoformat()
+        generated_at = datetime.now(_UTC).isoformat()
 
         result = SnapshotResult(
             content=content,

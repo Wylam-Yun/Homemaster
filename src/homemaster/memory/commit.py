@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from homemaster.domain.home.contracts import (
@@ -24,6 +24,8 @@ from homemaster.domain.home.contracts import (
 )
 
 SYSTEM_FAILURE_TYPES = {"model_output_invalid"}
+# The benchmark environment currently runs Python 3.10, which lacks datetime.UTC.
+_UTC = timezone.utc  # noqa: UP017
 
 
 def utc_now_iso() -> str:
@@ -34,7 +36,7 @@ def stale_after(created_at: str, *, days: int = 7) -> str:
     try:
         base = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
     except ValueError:
-        base = datetime.now(tz=UTC)
+        base = datetime.now(tz=_UTC)
     return (base + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 

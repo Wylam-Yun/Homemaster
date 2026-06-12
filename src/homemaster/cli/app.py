@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
 from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.errors import render_error_and_exit
@@ -138,7 +139,7 @@ def benchmark_alfworld_command(
     max_tool_iterations: Annotated[
         int,
         typer.Option("--max-tool-iterations", help="Maximum HomeMaster tool iterations."),
-    ] = 300,
+    ] = 1000,
     provider_config: Annotated[
         Path | None,
         typer.Option("--api-config", help="Optional provider config JSON override."),
@@ -177,7 +178,9 @@ def benchmark_alfworld_command(
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"episodes: {len(summary.episodes)}")
         typer.echo(f"success_rate: {summary.success_rate:.3f}")
-        typer.echo(f"trace_root: {trace_root / summary.run_id}")
+        typer.echo(
+            f"trace_root: {trace_root / split_trace_bucket(split) / summary.run_id}"
+        )
     except Exception as exc:
         render_error_and_exit(exc)
 

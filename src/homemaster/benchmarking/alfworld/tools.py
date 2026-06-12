@@ -183,7 +183,7 @@ def _drop_admissible_commands(value: Any) -> Any:
             for key, item in value.items()
             if str(key) != "admissible_commands"
         }
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_drop_admissible_commands(item) for item in value]
     return value
 

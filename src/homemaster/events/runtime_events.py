@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Protocol
+
+# The benchmark environment currently runs Python 3.10, which lacks datetime.UTC.
+_UTC = timezone.utc  # noqa: UP017
 
 # All known event types. Used for documentation and test validation.
 # RuntimeEvent.type is str for forward compatibility.
@@ -40,7 +43,7 @@ class RuntimeEvent:
     payload: dict[str, Any]
     tool_call_id: str | None = None
     name: str | None = None
-    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(_UTC).isoformat())
     event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     duration_ms: float | None = None
 

@@ -17,6 +17,7 @@ from homemaster.agent.messages import (
     ToolCall,
     ToolResultMessage,
     UserMessage,
+    normalize_content,
 )
 from homemaster.agent.session import AgentSession
 from homemaster.events.runtime_events import RuntimeEvent
@@ -93,6 +94,7 @@ class GenericAgentRuntime:
         user_text: str,
         tools: list[ToolSpec] | None = None,
         *,
+        user_content: list[ContentBlock] | None = None,
         event_sink: Any = None,
         run_id: str | None = None,
         settings: Any = None,
@@ -116,8 +118,15 @@ class GenericAgentRuntime:
             if event_sink is not None:
                 event_sink.emit(event)
 
-        session.append(UserMessage.from_text(user_text))
-        emit("runtime.turn_started", payload={"user_text": user_text})
+        initial_content = user_content or normalize_content(user_text)
+        session.append(UserMessage(content=initial_content))
+        emit(
+            "runtime.turn_started",
+            payload={
+                "user_text": user_text,
+                "content_block_types": [block.type for block in initial_content],
+            },
+        )
 
         tool_schemas = [
             {"name": t.name, "description": t.description, "input_schema": t.input_schema}

@@ -34,11 +34,13 @@ class MimoTransport(LLMTransport):
         protocol: str = "anthropic",
         http_client: httpx.Client | None = None,
         timeout_s: float = 60.0,
+        max_retries: int = 2,
     ) -> None:
         self._base_url = base_url
         self._model = model
         self._api_key = api_key
         self._protocol = protocol
+        self._max_retries = max(0, max_retries)
         self._owns_client = http_client is None
         timeout = httpx.Timeout(connect=10.0, read=timeout_s, write=15.0, pool=10.0)
         self._client = http_client or httpx.Client(timeout=timeout)
@@ -125,24 +127,18 @@ class MimoTransport(LLMTransport):
             "content-type": "application/json",
         }
 
-        # For now, use non-streaming and convert to deltas
-        # Real SSE streaming can be added later
-        response = self._client.post(url, headers=headers, json=payload)
-        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-
-        if response.status_code >= 400:
-            error_msg = _extract_response_error(response)
-            if event_sink is not None:
-                from homemaster.events.runtime_events import RuntimeEvent
-
-                event_sink.emit(RuntimeEvent(
-                    type="transport.request_failed",
-                    session_id=session_id,
-                    run_id=run_id,
-                    turn_index=turn_index,
-                    payload={"status_code": response.status_code, "error": error_msg},
-                ))
-            raise RuntimeError(f"Transport request failed: {error_msg}")
+        # For now, use non-streaming and convert to deltas.
+        # Real SSE streaming can be added later.
+        response, elapsed_ms = self._post_with_retries(
+            url=url,
+            headers=headers,
+            payload=payload,
+            event_sink=event_sink,
+            run_id=run_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            t0=t0,
+        )
 
         body = response.json()
         msg = self.parse_response_payload(body)
@@ -205,22 +201,16 @@ class MimoTransport(LLMTransport):
             "Content-Type": "application/json",
         }
 
-        response = self._client.post(url, headers=headers, json=payload)
-        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
-
-        if response.status_code >= 400:
-            error_msg = _extract_response_error(response)
-            if event_sink is not None:
-                from homemaster.events.runtime_events import RuntimeEvent
-
-                event_sink.emit(RuntimeEvent(
-                    type="transport.request_failed",
-                    session_id=session_id,
-                    run_id=run_id,
-                    turn_index=turn_index,
-                    payload={"status_code": response.status_code, "error": error_msg},
-                ))
-            raise RuntimeError(f"Transport request failed: {error_msg}")
+        response, elapsed_ms = self._post_with_retries(
+            url=url,
+            headers=headers,
+            payload=payload,
+            event_sink=event_sink,
+            run_id=run_id,
+            session_id=session_id,
+            turn_index=turn_index,
+            t0=t0,
+        )
 
         body = response.json()
         msg = self._parse_openai_response(body)
@@ -256,6 +246,80 @@ class MimoTransport(LLMTransport):
                 },
                 duration_ms=elapsed_ms,
             ))
+
+    def _post_with_retries(
+        self,
+        *,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any],
+        event_sink: Any,
+        run_id: str,
+        session_id: str,
+        turn_index: int | None,
+        t0: float,
+    ) -> tuple[httpx.Response, float]:
+        request_payload = payload
+        stripped_images = False
+        attempts = self._max_retries + 1
+        for attempt in range(1, attempts + 1):
+            try:
+                response = self._client.post(url, headers=headers, json=request_payload)
+            except httpx.TimeoutException as exc:
+                retryable = attempt < attempts
+                _emit_transport_failure(
+                    event_sink=event_sink,
+                    run_id=run_id,
+                    session_id=session_id,
+                    turn_index=turn_index,
+                    payload={
+                        "attempt": attempt,
+                        "error": str(exc),
+                        "error_type": type(exc).__name__,
+                        "retryable": retryable,
+                    },
+                )
+                if retryable:
+                    continue
+                raise
+
+            elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+            if response.status_code < 400:
+                return response, elapsed_ms
+
+            error_msg = _extract_response_error(response)
+            retry_without_images = (
+                attempt < attempts
+                and not stripped_images
+                and _is_multimodal_corruption(error_msg)
+                and _payload_has_images(request_payload)
+            )
+            retryable = retry_without_images or (
+                attempt < attempts and response.status_code >= 500
+            )
+            _emit_transport_failure(
+                event_sink=event_sink,
+                run_id=run_id,
+                session_id=session_id,
+                turn_index=turn_index,
+                payload={
+                    "attempt": attempt,
+                    "status_code": response.status_code,
+                    "error": error_msg,
+                    "retryable": retryable,
+                    "retry_without_images": retry_without_images,
+                },
+            )
+            if retry_without_images:
+                request_payload = _strip_image_blocks(payload)
+                stripped_images = True
+                continue
+            if retryable:
+                continue
+            raise RuntimeError(f"Transport request failed: {error_msg}")
+
+        raise RuntimeError("Transport request failed after retries")
+
 
     @staticmethod
     def parse_response_payload(body: dict[str, Any]) -> AssistantMessage:
@@ -357,11 +421,16 @@ class MimoTransport(LLMTransport):
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         api_messages: list[dict[str, Any]] = []
-        for msg in messages:
+        latest_image_message_index = _latest_image_message_index(messages)
+        for index, msg in enumerate(messages):
+            include_images = index == latest_image_message_index
             if hasattr(msg, "role") and msg.role == "user":
                 api_messages.append({
                     "role": "user",
-                    "content": [{"type": "text", "text": b.text} for b in msg.content],
+                    "content": _anthropic_content_blocks(
+                        msg.content,
+                        include_images=include_images,
+                    ),
                 })
             elif hasattr(msg, "role") and msg.role == "assistant":
                 content_blocks: list[dict[str, Any]] = []
@@ -369,10 +438,15 @@ class MimoTransport(LLMTransport):
                     content_blocks.append({
                         "type": "thinking",
                         "thinking": msg.reasoning_content,
-                    })
+                })
                 if msg.content:
                     for b in msg.content:
-                        content_blocks.append({"type": "text", "text": b.text})
+                        block = _anthropic_content_block(
+                            b,
+                            include_images=include_images,
+                        )
+                        if block is not None:
+                            content_blocks.append(block)
                 for tc in msg.tool_calls:
                     content_blocks.append({
                         "type": "tool_use",
@@ -382,15 +456,20 @@ class MimoTransport(LLMTransport):
                     })
                 api_messages.append({"role": "assistant", "content": content_blocks})
             elif hasattr(msg, "role") and msg.role == "tool":
-                api_messages.append({
-                    "role": "user",
-                    "content": [{
+                content_blocks: list[dict[str, Any]] = [{
                         "type": "tool_result",
                         "tool_use_id": msg.tool_call_id,
                         "content": "\n".join(b.text for b in msg.content if b.text),
                         "is_error": msg.is_error,
-                    }],
-                })
+                }]
+                for block in msg.content:
+                    converted = _anthropic_content_block(
+                        block,
+                        include_images=include_images,
+                    )
+                    if converted is not None and converted.get("type") == "image":
+                        content_blocks.append(converted)
+                api_messages.append({"role": "user", "content": content_blocks})
 
         payload: dict[str, Any] = {
             "model": self._model,
@@ -455,6 +534,61 @@ class MimoTransport(LLMTransport):
         return payload
 
 
+def _emit_transport_failure(
+    *,
+    event_sink: Any,
+    run_id: str,
+    session_id: str,
+    turn_index: int | None,
+    payload: dict[str, Any],
+) -> None:
+    if event_sink is None:
+        return
+    from homemaster.events.runtime_events import RuntimeEvent
+
+    event_sink.emit(RuntimeEvent(
+        type="transport.request_failed",
+        session_id=session_id,
+        run_id=run_id,
+        turn_index=turn_index,
+        payload=payload,
+    ))
+
+
+def _is_multimodal_corruption(error_msg: str) -> bool:
+    lowered = error_msg.lower()
+    return "multimodal" in lowered and (
+        "corrupt" in lowered or "cannot be processed" in lowered
+    )
+
+
+def _payload_has_images(payload: dict[str, Any]) -> bool:
+    return _contains_image_block(payload)
+
+
+def _contains_image_block(value: Any) -> bool:
+    if isinstance(value, dict):
+        if value.get("type") == "image":
+            return True
+        return any(_contains_image_block(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_image_block(item) for item in value)
+    return False
+
+
+def _strip_image_blocks(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _strip_image_blocks(item) for key, item in value.items()}
+    if isinstance(value, list):
+        stripped = []
+        for item in value:
+            if isinstance(item, dict) and item.get("type") == "image":
+                continue
+            stripped.append(_strip_image_blocks(item))
+        return stripped
+    return value
+
+
 def _normalize_finish_reason(raw: str | None) -> str | None:
     if raw is None:
         return None
@@ -465,6 +599,41 @@ def _normalize_finish_reason(raw: str | None) -> str | None:
         "max_tokens": "length",
     }
     return mapping.get(raw, raw)
+
+
+def _anthropic_content_blocks(
+    blocks: list[ContentBlock],
+    *,
+    include_images: bool = True,
+) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for block in blocks:
+        item = _anthropic_content_block(block, include_images=include_images)
+        if item is not None:
+            converted.append(item)
+    return converted
+
+
+def _anthropic_content_block(
+    block: ContentBlock,
+    *,
+    include_images: bool = True,
+) -> dict[str, Any] | None:
+    if block.type == "text":
+        return {"type": "text", "text": block.text}
+    if not include_images:
+        return None
+    if block.type == "image" and isinstance(block.source, dict):
+        return {"type": "image", "source": block.source}
+    return None
+
+
+def _latest_image_message_index(messages: list[Message]) -> int | None:
+    latest: int | None = None
+    for index, message in enumerate(messages):
+        if any(block.type == "image" for block in getattr(message, "content", [])):
+            latest = index
+    return latest
 
 
 def _extract_response_error(response: httpx.Response) -> str:

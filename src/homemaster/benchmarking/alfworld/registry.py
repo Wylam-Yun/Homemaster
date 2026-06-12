@@ -13,8 +13,6 @@ from homemaster.benchmarking.alfworld.tools import (
 from homemaster.domain.home.tools import (
     make_memory_retriever,
     make_memory_writer,
-    make_task_interpreter,
-    make_task_summarizer,
 )
 from homemaster.tools.registry import ToolRegistry
 
@@ -29,7 +27,6 @@ def build_alfworld_tool_registry(
         raise ValueError(f"unsupported memory_mode: {memory_mode}")
 
     registry = ToolRegistry()
-    registry.register(make_task_interpreter())
 
     if memory_mode in {"readonly", "full"}:
         registry.register(make_memory_retriever(memory_path=memory_path))
@@ -40,5 +37,4 @@ def build_alfworld_tool_registry(
     registry.register(make_alfworld_robot_navigate())
     registry.register(make_alfworld_robot_manipulate())
     registry.register(make_alfworld_robot_verify())
-    registry.register(make_task_summarizer())
     return registry

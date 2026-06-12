@@ -76,13 +76,18 @@ class AlfworldEnvAdapter:
         env: Any,
         episode_prefix: str,
         seed: int,
+        frame_dir: Path | None = None,
     ) -> None:
         self._env = env
         self._episode_prefix = episode_prefix
         self._seed = seed
+        self._frame_dir = frame_dir
         self._state: AlfworldEnvState | None = None
         if hasattr(self._env, "seed"):
             self._env.seed(seed)
+
+    def set_frame_dir(self, frame_dir: Path | None) -> None:
+        self._frame_dir = frame_dir
 
     @property
     def current_state(self) -> AlfworldEnvState:
@@ -107,7 +112,7 @@ class AlfworldEnvAdapter:
             goal_condition_success_rate=float(
                 _first_info(infos, "goal_condition_success_rate", 0.0)
             ),
-            frame_path=None,
+            frame_path=self._save_current_frame(step_index=0),
             step_index=0,
             invalid_action_count=0,
             admissible_commands=tuple(
@@ -125,8 +130,6 @@ class AlfworldEnvAdapter:
         tool_args: dict[str, Any],
     ) -> AlfworldStepResult:
         previous = self.current_state
-        previous_commands = set(previous.admissible_commands)
-        invalid = bool(previous_commands) and command not in previous_commands
 
         try:
             obs, scores, dones, infos = self._env.step([command])
@@ -138,6 +141,7 @@ class AlfworldEnvAdapter:
             admissible = tuple(
                 str(item) for item in _first_info(infos, "admissible_commands", [])
             )
+            invalid = _is_invalid_feedback(observation)
         except Exception as exc:
             state = AlfworldEnvState(
                 episode_id=previous.episode_id,
@@ -150,8 +154,8 @@ class AlfworldEnvAdapter:
                 done=previous.done,
                 won=previous.won,
                 goal_condition_success_rate=previous.goal_condition_success_rate,
-                frame_path=previous.frame_path,
                 step_index=previous.step_index + 1,
+                frame_path=previous.frame_path,
                 invalid_action_count=previous.invalid_action_count,
                 admissible_commands=previous.admissible_commands,
             )
@@ -178,8 +182,8 @@ class AlfworldEnvAdapter:
             done=done,
             won=won,
             goal_condition_success_rate=goal_rate,
-            frame_path=None,
             step_index=previous.step_index + 1,
+            frame_path=self._save_current_frame(step_index=previous.step_index + 1),
             invalid_action_count=invalid_count,
             admissible_commands=admissible,
         )
@@ -194,16 +198,37 @@ class AlfworldEnvAdapter:
             feedback=observation,
         )
 
+    def _save_current_frame(self, *, step_index: int) -> str | None:
+        if self._frame_dir is None:
+            return None
+        frame = _latest_thor_frame(self._env)
+        if frame is None:
+            return None
+        try:
+            from PIL import Image
+
+            self._frame_dir.mkdir(parents=True, exist_ok=True)
+            path = self._frame_dir / f"frame-{step_index:04d}.png"
+            Image.fromarray(frame).save(path)
+            return str(path)
+        except Exception:
+            return None
+
+
+def _is_invalid_feedback(observation: str) -> bool:
+    normalized = observation.strip().lower().rstrip(".")
+    return normalized == "nothing happens"
+
 
 def _first(value: Any, default: Any) -> Any:
-    if isinstance(value, (list, tuple)) and value:
+    if isinstance(value, list | tuple) and value:
         return value[0]
     return default
 
 
 def _first_info(infos: dict[str, Any], key: str, default: Any) -> Any:
     value = infos.get(key, default)
-    if isinstance(value, (list, tuple)) and value:
+    if isinstance(value, list | tuple) and value:
         return value[0]
     return value
 
@@ -236,6 +261,28 @@ def _drop_admissible_commands(value: Any) -> Any:
             for key, item in value.items()
             if str(key) != "admissible_commands"
         }
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_drop_admissible_commands(item) for item in value]
     return value
+
+
+def _latest_thor_frame(env: Any) -> Any | None:
+    pending = [env]
+    seen: set[int] = set()
+    while pending:
+        item = pending.pop(0)
+        if item is None or id(item) in seen:
+            continue
+        seen.add(id(item))
+        event = getattr(item, "last_event", None)
+        frame = getattr(event, "frame", None)
+        if frame is not None:
+            return frame
+        envs = getattr(item, "envs", None)
+        if isinstance(envs, list | tuple) and envs:
+            pending.append(envs[0])
+        for attr in ("env", "controller"):
+            nested = getattr(item, attr, None)
+            if nested is not None:
+                pending.append(nested)
+    return None

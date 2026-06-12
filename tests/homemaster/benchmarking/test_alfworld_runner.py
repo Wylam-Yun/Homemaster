@@ -225,6 +225,12 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     assert summary.episodes[0].steps == 3
     assert transport.call_count == 3
     assert "robot_navigate" in {tool["name"] for tool in transport.seen_tools[0]}
+    run_dir = tmp_path / "traces" / "valid" / summary.run_id
+    assert summary.episodes[0].trace_path == run_dir / "episode-0001" / "trace.jsonl"
+    assert (run_dir / "episode-0001" / "model_trace.jsonl").exists()
+    assert (run_dir / "episode-0001" / "trajectory.md").exists()
+    assert (run_dir / "readable_trajectories.md").exists()
+    assert summary.config["trace_bucket"] == "valid"
     trace_text = summary.episodes[0].trace_path.read_text(encoding="utf-8")
     assert "move apple 1 to diningtable 1" in trace_text
     assert "admissible_commands" not in trace_text
