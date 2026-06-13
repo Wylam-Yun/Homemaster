@@ -58,6 +58,16 @@ class TaskSnapshot(BaseModel):
         ]
         return payload
 
+    def to_completed_model_summary_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "snapshot_id": self.snapshot_id,
+            "status": self.status.value,
+            "goal": self.goal,
+            "completion_summary": self.completion_summary or "Task completed.",
+            "updated_at_iteration": self.updated_at_iteration,
+        }
+
 
 class TaskProgressUpdate(BaseModel):
     subtask_id: str

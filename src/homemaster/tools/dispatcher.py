@@ -1,9 +1,4 @@
-"""ToolDispatcher — validates and invokes tool executors.
-
-Responsibility boundary:
-  Dispatcher: validates + invokes executor; does NOT mutate AgentState
-  StateUpdater: sole component that transforms AgentState
-"""
+"""ToolDispatcher — validates tool calls and invokes tool executors."""
 
 from __future__ import annotations
 

@@ -16,6 +16,7 @@ from homemaster.agent.turn import (
     run_agent_turn,
 )
 from homemaster.providers.transport import TransportDelta
+from homemaster.task_state.store import TaskStateStore
 
 EXPECTED_HOME_TOOLS = [
     "task_interpreter",
@@ -66,6 +67,17 @@ def test_run_context_carries_world_and_memory_paths(tmp_path: Path) -> None:
     )
     assert context.settings.world_path == world_path
     assert context.settings.memory_path == memory_path
+
+
+def test_run_context_carries_task_state_store(tmp_path: Path) -> None:
+    context = _build_run_context(
+        "r1",
+        "s1",
+        world_path=tmp_path / "world.json",
+        memory_path=tmp_path / "memory.json",
+    )
+
+    assert isinstance(context.deps["task_state_store"], TaskStateStore)
 
 
 def test_run_agent_turn_writes_trace_and_uses_transport_stream(

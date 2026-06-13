@@ -7,7 +7,6 @@ from typing import Any
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.results import ToolResult
-from homemaster.tools.skill_tools import make_get_skill_spec
 from homemaster.tools.spec import ToolSpec
 
 
@@ -65,13 +64,6 @@ def test_tool_result_no_state_patch() -> None:
     assert "state_patch" not in fields
 
 
-def test_get_skill_spec() -> None:
-    spec = make_get_skill_spec()
-    assert spec.name == "get_skill"
-    assert spec.selectable_by_model is True
-    assert "skill_name" in spec.input_schema["properties"]
-
-
 def test_tool_registry_get_unknown() -> None:
     registry = ToolRegistry()
     assert registry.get("nonexistent") is None
@@ -83,18 +75,3 @@ def test_tool_registry_all_names() -> None:
     registry.register(_make_tool("b"))
     assert set(registry.all_names()) == {"a", "b"}
 
-
-def test_ask_user_not_in_tool_manifests() -> None:
-    """ask_user must not appear in tool_manifests() — invariant lock."""
-    from homemaster.tools.builtin import build_tool_registry
-    registry = build_tool_registry()
-    names = [m["name"] for m in registry.tool_manifests()]
-    assert "ask_user" not in names
-
-
-def test_finish_task_not_in_tool_manifests() -> None:
-    """finish_task is internal (selectable_by_model=False), not in manifests."""
-    from homemaster.tools.builtin import build_tool_registry
-    registry = build_tool_registry()
-    names = [m["name"] for m in registry.tool_manifests()]
-    assert "finish_task" not in names

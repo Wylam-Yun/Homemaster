@@ -109,6 +109,27 @@ class FakeTransport(LLMTransport):
         )
 
 
+class ContextLengthFailingTransport(LLMTransport):
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
+        event_sink: Any = None,
+        run_id: str = "",
+        session_id: str = "",
+        turn_index: int | None = None,
+        iteration: int | None = None,
+    ) -> Iterator[TransportDelta]:
+        self.call_count += 1
+        raise RuntimeError("context_length_exceeded")
+        yield
+
+
 class FakeToolExecutor:
     """Fake tool executor that returns success results."""
 
@@ -356,3 +377,35 @@ def test_runtime_supports_unbounded_iterations() -> None:
 
     assert result.status == "replied"
     assert result.final_reply == "done"
+
+
+def test_reactive_compact_retries_context_length_error_once() -> None:
+    from homemaster.agent.context_assembler import ContextAssembler
+    from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
+
+    transport = ContextLengthFailingTransport()
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="mimo",
+            protocol="anthropic",
+            base_url="https://mimo.example",
+            model="m",
+            api_keys=["secret"],
+            context_window_tokens=100_000,
+            max_output_tokens=4096,
+        ),
+        policy=ContextPolicyConfig(),
+        system_prompt="system",
+    )
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        context_assembler=assembler,
+    )
+
+    result = runtime.run(AgentSession(session_id="reactive"), "hello", tools=[])
+
+    assert transport.call_count == 2
+    assert result.status == "failed"
+    assert result.error_code == "context_length_exceeded_after_compact"

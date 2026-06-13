@@ -10,8 +10,9 @@ from typing import Any
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from homemaster.task_state.models import SubtaskStatus, TaskProgressUpdate
+from homemaster.task_state.models import SubtaskStatus, TaskProgressUpdate, TaskStatus
 from homemaster.task_state.store import TaskStateStore, TaskStateStoreError
+from homemaster.tools.spec import ToolSpec
 
 
 def _store(run_context: RunContext) -> TaskStateStore:
@@ -61,9 +62,61 @@ def task_progress_check_executor(
         next_focus=arguments.get("next_focus"),
         updated_at_iteration=run_context.turn_index,
     )
+    raw_task_status = arguments.get("task_status")
+    if raw_task_status is not None:
+        task_status = TaskStatus(raw_task_status)
+        if task_status is TaskStatus.COMPLETED:
+            snapshot = store.mark_completed(
+                final_summary=arguments.get("completion_summary") or "Task completed.",
+                updated_at_iteration=run_context.turn_index,
+            )
     return ToolResultMessage(
         tool_call_id="",
         name="task_progress_check",
         content=[ContentBlock(text=snapshot.model_dump_json(indent=2))],
         data=snapshot.to_model_visible_dict(),
+    )
+
+
+def make_task_planner_tool() -> ToolSpec:
+    return ToolSpec(
+        name="task_planner",
+        description="Create or replace the model-owned task plan snapshot.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string"},
+                "subtasks": {"type": "array", "items": {"type": "object"}},
+                "current_subtask": {"type": "string"},
+                "next_focus": {"type": "string"},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+                "constraints": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["goal", "subtasks"],
+        },
+        executor_mode="programmatic",
+        executor=task_planner_executor,
+    )
+
+
+def make_task_progress_check_tool() -> ToolSpec:
+    return ToolSpec(
+        name="task_progress_check",
+        description="Update progress on subtasks with explicit status and evidence.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "updates": {"type": "array", "items": {"type": "object"}},
+                "current_subtask": {"type": "string"},
+                "next_focus": {"type": "string"},
+                "task_status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "failed", "cancelled"],
+                },
+                "completion_summary": {"type": "string"},
+            },
+            "required": ["updates"],
+        },
+        executor_mode="programmatic",
+        executor=task_progress_check_executor,
     )

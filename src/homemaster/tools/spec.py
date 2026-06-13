@@ -1,11 +1,10 @@
 """ToolSpec — declares tool metadata and executor reference.
 
 Responsibility boundary:
-  ToolSpec:     declares metadata; generates compact Mimo manifest; does NOT execute
-  Dispatcher:   validates + invokes executor; does NOT mutate AgentState
+  ToolSpec:     declares metadata; generates compact model manifests
+  Dispatcher:   validates + invokes executor; does not mutate AgentState
   ToolRegistry: stores ToolSpec by name; returns selectable manifests
   ToolResult:   typed execution outcome; no state_patch
-  StateUpdater: sole component that transforms AgentState
   EventSink:    append-only redacted events
 """
 

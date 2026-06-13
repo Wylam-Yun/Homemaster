@@ -11,6 +11,7 @@ from homemaster.agent.context_items import (
     ContextItem,
     ContextPlacement,
     ContextPriority,
+    RenderMode,
 )
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
@@ -37,7 +38,10 @@ class TaskStateSnapshotProvider:
         snapshot = self._store.snapshot if self._store else None
         if snapshot is None:
             return []
-        visible = snapshot.to_model_visible_dict()
+        if snapshot.status.value == "completed":
+            visible = snapshot.to_completed_model_summary_dict()
+        else:
+            visible = snapshot.to_model_visible_dict()
         text = "# Task State Snapshot\n" + _json_text(visible)
         priority = (
             ContextPriority.REQUIRED
@@ -53,6 +57,7 @@ class TaskStateSnapshotProvider:
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
                 render=lambda _mode, text=text: text,
+                mode=RenderMode.FULL,
             )
         ]
 
@@ -67,7 +72,7 @@ class RuntimeBudgetStatusProvider:
         payload = {
             "type": "runtime_budget_status",
             "iteration_index": self._state.iteration_index,
-            "max_tool_iterations": None,
+            "max_tool_iterations": self._state.max_tool_iterations,
             "consecutive_tool_errors": self._state.consecutive_tool_errors,
             "no_progress_iterations": self._state.no_progress_iterations,
             "estimated_context_tokens": self._state.estimated_context_tokens,
@@ -87,6 +92,7 @@ class RuntimeBudgetStatusProvider:
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
                 render=lambda _mode, text=text: text,
+                mode=RenderMode.FULL,
             )
         ]
 
@@ -125,6 +131,7 @@ class FailureSummaryProvider:
                 placement=ContextPlacement.CONTEXT_PRELUDE,
                 token_estimate=estimate_text_tokens(text),
                 render=lambda _mode, text=text: text,
+                mode=RenderMode.FULL,
             )
         ]
 

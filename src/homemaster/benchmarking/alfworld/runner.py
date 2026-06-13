@@ -6,6 +6,7 @@ import json
 import uuid
 from collections.abc import Callable
 
+from homemaster.agent.context_assembler import ContextAssembler
 from homemaster.agent.generic_runtime import (
     GenericAgentRuntime,
     RuntimeStopDecision,
@@ -33,11 +34,13 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldEpisodeResult,
     AlfworldSummary,
 )
-from homemaster.config.runtime_settings import RuntimeSettings
+from homemaster.config.resolution import resolve_provider_profile
+from homemaster.config.runtime_settings import load_runtime_settings
 from homemaster.events.sinks import JsonlEventSink
+from homemaster.prompt_loader import load_prompt
 from homemaster.providers.mimo_transport import MimoTransport
 from homemaster.providers.transport import LLMTransport
-from homemaster.runtime import DEFAULT_CONFIG_PATH, load_provider_config
+from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.dispatcher import ToolDispatcher
 
 TransportFactory = Callable[[], LLMTransport]
@@ -103,14 +106,15 @@ class AlfworldBenchmarkRunner:
         translator = create_translator(self.config.env_type)
         dispatcher = ToolDispatcher()
         tool_specs = self._register_tools(dispatcher)
-        settings = RuntimeSettings(
+        settings = load_runtime_settings(
+            self.config.provider_config,
             run_id=episode_run_id,
             runtime_root=self.run_dir / "runtime",
             debug_root=self.run_dir / "debug",
             results_root=self.run_dir / "results",
             provider_name=self.config.provider_name,
-            config_path=self.config.provider_config,
         )
+        task_state_store = TaskStateStore(run_id=episode_run_id)
         run_context = RunContext(
             session_id=episode_run_id,
             run_id=episode_run_id,
@@ -122,15 +126,28 @@ class AlfworldBenchmarkRunner:
                 "alfworld_translator": translator,
                 "alfworld_trace": trace,
                 "alfworld_config": self.config,
+                "task_state_store": task_state_store,
             },
         )
         dispatcher.set_run_context(run_context)
+        provider_profile = resolve_provider_profile(
+            config_path=self.config.provider_config,
+            provider_name=self.config.provider_name,
+        )
+        system_prompt = load_prompt(settings.prompts.agent_system_prompt)
+        context_assembler = ContextAssembler(
+            provider=provider_profile,
+            policy=settings.context,
+            system_prompt=system_prompt,
+        )
 
         runtime = GenericAgentRuntime(
             transport=self._transport_factory(),
             tool_executor=dispatcher,
             max_tool_iterations=self.config.max_tool_iterations,
             stop_condition=self._stop_condition(adapter),
+            context_assembler=context_assembler,
+            system_prompt=system_prompt,
         )
         prompt = build_episode_prompt(
             state=state,
@@ -255,8 +272,8 @@ class AlfworldBenchmarkRunner:
         return decide
 
     def _build_transport(self) -> LLMTransport:
-        provider = load_provider_config(
-            self.config.provider_config or DEFAULT_CONFIG_PATH,
+        provider = resolve_provider_profile(
+            config_path=self.config.provider_config,
             provider_name=self.config.provider_name,
         )
         return MimoTransport(
@@ -265,6 +282,7 @@ class AlfworldBenchmarkRunner:
             api_key=provider.api_keys[0],
             protocol=provider.protocol,
             timeout_s=300.0,
+            max_output_tokens=provider.max_output_tokens,
         )
 
     @staticmethod

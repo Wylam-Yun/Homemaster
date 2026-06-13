@@ -68,5 +68,14 @@ def load_runtime_settings(
             if "default_embedding_provider_name" in cfg:
                 defaults["embedding_provider_name"] = cfg["default_embedding_provider_name"]
 
+    if config_path is not None:
+        raw_config = load_homemaster_config(config_path)
+        if any(key in raw_config for key in ("context", "runtime", "prompts")):
+            from homemaster.config.model_config import load_model_config
+
+            model_config = load_model_config(config_path)
+            defaults["context"] = model_config.context
+            defaults["runtime_guards"] = model_config.runtime
+            defaults["prompts"] = model_config.prompts
     defaults.update(overrides)
     return RuntimeSettings(**defaults)

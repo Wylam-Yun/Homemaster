@@ -72,6 +72,11 @@ def test_deleted_legacy_packages_are_absent() -> None:
     assert not (ROOT / "src/homemaster/stages").exists()
     assert not (ROOT / "src/homemaster/task_runner.py").exists()
     assert not (ROOT / "src/homemaster/providers/mimo_decision_client.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context_builder.py").exists()
+    assert not (ROOT / "src/homemaster/tools/builtin.py").exists()
+    assert not (ROOT / "src/homemaster/tools/skill_tools.py").exists()
+    assert not (ROOT / "src/homemaster/tools/state_updater.py").exists()
 
 
 def test_package_entrypoints_do_not_export_deleted_legacy_packages() -> None:

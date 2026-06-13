@@ -72,18 +72,86 @@ def split_preserving_tool_pairs(
 ) -> tuple[list[Message], list[Message]]:
     if len(messages) <= preserve_recent:
         return [], list(messages)
-    split = max(0, len(messages) - preserve_recent)
-    while split > 0:
-        left = messages[split - 1]
-        right = messages[split]
-        if (isinstance(left, AssistantMessage) and left.tool_calls
-                and isinstance(right, ToolResultMessage)):
-            ids = {tool_call.id for tool_call in left.tool_calls}
-            if right.tool_call_id in ids:
-                split -= 1
-                continue
-        break
+    split = _split_index_preserving_groups(
+        messages,
+        preserve_recent_messages=preserve_recent,
+    )
     return list(messages[:split]), list(messages[split:])
+
+
+def split_preserving_recent_context(
+    messages: list[Message],
+    *,
+    preserve_recent_messages: int,
+    preserve_recent_user_turns: int,
+) -> tuple[list[Message], list[Message]]:
+    """Split old/recent history without splitting tool-call/result groups.
+
+    Recent history is the union of the latest grouped messages by count and the
+    latest N user turns with everything after the oldest preserved user turn.
+    """
+    if not messages:
+        return [], []
+
+    split = _split_index_preserving_groups(
+        messages,
+        preserve_recent_messages=preserve_recent_messages,
+    )
+    remaining_user_turns = preserve_recent_user_turns
+    earliest_user_index: int | None = None
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], UserMessage):
+            earliest_user_index = index
+            remaining_user_turns -= 1
+            if remaining_user_turns <= 0:
+                break
+    if earliest_user_index is not None:
+        split = min(split, earliest_user_index)
+    return list(messages[:split]), list(messages[split:])
+
+
+def _split_index_preserving_groups(
+    messages: list[Message],
+    *,
+    preserve_recent_messages: int,
+) -> int:
+    split = max(0, len(messages) - preserve_recent_messages)
+    if split == 0:
+        return 0
+    cursor = 0
+    for group in _message_groups(messages):
+        start = cursor
+        end = cursor + len(group)
+        if start < split < end:
+            return start
+        cursor = end
+    return split
+
+
+def _message_groups(messages: list[Message]) -> list[list[Message]]:
+    groups: list[list[Message]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        group = [message]
+        if isinstance(message, AssistantMessage) and message.tool_calls:
+            expected_ids = {tool_call.id for tool_call in message.tool_calls}
+            cursor = index + 1
+            while cursor < len(messages):
+                candidate = messages[cursor]
+                if (
+                    isinstance(candidate, ToolResultMessage)
+                    and candidate.tool_call_id in expected_ids
+                ):
+                    group.append(candidate)
+                    cursor += 1
+                    continue
+                break
+            index = cursor
+        else:
+            index += 1
+        groups.append(group)
+    return groups
 
 
 def build_compaction_summary_message(summary: str) -> UserMessage:

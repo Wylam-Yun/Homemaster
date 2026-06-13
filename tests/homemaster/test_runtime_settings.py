@@ -77,6 +77,42 @@ def test_loader_no_config_uses_defaults() -> None:
     assert settings.provider_name == "Mimo"
 
 
+def test_loader_reads_typed_context_and_runtime_sections(tmp_path: Path) -> None:
+    config_path = tmp_path / "homemaster.json"
+    config_path.write_text(
+        """
+        {
+          "context": {
+            "preserve_recent_agent_steps": 25,
+            "preserve_recent_user_turns": 4,
+            "compression_threshold_ratio": 0.6
+          },
+          "runtime": {
+            "max_tool_iterations": null,
+            "max_consecutive_tool_errors": 7,
+            "max_no_progress_iterations": 33
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    settings = load_runtime_settings(
+        config_path,
+        run_id="test",
+        runtime_root=Path("/tmp/runs"),
+        debug_root=Path("/tmp/debug"),
+        results_root=Path("/tmp/results"),
+    )
+
+    assert settings.context.preserve_recent_agent_steps == 25
+    assert settings.context.preserve_recent_user_turns == 4
+    assert settings.context.compression_threshold_ratio == 0.6
+    assert settings.runtime_guards.max_tool_iterations is None
+    assert settings.runtime_guards.max_consecutive_tool_errors == 7
+    assert settings.runtime_guards.max_no_progress_iterations == 33
+
+
 def test_settings_does_not_have_old_fields() -> None:
     """RuntimeSettings must not have old stage/scenario fields."""
     settings = RuntimeSettings(

@@ -234,6 +234,33 @@ def test_anthropic_payload_omits_max_tokens_by_default() -> None:
     assert "max_tokens" not in payload
 
 
+def test_anthropic_payload_includes_configured_max_tokens() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        max_output_tokens=8192,
+    )
+
+    payload = transport._build_anthropic_payload([UserMessage.from_text("hello")])
+
+    assert payload["max_tokens"] == 8192
+
+
+def test_openai_payload_includes_configured_max_tokens() -> None:
+    transport = MimoTransport(
+        base_url="https://example.invalid",
+        model="m",
+        api_key="secret",
+        protocol="openai",
+        max_output_tokens=4096,
+    )
+
+    payload = transport._build_openai_payload([UserMessage.from_text("hello")])
+
+    assert payload["max_tokens"] == 4096
+
+
 def test_anthropic_payload_replays_reasoning_before_tool_use() -> None:
     transport = MimoTransport(
         base_url="https://example.invalid",

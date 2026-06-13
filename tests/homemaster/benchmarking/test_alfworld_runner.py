@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall
+from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall, UserMessage
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.runner import AlfworldBenchmarkRunner
 from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
@@ -59,6 +59,8 @@ class FakeTransport(LLMTransport):
         ]
         self.call_count = 0
         self.seen_tools: list[list[dict[str, Any]]] = []
+        self.seen_system_prompts: list[str] = []
+        self.seen_messages: list[list[Message]] = []
 
     def stream(
         self,
@@ -73,6 +75,8 @@ class FakeTransport(LLMTransport):
         iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         self.seen_tools.append(tools or [])
+        self.seen_system_prompts.append(system_prompt)
+        self.seen_messages.append(messages)
         msg = self._responses[self.call_count]
         self.call_count += 1
         for block in msg.content:
@@ -226,7 +230,15 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
     assert transport.call_count == 3
+    assert transport.seen_system_prompts[0]
+    assert any(
+        isinstance(message, UserMessage)
+        and any("runtime_budget_status" in block.text for block in message.content)
+        for message in transport.seen_messages[0]
+    )
     assert "robot_navigate" in {tool["name"] for tool in transport.seen_tools[0]}
+    assert "task_planner" in {tool["name"] for tool in transport.seen_tools[0]}
+    assert "task_progress_check" in {tool["name"] for tool in transport.seen_tools[0]}
     run_dir = tmp_path / "traces" / "valid" / summary.run_id
     assert summary.episodes[0].trace_path == run_dir / "episode-0001" / "trace.jsonl"
     assert (run_dir / "episode-0001" / "model_trace.jsonl").exists()

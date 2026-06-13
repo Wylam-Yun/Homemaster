@@ -14,6 +14,10 @@ from homemaster.domain.home.tools import (
     make_memory_retriever,
     make_memory_writer,
 )
+from homemaster.task_state.tools import (
+    make_task_planner_tool,
+    make_task_progress_check_tool,
+)
 from homemaster.tools.registry import ToolRegistry
 
 
@@ -37,4 +41,6 @@ def build_alfworld_tool_registry(
     registry.register(make_alfworld_robot_navigate())
     registry.register(make_alfworld_robot_manipulate())
     registry.register(make_alfworld_robot_verify())
+    registry.register(make_task_planner_tool())
+    registry.register(make_task_progress_check_tool())
     return registry

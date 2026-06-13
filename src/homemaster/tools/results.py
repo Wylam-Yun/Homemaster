@@ -1,7 +1,6 @@
 """ToolResult — typed execution outcome.
 
 Does NOT contain state_patch. Does NOT prescribe AgentState mutations.
-State mutation is the sole responsibility of StateUpdater.
 """
 
 from __future__ import annotations

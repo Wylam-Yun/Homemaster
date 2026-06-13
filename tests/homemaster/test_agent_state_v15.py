@@ -56,6 +56,21 @@ def test_record_tool_results_tracks_errors() -> None:
     assert state.consecutive_tool_errors == 0
 
 
+def test_record_tool_results_tracks_no_progress_repeated_signature() -> None:
+    state = AgentState(run_id="r1", session_id="s1")
+    result = {"tool_call_id": "c1", "name": "robot_observe", "is_error": True, "text": "same"}
+
+    state.record_tool_results([result])
+    state.record_tool_results([{**result, "tool_call_id": "c2"}])
+
+    assert state.no_progress_iterations == 1
+
+    state.record_tool_results([
+        {"tool_call_id": "c3", "name": "robot_observe", "is_error": False, "text": "new"}
+    ])
+    assert state.no_progress_iterations == 0
+
+
 def test_agent_state_serialization_roundtrip() -> None:
     state = AgentState(run_id="r1", session_id="s1", metadata={"debug": True})
     state.provider_usage = ProviderUsage(input_tokens=100, output_tokens=50, total_tokens=150)

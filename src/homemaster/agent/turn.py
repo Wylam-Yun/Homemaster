@@ -15,7 +15,7 @@ from homemaster.agent.context_assembler import ContextAssembler
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.session import AgentSession
-from homemaster.config.runtime_settings import RuntimeSettings
+from homemaster.config.runtime_settings import load_runtime_settings
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.providers.mimo_transport import MimoTransport
 from homemaster.providers.transport import LLMTransport
@@ -35,16 +35,17 @@ class AgentTurnResult:
 
 
 def _build_transport() -> LLMTransport:
-    """Build a MimoTransport from default config."""
-    from homemaster.runtime import DEFAULT_CONFIG_PATH, DEFAULT_PROVIDER_NAME, load_provider_config
+    """Build a MimoTransport from resolved runtime config."""
+    from homemaster.config.resolution import resolve_provider_profile
 
-    provider = load_provider_config(DEFAULT_CONFIG_PATH, provider_name=DEFAULT_PROVIDER_NAME)
+    provider = resolve_provider_profile()
     api_key = provider.api_keys[0]
     return MimoTransport(
         base_url=provider.base_url,
         model=provider.model,
         api_key=api_key,
         protocol=provider.protocol,
+        max_output_tokens=provider.max_output_tokens,
     )
 
 
@@ -94,7 +95,12 @@ def _build_run_context(
     turn_index: int = 0,
 ) -> RunContext:
     """Build a RunContext with explicit RuntimeSettings."""
-    settings = RuntimeSettings(
+    from homemaster.runtime import HOMEMASTER_CONFIG_PATH
+    from homemaster.task_state.store import TaskStateStore
+
+    config_path = HOMEMASTER_CONFIG_PATH if HOMEMASTER_CONFIG_PATH.exists() else None
+    settings = load_runtime_settings(
+        config_path,
         run_id=run_id,
         runtime_root=Path("/tmp/homemaster/runs"),
         debug_root=Path("/tmp/homemaster/debug"),
@@ -108,6 +114,7 @@ def _build_run_context(
         turn_index=turn_index,
         settings=settings,
         event_sink=event_sink,
+        deps={"task_state_store": TaskStateStore(run_id=run_id)},
     )
 
 
@@ -171,8 +178,8 @@ def run_agent_turn(
 
     Used by the interactive shell for multi-turn conversations.
     """
-    from homemaster.prompt_loader import PromptId, load_prompt
-    from homemaster.runtime import load_provider_config
+    from homemaster.config.resolution import resolve_provider_profile
+    from homemaster.prompt_loader import load_prompt
 
     run_id = run_id or uuid.uuid4().hex[:12]
 
@@ -196,18 +203,10 @@ def run_agent_turn(
     dispatcher.set_run_context(run_context)
 
     # Load system prompt and build context assembler
-    system_prompt = load_prompt(PromptId.AGENT_SYSTEM)
-    provider_config = load_provider_config()
-    from homemaster.config.model_config import ProviderProfileConfig
-
-    provider_profile = ProviderProfileConfig(
-        name=provider_config.name,
-        protocol=provider_config.protocol,  # type: ignore[arg-type]
-        base_url=provider_config.base_url,
-        model=provider_config.model,
-        api_keys=provider_config.api_keys,
-        context_window_tokens=provider_config.context_window_tokens,
-        max_output_tokens=provider_config.max_output_tokens,
+    system_prompt = load_prompt(run_context.settings.prompts.agent_system_prompt)
+    provider_profile = resolve_provider_profile(
+        config_path=run_context.settings.config_path,
+        provider_name=run_context.settings.provider_name,
     )
     context_assembler = ContextAssembler(
         provider=provider_profile,

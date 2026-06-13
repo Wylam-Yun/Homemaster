@@ -16,48 +16,8 @@ from homemaster.domain.home.tools import (
     make_task_interpreter,
     make_task_summarizer,
 )
-from homemaster.task_state.tools import task_planner_executor, task_progress_check_executor
+from homemaster.task_state.tools import make_task_planner_tool, make_task_progress_check_tool
 from homemaster.tools.registry import ToolRegistry
-from homemaster.tools.spec import ToolSpec
-
-
-def _make_task_planner() -> ToolSpec:
-    return ToolSpec(
-        name="task_planner",
-        description="Create or replace the model-owned task plan snapshot.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "goal": {"type": "string"},
-                "subtasks": {"type": "array", "items": {"type": "object"}},
-                "current_subtask": {"type": "string"},
-                "next_focus": {"type": "string"},
-                "open_questions": {"type": "array", "items": {"type": "string"}},
-                "constraints": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["goal", "subtasks"],
-        },
-        executor_mode="programmatic",
-        executor=task_planner_executor,
-    )
-
-
-def _make_task_progress_check() -> ToolSpec:
-    return ToolSpec(
-        name="task_progress_check",
-        description="Update progress on subtasks with explicit status and evidence.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "updates": {"type": "array", "items": {"type": "object"}},
-                "current_subtask": {"type": "string"},
-                "next_focus": {"type": "string"},
-            },
-            "required": ["updates"],
-        },
-        executor_mode="programmatic",
-        executor=task_progress_check_executor,
-    )
 
 
 def build_home_tool_registry(
@@ -79,8 +39,8 @@ def build_home_tool_registry(
         make_robot_verify(),
         make_memory_writer(runtime_memory_root=runtime_memory_root),
         make_task_summarizer(),
-        _make_task_planner(),
-        _make_task_progress_check(),
+        make_task_planner_tool(),
+        make_task_progress_check_tool(),
     ):
         registry.register(spec)
     return registry

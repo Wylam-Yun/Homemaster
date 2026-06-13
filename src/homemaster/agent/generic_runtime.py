@@ -141,7 +141,11 @@ class GenericAgentRuntime:
 
         initial_content = user_content or normalize_content(user_text)
         session.append(UserMessage(content=initial_content))
-        agent_state = AgentState(run_id=run_id, session_id=session.session_id)
+        agent_state = AgentState(
+            run_id=run_id,
+            session_id=session.session_id,
+            max_tool_iterations=self._max_tool_iterations,
+        )
         emit(
             "runtime.turn_started",
             payload={
@@ -156,6 +160,7 @@ class GenericAgentRuntime:
         ]
 
         iteration = 0
+        reactive_compact_retries = 0
         while self._max_tool_iterations is None or iteration < self._max_tool_iterations:
             agent_state.begin_iteration(iteration)
             t0 = time.perf_counter()
@@ -194,7 +199,20 @@ class GenericAgentRuntime:
             except Exception as exc:
                 # Reactive compact on context-length errors
                 if self._context_assembler is not None and _is_context_length_error(str(exc)):
+                    if reactive_compact_retries >= 1:
+                        emit("runtime.turn_failed", payload={
+                            "error": str(exc),
+                            "error_code": "context_length_exceeded_after_compact",
+                        })
+                        return GenericRunResult(
+                            run_id=run_id,
+                            status="failed",
+                            session=session,
+                            events=events,
+                            error_code="context_length_exceeded_after_compact",
+                        )
                     emit("runtime.reactive_compact_started", payload={"reason": str(exc)[:300]})
+                    reactive_compact_retries += 1
                     self._context_assembler.force_compact_next = True
                     continue
 
@@ -216,6 +234,7 @@ class GenericAgentRuntime:
 
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
             session.append(assistant_msg)
+            reactive_compact_retries = 0
 
             agent_state.last_assistant_text = assistant_msg.text
             if assistant_msg.usage:
