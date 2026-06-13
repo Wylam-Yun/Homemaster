@@ -238,14 +238,20 @@ def make_alfworld_robot_manipulate() -> ToolSpec:
     return ToolSpec(
         name="robot_manipulate",
         description=(
-            "Manipulate ALFWorld objects with take, put, open, close, use, heat, "
-            "cool, clean, or slice."
+            "Execute one high-level ALFWorld manipulation action. For heat, cool, "
+            "clean, and slice, do not decompose the task into low-level open/put/"
+            "close/use steps; call the abstract action directly when the required "
+            "object/tool preconditions are met."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
+                    "description": (
+                        "One ALFWorld action. use is only for switch/toggle objects; "
+                        "heat/cool/clean are abstract state-change actions."
+                    ),
                     "enum": [
                         "take",
                         "put",
@@ -258,10 +264,29 @@ def make_alfworld_robot_manipulate() -> ToolSpec:
                         "slice",
                     ],
                 },
-                "object": {"type": "string"},
-                "source_receptacle": {"type": "string"},
-                "target_receptacle": {"type": "string"},
-                "tool_receptacle": {"type": "string"},
+                "object": {
+                    "type": "string",
+                    "description": (
+                        "Object to manipulate. For heat/cool/clean, this object "
+                        "should usually be in inventory."
+                    ),
+                },
+                "source_receptacle": {
+                    "type": "string",
+                    "description": "Receptacle to take the object from.",
+                },
+                "target_receptacle": {
+                    "type": "string",
+                    "description": "Receptacle to put/open/close.",
+                },
+                "tool_receptacle": {
+                    "type": "string",
+                    "description": (
+                        "Tool/receptacle for state-changing actions: microwave for "
+                        "heat, fridge for cool, sinkbasin for clean, knife or "
+                        "butterknife for slice."
+                    ),
+                },
             },
             "required": ["action"],
         },

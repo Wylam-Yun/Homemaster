@@ -59,26 +59,50 @@ class AlfworldCommandTranslator:
                     "action": "use",
                     "required": ["object"],
                     "command_template": "use {object}",
+                    "notes": (
+                        "Use only for switch/toggle objects such as lamps, faucets, "
+                        "and knobs. Do not use microwave/fridge/sinkbasin to heat, "
+                        "cool, or clean objects."
+                    ),
                 },
                 {
                     "action": "heat",
                     "required": ["object", "tool_receptacle"],
                     "command_template": "heat {object} with {tool_receptacle}",
+                    "notes": (
+                        "High-level action: stand at the microwave while holding the "
+                        "object, then call heat directly. Do not open, put into, close, "
+                        "or use the microwave to make objects hot."
+                    ),
                 },
                 {
                     "action": "cool",
                     "required": ["object", "tool_receptacle"],
                     "command_template": "cool {object} with {tool_receptacle}",
+                    "notes": (
+                        "High-level action: stand at the fridge while holding the "
+                        "object, then call cool directly. Do not put the object into "
+                        "the fridge before cooling it."
+                    ),
                 },
                 {
                     "action": "clean",
                     "required": ["object", "tool_receptacle"],
                     "command_template": "clean {object} with {tool_receptacle}",
+                    "notes": (
+                        "High-level action: stand at a sinkbasin while holding the "
+                        "object, then call clean directly. Do not manually use the "
+                        "faucet to clean objects."
+                    ),
                 },
                 {
                     "action": "slice",
                     "required": ["object", "tool_receptacle"],
                     "command_template": "slice {object} with {tool_receptacle}",
+                    "notes": (
+                        "Use a sharp object such as knife or butterknife as the tool. "
+                        "The slicing tool must be available before calling slice."
+                    ),
                 },
             ],
         }

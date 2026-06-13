@@ -55,3 +55,19 @@ def test_public_action_schema_contains_textworld_put_template() -> None:
     ]
 
     assert put_actions[0]["command_template"] == "move {object} to {target_receptacle}"
+
+
+def test_public_action_schema_warns_about_abstract_state_change_actions() -> None:
+    translator = create_translator("AlfredThorEnv")
+
+    schema = translator.public_action_schema()
+    actions = {
+        item["action"]: item
+        for item in schema["manipulation_actions"]
+    }
+
+    assert "holding the object" in actions["heat"]["notes"]
+    assert "Do not open, put into, close, or use the microwave" in actions["heat"]["notes"]
+    assert "stand at the fridge while holding the object" in actions["cool"]["notes"]
+    assert "stand at a sinkbasin while holding the object" in actions["clean"]["notes"]
+    assert "Use only for switch/toggle objects" in actions["use"]["notes"]

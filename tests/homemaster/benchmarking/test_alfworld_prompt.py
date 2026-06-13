@@ -38,3 +38,7 @@ def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:
     assert "admissible_commands" not in prompt
     assert "Memory tools are not available" in prompt
     assert "50 ALFWorld environment action steps" in prompt
+    assert "stand at the microwave while holding the object" in prompt
+    assert "Do not open, put into, close, or use the microwave" in prompt
+    assert "stand at the fridge while holding the object" in prompt
+    assert "stand at a sinkbasin while holding the object" in prompt

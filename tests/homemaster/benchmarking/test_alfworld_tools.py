@@ -139,6 +139,24 @@ def test_manipulate_validation_error_does_not_step_env() -> None:
     assert "admissible_commands" not in result.data["tool_args"]
 
 
+def test_manipulate_tool_schema_describes_high_level_state_change_actions() -> None:
+    spec = make_alfworld_robot_manipulate()
+
+    assert "do not decompose" in spec.description
+    assert "heat/cool/clean are abstract state-change actions" in (
+        spec.input_schema["properties"]["action"]["description"]
+    )
+    assert "microwave for heat" in (
+        spec.input_schema["properties"]["tool_receptacle"]["description"]
+    )
+    assert "fridge for cool" in (
+        spec.input_schema["properties"]["tool_receptacle"]["description"]
+    )
+    assert "sinkbasin for clean" in (
+        spec.input_schema["properties"]["tool_receptacle"]["description"]
+    )
+
+
 def test_verify_success_requires_env_won() -> None:
     adapter = FakeAdapter()
     verify = make_alfworld_robot_verify()

@@ -67,8 +67,12 @@ def _format_action_reference(schema: dict[str, Any]) -> str:
         lines.append("Manipulation forms:")
         for item in manipulation:
             required = ", ".join(item.get("required", []))
-            lines.append(
+            line = (
                 f"- action={item['action']}, required=[{required}]: "
                 f"{item['command_template']}"
             )
+            notes = item.get("notes")
+            if isinstance(notes, str) and notes:
+                line += f" ({notes})"
+            lines.append(line)
     return "\n".join(lines)
