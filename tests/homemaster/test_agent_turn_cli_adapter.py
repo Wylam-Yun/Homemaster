@@ -37,6 +37,7 @@ class FakeTransport:
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",

@@ -46,6 +46,7 @@ class LLMTransport(ABC):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",
@@ -60,6 +61,7 @@ class LLMTransport(ABC):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",
@@ -70,6 +72,7 @@ class LLMTransport(ABC):
         deltas = list(self.stream(
             messages,
             tools,
+            system_prompt=system_prompt,
             event_sink=event_sink,
             run_id=run_id,
             session_id=session_id,

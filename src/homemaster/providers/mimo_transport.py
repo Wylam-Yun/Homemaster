@@ -54,6 +54,7 @@ class MimoTransport(LLMTransport):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",
@@ -61,7 +62,7 @@ class MimoTransport(LLMTransport):
         iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
         """Stream deltas from the MiMo/Anthropic API."""
-        payload = self._build_request_payload(messages, tools)
+        payload = self._build_request_payload(messages, tools, system_prompt=system_prompt)
 
         if event_sink is not None:
             from homemaster.events.runtime_events import RuntimeEvent
@@ -94,6 +95,7 @@ class MimoTransport(LLMTransport):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",
@@ -104,6 +106,7 @@ class MimoTransport(LLMTransport):
         return super().complete(
             messages,
             tools,
+            system_prompt=system_prompt,
             event_sink=event_sink,
             run_id=run_id,
             session_id=session_id,
@@ -409,16 +412,20 @@ class MimoTransport(LLMTransport):
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
     ) -> dict[str, Any]:
         """Build provider-specific request payload from normalized messages."""
         if self._protocol == "anthropic":
-            return self._build_anthropic_payload(messages, tools)
-        return self._build_openai_payload(messages, tools)
+            return self._build_anthropic_payload(messages, tools, system_prompt=system_prompt)
+        return self._build_openai_payload(messages, tools, system_prompt=system_prompt)
 
     def _build_anthropic_payload(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
     ) -> dict[str, Any]:
         api_messages: list[dict[str, Any]] = []
         latest_image_message_index = _latest_image_message_index(messages)
@@ -475,6 +482,8 @@ class MimoTransport(LLMTransport):
             "model": self._model,
             "messages": api_messages,
         }
+        if system_prompt.strip():
+            payload["system"] = system_prompt.strip()
         if tools:
             payload["tools"] = tools
         return payload
@@ -483,8 +492,12 @@ class MimoTransport(LLMTransport):
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
     ) -> dict[str, Any]:
         api_messages: list[dict[str, Any]] = []
+        if system_prompt.strip():
+            api_messages.append({"role": "system", "content": system_prompt.strip()})
         for msg in messages:
             if hasattr(msg, "role") and msg.role == "user":
                 api_messages.append({

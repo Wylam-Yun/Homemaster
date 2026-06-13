@@ -76,12 +76,14 @@ class FakeTransport(LLMTransport):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         *,
+        system_prompt: str = "",
         event_sink: Any = None,
         run_id: str = "",
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
     ) -> Iterator[TransportDelta]:
+        self.last_system_prompt = system_prompt
         msg = self._get_next_response()
         if msg.content:
             for block in msg.content:

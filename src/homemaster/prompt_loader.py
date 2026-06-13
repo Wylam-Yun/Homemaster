@@ -8,14 +8,14 @@ Only the prompts listed in PromptId are loadable.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from string import Template
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
-class PromptId(str, Enum):
+class PromptId(StrEnum):
     """Closed set of loadable prompt templates."""
 
     AGENT_SYSTEM = "agent_system_prompt"
