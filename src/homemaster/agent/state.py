@@ -11,7 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 AgentRunStatus = Literal["running", "waiting_user", "replied", "completed", "failed", "cancelled"]
 CompactionKind = Literal["none", "micro", "summary", "reactive", "emergency"]
 

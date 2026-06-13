@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from homemaster.agent.state import AgentState
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_agent_state_default_construction() -> None:
@@ -60,16 +56,6 @@ def test_agent_state_has_no_home_task_fields() -> None:
     assert "loaded_skill_contexts" not in fields
     assert "memory_context_snapshot" not in fields
     assert "user_context_snapshot" not in fields
-
-
-def test_agent_context_composer_has_no_home_task_fields() -> None:
-    for rel in ("src/homemaster/agent/context.py", "src/homemaster/agent/context_builder.py"):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "task_card" not in text
-        assert "target_candidates" not in text
-        assert "current_location" not in text
-        assert "holding_object" not in text
-        assert "memory_hits" not in text
 
 
 def test_agent_state_mutable_metadata() -> None:

@@ -14,7 +14,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from homemaster.runtime import RuntimeConfigError
 
-
 ProtocolName = Literal["anthropic", "openai"]
 
 

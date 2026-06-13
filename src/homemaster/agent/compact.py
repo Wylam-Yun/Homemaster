@@ -1,9 +1,14 @@
-"""Compact — deterministic micro-compaction and summary utilities."""
+"""Compact — micro-compaction and summary utilities."""
 
 from __future__ import annotations
 
-from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolResultMessage, UserMessage
-
+from homemaster.agent.messages import (
+    AssistantMessage,
+    ContentBlock,
+    Message,
+    ToolResultMessage,
+    UserMessage,
+)
 
 TOOL_RESULT_COMPACT_PREFIX = "[tool result compacted]"
 
@@ -22,7 +27,10 @@ def microcompact_old_tool_results(
     *,
     keep_recent_tool_results: int,
 ) -> tuple[list[Message], int]:
-    tool_indexes = [index for index, msg in enumerate(messages) if isinstance(msg, ToolResultMessage)]
+    tool_indexes = [
+        index for index, msg in enumerate(messages)
+        if isinstance(msg, ToolResultMessage)
+    ]
     if len(tool_indexes) <= keep_recent_tool_results:
         return list(messages), 0
     keep = set(tool_indexes[-keep_recent_tool_results:])
@@ -68,7 +76,8 @@ def split_preserving_tool_pairs(
     while split > 0:
         left = messages[split - 1]
         right = messages[split]
-        if isinstance(left, AssistantMessage) and left.tool_calls and isinstance(right, ToolResultMessage):
+        if (isinstance(left, AssistantMessage) and left.tool_calls
+                and isinstance(right, ToolResultMessage)):
             ids = {tool_call.id for tool_call in left.tool_calls}
             if right.tool_call_id in ids:
                 split -= 1
@@ -92,7 +101,7 @@ def build_compaction_summary_message(summary: str) -> UserMessage:
     )
 
 
-def deterministic_summary(messages: list[Message], *, max_chars: int = 6000) -> str:
+def build_basic_summary(messages: list[Message], *, max_chars: int = 6000) -> str:
     lines: list[str] = []
     for msg in messages:
         role = getattr(msg, "role", "unknown")

@@ -346,7 +346,8 @@ class GenericAgentRuntime:
                 if guards is not None:
                     max_errors = getattr(guards, "max_consecutive_tool_errors", 5)
                     if agent_state.consecutive_tool_errors >= max_errors:
-                        emit("runtime.guard_triggered", payload={"guard": "max_consecutive_tool_errors"})
+                        emit("runtime.guard_triggered",
+                             payload={"guard": "max_consecutive_tool_errors"})
                         return GenericRunResult(
                             run_id=run_id,
                             status="failed",
@@ -356,7 +357,8 @@ class GenericAgentRuntime:
                         )
                     max_no_progress = getattr(guards, "max_no_progress_iterations", 20)
                     if agent_state.no_progress_iterations >= max_no_progress:
-                        emit("runtime.guard_triggered", payload={"guard": "max_no_progress_iterations"})
+                        emit("runtime.guard_triggered",
+                             payload={"guard": "max_no_progress_iterations"})
                         return GenericRunResult(
                             run_id=run_id,
                             status="failed",

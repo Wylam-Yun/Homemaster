@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from homemaster.agent.context_budget import ContextBudget, BudgetDecision, estimate_text_tokens
+from homemaster.agent.compact import (
+    build_basic_summary,
+    build_compaction_summary_message,
+    split_preserving_tool_pairs,
+)
+from homemaster.agent.context_budget import BudgetDecision, ContextBudget, estimate_text_tokens
 from homemaster.agent.context_providers import (
-    ConversationProvider,
     FailureSummaryProvider,
     RuntimeBudgetStatusProvider,
     TaskStateSnapshotProvider,
-)
-from homemaster.agent.compact import (
-    build_compaction_summary_message,
-    deterministic_summary,
-    split_preserving_tool_pairs,
 )
 from homemaster.agent.messages import ContentBlock, Message, UserMessage
 from homemaster.agent.session import AgentSession
@@ -144,7 +143,7 @@ class ContextAssembler:
         if not older:
             return False, "none", messages
 
-        summary = deterministic_summary(older)
+        summary = build_basic_summary(older)
         compacted_messages = [build_compaction_summary_message(summary), *recent]
 
         session.replace_messages(compacted_messages)

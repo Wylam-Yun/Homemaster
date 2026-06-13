@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from homemaster.agent.compact import (
+    build_basic_summary,
     build_compaction_summary_message,
     compact_tool_result_text,
-    deterministic_summary,
     split_preserving_tool_pairs,
 )
 from homemaster.agent.messages import (
@@ -34,7 +34,10 @@ def test_split_preserving_tool_pairs_keeps_result_with_call() -> None:
     messages = [
         UserMessage(content=[ContentBlock(text="start")]),
         AssistantMessage(tool_calls=[call]),
-        ToolResultMessage(tool_call_id="call_1", name="robot_observe", content=[ContentBlock(text="obs")]),
+        ToolResultMessage(
+            tool_call_id="call_1", name="robot_observe",
+            content=[ContentBlock(text="obs")],
+        ),
         UserMessage(content=[ContentBlock(text="next")]),
     ]
 
@@ -57,16 +60,16 @@ def test_build_compaction_summary_message_format() -> None:
     assert "test summary" in msg.content[0].text
 
 
-def test_deterministic_summary_handles_empty() -> None:
-    result = deterministic_summary([])
+def test_build_basic_summary_handles_empty() -> None:
+    result = build_basic_summary([])
     assert "no compactable text" in result
 
 
-def test_deterministic_summary_produces_output() -> None:
+def test_build_basic_summary_produces_output() -> None:
     messages = [
         UserMessage(content=[ContentBlock(text="find the apple")]),
         AssistantMessage(content=[ContentBlock(text="I'll look for it.")]),
     ]
-    result = deterministic_summary(messages)
+    result = build_basic_summary(messages)
     assert "find the apple" in result
     assert "I'll look for it" in result

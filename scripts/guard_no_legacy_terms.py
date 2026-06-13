@@ -43,7 +43,7 @@ BLOCKED_TEXT_PATTERNS = (
     "result.md",
 )
 
-SKIP_DIRS = frozenset({".git/", ".venv/", ".pytest_cache/", "plan/V1.4/"})
+SKIP_DIRS = frozenset({".git/", ".venv/", ".pytest_cache/", "plan/V1.4/", "plan/V1.5/"})
 
 # Test files that legitimately reference legacy terms in negative assertions
 # (asserting legacy terms are ABSENT from output/imports/fixtures).

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from homemaster.task_state.models import (
-    SubtaskStatus,
     TaskProgressUpdate,
     TaskSnapshot,
     TaskStatus,

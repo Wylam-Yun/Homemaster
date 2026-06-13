@@ -10,7 +10,7 @@ from typing import Any
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from homemaster.task_state.models import TaskProgressUpdate, SubtaskStatus
+from homemaster.task_state.models import SubtaskStatus, TaskProgressUpdate
 from homemaster.task_state.store import TaskStateStore, TaskStateStoreError
 
 
@@ -21,7 +21,9 @@ def _store(run_context: RunContext) -> TaskStateStore:
     return value
 
 
-def task_planner_executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResultMessage:
+def task_planner_executor(
+    *, arguments: dict[str, Any], run_context: RunContext,
+) -> ToolResultMessage:
     store = _store(run_context)
     snapshot = store.create_or_replace_plan(
         goal=str(arguments["goal"]),
@@ -40,7 +42,9 @@ def task_planner_executor(*, arguments: dict[str, Any], run_context: RunContext)
     )
 
 
-def task_progress_check_executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResultMessage:
+def task_progress_check_executor(
+    *, arguments: dict[str, Any], run_context: RunContext,
+) -> ToolResultMessage:
     store = _store(run_context)
     raw_updates = arguments.get("updates", [])
     updates = [

@@ -44,7 +44,11 @@ def test_assembler_injects_snapshot_without_appending_to_session() -> None:
     )
 
     assert context.system_prompt == "You are HomeMaster."
-    assert any("task_state_snapshot" in block.text for message in context.messages for block in message.content)
+    has_snapshot = any(
+        "task_state_snapshot" in block.text
+        for message in context.messages for block in message.content
+    )
+    assert has_snapshot
     assert len(session.messages) == 1
 
 
@@ -60,7 +64,11 @@ def test_assembler_includes_runtime_budget_status() -> None:
         tools=[],
     )
 
-    assert any("runtime_budget_status" in block.text for message in context.messages for block in message.content)
+    has_budget = any(
+        "runtime_budget_status" in block.text
+        for message in context.messages for block in message.content
+    )
+    assert has_budget
 
 
 def test_assembler_estimates_tokens() -> None:
