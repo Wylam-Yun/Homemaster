@@ -20,6 +20,7 @@ from homemaster.agent.messages import (
     normalize_content,
 )
 from homemaster.agent.session import AgentSession
+from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.providers.transport import LLMTransport
 
@@ -120,6 +121,7 @@ class GenericAgentRuntime:
 
         initial_content = user_content or normalize_content(user_text)
         session.append(UserMessage(content=initial_content))
+        agent_state = AgentState(run_id=run_id, session_id=session.session_id)
         emit(
             "runtime.turn_started",
             payload={
@@ -134,6 +136,7 @@ class GenericAgentRuntime:
         ]
 
         for iteration in range(self._max_tool_iterations):
+            agent_state.begin_iteration(iteration)
             t0 = time.perf_counter()
 
             try:
@@ -166,6 +169,24 @@ class GenericAgentRuntime:
 
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
             session.append(assistant_msg)
+
+            agent_state.last_assistant_text = assistant_msg.text
+            if assistant_msg.usage:
+                input_tokens = int(
+                    assistant_msg.usage.get("input_tokens")
+                    or assistant_msg.usage.get("prompt_tokens")
+                    or 0
+                )
+                output_tokens = int(
+                    assistant_msg.usage.get("output_tokens")
+                    or assistant_msg.usage.get("completion_tokens")
+                    or 0
+                )
+                agent_state.provider_usage = ProviderUsage(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=input_tokens + output_tokens,
+                )
 
             # Handle finish_reason == "length" as failure
             if assistant_msg.finish_reason == "length":
@@ -231,6 +252,16 @@ class GenericAgentRuntime:
 
             for tr in tool_results:
                 session.append(tr)
+
+            agent_state.record_tool_results([
+                {
+                    "tool_call_id": tr.tool_call_id,
+                    "name": tr.name,
+                    "is_error": tr.is_error,
+                    "text": "\n".join(block.text for block in tr.content if block.text)[:500],
+                }
+                for tr in tool_results
+            ])
 
             for tr in tool_results:
                 emit(

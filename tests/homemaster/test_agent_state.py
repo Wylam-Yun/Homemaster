@@ -14,20 +14,21 @@ def test_agent_state_default_construction() -> None:
     assert state.run_id == ""
     assert state.status == "running"
     assert state.turn_index == 0
+    assert state.iteration_index == 0
+    assert state.total_model_calls == 0
     assert state.metadata == {}
-    assert state.tool_results == []
     assert state.last_assistant_text is None
 
 
 def test_agent_state_with_values() -> None:
     state = AgentState(
         run_id="test-001",
-        user_request="fetch the cup",
+        session_id="s1",
         status="running",
         turn_index=3,
     )
     assert state.run_id == "test-001"
-    assert state.user_request == "fetch the cup"
+    assert state.session_id == "s1"
     assert state.turn_index == 3
 
 
@@ -35,13 +36,11 @@ def test_agent_state_serialization_roundtrip() -> None:
     state = AgentState(
         run_id="test-002",
         metadata={"debug": True},
-        tool_results=[{"tool": "navigate", "success": True}],
     )
     dumped = state.model_dump(mode="json")
     restored = AgentState.model_validate(dumped)
     assert restored.run_id == "test-002"
     assert restored.metadata == {"debug": True}
-    assert len(restored.tool_results) == 1
 
 
 def test_agent_state_has_no_home_task_fields() -> None:
@@ -76,6 +75,4 @@ def test_agent_context_composer_has_no_home_task_fields() -> None:
 def test_agent_state_mutable_metadata() -> None:
     state = AgentState()
     state.metadata["key"] = "value"
-    state.tool_results.append({"tool": "test", "success": True})
     assert state.metadata["key"] == "value"
-    assert len(state.tool_results) == 1
