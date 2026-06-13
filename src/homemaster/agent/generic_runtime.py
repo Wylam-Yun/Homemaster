@@ -27,6 +27,19 @@ from homemaster.providers.transport import LLMTransport
 if TYPE_CHECKING:
     from homemaster.agent.context_assembler import ContextAssembler
 
+_CONTEXT_LENGTH_KEYWORDS = (
+    "context_length_exceeded",
+    "context length",
+    "maximum context",
+    "context window",
+    "exceeds the available context size",
+)
+
+
+def _is_context_length_error(error_msg: str) -> bool:
+    lowered = error_msg.lower()
+    return any(keyword in lowered for keyword in _CONTEXT_LENGTH_KEYWORDS)
+
 
 @dataclass
 class ToolSpec:
@@ -179,6 +192,12 @@ class GenericAgentRuntime:
                 ))
                 assistant_msg = LLMTransport._aggregate(deltas)
             except Exception as exc:
+                # Reactive compact on context-length errors
+                if self._context_assembler is not None and _is_context_length_error(str(exc)):
+                    emit("runtime.reactive_compact_started", payload={"reason": str(exc)[:300]})
+                    self._context_assembler.force_compact_next = True
+                    continue
+
                 emit("transport.request_failed", payload={
                     "error": str(exc),
                     "error_type": type(exc).__name__,
