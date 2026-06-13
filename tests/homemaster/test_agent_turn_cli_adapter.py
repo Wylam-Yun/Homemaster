@@ -28,6 +28,8 @@ EXPECTED_HOME_TOOLS = [
     "robot_verify",
     "memory_writer",
     "task_summarizer",
+    "task_planner",
+    "task_progress_check",
 ]
 
 
