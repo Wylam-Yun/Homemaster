@@ -1,4 +1,34 @@
 {
+  "providers": {
+    "default": "mimo_v25",
+    "items": [
+      {
+        "name": "mimo_v25",
+        "protocol": "anthropic",
+        "base_url": "https://api.example/v1",
+        "model": "MiMo-V2.5",
+        "api_keys": ["replace-with-local-key"],
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 8192
+      }
+    ]
+  },
+  "context": {
+    "auto_compact_enabled": true,
+    "compression_threshold_ratio": 0.5,
+    "recent_tail_ratio": 0.2,
+    "preserve_recent_agent_steps": 20,
+    "preserve_recent_user_turns": 3,
+    "token_estimation_padding": 1.333,
+    "safety_buffer_tokens": 13000,
+    "image_token_estimate": 4096
+  },
+  "runtime": {
+    "max_tool_iterations": null,
+    "max_consecutive_tool_errors": 5,
+    "max_no_progress_iterations": 20,
+    "max_wall_clock_minutes": null
+  },
   "retrieval_scoring": {
     "metadata_weights": {
       "target_category_match": 0.2,

@@ -9,7 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from homemaster.config.model_config import (
+    ContextPolicyConfig,
+    PromptConfig,
+    RuntimeGuardConfig,
+)
 
 
 class RuntimeSettingsError(RuntimeError):
@@ -33,6 +39,9 @@ class RuntimeSettings(BaseModel):
     config_path: Path | None = None
     memory_path: Path | None = None
     world_path: Path | None = None
+    context: ContextPolicyConfig = Field(default_factory=ContextPolicyConfig)
+    runtime_guards: RuntimeGuardConfig = Field(default_factory=RuntimeGuardConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
 
 
 def load_runtime_settings(

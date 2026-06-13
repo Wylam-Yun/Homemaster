@@ -166,6 +166,8 @@ class ProviderConfig:
     api_keys: tuple[str, ...]
     protocol: str
     embedding_url: str | None = None
+    context_window_tokens: int | None = None
+    max_output_tokens: int | None = None
 
     def public_summary(self) -> dict[str, Any]:
         return {
@@ -175,6 +177,8 @@ class ProviderConfig:
             "protocol": self.protocol,
             "embedding_url": self.embedding_url,
             "api_key_count": len(self.api_keys),
+            "context_window_tokens": self.context_window_tokens,
+            "max_output_tokens": self.max_output_tokens,
         }
 
 
@@ -220,6 +224,12 @@ def _provider_from_payload(payload: dict[str, Any], *, fallback_name: str) -> Pr
     api_keys = tuple(_normalize_api_keys(payload.get("api_keys")))
     if not api_keys:
         raise RuntimeConfigError(f"provider {name!r} has no api_keys")
+    context_window_tokens = payload.get("context_window_tokens")
+    if context_window_tokens is not None and not isinstance(context_window_tokens, int):
+        raise RuntimeConfigError("provider.context_window_tokens must be an integer or null")
+    max_output_tokens = payload.get("max_output_tokens")
+    if max_output_tokens is not None and not isinstance(max_output_tokens, int):
+        raise RuntimeConfigError("provider.max_output_tokens must be an integer or null")
     return ProviderConfig(
         name=name,
         base_url=base_url,
@@ -227,6 +237,8 @@ def _provider_from_payload(payload: dict[str, Any], *, fallback_name: str) -> Pr
         api_keys=api_keys,
         protocol=protocol,
         embedding_url=_optional_str(payload.get("embedding_url")),
+        context_window_tokens=context_window_tokens,
+        max_output_tokens=max_output_tokens,
     )
 
 
