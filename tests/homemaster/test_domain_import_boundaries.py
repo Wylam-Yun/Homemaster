@@ -1,9 +1,4 @@
-"""Tests verifying domain import boundaries.
-
-Domain tools may import homemaster.tools.*, homemaster.memory.*, and
-homemaster.domain.home.*. They must NOT import homemaster.pipeline,
-homemaster.stages, homemaster.task_runner, or homemaster.agent.runtime.
-"""
+"""Tests verifying domain import boundaries."""
 
 from __future__ import annotations
 
@@ -37,7 +32,7 @@ def test_domain_home_tools_do_not_import_pipeline() -> None:
         "homemaster\\.(pipeline|stages|task_runner)",
         "src/homemaster/domain/home/",
     )
-    assert not matches, f"domain/home/ imports old runtime: {matches}"
+    assert not matches, f"domain/home/ imports deleted runtime packages: {matches}"
 
 
 def test_domain_home_tools_do_not_import_agent_runtime() -> None:
@@ -53,7 +48,7 @@ def test_skills_do_not_import_pipeline() -> None:
         "homemaster\\.(pipeline|stages|task_runner)",
         "src/homemaster/skills/",
     )
-    assert not matches, f"skills/ imports old runtime: {matches}"
+    assert not matches, f"skills/ imports deleted runtime packages: {matches}"
 
 
 def test_memory_modules_do_not_import_pipeline() -> None:
@@ -61,7 +56,7 @@ def test_memory_modules_do_not_import_pipeline() -> None:
         "homemaster\\.(pipeline|stages|task_runner)",
         "src/homemaster/memory/",
     )
-    assert not matches, f"memory/ imports old runtime: {matches}"
+    assert not matches, f"memory/ imports deleted runtime packages: {matches}"
 
 
 def test_no_old_contracts_imports_in_domain() -> None:

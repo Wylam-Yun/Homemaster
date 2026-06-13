@@ -23,7 +23,7 @@ class RuntimeSettingsError(RuntimeError):
 
 
 class RuntimeSettings(BaseModel):
-    """Run-scoped settings for an AgentRuntime execution.
+    """Run-scoped settings for a GenericAgentRuntime execution.
 
     Constructed explicitly by the caller (CLI, turn, or test).
     Default values come from code constants, not from user config files.

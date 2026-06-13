@@ -22,6 +22,7 @@ trace.jsonl
 plan/V1.2/test_results/
 plan/V1.2/baselines/migration_artifacts/
 var/homemaster/
+var/alfworld_smoke/
 record/
 report/
 log/

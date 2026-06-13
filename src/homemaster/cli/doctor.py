@@ -1,8 +1,7 @@
-"""Stage 07 environment doctor for the HomeMaster CLI."""
+"""Environment doctor for the HomeMaster CLI."""
 
 from __future__ import annotations
 
-import ast
 import importlib
 import json
 import subprocess
@@ -19,7 +18,6 @@ from homemaster.runtime import (
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     GENERIC_CONFIG_PATH,
-    LEGACY_CONFIG_PATH,
     REPO_ROOT,
     RuntimeConfigError,
     load_provider_config,
@@ -61,7 +59,6 @@ def run_doctor(*, live: bool = False) -> DoctorReport:
     checks.append(_config_check(config_source))
     checks.append(_embedding_endpoint_check())
     checks.append(_ignored_paths_check())
-    checks.append(_import_boundary_check())
     if live:
         checks.extend(_live_provider_checks())
     return DoctorReport(live=live, config_source=config_source, checks=checks)
@@ -115,8 +112,6 @@ def _import_checks() -> list[DoctorCheck]:
 def _config_source() -> str:
     if GENERIC_CONFIG_PATH.exists():
         return str(GENERIC_CONFIG_PATH.relative_to(REPO_ROOT))
-    if LEGACY_CONFIG_PATH.exists():
-        return f"legacy fallback: {LEGACY_CONFIG_PATH.relative_to(REPO_ROOT)}"
     return str(DEFAULT_CONFIG_PATH.relative_to(REPO_ROOT))
 
 
@@ -136,7 +131,10 @@ def _config_check(config_source: str) -> DoctorCheck:
             status="FAIL",
             message=str(exc),
             impact="provider config is required for live LLM and embedding checks",
-            suggestion="Create config/api_config.json or keep the legacy fallback locally ignored.",
+            suggestion=(
+                "Create config/api_config.json or configure providers "
+                "in config/homemaster.json."
+            ),
             details={"config_source": config_source},
         )
     return DoctorCheck(
@@ -209,30 +207,6 @@ def _git_check_ignore(path: str) -> bool:
         stderr=subprocess.DEVNULL,
     )
     return result.returncode == 0
-
-
-def _import_boundary_check() -> DoctorCheck:
-    root = REPO_ROOT / "src" / "homemaster"
-    offenders: list[str] = []
-    for path in sorted(root.glob("**/*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name == "task_brain" or alias.name.startswith("task_brain."):
-                        offenders.append(f"{path.relative_to(REPO_ROOT)}:{alias.name}")
-            elif isinstance(node, ast.ImportFrom):
-                module = node.module or ""
-                if module == "task_brain" or module.startswith("task_brain."):
-                    offenders.append(f"{path.relative_to(REPO_ROOT)}:{module}")
-    return DoctorCheck(
-        name="import_boundary",
-        status="PASS" if not offenders else "FAIL",
-        message="src/homemaster does not import task_brain"
-        if not offenders
-        else "src/homemaster imports legacy task_brain",
-        details={"offenders": offenders},
-    )
 
 
 def _live_provider_checks() -> list[DoctorCheck]:

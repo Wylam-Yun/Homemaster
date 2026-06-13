@@ -28,7 +28,7 @@ class ToolDispatcher:
         self._run_context = run_context
 
     def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        """Dispatch a single tool call by name (GenericAgentRuntime compatibility).
+        """Dispatch a single tool call by name.
 
         Uses the RunContext set via set_run_context().
         """

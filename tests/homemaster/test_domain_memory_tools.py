@@ -66,6 +66,42 @@ def test_memory_writer_accepts_valid_proposal(tmp_path: Path) -> None:
     assert result.data["object_category"] == "cup"
 
 
+def test_memory_writer_persists_runtime_overlay(tmp_path: Path) -> None:
+    memory_path = tmp_path / "memory.json"
+    memory_path.write_text(
+        json.dumps({
+            "objects": [
+                {
+                    "object_category": "cup",
+                    "anchor": {"room_id": "kitchen", "anchor_id": "kitchen:cup:1"},
+                    "belief_state": "present",
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    registry = build_home_tool_registry()
+    spec = registry.get("memory_writer")
+    result = spec.executor(
+        arguments={
+            "proposal": {
+                "object_category": "cup",
+                "room_id": "kitchen",
+                "anchor_id": "kitchen:cup:1",
+                "belief_state": "verified",
+            },
+        },
+        run_context=_make_run_context(tmp_path, memory_path=memory_path),
+    )
+
+    assert result.success is True
+    overlay_path = tmp_path / "test-run" / "memory" / "object_memory.json"
+    overlay = json.loads(overlay_path.read_text())
+    assert overlay["objects"][0]["belief_state"] == "verified"
+    assert "last_confirmed_at" in overlay["objects"][0]
+
+
 def test_fetch_cup_retry_fixture_structure() -> None:
     fixture_dir = Path(__file__).parent / "fixtures" / "home_tasks" / "fetch_cup_retry"
     case = json.loads((fixture_dir / "case.json").read_text())

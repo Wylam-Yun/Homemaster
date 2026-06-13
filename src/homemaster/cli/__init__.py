@@ -1,9 +1,4 @@
-"""HomeMaster CLI sub-package.
-
-Backward compatibility: re-export key symbols so that
-  from homemaster.cli import app
-continues to work.
-"""
+"""HomeMaster CLI sub-package."""
 
 from homemaster.cli.app import app
 

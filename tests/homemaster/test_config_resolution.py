@@ -39,7 +39,7 @@ def test_resolve_provider_profile_prefers_typed_homemaster_config(tmp_path: Path
     assert profile.context_window_tokens == 1_000_000
 
 
-def test_resolve_provider_profile_falls_back_to_legacy_api_config(tmp_path: Path) -> None:
+def test_resolve_provider_profile_reads_api_config(tmp_path: Path) -> None:
     path = tmp_path / "api_config.json"
     path.write_text(
         """
@@ -48,9 +48,9 @@ def test_resolve_provider_profile_falls_back_to_legacy_api_config(tmp_path: Path
             {
               "name": "Mimo",
               "protocol": "anthropic",
-              "base_url": "https://legacy.example/v1",
-              "model": "legacy-model",
-              "api_keys": ["legacy-key"],
+              "base_url": "https://api-config.example/v1",
+              "model": "api-config-model",
+              "api_keys": ["api-config-key"],
               "context_window_tokens": 200000,
               "max_output_tokens": 4096
             }
@@ -63,6 +63,6 @@ def test_resolve_provider_profile_falls_back_to_legacy_api_config(tmp_path: Path
     profile = resolve_provider_profile(config_path=path, provider_name="Mimo")
 
     assert profile.name == "Mimo"
-    assert profile.base_url == "https://legacy.example/v1"
-    assert profile.api_keys == ("legacy-key",)
+    assert profile.base_url == "https://api-config.example/v1"
+    assert profile.api_keys == ("api-config-key",)
     assert profile.context_window_tokens == 200_000

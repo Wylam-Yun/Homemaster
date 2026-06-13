@@ -19,6 +19,7 @@ Tools:
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
@@ -265,41 +266,24 @@ def _exec_memory_writer(
     settings = run_context.settings
     if settings.memory_path and settings.memory_path.exists():
         try:
-            from homemaster.domain.home.contracts import (
-                EvidenceRef,
-                MemoryCommitPlan,
-                ObjectMemoryUpdate,
-            )
-            from homemaster.memory.commit import utc_now_iso
-            from homemaster.memory.runtime_store import RuntimeMemoryStore
+            from homemaster.memory.runtime_store import ObjectMemoryUpdate, RuntimeMemoryStore
 
             memory_root = settings.runtime_root / settings.run_id / "memory"
             store = RuntimeMemoryStore(memory_root)
-            now = utc_now_iso()
-            plan = MemoryCommitPlan(
-                commit_id=f"commit:{settings.run_id}:memory_writer",
-                object_memory_updates=[
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            store.apply_updates(
+                base_memory_path=settings.memory_path,
+                updates=[
                     ObjectMemoryUpdate(
                         memory_id=proposal["anchor_id"],
                         update_type="confirm",
                         updated_fields={
                             "belief_state": proposal.get("belief_state", "verified"),
+                            "last_confirmed_at": now,
                         },
-                        evidence_refs=[
-                            EvidenceRef(
-                                evidence_id=f"agent:{settings.run_id}:memory_writer",
-                                evidence_type="observation",
-                                source_id=f"agent-{settings.run_id}",
-                                created_at=now,
-                                summary=f"Agent updated {proposal['object_category']}",
-                            ),
-                        ],
-                        reason="agent memory_writer proposal",
                     ),
                 ],
-                skipped=False,
             )
-            store.apply_commit_plan(base_memory_path=settings.memory_path, plan=plan)
         except Exception:
             pass  # persistence is best-effort
 

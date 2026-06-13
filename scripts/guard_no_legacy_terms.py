@@ -58,7 +58,6 @@ SKIP_FILES = frozenset({
     "tests/homemaster/test_runtime_settings.py",
     "tests/homemaster/test_prompt_externalization.py",
     "tests/homemaster/test_skills_registry.py",
-    "tests/homemaster/test_doubles/fake_mimo_client.py",
 })
 
 BINARY_EXTENSIONS = frozenset({

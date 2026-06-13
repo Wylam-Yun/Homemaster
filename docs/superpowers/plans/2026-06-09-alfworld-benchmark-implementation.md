@@ -3009,7 +3009,7 @@ git commit -m "test: add live alfworld textworld smoke"
 Use the existing verified config path:
 
 ```bash
-/hpc2hdd/home/wyuan140/weilin_workspace/Homemaster/config/nvidia_api_config.json
+/hpc2hdd/home/wyuan140/weilin_workspace/Homemaster/config/api_config.json
 ```
 
 Do not print the API key. The benchmark trace redaction should also protect keys if any config payload accidentally enters trace data.
@@ -3035,7 +3035,7 @@ python -m homemaster.cli benchmark-alfworld \
   --max-invalid-actions 100 \
   --max-tool-iterations 150 \
   --trace-root /tmp/homemaster/alfworld \
-  --api-config /hpc2hdd/home/wyuan140/weilin_workspace/Homemaster/config/nvidia_api_config.json \
+  --api-config /hpc2hdd/home/wyuan140/weilin_workspace/Homemaster/config/api_config.json \
   --provider-name Mimo
 ```
 

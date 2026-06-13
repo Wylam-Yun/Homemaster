@@ -4,7 +4,7 @@ Package layout:
   agent/      Generic runtime (messages, sessions, transport, tool loop)
   tools/      ToolSpec / ToolRegistry / Dispatcher
   domain/     Domain tool packages (home/ for robot capabilities)
-  memory/     RAG retrieval, profile/fact memory, runtime memory store
+  memory/     RAG retrieval, indexing, tokenization, runtime memory store
   skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
   events/     RuntimeEvent schema, sinks, sanitizer
   config/     RuntimeSettings and path/config helpers

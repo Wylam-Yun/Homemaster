@@ -1,4 +1,4 @@
-"""Events — structured runtime event tracing for AgentRuntime.
+"""Events — structured runtime event tracing for GenericAgentRuntime.
 
 RuntimeEvent schema, event sinks (JSONL, console, null, fanout), and
 sanitizer for redacting sensitive data from trace output.

@@ -1,5 +1,4 @@
-"""Memory — retrieval, profile, fact memory, and runtime store.
+"""Memory — retrieval, indexing, tokenization, and runtime store.
 
-Provides object memory retrieval (RAG), memory profile materialization,
-fact memory persistence, and per-run runtime memory store.
+Provides object-memory retrieval (RAG) and per-run runtime memory overlays.
 """

@@ -1,4 +1,4 @@
-"""Stage 04 grounding reliability checks for memory RAG hits."""
+"""Grounding reliability checks for memory RAG hits."""
 
 from __future__ import annotations
 

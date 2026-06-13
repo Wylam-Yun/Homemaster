@@ -1,8 +1,8 @@
-# HomeMaster V1.4
+# HomeMaster V1.5
 
 LLM-first generic agent runtime with home-robot domain tools.
 
-默认入口是 **AgentRuntime**（Mimo 驱动的 tool loop）：任务理解、记忆检索、可靠记忆判定、高层编排、simulated skill 执行、任务总结和记忆写回。
+默认入口是 **GenericAgentRuntime**（Mimo 驱动的 tool loop）：上下文组装、任务状态快照、工具调用、记忆检索、目标 grounding、模拟机器人执行和轻量记忆写回。
 
 > `skill_mode=simulated` 是当前支持的运行模式。navigation / operation / verification skill 使用模拟执行器，未接真实机器人、VLA、VLM。真实 VLA/VLN/VLM 执行器尚未集成。
 
@@ -35,11 +35,11 @@ PYTHONPATH=src .venv/bin/python -c "import homemaster, bm25s, jieba; print(homem
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-API 配置默认从 `config/api_config.json` 读取；如果没有，会兼容读取旧配置文件。不要把真实 key 提交进 git。
+API 配置默认从 `config/api_config.json` 读取；更完整的运行配置放在 `config/homemaster.json`。不要把真实 key 提交进 git。
 
 配置文件需要包含两个 provider：
 
-- Mimo：用于任务理解、检索 query、编排、总结。
+- Mimo：用于 agent loop、检索 query、编排、总结。
 - BGE-M3：用于 `/v1/embeddings` 生成向量。
 
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
@@ -93,13 +93,12 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 ## 当前边界
 
 - 真实：Mimo、BGE-M3。
-- 程序：可靠记忆判定、记忆写回。
+- 程序：可靠记忆判定、轻量记忆写回。
 - 模拟：navigation、operation、verification skill。
-- 旧 `task_brain` 链路已从当前工程入口中清理；当前只维护 `homemaster` 主链。
 
 ## 架构
 
-默认入口是 **AgentRuntime**（`src/homemaster/agent/`），一个 Mimo 驱动的
+默认入口是 **GenericAgentRuntime**（`src/homemaster/agent/`），一个 Mimo 驱动的
 tool loop。Mimo 在每一轮选择 tool 调用，Dispatcher 执行，结果返回给 Mimo，
 直到 Mimo 选择结束或达到 max_turns。
 
@@ -113,11 +112,11 @@ robot_verify, memory_writer, task_summarizer）。
 **目录结构**：
 
 ```text
-agent/      AgentRuntime 实现（tool loop, context, turn）
+agent/      GenericAgentRuntime 实现（tool loop, context, turn）
 tools/      ToolSpec / ToolRegistry / Dispatcher
 domain/     Home domain tools and contracts
 skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
-memory/     RAG / profile / fact memory / runtime memory store
+memory/     RAG retrieval / index / tokenizer / runtime memory store
 events/     RuntimeEvent schema, sinks, sanitizer
 config/     RuntimeSettings 和 path/config helpers
 providers/  LLM/embedding provider clients

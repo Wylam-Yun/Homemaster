@@ -1,12 +1,23 @@
-"""Runtime object memory store  writes."""
+"""Runtime object memory store writes."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Literal
 
-from homemaster.domain.home.contracts import MemoryCommitPlan, ObjectMemoryUpdate
 from homemaster.trace import sanitize_for_log
+
+
+@dataclass(frozen=True)
+class ObjectMemoryUpdate:
+    """One object-memory update applied to the per-run memory overlay."""
+
+    memory_id: str
+    update_type: Literal["confirm", "mark_stale", "mark_contradicted"] = "confirm"
+    updated_fields: dict[str, Any] = field(default_factory=dict)
 
 
 class RuntimeMemoryStoreError(RuntimeError):
@@ -25,31 +36,28 @@ class RuntimeMemoryStore:
             return _load_json(self.object_memory_path)
         return _load_json(base_memory_path)
 
-    def apply_commit_plan(
+    def apply_updates(
         self,
         *,
         base_memory_path: Path,
-        plan: MemoryCommitPlan,
+        updates: Sequence[ObjectMemoryUpdate],
     ) -> Path:
         payload = self.load_runtime_or_base(base_memory_path)
-        raw_memories = payload.get("object_memory")
+        memory_key = _memory_collection_key(payload)
+        raw_memories = payload.get(memory_key)
         if not isinstance(raw_memories, list):
-            raise RuntimeMemoryStoreError("memory payload must contain object_memory list")
+            raise RuntimeMemoryStoreError(
+                "memory payload must contain object_memory or objects list"
+            )
 
         memories = [dict(item) for item in raw_memories if isinstance(item, dict)]
-        by_id = {
-            str(item.get("memory_id")): item
-            for item in memories
-            if isinstance(item.get("memory_id"), str)
-        }
-        for update in plan.object_memory_updates:
-            target = by_id.get(update.memory_id)
-            if target is None:
-                continue
-            _apply_object_memory_update(target, update)
+        for update in updates:
+            for memory in memories:
+                if _matches_memory(memory, update.memory_id):
+                    _apply_object_memory_update(memory, update)
 
         updated_payload = dict(payload)
-        updated_payload["object_memory"] = memories
+        updated_payload[memory_key] = memories
         self.root.mkdir(parents=True, exist_ok=True)
         self.object_memory_path.write_text(
             json.dumps(
@@ -65,7 +73,7 @@ class RuntimeMemoryStore:
 
 
 def _apply_object_memory_update(
-    memory: dict[str, object],
+    memory: dict[str, Any],
     update: ObjectMemoryUpdate,
 ) -> None:
     memory.update(update.updated_fields)
@@ -75,7 +83,22 @@ def _apply_object_memory_update(
         memory["belief_state"] = "contradicted"
 
 
-def _load_json(path: Path) -> dict[str, object]:
+def _memory_collection_key(payload: dict[str, Any]) -> str:
+    if isinstance(payload.get("object_memory"), list):
+        return "object_memory"
+    if isinstance(payload.get("objects"), list):
+        return "objects"
+    raise RuntimeMemoryStoreError("memory payload must contain object_memory or objects list")
+
+
+def _matches_memory(memory: dict[str, Any], update_id: str) -> bool:
+    if memory.get("memory_id") == update_id:
+        return True
+    anchor = memory.get("anchor")
+    return isinstance(anchor, dict) and anchor.get("anchor_id") == update_id
+
+
+def _load_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as exc:

@@ -1,10 +1,4 @@
-"""Runtime configuration helpers for HomeMaster.
-
-Module-level constants (DEFAULT_PROVIDER_NAME, etc.) are preserved for backward
-compatibility with the subprocess+reload test pattern. New code should use
-config/runtime_settings.py (run-scoped RuntimeSettings) instead of importing
-these constants.
-"""
+"""Runtime configuration helpers for HomeMaster."""
 
 from __future__ import annotations
 
@@ -15,8 +9,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GENERIC_CONFIG_PATH = REPO_ROOT / "config" / "api_config.json"
-LEGACY_CONFIG_PATH = REPO_ROOT / "config" / "nvidia_api_config.json"
-DEFAULT_CONFIG_PATH = GENERIC_CONFIG_PATH if GENERIC_CONFIG_PATH.exists() else LEGACY_CONFIG_PATH
+DEFAULT_CONFIG_PATH = GENERIC_CONFIG_PATH
 
 
 class RuntimeConfigError(RuntimeError):
@@ -129,10 +122,6 @@ def load_runtime_defaults_config() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Derived constants from config (with safe defaults)
 # ---------------------------------------------------------------------------
-# NOTE: These import-time config reads are intentionally preserved.
-# The subprocess+reload test pattern depends on module-level config calls.
-# New code should use explicit loaders from config/runtime_settings.py instead.
-
 _defaults_cfg = load_runtime_defaults_config()
 _paths_cfg = load_runtime_paths_config()
 

@@ -24,8 +24,7 @@ def resolve_provider_profile(
 ) -> ProviderProfileConfig:
     """Resolve provider profile, preferring typed homemaster config.
 
-    If no typed provider is configured, fall back to the legacy API config
-    loader so existing local development configs continue to run.
+    If no typed provider is configured, read config/api_config.json.
     """
     raw_config = load_homemaster_config(config_path) if config_path is not None else {}
     use_typed_config = config_path is None or _looks_like_typed_config(raw_config)
@@ -36,19 +35,19 @@ def resolve_provider_profile(
     if config.providers.items:
         return config.get_provider(provider_name)
 
-    legacy_provider = load_provider_config(
+    provider = load_provider_config(
         DEFAULT_CONFIG_PATH if config_path is None else config_path,
         provider_name=provider_name or "Mimo",
     )
     return ProviderProfileConfig(
-        name=legacy_provider.name,
-        protocol=legacy_provider.protocol,  # type: ignore[arg-type]
-        base_url=legacy_provider.base_url,
-        model=legacy_provider.model,
-        api_keys=legacy_provider.api_keys,
-        context_window_tokens=legacy_provider.context_window_tokens,
-        max_output_tokens=legacy_provider.max_output_tokens,
-        embedding_url=legacy_provider.embedding_url,
+        name=provider.name,
+        protocol=provider.protocol,  # type: ignore[arg-type]
+        base_url=provider.base_url,
+        model=provider.model,
+        api_keys=provider.api_keys,
+        context_window_tokens=provider.context_window_tokens,
+        max_output_tokens=provider.max_output_tokens,
+        embedding_url=provider.embedding_url,
     )
 
 

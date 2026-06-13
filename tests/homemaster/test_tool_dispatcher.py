@@ -185,7 +185,7 @@ def test_dispatch_validates_required_arguments() -> None:
 
 
 def test_dispatcher_callable_adapter(tmp_path: Any) -> None:
-    """ToolDispatcher.__call__(name, args) works for GenericAgentRuntime compatibility."""
+    """ToolDispatcher.__call__(name, args) works as a callable adapter."""
     def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
         return ToolResult(success=True, tool_name="echo", data=arguments)
 
