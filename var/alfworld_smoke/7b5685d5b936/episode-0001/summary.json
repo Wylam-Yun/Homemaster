@@ -1,0 +1,10 @@
+{
+  "episode_id": "valid_seen/pick_and_place_simple-SoapBottle-None-Cabinet-414",
+  "failure_reason": "max_tool_iterations_exceeded",
+  "goal_condition_success_rate": 0.0,
+  "invalid_actions": 0,
+  "run_id": "7b5685d5b936-0001",
+  "runtime_status": "failed",
+  "steps": 8,
+  "success": false
+}

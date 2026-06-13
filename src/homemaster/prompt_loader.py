@@ -19,6 +19,7 @@ class PromptId(str, Enum):
     """Closed set of loadable prompt templates."""
 
     AGENT_SYSTEM = "agent_system_prompt"
+    COMPACT_SUMMARY = "compact_summary_prompt"
     TASK_INTERPRETER = "task_interpreter_prompt"
     MEMORY_QUERY = "memory_query_prompt"
     MEMORY_QUERY_RETRY = "memory_query_retry"
