@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from homemaster.agent.context_assembler import ContextAssembler
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.session import AgentSession
@@ -170,6 +171,9 @@ def run_agent_turn(
 
     Used by the interactive shell for multi-turn conversations.
     """
+    from homemaster.prompt_loader import PromptId, load_prompt
+    from homemaster.runtime import load_provider_config
+
     run_id = run_id or uuid.uuid4().hex[:12]
 
     transport = _build_transport()
@@ -191,10 +195,32 @@ def run_agent_turn(
     )
     dispatcher.set_run_context(run_context)
 
+    # Load system prompt and build context assembler
+    system_prompt = load_prompt(PromptId.AGENT_SYSTEM)
+    provider_config = load_provider_config()
+    from homemaster.config.model_config import ProviderProfileConfig
+
+    provider_profile = ProviderProfileConfig(
+        name=provider_config.name,
+        protocol=provider_config.protocol,  # type: ignore[arg-type]
+        base_url=provider_config.base_url,
+        model=provider_config.model,
+        api_keys=provider_config.api_keys,
+        context_window_tokens=provider_config.context_window_tokens,
+        max_output_tokens=provider_config.max_output_tokens,
+    )
+    context_assembler = ContextAssembler(
+        provider=provider_profile,
+        policy=run_context.settings.context,
+        system_prompt=system_prompt,
+    )
+
     runtime = GenericAgentRuntime(
         transport=transport,
         tool_executor=dispatcher,
-        max_tool_iterations=12,
+        max_tool_iterations=run_context.settings.runtime_guards.max_tool_iterations,
+        context_assembler=context_assembler,
+        system_prompt=system_prompt,
     )
 
     result = runtime.run(

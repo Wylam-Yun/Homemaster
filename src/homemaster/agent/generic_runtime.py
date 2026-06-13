@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homemaster.agent.messages import (
     ContentBlock,
@@ -23,6 +23,9 @@ from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.providers.transport import LLMTransport
+
+if TYPE_CHECKING:
+    from homemaster.agent.context_assembler import ContextAssembler
 
 
 @dataclass
@@ -81,13 +84,17 @@ class GenericAgentRuntime:
         *,
         transport: LLMTransport,
         tool_executor: Any,  # ToolDispatcher or callable
-        max_tool_iterations: int = 12,
+        max_tool_iterations: int | None = 12,
         stop_condition: StopCondition | None = None,
+        context_assembler: ContextAssembler | None = None,
+        system_prompt: str = "",
     ) -> None:
         self._transport = transport
         self._tool_executor = tool_executor
         self._max_tool_iterations = max_tool_iterations
         self._stop_condition = stop_condition
+        self._context_assembler = context_assembler
+        self._system_prompt = system_prompt
 
     def run(
         self,
@@ -135,14 +142,35 @@ class GenericAgentRuntime:
             for t in (tools or [])
         ]
 
-        for iteration in range(self._max_tool_iterations):
+        iteration = 0
+        while self._max_tool_iterations is None or iteration < self._max_tool_iterations:
             agent_state.begin_iteration(iteration)
             t0 = time.perf_counter()
 
+            # Prepare context before model call
+            context_messages = session.messages
+            context_system_prompt = self._system_prompt
+            context_tools = tool_schemas if tool_schemas else None
+            if self._context_assembler is not None:
+                task_state_store = None
+                run_context = getattr(self._tool_executor, "_run_context", None)
+                if run_context is not None:
+                    task_state_store = run_context.deps.get("task_state_store")
+                composed = self._context_assembler.prepare(
+                    session=session,
+                    agent_state=agent_state,
+                    task_state_store=task_state_store,
+                    tools=context_tools,
+                )
+                context_messages = composed.messages
+                context_system_prompt = composed.system_prompt
+                context_tools = composed.tools
+
             try:
                 deltas = list(self._transport.stream(
-                    session.messages,
-                    tools=tool_schemas if tool_schemas else None,
+                    context_messages,
+                    tools=context_tools,
+                    system_prompt=context_system_prompt,
                     event_sink=event_sink,
                     run_id=run_id,
                     session_id=session.session_id,
@@ -293,7 +321,34 @@ class GenericAgentRuntime:
                         error_code=decision.error_code,
                     )
 
-        # Max iterations exceeded
+            # Loop guards
+            if settings is not None:
+                guards = getattr(settings, "runtime_guards", None)
+                if guards is not None:
+                    max_errors = getattr(guards, "max_consecutive_tool_errors", 5)
+                    if agent_state.consecutive_tool_errors >= max_errors:
+                        emit("runtime.guard_triggered", payload={"guard": "max_consecutive_tool_errors"})
+                        return GenericRunResult(
+                            run_id=run_id,
+                            status="failed",
+                            session=session,
+                            events=events,
+                            error_code="max_consecutive_tool_errors",
+                        )
+                    max_no_progress = getattr(guards, "max_no_progress_iterations", 20)
+                    if agent_state.no_progress_iterations >= max_no_progress:
+                        emit("runtime.guard_triggered", payload={"guard": "max_no_progress_iterations"})
+                        return GenericRunResult(
+                            run_id=run_id,
+                            status="failed",
+                            session=session,
+                            events=events,
+                            error_code="max_no_progress_iterations",
+                        )
+
+            iteration += 1
+
+        # Max iterations exceeded (only reachable when max_tool_iterations is not None)
         emit("runtime.budget_exhausted", payload={
             "max_tool_iterations": self._max_tool_iterations,
             "error_code": "max_tool_iterations_exceeded",

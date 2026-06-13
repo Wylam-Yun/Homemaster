@@ -313,3 +313,46 @@ def test_stop_condition_can_end_run_after_tool_results() -> None:
     assert result.status == "failed"
     assert result.error_code == "benchmark_invalid_action_limit"
     assert transport.call_count == 1
+
+
+def test_runtime_passes_system_prompt_to_transport() -> None:
+    transport = FakeTransport()
+    transport.queue_text("done")
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        system_prompt="You are HomeMaster.",
+    )
+    session = AgentSession(session_id="test-sp")
+
+    runtime.run(session, "hello", tools=[])
+
+    assert transport.last_system_prompt == "You are HomeMaster."
+
+
+def test_runtime_supports_unbounded_iterations() -> None:
+    call_count = {"n": 0}
+
+    def stop_after_3(session, tool_results):
+        call_count["n"] += 1
+        if call_count["n"] >= 3:
+            from homemaster.agent.generic_runtime import RuntimeStopDecision
+            return RuntimeStopDecision(status="replied", final_reply="done")
+        return None
+
+    transport = FakeTransport()
+    transport.queue_tool_call("t", {}, call_id="c1")
+    transport.queue_tool_call("t", {}, call_id="c2")
+    transport.queue_tool_call("t", {}, call_id="c3")
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=None,
+        stop_condition=stop_after_3,
+    )
+    session = AgentSession(session_id="test-unbounded")
+    result = runtime.run(session, "go", tools=[])
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
