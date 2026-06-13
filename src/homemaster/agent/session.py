@@ -17,5 +17,8 @@ class AgentSession:
     def append(self, message: Message) -> None:
         self._messages.append(message)
 
+    def replace_messages(self, messages: list[Message]) -> None:
+        self._messages = list(messages)
+
     def clear(self) -> None:
         self._messages.clear()
