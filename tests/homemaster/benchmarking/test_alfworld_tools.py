@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
@@ -11,7 +12,11 @@ from homemaster.benchmarking.alfworld.tools import (
     make_alfworld_robot_verify,
 )
 from homemaster.benchmarking.alfworld.translator import create_translator
-from homemaster.benchmarking.alfworld.types import AlfworldEnvState, AlfworldStepResult
+from homemaster.benchmarking.alfworld.types import (
+    AlfworldBenchmarkConfig,
+    AlfworldEnvState,
+    AlfworldStepResult,
+)
 from homemaster.config.runtime_settings import RuntimeSettings
 
 
@@ -68,7 +73,7 @@ class FakeAdapter:
         )
 
 
-def _context(adapter: FakeAdapter) -> RunContext:
+def _context(adapter: FakeAdapter, *, observation_mode: str = "textual_debug") -> RunContext:
     return RunContext(
         session_id="s1",
         run_id="r1",
@@ -83,6 +88,12 @@ def _context(adapter: FakeAdapter) -> RunContext:
         deps={
             "alfworld_env": adapter,
             "alfworld_translator": create_translator("AlfredTWEnv"),
+            "alfworld_config": AlfworldBenchmarkConfig(
+                alfworld_root=Path("/tmp/alfworld"),
+                alfworld_config=Path("/tmp/base_config.yaml"),
+                trace_root=Path("/tmp/traces"),
+                observation_mode=observation_mode,
+            ),
         },
     )
 
@@ -184,3 +195,51 @@ def test_observe_inventory_uses_inventory_command() -> None:
     observe = make_alfworld_robot_observe()
     observe.executor(arguments={"mode": "inventory"}, run_context=_context(adapter))
     assert adapter.commands == ["inventory"]
+
+
+def test_visual_eval_tool_result_hides_textual_feedback_and_scores() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_navigate()
+
+    result = spec.executor(
+        arguments={"target_receptacle": "countertop 1"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is False
+    assert result.data is not None
+    assert result.data["observation"] == "after go to countertop 1"
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {"success": True}
+    assert "observation" not in text
+    assert "feedback" not in text
+    assert "goal_condition_success_rate" not in text
+
+
+def test_visual_eval_validation_error_returns_minimal_error() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_manipulate()
+
+    result = spec.executor(
+        arguments={"action": "take", "object": "apple 1"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is True
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {"error": "invalid_tool_arguments", "success": False}
+    assert "source_receptacle is required" not in text
+
+
+def test_visual_eval_verify_failure_returns_not_complete() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_verify()
+
+    result = spec.executor(
+        arguments={},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is True
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {"error": "not_complete", "success": False}

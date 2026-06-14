@@ -9,6 +9,7 @@ from typing import Any, Literal
 MemoryMode = Literal["disabled", "readonly", "full"]
 EnvType = Literal["AlfredTWEnv", "AlfredThorEnv"]
 SplitName = Literal["train", "valid_seen", "valid_unseen"]
+ObservationMode = Literal["visual_eval", "textual_debug"]
 
 
 @dataclass(frozen=True)
@@ -24,9 +25,10 @@ class AlfworldBenchmarkConfig:
     max_env_steps: int = 50
     max_tool_iterations: int = 1000
     provider_config: Path | None = None
-    provider_name: str = "Mimo"
+    provider_name: str | None = None
     run_id: str | None = None
     debug_admissible_commands: bool = True
+    observation_mode: ObservationMode = "visual_eval"
     seed: int = 42
 
     def __post_init__(self) -> None:
@@ -44,6 +46,8 @@ class AlfworldBenchmarkConfig:
             raise ValueError(f"unsupported env_type: {self.env_type}")
         if self.split not in {"train", "valid_seen", "valid_unseen"}:
             raise ValueError(f"unsupported split: {self.split}")
+        if self.observation_mode not in {"visual_eval", "textual_debug"}:
+            raise ValueError(f"unsupported observation_mode: {self.observation_mode}")
 
 
 @dataclass(frozen=True)

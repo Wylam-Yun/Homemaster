@@ -17,7 +17,7 @@ def test_estimate_text_tokens_handles_ascii_and_cjk() -> None:
 def test_budget_thresholds_scale_with_context_window() -> None:
     budget = ContextBudget(
         context_window_tokens=1_000_000,
-        max_output_tokens=8192,
+        output_reserve_tokens=8192,
         threshold_ratio=0.5,
         recent_tail_ratio=0.2,
         safety_buffer_tokens=13_000,
@@ -32,7 +32,7 @@ def test_budget_thresholds_scale_with_context_window() -> None:
 def test_budget_hard_cap_limits_threshold() -> None:
     budget = ContextBudget(
         context_window_tokens=100_000,
-        max_output_tokens=4096,
+        output_reserve_tokens=4096,
         threshold_ratio=0.99,
         safety_buffer_tokens=13_000,
     )
@@ -44,7 +44,7 @@ def test_budget_hard_cap_limits_threshold() -> None:
 def test_padded_applies_padding_factor() -> None:
     budget = ContextBudget(
         context_window_tokens=1_000_000,
-        max_output_tokens=8192,
+        output_reserve_tokens=8192,
         token_estimation_padding=4 / 3,
     )
 

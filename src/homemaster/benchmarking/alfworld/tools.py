@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.translator import (
@@ -28,10 +29,23 @@ def _translator(run_context: RunContext) -> AlfworldCommandTranslator:
     return translator
 
 
-def _result_from_step(step_result: Any) -> ToolResult:
+def _observation_mode(run_context: RunContext) -> str:
+    config = run_context.deps.get("alfworld_config")
+    return str(getattr(config, "observation_mode", "visual_eval"))
+
+
+def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResult | ToolResultMessage:
     data = step_result.to_model_visible_data()
     data.pop("admissible_commands", None)
     data["tool_args"] = _model_visible_tool_args(data.get("tool_args", {}))
+    if _observation_mode(run_context) == "visual_eval":
+        return _visual_tool_result(
+            name=step_result.tool_name,
+            success=step_result.success,
+            data=data,
+            failure_reason=step_result.failure_reason,
+            frame_path=step_result.state.frame_path,
+        )
     return ToolResult(
         success=step_result.success,
         tool_name=step_result.tool_name,
@@ -49,7 +63,7 @@ def _validation_failure(
     arguments: dict[str, Any],
     run_context: RunContext,
     error: Exception,
-) -> ToolResult:
+) -> ToolResult | ToolResultMessage:
     state = _adapter(run_context).current_state
     data = state.to_model_visible_dict()
     data.update({
@@ -58,6 +72,14 @@ def _validation_failure(
         "translated_command": None,
         "feedback": str(error),
     })
+    if _observation_mode(run_context) == "visual_eval":
+        return _visual_tool_result(
+            name=tool_name,
+            success=False,
+            data=data,
+            failure_reason="invalid_tool_arguments",
+            frame_path=state.frame_path,
+        )
     return ToolResult(
         success=False,
         tool_name=tool_name,
@@ -75,7 +97,7 @@ def _write_trace(run_context: RunContext, step_result: Any) -> None:
         trace.write_event(step_result.to_trace_event())
 
 
-def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
     try:
         command = _translator(run_context).observe(
             mode=arguments.get("mode", "look"),
@@ -94,10 +116,10 @@ def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> Tool
         tool_args=arguments,
     )
     _write_trace(run_context, step_result)
-    return _result_from_step(step_result)
+    return _result_from_step(step_result, run_context)
 
 
-def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
     try:
         command = _translator(run_context).navigate(
             target_receptacle=arguments.get("target_receptacle", ""),
@@ -115,14 +137,14 @@ def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> Too
         tool_args=arguments,
     )
     _write_trace(run_context, step_result)
-    return _result_from_step(step_result)
+    return _result_from_step(step_result, run_context)
 
 
 def _exec_manipulate(
     *,
     arguments: dict[str, Any],
     run_context: RunContext,
-) -> ToolResult:
+) -> ToolResult | ToolResultMessage:
     try:
         command = _translator(run_context).manipulate(**arguments)
     except TranslatorValidationError as exc:
@@ -138,12 +160,13 @@ def _exec_manipulate(
         tool_args=arguments,
     )
     _write_trace(run_context, step_result)
-    return _result_from_step(step_result)
+    return _result_from_step(step_result, run_context)
 
 
-def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
     state = _adapter(run_context).current_state
     data = state.to_model_visible_dict()
+    data.pop("admissible_commands", None)
     data.update({
         "tool_name": "robot_verify",
         "tool_args": _model_visible_tool_args(arguments),
@@ -151,12 +174,27 @@ def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolR
         "expected_done": arguments.get("expected_done"),
     })
     if state.won:
+        if _observation_mode(run_context) == "visual_eval":
+            return _visual_tool_result(
+                name="robot_verify",
+                success=True,
+                data=data,
+                frame_path=state.frame_path,
+            )
         return ToolResult(
             success=True,
             tool_name="robot_verify",
             executor_mode="programmatic",
             data=data,
             summary="Environment reports won=true.",
+        )
+    if _observation_mode(run_context) == "visual_eval":
+        return _visual_tool_result(
+            name="robot_verify",
+            success=False,
+            data=data,
+            failure_reason="not_complete",
+            frame_path=state.frame_path,
         )
     return ToolResult(
         success=False,
@@ -167,6 +205,46 @@ def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolR
         retryable=not state.done,
         summary="Environment has not reported won=true.",
     )
+
+
+def _visual_tool_result(
+    *,
+    name: str,
+    success: bool,
+    data: dict[str, Any],
+    frame_path: str | None,
+    failure_reason: str | None = None,
+) -> ToolResultMessage:
+    payload: dict[str, Any] = {"success": success}
+    if not success:
+        payload["error"] = _visual_error(failure_reason)
+    content = [ContentBlock(text=_json_dumps(payload))]
+    if frame_path:
+        try:
+            content.append(ContentBlock.from_image_path(frame_path))
+        except OSError:
+            pass
+    return ToolResultMessage(
+        tool_call_id="",
+        name=name,
+        content=content,
+        is_error=not success,
+        data=data,
+    )
+
+
+def _visual_error(failure_reason: str | None) -> str:
+    if failure_reason in {"translator_validation_error", "invalid_tool_arguments"}:
+        return "invalid_tool_arguments"
+    if failure_reason in {"not_won_yet", "not_complete"}:
+        return "not_complete"
+    return "action_failed"
+
+
+def _json_dumps(payload: dict[str, Any]) -> str:
+    import json
+
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
 def _model_visible_tool_args(tool_args: Any) -> dict[str, Any]:

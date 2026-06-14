@@ -43,6 +43,16 @@ def task_planner_executor(
     )
 
 
+def _evidence_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list | tuple):
+        return [str(item) for item in value if str(item)]
+    return [str(value)]
+
+
 def task_progress_check_executor(
     *, arguments: dict[str, Any], run_context: RunContext,
 ) -> ToolResultMessage:
@@ -52,7 +62,7 @@ def task_progress_check_executor(
         TaskProgressUpdate(
             subtask_id=item["subtask_id"],
             status=SubtaskStatus(item["status"]),
-            evidence=item.get("evidence", []),
+            evidence=_evidence_list(item.get("evidence")),
         )
         for item in raw_updates
     ]
@@ -85,10 +95,37 @@ def make_task_planner_tool() -> ToolSpec:
         input_schema={
             "type": "object",
             "properties": {
-                "goal": {"type": "string"},
-                "subtasks": {"type": "array", "items": {"type": "object"}},
-                "current_subtask": {"type": "string"},
-                "next_focus": {"type": "string"},
+                "goal": {"type": "string", "description": "The task goal."},
+                "subtasks": {
+                    "type": "array",
+                    "description": "Concise subtask list. Use stable string ids and refer to those ids from current_subtask and next_focus.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Stable subtask id, such as '1' or 'find_mug'."},
+                            "description": {"type": "string"},
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "blocked",
+                                    "cancelled",
+                                    "uncertain",
+                                ],
+                            },
+                            "evidence": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Model-visible evidence supporting the subtask status.",
+                            },
+                        },
+                        "required": ["id", "description"],
+                    },
+                },
+                "current_subtask": {"type": "string", "description": "Subtask id currently being worked on."},
+                "next_focus": {"type": "string", "description": "Subtask id or short focus statement for the next action."},
                 "open_questions": {"type": "array", "items": {"type": "string"}},
                 "constraints": {"type": "array", "items": {"type": "string"}},
             },
@@ -106,9 +143,35 @@ def make_task_progress_check_tool() -> ToolSpec:
         input_schema={
             "type": "object",
             "properties": {
-                "updates": {"type": "array", "items": {"type": "object"}},
-                "current_subtask": {"type": "string"},
-                "next_focus": {"type": "string"},
+                "updates": {
+                    "type": "array",
+                    "description": "Explicit progress updates for known subtask ids.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "subtask_id": {"type": "string", "description": "Existing subtask id from the task plan."},
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "blocked",
+                                    "cancelled",
+                                    "uncertain",
+                                ],
+                            },
+                            "evidence": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Model-visible evidence. If there is one item, still pass it as an array.",
+                            },
+                        },
+                        "required": ["subtask_id", "status"],
+                    },
+                },
+                "current_subtask": {"type": "string", "description": "Existing subtask id currently being worked on."},
+                "next_focus": {"type": "string", "description": "Existing subtask id or short focus statement for the next action."},
                 "task_status": {
                     "type": "string",
                     "enum": ["active", "completed", "failed", "cancelled"],

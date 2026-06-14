@@ -21,7 +21,7 @@ from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     build_alfworld_batch_env,
 )
-from homemaster.benchmarking.alfworld.prompt import build_episode_prompt
+from homemaster.benchmarking.alfworld.prompt import build_episode_prompt, extract_task_text
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.benchmarking.alfworld.tracing import (
     AlfworldTraceWriter,
@@ -32,6 +32,7 @@ from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEpisodeResult,
+    AlfworldEnvState,
     AlfworldSummary,
 )
 from homemaster.config.resolution import resolve_provider_profile
@@ -100,19 +101,20 @@ class AlfworldBenchmarkRunner:
             "event": "episode_started",
             "run_id": episode_run_id,
             "split": self.config.split,
-            "state": state.to_model_visible_dict(),
+            "state": _initial_model_trace_state(state, self.config.observation_mode),
         })
         runtime_sink = JsonlEventSink(episode_dir / "runtime")
         translator = create_translator(self.config.env_type)
         dispatcher = ToolDispatcher()
         tool_specs = self._register_tools(dispatcher)
+        provider_profile = self._resolve_provider_profile()
         settings = load_runtime_settings(
             self.config.provider_config,
             run_id=episode_run_id,
             runtime_root=self.run_dir / "runtime",
             debug_root=self.run_dir / "debug",
             results_root=self.run_dir / "results",
-            provider_name=self.config.provider_name,
+            provider_name=provider_profile.name,
         )
         task_state_store = TaskStateStore(run_id=episode_run_id)
         run_context = RunContext(
@@ -130,10 +132,6 @@ class AlfworldBenchmarkRunner:
             },
         )
         dispatcher.set_run_context(run_context)
-        provider_profile = resolve_provider_profile(
-            config_path=self.config.provider_config,
-            provider_name=self.config.provider_name,
-        )
         system_prompt = load_prompt(settings.prompts.agent_system_prompt)
         context_assembler = ContextAssembler(
             provider=provider_profile,
@@ -155,6 +153,7 @@ class AlfworldBenchmarkRunner:
             memory_mode=self.config.memory_mode,
             max_invalid_actions=self.config.max_invalid_actions,
             max_env_steps=self.config.max_env_steps,
+            observation_mode=self.config.observation_mode,
         )
         result = runtime.run(
             AgentSession(session_id=episode_run_id),
@@ -226,7 +225,8 @@ class AlfworldBenchmarkRunner:
             "max_invalid_actions": self.config.max_invalid_actions,
             "max_env_steps": self.config.max_env_steps,
             "max_tool_iterations": self.config.max_tool_iterations,
-            "provider_name": self.config.provider_name,
+            "observation_mode": self.config.observation_mode,
+            "provider_name": self._resolve_provider_profile().name,
             "seed": self.config.seed,
         }
 
@@ -272,10 +272,7 @@ class AlfworldBenchmarkRunner:
         return decide
 
     def _build_transport(self) -> LLMTransport:
-        provider = resolve_provider_profile(
-            config_path=self.config.provider_config,
-            provider_name=self.config.provider_name,
-        )
+        provider = self._resolve_provider_profile()
         return MimoTransport(
             base_url=provider.base_url,
             model=provider.model,
@@ -283,6 +280,12 @@ class AlfworldBenchmarkRunner:
             protocol=provider.protocol,
             timeout_s=300.0,
             max_output_tokens=provider.max_output_tokens,
+        )
+
+    def _resolve_provider_profile(self):
+        return resolve_provider_profile(
+            config_path=self.config.provider_config,
+            provider_name=self.config.provider_name,
         )
 
     @staticmethod
@@ -300,6 +303,19 @@ def _episode_failure_reason(error_code: str | None, done: bool) -> str:
     if done:
         return "done_without_won"
     return "not_won"
+
+
+def _initial_model_trace_state(
+    state: AlfworldEnvState,
+    observation_mode: str,
+) -> dict[str, object]:
+    if observation_mode == "textual_debug":
+        return state.to_model_visible_dict()
+    return {
+        "episode_id": state.episode_id,
+        "frame_path": state.frame_path,
+        "task": extract_task_text(state.task),
+    }
 
 
 def _initial_user_content(prompt: str, frame_path: str | None) -> list[ContentBlock]:

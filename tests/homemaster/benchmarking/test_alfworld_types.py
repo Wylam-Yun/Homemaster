@@ -23,6 +23,8 @@ def test_config_defaults_keep_memory_disabled_and_invalid_limit_100(tmp_path: Pa
     assert config.max_invalid_actions == 100
     assert config.max_env_steps == 50
     assert config.max_tool_iterations == 1000
+    assert config.provider_name is None
+    assert config.observation_mode == "visual_eval"
 
 
 def test_config_rejects_non_positive_episode_count(tmp_path: Path) -> None:
@@ -70,3 +72,13 @@ def test_env_state_model_visible_dict_omits_admissible_commands() -> None:
     assert visible["frame_path"] is None
     assert visible["invalid_action_count"] == 2
     assert debug["admissible_commands"] == ["look", "inventory"]
+
+
+def test_config_rejects_unknown_observation_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="observation_mode"):
+        AlfworldBenchmarkConfig(
+            alfworld_root=tmp_path,
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            observation_mode="oracle_text",  # type: ignore[arg-type]
+        )

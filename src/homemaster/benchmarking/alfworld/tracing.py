@@ -65,7 +65,6 @@ class AlfworldTraceWriter:
             elif role == "tool":
                 self.write_model_event({
                     "content": _content_trace_payload(getattr(message, "content", [])),
-                    "data": getattr(message, "data", None),
                     "event": "tool_result",
                     "is_error": getattr(message, "is_error", False),
                     "message_index": index,

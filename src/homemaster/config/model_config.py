@@ -55,6 +55,7 @@ class ContextPolicyConfig(BaseModel):
     auto_compact_enabled: bool = True
     compression_threshold_ratio: float = 0.50
     recent_tail_ratio: float = 0.20
+    output_reserve_tokens: int = 8192
     preserve_recent_agent_steps: int = 20
     preserve_recent_user_turns: int = 3
     token_estimation_padding: float = 4 / 3

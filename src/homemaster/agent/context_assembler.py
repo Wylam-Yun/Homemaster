@@ -22,6 +22,7 @@ from homemaster.agent.messages import ContentBlock, Message, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState, CompactionRecord
 from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.config.model_profiles import resolve_context_window_tokens
 from homemaster.task_state.store import TaskStateStore
 
 
@@ -55,8 +56,8 @@ class ContextAssembler:
 
     def _budget(self) -> ContextBudget:
         return ContextBudget(
-            context_window_tokens=self._provider.context_window_tokens or 200_000,
-            max_output_tokens=self._provider.max_output_tokens or 4096,
+            context_window_tokens=resolve_context_window_tokens(self._provider),
+            output_reserve_tokens=self._policy.output_reserve_tokens,
             threshold_ratio=self._policy.compression_threshold_ratio,
             recent_tail_ratio=self._policy.recent_tail_ratio,
             safety_buffer_tokens=self._policy.safety_buffer_tokens,

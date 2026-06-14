@@ -11,6 +11,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldSummary,
     EnvType,
     MemoryMode,
+    ObservationMode,
     SplitName,
 )
 from homemaster.logger import setup_logging
@@ -29,9 +30,10 @@ def handle_benchmark_alfworld(
     max_env_steps: int = 50,
     max_tool_iterations: int = 1000,
     provider_config: Path | None = None,
-    provider_name: str = "Mimo",
+    provider_name: str | None = None,
     run_id: str | None = None,
     log_level: str = "INFO",
+    observation_mode: str = "visual_eval",
 ) -> AlfworldSummary:
     setup_logging(level=log_level)
     config = AlfworldBenchmarkConfig(
@@ -48,5 +50,6 @@ def handle_benchmark_alfworld(
         provider_config=provider_config,
         provider_name=provider_name,
         run_id=run_id,
+        observation_mode=cast(ObservationMode, observation_mode),
     )
     return AlfworldBenchmarkRunner(config=config).run()

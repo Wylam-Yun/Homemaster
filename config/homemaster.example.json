@@ -5,11 +5,13 @@
       {
         "name": "mimo_v25",
         "protocol": "anthropic",
-        "base_url": "https://api.example/v1",
-        "model": "MiMo-V2.5",
-        "api_keys": ["replace-with-local-key"],
-        "context_window_tokens": 1000000,
-        "max_output_tokens": 8192
+        "base_url": "https://token-plan-sgp.xiaomimimo.com/anthropic",
+        "model": "mimo-v2.5",
+        "api_keys": [
+          "tp-s8pjdmnd0h8byonywkwi1yq9f7p150e8e2fngjsc2zw8rnp9"
+        ],
+        "context_window_tokens": null,
+        "max_output_tokens": null
       }
     ]
   },
@@ -17,6 +19,7 @@
     "auto_compact_enabled": true,
     "compression_threshold_ratio": 0.5,
     "recent_tail_ratio": 0.2,
+    "output_reserve_tokens": 8192,
     "preserve_recent_agent_steps": 20,
     "preserve_recent_user_turns": 3,
     "token_estimation_padding": 1.333,
@@ -76,7 +79,7 @@
     "llm_case_root": null
   },
   "runtime_defaults": {
-    "default_provider_name": "Mimo",
+    "default_provider_name": "mimo_v25",
     "default_embedding_provider_name": "MemoryEmbedding"
   }
 }

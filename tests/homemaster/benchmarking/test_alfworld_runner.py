@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -202,6 +203,32 @@ class NeverDoneLookEnv:
         )
 
 
+def _provider_config(tmp_path: Path) -> Path:
+    path = tmp_path / "homemaster.json"
+    path.write_text(
+        """
+        {
+          "providers": {
+            "default": "mimo_v25",
+            "items": [
+              {
+                "name": "mimo_v25",
+                "protocol": "anthropic",
+                "base_url": "https://mimo.example/anthropic",
+                "model": "mimo-v2.5",
+                "api_keys": ["test-key"],
+                "context_window_tokens": null,
+                "max_output_tokens": null
+              }
+            ]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    return path
+
+
 def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     tmp_path: Path,
 ) -> None:
@@ -217,6 +244,7 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
         trace_root=tmp_path / "traces",
         episodes=1,
         max_tool_iterations=10,
+        provider_config=_provider_config(tmp_path),
     )
     runner = AlfworldBenchmarkRunner(
         config=config,
@@ -245,9 +273,21 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     assert (run_dir / "episode-0001" / "trajectory.md").exists()
     assert (run_dir / "readable_trajectories.md").exists()
     assert summary.config["trace_bucket"] == "valid"
+    assert summary.config["provider_name"] == "mimo_v25"
     trace_text = summary.episodes[0].trace_path.read_text(encoding="utf-8")
     assert "move apple 1 to diningtable 1" in trace_text
     assert "admissible_commands" not in trace_text
+    model_trace_lines = (run_dir / "episode-0001" / "model_trace.jsonl").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    episode_started = json.loads(model_trace_lines[0])
+    assert episode_started["state"] == {
+        "episode_id": "pick_and_place/task",
+        "frame_path": None,
+        "task": "Your task is to: put apple on diningtable 1.",
+    }
+    assert "observation" not in episode_started["state"]
+    assert "goal_condition_success_rate" not in episode_started["state"]
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
@@ -265,6 +305,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
         episodes=1,
         max_env_steps=2,
         max_tool_iterations=300,
+        provider_config=_provider_config(tmp_path),
     )
     runner = AlfworldBenchmarkRunner(
         config=config,

@@ -9,7 +9,12 @@ import pytest
 from homemaster.agent.normalized import RunContext
 from homemaster.config.runtime_settings import RuntimeSettings
 from homemaster.task_state.store import TaskStateStore
-from homemaster.task_state.tools import task_planner_executor, task_progress_check_executor
+from homemaster.task_state.tools import (
+    make_task_planner_tool,
+    make_task_progress_check_tool,
+    task_planner_executor,
+    task_progress_check_executor,
+)
 
 
 def _run_context(store: TaskStateStore) -> RunContext:
@@ -141,3 +146,41 @@ def test_task_progress_check_requires_store_in_run_context() -> None:
             arguments={"updates": []},
             run_context=run_context,
         )
+
+
+def test_task_progress_check_accepts_string_evidence_for_model_recovery() -> None:
+    store = TaskStateStore(run_id="r1")
+    store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    result = task_progress_check_executor(
+        arguments={
+            "updates": [
+                {
+                    "subtask_id": "a",
+                    "status": "completed",
+                    "evidence": "single evidence item",
+                }
+            ],
+        },
+        run_context=_run_context(store),
+    )
+
+    assert result.data is not None
+    assert result.data["subtasks"][0]["evidence"] == ["single evidence item"]
+
+
+def test_task_state_tool_schemas_describe_nested_fields() -> None:
+    planner = make_task_planner_tool()
+    progress = make_task_progress_check_tool()
+
+    subtask_schema = planner.input_schema["properties"]["subtasks"]["items"]
+    assert {"id", "description"}.issubset(set(subtask_schema["required"]))
+    assert "status" in subtask_schema["properties"]
+    assert subtask_schema["properties"]["evidence"]["items"]["type"] == "string"
+
+    update_schema = progress.input_schema["properties"]["updates"]["items"]
+    assert {"subtask_id", "status"}.issubset(set(update_schema["required"]))
+    assert update_schema["properties"]["evidence"]["type"] == "array"

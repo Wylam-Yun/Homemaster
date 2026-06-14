@@ -145,9 +145,12 @@ def benchmark_alfworld_command(
         typer.Option("--api-config", help="Optional provider config JSON override."),
     ] = None,
     provider_name: Annotated[
-        str,
-        typer.Option("--provider-name", help="Provider name from the API config."),
-    ] = "Mimo",
+        str | None,
+        typer.Option(
+            "--provider-name",
+            help="Optional provider name override; defaults to the API config default.",
+        ),
+    ] = None,
     run_id: Annotated[
         str | None,
         typer.Option("--run-id", help="Stable benchmark run id."),
@@ -156,6 +159,10 @@ def benchmark_alfworld_command(
         str,
         typer.Option("--log-level", help="Logging level."),
     ] = "INFO",
+    observation_mode: Annotated[
+        str,
+        typer.Option("--observation-mode", help="visual_eval or textual_debug."),
+    ] = "visual_eval",
 ) -> None:
     """Run HomeMaster on ALFWorld benchmark episodes."""
     try:
@@ -174,6 +181,7 @@ def benchmark_alfworld_command(
             provider_name=provider_name,
             run_id=run_id,
             log_level=log_level,
+            observation_mode=observation_mode,
         )
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"episodes: {len(summary.episodes)}")

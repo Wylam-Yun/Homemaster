@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from homemaster.agent.messages import ContentBlock, ToolResultMessage
+from homemaster.agent.session import AgentSession
 from homemaster.benchmarking.alfworld.tracing import (
     AlfworldTraceWriter,
     split_trace_bucket,
@@ -83,6 +85,41 @@ def test_model_trace_redacts_and_trajectory_is_written(tmp_path: Path) -> None:
     assert "robot_observe" in trajectory
     assert "frames/frame-0001.png" in trajectory
     assert "put apple on table" in aggregate.read_text(encoding="utf-8")
+
+
+def test_model_trace_tool_result_records_only_model_visible_content(tmp_path: Path) -> None:
+    writer = AlfworldTraceWriter(tmp_path / "episode-1")
+    session = AgentSession(session_id="s1")
+    session.append(
+        ToolResultMessage(
+            tool_call_id="call-1",
+            name="robot_manipulate",
+            content=[
+                ContentBlock(text='{"error": "action_failed", "success": false}'),
+                ContentBlock(
+                    type="image",
+                    source={"type": "base64", "media_type": "image/png", "data": "x"},
+                    metadata={"path": "frames/frame-0001.png"},
+                ),
+            ],
+            is_error=True,
+            data={
+                "observation": "debug text should stay out of model_trace",
+                "goal_condition_success_rate": 0.5,
+            },
+        )
+    )
+
+    writer.write_session_messages(session)
+
+    payload = json.loads(writer.model_trace_path.read_text(encoding="utf-8"))
+    assert payload["event"] == "tool_result"
+    assert "data" not in payload
+    model_trace = writer.model_trace_path.read_text(encoding="utf-8")
+    assert "debug text should stay out of model_trace" not in model_trace
+    assert "goal_condition_success_rate" not in model_trace
+    assert "action_failed" in model_trace
+    assert "frames/frame-0001.png" in model_trace
 
 
 def test_split_trace_bucket_mapping() -> None:

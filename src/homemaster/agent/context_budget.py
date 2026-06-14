@@ -29,7 +29,7 @@ def estimate_json_tokens(value: object) -> int:
 @dataclass(frozen=True)
 class ContextBudget:
     context_window_tokens: int
-    max_output_tokens: int
+    output_reserve_tokens: int
     threshold_ratio: float = 0.50
     recent_tail_ratio: float = 0.20
     safety_buffer_tokens: int = 13_000
@@ -39,7 +39,11 @@ class ContextBudget:
     @property
     def compaction_threshold_tokens(self) -> int:
         ratio_threshold = int(self.context_window_tokens * self.threshold_ratio)
-        hard_cap = self.context_window_tokens - self.max_output_tokens - self.safety_buffer_tokens
+        hard_cap = (
+            self.context_window_tokens
+            - self.output_reserve_tokens
+            - self.safety_buffer_tokens
+        )
         return max(1, min(ratio_threshold, hard_cap))
 
     @property

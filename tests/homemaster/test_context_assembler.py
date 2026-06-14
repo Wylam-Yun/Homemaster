@@ -27,8 +27,8 @@ def _make_assembler(
             base_url="https://mimo.example",
             model="MiMo-V2.5",
             api_keys=["secret"],
-            context_window_tokens=1_000_000,
-            max_output_tokens=8192,
+            context_window_tokens=None,
+            max_output_tokens=None,
         ),
         policy=policy or ContextPolicyConfig(),
         system_prompt=system_prompt,
@@ -171,9 +171,9 @@ def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
             model="tiny",
             api_keys=["secret"],
             context_window_tokens=1_000,
-            max_output_tokens=100,
+            max_output_tokens=None,
         ),
-        policy=policy,
+        policy=policy.model_copy(update={"output_reserve_tokens": 100}),
         system_prompt="system",
     )
     session = AgentSession(session_id="s1")

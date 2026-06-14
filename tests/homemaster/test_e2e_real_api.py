@@ -10,6 +10,7 @@ from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.config.runtime_settings import RuntimeSettings
 from homemaster.prompt_loader import PromptId, load_prompt
 from homemaster.providers.mimo_transport import MimoTransport
 from homemaster.runtime import DEFAULT_CONFIG_PATH, load_provider_config
@@ -41,6 +42,16 @@ def provider_profile(provider_config):
         api_keys=provider_config.api_keys,
         context_window_tokens=provider_config.context_window_tokens,
         max_output_tokens=provider_config.max_output_tokens,
+    )
+
+
+@pytest.fixture
+def runtime_settings(tmp_path):
+    return RuntimeSettings(
+        run_id="e2e-loop",
+        runtime_root=tmp_path / "runs",
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
     )
 
 
@@ -106,7 +117,7 @@ def test_context_assembler_with_task_snapshot(transport, provider_profile) -> No
 
 
 @pytest.mark.live_api
-def test_full_agent_loop_with_real_api(transport, provider_profile) -> None:
+def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_settings) -> None:
     """Full agent loop: user message -> model -> tool -> model -> reply."""
     from homemaster.tools.dispatcher import ToolDispatcher
     from homemaster.tools.results import ToolResult
@@ -154,7 +165,7 @@ def test_full_agent_loop_with_real_api(transport, provider_profile) -> None:
     )
 
     session = AgentSession(session_id="e2e-loop")
-    result = runtime.run(session, "hello", tools=[spec])
+    result = runtime.run(session, "hello", tools=[spec], settings=runtime_settings)
 
     assert result.status == "replied"
     assert result.final_reply

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from enum import StrEnum
 
 from homemaster.agent.messages import Message
+from homemaster.compat import StrEnum
 
 
 class ContextPriority(StrEnum):
