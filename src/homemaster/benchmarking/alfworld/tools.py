@@ -97,26 +97,34 @@ def _write_trace(run_context: RunContext, step_result: Any) -> None:
         trace.write_event(step_result.to_trace_event())
 
 
-def _exec_observe(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
-    try:
-        command = _translator(run_context).observe(
-            mode=arguments.get("mode", "look"),
-            target=arguments.get("target"),
+def _exec_inspect_view(
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
+) -> ToolResult | ToolResultMessage:
+    state = _adapter(run_context).current_state
+    data = state.to_model_visible_dict()
+    data.pop("admissible_commands", None)
+    data.update({
+        "tool_name": "robot_inspect_view",
+        "tool_args": _model_visible_tool_args(arguments),
+        "focus": arguments.get("focus"),
+        "non_step_observation": True,
+    })
+    if _observation_mode(run_context) == "visual_eval":
+        return _visual_tool_result(
+            name="robot_inspect_view",
+            success=True,
+            data=data,
+            frame_path=state.frame_path,
         )
-    except TranslatorValidationError as exc:
-        return _validation_failure(
-            tool_name="robot_observe",
-            arguments=arguments,
-            run_context=run_context,
-            error=exc,
-        )
-    step_result = _adapter(run_context).step(
-        command,
-        tool_name="robot_observe",
-        tool_args=arguments,
+    return ToolResult(
+        success=True,
+        tool_name="robot_inspect_view",
+        executor_mode="programmatic",
+        data=data,
+        summary="Returned the current visual frame without stepping the environment.",
     )
-    _write_trace(run_context, step_result)
-    return _result_from_step(step_result, run_context)
 
 
 def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
@@ -266,29 +274,30 @@ def _drop_admissible_commands(value: Any) -> Any:
     return value
 
 
-def make_alfworld_robot_observe() -> ToolSpec:
+def make_alfworld_robot_inspect_view() -> ToolSpec:
     return ToolSpec(
-        name="robot_observe",
-        description="Observe the ALFWorld environment using look, inventory, or examine.",
+        name="robot_inspect_view",
+        description=(
+            "Return the current visual frame without executing an ALFWorld "
+            "environment action or consuming an environment step. Use only when "
+            "the latest action image is unclear or you need to re-check the "
+            "current view before choosing the next physical action."
+        ),
         input_schema={
             "type": "object",
             "properties": {
-                "mode": {
-                    "type": "string",
-                    "enum": ["look", "inventory", "examine"],
-                    "description": "Observation command mode.",
-                },
-                "target": {
+                "focus": {
                     "type": "string",
                     "description": (
-                        "Object or receptacle to examine when mode is examine."
+                        "Optional short description of what to inspect in the "
+                        "current view, such as sofa surface or held object."
                     ),
                 },
             },
         },
         executor_mode="programmatic",
         selectable_by_model=True,
-        executor=_exec_observe,
+        executor=_exec_inspect_view,
     )
 
 

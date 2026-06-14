@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from homemaster.benchmarking.alfworld.tools import (
+    make_alfworld_robot_inspect_view,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_navigate,
-    make_alfworld_robot_observe,
     make_alfworld_robot_verify,
 )
 from homemaster.domain.home.tools import (
@@ -37,7 +37,7 @@ def build_alfworld_tool_registry(
     if memory_mode == "full":
         registry.register(make_memory_writer(runtime_memory_root=runtime_memory_root))
 
-    registry.register(make_alfworld_robot_observe())
+    registry.register(make_alfworld_robot_inspect_view())
     registry.register(make_alfworld_robot_navigate())
     registry.register(make_alfworld_robot_manipulate())
     registry.register(make_alfworld_robot_verify())

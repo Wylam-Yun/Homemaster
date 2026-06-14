@@ -73,7 +73,14 @@ def test_visual_eval_prompt_omits_text_observation_and_scores() -> None:
 
     assert "Use camera observations" in prompt
     assert "Tool results provide images and minimal execution status" in prompt
+    assert "Each robot action result image is the latest observation" in prompt
+    assert "robot_inspect_view only when the latest image is unclear" in prompt
+    assert "do not call it after every successful action" in prompt
+    assert "same unchanged image" in prompt
+    assert "task_progress_check only to record progress judgments" in prompt
+    assert "robot_verify only to ask whether ALFWorld reports" in prompt
     assert "Your task is to: look at mug under the desklamp" in prompt
     assert "You see hidden object list" not in prompt
     assert "goal_condition_success_rate" not in prompt
     assert "latest observation, feedback" not in prompt
+    assert "Observation forms:" not in prompt

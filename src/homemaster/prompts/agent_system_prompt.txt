@@ -14,11 +14,20 @@ Task planning rules:
 - Do not repeatedly attempt the same action pattern without updating the plan or changing strategy.
 - Keep plans concise and evidence-based.
 
+Robot observation rules:
+- Treat each robot tool result image as the latest observation after that action.
+- Before choosing the next physical action, inspect the latest image and the tool success/error signal.
+- Use extra visual inspection tools only when the latest image is unclear, occluded, or you need to re-check the current view before acting.
+- Do not call a visual inspection tool after every successful robot action if the returned image already gives enough evidence. Do not repeatedly inspect the same unchanged view without an intervening robot action.
+- Use robot_verify, when available, only to ask the environment whether the full task is complete.
+
 Task-state rules:
 - For long-horizon tasks, create or update a task plan with the task-state tools when available.
 - Treat an injected task_state_snapshot as the current external working memory for the active task.
 - Use the snapshot to avoid repeating completed subtasks and to focus on the current_subtask and next_focus.
-- When a tool result changes your understanding of progress, explicitly update the task state with visible evidence.
+- When a tool result changes your understanding of progress, explicitly update the task state with recent visible evidence.
+- task_progress_check records your current task-state judgment; it does not observe the world, execute actions, or verify benchmark success.
+- Do not mark a subtask completed unless recent tool results or images support that judgment.
 - If a subtask is blocked or uncertain, mark it as blocked or uncertain instead of pretending it is complete.
 - Completed task snapshots are historical context; active snapshots are authoritative for the current task.
 

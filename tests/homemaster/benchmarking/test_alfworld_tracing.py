@@ -45,14 +45,14 @@ def test_model_trace_redacts_and_trajectory_is_written(tmp_path: Path) -> None:
             "api_key": "secret",
             "finish_reason": "tool_calls",
             "text": "",
-            "tool_calls": [{"name": "robot_observe", "arguments": {"mode": "look"}}],
+            "tool_calls": [{"name": "robot_inspect_view", "arguments": {"focus": "table"}}],
             "usage": {"input_tokens": 1, "output_tokens": 2},
         },
     })
     writer.write_event({
-        "tool_name": "robot_observe",
-        "tool_args": {"mode": "look"},
-        "translated_command": "look",
+        "tool_name": "robot_navigate",
+        "tool_args": {"target_receptacle": "table 1"},
+        "translated_command": "go to table 1",
         "feedback": "You see apple 1.",
         "reward": 0.0,
         "done": False,
@@ -82,7 +82,7 @@ def test_model_trace_redacts_and_trajectory_is_written(tmp_path: Path) -> None:
     assert '"input_tokens": 1' in model_trace
     assert '"output_tokens": 2' in model_trace
     trajectory = writer.trajectory_path.read_text(encoding="utf-8")
-    assert "robot_observe" in trajectory
+    assert "robot_navigate" in trajectory
     assert "frames/frame-0001.png" in trajectory
     assert "put apple on table" in aggregate.read_text(encoding="utf-8")
 

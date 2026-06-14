@@ -45,7 +45,12 @@ def build_episode_prompt(
         observation_lines = [
             "Use camera observations and available actions to complete the task.",
             "Tool results provide images and minimal execution status.",
-            "Infer task progress from camera images, tool success, and your own action history.",
+            "Each robot action result image is the latest observation after that action.",
+            "Inspect the latest image and success/error signal before choosing the next action.",
+            "Use robot_inspect_view only when the latest image is unclear or you need to re-check the current view; it does not consume an ALFWorld environment step, but do not call it after every successful action or repeatedly on the same unchanged image.",
+            "Use task_progress_check only to record progress judgments supported by recent images or tool results.",
+            "Use robot_verify only to ask whether ALFWorld reports the full task as complete.",
+            "Infer task progress from camera images, tool success/error, and your own action history.",
             "Task:",
             task_text,
         ]
@@ -76,11 +81,6 @@ def extract_task_text(task: str) -> str:
 
 def _format_action_reference(schema: dict[str, Any]) -> str:
     lines = [f"Environment: {schema['environment']}"]
-    observe = schema.get("observe_modes", [])
-    if observe:
-        lines.append("Observation forms:")
-        for item in observe:
-            lines.append(f"- mode={item['mode']}: {item['command_template']}")
     navigation = schema.get("navigation")
     if isinstance(navigation, dict):
         lines.append("Navigation form:")

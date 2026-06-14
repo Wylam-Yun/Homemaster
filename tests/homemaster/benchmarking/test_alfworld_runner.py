@@ -87,7 +87,7 @@ class FakeTransport(LLMTransport):
         yield TransportDelta(type="transport.delta", finish_reason=msg.finish_reason)
 
 
-class RepeatingLookTransport(LLMTransport):
+class RepeatingNavigateTransport(LLMTransport):
     def __init__(self) -> None:
         self.call_count = 0
 
@@ -107,9 +107,9 @@ class RepeatingLookTransport(LLMTransport):
         yield TransportDelta(
             type="transport.delta",
             tool_call_delta=ToolCall(
-                id=f"look_{self.call_count}",
-                name="robot_observe",
-                arguments={"mode": "look"},
+                id=f"nav_{self.call_count}",
+                name="robot_navigate",
+                arguments={"target_receptacle": "countertop 1"},
             ),
         )
         yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
@@ -179,10 +179,10 @@ class NeverDoneLookEnv:
 
     def reset(self):
         return (
-            ["Your task is to: look around."],
+            ["Your task is to: go to countertop 1."],
             {
                 "extra.gamefile": ["/games/look_at_obj_in_light/task/game.tw-pddl"],
-                "admissible_commands": [["look"]],
+                "admissible_commands": [["go to countertop 1"]],
                 "won": [False],
                 "goal_condition_success_rate": [0.0],
             },
@@ -190,13 +190,13 @@ class NeverDoneLookEnv:
 
     def step(self, actions: list[str]):
         self.step_count += 1
-        assert actions == ["look"]
+        assert actions == ["go to countertop 1"]
         return (
-            [f"You look around step {self.step_count}."],
+            [f"You arrive at countertop 1 step {self.step_count}."],
             [0.0],
             [False],
             {
-                "admissible_commands": [["look"]],
+                "admissible_commands": [["go to countertop 1"]],
                 "won": [False],
                 "goal_condition_success_rate": [0.0],
             },
@@ -265,6 +265,8 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
         for message in transport.seen_messages[0]
     )
     assert "robot_navigate" in {tool["name"] for tool in transport.seen_tools[0]}
+    assert "robot_inspect_view" in {tool["name"] for tool in transport.seen_tools[0]}
+    assert "robot_observe" not in {tool["name"] for tool in transport.seen_tools[0]}
     assert "task_planner" in {tool["name"] for tool in transport.seen_tools[0]}
     assert "task_progress_check" in {tool["name"] for tool in transport.seen_tools[0]}
     run_dir = tmp_path / "traces" / "valid" / summary.run_id
@@ -291,7 +293,7 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
-    transport = RepeatingLookTransport()
+    transport = RepeatingNavigateTransport()
     fake_env = NeverDoneLookEnv()
     adapter = AlfworldEnvAdapter(
         env=fake_env,

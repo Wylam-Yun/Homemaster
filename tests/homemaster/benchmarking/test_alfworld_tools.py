@@ -6,9 +6,9 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.tools import (
+    make_alfworld_robot_inspect_view,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_navigate,
-    make_alfworld_robot_observe,
     make_alfworld_robot_verify,
 )
 from homemaster.benchmarking.alfworld.translator import create_translator
@@ -190,11 +190,20 @@ def test_verify_success_requires_env_won() -> None:
     assert done.data["won"] is True
 
 
-def test_observe_inventory_uses_inventory_command() -> None:
+def test_inspect_view_returns_current_frame_without_stepping_env() -> None:
     adapter = FakeAdapter()
-    observe = make_alfworld_robot_observe()
-    observe.executor(arguments={"mode": "inventory"}, run_context=_context(adapter))
-    assert adapter.commands == ["inventory"]
+    inspect = make_alfworld_robot_inspect_view()
+    result = inspect.executor(
+        arguments={"focus": "current surface"},
+        run_context=_context(adapter),
+    )
+
+    assert result.success is True
+    assert adapter.commands == []
+    assert result.data["tool_name"] == "robot_inspect_view"
+    assert result.data["focus"] == "current surface"
+    assert result.data["non_step_observation"] is True
+    assert result.data["step_index"] == 0
 
 
 def test_visual_eval_tool_result_hides_textual_feedback_and_scores() -> None:
@@ -243,3 +252,21 @@ def test_visual_eval_verify_failure_returns_not_complete() -> None:
     assert result.is_error is True
     text = "\n".join(block.text for block in result.content if block.text)
     assert json.loads(text) == {"error": "not_complete", "success": False}
+
+
+def test_visual_eval_inspect_view_returns_minimal_current_image_signal() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_inspect_view()
+
+    result = spec.executor(
+        arguments={"focus": "held object"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is False
+    assert adapter.commands == []
+    assert result.data is not None
+    assert result.data["non_step_observation"] is True
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {"success": True}
+    assert "observation" not in text
