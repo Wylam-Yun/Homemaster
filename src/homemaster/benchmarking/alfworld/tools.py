@@ -45,6 +45,10 @@ def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResult |
             data=data,
             failure_reason=step_result.failure_reason,
             frame_path=step_result.state.frame_path,
+            is_error=_visual_result_is_error(
+                success=step_result.success,
+                failure_reason=step_result.failure_reason,
+            ),
         )
     return ToolResult(
         success=step_result.success,
@@ -79,6 +83,7 @@ def _validation_failure(
             data=data,
             failure_reason="invalid_tool_arguments",
             frame_path=state.frame_path,
+            is_error=True,
         )
     return ToolResult(
         success=False,
@@ -203,6 +208,7 @@ def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolR
             data=data,
             failure_reason="not_complete",
             frame_path=state.frame_path,
+            is_error=False,
         )
     return ToolResult(
         success=False,
@@ -222,6 +228,7 @@ def _visual_tool_result(
     data: dict[str, Any],
     frame_path: str | None,
     failure_reason: str | None = None,
+    is_error: bool | None = None,
 ) -> ToolResultMessage:
     payload: dict[str, Any] = {"success": success}
     if not success:
@@ -236,9 +243,21 @@ def _visual_tool_result(
         tool_call_id="",
         name=name,
         content=content,
-        is_error=not success,
+        is_error=(
+            _visual_result_is_error(success=success, failure_reason=failure_reason)
+            if is_error is None
+            else is_error
+        ),
         data=data,
     )
+
+
+def _visual_result_is_error(*, success: bool, failure_reason: str | None) -> bool:
+    if success:
+        return False
+    if failure_reason in {"invalid_action", "not_won_yet", "not_complete"}:
+        return False
+    return True
 
 
 def _visual_error(failure_reason: str | None) -> str:

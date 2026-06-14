@@ -45,13 +45,14 @@ class FakeAdapter:
 
     def step(self, command: str, *, tool_name: str, tool_args: dict[str, Any]):
         self.commands.append(command)
+        invalid = "bad target" in command
         self.state = AlfworldEnvState(
             episode_id="game-1",
             task="put apple on table",
-            observation=f"after {command}",
+            observation="Nothing happens." if invalid else f"after {command}",
             inventory=None,
             last_command=command,
-            last_feedback=f"after {command}",
+            last_feedback="Nothing happens." if invalid else f"after {command}",
             reward=0.0,
             done=False,
             won=command == "move apple 1 to diningtable 1",
@@ -60,16 +61,16 @@ class FakeAdapter:
             ),
             frame_path=None,
             step_index=self.state.step_index + 1,
-            invalid_action_count=self.state.invalid_action_count,
+            invalid_action_count=self.state.invalid_action_count + (1 if invalid else 0),
         )
         return AlfworldStepResult(
             tool_name=tool_name,
             tool_args=tool_args,
             translated_command=command,
-            success=True,
-            failure_reason=None,
+            success=not invalid,
+            failure_reason="invalid_action" if invalid else None,
             state=self.state,
-            feedback=f"after {command}",
+            feedback="Nothing happens." if invalid else f"after {command}",
         )
 
 
@@ -240,6 +241,23 @@ def test_visual_eval_validation_error_returns_minimal_error() -> None:
     assert "source_receptacle is required" not in text
 
 
+def test_visual_eval_action_failure_is_model_feedback_not_runtime_error() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_navigate()
+
+    result = spec.executor(
+        arguments={"target_receptacle": "bad target"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is False
+    assert result.data is not None
+    assert result.data["failure_reason"] == "invalid_action"
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {"error": "action_failed", "success": False}
+    assert "Nothing happens." not in text
+
+
 def test_visual_eval_verify_failure_returns_not_complete() -> None:
     adapter = FakeAdapter()
     spec = make_alfworld_robot_verify()
@@ -249,7 +267,7 @@ def test_visual_eval_verify_failure_returns_not_complete() -> None:
         run_context=_context(adapter, observation_mode="visual_eval"),
     )
 
-    assert result.is_error is True
+    assert result.is_error is False
     text = "\n".join(block.text for block in result.content if block.text)
     assert json.loads(text) == {"error": "not_complete", "success": False}
 
