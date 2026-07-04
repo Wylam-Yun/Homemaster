@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from homemaster.logger import get_logger, setup_logging
+from homemaster.events.logger import get_logger, setup_logging
 
 
 class TestLogger:

@@ -11,30 +11,28 @@ from typing import Any, Protocol
 import httpx
 from pydantic import ValidationError
 
-from homemaster.domain.home.contracts import (
+from homemaster.domain.contracts import (
     MemoryRetrievalHit,
     MemoryRetrievalQuery,
     MemoryRetrievalResult,
     TaskCard,
 )
-from homemaster.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.llm_client import LLMClientError, RawJsonLLMClient
-from homemaster.logger import get_logger
-from homemaster.prompt_loader import render
-from homemaster.runtime import (
+from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
+from homemaster.providers.llm_client import LLMClient, LLMClientError
+from homemaster.events.logger import get_logger
+from homemaster.prompts.loader import render
+from homemaster.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     MEMORY_CASE_ROOT,
     MEMORY_RESULTS_ROOT,
     REPO_ROOT,
-    ProviderConfig,
-    RuntimeConfigError,
-    get_config_section,
-    load_homemaster_config,
-    load_provider_config,
+    ConfigError,
+    ProviderProfileConfig,
+    load_config,
 )
-from homemaster.trace import append_jsonl_event, write_json
+from homemaster.events.trace import append_jsonl_event, write_json
 
 from .index import (
     JsonEmbeddingCache,
@@ -71,20 +69,18 @@ _DEFAULT_TOP_K_LIMIT = 50
 
 
 def _load_scoring_config() -> dict[str, Any]:
-    section = get_config_section(load_homemaster_config(), "retrieval_scoring")
-    if section is None:
-        return {**_DEFAULT_WEIGHTS, "rrf_k": _DEFAULT_RRF_K, "top_k_limit": _DEFAULT_TOP_K_LIMIT}
+    section = load_config().retrieval_scoring.model_dump(mode="json")
 
     weights = dict(_DEFAULT_WEIGHTS)
     raw_weights = section.get("metadata_weights")
     if raw_weights is not None:
         if not isinstance(raw_weights, dict):
-            raise RuntimeConfigError("retrieval_scoring.metadata_weights must be a JSON object")
+            raise ConfigError("retrieval_scoring.metadata_weights must be a JSON object")
         for k, v in raw_weights.items():
             if k not in _DEFAULT_WEIGHTS:
                 continue
             if not isinstance(v, (int, float)):
-                raise RuntimeConfigError(
+                raise ConfigError(
                     f"retrieval_scoring.metadata_weights.{k} must be a number, "
                     f"got {type(v).__name__}"
                 )
@@ -92,13 +88,13 @@ def _load_scoring_config() -> dict[str, Any]:
 
     rrf_k = section.get("rrf_k", _DEFAULT_RRF_K)
     if not isinstance(rrf_k, int) or rrf_k < 1:
-        raise RuntimeConfigError(
+        raise ConfigError(
             f"retrieval_scoring.rrf_k must be a positive int, got {rrf_k!r}"
         )
 
     top_k_limit = section.get("top_k_limit", _DEFAULT_TOP_K_LIMIT)
     if not isinstance(top_k_limit, int) or not (1 <= top_k_limit <= 50):
-        raise RuntimeConfigError(
+        raise ConfigError(
             f"retrieval_scoring.top_k_limit must be int in [1, 50], got {top_k_limit!r}"
         )
 
@@ -168,7 +164,7 @@ class MimoMemoryQueryProvider:
 
     def __init__(
         self,
-        provider: ProviderConfig,
+        provider: ProviderProfileConfig,
         *,
         client: httpx.Client | None = None,
         event_sink: Any = None,
@@ -183,9 +179,8 @@ class MimoMemoryQueryProvider:
         self,
         prompt: str,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
-        llm_client = RawJsonLLMClient(
+        llm_client = LLMClient(
             self._provider,
-            client=self._client,
             event_sink=self._event_sink,
             run_id=self._run_id,
         )
@@ -294,7 +289,7 @@ def run_memory_rag(
     case_name: str,
     query_provider: MemoryQueryProvider,
     embedding_provider: MemoryEmbeddingProvider,
-    llm_provider: ProviderConfig,
+    llm_provider: ProviderProfileConfig,
     negative_evidence: dict[str, Any] | None = None,
     expected: dict[str, Any] | None = None,
     case_root: Path = CASE_ROOT,
@@ -527,10 +522,11 @@ def run_memory_retrieval_case(
         )
     expected = cases[case_name]
     task_card = TaskCard.model_validate(expected["task_card"])
-    llm_provider = load_provider_config(config_path, provider_name=llm_provider_name)
-    embedding_provider_config = load_provider_config(
-        config_path,
-        provider_name=embedding_provider_name,
+    config = load_config(config_path)
+    llm_provider = config.get_provider(llm_provider_name, kind="chat")
+    embedding_provider_config = config.get_provider(
+        embedding_provider_name,
+        kind="embedding",
     )
     query_provider = MimoMemoryQueryProvider(llm_provider, client=llm_client)
     bge_client = BGEEmbeddingClient(embedding_provider_config, client=embedding_client)

@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from homemaster.runtime import REPO_ROOT
+from homemaster.config import REPO_ROOT
 
 WORLD_PATH = REPO_ROOT / "data" / "homes" / "elder_home_v1" / "world.json"
 

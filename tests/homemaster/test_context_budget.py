@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homemaster.agent.context_budget import (
+from homemaster.agent.context import (
     BudgetDecision,
     ContextBudget,
     estimate_text_tokens,

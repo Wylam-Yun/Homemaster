@@ -10,14 +10,12 @@ from typing import Any
 
 import httpx
 
-from homemaster.runtime import ProviderConfig, load_provider_client_config
+from homemaster.config import ProviderProfileConfig
 
-# P7: provider_client timeout config (shared with llm_client)
-_client_cfg = load_provider_client_config()
-_DEFAULT_TIMEOUT_S: float = _client_cfg.get("timeout_s", 60.0)
-_DEFAULT_CONNECT_TIMEOUT_S: float = _client_cfg.get("connect_timeout_s", 10.0)
-_DEFAULT_WRITE_TIMEOUT_S: float = _client_cfg.get("write_timeout_s", 15.0)
-_DEFAULT_POOL_TIMEOUT_S: float = _client_cfg.get("pool_timeout_s", 10.0)
+_DEFAULT_TIMEOUT_S = 60.0
+_DEFAULT_CONNECT_TIMEOUT_S = 10.0
+_DEFAULT_WRITE_TIMEOUT_S = 15.0
+_DEFAULT_POOL_TIMEOUT_S = 10.0
 
 
 class EmbeddingClientError(RuntimeError):
@@ -82,7 +80,7 @@ class BGEEmbeddingClient:
 
     def __init__(
         self,
-        provider: ProviderConfig,
+        provider: ProviderProfileConfig,
         *,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
         client: httpx.Client | None = None,
@@ -96,7 +94,7 @@ class BGEEmbeddingClient:
             write=_DEFAULT_WRITE_TIMEOUT_S,
             pool=_DEFAULT_POOL_TIMEOUT_S,
         )
-        self._client = client or httpx.Client(timeout=timeout)
+        self._client = client or httpx.Client(timeout=timeout, trust_env=False)
 
     def close(self) -> None:
         if self._owns_client:

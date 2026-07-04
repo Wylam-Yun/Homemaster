@@ -11,16 +11,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from homemaster.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.llm_client import LLMClientError, RawJsonLLMClient
-from homemaster.runtime import (
+from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
+from homemaster.providers.llm_client import LLMClient, LLMClientError
+from homemaster.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
     GENERIC_CONFIG_PATH,
     REPO_ROOT,
-    RuntimeConfigError,
-    load_provider_config,
+    ConfigError,
+    load_config,
 )
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
@@ -117,24 +117,19 @@ def _config_source() -> str:
 
 def _config_check(config_source: str) -> DoctorCheck:
     try:
-        chat_provider = load_provider_config(
-            DEFAULT_CONFIG_PATH,
-            provider_name=DEFAULT_PROVIDER_NAME,
+        config = load_config(DEFAULT_CONFIG_PATH)
+        chat_provider = config.get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
+        embedding_provider = config.get_provider(
+            DEFAULT_EMBEDDING_PROVIDER_NAME,
+            kind="embedding",
         )
-        embedding_provider = load_provider_config(
-            DEFAULT_CONFIG_PATH,
-            provider_name=DEFAULT_EMBEDDING_PROVIDER_NAME,
-        )
-    except RuntimeConfigError as exc:
+    except ConfigError as exc:
         return DoctorCheck(
             name="config_source",
             status="FAIL",
             message=str(exc),
             impact="provider config is required for live LLM and embedding checks",
-            suggestion=(
-                "Create config/api_config.json or configure providers "
-                "in config/homemaster.json."
-            ),
+            suggestion="Configure providers in config/homemaster.yaml.",
             details={"config_source": config_source},
         )
     return DoctorCheck(
@@ -151,11 +146,11 @@ def _config_check(config_source: str) -> DoctorCheck:
 
 def _embedding_endpoint_check() -> DoctorCheck:
     try:
-        provider = load_provider_config(
-            DEFAULT_CONFIG_PATH,
-            provider_name=DEFAULT_EMBEDDING_PROVIDER_NAME,
+        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(
+            DEFAULT_EMBEDDING_PROVIDER_NAME,
+            kind="embedding",
         )
-    except RuntimeConfigError as exc:
+    except ConfigError as exc:
         return DoctorCheck(
             name="embedding_endpoint",
             status="FAIL",
@@ -218,8 +213,8 @@ def _live_provider_checks() -> list[DoctorCheck]:
 
 def _live_mimo_smoke() -> DoctorCheck:
     try:
-        provider = load_provider_config(DEFAULT_CONFIG_PATH, provider_name=DEFAULT_PROVIDER_NAME)
-        client = RawJsonLLMClient(provider)
+        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
+        client = LLMClient(provider)
         try:
             response = client.complete_json(
                 '只输出 JSON object: {"ok": true}',
@@ -227,7 +222,7 @@ def _live_mimo_smoke() -> DoctorCheck:
             )
         finally:
             client.close()
-    except (RuntimeConfigError, LLMClientError) as exc:
+    except (ConfigError, LLMClientError) as exc:
         return DoctorCheck(
             name="live_mimo_smoke",
             status="FAIL",
@@ -244,16 +239,16 @@ def _live_mimo_smoke() -> DoctorCheck:
 
 def _live_embedding_smoke() -> DoctorCheck:
     try:
-        provider = load_provider_config(
-            DEFAULT_CONFIG_PATH,
-            provider_name=DEFAULT_EMBEDDING_PROVIDER_NAME,
+        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(
+            DEFAULT_EMBEDDING_PROVIDER_NAME,
+            kind="embedding",
         )
         client = BGEEmbeddingClient(provider)
         try:
             response = client.embed_texts(["HomeMaster embedding smoke"])
         finally:
             client.close()
-    except (RuntimeConfigError, EmbeddingClientError) as exc:
+    except (ConfigError, EmbeddingClientError) as exc:
         return DoctorCheck(
             name="live_embedding_smoke",
             status="FAIL",

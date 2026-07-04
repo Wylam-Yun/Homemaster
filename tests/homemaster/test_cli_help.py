@@ -1,4 +1,4 @@
-"""Tests for CLI help text — V1.4 command contract."""
+"""Tests for CLI help text."""
 
 from __future__ import annotations
 

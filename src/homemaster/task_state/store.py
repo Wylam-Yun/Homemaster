@@ -98,3 +98,33 @@ class TaskStateStore:
         self._snapshot.next_focus = None
         self._snapshot.updated_at_iteration = updated_at_iteration
         return self._snapshot
+
+    def update_status(
+        self,
+        status: TaskStatus,
+        *,
+        updated_at_iteration: int | None = None,
+    ) -> TaskSnapshot:
+        if self._snapshot is None:
+            raise TaskStateStoreError("no_active_task_plan")
+        self._snapshot.status = status
+        if updated_at_iteration is not None:
+            self._snapshot.updated_at_iteration = updated_at_iteration
+        return self._snapshot
+
+    def to_snapshot_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self._run_id,
+            "snapshot_counter": self._snapshot_counter,
+            "snapshot": self._snapshot.model_dump(mode="json") if self._snapshot else None,
+        }
+
+    @classmethod
+    def from_snapshot_dict(cls, data: dict[str, Any]) -> TaskStateStore:
+        run_id = str(data.get("run_id") or "")
+        store = cls(run_id=run_id)
+        store._snapshot_counter = int(data.get("snapshot_counter") or 0)
+        raw_snapshot = data.get("snapshot")
+        if isinstance(raw_snapshot, dict):
+            store._snapshot = TaskSnapshot.model_validate(raw_snapshot)
+        return store

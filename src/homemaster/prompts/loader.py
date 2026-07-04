@@ -1,6 +1,6 @@
 """Prompt template loader for HomeMaster.
 
-Loads .txt templates from src/homemaster/prompts/ and renders them
+Loads .md templates from src/homemaster/prompts/ and renders them
 using string.Template (stdlib, no external dependencies).
 
 Only the prompts listed in PromptId are loadable.
@@ -11,9 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 from string import Template
 
-from homemaster.compat import StrEnum
+from enum import StrEnum
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_DIR = Path(__file__).parent
 
 
 class PromptId(StrEnum):
@@ -51,7 +51,7 @@ def load_prompt(prompt_id: str | PromptId) -> str:
                 f"Unknown prompt ID: {prompt_id!r}. "
                 f"Valid IDs: {[p.value for p in PromptId]}"
             ) from None
-    path = _PROMPTS_DIR / f"{name}.txt"
+    path = _PROMPTS_DIR / f"{name}.md"
     return path.read_text(encoding="utf-8")
 
 

@@ -15,7 +15,7 @@ from homemaster.agent.turn import (
     _build_tool_dispatcher_and_specs,
     run_agent_turn,
 )
-from homemaster.providers.transport import TransportDelta
+from homemaster.providers.transports import TransportDelta
 from homemaster.task_state.store import TaskStateStore
 
 EXPECTED_HOME_TOOLS = [
@@ -56,7 +56,7 @@ def test_cli_adapter_registers_v14_home_tools() -> None:
     assert [schema["name"] for schema in schemas] == EXPECTED_HOME_TOOLS
 
 
-def test_run_context_carries_world_and_memory_paths(tmp_path: Path) -> None:
+def test_run_context_carries_memory_path_and_drops_dead_world_path(tmp_path: Path) -> None:
     world_path = tmp_path / "world.json"
     memory_path = tmp_path / "memory.json"
     context = _build_run_context(
@@ -65,7 +65,7 @@ def test_run_context_carries_world_and_memory_paths(tmp_path: Path) -> None:
         world_path=world_path,
         memory_path=memory_path,
     )
-    assert context.settings.world_path == world_path
+    assert not hasattr(context.settings, "world_path")
     assert context.settings.memory_path == memory_path
 
 
@@ -103,5 +103,6 @@ def test_run_agent_turn_writes_trace_and_uses_transport_stream(
     ]
     assert [event["type"] for event in events] == [
         "runtime.turn_started",
+        "assistant.reply",
         "runtime.turn_completed",
     ]

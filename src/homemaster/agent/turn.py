@@ -9,16 +9,18 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
-from homemaster.agent.context_assembler import ContextAssembler
+from homemaster.agent.context import ContextAssembler
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.session import AgentSession
-from homemaster.config.runtime_settings import load_runtime_settings
+from homemaster.agent.state import AgentState
+from homemaster.config import HOMEMASTER_CONFIG_PATH, load_config
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.providers.mimo_transport import MimoTransport
-from homemaster.providers.transport import LLMTransport
+from homemaster.providers.llm_client import LLMClient
+from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.dispatcher import ToolDispatcher
 
 
@@ -34,19 +36,16 @@ class AgentTurnResult:
     tool_events: list[RuntimeEvent] = field(default_factory=list)
 
 
-def _build_transport() -> LLMTransport:
-    """Build a MimoTransport from resolved runtime config."""
-    from homemaster.config.resolution import resolve_provider_profile
+def _build_transport(
+    *,
+    config_path: Path | None = None,
+    provider_name: str | None = None,
+) -> LLMClient:
+    """Build an SDK-backed LLMClient from unified config."""
 
-    provider = resolve_provider_profile()
-    api_key = provider.api_keys[0]
-    return MimoTransport(
-        base_url=provider.base_url,
-        model=provider.model,
-        api_key=api_key,
-        protocol=provider.protocol,
-        max_output_tokens=provider.max_output_tokens,
-    )
+    config = load_config(config_path)
+    provider = config.get_provider(provider_name, kind="chat")
+    return LLMClient(provider, timeout_s=config.provider_client.timeout_s)
 
 
 def _build_tool_dispatcher_and_specs(
@@ -61,7 +60,7 @@ def _build_tool_dispatcher_and_specs(
     Returns (dispatcher, tool_schemas) where tool_schemas are the
     generic_runtime.ToolSpec-compatible dicts for the model.
     """
-    from homemaster.domain.home.tool_registry import build_home_tool_registry
+    from homemaster.domain.tool_registry import build_home_tool_registry
 
     registry = build_home_tool_registry(
         world_path=world_path,
@@ -93,20 +92,27 @@ def _build_run_context(
     memory_path: Path | None = None,
     event_sink: Any = None,
     turn_index: int = 0,
+    task_state_store: TaskStateStore | None = None,
 ) -> RunContext:
-    """Build a RunContext with explicit RuntimeSettings."""
-    from homemaster.runtime import HOMEMASTER_CONFIG_PATH
-    from homemaster.task_state.store import TaskStateStore
+    """Build a RunContext with explicit run-scoped settings."""
 
     config_path = HOMEMASTER_CONFIG_PATH if HOMEMASTER_CONFIG_PATH.exists() else None
-    settings = load_runtime_settings(
-        config_path,
+    config = load_config(config_path)
+    runtime = config.runtime
+    settings = SimpleNamespace(
         run_id=run_id,
-        runtime_root=Path("/tmp/homemaster/runs"),
-        debug_root=Path("/tmp/homemaster/debug"),
-        results_root=Path("/tmp/homemaster/results"),
-        world_path=world_path,
+        max_turns=12,
+        runtime_root=runtime.runtime_root,
+        debug_root=runtime.debug_root,
+        results_root=runtime.results_root,
+        provider_name=config.runtime_defaults.default_provider_name,
+        embedding_provider_name=config.runtime_defaults.default_embedding_provider_name,
+        config_path=config.config_path or HOMEMASTER_CONFIG_PATH,
         memory_path=memory_path,
+        context=config.context,
+        runtime_guards=config.runtime,
+        prompts=config.prompts,
+        observability=config.observability,
     )
     return RunContext(
         session_id=session_id,
@@ -114,7 +120,7 @@ def _build_run_context(
         turn_index=turn_index,
         settings=settings,
         event_sink=event_sink,
-        deps={"task_state_store": TaskStateStore(run_id=run_id)},
+        deps={"task_state_store": task_state_store or TaskStateStore(run_id=run_id)},
     )
 
 
@@ -148,6 +154,8 @@ def run_single_turn(
     world_path: Path | None = None,
     memory_path: Path | None = None,
     progress: bool = False,
+    agent_state: AgentState | None = None,
+    task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
     """Execute a single agent turn: utterance → model → tools → reply.
 
@@ -173,17 +181,17 @@ def run_agent_turn(
     world_path: Path | None = None,
     memory_path: Path | None = None,
     progress: bool = False,
+    agent_state: AgentState | None = None,
+    task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
     """Execute one agent turn within an existing session.
 
     Used by the interactive shell for multi-turn conversations.
     """
-    from homemaster.config.resolution import resolve_provider_profile
-    from homemaster.prompt_loader import load_prompt
+    from homemaster.prompts.loader import load_prompt
 
     run_id = run_id or uuid.uuid4().hex[:12]
 
-    transport = _build_transport()
     event_sink, trace_path, run_dir = _build_event_sink(run_id=run_id, progress=progress)
     dispatcher, tool_schemas = _build_tool_dispatcher_and_specs(
         run_id,
@@ -199,19 +207,30 @@ def run_agent_turn(
         world_path=world_path,
         memory_path=memory_path,
         event_sink=event_sink,
+        task_state_store=task_state_store,
     )
     dispatcher.set_run_context(run_context)
 
     # Load system prompt and build context assembler
     system_prompt = load_prompt(run_context.settings.prompts.agent_system_prompt)
-    provider_profile = resolve_provider_profile(
-        config_path=run_context.settings.config_path,
-        provider_name=run_context.settings.provider_name,
+    config = load_config(run_context.settings.config_path)
+    provider_profile = config.get_provider(
+        run_context.settings.provider_name,
+        kind="chat",
     )
+    try:
+        transport = _build_transport(
+            config_path=run_context.settings.config_path,
+            provider_name=run_context.settings.provider_name,
+        )
+    except TypeError:
+        # Some tests monkeypatch the factory with a no-arg fake transport.
+        transport = _build_transport()
     context_assembler = ContextAssembler(
         provider=provider_profile,
         policy=run_context.settings.context,
         system_prompt=system_prompt,
+        summary_client=transport,
     )
 
     runtime = GenericAgentRuntime(
@@ -229,6 +248,8 @@ def run_agent_turn(
         event_sink=event_sink,
         run_id=run_id,
         settings=run_context.settings,
+        agent_state=agent_state,
+        task_state_store=run_context.deps.get("task_state_store"),
     )
 
     return _to_turn_result(result, run_id, trace_path=trace_path, run_dir=run_dir)

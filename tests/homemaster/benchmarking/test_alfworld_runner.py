@@ -9,10 +9,10 @@ from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, T
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.runner import AlfworldBenchmarkRunner
 from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
-from homemaster.providers.transport import LLMTransport, TransportDelta
+from homemaster.providers.transports import TransportDelta
 
 
-class FakeTransport(LLMTransport):
+class FakeTransport:
     def __init__(self) -> None:
         self._responses = [
             AssistantMessage(
@@ -87,7 +87,7 @@ class FakeTransport(LLMTransport):
         yield TransportDelta(type="transport.delta", finish_reason=msg.finish_reason)
 
 
-class RepeatingNavigateTransport(LLMTransport):
+class RepeatingNavigateTransport:
     def __init__(self) -> None:
         self.call_count = 0
 

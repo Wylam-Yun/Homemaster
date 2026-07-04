@@ -6,9 +6,9 @@ import logging
 
 import typer
 
-from homemaster.embedding_client import EmbeddingClientError
-from homemaster.llm_client import LLMClientError
-from homemaster.runtime import RuntimeConfigError
+from homemaster.providers.embedding_client import EmbeddingClientError
+from homemaster.providers.llm_client import LLMClientError
+from homemaster.config import ConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ def render_error_and_exit(exc: Exception) -> None:
     typer.BadParameter / usage errors are handled by Typer (exit 2) before
     reaching this function — no explicit handling needed here.
     """
-    if isinstance(exc, RuntimeConfigError):
+    if isinstance(exc, ConfigError):
         typer.echo(f"config_failed: {exc}", err=True)
         raise typer.Exit(code=2)
     if isinstance(exc, (LLMClientError, EmbeddingClientError)):

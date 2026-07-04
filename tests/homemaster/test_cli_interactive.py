@@ -1,4 +1,4 @@
-"""Tests for interactive shell — V1.4 generic agent loop."""
+"""Tests for interactive shell."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class FakeTurn:
 def test_shell_exits_without_running_task() -> None:
     result = CliRunner().invoke(app, ["shell"], input="/exit\n")
     assert result.exit_code == 0
-    assert "HomeMaster V1.4" in result.stdout
+    assert "HomeMaster V1.6" in result.stdout
     assert "再见" in result.stdout
 
 

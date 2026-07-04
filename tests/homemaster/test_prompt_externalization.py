@@ -27,7 +27,7 @@ def test_new_prompts_do_not_encode_fixed_flow() -> None:
 
 
 def test_prompt_loader_rejects_deleted_numbered_prompt_names() -> None:
-    from homemaster.prompt_loader import load_prompt
+    from homemaster.prompts.loader import load_prompt
 
     try:
         load_prompt("stage_01_task_card_prompt")

@@ -1,7 +1,7 @@
-"""Event trace sanitization — delegates to trace.sanitize_for_log for redaction.
+"""Event trace sanitization — delegates to events.trace.sanitize_for_log for redaction.
 
 Adds truncation for large payloads and raw prompt/response content.
-Secret-pattern redaction is handled by trace.sanitize_for_log (handles
+Secret-pattern redaction is handled by events.trace.sanitize_for_log (handles
 dicts, lists, tuples, substring matching on key names).
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homemaster.trace import sanitize_for_log
+from homemaster.events.trace import sanitize_for_log
 
 _MAX_PAYLOAD_LEN = 4000
 _MAX_PROMPT_VALUE_LEN = 200

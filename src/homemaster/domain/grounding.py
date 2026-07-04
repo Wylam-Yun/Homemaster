@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from homemaster.runtime import RuntimeConfigError, get_config_section, load_homemaster_config
+from homemaster.config import ConfigError, load_config
 
 from .contracts import (
     GroundedMemoryTarget,
@@ -52,14 +52,14 @@ def _load_hint_dict(
     if raw is None:
         return dict(default)
     if not isinstance(raw, dict):
-        raise RuntimeConfigError(f"grounding.{key} must be a JSON object")
+        raise ConfigError(f"grounding.{key} must be a JSON object")
     merged = dict(default)
     for k, v in raw.items():
         if not isinstance(v, list):
-            raise RuntimeConfigError(f"grounding.{key}.{k} must be a JSON array")
+            raise ConfigError(f"grounding.{key}.{k} must be a JSON array")
         for i, item in enumerate(v):
             if not isinstance(item, str):
-                raise RuntimeConfigError(
+                raise ConfigError(
                     f"grounding.{key}.{k}[{i}] must be a string, got {type(item).__name__}"
                 )
         merged[k] = tuple(v)
@@ -71,13 +71,7 @@ def _load_grounding_config() -> tuple[
     dict[str, tuple[str, ...]],
     dict[str, tuple[str, ...]],
 ]:
-    section = get_config_section(load_homemaster_config(), "grounding")
-    if section is None:
-        return (
-            dict(_DEFAULT_ROOM_HINTS),
-            dict(_DEFAULT_ANCHOR_HINTS),
-            dict(_DEFAULT_SPECIFIC_ANCHOR_WORDS),
-        )
+    section = load_config().grounding.model_dump(mode="json")
     return (
         _load_hint_dict(section.get("room_hints"), "room_hints", _DEFAULT_ROOM_HINTS),
         _load_hint_dict(section.get("anchor_hints"), "anchor_hints", _DEFAULT_ANCHOR_HINTS),

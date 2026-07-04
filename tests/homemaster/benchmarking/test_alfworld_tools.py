@@ -17,7 +17,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldEnvState,
     AlfworldStepResult,
 )
-from homemaster.config.runtime_settings import RuntimeSettings
+from types import SimpleNamespace
 
 
 class FakeAdapter:
@@ -79,7 +79,7 @@ def _context(adapter: FakeAdapter, *, observation_mode: str = "textual_debug") -
         session_id="s1",
         run_id="r1",
         turn_index=0,
-        settings=RuntimeSettings(
+        settings=SimpleNamespace(
             run_id="r1",
             runtime_root=Path("/tmp/runs"),
             debug_root=Path("/tmp/debug"),

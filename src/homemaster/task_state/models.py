@@ -6,12 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from homemaster.compat import StrEnum
+from enum import StrEnum
 
 
 class TaskStatus(StrEnum):
     NONE = "none"
     ACTIVE = "active"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

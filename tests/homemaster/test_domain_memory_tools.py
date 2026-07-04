@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 
 from homemaster.agent.normalized import RunContext
-from homemaster.config.runtime_settings import RuntimeSettings
-from homemaster.domain.home.tool_registry import build_home_tool_registry
+from types import SimpleNamespace
+from homemaster.domain.tool_registry import build_home_tool_registry
 
 
 def _make_run_context(tmp_path: Path, **kwargs: Path | None) -> RunContext:
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="test-run",
         runtime_root=tmp_path,
         debug_root=tmp_path / "debug",

@@ -1,4 +1,4 @@
-"""Typer CLI entrypoint for HomeMaster V1.4."""
+"""Typer CLI entrypoint for HomeMaster."""
 
 from __future__ import annotations
 
@@ -13,20 +13,22 @@ from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run
 from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.interactive_shell import run_interactive_shell
 from homemaster.cli.run_command import handle_run
-from homemaster.logger import setup_logging
+from homemaster.cli.session_command import session_app
+from homemaster.events.logger import setup_logging
 
 app = typer.Typer(
     add_completion=False,
-    help="HomeMaster V1.4 — Generic agent loop CLI.",
+    help="HomeMaster V1.6 — Generic agent loop CLI.",
 )
+app.add_typer(session_app, name="session")
 
 
 @app.command("run")
 def run_command(
     utterance: Annotated[
-        str,
+        str | None,
         typer.Option("--utterance", help="Chinese user instruction to execute."),
-    ],
+    ] = None,
     world_path: Annotated[
         Path | None,
         typer.Option("--world", help="Optional world.json override."),
@@ -47,6 +49,14 @@ def run_command(
         bool,
         typer.Option("--progress/--no-progress", help="Show high-level progress events on stderr."),
     ] = False,
+    resume_session_id: Annotated[
+        str | None,
+        typer.Option("--resume", help="Resume the specified persisted session id."),
+    ] = None,
+    continue_latest: Annotated[
+        bool,
+        typer.Option("--continue", help="Resume the latest persisted session."),
+    ] = False,
 ) -> None:
     """Run one HomeMaster task with the generic agent loop."""
     try:
@@ -57,6 +67,8 @@ def run_command(
             run_id=run_id,
             log_level=log_level,
             progress=progress,
+            resume_session_id=resume_session_id,
+            continue_latest=continue_latest,
         )
     except Exception as exc:
         render_error_and_exit(exc)
@@ -90,9 +102,14 @@ def doctor_command(
 
 
 @app.command("shell")
-def shell_command() -> None:
+def shell_command(
+    resume_session_id: Annotated[
+        str | None,
+        typer.Option("--resume", help="Resume the specified persisted session id."),
+    ] = None,
+) -> None:
     """Launch the interactive HomeMaster shell."""
-    run_interactive_shell()
+    run_interactive_shell(resume_session_id=resume_session_id)
 
 
 @app.command("benchmark-alfworld")

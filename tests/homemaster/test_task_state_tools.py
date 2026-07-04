@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from homemaster.agent.normalized import RunContext
-from homemaster.config.runtime_settings import RuntimeSettings
+from types import SimpleNamespace
 from homemaster.task_state.store import TaskStateStore
 from homemaster.task_state.tools import (
     make_task_planner_tool,
@@ -18,7 +18,7 @@ from homemaster.task_state.tools import (
 
 
 def _run_context(store: TaskStateStore) -> RunContext:
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="r1",
         runtime_root=Path("/tmp/homemaster/runs"),
         debug_root=Path("/tmp/homemaster/debug"),
@@ -126,7 +126,7 @@ def test_task_progress_check_can_mark_task_completed_explicitly() -> None:
 
 
 def test_task_progress_check_requires_store_in_run_context() -> None:
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="r1",
         runtime_root=Path("/tmp/homemaster/runs"),
         debug_root=Path("/tmp/homemaster/debug"),

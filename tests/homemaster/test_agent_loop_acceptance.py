@@ -8,14 +8,14 @@ from typing import Any
 from homemaster.agent.generic_runtime import GenericAgentRuntime
 from homemaster.agent.messages import Message, ToolCall
 from homemaster.agent.session import AgentSession
-from homemaster.providers.transport import LLMTransport, TransportDelta
+from homemaster.providers.transports import TransportDelta
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
 
 
-class FakeTransport(LLMTransport):
+class FakeTransport:
     """Fake LLM transport that returns predefined responses via stream()."""
 
     def __init__(self, responses: list[dict[str, Any]]) -> None:

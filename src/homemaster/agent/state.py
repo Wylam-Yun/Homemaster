@@ -1,4 +1,4 @@
-"""AgentState — mutable runtime bookkeeping for V1.5 context architecture.
+"""AgentState — mutable runtime bookkeeping for the generic context architecture.
 
 AgentState holds generic runtime/session counters. Home-domain state
 (task_card, memory_hits, current_location, etc.) lives in domain-specific

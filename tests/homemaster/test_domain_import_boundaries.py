@@ -30,17 +30,17 @@ def _rg(pattern: str, path: str) -> list[str]:
 def test_domain_home_tools_do_not_import_pipeline() -> None:
     matches = _rg(
         "homemaster\\.(pipeline|stages|task_runner)",
-        "src/homemaster/domain/home/",
+        "src/homemaster/domain/",
     )
-    assert not matches, f"domain/home/ imports deleted runtime packages: {matches}"
+    assert not matches, f"domain/ imports deleted runtime packages: {matches}"
 
 
 def test_domain_home_tools_do_not_import_agent_runtime() -> None:
     matches = _rg(
         "from homemaster\\.agent\\.runtime import",
-        "src/homemaster/domain/home/",
+        "src/homemaster/domain/",
     )
-    assert not matches, f"domain/home/ imports agent.runtime: {matches}"
+    assert not matches, f"domain/ imports agent.runtime: {matches}"
 
 
 def test_skills_do_not_import_pipeline() -> None:
@@ -60,16 +60,16 @@ def test_memory_modules_do_not_import_pipeline() -> None:
 
 
 def test_no_old_contracts_imports_in_domain() -> None:
-    """domain/home/ must use relative imports, not homemaster.contracts."""
+    """domain/ must use relative imports, not homemaster.contracts."""
     matches = _rg(
         "from homemaster\\.contracts import",
-        "src/homemaster/domain/home/",
+        "src/homemaster/domain/",
     )
-    assert not matches, f"domain/home/ uses old contracts path: {matches}"
+    assert not matches, f"domain/ uses old contracts path: {matches}"
 
 
 def test_no_old_contracts_imports_in_memory() -> None:
-    """memory/ must use homemaster.domain.home.contracts, not homemaster.contracts."""
+    """memory/ must use homemaster.domain.contracts, not homemaster.contracts."""
     matches = _rg(
         "from homemaster\\.contracts import",
         "src/homemaster/memory/",

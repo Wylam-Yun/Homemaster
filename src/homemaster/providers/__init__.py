@@ -1,5 +1,6 @@
-"""Providers — LLM and embedding transport adapters.
+"""Providers — LLM and embedding client adapters."""
 
-LLMTransport for chat/completion calls.
-BGEEmbeddingClient for /v1/embeddings calls.
-"""
+from homemaster.providers.embedding_client import BGEEmbeddingClient
+from homemaster.providers.llm_client import LLMClient
+
+__all__ = ["BGEEmbeddingClient", "LLMClient"]

@@ -14,7 +14,7 @@ from homemaster.benchmarking.alfworld.types import (
     ObservationMode,
     SplitName,
 )
-from homemaster.logger import setup_logging
+from homemaster.events.logger import setup_logging
 
 
 def handle_benchmark_alfworld(

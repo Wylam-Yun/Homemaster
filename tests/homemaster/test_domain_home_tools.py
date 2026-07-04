@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
-from homemaster.config.runtime_settings import RuntimeSettings
-from homemaster.domain.home.tool_registry import build_home_tool_registry
+from types import SimpleNamespace
+from homemaster.domain.tool_registry import build_home_tool_registry
 from homemaster.tools.results import ToolResult
 
 
@@ -17,7 +17,7 @@ def _make_run_context(
     memory_path: Path | None = None,
     deps: dict[str, Any] | None = None,
 ) -> RunContext:
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="test-run",
         runtime_root=tmp_path,
         debug_root=tmp_path / "debug",

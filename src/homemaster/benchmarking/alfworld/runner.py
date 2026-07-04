@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from types import SimpleNamespace
+from typing import Any
 
-from homemaster.agent.context_assembler import ContextAssembler
+from homemaster.agent.context import ContextAssembler
 from homemaster.agent.generic_runtime import (
     GenericAgentRuntime,
     RuntimeStopDecision,
@@ -35,16 +37,14 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldEnvState,
     AlfworldSummary,
 )
-from homemaster.config.resolution import resolve_provider_profile
-from homemaster.config.runtime_settings import load_runtime_settings
+from homemaster.config import load_config
 from homemaster.events.sinks import JsonlEventSink
-from homemaster.prompt_loader import load_prompt
-from homemaster.providers.mimo_transport import MimoTransport
-from homemaster.providers.transport import LLMTransport
+from homemaster.prompts.loader import load_prompt
+from homemaster.providers.llm_client import LLMClient
 from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.dispatcher import ToolDispatcher
 
-TransportFactory = Callable[[], LLMTransport]
+TransportFactory = Callable[[], Any]
 AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 
 
@@ -108,13 +108,21 @@ class AlfworldBenchmarkRunner:
         dispatcher = ToolDispatcher()
         tool_specs = self._register_tools(dispatcher)
         provider_profile = self._resolve_provider_profile()
-        settings = load_runtime_settings(
-            self.config.provider_config,
+        config = load_config(self.config.provider_config)
+        settings = SimpleNamespace(
             run_id=episode_run_id,
+            max_turns=12,
             runtime_root=self.run_dir / "runtime",
             debug_root=self.run_dir / "debug",
             results_root=self.run_dir / "results",
             provider_name=provider_profile.name,
+            embedding_provider_name=config.runtime_defaults.default_embedding_provider_name,
+            config_path=config.config_path,
+            memory_path=None,
+            context=config.context,
+            runtime_guards=config.runtime,
+            prompts=config.prompts,
+            observability=config.observability,
         )
         task_state_store = TaskStateStore(run_id=episode_run_id)
         run_context = RunContext(
@@ -271,21 +279,14 @@ class AlfworldBenchmarkRunner:
 
         return decide
 
-    def _build_transport(self) -> LLMTransport:
+    def _build_transport(self) -> LLMClient:
         provider = self._resolve_provider_profile()
-        return MimoTransport(
-            base_url=provider.base_url,
-            model=provider.model,
-            api_key=provider.api_keys[0],
-            protocol=provider.protocol,
-            timeout_s=300.0,
-            max_output_tokens=provider.max_output_tokens,
-        )
+        return LLMClient(provider, timeout_s=300.0)
 
     def _resolve_provider_profile(self):
-        return resolve_provider_profile(
-            config_path=self.config.provider_config,
-            provider_name=self.config.provider_name,
+        return load_config(self.config.provider_config).get_provider(
+            self.config.provider_name,
+            kind="chat",
         )
 
     @staticmethod

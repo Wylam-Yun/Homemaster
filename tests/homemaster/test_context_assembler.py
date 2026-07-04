@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homemaster.agent.context_assembler import ContextAssembler
+from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -12,8 +12,24 @@ from homemaster.agent.messages import (
 )
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
-from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.task_state.store import TaskStateStore
+
+
+class FakeSummaryClient:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[dict[str, object]] = []
+
+    def complete(self, messages, *, system_prompt: str = "", **kwargs):
+        self.calls.append({
+            "messages": messages,
+            "system_prompt": system_prompt,
+            "kwargs": kwargs,
+        })
+        if self.fail:
+            raise RuntimeError("summary failed")
+        return AssistantMessage(content=[ContentBlock(text="LLM SUMMARY: cup found on table")])
 
 
 def _make_assembler(
@@ -214,3 +230,88 @@ def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
         if isinstance(message, ToolResultMessage)
     }
     assert assistant_calls <= result_ids
+
+
+def test_compaction_uses_summary_client_when_available() -> None:
+    summary_client = FakeSummaryClient()
+    policy = ContextPolicyConfig(
+        compression_threshold_ratio=0.01,
+        preserve_recent_agent_steps=1,
+        preserve_recent_user_turns=1,
+    )
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="tiny",
+            api_format="anthropic",
+            base_url="https://mimo.example",
+            model="tiny",
+            api_keys=["secret"],
+            context_window_tokens=1_000,
+            max_output_tokens=None,
+        ),
+        policy=policy.model_copy(update={"output_reserve_tokens": 100}),
+        system_prompt="system",
+        summary_client=summary_client,
+    )
+    session = AgentSession(session_id="s1")
+    for index in range(8):
+        session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
+        session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id="s1"),
+        task_state_store=None,
+        tools=[],
+    )
+
+    text = "\n".join(
+        block.text for message in context.messages for block in message.content if block.text
+    )
+    assert context.metrics.compaction_triggered is True
+    assert summary_client.calls
+    assert "LLM SUMMARY: cup found on table" in text
+    assert "END OF CONTEXT SUMMARY" in text
+
+
+def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort() -> None:
+    summary_client = FakeSummaryClient(fail=True)
+    policy = ContextPolicyConfig(
+        compression_threshold_ratio=0.01,
+        preserve_recent_agent_steps=1,
+        preserve_recent_user_turns=1,
+        abort_on_summary_failure=True,
+    )
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="tiny",
+            api_format="anthropic",
+            base_url="https://mimo.example",
+            model="tiny",
+            api_keys=["secret"],
+            context_window_tokens=1_000,
+            max_output_tokens=None,
+        ),
+        policy=policy.model_copy(update={"output_reserve_tokens": 100}),
+        system_prompt="system",
+        summary_client=summary_client,
+    )
+    session = AgentSession(session_id="s1")
+    for index in range(8):
+        session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
+        session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id="s1"),
+        task_state_store=None,
+        tools=[],
+    )
+
+    assert summary_client.calls
+    assert context.metrics.compaction_triggered is False
+    assert len(session.messages) == 16
+    text = "\n".join(
+        block.text for message in context.messages for block in message.content if block.text
+    )
+    assert "CONTEXT COMPACTION" not in text

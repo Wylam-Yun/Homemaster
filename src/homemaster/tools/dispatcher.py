@@ -50,7 +50,22 @@ class ToolDispatcher:
         and maps results to ToolResultMessages preserving tool_call_id.
         """
         results: list[ToolResultMessage] = []
-        for tc in tool_calls:
+        token = run_context.cancellation_token
+        for index, tc in enumerate(tool_calls):
+            if getattr(token, "cancelled", False):
+                for pending in tool_calls[index:]:
+                    results.append(ToolResultMessage(
+                        tool_call_id=pending.id,
+                        name=pending.name,
+                        content=[ContentBlock(text='{"error": "cancelled before tool execution"}')],
+                        is_error=True,
+                        data={
+                            "success": False,
+                            "error": "cancelled before tool execution",
+                            "cancelled": True,
+                        },
+                    ))
+                break
             spec = self._specs.get(tc.name)
             if spec is None:
                 results.append(ToolResultMessage(
@@ -85,6 +100,8 @@ class ToolDispatcher:
                 continue
 
             try:
+                if hasattr(token, "enter_tool"):
+                    token.enter_tool()
                 tool_result = spec.executor(
                     arguments=tc.arguments,
                     run_context=run_context,
@@ -96,6 +113,9 @@ class ToolDispatcher:
                     executor_mode=spec.executor_mode,
                     failure_reason=f"{type(exc).__name__}: {exc}",
                 )
+            finally:
+                if hasattr(token, "exit_tool"):
+                    token.exit_tool()
 
             if isinstance(tool_result, ToolResult):
                 if tool_result.success:

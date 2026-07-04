@@ -1,42 +1,41 @@
-"""End-to-end test with real LLM API — verifies full V1.5 context chain."""
+"""End-to-end test with real LLM API."""
 
 from __future__ import annotations
 
 import pytest
 
-from homemaster.agent.context_assembler import ContextAssembler
+from homemaster.agent.context import ContextAssembler
 from homemaster.agent.generic_runtime import GenericAgentRuntime
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
-from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
-from homemaster.config.runtime_settings import RuntimeSettings
-from homemaster.prompt_loader import PromptId, load_prompt
-from homemaster.providers.mimo_transport import MimoTransport
-from homemaster.runtime import DEFAULT_CONFIG_PATH, load_provider_config
+from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
+from types import SimpleNamespace
+from homemaster.config import load_config
+from homemaster.prompts.loader import PromptId, load_prompt
+from homemaster.providers.llm_client import LLMClient
 from homemaster.task_state.store import TaskStateStore
 
 
 @pytest.fixture
 def provider_config():
-    return load_provider_config(DEFAULT_CONFIG_PATH)
+    config = load_config().get_provider(kind="chat")
+    if not config.api_keys:
+        pytest.skip("set a real chat provider API key to run live_api tests")
+    return config
 
 
 @pytest.fixture
 def transport(provider_config):
-    return MimoTransport(
-        base_url=provider_config.base_url,
-        model=provider_config.model,
-        api_key=provider_config.api_keys[0],
-        protocol=provider_config.protocol,
-    )
+    return LLMClient(provider_config)
 
 
 @pytest.fixture
 def provider_profile(provider_config):
     return ProviderProfileConfig(
         name=provider_config.name,
-        protocol=provider_config.protocol,  # type: ignore[arg-type]
+        api_format=provider_config.api_format,
+        transport=provider_config.transport,
         base_url=provider_config.base_url,
         model=provider_config.model,
         api_keys=provider_config.api_keys,
@@ -47,7 +46,7 @@ def provider_profile(provider_config):
 
 @pytest.fixture
 def runtime_settings(tmp_path):
-    return RuntimeSettings(
+    return SimpleNamespace(
         run_id="e2e-loop",
         runtime_root=tmp_path / "runs",
         debug_root=tmp_path / "debug",
@@ -60,7 +59,7 @@ def test_system_prompt_delivered_to_model(transport) -> None:
     """Verify system prompt appears in the model's behavior."""
     system_prompt = "You are a helpful assistant. Always reply with exactly one word: 'hello'."
     msg = transport.complete(
-        [UserMessage(content=[ContentBlock(text="What should you say?")])],
+        [UserMessage(content=[ContentBlock(text="Follow the system instruction now.")])],
         system_prompt=system_prompt,
     )
     assert "hello" in msg.text.lower()
@@ -113,7 +112,21 @@ def test_context_assembler_with_task_snapshot(transport, provider_profile) -> No
     )
     # The model should reference the goal or subtasks
     lower_reply = msg.text.lower()
-    assert any(word in lower_reply for word in ["cup", "kitchen", "goal", "find", "search"])
+    assert any(
+        word in lower_reply
+        for word in [
+            "cup",
+            "kitchen",
+            "goal",
+            "find",
+            "search",
+            "杯",
+            "厨房",
+            "目标",
+            "寻找",
+            "搜索",
+        ]
+    )
 
 
 @pytest.mark.live_api

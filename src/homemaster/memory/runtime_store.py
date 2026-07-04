@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from homemaster.trace import sanitize_for_log
+from homemaster.events.trace import sanitize_for_log
 
 
 @dataclass(frozen=True)

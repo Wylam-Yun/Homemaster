@@ -174,7 +174,7 @@ def make_task_progress_check_tool() -> ToolSpec:
                 "next_focus": {"type": "string", "description": "Existing subtask id or short focus statement for the next action."},
                 "task_status": {
                     "type": "string",
-                    "enum": ["active", "completed", "failed", "cancelled"],
+                    "enum": ["active", "paused", "completed", "failed", "cancelled"],
                 },
                 "completion_summary": {"type": "string"},
             },

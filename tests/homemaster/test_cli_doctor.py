@@ -19,7 +19,7 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert payload["live"] is False
     assert payload["checks"]
     assert any(check["name"] == "config_source" for check in payload["checks"])
-    assert "api_config.json" in payload["config_source"]
+    assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
     assert not any(marker in encoded for marker in SECRET_MARKERS)
 

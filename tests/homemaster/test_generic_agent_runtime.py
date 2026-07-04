@@ -6,7 +6,9 @@ importing home domain modules.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
@@ -18,10 +20,12 @@ from homemaster.agent.messages import (
     ToolResultMessage,
 )
 from homemaster.agent.session import AgentSession
-from homemaster.providers.transport import LLMTransport, TransportDelta
+from homemaster.config.observability import ObservabilityConfig
+from types import SimpleNamespace
+from homemaster.providers.transports import TransportDelta
 
 
-class FakeTransport(LLMTransport):
+class FakeTransport:
     """Fake transport that returns pre-configured responses."""
 
     def __init__(self) -> None:
@@ -109,7 +113,7 @@ class FakeTransport(LLMTransport):
         )
 
 
-class ContextLengthFailingTransport(LLMTransport):
+class ContextLengthFailingTransport:
     def __init__(self) -> None:
         self.call_count = 0
 
@@ -352,6 +356,63 @@ def test_runtime_passes_system_prompt_to_transport() -> None:
     assert transport.last_system_prompt == "You are HomeMaster."
 
 
+def test_runtime_writes_session_persistence_artifacts(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    transport.queue_tool_call("memory_retriever", {"query": "水杯"}, call_id="call_1")
+    transport.queue_text("我找到了水杯。")
+    settings = SimpleNamespace(
+        run_id="persist-run",
+        runtime_root=tmp_path / "runs",
+        debug_root=tmp_path / "debug",
+        results_root=tmp_path / "results",
+        provider_name="Mimo",
+        observability=ObservabilityConfig(session_dir=str(tmp_path / "sessions")),
+    )
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=3,
+        system_prompt="system prompt",
+    )
+    session = AgentSession(session_id="persist-session")
+
+    result = runtime.run(session, "帮我找水杯", settings=settings)
+
+    assert result.status == "replied"
+    session_dir = tmp_path / "sessions" / "persist-session"
+    assert (session_dir / "trace.jsonl").exists()
+    assert (session_dir / "messages.jsonl").exists()
+    assert (session_dir / "session.json").exists()
+
+    snapshot = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+    assert snapshot["session_id"] == "persist-session"
+    assert snapshot["model"] == "Mimo"
+    assert snapshot["system_prompt"] == "system prompt"
+    assert snapshot["agent_state"]["status"] == "replied"
+    assert [message["role"] for message in snapshot["messages"]] == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
+
+    message_entries = [
+        json.loads(line)
+        for line in (session_dir / "messages.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [(entry["role"], entry["content"]) for entry in message_entries] == [
+        ("user", "帮我找水杯"),
+        ("assistant", "我找到了水杯。"),
+    ]
+    trace_types = [
+        json.loads(line)["type"]
+        for line in (session_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert "runtime.turn_started" in trace_types
+    assert "tool.call_completed" in trace_types
+    assert "runtime.turn_completed" in trace_types
+
+
 def test_runtime_supports_unbounded_iterations() -> None:
     call_count = {"n": 0}
 
@@ -380,8 +441,8 @@ def test_runtime_supports_unbounded_iterations() -> None:
 
 
 def test_reactive_compact_retries_context_length_error_once() -> None:
-    from homemaster.agent.context_assembler import ContextAssembler
-    from homemaster.config.model_config import ContextPolicyConfig, ProviderProfileConfig
+    from homemaster.agent.context import ContextAssembler
+    from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 
     transport = ContextLengthFailingTransport()
     assembler = ContextAssembler(

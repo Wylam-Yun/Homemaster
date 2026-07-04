@@ -5,16 +5,16 @@ import json
 import httpx
 import pytest
 
-from homemaster.embedding_client import (
+from homemaster.providers.embedding_client import (
     BGEEmbeddingClient,
     EmbeddingProviderResponseError,
     derive_embeddings_url,
 )
-from homemaster.runtime import ProviderConfig
-from homemaster.trace import sanitize_for_log
+from homemaster.config import ProviderProfileConfig
+from homemaster.events.trace import sanitize_for_log
 
 
-def _provider(**overrides: object) -> ProviderConfig:
+def _provider(**overrides: object) -> ProviderProfileConfig:
     payload = {
         "name": "MemoryEmbedding",
         "base_url": "https://api.example.cn/v1/messages",
@@ -24,7 +24,7 @@ def _provider(**overrides: object) -> ProviderConfig:
         "embedding_url": None,
     }
     payload.update(overrides)
-    return ProviderConfig(**payload)
+    return ProviderProfileConfig(**payload)
 
 
 def test_derive_embeddings_url_from_messages_base_url() -> None:

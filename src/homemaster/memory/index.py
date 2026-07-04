@@ -12,7 +12,7 @@ from typing import Any
 
 import bm25s
 
-from homemaster.trace import write_json
+from homemaster.events.trace import write_json
 
 from .tokenizer import (
     ANCHOR_ALIASES,

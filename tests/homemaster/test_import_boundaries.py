@@ -61,20 +61,33 @@ def test_skills_do_not_import_runtime_or_cli() -> None:
 
 
 def test_domain_tools_do_not_import_cli_or_runtime_loop() -> None:
-    for path in (ROOT / "src/homemaster/domain/home").glob("*.py"):
+    for path in (ROOT / "src/homemaster/domain").glob("*.py"):
         text = path.read_text(encoding="utf-8")
         assert "homemaster.cli" not in text
         assert "homemaster.agent.runtime" not in text
+    assert not (ROOT / "src/homemaster/domain/home").exists()
 
 
 def test_deleted_legacy_packages_are_absent() -> None:
     assert not (ROOT / "src/homemaster/pipeline").exists()
     assert not (ROOT / "src/homemaster/stages").exists()
     assert not (ROOT / "src/homemaster/task_runner.py").exists()
+    assert not (ROOT / "src/homemaster/runtime.py").exists()
+    assert not (ROOT / "src/homemaster/compat.py").exists()
+    assert not (ROOT / "src/homemaster/config/model_config.py").exists()
+    assert not (ROOT / "src/homemaster/config/model_profiles.py").exists()
+    assert not (ROOT / "src/homemaster/config/resolution.py").exists()
+    assert not (ROOT / "src/homemaster/config/runtime_paths.py").exists()
+    assert not (ROOT / "src/homemaster/config/runtime_settings.py").exists()
     assert not (ROOT / "src/homemaster/agent/runtime.py").exists()
     assert not (ROOT / "src/homemaster/providers/mimo_decision_client.py").exists()
-    assert not (ROOT / "src/homemaster/agent/context.py").exists()
+    assert not (ROOT / "src/homemaster/providers/mimo_transport.py").exists()
+    assert not (ROOT / "src/homemaster/providers/transport.py").exists()
     assert not (ROOT / "src/homemaster/agent/context_builder.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context_items.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context_budget.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context_providers.py").exists()
+    assert not (ROOT / "src/homemaster/agent/context_assembler.py").exists()
     assert not (ROOT / "src/homemaster/tools/builtin.py").exists()
     assert not (ROOT / "src/homemaster/tools/skill_tools.py").exists()
     assert not (ROOT / "src/homemaster/tools/state_updater.py").exists()

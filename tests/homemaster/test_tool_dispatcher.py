@@ -6,13 +6,13 @@ from typing import Any
 
 from homemaster.agent.messages import ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from homemaster.config.runtime_settings import RuntimeSettings
+from types import SimpleNamespace
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
 
 
-def _make_settings(**kwargs: Any) -> RuntimeSettings:
+def _make_settings(**kwargs: Any) -> SimpleNamespace:
     defaults = {
         "run_id": "test-001",
         "runtime_root": "/tmp/runs",
@@ -20,10 +20,10 @@ def _make_settings(**kwargs: Any) -> RuntimeSettings:
         "results_root": "/tmp/results",
     }
     defaults.update(kwargs)
-    return RuntimeSettings(**defaults)
+    return SimpleNamespace(**defaults)
 
 
-def _make_run_context(settings: RuntimeSettings | None = None, **kwargs: Any) -> RunContext:
+def _make_run_context(settings: SimpleNamespace | None = None, **kwargs: Any) -> RunContext:
     defaults = {
         "session_id": "s1",
         "run_id": "r1",
@@ -56,7 +56,7 @@ def test_dispatcher_accepts_generic_agent_state(tmp_path: Any) -> None:
         executor_mode="programmatic",
         executor=executor,
     )
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="r1",
         runtime_root=tmp_path,
         debug_root=tmp_path / "debug",
@@ -91,7 +91,7 @@ def test_dispatcher_passes_run_context_deps_without_interpreting_them(tmp_path: 
         executor_mode="programmatic",
         executor=executor,
     )
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="r1",
         runtime_root=tmp_path,
         debug_root=tmp_path / "debug",
@@ -196,7 +196,7 @@ def test_dispatcher_callable_adapter(tmp_path: Any) -> None:
         executor_mode="programmatic",
         executor=executor,
     )
-    settings = RuntimeSettings(
+    settings = SimpleNamespace(
         run_id="r1",
         runtime_root=tmp_path,
         debug_root=tmp_path / "debug",
