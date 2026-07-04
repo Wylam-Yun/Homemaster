@@ -160,12 +160,6 @@ class ContextPolicyConfig(BaseModel):
     enable_disk_overflow: bool = False
     tool_result_overflow_threshold_chars: int = 4000
 
-    # Compatibility fields used by the current assembler until the V1.6 compactor lands.
-    recent_tail_ratio: float = 0.20
-    preserve_recent_agent_steps: int = 20
-    preserve_recent_user_turns: int = 3
-    image_token_estimate: int = 4096
-
 
 class RuntimeGuardConfig(BaseModel):
     max_tool_iterations: int | None = None
@@ -327,9 +321,3 @@ def _provider_env_value(provider_name: str, suffix: str) -> str | None:
 def _is_placeholder_api_key(value: str) -> bool:
     stripped = value.strip()
     return stripped.startswith("<") and stripped.endswith(">")
-
-
-DEFAULT_CONFIG_PATH = HOMEMASTER_CONFIG_PATH
-GENERIC_CONFIG_PATH = HOMEMASTER_CONFIG_PATH
-MEMORY_CASE_ROOT = REPO_ROOT / "tests" / "homemaster" / "memory_cases"
-MEMORY_RESULTS_ROOT = REPO_ROOT / "plan" / "test_results"

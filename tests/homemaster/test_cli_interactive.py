@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
+from homemaster.agent.turn import new_session_id
 
 
 @dataclass(frozen=True)
@@ -98,3 +99,12 @@ def test_shell_no_guess_scenario(monkeypatch) -> None:
     assert "scenario" not in result.stdout
     assert "fetch_cup_retry" not in result.stdout
     assert "interactive-" not in result.stdout
+
+
+def test_new_session_id_is_human_readable() -> None:
+    session_id = new_session_id()
+    assert len(session_id) == 22
+    assert session_id[8] == "_"
+    assert session_id[15] == "_"
+    assert session_id[:8].isdigit()
+    assert session_id[9:15].isdigit()

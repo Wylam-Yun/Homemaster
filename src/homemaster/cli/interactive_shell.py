@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
 
 import typer
@@ -14,7 +13,7 @@ from homemaster.agent.session_persistence import (
     session_snapshot_path,
 )
 from homemaster.agent.session import AgentSession
-from homemaster.agent.turn import run_agent_turn
+from homemaster.agent.turn import new_session_id, run_agent_turn
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.config import load_config
 from homemaster.task_state.store import TaskStateStore
@@ -38,7 +37,7 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
         snapshot_system_prompt = str(snapshot_payload.get("system_prompt") or "")
         typer.echo(f"已恢复会话: {session.session_id}")
     else:
-        session = AgentSession(session_id=uuid.uuid4().hex[:8])
+        session = AgentSession(session_id=new_session_id())
         agent_state = None
         task_state_store = TaskStateStore(run_id=session.session_id)
         snapshot_path = None
@@ -73,7 +72,7 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
             typer.echo("再见")
             return
         if utterance == "/new":
-            session = AgentSession(session_id=uuid.uuid4().hex[:8])
+            session = AgentSession(session_id=new_session_id())
             agent_state = None
             task_state_store = TaskStateStore(run_id=session.session_id)
             last_status = "idle"
@@ -94,7 +93,7 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
             typer.echo(f"trace: {last_trace_path or 'no trace yet'}")
             continue
 
-        run_id = uuid.uuid4().hex[:12]
+        run_id = new_session_id()
         try:
             result = run_agent_turn(
                 session,

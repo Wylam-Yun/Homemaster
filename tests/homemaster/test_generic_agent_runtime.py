@@ -440,7 +440,7 @@ def test_runtime_supports_unbounded_iterations() -> None:
     assert result.final_reply == "done"
 
 
-def test_reactive_compact_retries_context_length_error_once() -> None:
+def test_reactive_compact_retries_context_length_error_twice_by_default() -> None:
     from homemaster.agent.context import ContextAssembler
     from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 
@@ -467,6 +467,6 @@ def test_reactive_compact_retries_context_length_error_once() -> None:
 
     result = runtime.run(AgentSession(session_id="reactive"), "hello", tools=[])
 
-    assert transport.call_count == 2
+    assert transport.call_count == 3
     assert result.status == "failed"
     assert result.error_code == "context_length_exceeded_after_compact"

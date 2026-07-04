@@ -19,12 +19,12 @@ def test_budget_thresholds_scale_with_context_window() -> None:
         context_window_tokens=1_000_000,
         output_reserve_tokens=8192,
         threshold_ratio=0.5,
-        recent_tail_ratio=0.2,
+        tail_token_ratio=0.1,
         safety_buffer_tokens=13_000,
     )
 
     assert budget.compaction_threshold_tokens == 500_000
-    assert budget.recent_tail_budget_tokens == 100_000
+    assert budget.recent_tail_budget_tokens == 50_000
     assert budget.should_compact(499_999) is BudgetDecision.NO_COMPACT
     assert budget.should_compact(500_000) is BudgetDecision.COMPACT
 

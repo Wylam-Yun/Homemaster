@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from homemaster.agent.compact import (
-    build_basic_summary,
     build_compaction_summary_message,
-    compact_tool_result_text,
     microcompact_tool_results_by_type,
     split_preserving_tool_pairs,
     strip_old_images,
@@ -17,18 +15,6 @@ from homemaster.agent.messages import (
     ToolResultMessage,
     UserMessage,
 )
-
-
-def test_compact_tool_result_text_short_text_unchanged() -> None:
-    text = "short result"
-    assert compact_tool_result_text(text) == text
-
-
-def test_compact_tool_result_text_long_text_compacted() -> None:
-    text = "x" * 2000
-    result = compact_tool_result_text(text)
-    assert result.startswith("[tool result compacted]")
-    assert len(result) < len(text)
 
 
 def test_split_preserving_tool_pairs_keeps_result_with_call() -> None:
@@ -61,21 +47,6 @@ def test_build_compaction_summary_message_format() -> None:
     assert "CONTEXT COMPACTION" in msg.content[0].text
     assert "test summary" in msg.content[0].text
     assert "END OF CONTEXT SUMMARY" in msg.content[0].text
-
-
-def test_build_basic_summary_handles_empty() -> None:
-    result = build_basic_summary([])
-    assert "no compactable text" in result
-
-
-def test_build_basic_summary_produces_output() -> None:
-    messages = [
-        UserMessage(content=[ContentBlock(text="find the apple")]),
-        AssistantMessage(content=[ContentBlock(text="I'll look for it.")]),
-    ]
-    result = build_basic_summary(messages)
-    assert "find the apple" in result
-    assert "I'll look for it" in result
 
 
 def test_strip_old_images_keeps_recent_images_and_records_tool_args() -> None:

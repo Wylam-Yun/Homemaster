@@ -22,11 +22,9 @@ from homemaster.providers.llm_client import LLMClient, LLMClientError
 from homemaster.events.logger import get_logger
 from homemaster.prompts.loader import render
 from homemaster.config import (
-    DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
-    MEMORY_CASE_ROOT,
-    MEMORY_RESULTS_ROOT,
+    HOMEMASTER_CONFIG_PATH,
     REPO_ROOT,
     ConfigError,
     ProviderProfileConfig,
@@ -46,8 +44,18 @@ from .tokenizer import (
     build_domain_terms_from_object_memory,
 )
 
-RESULTS_DIR = MEMORY_RESULTS_ROOT / "memory_retrieval"
-CASE_ROOT = MEMORY_CASE_ROOT / "memory_retrieval"
+def _default_memory_case_root() -> Path:
+    configured = load_config().runtime_paths.memory_case_root
+    return Path(configured) if configured else REPO_ROOT / "tests" / "homemaster" / "memory_cases"
+
+
+def _default_memory_results_root() -> Path:
+    configured = load_config().runtime_paths.memory_results_root
+    return Path(configured) if configured else REPO_ROOT / "plan" / "test_results"
+
+
+RESULTS_DIR = _default_memory_results_root() / "memory_retrieval"
+CASE_ROOT = _default_memory_case_root() / "memory_retrieval"
 EMBEDDING_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "embeddings"
 MEMORY_QUERY_RETRY_INSTRUCTION = render("memory_query_retry")
 MAX_LLM_ATTEMPTS = 3
@@ -508,7 +516,7 @@ def run_memory_rag(
 def run_memory_retrieval_case(
     case_name: str,
     *,
-    config_path: str | Path = DEFAULT_CONFIG_PATH,
+    config_path: str | Path = HOMEMASTER_CONFIG_PATH,
     llm_provider_name: str = DEFAULT_PROVIDER_NAME,
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME,
     llm_client: httpx.Client | None = None,

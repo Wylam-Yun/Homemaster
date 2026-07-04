@@ -301,7 +301,8 @@ class GenericAgentRuntime:
                     assistant_msg = aggregate_deltas(deltas)
                 except Exception as exc:
                     if self._context_assembler is not None and _is_context_length_error(str(exc)):
-                        if reactive_compact_retries >= 1:
+                        max_retries = self._reactive_compact_max_retries(settings)
+                        if reactive_compact_retries >= max_retries:
                             emit(
                                 "runtime.turn_failed",
                                 payload={
@@ -629,6 +630,15 @@ class GenericAgentRuntime:
             emit("runtime.guard_triggered", payload={"guard": "max_no_progress_iterations"})
             return "max_no_progress_iterations"
         return None
+
+    @staticmethod
+    def _reactive_compact_max_retries(settings: Any) -> int:
+        context = getattr(settings, "context", None)
+        value = getattr(context, "reactive_compact_max_retries", 2)
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 2
 
     def _dispatch_tools(
         self,

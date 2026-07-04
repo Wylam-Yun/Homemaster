@@ -176,8 +176,9 @@ def test_completed_snapshot_renders_short_summary_not_full_detail() -> None:
 def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
     policy = ContextPolicyConfig(
         compression_threshold_ratio=0.01,
-        preserve_recent_agent_steps=1,
-        preserve_recent_user_turns=3,
+        protect_first_n=1,
+        tail_token_ratio=0.35,
+        abort_on_summary_failure=False,
     )
     assembler = ContextAssembler(
         provider=ProviderProfileConfig(
@@ -214,8 +215,6 @@ def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
         block.text for message in context.messages for block in message.content if block.text
     )
     assert context.metrics.compaction_triggered is True
-    assert "user turn 5" in text
-    assert "user turn 6" in text
     assert "user turn 7" in text
 
     assistant_calls = {
@@ -236,8 +235,8 @@ def test_compaction_uses_summary_client_when_available() -> None:
     summary_client = FakeSummaryClient()
     policy = ContextPolicyConfig(
         compression_threshold_ratio=0.01,
-        preserve_recent_agent_steps=1,
-        preserve_recent_user_turns=1,
+        protect_first_n=1,
+        tail_token_ratio=0.1,
     )
     assembler = ContextAssembler(
         provider=ProviderProfileConfig(
@@ -278,8 +277,8 @@ def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort()
     summary_client = FakeSummaryClient(fail=True)
     policy = ContextPolicyConfig(
         compression_threshold_ratio=0.01,
-        preserve_recent_agent_steps=1,
-        preserve_recent_user_turns=1,
+        protect_first_n=1,
+        tail_token_ratio=0.1,
         abort_on_summary_failure=True,
     )
     assembler = ContextAssembler(
@@ -315,3 +314,44 @@ def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort()
         block.text for message in context.messages for block in message.content if block.text
     )
     assert "CONTEXT COMPACTION" not in text
+
+
+def test_compaction_without_summary_client_does_not_build_basic_summary() -> None:
+    policy = ContextPolicyConfig(
+        compression_threshold_ratio=0.01,
+        protect_first_n=1,
+        tail_token_ratio=0.1,
+        abort_on_summary_failure=True,
+    )
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="tiny",
+            api_format="anthropic",
+            base_url="https://mimo.example",
+            model="tiny",
+            api_keys=["secret"],
+            context_window_tokens=1_000,
+            max_output_tokens=None,
+        ),
+        policy=policy.model_copy(update={"output_reserve_tokens": 100}),
+        system_prompt="system",
+        summary_client=None,
+    )
+    session = AgentSession(session_id="s1")
+    for index in range(8):
+        session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
+        session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id="s1"),
+        task_state_store=None,
+        tools=[],
+    )
+
+    text = "\n".join(
+        block.text for message in context.messages for block in message.content if block.text
+    )
+    assert context.metrics.compaction_triggered is False
+    assert "CONTEXT COMPACTION" not in text
+    assert "Earlier history contained no compactable text" not in text

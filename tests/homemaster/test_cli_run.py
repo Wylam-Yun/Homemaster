@@ -50,6 +50,25 @@ def test_run_command_accepts_progress_flag(monkeypatch, tmp_path: Path) -> None:
     assert result.exit_code == 0
 
 
+def test_run_command_accepts_verbose_and_quiet_flags(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run_single_turn(**kwargs):
+        captured.update(kwargs)
+        return FakeTurn()
+
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.run_single_turn",
+        fake_run_single_turn,
+    )
+
+    result = CliRunner().invoke(app, ["run", "--utterance", "test", "--verbose", "--quiet"])
+
+    assert result.exit_code == 0
+    assert captured["verbose"] is True
+    assert captured["quiet"] is True
+
+
 def test_run_command_no_scenario_flag() -> None:
     """--scenario is no longer a valid flag."""
     result = CliRunner().invoke(

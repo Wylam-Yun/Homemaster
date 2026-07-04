@@ -14,41 +14,6 @@ from homemaster.agent.messages import (
 TOOL_RESULT_COMPACT_PREFIX = "[tool result compacted]"
 
 
-def compact_tool_result_text(text: str, *, head_chars: int = 900, tail_chars: int = 500) -> str:
-    if len(text) <= head_chars + tail_chars + 200:
-        return text
-    return (
-        f"{TOOL_RESULT_COMPACT_PREFIX} original_chars={len(text)}\n"
-        f"{text[:head_chars]}\n...\n{text[-tail_chars:]}"
-    )
-
-
-def microcompact_old_tool_results(
-    messages: list[Message],
-    *,
-    keep_recent_tool_results: int,
-) -> tuple[list[Message], int]:
-    tool_indexes = [
-        index for index, msg in enumerate(messages)
-        if isinstance(msg, ToolResultMessage)
-    ]
-    if len(tool_indexes) <= keep_recent_tool_results:
-        return list(messages), 0
-    keep = set(tool_indexes[-keep_recent_tool_results:])
-    compacted: list[Message] = []
-    saved = 0
-    for index, msg in enumerate(messages):
-        if isinstance(msg, ToolResultMessage) and index not in keep:
-            text = "\n".join(block.text for block in msg.content if block.text)
-            compact_text = compact_tool_result_text(text)
-            if compact_text != text:
-                saved += max(0, len(text) - len(compact_text)) // 4
-            compacted.append(msg.model_copy(update={"content": [ContentBlock(text=compact_text)]}))
-        else:
-            compacted.append(msg)
-    return compacted, saved
-
-
 def strip_old_images(
     messages: list[Message],
     *,
@@ -189,12 +154,12 @@ def split_preserving_recent_context(
     messages: list[Message],
     *,
     preserve_recent_messages: int,
-    preserve_recent_user_turns: int,
+    protect_first_n: int,
 ) -> tuple[list[Message], list[Message]]:
     """Split old/recent history without splitting tool-call/result groups.
 
-    Recent history is the union of the latest grouped messages by count and the
-    latest N user turns with everything after the oldest preserved user turn.
+    The recent side includes the configured tail and the protected prefix is
+    excluded from summary input by keeping it on the recent side.
     """
     if not messages:
         return [], []
@@ -203,17 +168,17 @@ def split_preserving_recent_context(
         messages,
         preserve_recent_messages=preserve_recent_messages,
     )
-    remaining_user_turns = preserve_recent_user_turns
-    earliest_user_index: int | None = None
+    latest_user_index = None
     for index in range(len(messages) - 1, -1, -1):
         if isinstance(messages[index], UserMessage):
-            earliest_user_index = index
-            remaining_user_turns -= 1
-            if remaining_user_turns <= 0:
-                break
-    if earliest_user_index is not None:
-        split = min(split, earliest_user_index)
-    return list(messages[:split]), list(messages[split:])
+            latest_user_index = index
+            break
+    if latest_user_index is not None:
+        split = min(split, latest_user_index)
+    prefix = list(messages[:protect_first_n])
+    older = list(messages[protect_first_n:split])
+    recent = prefix + list(messages[split:])
+    return older, recent
 
 
 def _split_index_preserving_groups(
@@ -273,20 +238,6 @@ def build_compaction_summary_message(summary: str) -> UserMessage:
             )
         ]
     )
-
-
-def build_basic_summary(messages: list[Message], *, max_chars: int = 6000) -> str:
-    lines: list[str] = []
-    for msg in messages:
-        role = getattr(msg, "role", "unknown")
-        text = "\n".join(block.text for block in getattr(msg, "content", []) if block.text)
-        if not text:
-            continue
-        compact = " ".join(text.split())
-        lines.append(f"- {role}: {compact[:500]}")
-        if sum(len(line) for line in lines) >= max_chars:
-            break
-    return "\n".join(lines) or "- Earlier history contained no compactable text."
 
 
 def _tool_args_by_result_id(messages: list[Message]) -> dict[str, dict]:

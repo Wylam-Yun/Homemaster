@@ -10,7 +10,6 @@ from enum import Enum, StrEnum
 from typing import Any, Protocol
 
 from homemaster.agent.compact import (
-    build_basic_summary,
     build_compaction_summary_message,
     microcompact_tool_results_by_type,
     sanitize_tool_pairs,
@@ -93,10 +92,9 @@ class ContextBudget:
     context_window_tokens: int
     output_reserve_tokens: int
     threshold_ratio: float = 0.50
-    recent_tail_ratio: float = 0.20
+    tail_token_ratio: float = 0.10
     safety_buffer_tokens: int = 13_000
     token_estimation_padding: float = 4 / 3
-    image_token_estimate: int = 4096
 
     @property
     def compaction_threshold_tokens(self) -> int:
@@ -110,7 +108,7 @@ class ContextBudget:
 
     @property
     def recent_tail_budget_tokens(self) -> int:
-        return max(1, int(self.compaction_threshold_tokens * self.recent_tail_ratio))
+        return max(1, int(self.compaction_threshold_tokens * self.tail_token_ratio))
 
     def padded(self, tokens: int) -> int:
         return int(tokens * self.token_estimation_padding)
@@ -304,10 +302,9 @@ class ContextAssembler:
             context_window_tokens=self._provider.context_window_tokens,
             output_reserve_tokens=self._policy.output_reserve_tokens,
             threshold_ratio=self._policy.compression_threshold_ratio,
-            recent_tail_ratio=self._policy.recent_tail_ratio,
+            tail_token_ratio=self._policy.tail_token_ratio,
             safety_buffer_tokens=self._policy.safety_buffer_tokens,
             token_estimation_padding=self._policy.token_estimation_padding,
-            image_token_estimate=self._policy.image_token_estimate,
         )
 
     def prepare(
@@ -365,6 +362,7 @@ class ContextAssembler:
                 session=session,
                 messages=conversation_messages,
                 budget=budget,
+                aggressive=bool(self.force_compact_next == "aggressive"),
             )
             if compaction_triggered:
                 after_estimate = estimate_messages_tokens(
@@ -446,6 +444,7 @@ class ContextAssembler:
         session: AgentSession,
         messages: list[Message],
         budget: ContextBudget,
+        aggressive: bool = False,
     ) -> tuple[bool, str, list[Message]]:
         stage1_messages, stripped_images = strip_old_images(
             messages,
@@ -467,11 +466,26 @@ class ContextAssembler:
                 return True, "micro", stage1_messages
             messages = stage1_messages
 
-        preserve_count = self._policy.preserve_recent_agent_steps * 2
+        tail_ratio = (
+            self._policy.aggressive_tail_token_ratio
+            if aggressive
+            else self._policy.tail_token_ratio
+        )
+        protect_first_n = (
+            self._policy.aggressive_protect_first_n
+            if aggressive
+            else self._policy.protect_first_n
+        )
+        preserve_count = _tail_message_count_for_budget(
+            messages,
+            tail_token_budget=max(1, int(budget.compaction_threshold_tokens * tail_ratio)),
+            estimator=self._estimator,
+            min_messages=1,
+        )
         older, recent = split_preserving_recent_context(
             messages,
             preserve_recent_messages=preserve_count,
-            preserve_recent_user_turns=self._policy.preserve_recent_user_turns,
+            protect_first_n=protect_first_n,
         )
         if not older:
             if stripped_images or saved_tool_tokens:
@@ -498,7 +512,9 @@ class ContextAssembler:
         recent: list[Message],
     ) -> str | None:
         if not self._policy.enable_llm_summary or self._summary_client is None:
-            return build_basic_summary(older)
+            if self._policy.abort_on_summary_failure:
+                return None
+            return f"[Summary unavailable. {len(older)} messages omitted]"
         try:
             from homemaster.prompts.loader import PromptId, load_prompt
 
@@ -511,7 +527,11 @@ class ContextAssembler:
             if self._policy.abort_on_summary_failure:
                 return None
             return f"[Summary unavailable. {len(older)} messages dropped]"
-        return message.text.strip() or build_basic_summary(older)
+        if message.text.strip():
+            return message.text.strip()
+        if self._policy.abort_on_summary_failure:
+            return None
+        return f"[Summary unavailable. {len(older)} messages omitted]"
 
     def _summary_client_complete(self, *, prompt: str, system_prompt: str):
         try:
@@ -573,3 +593,22 @@ def _render_messages_for_summary(messages: list[Message]) -> str:
             text = f"PREVIOUS_SUMMARY:\n{text}"
         lines.append(f"## {index}: {message.role}\n{text or '[no text]'}")
     return "\n\n".join(lines) or "[no messages]"
+
+
+def _tail_message_count_for_budget(
+    messages: list[Message],
+    *,
+    tail_token_budget: int,
+    estimator: TokenEstimator,
+    min_messages: int = 1,
+) -> int:
+    if not messages:
+        return 0
+    total = 0
+    count = 0
+    for message in reversed(messages):
+        total += estimator.estimate_messages([message])
+        count += 1
+        if count >= min_messages and total >= tail_token_budget:
+            break
+    return min(len(messages), max(min_messages, count))

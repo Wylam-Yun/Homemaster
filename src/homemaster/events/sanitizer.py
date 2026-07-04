@@ -30,6 +30,12 @@ def sanitize_event_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return sanitized
 
 
+def sanitize_for_trace(payload: dict[str, Any]) -> dict[str, Any]:
+    """Redact secrets for debug traces without truncating payload content."""
+
+    return sanitize_for_log(payload)
+
+
 def _truncate_prompt_values(d: dict[str, Any]) -> dict[str, Any]:
     """Truncate long string values under prompt-like keys."""
     result: dict[str, Any] = {}

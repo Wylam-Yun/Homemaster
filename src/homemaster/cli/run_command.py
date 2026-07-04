@@ -25,6 +25,8 @@ def handle_run(
     run_id: str | None = None,
     log_level: str = "INFO",
     progress: bool = False,
+    verbose: bool = False,
+    quiet: bool = False,
     resume_session_id: str | None = None,
     continue_latest: bool = False,
 ) -> None:
@@ -56,6 +58,8 @@ def handle_run(
             world_path=world_path,
             memory_path=memory_path,
             progress=progress,
+            verbose=verbose,
+            quiet=quiet,
             agent_state=agent_state,
             task_state_store=task_state_store,
         )
@@ -68,6 +72,8 @@ def handle_run(
             world_path=world_path,
             memory_path=memory_path,
             progress=progress,
+            verbose=verbose,
+            quiet=quiet,
         )
     typer.echo(f"run_id: {result.run_id}")
     typer.echo(f"assistant: {result.final_reply}")

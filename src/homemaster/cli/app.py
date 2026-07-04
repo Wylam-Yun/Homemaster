@@ -49,6 +49,14 @@ def run_command(
         bool,
         typer.Option("--progress/--no-progress", help="Show high-level progress events on stderr."),
     ] = False,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", help="Show full thinking and tool result output on stderr."),
+    ] = False,
+    quiet: Annotated[
+        bool,
+        typer.Option("--quiet", help="Suppress console event output; stdout still prints the result."),
+    ] = False,
     resume_session_id: Annotated[
         str | None,
         typer.Option("--resume", help="Resume the specified persisted session id."),
@@ -67,6 +75,8 @@ def run_command(
             run_id=run_id,
             log_level=log_level,
             progress=progress,
+            verbose=verbose,
+            quiet=quiet,
             resume_session_id=resume_session_id,
             continue_latest=continue_latest,
         )

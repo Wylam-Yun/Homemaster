@@ -39,10 +39,9 @@ def test_context_policy_defaults_match_v15_spec() -> None:
 
     assert policy.auto_compact_enabled is True
     assert policy.compression_threshold_ratio == 0.50
-    assert policy.recent_tail_ratio == 0.20
+    assert policy.tail_token_ratio == 0.10
+    assert policy.protect_first_n == 3
     assert policy.output_reserve_tokens == 8192
-    assert policy.preserve_recent_agent_steps == 20
-    assert policy.preserve_recent_user_turns == 3
     assert policy.safety_buffer_tokens == 13_000
 
 

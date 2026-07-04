@@ -14,10 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
 from homemaster.config import (
-    DEFAULT_CONFIG_PATH,
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
-    GENERIC_CONFIG_PATH,
+    HOMEMASTER_CONFIG_PATH,
     REPO_ROOT,
     ConfigError,
     load_config,
@@ -110,14 +109,12 @@ def _import_checks() -> list[DoctorCheck]:
 
 
 def _config_source() -> str:
-    if GENERIC_CONFIG_PATH.exists():
-        return str(GENERIC_CONFIG_PATH.relative_to(REPO_ROOT))
-    return str(DEFAULT_CONFIG_PATH.relative_to(REPO_ROOT))
+    return str(HOMEMASTER_CONFIG_PATH.relative_to(REPO_ROOT))
 
 
 def _config_check(config_source: str) -> DoctorCheck:
     try:
-        config = load_config(DEFAULT_CONFIG_PATH)
+        config = load_config(HOMEMASTER_CONFIG_PATH)
         chat_provider = config.get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
         embedding_provider = config.get_provider(
             DEFAULT_EMBEDDING_PROVIDER_NAME,
@@ -146,7 +143,7 @@ def _config_check(config_source: str) -> DoctorCheck:
 
 def _embedding_endpoint_check() -> DoctorCheck:
     try:
-        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(
+        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
             DEFAULT_EMBEDDING_PROVIDER_NAME,
             kind="embedding",
         )
@@ -213,7 +210,7 @@ def _live_provider_checks() -> list[DoctorCheck]:
 
 def _live_mimo_smoke() -> DoctorCheck:
     try:
-        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
+        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
         client = LLMClient(provider)
         try:
             response = client.complete_json(
@@ -239,7 +236,7 @@ def _live_mimo_smoke() -> DoctorCheck:
 
 def _live_embedding_smoke() -> DoctorCheck:
     try:
-        provider = load_config(DEFAULT_CONFIG_PATH).get_provider(
+        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
             DEFAULT_EMBEDDING_PROVIDER_NAME,
             kind="embedding",
         )

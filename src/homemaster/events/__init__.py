@@ -5,21 +5,28 @@ sanitizer for redacting sensitive data from trace output.
 """
 
 from homemaster.events.runtime_events import KNOWN_EVENT_TYPES, EventSink, RuntimeEvent
-from homemaster.events.sanitizer import sanitize_event_payload
+from homemaster.events.sanitizer import sanitize_event_payload, sanitize_for_trace
 from homemaster.events.sinks import (
-    ConsoleProgressEventSink,
+    ConsoleEventSink,
     FanoutEventSink,
     JsonlEventSink,
+    JsonlTraceSink,
+    MessagesLogSink,
     NullEventSink,
+    VerboseConsoleEventSink,
 )
 
 __all__ = [
-    "ConsoleProgressEventSink",
+    "ConsoleEventSink",
     "EventSink",
     "FanoutEventSink",
     "JsonlEventSink",
+    "JsonlTraceSink",
     "KNOWN_EVENT_TYPES",
+    "MessagesLogSink",
     "NullEventSink",
     "RuntimeEvent",
+    "VerboseConsoleEventSink",
     "sanitize_event_payload",
+    "sanitize_for_trace",
 ]

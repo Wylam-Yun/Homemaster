@@ -7,6 +7,7 @@ for multi-turn interactive shell sessions.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -128,23 +129,31 @@ def _build_event_sink(
     *,
     run_id: str,
     progress: bool,
+    verbose: bool = False,
+    quiet: bool = False,
 ) -> tuple[Any, Path, Path]:
     """Build the trace sink for a run."""
     from homemaster.events.sinks import (
-        ConsoleProgressEventSink,
+        ConsoleEventSink,
         FanoutEventSink,
-        JsonlEventSink,
+        JsonlTraceSink,
+        MessagesLogSink,
+        VerboseConsoleEventSink,
     )
 
     run_dir = Path("/tmp/homemaster/runs") / run_id
-    jsonl_sink = JsonlEventSink(run_dir)
-    if progress:
+    trace_sink = JsonlTraceSink(run_dir)
+    message_sink = MessagesLogSink(run_dir)
+    sinks = [trace_sink, message_sink]
+    if progress or verbose:
+        console_sink = VerboseConsoleEventSink() if verbose else ConsoleEventSink(quiet=quiet)
+        sinks.append(console_sink)
         return (
-            FanoutEventSink([jsonl_sink, ConsoleProgressEventSink()]),
+            FanoutEventSink(sinks),
             run_dir / "runtime_events.jsonl",
             run_dir,
         )
-    return jsonl_sink, run_dir / "runtime_events.jsonl", run_dir
+    return FanoutEventSink(sinks), run_dir / "runtime_events.jsonl", run_dir
 
 
 def run_single_turn(
@@ -154,6 +163,8 @@ def run_single_turn(
     world_path: Path | None = None,
     memory_path: Path | None = None,
     progress: bool = False,
+    verbose: bool = False,
+    quiet: bool = False,
     agent_state: AgentState | None = None,
     task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
@@ -162,7 +173,7 @@ def run_single_turn(
     Creates a fresh session internally. Suitable for CLI `run` command.
     """
     run_id = run_id or uuid.uuid4().hex[:12]
-    session = AgentSession(session_id=run_id)
+    session = AgentSession(session_id=new_session_id())
     return run_agent_turn(
         session=session,
         text=utterance,
@@ -170,6 +181,8 @@ def run_single_turn(
         world_path=world_path,
         memory_path=memory_path,
         progress=progress,
+        verbose=verbose,
+        quiet=quiet,
     )
 
 
@@ -181,6 +194,8 @@ def run_agent_turn(
     world_path: Path | None = None,
     memory_path: Path | None = None,
     progress: bool = False,
+    verbose: bool = False,
+    quiet: bool = False,
     agent_state: AgentState | None = None,
     task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
@@ -192,7 +207,12 @@ def run_agent_turn(
 
     run_id = run_id or uuid.uuid4().hex[:12]
 
-    event_sink, trace_path, run_dir = _build_event_sink(run_id=run_id, progress=progress)
+    event_sink, trace_path, run_dir = _build_event_sink(
+        run_id=run_id,
+        progress=progress,
+        verbose=verbose,
+        quiet=quiet,
+    )
     dispatcher, tool_schemas = _build_tool_dispatcher_and_specs(
         run_id,
         world_path=world_path,
@@ -253,6 +273,12 @@ def run_agent_turn(
     )
 
     return _to_turn_result(result, run_id, trace_path=trace_path, run_dir=run_dir)
+
+
+def new_session_id() -> str:
+    """Return a human-readable resumable session id."""
+
+    return datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
 
 
 def _to_tool_specs(
