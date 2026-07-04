@@ -7,8 +7,8 @@ for multi-turn interactive shell sessions.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -35,6 +35,22 @@ class AgentTurnResult:
     trace_path: Path | None = None
     run_dir: Path | None = None
     tool_events: list[RuntimeEvent] = field(default_factory=list)
+
+
+@dataclass
+class AgentCompactResult:
+    """Result of an immediate context compaction command."""
+
+    run_id: str
+    status: str
+    message: str
+    trace_path: Path | None = None
+    run_dir: Path | None = None
+    compaction_triggered: bool = False
+    compaction_kind: str = "none"
+    before_tokens: int = 0
+    after_tokens: int = 0
+    agent_state: AgentState | None = None
 
 
 def _build_transport(
@@ -131,6 +147,7 @@ def _build_event_sink(
     progress: bool,
     verbose: bool = False,
     quiet: bool = False,
+    console_show_replies: bool = True,
 ) -> tuple[Any, Path, Path]:
     """Build the trace sink for a run."""
     from homemaster.events.sinks import (
@@ -146,7 +163,11 @@ def _build_event_sink(
     message_sink = MessagesLogSink(run_dir)
     sinks = [trace_sink, message_sink]
     if progress or verbose:
-        console_sink = VerboseConsoleEventSink() if verbose else ConsoleEventSink(quiet=quiet)
+        console_sink = (
+            VerboseConsoleEventSink(show_replies=console_show_replies)
+            if verbose
+            else ConsoleEventSink(quiet=quiet, show_replies=console_show_replies)
+        )
         sinks.append(console_sink)
         return (
             FanoutEventSink(sinks),
@@ -165,6 +186,7 @@ def run_single_turn(
     progress: bool = False,
     verbose: bool = False,
     quiet: bool = False,
+    console_show_replies: bool = True,
     agent_state: AgentState | None = None,
     task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
@@ -183,6 +205,7 @@ def run_single_turn(
         progress=progress,
         verbose=verbose,
         quiet=quiet,
+        console_show_replies=console_show_replies,
     )
 
 
@@ -196,6 +219,8 @@ def run_agent_turn(
     progress: bool = False,
     verbose: bool = False,
     quiet: bool = False,
+    console_show_replies: bool = True,
+    force_compact: bool = False,
     agent_state: AgentState | None = None,
     task_state_store: TaskStateStore | None = None,
 ) -> AgentTurnResult:
@@ -212,6 +237,7 @@ def run_agent_turn(
         progress=progress,
         verbose=verbose,
         quiet=quiet,
+        console_show_replies=console_show_replies,
     )
     dispatcher, tool_schemas = _build_tool_dispatcher_and_specs(
         run_id,
@@ -252,6 +278,8 @@ def run_agent_turn(
         system_prompt=system_prompt,
         summary_client=transport,
     )
+    if force_compact:
+        context_assembler.force_compact_next = "manual"
 
     runtime = GenericAgentRuntime(
         transport=transport,
@@ -273,6 +301,117 @@ def run_agent_turn(
     )
 
     return _to_turn_result(result, run_id, trace_path=trace_path, run_dir=run_dir)
+
+
+def compact_agent_context(
+    session: AgentSession,
+    *,
+    run_id: str | None = None,
+    progress: bool = False,
+    verbose: bool = False,
+    quiet: bool = False,
+    agent_state: AgentState | None = None,
+    task_state_store: TaskStateStore | None = None,
+) -> AgentCompactResult:
+    """Immediately compact the current session context without running a user turn."""
+    from homemaster.prompts.loader import load_prompt
+
+    run_id = run_id or uuid.uuid4().hex[:12]
+    event_sink, trace_path, run_dir = _build_event_sink(
+        run_id=run_id,
+        progress=progress,
+        verbose=verbose,
+        quiet=quiet,
+        console_show_replies=False,
+    )
+    run_context = _build_run_context(
+        run_id,
+        session.session_id,
+        event_sink=event_sink,
+        task_state_store=task_state_store,
+    )
+    system_prompt = load_prompt(run_context.settings.prompts.agent_system_prompt)
+    config = load_config(run_context.settings.config_path)
+    provider_profile = config.get_provider(
+        run_context.settings.provider_name,
+        kind="chat",
+    )
+    try:
+        transport = _build_transport(
+            config_path=run_context.settings.config_path,
+            provider_name=run_context.settings.provider_name,
+        )
+    except TypeError:
+        transport = _build_transport()
+    context_assembler = ContextAssembler(
+        provider=provider_profile,
+        policy=run_context.settings.context,
+        system_prompt=system_prompt,
+        summary_client=transport,
+    )
+    context_assembler.force_compact_next = "manual"
+
+    if agent_state is None:
+        agent_state = AgentState(
+            run_id=run_id,
+            session_id=session.session_id,
+            max_tool_iterations=run_context.settings.runtime_guards.max_tool_iterations,
+        )
+    else:
+        agent_state.run_id = run_id
+        agent_state.session_id = session.session_id
+        agent_state.max_tool_iterations = run_context.settings.runtime_guards.max_tool_iterations
+
+    composed = context_assembler.prepare(
+        session=session,
+        agent_state=agent_state,
+        task_state_store=run_context.deps.get("task_state_store"),
+        tools=[],
+    )
+    record = agent_state.last_compaction
+    if composed.metrics.compaction_triggered and record is not None:
+        event_sink.emit(RuntimeEvent(
+            type="context.compaction",
+            session_id=session.session_id,
+            run_id=run_id,
+            turn_index=0,
+            payload={
+                "trigger": "manual",
+                "kind": composed.metrics.compaction_kind,
+                "before_tokens": record.before_tokens,
+                "after_tokens": record.after_tokens,
+            },
+        ))
+        return AgentCompactResult(
+            run_id=run_id,
+            status="compacted",
+            message=(
+                f"已压缩上下文：{record.before_tokens} -> {record.after_tokens} tokens"
+            ),
+            trace_path=trace_path,
+            run_dir=run_dir,
+            compaction_triggered=True,
+            compaction_kind=composed.metrics.compaction_kind,
+            before_tokens=record.before_tokens,
+            after_tokens=record.after_tokens,
+            agent_state=agent_state,
+        )
+
+    event_sink.emit(RuntimeEvent(
+        type="runtime.turn_completed",
+        session_id=session.session_id,
+        run_id=run_id,
+        turn_index=0,
+        payload={"status": "noop", "reason": "no_compactable_context"},
+    ))
+    return AgentCompactResult(
+        run_id=run_id,
+        status="noop",
+        message="没有可压缩的旧上下文。",
+        trace_path=trace_path,
+        run_dir=run_dir,
+        agent_state=agent_state,
+    )
 
 
 def new_session_id() -> str:

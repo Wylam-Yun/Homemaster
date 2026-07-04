@@ -55,7 +55,10 @@ def run_command(
     ] = False,
     quiet: Annotated[
         bool,
-        typer.Option("--quiet", help="Suppress console event output; stdout still prints the result."),
+        typer.Option(
+            "--quiet",
+            help="Suppress console event output; stdout still prints the result.",
+        ),
     ] = False,
     resume_session_id: Annotated[
         str | None,

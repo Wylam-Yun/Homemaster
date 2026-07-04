@@ -273,6 +273,96 @@ def test_compaction_uses_summary_client_when_available() -> None:
     assert "END OF CONTEXT SUMMARY" in text
 
 
+def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
+    summary_client = FakeSummaryClient()
+    policy = ContextPolicyConfig(
+        compression_threshold_ratio=0.99,
+        protect_first_n=1,
+        aggressive_protect_first_n=1,
+        aggressive_tail_token_ratio=0.01,
+    )
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="large",
+            api_format="anthropic",
+            base_url="https://mimo.example",
+            model="large",
+            api_keys=["secret"],
+            context_window_tokens=1_000_000,
+            max_output_tokens=None,
+        ),
+        policy=policy.model_copy(update={"output_reserve_tokens": 100}),
+        system_prompt="system",
+        summary_client=summary_client,
+    )
+    session = AgentSession(session_id="s1")
+    for index in range(4):
+        session.append(UserMessage(
+            content=[ContentBlock(text=f"old user turn {index} " + "x" * 400)]
+        ))
+        session.append(AssistantMessage(
+            content=[ContentBlock(text=f"old answer {index} " + "y" * 400)]
+        ))
+    session.append(UserMessage(content=[ContentBlock(text="current request")]))
+    assembler.force_compact_next = "manual"
+    agent_state = AgentState(run_id="r1", session_id="s1")
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=agent_state,
+        task_state_store=None,
+        tools=[],
+    )
+
+    text = "\n".join(
+        block.text for message in context.messages for block in message.content if block.text
+    )
+    assert context.metrics.compaction_triggered is True
+    assert context.metrics.compaction_kind == "manual_summary"
+    assert agent_state.last_compaction is not None
+    assert agent_state.last_compaction.kind == "manual"
+    assert agent_state.last_compaction.reason == "manual"
+    assert context.metrics.estimated_tokens == agent_state.last_compaction.after_tokens
+    assert agent_state.last_compaction.after_tokens < agent_state.last_compaction.before_tokens
+    assert summary_client.calls
+    assert "LLM SUMMARY: cup found on table" in text
+    assert "current request" in text
+    assert len(session.messages) < 9
+
+
+def test_manual_force_compaction_noops_without_old_history() -> None:
+    summary_client = FakeSummaryClient()
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="large",
+            api_format="anthropic",
+            base_url="https://mimo.example",
+            model="large",
+            api_keys=["secret"],
+            context_window_tokens=1_000_000,
+            max_output_tokens=None,
+        ),
+        policy=ContextPolicyConfig(),
+        system_prompt="system",
+        summary_client=summary_client,
+    )
+    session = AgentSession(session_id="s1")
+    session.append(UserMessage(content=[ContentBlock(text="current request")]))
+    assembler.force_compact_next = "manual"
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id="s1"),
+        task_state_store=None,
+        tools=[],
+    )
+
+    assert context.metrics.compaction_triggered is False
+    assert context.metrics.compaction_kind == "none"
+    assert not summary_client.calls
+    assert len(session.messages) == 1
+
+
 def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort() -> None:
     summary_client = FakeSummaryClient(fail=True)
     policy = ContextPolicyConfig(

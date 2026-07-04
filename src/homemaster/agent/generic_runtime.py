@@ -250,14 +250,19 @@ class GenericAgentRuntime:
                     context_system_prompt = composed.system_prompt
                     context_tools = composed.tools
                     if composed.metrics.compaction_triggered:
+                        compaction_trigger = (
+                            "manual"
+                            if composed.metrics.compaction_kind.startswith("manual")
+                            else (
+                                "reactive"
+                                if composed.metrics.compaction_kind in {"reactive", "emergency"}
+                                else "auto"
+                            )
+                        )
                         emit(
                             "context.compaction",
                             payload={
-                                "trigger": (
-                                    "reactive"
-                                    if composed.metrics.compaction_kind in {"reactive", "emergency"}
-                                    else "auto"
-                                ),
+                                "trigger": compaction_trigger,
                                 "after_tokens": composed.metrics.estimated_tokens,
                                 "kind": composed.metrics.compaction_kind,
                             },
@@ -342,7 +347,10 @@ class GenericAgentRuntime:
                 model_elapsed_ms = round((time.perf_counter() - model_started) * 1000, 1)
                 session.append(assistant_msg)
                 if assistant_msg.reasoning_content:
-                    emit("assistant.thinking", payload={"thinking": assistant_msg.reasoning_content})
+                    emit(
+                        "assistant.thinking",
+                        payload={"thinking": assistant_msg.reasoning_content},
+                    )
                 if assistant_msg.text:
                     emit("assistant.reply", payload={"reply": assistant_msg.text})
                     if persistence is not None:
@@ -374,7 +382,10 @@ class GenericAgentRuntime:
                 if not assistant_msg.tool_calls:
                     emit(
                         "runtime.turn_completed",
-                        payload={"final_reply": assistant_msg.text, "duration_ms": model_elapsed_ms},
+                        payload={
+                            "final_reply": assistant_msg.text,
+                            "duration_ms": model_elapsed_ms,
+                        },
                     )
                     save_snapshot("replied")
                     return GenericRunResult(
@@ -494,7 +505,11 @@ class GenericAgentRuntime:
                         )
 
                 if settings is not None:
-                    guard_result = self._check_loop_guards(agent_state, emit=emit, settings=settings)
+                    guard_result = self._check_loop_guards(
+                        agent_state,
+                        emit=emit,
+                        settings=settings,
+                    )
                     if guard_result is not None:
                         save_snapshot("failed")
                         return GenericRunResult(

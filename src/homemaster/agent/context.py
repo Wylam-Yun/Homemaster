@@ -350,21 +350,32 @@ class ContextAssembler:
         compaction_triggered = False
         compaction_kind = "none"
 
-        if (
+        force_compact = bool(self.force_compact_next)
+        should_auto_compact = (
             self._policy.auto_compact_enabled
-            and (
-                self.force_compact_next
-                or budget.should_compact(padded) is BudgetDecision.COMPACT
-            )
-        ):
+            and budget.should_compact(padded) is BudgetDecision.COMPACT
+        )
+        if force_compact or should_auto_compact:
             before_tokens = padded
+            force_mode = str(self.force_compact_next) if self.force_compact_next else ""
             compaction_triggered, compaction_kind, conversation_messages = self._compact(
                 session=session,
                 messages=conversation_messages,
                 budget=budget,
-                aggressive=bool(self.force_compact_next == "aggressive"),
+                aggressive=force_mode in {"aggressive", "manual"},
+                force_summary=force_mode == "manual",
             )
             if compaction_triggered:
+                if force_mode == "manual":
+                    record_kind = "manual"
+                    record_reason = "manual"
+                    compaction_kind = f"manual_{compaction_kind}"
+                elif force_compact:
+                    record_kind = "reactive"
+                    record_reason = "provider_context_length"
+                else:
+                    record_kind = "summary"
+                    record_reason = "threshold"
                 after_estimate = estimate_messages_tokens(
                     conversation_messages,
                     estimator=self._estimator,
@@ -374,11 +385,13 @@ class ContextAssembler:
                     self._estimator.estimate_text(text) for text in prelude_texts
                 )
                 after_estimate += estimate_tools_tokens(tools)
+                after_tokens = budget.padded(after_estimate)
+                padded = after_tokens
                 agent_state.last_compaction = CompactionRecord(
-                    kind="reactive" if self.force_compact_next else "summary",
+                    kind=record_kind,
                     before_tokens=before_tokens,
-                    after_tokens=budget.padded(after_estimate),
-                    reason="provider_context_length" if self.force_compact_next else "threshold",
+                    after_tokens=after_tokens,
+                    reason=record_reason,
                 )
             self.force_compact_next = False
 
@@ -445,6 +458,7 @@ class ContextAssembler:
         messages: list[Message],
         budget: ContextBudget,
         aggressive: bool = False,
+        force_summary: bool = False,
     ) -> tuple[bool, str, list[Message]]:
         stage1_messages, stripped_images = strip_old_images(
             messages,
@@ -461,7 +475,11 @@ class ContextAssembler:
                 stage1_messages,
                 estimator=self._estimator,
             )
-            if budget.should_compact(budget.padded(stage1_estimate)) is not BudgetDecision.COMPACT:
+            if (
+                not force_summary
+                and budget.should_compact(budget.padded(stage1_estimate))
+                is not BudgetDecision.COMPACT
+            ):
                 session.replace_messages(stage1_messages)
                 return True, "micro", stage1_messages
             messages = stage1_messages
@@ -476,12 +494,15 @@ class ContextAssembler:
             if aggressive
             else self._policy.protect_first_n
         )
-        preserve_count = _tail_message_count_for_budget(
-            messages,
-            tail_token_budget=max(1, int(budget.compaction_threshold_tokens * tail_ratio)),
-            estimator=self._estimator,
-            min_messages=1,
-        )
+        if force_summary:
+            preserve_count = 1
+        else:
+            preserve_count = _tail_message_count_for_budget(
+                messages,
+                tail_token_budget=max(1, int(budget.compaction_threshold_tokens * tail_ratio)),
+                estimator=self._estimator,
+                min_messages=1,
+            )
         older, recent = split_preserving_recent_context(
             messages,
             preserve_recent_messages=preserve_count,
@@ -496,7 +517,10 @@ class ContextAssembler:
         summary = self._build_summary(older=older, recent=recent)
         if summary is None:
             return False, "none", messages
-        compacted_messages = sanitize_tool_pairs([build_compaction_summary_message(summary), *recent])
+        compacted_messages = sanitize_tool_pairs([
+            build_compaction_summary_message(summary),
+            *recent,
+        ])
         compacted_messages, _stripped_final = strip_old_images(
             compacted_messages,
             keep_recent_images=self._policy.keep_recent_images,

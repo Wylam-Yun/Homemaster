@@ -86,12 +86,8 @@ class MessagesLogSink:
 
 
 _CONSOLE_EVENT_TYPES: frozenset[str] = frozenset({
-    "runtime.turn_started",
-    "runtime.turn_completed",
     "runtime.turn_failed",
     "runtime.budget_exhausted",
-    "transport.request_started",
-    "transport.response_completed",
     "transport.request_failed",
     "assistant.thinking",
     "assistant.reply",
@@ -105,15 +101,22 @@ _CONSOLE_EVENT_TYPES: frozenset[str] = frozenset({
 class ConsoleEventSink:
     """Render medium-granularity runtime events to stderr."""
 
-    def __init__(self, *, verbose: bool = False, quiet: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        verbose: bool = False,
+        quiet: bool = False,
+        show_replies: bool = True,
+    ) -> None:
         self._console: Any = None
         self._verbose = verbose
         self._quiet = quiet
+        self._show_replies = show_replies
 
     def _get_console(self) -> Any:
         if self._console is None:
             from rich.console import Console
-            self._console = Console(file=sys.stderr, highlight=False)
+            self._console = Console(file=sys.stderr, highlight=False, markup=False)
         return self._console
 
     def emit(self, event: RuntimeEvent) -> None:
@@ -137,30 +140,56 @@ class ConsoleEventSink:
             thinking = str(event.payload.get("thinking") or "")
             if not self._verbose:
                 thinking = _first_line(thinking)
-            return f"{prefix}[thinking] {thinking}"
+            return f"{prefix}[模型思考] {thinking}"
         if event.type == "assistant.reply":
-            return f"{prefix}[reply] {event.payload.get('reply', '')}"
+            if not self._show_replies:
+                return ""
+            reply = str(event.payload.get("reply") or "")
+            if not self._verbose:
+                reply = _first_line(reply)
+            return f"{prefix}[模型回复] {reply}"
+        if event.type == "tool.call_started":
+            arguments = _compact_json(event.payload.get("arguments", {}), max_chars=240)
+            suffix = f": {arguments}" if arguments else ""
+            return f"{prefix}[工具调用] {event.name or 'unknown'}{suffix}"
         if event.type in {"tool.call_completed", "tool.call_failed"}:
             result = str(event.payload.get("result") or "")
+            if not result:
+                result = _compact_json(event.payload.get("data", {}), max_chars=240)
             if not self._verbose:
                 result = _first_line(result, max_chars=240)
-            status = "failed" if event.type.endswith("failed") else "completed"
-            return f"{prefix}[tool {status}] {event.name}: {result}"
-        parts = [f"[bold]{event.type}[/bold]"]
-        if event.name:
-            parts.append(f"name={event.name}")
-        if event.tool_call_id:
-            parts.append(f"tool_call_id={event.tool_call_id}")
-        if event.duration_ms is not None:
-            parts.append(f"{event.duration_ms:.0f}ms")
-        return " ".join(parts)
+            label = "工具失败" if event.type.endswith("failed") else "工具结果"
+            duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms is not None else ""
+            return f"{prefix}[{label}] {event.name or 'unknown'}{duration}: {result}"
+        if event.type == "context.compaction":
+            trigger = event.payload.get("trigger") or "auto"
+            kind = event.payload.get("kind") or "summary"
+            after_tokens = event.payload.get("after_tokens")
+            token_text = f", after_tokens={after_tokens}" if after_tokens is not None else ""
+            return f"{prefix}[上下文压缩] trigger={trigger}, kind={kind}{token_text}"
+        if event.type == "runtime.turn_failed":
+            error = event.payload.get("error") or event.payload.get("error_code") or "unknown error"
+            return f"{prefix}[运行失败] {error}"
+        if event.type == "runtime.budget_exhausted":
+            return f"{prefix}[运行失败] 达到最大工具迭代次数"
+        if event.type == "transport.request_failed":
+            error = (
+                event.payload.get("error")
+                or event.payload.get("error_type")
+                or "request failed"
+            )
+            return f"{prefix}[模型请求失败] {error}"
+        if event.type.endswith("_failed"):
+            error = event.payload.get("error") or event.payload.get("error_code") or event.type
+            return f"{prefix}[运行失败] {error}"
+        return ""
 
 
 class VerboseConsoleEventSink(ConsoleEventSink):
     """Render complete thinking/tool-result console output."""
 
-    def __init__(self) -> None:
-        super().__init__(verbose=True)
+    def __init__(self, *, show_replies: bool = True) -> None:
+        super().__init__(verbose=True, show_replies=show_replies)
 
 
 class FanoutEventSink:
@@ -198,3 +227,15 @@ def _first_line(value: str, *, max_chars: int = 200) -> str:
     if len(line) <= max_chars:
         return line
     return line[:max_chars] + "..."
+
+
+def _compact_json(value: Any, *, max_chars: int) -> str:
+    if value in (None, "", {}, []):
+        return ""
+    try:
+        rendered = json.dumps(sanitize_event_payload(value), ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        rendered = str(sanitize_event_payload(value))
+    if len(rendered) <= max_chars:
+        return rendered
+    return rendered[:max_chars] + "..."
