@@ -1,110 +1,42 @@
-# ALFWorld 长程任务串 config
-#
-# 用途：定义"一个固定场景 + 一串子任务"的长程 benchmark。
-# 真理源：alfworld_reference.md（6 大目标 / 物体 / 容器 / 放置关系）。
-#
-# 任务内容完全用 ALFWorld 原生物体/容器/目标，不造新物体、不改 traj_data。
-# 每个子任务的 object/parent 都从该 FloorPlan 现有任务里导出（已核对合规）。
-# 编新任务前查 alfworld_reference.md §4，确保 object→parent 合法。
-
-# ─────────────────────────────────────────────────────────────
-# run: 单次 benchmark 运行的全局参数
-# ─────────────────────────────────────────────────────────────
 run:
-  run_id: null              # null = 自动生成；填字符串则用你指定的
-  trace_root: ./var/alfworld-trace   # trace 输出根目录
-  provider_config: config/homemaster.yaml  # LLM provider 配置路径
-  provider_name: Mimo       # 用哪个 provider（对应 homemaster.yaml 里 providers.items[].name）
+  run_id: null
+  trace_root: ./var/alfworld-trace
+  provider_config: config/homemaster.yaml
+  provider_name: Mimo
   seed: 42
-
-  # 单步/单任务上限（防止跑飞）
-  max_env_steps: 50              # 单个子任务最多多少个 THOR 环境动作
-  max_invalid_actions: 100       # 单个子任务最多多少次无效动作
-  max_tool_iterations: 1000      # 单个子任务最多多少次 tool 调用
-
-  # 失败模拟（先关，原生 forceAction 几乎不失败；以后想测"大脑应对失败"再开）
+  max_env_steps: 50
+  max_invalid_actions: 100
+  max_tool_iterations: 1000
   failure_simulation:
     enabled: false
     grasp_failure_rate: 0.0
     put_failure_rate: 0.0
     navigate_failure_rate: 0.0
-
-  # 长程模式：世界状态跨子任务保留（C 路线）
-  # true  = 只第一次加载场景时摆物体，之后换目标不重摆（真·长程）
-  # false = 每个子任务都重置场景（退化为独立单任务批量 = A 路线）
   long_horizon:
     keep_scene_across_subtasks: true
-
-# ─────────────────────────────────────────────────────────────
-# tasksets: 一或多个任务串。每个 taskset = 一个固定场景 + 一串子任务
-# ─────────────────────────────────────────────────────────────
 tasksets:
-
-  # ── 简单场景：FloorPlan219（客厅） ──
-  # 物体少、容器少、目标类型简单（look_at + simple + two，ts≤2）
-  - id: easy_living_room_219
-    floorplan: 219
-    difficulty: easy
-    description: "客厅日常：找遥控器/手机给老人、收手表、摆枕头、收钥匙"
-    subtasks:
-      - goal_type: look_at_obj_in_light
-        object: RemoteControl
-        toggle: FloorLamp
-        instruction: "把遥控器拿到落地灯下看看是不是老人要的那个"
-
-      - goal_type: look_at_obj_in_light
-        object: CellPhone
-        toggle: FloorLamp
-        instruction: "把手机拿到落地灯下看看有没有未读消息"
-
-      - goal_type: pick_and_place_simple
-        object: Watch
-        parent: Safe
-        instruction: "把手表收进保险箱"
-
-      - goal_type: pick_two_obj_and_place
-        object: Pillow
-        parent: Sofa
-        instruction: "把两个枕头摆到沙发上给老人靠着"
-
-      - goal_type: pick_two_obj_and_place
-        object: KeyChain
-        parent: Safe
-        instruction: "把钥匙串收进保险箱"
-
-  # ── 困难场景：FloorPlan10（厨房） ──
-  # 物体多、有加热/冷却/清洗 ts=3 复杂目标（先处理再放）
-  - id: hard_kitchen_10
-    floorplan: 10
-    difficulty: hard
-    description: "厨房备餐：收调料、热苹果放冰箱、热土豆扔掉、冷鸡蛋、洗碗、收胡椒瓶"
-    subtasks:
-      - goal_type: pick_and_place_simple
-        object: SaltShaker
-        parent: Drawer
-        instruction: "把盐瓶收进抽屉"
-
-      - goal_type: pick_heat_then_place_in_recep
-        object: Apple
-        parent: Fridge
-        instruction: "把苹果加热后放进冰箱保鲜"
-
-      - goal_type: pick_heat_then_place_in_recep
-        object: Potato
-        parent: GarbageCan
-        instruction: "把土豆加热后发现坏了，扔进垃圾桶"
-
-      - goal_type: pick_cool_then_place_in_recep
-        object: Egg
-        parent: SinkBasin
-        instruction: "把鸡蛋冷却后放进水槽"
-
-      - goal_type: pick_clean_then_place_in_recep
-        object: Bowl
-        parent: Cabinet
-        instruction: "把碗洗干净放回柜子"
-
-      - goal_type: pick_two_obj_and_place
-        object: PepperShaker
-        parent: Drawer
-        instruction: "把两个胡椒瓶收进抽屉"
+- id: easy_living_room_219
+  floorplan: 219
+  difficulty: easy
+  description: 客厅日常：找遥控器/手机给老人、收手表、摆枕头、收钥匙
+  subtasks:
+  - goal_type: look_at_obj_in_light
+    object: RemoteControl
+    toggle: FloorLamp
+    instruction: 把遥控器拿到落地灯下看看是不是老人要的那个
+  - goal_type: look_at_obj_in_light
+    object: CellPhone
+    toggle: FloorLamp
+    instruction: 把手机拿到落地灯下看看有没有未读消息
+  - goal_type: pick_and_place_simple
+    object: Watch
+    parent: Safe
+    instruction: 把手表收进保险箱
+  - goal_type: pick_two_obj_and_place
+    object: Pillow
+    parent: Sofa
+    instruction: 把两个枕头摆到沙发上给老人靠着
+  - goal_type: pick_two_obj_and_place
+    object: KeyChain
+    parent: Safe
+    instruction: 把钥匙串收进保险箱

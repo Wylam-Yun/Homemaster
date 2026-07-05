@@ -26,3 +26,8 @@ var/alfworld_smoke/
 record/
 report/
 log/
+
+# macOS AppleDouble resource-fork junk (._* files from macOS copy/zip)
+._*
+# Local run artifacts
+var/
