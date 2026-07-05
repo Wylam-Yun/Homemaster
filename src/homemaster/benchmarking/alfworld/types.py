@@ -10,6 +10,121 @@ MemoryMode = Literal["disabled", "readonly", "full"]
 EnvType = Literal["AlfredTWEnv", "AlfredThorEnv"]
 SplitName = Literal["train", "valid_seen", "valid_unseen"]
 ObservationMode = Literal["visual_eval", "textual_debug"]
+GoalType = Literal[
+    "pick_and_place_simple",
+    "pick_two_obj_and_place",
+    "look_at_obj_in_light",
+    "pick_heat_then_place_in_recep",
+    "pick_cool_then_place_in_recep",
+    "pick_clean_then_place_in_recep",
+    "pick_and_place_with_movable_recep",
+]
+Difficulty = Literal["easy", "hard"]
+
+
+@dataclass(frozen=True)
+class Subtask:
+    """One step in a long-horizon taskset.
+
+    object/parent/toggle use ALFWorld canonical names (see alfworld_reference.md).
+    traj_path is resolved by traj_index at load time; it points to the ALFWorld
+    trial's traj_data.json whose task_type+pddl_params feed env.set_task(...).
+    """
+
+    goal_type: GoalType
+    object: str
+    parent: str | None = None
+    toggle: str | None = None
+    mrecep: str | None = None
+    instruction: str = ""
+    traj_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        if self.goal_type == "look_at_obj_in_light":
+            if self.toggle is None:
+                raise ValueError("look_at_obj_in_light requires a toggle (DeskLamp/FloorLamp)")
+        else:
+            if self.parent is None:
+                raise ValueError(f"{self.goal_type} requires a parent receptacle")
+        if self.goal_type == "pick_and_place_with_movable_recep" and self.mrecep is None:
+            raise ValueError("pick_and_place_with_movable_recep requires an mrecep")
+
+
+@dataclass(frozen=True)
+class Taskset:
+    """A fixed FloorPlan + an ordered list of subtasks run in one persistent scene."""
+
+    id: str
+    floorplan: int
+    subtasks: tuple[Subtask, ...]
+    difficulty: Difficulty = "easy"
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.subtasks:
+            raise ValueError(f"taskset {self.id} has no subtasks")
+
+
+@dataclass(frozen=True)
+class LongHorizonSettings:
+    """Long-horizon mode: keep scene state across subtasks (C-route)."""
+
+    keep_scene_across_subtasks: bool = True
+
+
+@dataclass(frozen=True)
+class FailureSimulation:
+    """Per-tool failure injection. Disabled by default (ALFWorld forceAction rarely fails)."""
+
+    enabled: bool = False
+    grasp_failure_rate: float = 0.0
+    put_failure_rate: float = 0.0
+    navigate_failure_rate: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name in ("grasp_failure_rate", "put_failure_rate", "navigate_failure_rate"):
+            value = getattr(self, name)
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be in [0.0, 1.0]")
+
+
+@dataclass(frozen=True)
+class TasksetRunConfig:
+    """Top-level config parsed from alfworld_tasksets.yaml.
+
+    Combines the global run knobs (mirroring AlfworldBenchmarkConfig where they
+    overlap) with the tasksets list. The runner reads this instead of the raw
+    yaml. Every subtask must have its traj_path resolved before run time.
+    """
+
+    alfworld_root: Path
+    alfworld_config: Path
+    trace_root: Path
+    provider_config: Path
+    provider_name: str
+    env_type: EnvType = "AlfredThorEnv"
+    split: SplitName = "valid_unseen"
+    memory_mode: MemoryMode = "disabled"
+    max_invalid_actions: int = 100
+    max_env_steps: int = 50
+    max_tool_iterations: int = 1000
+    observation_mode: ObservationMode = "visual_eval"
+    seed: int = 42
+    run_id: str | None = None
+    failure_simulation: FailureSimulation = field(default_factory=FailureSimulation)
+    long_horizon: LongHorizonSettings = field(default_factory=LongHorizonSettings)
+    tasksets: tuple[Taskset, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not self.tasksets:
+            raise ValueError("no tasksets configured")
+        for ts in self.tasksets:
+            for st in ts.subtasks:
+                if st.traj_path is None:
+                    raise ValueError(
+                        f"subtask {st.goal_type}({st.object}) in taskset {ts.id} "
+                        "has no traj_path; run traj_index.resolve_subtask_trajs first"
+                    )
 
 
 @dataclass(frozen=True)
@@ -174,3 +289,104 @@ class AlfworldSummary:
                 for e in self.episodes
             ],
         }
+
+
+# ----------------------------------------------------------------------
+# Long-horizon taskset results (one taskset = one persistent agent session)
+# ----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SubtaskResult:
+    """Per-subtask outcome within a long-horizon taskset run."""
+
+    index: int
+    goal_type: str
+    object: str
+    target: str  # parent or toggle
+    instruction: str
+    success: bool
+    failure_reason: str | None
+    steps: int
+    invalid_actions: int
+    goal_condition_success_rate: float
+    runtime_status: str
+    trace_path: Path
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "goal_type": self.goal_type,
+            "object": self.object,
+            "target": self.target,
+            "instruction": self.instruction,
+            "success": self.success,
+            "failure_reason": self.failure_reason,
+            "steps": self.steps,
+            "invalid_actions": self.invalid_actions,
+            "goal_condition_success_rate": self.goal_condition_success_rate,
+            "runtime_status": self.runtime_status,
+            "trace_path": str(self.trace_path),
+        }
+
+
+@dataclass(frozen=True)
+class TasksetResult:
+    """Aggregate result of running one taskset (a chain of subtasks)."""
+
+    taskset_id: str
+    floorplan: int
+    difficulty: str
+    description: str
+    subtasks: list[SubtaskResult]
+    chain_success: bool  # all subtasks succeeded in order, no scene reset
+    trace_dir: Path
+
+    @property
+    def success_rate(self) -> float:
+        if not self.subtasks:
+            return 0.0
+        return sum(1 for s in self.subtasks if s.success) / len(self.subtasks)
+
+    @property
+    def chain_completed_count(self) -> int:
+        """How many subtasks at the start of the chain succeeded before the first failure."""
+        count = 0
+        for s in self.subtasks:
+            if s.success:
+                count += 1
+            else:
+                break
+        return count
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "taskset_id": self.taskset_id,
+            "floorplan": self.floorplan,
+            "difficulty": self.difficulty,
+            "description": self.description,
+            "chain_success": self.chain_success,
+            "chain_completed_count": self.chain_completed_count,
+            "subtask_count": len(self.subtasks),
+            "success_rate": self.success_rate,
+            "trace_dir": str(self.trace_dir),
+            "subtasks": [s.to_dict() for s in self.subtasks],
+        }
+
+
+@dataclass(frozen=True)
+class TasksetRunSummary:
+    """Summary across all tasksets in one run."""
+
+    run_id: str
+    taskset_results: list[TasksetResult]
+    config: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "run_id": self.run_id,
+            "config": self.config,
+            "taskset_count": len(self.taskset_results),
+            "tasksets": [t.to_dict() for t in self.taskset_results],
+        }
+

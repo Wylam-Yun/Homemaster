@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
-from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld
+from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld, handle_benchmark_alfworld_taskset
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.interactive_shell import run_interactive_shell
@@ -219,6 +219,49 @@ def benchmark_alfworld_command(
         typer.echo(
             f"trace_root: {trace_root / split_trace_bucket(split) / summary.run_id}"
         )
+    except Exception as exc:
+        render_error_and_exit(exc)
+
+
+@app.command("benchmark-alfworld-taskset")
+def benchmark_alfworld_taskset_command(
+    taskset_config: Annotated[
+        Path,
+        typer.Option(
+            "--taskset-config",
+            help="Path to alfworld_tasksets.yaml (long-horizon task chain definition).",
+        ),
+    ],
+    alfworld_root: Annotated[
+        Path,
+        typer.Option("--alfworld-root", help="Path to the local ALFWorld repository."),
+    ],
+    alfworld_config: Annotated[
+        Path,
+        typer.Option("--alfworld-config", help="Path to ALFWorld YAML config (eval_config.yaml)."),
+    ],
+    log_level: Annotated[
+        str,
+        typer.Option("--log-level", help="Logging level."),
+    ] = "INFO",
+) -> None:
+    """Run HomeMaster on long-horizon ALFWorld tasksets (one persistent scene per taskset)."""
+    try:
+        summary = handle_benchmark_alfworld_taskset(
+            taskset_config=taskset_config,
+            alfworld_root=alfworld_root,
+            alfworld_config=alfworld_config,
+            log_level=log_level,
+        )
+        typer.echo(f"run_id: {summary.run_id}")
+        typer.echo(f"tasksets: {len(summary.taskset_results)}")
+        for ts in summary.taskset_results:
+            typer.echo(
+                f"  [{ts.difficulty}] {ts.taskset_id} (FloorPlan{ts.floorplan}): "
+                f"chain_success={ts.chain_success} "
+                f"subtask_success_rate={ts.success_rate:.3f} "
+                f"chain_completed={ts.chain_completed_count}/{len(ts.subtasks)}"
+            )
     except Exception as exc:
         render_error_and_exit(exc)
 

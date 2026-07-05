@@ -1,11 +1,12 @@
-"""CLI handler for ALFWorld benchmark runs."""
+"""CLI handlers for ALFWorld benchmark runs."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import cast
 
-from homemaster.benchmarking.alfworld.runner import AlfworldBenchmarkRunner
+from homemaster.benchmarking.alfworld.runner import AlfworldBenchmarkRunner, AlfworldTasksetRunner
+from homemaster.benchmarking.alfworld.taskset_loader import load_taskset_config
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldSummary,
@@ -13,6 +14,7 @@ from homemaster.benchmarking.alfworld.types import (
     MemoryMode,
     ObservationMode,
     SplitName,
+    TasksetRunSummary,
 )
 from homemaster.events.logger import setup_logging
 
@@ -53,3 +55,21 @@ def handle_benchmark_alfworld(
         observation_mode=cast(ObservationMode, observation_mode),
     )
     return AlfworldBenchmarkRunner(config=config).run()
+
+
+def handle_benchmark_alfworld_taskset(
+    *,
+    taskset_config: Path,
+    alfworld_root: Path,
+    alfworld_config: Path,
+    log_level: str = "INFO",
+) -> TasksetRunSummary:
+    """Run long-horizon tasksets (a chain of subtasks in one persistent scene)."""
+    setup_logging(level=log_level)
+    config = load_taskset_config(
+        taskset_config,
+        alfworld_root=alfworld_root,
+        alfworld_config=alfworld_config,
+    )
+    runner = AlfworldTasksetRunner(taskset_config=config)
+    return runner.run()

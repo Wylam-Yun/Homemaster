@@ -16,6 +16,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
     AlfworldStepResult,
+    Subtask,
 )
 from types import SimpleNamespace
 
@@ -26,7 +27,7 @@ class FakeAdapter:
         self.state = AlfworldEnvState(
             episode_id="game-1",
             task="put apple on table",
-            observation="You are in the kitchen.",
+            observation="On the sofa 1, you see a remotecontrol 1. You see a sofa 1.",
             inventory=None,
             last_command=None,
             last_feedback=None,
@@ -37,6 +38,11 @@ class FakeAdapter:
             frame_path=None,
             step_index=0,
             invalid_action_count=0,
+            admissible_commands=(
+                "go to sofa 1",
+                "take remotecontrol 1 from sofa 1",
+                "move apple 1 to diningtable 1",
+            ),
         )
 
     @property
@@ -62,6 +68,7 @@ class FakeAdapter:
             frame_path=None,
             step_index=self.state.step_index + 1,
             invalid_action_count=self.state.invalid_action_count + (1 if invalid else 0),
+            admissible_commands=self.state.admissible_commands,
         )
         return AlfworldStepResult(
             tool_name=tool_name,
@@ -71,6 +78,74 @@ class FakeAdapter:
             failure_reason="invalid_action" if invalid else None,
             state=self.state,
             feedback="Nothing happens." if invalid else f"after {command}",
+        )
+
+    def virtual_navigate(
+        self,
+        target: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        planner_location: str | None = None,
+    ):
+        self.state = AlfworldEnvState(
+            episode_id="game-1",
+            task="put apple on table",
+            observation=f"virtual navigation to {target}",
+            inventory=None,
+            last_command=f"virtual go to {target}",
+            last_feedback=f"virtual navigation to {target}",
+            reward=0.0,
+            done=False,
+            won=False,
+            goal_condition_success_rate=0.0,
+            frame_path=None,
+            step_index=self.state.step_index + 1,
+            invalid_action_count=self.state.invalid_action_count,
+            admissible_commands=self.state.admissible_commands,
+        )
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            translated_command=f"virtual go to {target}",
+            success=True,
+            failure_reason=None,
+            state=self.state,
+            feedback=f"virtual navigation to {target}",
+        )
+
+    def force_pickup_object(
+        self,
+        object_type: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        object_id: str | None = None,
+    ):
+        self.state = AlfworldEnvState(
+            episode_id="game-1",
+            task="put apple on table",
+            observation=f"force pickup {object_type}",
+            inventory=object_type,
+            last_command=f"force take {object_type}",
+            last_feedback=f"force pickup {object_type}",
+            reward=0.0,
+            done=False,
+            won=False,
+            goal_condition_success_rate=0.5,
+            frame_path=None,
+            step_index=self.state.step_index + 1,
+            invalid_action_count=self.state.invalid_action_count,
+            admissible_commands=self.state.admissible_commands,
+        )
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            translated_command=f"force take {object_type}",
+            success=True,
+            failure_reason=None,
+            state=self.state,
+            feedback=f"force pickup {object_type}",
         )
 
 
@@ -129,6 +204,13 @@ def test_tool_results_filter_admissible_commands_from_tool_args() -> None:
     assert result.data["tool_args"] == {
         "target_receptacle": "countertop 1",
         "nested": {},
+        "grounding": {
+            "target_receptacle": {
+                "kind": None,
+                "matched_label": None,
+                "method": "unchanged",
+            },
+        },
     }
 
 
@@ -147,7 +229,7 @@ def test_manipulate_validation_error_does_not_step_env() -> None:
     assert result.success is False
     assert result.failure_reason == "translator_validation_error"
     assert adapter.commands == []
-    assert result.data["observation"] == "You are in the kitchen."
+    assert result.data["step_index"] == 0
     assert "admissible_commands" not in result.data["tool_args"]
 
 
@@ -256,6 +338,83 @@ def test_visual_eval_action_failure_is_model_feedback_not_runtime_error() -> Non
     text = "\n".join(block.text for block in result.content if block.text)
     assert json.loads(text) == {"error": "action_failed", "success": False}
     assert "Nothing happens." not in text
+
+
+def test_manipulate_grounds_natural_object_name_to_visible_instance() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_manipulate()
+
+    result = spec.executor(
+        arguments={
+            "action": "take",
+            "object": "remote control",
+            "source_receptacle": "sofa",
+        },
+        run_context=_context(adapter),
+    )
+
+    assert result.success is True
+    assert adapter.commands == ["take remotecontrol 1 from sofa 1"]
+    assert result.data["tool_args"]["object"] == "remotecontrol 1"
+    assert result.data["tool_args"]["source_receptacle"] == "sofa 1"
+
+
+def test_navigate_to_current_toggle_target_uses_virtual_navigation() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_navigate()
+    context = _context(adapter)
+    context.deps["alfworld_current_subtask"] = Subtask(
+        goal_type="look_at_obj_in_light",
+        object="RemoteControl",
+        toggle="FloorLamp",
+        instruction="check remote under the floor lamp",
+    )
+
+    result = spec.executor(
+        arguments={"target_receptacle": "floor lamp 1"},
+        run_context=context,
+    )
+
+    assert result.success is True
+    assert adapter.commands == []
+    assert result.data["translated_command"] == "virtual go to floorlamp"
+
+
+def test_take_current_subtask_object_uses_force_pickup_after_semantic_grounding() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_manipulate()
+    context = _context(adapter)
+    context.deps["alfworld_current_subtask"] = Subtask(
+        goal_type="look_at_obj_in_light",
+        object="RemoteControl",
+        toggle="FloorLamp",
+        instruction="check remote under the floor lamp",
+    )
+    context.deps["alfworld_current_traj_data"] = {
+        "plan": {
+            "high_pddl": [
+                {
+                    "planner_action": {
+                        "action": "PickupObject",
+                        "objectId": "RemoteControl|-02.09|+00.59|+04.38",
+                    },
+                },
+            ],
+        },
+    }
+
+    result = spec.executor(
+        arguments={
+            "action": "take",
+            "object": "remote control",
+            "source_receptacle": "sofa 1",
+        },
+        run_context=context,
+    )
+
+    assert result.success is True
+    assert adapter.commands == []
+    assert result.data["translated_command"] == "force take remotecontrol"
 
 
 def test_visual_eval_verify_failure_returns_not_complete() -> None:

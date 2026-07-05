@@ -17,6 +17,7 @@ def build_episode_prompt(
     max_invalid_actions: int,
     max_env_steps: int,
     observation_mode: ObservationMode = "visual_eval",
+    subtask_instruction: str = "",
 ) -> str:
     action_reference = _format_action_reference(translator.public_action_schema())
     memory_line = (
@@ -25,6 +26,9 @@ def build_episode_prompt(
         else f"Memory mode is {memory_mode}; use only the registered memory tools."
     )
     task_text = extract_task_text(state.task)
+    # In long-horizon mode the operator-authored instruction is the primary
+    # task description; the ALFWorld templated task_text is kept as a fallback.
+    primary_task = subtask_instruction.strip() or task_text
     if observation_mode == "textual_debug":
         environment_json = json.dumps(
             state.to_model_visible_dict(),
@@ -52,8 +56,15 @@ def build_episode_prompt(
             "Use robot_verify only to ask whether ALFWorld reports the full task as complete.",
             "Infer task progress from camera images, tool success/error, and your own action history.",
             "Task:",
-            task_text,
+            primary_task,
         ]
+    long_horizon_note = (
+        "This is one subtask in a chain; complete it, then stop. "
+        "The next subtask will be given to you in the same scene — objects you "
+        "moved stay where they are."
+        if subtask_instruction.strip()
+        else ""
+    )
     return "\n".join([
         "You are HomeMaster controlling a home assistant robot inside ALFWorld.",
         "You must use tools to complete the task. Do not answer with raw ALFWorld commands.",
@@ -62,6 +73,7 @@ def build_episode_prompt(
         f"The episode fails after {max_env_steps} ALFWorld environment action steps.",
         f"The episode fails if invalid action count reaches {max_invalid_actions}.",
         memory_line,
+        long_horizon_note,
         "",
         *observation_lines,
         "",

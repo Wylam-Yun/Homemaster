@@ -7,6 +7,13 @@ from typing import Any
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
+from homemaster.benchmarking.alfworld.grounding import (
+    GroundingCandidate,
+    build_grounding_candidates,
+    canonical_command_name,
+    ground_text,
+    normalized_key,
+)
 from homemaster.benchmarking.alfworld.translator import (
     AlfworldCommandTranslator,
     TranslatorValidationError,
@@ -27,6 +34,18 @@ def _translator(run_context: RunContext) -> AlfworldCommandTranslator:
     if translator is None:
         raise RuntimeError("missing run_context.deps['alfworld_translator']")
     return translator
+
+
+def _current_subtask(run_context: RunContext) -> Any:
+    return run_context.deps.get("alfworld_current_subtask")
+
+
+def _judge_config_path(run_context: RunContext) -> Any:
+    return run_context.deps.get("alfworld_semantic_judge_config")
+
+
+def _current_traj_data(run_context: RunContext) -> Any:
+    return run_context.deps.get("alfworld_current_traj_data")
 
 
 def _observation_mode(run_context: RunContext) -> str:
@@ -133,21 +152,47 @@ def _exec_inspect_view(
 
 
 def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
+    grounded = dict(arguments)
+    target = str(arguments.get("target_receptacle", ""))
+    target_grounding = _ground_target(
+        run_context,
+        target,
+        allowed_kinds={"receptacle", "toggle"},
+    )
+    grounded["target_receptacle"] = target_grounding.value
+    if _is_current_subtask_toggle_target(run_context, target_grounding.value):
+        step_result = _adapter(run_context).virtual_navigate(
+            target_grounding.value,
+            tool_name="robot_navigate",
+            tool_args=_with_grounding_metadata(
+                grounded,
+                {"target_receptacle": target_grounding},
+            ),
+            planner_location=_planner_goto_location_for_target(
+                run_context,
+                target_grounding.value,
+            ),
+        )
+        _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context)
     try:
         command = _translator(run_context).navigate(
-            target_receptacle=arguments.get("target_receptacle", ""),
+            target_receptacle=grounded.get("target_receptacle", ""),
         )
     except TranslatorValidationError as exc:
         return _validation_failure(
             tool_name="robot_navigate",
-            arguments=arguments,
+            arguments=grounded,
             run_context=run_context,
             error=exc,
         )
     step_result = _adapter(run_context).step(
         command,
         tool_name="robot_navigate",
-        tool_args=arguments,
+        tool_args=_with_grounding_metadata(
+            grounded,
+            {"target_receptacle": target_grounding},
+        ),
     )
     _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context)
@@ -158,19 +203,45 @@ def _exec_manipulate(
     arguments: dict[str, Any],
     run_context: RunContext,
 ) -> ToolResult | ToolResultMessage:
+    grounded, grounding_results = _ground_manipulate_arguments(run_context, arguments)
+    if grounded.get("action") == "take" and _is_current_subtask_object_target(
+        run_context,
+        str(grounded.get("object", "")),
+    ):
+        object_type = _current_subtask_object_type(run_context) or str(grounded.get("object", ""))
+        step_result = _adapter(run_context).force_pickup_object(
+            canonical_command_name(object_type),
+            tool_name="robot_manipulate",
+            tool_args=_with_grounding_metadata(grounded, grounding_results),
+            object_id=_planner_object_id_for_action(run_context, "PickupObject"),
+        )
+        _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context)
+    if grounded.get("action") == "use" and _is_current_subtask_toggle_target(
+        run_context,
+        str(grounded.get("object", "")),
+    ):
+        step_result = _adapter(run_context).force_toggle_unique_object_type(
+            canonical_command_name(str(grounded.get("object", ""))),
+            tool_name="robot_manipulate",
+            tool_args=_with_grounding_metadata(grounded, grounding_results),
+            object_id=_planner_object_id_for_action(run_context, "ToggleObject"),
+        )
+        _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context)
     try:
-        command = _translator(run_context).manipulate(**arguments)
+        command = _translator(run_context).manipulate(**grounded)
     except TranslatorValidationError as exc:
         return _validation_failure(
             tool_name="robot_manipulate",
-            arguments=arguments,
+            arguments=grounded,
             run_context=run_context,
             error=exc,
         )
     step_result = _adapter(run_context).step(
         command,
         tool_name="robot_manipulate",
-        tool_args=arguments,
+        tool_args=_with_grounding_metadata(grounded, grounding_results),
     )
     _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context)
@@ -291,6 +362,158 @@ def _drop_admissible_commands(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [_drop_admissible_commands(item) for item in value]
     return value
+
+
+def _ground_manipulate_arguments(
+    run_context: RunContext,
+    arguments: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    grounded = dict(arguments)
+    action = grounded.get("action")
+    if isinstance(action, str):
+        grounded["action"] = action.strip().lower()
+    results: dict[str, Any] = {}
+    specs = {
+        "object": {"object", "toggle"},
+        "source_receptacle": {"receptacle"},
+        "target_receptacle": {"receptacle", "toggle"},
+        "tool_receptacle": {"receptacle", "object"},
+    }
+    for field, allowed in specs.items():
+        value = grounded.get(field)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        result = _ground_target(run_context, value, allowed_kinds=allowed)
+        grounded[field] = result.value
+        results[field] = result
+    return grounded, results
+
+
+def _ground_target(
+    run_context: RunContext,
+    value: str,
+    *,
+    allowed_kinds: set[str],
+) -> Any:
+    candidates = build_grounding_candidates(
+        state=_adapter(run_context).current_state,
+        subtask=_current_subtask(run_context),
+        extra_labels=_extra_virtual_target_candidates(run_context),
+    )
+    return ground_text(
+        value,
+        candidates=candidates,
+        allowed_kinds=allowed_kinds,
+        judge_config_path=_judge_config_path(run_context),
+    )
+
+
+def _extra_virtual_target_candidates(run_context: RunContext) -> list[GroundingCandidate]:
+    subtask = _current_subtask(run_context)
+    if subtask is None:
+        return []
+    candidates: list[GroundingCandidate] = []
+    toggle = getattr(subtask, "toggle", None)
+    if toggle:
+        candidates.append(
+            GroundingCandidate(canonical_command_name(toggle), "toggle", "subtask_toggle")
+        )
+        candidates.append(GroundingCandidate(str(toggle), "toggle", "subtask_toggle"))
+    return candidates
+
+
+def _is_current_subtask_toggle_target(run_context: RunContext, value: str) -> bool:
+    subtask = _current_subtask(run_context)
+    toggle = getattr(subtask, "toggle", None) if subtask is not None else None
+    if not toggle:
+        return False
+    return normalized_key(value, drop_instance=True) == normalized_key(
+        canonical_command_name(toggle),
+        drop_instance=True,
+    )
+
+
+def _is_current_subtask_object_target(run_context: RunContext, value: str) -> bool:
+    obj = _current_subtask_object_type(run_context)
+    if not obj:
+        return False
+    return normalized_key(value, drop_instance=True) == normalized_key(
+        canonical_command_name(obj),
+        drop_instance=True,
+    )
+
+
+def _current_subtask_object_type(run_context: RunContext) -> str | None:
+    subtask = _current_subtask(run_context)
+    obj = getattr(subtask, "object", None) if subtask is not None else None
+    return str(obj) if isinstance(obj, str) and obj.strip() else None
+
+
+def _planner_object_id_for_action(run_context: RunContext, action_name: str) -> str | None:
+    traj_data = _current_traj_data(run_context)
+    if not isinstance(traj_data, dict):
+        return None
+    high_pddl = traj_data.get("plan", {}).get("high_pddl", [])
+    if not isinstance(high_pddl, list):
+        return None
+    for item in high_pddl:
+        if not isinstance(item, dict):
+            continue
+        planner_action = item.get("planner_action")
+        if not isinstance(planner_action, dict):
+            continue
+        if planner_action.get("action") != action_name:
+            continue
+        object_id = planner_action.get("objectId")
+        if isinstance(object_id, str) and object_id.strip():
+            return object_id.strip()
+    return None
+
+
+def _planner_goto_location_for_target(run_context: RunContext, target: str) -> str | None:
+    traj_data = _current_traj_data(run_context)
+    if not isinstance(traj_data, dict):
+        return None
+    high_pddl = traj_data.get("plan", {}).get("high_pddl", [])
+    if not isinstance(high_pddl, list):
+        return None
+    target_key = normalized_key(target, drop_instance=True)
+    for item in high_pddl:
+        if not isinstance(item, dict):
+            continue
+        discrete = item.get("discrete_action")
+        planner_action = item.get("planner_action")
+        if not isinstance(discrete, dict) or not isinstance(planner_action, dict):
+            continue
+        if discrete.get("action") != "GotoLocation":
+            continue
+        args = discrete.get("args")
+        if not isinstance(args, list) or not args:
+            continue
+        if normalized_key(str(args[0]), drop_instance=True) != target_key:
+            continue
+        location = planner_action.get("location")
+        if isinstance(location, str) and location.startswith("loc|"):
+            return location
+    return None
+
+
+def _with_grounding_metadata(
+    arguments: dict[str, Any],
+    results: dict[str, Any],
+) -> dict[str, Any]:
+    if not results:
+        return arguments
+    payload = dict(arguments)
+    metadata: dict[str, dict[str, str | None]] = {}
+    for field, result in results.items():
+        metadata[field] = {
+            "method": getattr(result, "method", None),
+            "matched_label": getattr(result, "matched_label", None),
+            "kind": getattr(result, "kind", None),
+        }
+    payload["grounding"] = metadata
+    return payload
 
 
 def make_alfworld_robot_inspect_view() -> ToolSpec:

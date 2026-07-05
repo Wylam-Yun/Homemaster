@@ -151,6 +151,6 @@ def create_translator(env_type: str) -> AlfworldCommandTranslator:
     if env_type == "AlfredThorEnv":
         return AlfworldCommandTranslator(
             env_type=env_type,
-            put_template="put {object} in/on {target_receptacle}",
+            put_template="move {object} to {target_receptacle}",
         )
     raise TranslatorValidationError(f"unsupported env_type: {env_type}")
