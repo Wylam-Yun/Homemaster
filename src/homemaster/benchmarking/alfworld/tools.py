@@ -459,13 +459,17 @@ def make_alfworld_robot_inspect_view() -> ToolSpec:
 def make_alfworld_robot_navigate() -> ToolSpec:
     return ToolSpec(
         name="robot_navigate",
-        description="Move to an ALFWorld receptacle using its environment name.",
+        description=(
+            "Move to a target area. The navigation backend handles pathing, "
+            "teleport placement, and camera orientation; provide the semantic "
+            "target name you intend to go to."
+        ),
         input_schema={
             "type": "object",
             "properties": {
                 "target_receptacle": {
                     "type": "string",
-                    "description": "Destination receptacle, such as countertop 1.",
+                    "description": "Destination target, such as sofa 1 or floor lamp.",
                 },
             },
             "required": ["target_receptacle"],

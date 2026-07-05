@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import sys
 from collections.abc import Iterator
@@ -16,6 +17,11 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldEnvState,
     AlfworldStepResult,
 )
+
+
+class _NavigationResult(SimpleNamespace):
+    success: bool
+    feedback: str
 
 
 def split_to_train_eval(split: str) -> str:
@@ -336,8 +342,22 @@ class AlfworldEnvAdapter:
         previous = self.current_state
         label = target.strip()
         command = f"virtual go to {label}"
-        observation = f"Navigation backend moved to the target area for {label}."
-        success = True
+        try:
+            thor_env = self._resolve_thor_env()
+            nav_result = _teleport_to_visible_object(thor_env, label)
+            success = nav_result.success
+            observation = (
+                f"Navigation backend moved to the target area for {label}."
+                if success
+                else nav_result.feedback
+            )
+            won = self.is_current_goal_satisfied()
+            goal_rate = self.current_goal_condition_success_rate()
+        except Exception as exc:
+            success = False
+            observation = str(exc)
+            won = previous.won
+            goal_rate = previous.goal_condition_success_rate
         state = AlfworldEnvState(
             episode_id=previous.episode_id,
             task=previous.task,
@@ -346,9 +366,9 @@ class AlfworldEnvAdapter:
             last_command=command,
             last_feedback=observation,
             reward=previous.reward,
-            done=previous.done,
-            won=previous.won,
-            goal_condition_success_rate=previous.goal_condition_success_rate,
+            done=won,
+            won=won,
+            goal_condition_success_rate=goal_rate,
             frame_path=self._save_current_frame(step_index=previous.step_index + 1),
             step_index=previous.step_index + 1,
             invalid_action_count=previous.invalid_action_count + (0 if success else 1),
@@ -360,7 +380,7 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=success,
-            failure_reason=None,
+            failure_reason=None if success else "navigation_target_not_visible",
             state=state,
             feedback=observation,
         )
@@ -565,6 +585,246 @@ def _drop_admissible_commands(value: Any) -> Any:
     if isinstance(value, list | tuple):
         return [_drop_admissible_commands(item) for item in value]
     return value
+
+
+def _teleport_to_visible_object(thor_env: Any, object_type: str) -> _NavigationResult:
+    metadata = getattr(thor_env.last_event, "metadata", {})
+    objects = metadata.get("objects", []) if isinstance(metadata, dict) else []
+    targets = _objects_by_type(objects, object_type)
+    if not targets:
+        return _NavigationResult(
+            success=False,
+            feedback=f"No {object_type} navigation target found in the scene.",
+        )
+
+    reachable = _reachable_positions(thor_env)
+    if not reachable:
+        return _NavigationResult(
+            success=False,
+            feedback="Navigation backend could not read reachable positions.",
+        )
+
+    agent_y = _agent_height(metadata)
+    candidates = _teleport_candidates(targets, reachable, agent_y=agent_y)
+    best_event = None
+    best_score = -1.0
+    best_visible = False
+    best_object_id = ""
+    target_ids = {
+        str(target.get("objectId", ""))
+        for target in targets
+        if isinstance(target.get("objectId"), str)
+    }
+    for action, target_id in candidates:
+        event = thor_env.step(action)
+        event_metadata = getattr(event, "metadata", {})
+        if not bool(event_metadata.get("lastActionSuccess")):
+            continue
+        visible, score = _target_visibility_score(event, target_id, target_ids)
+        if score > best_score:
+            best_event = event
+            best_score = score
+            best_visible = visible
+            best_object_id = target_id
+        if visible:
+            return _NavigationResult(success=True, feedback="Navigation target is visible.")
+
+    if best_event is not None:
+        # Leave the camera at the best reachable pose even when the target is not
+        # visible, so the returned frame is still the backend's best effort.
+        return _NavigationResult(
+            success=False,
+            feedback=(
+                f"Navigation backend reached the area near {object_type} "
+                f"({best_object_id}), "
+                "but the target was not visible."
+            ),
+        )
+    return _NavigationResult(
+        success=False,
+        feedback=f"Navigation backend could not teleport near {object_type}.",
+    )
+
+
+def _objects_by_type(objects: list[Any], object_type: str) -> list[dict[str, Any]]:
+    key = _object_type_key(object_type)
+    return [
+        obj for obj in objects
+        if isinstance(obj, dict) and _object_type_key(str(obj.get("objectType", ""))) == key
+    ]
+
+
+def _object_type_key(value: str) -> str:
+    return "".join(ch for ch in value.casefold() if ch.isalnum())
+
+
+def _reachable_positions(thor_env: Any) -> list[dict[str, float]]:
+    event = thor_env.step({"action": "GetReachablePositions"})
+    metadata = getattr(event, "metadata", {})
+    positions = metadata.get("reachablePositions", []) if isinstance(metadata, dict) else []
+    reachable: list[dict[str, float]] = []
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+        try:
+            reachable.append({
+                "x": float(position["x"]),
+                "z": float(position["z"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return reachable
+
+
+def _agent_height(metadata: dict[str, Any]) -> float:
+    try:
+        return float(metadata["agent"]["position"]["y"])
+    except (KeyError, TypeError, ValueError):
+        return 0.9010564
+
+
+def _teleport_candidates(
+    targets: list[dict[str, Any]],
+    reachable: list[dict[str, float]],
+    *,
+    agent_y: float,
+) -> list[tuple[dict[str, Any], str]]:
+    output: list[tuple[dict[str, Any], str, float]] = []
+    for target in targets:
+        object_id = str(target.get("objectId", ""))
+        for action, distance in _single_target_teleport_candidates(
+            target,
+            reachable,
+            agent_y=agent_y,
+        ):
+            output.append((action, object_id, distance))
+    output.sort(key=lambda item: item[2])
+    return [(action, object_id) for action, object_id, _ in output]
+
+
+def _single_target_teleport_candidates(
+    target: dict[str, Any],
+    reachable: list[dict[str, float]],
+    *,
+    agent_y: float,
+) -> list[tuple[dict[str, Any], float]]:
+    target_position = target.get("position", {})
+    target_x = float(target_position.get("x", 0.0))
+    target_y = float(target_position.get("y", agent_y))
+    target_z = float(target_position.get("z", 0.0))
+    nearest = sorted(
+        reachable,
+        key=lambda point: (point["x"] - target_x) ** 2 + (point["z"] - target_z) ** 2,
+    )[:12]
+    actions: list[tuple[dict[str, Any], float]] = []
+    seen: set[tuple[float, float, int, int]] = set()
+    for point in nearest:
+        distance = math.hypot(target_x - point["x"], target_z - point["z"])
+        base_rotation = _quantized_rotation(
+            target_x - point["x"],
+            target_z - point["z"],
+        )
+        base_horizon = _quantized_horizon(target_y - agent_y, distance)
+        rotations = _ordered_unique_ints([
+            base_rotation,
+            base_rotation - 90,
+            base_rotation + 90,
+            base_rotation + 180,
+            0,
+            90,
+            180,
+            270,
+        ], modulo=360)
+        horizons = _ordered_unique_ints([
+            base_horizon,
+            base_horizon - 15,
+            base_horizon + 15,
+            0,
+            15,
+            30,
+            45,
+            60,
+        ])
+        for rotation in rotations:
+            for horizon in horizons:
+                if horizon < -30 or horizon > 60:
+                    continue
+                key = (round(point["x"], 3), round(point["z"], 3), rotation, horizon)
+                if key in seen:
+                    continue
+                seen.add(key)
+                actions.append((
+                    {
+                        "action": "TeleportFull",
+                        "x": point["x"],
+                        "y": agent_y,
+                        "z": point["z"],
+                        "rotateOnTeleport": True,
+                        "rotation": rotation,
+                        "horizon": horizon,
+                    },
+                    distance,
+                ))
+    return actions
+
+
+def _quantized_rotation(dx: float, dz: float) -> int:
+    if abs(dx) < 1e-6 and abs(dz) < 1e-6:
+        return 0
+    yaw = math.degrees(math.atan2(dx, dz))
+    return int(round(yaw / 90.0) * 90) % 360
+
+
+def _quantized_horizon(dy: float, horizontal_distance: float) -> int:
+    pitch = math.degrees(math.atan2(dy, max(horizontal_distance, 1e-3)))
+    # AI2-THOR horizon is positive when looking down. For targets below the
+    # camera, dy is negative and the desired horizon should be positive.
+    horizon = int(round((-pitch) / 15.0) * 15)
+    return max(-30, min(60, horizon))
+
+
+def _ordered_unique_ints(values: list[int], *, modulo: int | None = None) -> list[int]:
+    seen: set[int] = set()
+    output: list[int] = []
+    for value in values:
+        item = value % modulo if modulo else value
+        if item in seen:
+            continue
+        seen.add(item)
+        output.append(item)
+    return output
+
+
+def _target_visibility_score(
+    event: Any,
+    object_id: str,
+    target_ids: set[str] | None = None,
+) -> tuple[bool, float]:
+    metadata = getattr(event, "metadata", {})
+    objects = metadata.get("objects", []) if isinstance(metadata, dict) else []
+    ids = target_ids or {object_id}
+    target = next(
+        (obj for obj in objects if isinstance(obj, dict) and obj.get("objectId") in ids),
+        None,
+    )
+    visible = bool(target and target.get("visible"))
+    score = 1.0 if visible else 0.0
+    detections = getattr(event, "instance_detections2D", None)
+    if isinstance(detections, dict):
+        for target_id in ids:
+            if target_id in detections:
+                score += _bbox_area_score(detections[target_id])
+                visible = True
+                break
+    return visible, score
+
+
+def _bbox_area_score(box: Any) -> float:
+    try:
+        x1, y1, x2, y2 = [float(item) for item in box]
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
 
 
 def _latest_thor_frame(env: Any) -> Any | None:
