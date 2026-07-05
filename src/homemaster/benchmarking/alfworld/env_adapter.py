@@ -332,35 +332,12 @@ class AlfworldEnvAdapter:
         *,
         tool_name: str,
         tool_args: dict[str, Any],
-        planner_location: str | None = None,
     ) -> AlfworldStepResult:
         previous = self.current_state
         label = target.strip()
         command = f"virtual go to {label}"
         observation = f"Navigation backend moved to the target area for {label}."
-        failure_reason = None
         success = True
-        if planner_location:
-            command = f"teleport to {planner_location}"
-            try:
-                thor_env = self._resolve_thor_env()
-                metadata = getattr(thor_env.last_event, "metadata", {})
-                agent = metadata.get("agent", {}) if isinstance(metadata, dict) else {}
-                position = agent.get("position", {}) if isinstance(agent, dict) else {}
-                agent_height = float(position.get("y", 0.9010564))
-                event = thor_env.step(
-                    _location_to_teleport(planner_location, agent_height=agent_height)
-                )
-                success = bool(event.metadata.get("lastActionSuccess"))
-                if success:
-                    observation = f"Navigation backend teleported to {label}."
-                else:
-                    observation = "Nothing happens."
-                    failure_reason = "invalid_action"
-            except Exception as exc:
-                success = False
-                observation = str(exc)
-                failure_reason = "env_error"
         state = AlfworldEnvState(
             episode_id=previous.episode_id,
             task=previous.task,
@@ -383,7 +360,7 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=success,
-            failure_reason=failure_reason,
+            failure_reason=None,
             state=state,
             feedback=observation,
         )
@@ -394,24 +371,16 @@ class AlfworldEnvAdapter:
         *,
         tool_name: str,
         tool_args: dict[str, Any],
-        object_id: str | None = None,
     ) -> AlfworldStepResult:
         previous = self.current_state
         target_type = object_type.strip().casefold()
         try:
             thor_env = self._resolve_thor_env()
             objects = getattr(thor_env.last_event, "metadata", {}).get("objects", [])
-            target_object_id = object_id.strip() if isinstance(object_id, str) else ""
-            if target_object_id:
-                matches = [
-                    obj for obj in objects
-                    if str(obj.get("objectId", "")) == target_object_id
-                ]
-            else:
-                matches = [
-                    obj for obj in objects
-                    if str(obj.get("objectType", "")).casefold() == target_type
-                ]
+            matches = [
+                obj for obj in objects
+                if str(obj.get("objectType", "")).casefold() == target_type
+            ]
             if len(matches) != 1:
                 feedback = (
                     f"Expected exactly one {object_type} target in the scene, "
@@ -483,103 +452,6 @@ class AlfworldEnvAdapter:
             tool_name=tool_name,
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=f"force use {object_type}",
-            success=success,
-            failure_reason=None if success else "invalid_action",
-            state=state,
-            feedback=feedback,
-        )
-
-    def force_pickup_object(
-        self,
-        object_type: str,
-        *,
-        tool_name: str,
-        tool_args: dict[str, Any],
-        object_id: str | None = None,
-    ) -> AlfworldStepResult:
-        previous = self.current_state
-        target_type = object_type.strip().casefold()
-        try:
-            thor_env = self._resolve_thor_env()
-            objects = getattr(thor_env.last_event, "metadata", {}).get("objects", [])
-            target_object_id = object_id.strip() if isinstance(object_id, str) else ""
-            if target_object_id:
-                matches = [
-                    obj for obj in objects
-                    if str(obj.get("objectId", "")) == target_object_id
-                ]
-            else:
-                matches = [
-                    obj for obj in objects
-                    if str(obj.get("objectType", "")).casefold() == target_type
-                ]
-            if len(matches) != 1:
-                feedback = (
-                    f"Expected exactly one {object_type} pickup target in the scene, "
-                    f"found {len(matches)}."
-                )
-                state = self._state_after_backend_failure(
-                    previous=previous,
-                    command=f"force take {object_type}",
-                    feedback=feedback,
-                )
-                return AlfworldStepResult(
-                    tool_name=tool_name,
-                    tool_args=_model_visible_tool_args(tool_args),
-                    translated_command=f"force take {object_type}",
-                    success=False,
-                    failure_reason="ambiguous_grounding",
-                    state=state,
-                    feedback=feedback,
-                )
-            target_object_id = str(matches[0]["objectId"])
-            event = thor_env.step({
-                "action": "PickupObject",
-                "objectId": target_object_id,
-                "forceAction": True,
-            })
-            success = bool(event.metadata.get("lastActionSuccess"))
-            feedback = f"You pick up the {object_type.lower()}." if success else "Nothing happens."
-            won = self.is_current_goal_satisfied()
-            goal_rate = self.current_goal_condition_success_rate()
-        except Exception as exc:
-            feedback = str(exc)
-            state = self._state_after_backend_failure(
-                previous=previous,
-                command=f"force take {object_type}",
-                feedback=feedback,
-            )
-            return AlfworldStepResult(
-                tool_name=tool_name,
-                tool_args=_model_visible_tool_args(tool_args),
-                translated_command=f"force take {object_type}",
-                success=False,
-                failure_reason="env_error",
-                state=state,
-                feedback=feedback,
-            )
-
-        state = AlfworldEnvState(
-            episode_id=previous.episode_id,
-            task=previous.task,
-            observation=feedback,
-            inventory=object_type.lower() if success else previous.inventory,
-            last_command=f"force take {object_type}",
-            last_feedback=feedback,
-            reward=previous.reward,
-            done=won,
-            won=won,
-            goal_condition_success_rate=goal_rate,
-            frame_path=self._save_current_frame(step_index=previous.step_index + 1),
-            step_index=previous.step_index + 1,
-            invalid_action_count=previous.invalid_action_count + (0 if success else 1),
-            admissible_commands=previous.admissible_commands,
-        )
-        self._state = state
-        return AlfworldStepResult(
-            tool_name=tool_name,
-            tool_args=_model_visible_tool_args(tool_args),
-            translated_command=f"force take {object_type}",
             success=success,
             failure_reason=None if success else "invalid_action",
             state=state,
@@ -715,19 +587,3 @@ def _latest_thor_frame(env: Any) -> Any | None:
             if nested is not None:
                 pending.append(nested)
     return None
-
-
-def _location_to_teleport(location: str, *, agent_height: float) -> dict[str, Any]:
-    parts = location.split("|")
-    if len(parts) != 5 or parts[0] != "loc":
-        raise ValueError(f"unsupported planner location: {location}")
-    x, z, rotation, horizon = [int(part) for part in parts[1:]]
-    return {
-        "action": "TeleportFull",
-        "x": x * 0.25,
-        "y": agent_height,
-        "z": z * 0.25,
-        "rotateOnTeleport": True,
-        "rotation": rotation * 90,
-        "horizon": horizon,
-    }

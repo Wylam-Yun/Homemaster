@@ -91,6 +91,59 @@ def test_ground_text_does_not_guess_when_instances_are_ambiguous() -> None:
     assert result.method == "unchanged"
 
 
+def test_explicit_instance_is_not_replaced_by_subtask_type_only_object() -> None:
+    subtask = Subtask(
+        goal_type="pick_and_place_simple",
+        object="RemoteControl",
+        parent="Sofa",
+    )
+    state = SimpleNamespace(admissible_commands=(), observation="", last_feedback="", inventory="")
+
+    candidates = build_grounding_candidates(state=state, subtask=subtask)
+    result = ground_text(
+        "remote control 1",
+        candidates=candidates,
+        allowed_kinds={"object"},
+    )
+
+    assert result.value == "remote control 1"
+    assert result.method == "unchanged"
+
+
+def test_explicit_instance_can_match_exact_visible_instance() -> None:
+    state = AlfworldEnvState(
+        episode_id="game-1",
+        task="look at remotecontrol",
+        observation="On the sofa 1, you see a remotecontrol 1.",
+        inventory=None,
+        last_command=None,
+        last_feedback=None,
+        reward=0.0,
+        done=False,
+        won=False,
+        goal_condition_success_rate=0.0,
+        frame_path=None,
+        step_index=0,
+        invalid_action_count=0,
+        admissible_commands=(),
+    )
+    subtask = Subtask(
+        goal_type="look_at_obj_in_light",
+        object="RemoteControl",
+        toggle="FloorLamp",
+    )
+
+    candidates = build_grounding_candidates(state=state, subtask=subtask)
+    result = ground_text(
+        "remote control 1",
+        candidates=candidates,
+        allowed_kinds={"object"},
+    )
+
+    assert result.value == "remotecontrol 1"
+    assert result.method == "exact"
+
+
 def test_floor_lamp_phrase_matches_current_toggle_target() -> None:
     state = SimpleNamespace(admissible_commands=(), observation="", last_feedback="", inventory="")
     subtask = Subtask(

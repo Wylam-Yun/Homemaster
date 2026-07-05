@@ -86,7 +86,6 @@ class FakeAdapter:
         *,
         tool_name: str,
         tool_args: dict[str, Any],
-        planner_location: str | None = None,
     ):
         self.state = AlfworldEnvState(
             episode_id="game-1",
@@ -112,40 +111,6 @@ class FakeAdapter:
             failure_reason=None,
             state=self.state,
             feedback=f"virtual navigation to {target}",
-        )
-
-    def force_pickup_object(
-        self,
-        object_type: str,
-        *,
-        tool_name: str,
-        tool_args: dict[str, Any],
-        object_id: str | None = None,
-    ):
-        self.state = AlfworldEnvState(
-            episode_id="game-1",
-            task="put apple on table",
-            observation=f"force pickup {object_type}",
-            inventory=object_type,
-            last_command=f"force take {object_type}",
-            last_feedback=f"force pickup {object_type}",
-            reward=0.0,
-            done=False,
-            won=False,
-            goal_condition_success_rate=0.5,
-            frame_path=None,
-            step_index=self.state.step_index + 1,
-            invalid_action_count=self.state.invalid_action_count,
-            admissible_commands=self.state.admissible_commands,
-        )
-        return AlfworldStepResult(
-            tool_name=tool_name,
-            tool_args=tool_args,
-            translated_command=f"force take {object_type}",
-            success=True,
-            failure_reason=None,
-            state=self.state,
-            feedback=f"force pickup {object_type}",
         )
 
 
@@ -380,7 +345,7 @@ def test_navigate_to_current_toggle_target_uses_virtual_navigation() -> None:
     assert result.data["translated_command"] == "virtual go to floorlamp"
 
 
-def test_take_current_subtask_object_uses_force_pickup_after_semantic_grounding() -> None:
+def test_take_current_subtask_object_does_not_use_expert_force_pickup() -> None:
     adapter = FakeAdapter()
     spec = make_alfworld_robot_manipulate()
     context = _context(adapter)
@@ -390,18 +355,6 @@ def test_take_current_subtask_object_uses_force_pickup_after_semantic_grounding(
         toggle="FloorLamp",
         instruction="check remote under the floor lamp",
     )
-    context.deps["alfworld_current_traj_data"] = {
-        "plan": {
-            "high_pddl": [
-                {
-                    "planner_action": {
-                        "action": "PickupObject",
-                        "objectId": "RemoteControl|-02.09|+00.59|+04.38",
-                    },
-                },
-            ],
-        },
-    }
 
     result = spec.executor(
         arguments={
@@ -413,8 +366,8 @@ def test_take_current_subtask_object_uses_force_pickup_after_semantic_grounding(
     )
 
     assert result.success is True
-    assert adapter.commands == []
-    assert result.data["translated_command"] == "force take remotecontrol"
+    assert adapter.commands == ["take remotecontrol 1 from sofa 1"]
+    assert result.data["translated_command"] == "take remotecontrol 1 from sofa 1"
 
 
 def test_visual_eval_verify_failure_returns_not_complete() -> None:

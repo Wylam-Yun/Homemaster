@@ -44,10 +44,6 @@ def _judge_config_path(run_context: RunContext) -> Any:
     return run_context.deps.get("alfworld_semantic_judge_config")
 
 
-def _current_traj_data(run_context: RunContext) -> Any:
-    return run_context.deps.get("alfworld_current_traj_data")
-
-
 def _observation_mode(run_context: RunContext) -> str:
     config = run_context.deps.get("alfworld_config")
     return str(getattr(config, "observation_mode", "visual_eval"))
@@ -168,10 +164,6 @@ def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> Too
                 grounded,
                 {"target_receptacle": target_grounding},
             ),
-            planner_location=_planner_goto_location_for_target(
-                run_context,
-                target_grounding.value,
-            ),
         )
         _write_trace(run_context, step_result)
         return _result_from_step(step_result, run_context)
@@ -204,19 +196,6 @@ def _exec_manipulate(
     run_context: RunContext,
 ) -> ToolResult | ToolResultMessage:
     grounded, grounding_results = _ground_manipulate_arguments(run_context, arguments)
-    if grounded.get("action") == "take" and _is_current_subtask_object_target(
-        run_context,
-        str(grounded.get("object", "")),
-    ):
-        object_type = _current_subtask_object_type(run_context) or str(grounded.get("object", ""))
-        step_result = _adapter(run_context).force_pickup_object(
-            canonical_command_name(object_type),
-            tool_name="robot_manipulate",
-            tool_args=_with_grounding_metadata(grounded, grounding_results),
-            object_id=_planner_object_id_for_action(run_context, "PickupObject"),
-        )
-        _write_trace(run_context, step_result)
-        return _result_from_step(step_result, run_context)
     if grounded.get("action") == "use" and _is_current_subtask_toggle_target(
         run_context,
         str(grounded.get("object", "")),
@@ -225,7 +204,6 @@ def _exec_manipulate(
             canonical_command_name(str(grounded.get("object", ""))),
             tool_name="robot_manipulate",
             tool_args=_with_grounding_metadata(grounded, grounding_results),
-            object_id=_planner_object_id_for_action(run_context, "ToggleObject"),
         )
         _write_trace(run_context, step_result)
         return _result_from_step(step_result, run_context)
@@ -431,71 +409,6 @@ def _is_current_subtask_toggle_target(run_context: RunContext, value: str) -> bo
         canonical_command_name(toggle),
         drop_instance=True,
     )
-
-
-def _is_current_subtask_object_target(run_context: RunContext, value: str) -> bool:
-    obj = _current_subtask_object_type(run_context)
-    if not obj:
-        return False
-    return normalized_key(value, drop_instance=True) == normalized_key(
-        canonical_command_name(obj),
-        drop_instance=True,
-    )
-
-
-def _current_subtask_object_type(run_context: RunContext) -> str | None:
-    subtask = _current_subtask(run_context)
-    obj = getattr(subtask, "object", None) if subtask is not None else None
-    return str(obj) if isinstance(obj, str) and obj.strip() else None
-
-
-def _planner_object_id_for_action(run_context: RunContext, action_name: str) -> str | None:
-    traj_data = _current_traj_data(run_context)
-    if not isinstance(traj_data, dict):
-        return None
-    high_pddl = traj_data.get("plan", {}).get("high_pddl", [])
-    if not isinstance(high_pddl, list):
-        return None
-    for item in high_pddl:
-        if not isinstance(item, dict):
-            continue
-        planner_action = item.get("planner_action")
-        if not isinstance(planner_action, dict):
-            continue
-        if planner_action.get("action") != action_name:
-            continue
-        object_id = planner_action.get("objectId")
-        if isinstance(object_id, str) and object_id.strip():
-            return object_id.strip()
-    return None
-
-
-def _planner_goto_location_for_target(run_context: RunContext, target: str) -> str | None:
-    traj_data = _current_traj_data(run_context)
-    if not isinstance(traj_data, dict):
-        return None
-    high_pddl = traj_data.get("plan", {}).get("high_pddl", [])
-    if not isinstance(high_pddl, list):
-        return None
-    target_key = normalized_key(target, drop_instance=True)
-    for item in high_pddl:
-        if not isinstance(item, dict):
-            continue
-        discrete = item.get("discrete_action")
-        planner_action = item.get("planner_action")
-        if not isinstance(discrete, dict) or not isinstance(planner_action, dict):
-            continue
-        if discrete.get("action") != "GotoLocation":
-            continue
-        args = discrete.get("args")
-        if not isinstance(args, list) or not args:
-            continue
-        if normalized_key(str(args[0]), drop_instance=True) != target_key:
-            continue
-        location = planner_action.get("location")
-        if isinstance(location, str) and location.startswith("loc|"):
-            return location
-    return None
 
 
 def _with_grounding_metadata(

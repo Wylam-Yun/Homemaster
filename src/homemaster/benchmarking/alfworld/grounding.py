@@ -168,11 +168,12 @@ def _deterministic_ground(
         return None
     full_key = normalized_key(raw)
     base_key = normalized_key(raw, drop_instance=True)
+    raw_has_instance = _has_trailing_instance(raw)
     base_matches = _unique_labels(
         candidate for candidate in candidates
         if normalized_key(candidate.label, drop_instance=True) == base_key
     )
-    if not _has_trailing_instance(raw):
+    if not raw_has_instance:
         instance_matches = [candidate for candidate in base_matches if _has_trailing_instance(candidate.label)]
         if len(instance_matches) == 1:
             candidate = instance_matches[0]
@@ -197,6 +198,8 @@ def _deterministic_ground(
 
     if len(base_matches) == 1:
         candidate = base_matches[0]
+        if raw_has_instance and not _can_drop_input_instance(candidate):
+            return None
         return GroundingResult(
             value=candidate.label,
             method="normalized",
@@ -210,6 +213,8 @@ def _deterministic_ground(
     )
     if len(suffix_matches) == 1:
         candidate = suffix_matches[0]
+        if raw_has_instance and not _can_drop_input_instance(candidate):
+            return None
         return GroundingResult(
             value=candidate.label,
             method="unique_suffix",
@@ -264,6 +269,12 @@ def _select_semantic_match(matches: list[GroundingCandidate]) -> GroundingCandid
     if len(instance_matches) > 1:
         return None
     return matches[0]
+
+
+def _can_drop_input_instance(candidate: GroundingCandidate) -> bool:
+    """Allow instance-stripping only for non-executable virtual task targets."""
+
+    return candidate.kind == "toggle" and candidate.source in {"subtask", "subtask_toggle"}
 
 
 def _judge_same_semantic_target(
