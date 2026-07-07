@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from homemaster.benchmarking.alfworld.tools import (
+    make_alfworld_robot_find_object,
+    make_alfworld_robot_go_to,
     make_alfworld_robot_inspect_view,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_navigate,
@@ -38,6 +40,8 @@ def build_alfworld_tool_registry(
         registry.register(make_memory_writer(runtime_memory_root=runtime_memory_root))
 
     registry.register(make_alfworld_robot_inspect_view())
+    registry.register(make_alfworld_robot_go_to())
+    registry.register(make_alfworld_robot_find_object())
     registry.register(make_alfworld_robot_navigate())
     registry.register(make_alfworld_robot_manipulate())
     registry.register(make_alfworld_robot_verify())

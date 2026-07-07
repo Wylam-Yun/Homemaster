@@ -6,6 +6,8 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.tools import (
+    make_alfworld_robot_find_object,
+    make_alfworld_robot_go_to,
     make_alfworld_robot_inspect_view,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_navigate,
@@ -113,8 +115,128 @@ class FakeAdapter:
             feedback=f"virtual navigation to {target}",
         )
 
+    def find_object(
+        self,
+        target: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ):
+        self.state = AlfworldEnvState(
+            episode_id="game-1",
+            task="put apple on table",
+            observation=f"Found {target} at sofa 1.",
+            inventory=None,
+            last_command=f"find object {target}",
+            last_feedback=f"Found {target} at sofa 1.",
+            reward=0.0,
+            done=False,
+            won=False,
+            goal_condition_success_rate=0.0,
+            frame_path=None,
+            step_index=self.state.step_index + 1,
+            invalid_action_count=self.state.invalid_action_count,
+            admissible_commands=self.state.admissible_commands,
+        )
+        args = dict(tool_args)
+        args.update({
+            "object": target,
+            "object_label": "remotecontrol 1",
+            "source_receptacle": "sofa 1",
+        })
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=args,
+            translated_command=f"find object {target} -> go to sofa 1",
+            success=True,
+            failure_reason=None,
+            state=self.state,
+            feedback=f"Found {target} at sofa 1.",
+        )
 
-def _context(adapter: FakeAdapter, *, observation_mode: str = "textual_debug") -> RunContext:
+    def manipulate_with_thor(
+        self,
+        *,
+        action: str,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ):
+        self.state = AlfworldEnvState(
+            episode_id="game-1",
+            task="put apple on table",
+            observation=f"thor {action}",
+            inventory="You are carrying: remotecontrol.",
+            last_command=f"thor {action}",
+            last_feedback=f"thor {action}",
+            reward=0.0,
+            done=False,
+            won=False,
+            goal_condition_success_rate=0.0,
+            frame_path=None,
+            step_index=self.state.step_index + 1,
+            invalid_action_count=self.state.invalid_action_count,
+            admissible_commands=self.state.admissible_commands,
+        )
+        args = dict(tool_args)
+        args.update({
+            "backend": "thor_api",
+            "backend_actions": ["PickupObject"],
+            "object_resolution_object_id": "RemoteControl|0",
+            "object_resolution_object_type": "remotecontrol",
+        })
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=args,
+            translated_command=f"thor {action}",
+            success=True,
+            failure_reason=None,
+            state=self.state,
+            feedback=f"thor {action}",
+        )
+
+    def go_to_target(
+        self,
+        target: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ):
+        self.state = AlfworldEnvState(
+            episode_id="game-1",
+            task="put apple on table",
+            observation=f"Reached {target}.",
+            inventory=None,
+            last_command=f"go to target {target}",
+            last_feedback=f"Reached {target}.",
+            reward=0.0,
+            done=False,
+            won=False,
+            goal_condition_success_rate=0.0,
+            frame_path=None,
+            step_index=self.state.step_index + 1,
+            invalid_action_count=self.state.invalid_action_count,
+            admissible_commands=self.state.admissible_commands,
+        )
+        args = dict(tool_args)
+        args.update({
+            "target": target,
+            "resolved_kind": "movable_object",
+            "resolved_label": "remotecontrol 1",
+            "object_label": "remotecontrol 1",
+            "source_receptacle": "sofa 1",
+        })
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=args,
+            translated_command=f"go to target {target}",
+            success=True,
+            failure_reason=None,
+            state=self.state,
+            feedback=f"Reached {target}.",
+        )
+
+
+def _context(adapter: FakeAdapter, *, observation_mode: str = "textual_debug", env_type: str = "AlfredTWEnv") -> RunContext:
     return RunContext(
         session_id="s1",
         run_id="r1",
@@ -134,6 +256,7 @@ def _context(adapter: FakeAdapter, *, observation_mode: str = "textual_debug") -
                 alfworld_config=Path("/tmp/base_config.yaml"),
                 trace_root=Path("/tmp/traces"),
                 observation_mode=observation_mode,
+                env_type=env_type,  # type: ignore[arg-type]
             ),
         },
     )
@@ -151,6 +274,96 @@ def test_navigate_tool_translates_and_steps_env() -> None:
     assert adapter.commands == ["go to countertop 1"]
     assert result.data["observation"] == "after go to countertop 1"
     assert "admissible_commands" not in result.data
+
+
+def test_navigate_tool_schema_is_for_places_not_objects() -> None:
+    spec = make_alfworld_robot_navigate()
+
+    assert spec.selectable_by_model is False
+    assert "known place" in spec.description
+    assert "Movable target object" not in (
+        spec.input_schema["properties"]["target_receptacle"]["description"]
+    )
+
+
+def test_go_to_tool_uses_unified_target_backend() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_go_to()
+    result = spec.executor(
+        arguments={"target": "remote control"},
+        run_context=_context(adapter),
+    )
+
+    assert result.success is True
+    assert adapter.commands == []
+    assert result.data["tool_name"] == "robot_go_to"
+    assert result.data["tool_args"]["target"] == "remotecontrol 1"
+    assert result.data["tool_args"]["resolved_kind"] == "movable_object"
+    assert result.data["tool_args"]["resolved_label"] == "remotecontrol 1"
+    assert result.data["tool_args"]["object_label"] == "remotecontrol 1"
+    assert result.data["tool_args"]["source_receptacle"] == "sofa 1"
+
+
+def test_visual_eval_go_to_exposes_target_payload() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_go_to()
+    result = spec.executor(
+        arguments={"target": "remote control"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is False
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {
+        "success": True,
+        "target": {
+            "target": "remotecontrol 1",
+            "resolved_kind": "movable_object",
+            "resolved_label": "remotecontrol 1",
+            "object_label": "remotecontrol 1",
+            "source_receptacle": "sofa 1",
+        },
+    }
+
+
+def test_find_object_tool_returns_canonical_label_and_source() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_find_object()
+    result = spec.executor(
+        arguments={"object": "remote control"},
+        run_context=_context(adapter),
+    )
+
+    assert result.success is True
+    assert spec.selectable_by_model is False
+    assert adapter.commands == []
+    assert result.data["tool_name"] == "robot_find_object"
+    assert result.data["tool_args"]["object"] == "remotecontrol 1"
+    assert result.data["tool_args"]["object_label"] == "remotecontrol 1"
+    assert result.data["tool_args"]["source_receptacle"] == "sofa 1"
+    assert result.data["translated_command"] == (
+        "find object remotecontrol 1 -> go to sofa 1"
+    )
+
+
+def test_visual_eval_find_object_exposes_found_label_and_source() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_find_object()
+    result = spec.executor(
+        arguments={"object": "remote control"},
+        run_context=_context(adapter, observation_mode="visual_eval"),
+    )
+
+    assert result.is_error is False
+    text = "\n".join(block.text for block in result.content if block.text)
+    assert json.loads(text) == {
+        "found_object": {
+            "object": "remotecontrol 1",
+            "object_label": "remotecontrol 1",
+            "source_receptacle": "sofa 1",
+        },
+        "success": True,
+    }
 
 
 def test_tool_results_filter_admissible_commands_from_tool_args() -> None:
@@ -322,6 +535,26 @@ def test_manipulate_grounds_natural_object_name_to_visible_instance() -> None:
     assert adapter.commands == ["take remotecontrol 1 from sofa 1"]
     assert result.data["tool_args"]["object"] == "remotecontrol 1"
     assert result.data["tool_args"]["source_receptacle"] == "sofa 1"
+
+
+def test_manipulate_uses_thor_backend_for_thor_env() -> None:
+    adapter = FakeAdapter()
+    spec = make_alfworld_robot_manipulate()
+
+    result = spec.executor(
+        arguments={
+            "action": "take",
+            "object": "remote control",
+        },
+        run_context=_context(adapter, env_type="AlfredThorEnv"),
+    )
+
+    assert result.success is True
+    assert adapter.commands == []
+    assert result.data["translated_command"] == "thor take"
+    assert result.data["tool_args"]["backend"] == "thor_api"
+    assert result.data["tool_args"]["backend_actions"] == ["PickupObject"]
+    assert result.data["tool_args"]["object_resolution_object_id"] == "RemoteControl|0"
 
 
 def test_navigate_to_current_toggle_target_uses_virtual_navigation() -> None:

@@ -49,6 +49,10 @@ def _observation_mode(run_context: RunContext) -> str:
     return str(getattr(config, "observation_mode", "visual_eval"))
 
 
+def _env_type(run_context: RunContext) -> str:
+    config = run_context.deps.get("alfworld_config")
+    return str(getattr(config, "env_type", "AlfredThorEnv"))
+
 def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResult | ToolResultMessage:
     data = step_result.to_model_visible_data()
     data.pop("admissible_commands", None)
@@ -190,12 +194,70 @@ def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> Too
     return _result_from_step(step_result, run_context)
 
 
+def _exec_go_to(
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
+) -> ToolResult | ToolResultMessage:
+    grounded = dict(arguments)
+    target = str(arguments.get("target", ""))
+    target_grounding = _ground_target(
+        run_context,
+        target,
+        allowed_kinds={"object", "receptacle", "toggle"},
+    )
+    grounded["target"] = target_grounding.value
+    step_result = _adapter(run_context).go_to_target(
+        target_grounding.value,
+        tool_name="robot_go_to",
+        tool_args=_with_grounding_metadata(
+            grounded,
+            {"target": target_grounding},
+        ),
+    )
+    _write_trace(run_context, step_result)
+    return _result_from_step(step_result, run_context)
+
+
+def _exec_find_object(
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
+) -> ToolResult | ToolResultMessage:
+    grounded = dict(arguments)
+    target = str(arguments.get("object", ""))
+    object_grounding = _ground_target(
+        run_context,
+        target,
+        allowed_kinds={"object", "toggle"},
+    )
+    grounded["object"] = object_grounding.value
+    step_result = _adapter(run_context).find_object(
+        object_grounding.value,
+        tool_name="robot_find_object",
+        tool_args=_with_grounding_metadata(
+            grounded,
+            {"object": object_grounding},
+        ),
+    )
+    _write_trace(run_context, step_result)
+    return _result_from_step(step_result, run_context)
+
+
 def _exec_manipulate(
     *,
     arguments: dict[str, Any],
     run_context: RunContext,
 ) -> ToolResult | ToolResultMessage:
     grounded, grounding_results = _ground_manipulate_arguments(run_context, arguments)
+    if _env_type(run_context) == "AlfredThorEnv":
+        step_result = _adapter(run_context).manipulate_with_thor(
+            action=str(grounded.get("action", "")),
+            tool_name="robot_manipulate",
+            tool_args=_with_grounding_metadata(grounded, grounding_results),
+        )
+        _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context)
     if grounded.get("action") == "use" and _is_current_subtask_toggle_target(
         run_context,
         str(grounded.get("object", "")),
@@ -223,7 +285,6 @@ def _exec_manipulate(
     )
     _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context)
-
 
 def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
     state = _adapter(run_context).current_state
@@ -280,6 +341,14 @@ def _visual_tool_result(
     is_error: bool | None = None,
 ) -> ToolResultMessage:
     payload: dict[str, Any] = {"success": success}
+    if name == "robot_find_object":
+        found = _find_object_visible_payload(data)
+        if found:
+            payload["found_object"] = found
+    if name == "robot_go_to":
+        target = _go_to_visible_payload(data)
+        if target:
+            payload["target"] = target
     if not success:
         payload["error"] = _visual_error(failure_reason)
     content = [ContentBlock(text=_json_dumps(payload))]
@@ -321,6 +390,36 @@ def _json_dumps(payload: dict[str, Any]) -> str:
     import json
 
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _find_object_visible_payload(data: dict[str, Any]) -> dict[str, str]:
+    tool_args = data.get("tool_args", {})
+    if not isinstance(tool_args, dict):
+        return {}
+    payload = {}
+    for key in ("object", "object_label", "source_receptacle"):
+        value = tool_args.get(key)
+        if isinstance(value, str) and value.strip():
+            payload[key] = value.strip()
+    return payload
+
+
+def _go_to_visible_payload(data: dict[str, Any]) -> dict[str, str]:
+    tool_args = data.get("tool_args", {})
+    if not isinstance(tool_args, dict):
+        return {}
+    payload = {}
+    for key in (
+        "target",
+        "resolved_kind",
+        "resolved_label",
+        "object_label",
+        "source_receptacle",
+    ):
+        value = tool_args.get(key)
+        if isinstance(value, str) and value.strip():
+            payload[key] = value.strip()
+    return payload
 
 
 def _model_visible_tool_args(tool_args: Any) -> dict[str, Any]:
@@ -460,23 +559,85 @@ def make_alfworld_robot_navigate() -> ToolSpec:
     return ToolSpec(
         name="robot_navigate",
         description=(
-            "Move to a target area. The navigation backend handles pathing, "
-            "teleport placement, and camera orientation; provide the semantic "
-            "target name you intend to go to."
+            "Move to a known place, receptacle, furniture, or appliance. Use "
+            "this for named locations and containers that are already known "
+            "from the task or recent observations. Do not use this to search "
+            "for movable task objects; use robot_find_object when a movable "
+            "object's current source location is unknown."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "target_receptacle": {
                     "type": "string",
-                    "description": "Destination target, such as sofa 1 or floor lamp.",
+                    "description": (
+                        "Destination place/receptacle/furniture/appliance, "
+                        "using the environment-style name when known."
+                    ),
                 },
             },
             "required": ["target_receptacle"],
         },
         executor_mode="programmatic",
-        selectable_by_model=True,
+        selectable_by_model=False,
         executor=_exec_navigate,
+    )
+
+
+def make_alfworld_robot_go_to() -> ToolSpec:
+    return ToolSpec(
+        name="robot_go_to",
+        description=(
+            "Move directly to any named ALFWorld target using the navigation "
+            "backend. The target may be a movable object, a receptacle, "
+            "furniture, an appliance, or a switch/toggle object. Use this "
+            "instead of guessing source locations or ALFWorld navigation names."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "Task target to move to, such as the object to pick up "
+                        "or the place/tool/container needed next."
+                    ),
+                },
+            },
+            "required": ["target"],
+        },
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        executor=_exec_go_to,
+    )
+
+
+def make_alfworld_robot_find_object() -> ToolSpec:
+    return ToolSpec(
+        name="robot_find_object",
+        description=(
+            "Automatically locate a movable target object in the current ALFWorld "
+            "scene and move to the place that contains it. Use this before take "
+            "when the task names an object but you do not know its source "
+            "receptacle. The tool returns the canonical object label and source "
+            "receptacle to use in later robot_manipulate calls."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "object": {
+                    "type": "string",
+                    "description": (
+                        "Movable target object to find, using the task name "
+                        "or environment-style object name."
+                    ),
+                },
+            },
+            "required": ["object"],
+        },
+        executor_mode="programmatic",
+        selectable_by_model=False,
+        executor=_exec_find_object,
     )
 
 

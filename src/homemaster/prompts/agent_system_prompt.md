@@ -21,6 +21,11 @@ Robot observation rules:
 - Do not call a visual inspection tool after every successful robot action if the returned image already gives enough evidence. Do not repeatedly inspect the same unchanged view without an intervening robot action.
 - Use robot_verify, when available, only to ask the environment whether the full task is complete.
 
+Robot tool choice rules:
+- When robot_go_to is available, use it for any target you need to approach: movable objects, receptacles, furniture, appliances, containers, and switch/toggle objects.
+- Avoid guessing many source locations or ALFWorld navigation names. If you need an object, place, tool, or container, call robot_go_to with that target.
+- Reuse robot_go_to's returned target label, object label, and source receptacle in later manipulation calls when they are provided.
+
 Task-state rules:
 - For long-horizon tasks, create or update a task plan with the task-state tools when available.
 - Treat an injected task_state_snapshot as the current external working memory for the active task.
