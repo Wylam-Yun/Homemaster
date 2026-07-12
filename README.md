@@ -1,4 +1,4 @@
-# HomeMaster V1.5
+# HomeMaster V1.7
 
 LLM-first generic agent runtime with home-robot domain tools.
 
@@ -36,6 +36,14 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 API 配置默认从 `config/api_config.json` 读取；更完整的运行配置放在 `config/homemaster.json`。不要把真实 key 提交进 git。
+
+ALFWorld benchmark 使用完整的 YAML provider 配置。首次配置时复制脱敏模板并只在本机填写真实 key：
+
+```bash
+cp config/homemaster.example.yaml config/homemaster.yaml
+```
+
+`config/homemaster.yaml` 已加入 `.gitignore`，真实文件只能保留在运行机器上；仓库只提交字段齐全的 `config/homemaster.example.yaml`。
 
 配置文件需要包含两个 provider：
 
@@ -75,6 +83,27 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
 PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 ```
 
+## ALFWorld Benchmark
+
+`AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划，同时由 Harness 负责准确对象 grounding、主要导航和同目标局部 put 位姿执行。公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`；不产生新观察的 `robot_inspect_view` 已删除。
+
+```bash
+export ALFWORLD_DATA=/path/to/alfworld/data
+
+PYTHONPATH=src .venv/bin/python -m homemaster.cli benchmark-alfworld \
+  --alfworld-root /path/to/alfworld \
+  --alfworld-config /path/to/alfworld/configs/base_config.yaml \
+  --trace-root var/alfworld-trace \
+  --env-type AlfredThorEnv \
+  --split valid_unseen \
+  --episodes 10 \
+  --observation-mode visual_eval
+```
+
+MVP 对 `put` 使用固定生产预算：导航最多 65 个候选、66 个 THOR action、34.804 秒；局部 put 最多 9 个候选、17 个 THOR action、5.669 秒。成功同时要求 THOR 返回成功和准确外部终态；Harness grounding/navigation/operation 或状态矛盾会立即终止 Episode、排除 Agent 分数，并在 CLI/summary 同时报告 `harness_valid_coverage` 与 `formal_score_available`。
+
+使用说明见 [ALFWorld 用户指南](docs/alfworld-user-guide.md)，实现不变量与数据流见 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
+
 ## Runtime Event Trace
 
 Every `homemaster run` writes `runtime_events.jsonl` to the run's trace directory.
@@ -95,6 +124,7 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 - 真实：Mimo、BGE-M3。
 - 程序：可靠记忆判定、轻量记忆写回。
 - 模拟：navigation、operation、verification skill。
+- Benchmark：`AlfredThorEnv` 通过真实 THOR 返回码和 scene metadata 验证导航及 put；MVP 尚未为 take/open/use 提供同等级局部恢复契约。
 
 ## 架构
 

@@ -8,7 +8,7 @@ def test_disabled_memory_registry_excludes_memory_tools() -> None:
     names = registry.all_names()
 
     assert "robot_observe" not in names
-    assert "robot_inspect_view" in names
+    assert "robot_inspect_view" not in names
     assert "robot_navigate" in names
     assert "robot_manipulate" in names
     assert "robot_verify" in names

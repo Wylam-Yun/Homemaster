@@ -1,0 +1,59 @@
+# ALFWorld Harness Progress
+
+## 2026-07-12
+
+- Read the user-provided task attachment.
+- Loaded the planning, design-brainstorming, and implementation-planning workflows.
+- Confirmed SSH access to `hkust4` and inspected branch, recent commits, and dirty worktree.
+- Confirmed that no previous root planning files existed.
+- Created this planning state; no product code has been modified.
+- Read both V1.7 specifications and the issue record in full.
+- Mapped the approved architectural invariants and all explicit implementation gates.
+- Started three parallel read-only investigations: independent design review, failed-episode root cause, and runtime/symbol map.
+- Inspected the Episode summary, trajectory, model/runtime JSONL schemas, implementation entry points, and the latest relevant commit scope.
+- Logged the missing `jq` utility and selected a dependency-free structured parsing fallback.
+- Read the main navigation, target resolution, candidate generation, manipulation, visual projection, and inspect-view implementations.
+- Confirmed concrete code-level sources for navigation false positives, double parsing, invalid-action misaccounting, and feedback collapse.
+- Mapped the THOR put call, result/summary dataclasses, Runner stop condition, registry, and documentation/test surfaces.
+- Confirmed that prior per-Shelf claims lack a persisted raw evidence artifact in the repository and must be rerun/persisted.
+- Began live-runtime discovery; ruled out the default Python and recorded the existing Xvfb displays without assuming they are usable.
+- Located and inspected the dedicated `hm_alfworld` Conda environment and verified access to X display `:99`.
+- Recorded exact package versions and the pre-existing `pip check` failure without changing dependencies.
+- Received and incorporated the independent read-only root-cause investigation.
+- Verified the model-visible manipulation JSON and identical frame hashes directly.
+- Located all three candidate trial directories for the target task; exact trial identification remains pending.
+- Identified the exact historical trial as `trial_T20190908_122154_042763` from the Pencil pose encoded in the trace objectId.
+- Received the first independent design review with verdict `FIX`.
+- Dispositioned every review item and revised both V1.7 specs without changing product code.
+- Reduced the design alternatives to four and retained the already approved same-target bounded local-pose approach.
+- Built and linted a direct-ALFWorld runtime contract probe under ignored `var/alfworld-evidence`; it imports no HomeMaster product logic.
+- Ran three controlled-Xvfb contract probes with exit code 0 and persisted JSONL, raw events, frame hashes, and PNGs.
+- Verified reachable/Teleport/frame/Pickup/Put/open contracts and recorded the rejected interactive-pose action.
+- Preserved toggle as UNVERIFIED after three real failures; the failure detail proved that raw THOR strings can leak objectIds and coordinates.
+- Built and linted the all-six-Shelf characterization script; pure-function tests prove its candidate ordering is independent of input list order. Independent review is in progress before execution.
+- Completed the independent pre-execution characterization review with verdict `FIX` and dispositioned all eight original blockers plus the two-stage-budget supplement; every finding was accepted.
+- Split implementation ownership to avoid concurrent writes: this batch modifies only `independent_alfworld_probe.py`, while a separate state-machine batch owns `alfworld_pose_characterization.py`.
+- Updated the probe evidence writer to reject nonempty output directories and artifact overwrites, reject NaN/Infinity canonical JSON, and record separate canonical-content and persisted-file hashes.
+- Added a unified tri-state external read covering return status, inventory, exact Pencil/all Shelves, parent/child state, actual pose, detections, frame identity, reachable fields, and goal status without collapsing missing data into empty state.
+- Made every returned `thor.step` persist a raw event; exceptions and missing events now preserve explicit call/read status and make the probe exit nonzero unless the exception was declared as the expected result of a negative contract probe.
+- Ran the project-environment Ruff and bytecode checks successfully, then passed pure negative tests for NaN rejection, dual-hash recomputation, nonempty-directory rejection, returned-event raw evidence, and exception-to-missing-state handling. THOR was not started.
+- Received the helper negative review and accepted all five blockers: metadata-safe projections, strict bbox/frame observations, stale-action rejection, real terminal-state gates, and nonzero Teleport proof.
+- Added the pre-existing ALFWorld test/Ruff baselines to findings so later product work cannot misattribute one Runner failure or 37 lint findings to this evidence helper.
+- Recorded and corrected the failed remote-test invocation pattern: remote scripts run through SSH stdin rather than using a remote path as a local `workdir`.
+- Re-ran the corrected six-Shelf characterization in a fresh `shelf-characterization-v3` directory; all six exploration instances passed exact navigation and put terminal gates.
+- Derived the fixed production budgets as navigation `65/66/34804 ms` and local put `9/17/5669 ms`, then passed Shelf 3/4/6 production independently under those limits.
+- Integrated the common put executor into the Adapter with strict exact-instance resolution, PoseContext validation, current-pose-first retry, exhaustive terminal classification, and correct `isPickedUp` reads.
+- Added model-visible structured put feedback, deterministic detail redaction, terminal dispatch gating, ordinary Episode outcome/coverage, and long-horizon taskset outcome propagation with remaining subtasks marked not-run.
+- Removed `robot_inspect_view` from the public registry and prompt.
+- Corrected backend action accounting so `GetReachablePositions` counts as a THOR action and Adapter results propagate navigation/put counts into `EpisodeOutcome` and trace data.
+- Fixed the production budgets in product defaults and wrote the final evidence back into both V1.7 specifications and the issue record.
+- Ran three independent product-Harness Xvfb processes for Shelf 3/4/6; all exited 0 and passed THOR return, inventory, `isPickedUp`, exact parent/child, goal `1/1`, and final-image pixel gates.
+- Added CLI coverage/formal-score output with RED-first tests; CLI tests pass.
+- Recovered one shared-worktree synchronization error that temporarily overwrote newer taskset type fields, re-synced the authoritative remote file, and reran all affected tests.
+- Added README guidance, an ALFWorld user guide, an architecture document, CHANGELOG entries, and launched the required independent serious-bug postmortem for `docs/pitfalls.md` and `CLAUDE.md`.
+- Added per-candidate navigation/put JSONL trace events, raw event refs/hashes, budget usage and terminal events while recursively excluding internal execution fields from model-visible results.
+- Tightened held-state proof to require `isPickedUp=true` and put success to require `isPickedUp=false`; missing values now terminate uncertain. Added an `ExecutionBackend` implementation audit.
+- Removed the residual tools-side `robot_inspect_view` factory, executor and tests; only historical trace fixtures and absence assertions remain.
+- Re-ran the final product black-box gate after all trace/state changes in `product-harness-v2`; Shelf 3/4/6 each exited 0 and independently passed return/state/goal/frame assertions.
+- Cleaned an ignored Python 3.10 `__pycache__` directory that alone violated an import-boundary test, and renamed a blocked legacy cleanup term without changing grounding behavior.
+- Final repository verification: `352 passed, 1 skipped`; focused ALFWorld benchmark `121 passed`; Ruff check, Ruff format check, compileall, cleanup guard and `git diff --check` pass.

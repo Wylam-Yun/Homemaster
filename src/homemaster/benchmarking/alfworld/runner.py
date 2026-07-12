@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -31,13 +32,17 @@ from homemaster.benchmarking.alfworld.tracing import (
     split_trace_bucket,
     write_readable_trajectories,
 )
-from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.traj_index import load_traj_data
+from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.types import (
+    AGENT_SCORE_CLASSIFICATIONS,
+    NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
     AlfworldBenchmarkConfig,
-    AlfworldEpisodeResult,
     AlfworldEnvState,
+    AlfworldEpisodeResult,
     AlfworldSummary,
+    EpisodeOutcome,
+    Subtask,
     SubtaskResult,
     Taskset,
     TasksetResult,
@@ -103,13 +108,15 @@ class AlfworldBenchmarkRunner:
         trace = AlfworldTraceWriter(episode_dir)
         adapter.set_frame_dir(episode_dir / "frames")
         state = adapter.reset()
-        trace.write_model_event({
-            "env_type": self.config.env_type,
-            "event": "episode_started",
-            "run_id": episode_run_id,
-            "split": self.config.split,
-            "state": _initial_model_trace_state(state, self.config.observation_mode),
-        })
+        trace.write_model_event(
+            {
+                "env_type": self.config.env_type,
+                "event": "episode_started",
+                "run_id": episode_run_id,
+                "split": self.config.split,
+                "state": _initial_model_trace_state(state, self.config.observation_mode),
+            }
+        )
         runtime_sink = JsonlEventSink(episode_dir / "runtime")
         translator = create_translator(self.config.env_type)
         dispatcher = ToolDispatcher()
@@ -132,6 +139,7 @@ class AlfworldBenchmarkRunner:
             observability=config.observability,
         )
         task_state_store = TaskStateStore(run_id=episode_run_id)
+        outcome = EpisodeOutcome()
         run_context = RunContext(
             session_id=episode_run_id,
             run_id=episode_run_id,
@@ -143,6 +151,7 @@ class AlfworldBenchmarkRunner:
                 "alfworld_translator": translator,
                 "alfworld_trace": trace,
                 "alfworld_config": self.config,
+                "alfworld_episode_outcome": outcome,
                 "alfworld_semantic_judge_config": (
                     self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                 ),
@@ -189,6 +198,12 @@ class AlfworldBenchmarkRunner:
         failure_reason = None
         if not success:
             failure_reason = _episode_failure_reason(result.error_code, final_state.done)
+        classification = _episode_classification(
+            success=success,
+            failure_reason=failure_reason,
+            outcome=outcome,
+        )
+        score_eligible = classification in {"agent_success", "agent_model_failure"}
         episode_result = AlfworldEpisodeResult(
             episode_id=final_state.episode_id,
             success=success,
@@ -199,6 +214,10 @@ class AlfworldBenchmarkRunner:
             runtime_status=result.status,
             run_id=episode_run_id,
             trace_path=trace.trace_path,
+            classification=classification,
+            score_eligible=score_eligible,
+            agent_tool_call_count=outcome.agent_tool_call_count,
+            backend_action_count=outcome.backend_action_count,
         )
         episode_summary = {
             "episode_id": episode_result.episode_id,
@@ -209,6 +228,8 @@ class AlfworldBenchmarkRunner:
             "runtime_status": episode_result.runtime_status,
             "steps": episode_result.steps,
             "success": episode_result.success,
+            "classification": episode_result.classification,
+            "score_eligible": episode_result.score_eligible,
         }
         trace.write_summary(episode_summary)
         trace.write_trajectory(episode_summary)
@@ -254,8 +275,22 @@ class AlfworldBenchmarkRunner:
     ) -> Callable[[AgentSession, list[ToolResultMessage]], RuntimeStopDecision | None]:
         def decide(
             _session: AgentSession,
-            _tool_results: list[ToolResultMessage],
+            tool_results: list[ToolResultMessage],
         ) -> RuntimeStopDecision | None:
+            terminal = _terminal_tool_payload(tool_results)
+            if terminal is not None:
+                classification = str(
+                    terminal.get("classification") or "unclassified_execution_failure"
+                )
+                return RuntimeStopDecision(
+                    status="failed",
+                    error_code=classification,
+                    payload={
+                        "terminal": True,
+                        "classification": classification,
+                        "score_eligible": bool(terminal.get("score_eligible", False)),
+                    },
+                )
             state = adapter.current_state
             if state.won:
                 return RuntimeStopDecision(
@@ -314,6 +349,42 @@ def _episode_failure_reason(error_code: str | None, done: bool) -> str:
     if done:
         return "done_without_won"
     return "not_won"
+
+
+def _terminal_tool_payload(
+    tool_results: list[ToolResultMessage],
+) -> dict[str, Any] | None:
+    for result in tool_results:
+        data = getattr(result, "data", None)
+        if isinstance(data, dict) and data.get("terminal") is True:
+            return data
+    return None
+
+
+def _episode_classification(
+    *,
+    success: bool,
+    failure_reason: str | None,
+    outcome: EpisodeOutcome,
+) -> str:
+    if outcome.terminal and outcome.classification:
+        return outcome.classification
+    if success:
+        return "agent_success"
+    infrastructure = {
+        "artifact_failure",
+        "cancelled",
+        "execution_state_uncertain",
+        "harness_grounding_failure",
+        "harness_navigation_failure",
+        "harness_operation_failure",
+        "provider_failure",
+        "runtime_failure",
+        "unclassified_execution_failure",
+    }
+    if failure_reason in infrastructure:
+        return str(failure_reason)
+    return "agent_model_failure"
 
 
 def _initial_model_trace_state(
@@ -391,8 +462,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         # adapter_factory is called once per run(); the taskset runner builds a
         # fresh adapter per taskset in _run_taskset, so this should not be hit.
         raise RuntimeError(
-            "AlfworldTasksetRunner builds adapters per taskset; "
-            "this adapter_factory path is unused"
+            "AlfworldTasksetRunner builds adapters per taskset; this adapter_factory path is unused"
         )
 
     def run(self) -> TasksetRunSummary:
@@ -476,12 +546,14 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         )
 
         for idx, subtask in enumerate(taskset.subtasks):
+            outcome = EpisodeOutcome()
             subtask_dir = taskset_dir / f"subtask-{idx + 1:02d}"
             subtask_dir.mkdir(parents=True, exist_ok=True)
             trace = AlfworldTraceWriter(subtask_dir)
             adapter.set_frame_dir(subtask_dir / "frames")
             run_context.deps["alfworld_trace"] = trace
             run_context.deps["alfworld_current_subtask"] = subtask
+            run_context.deps["alfworld_episode_outcome"] = outcome
 
             if idx == 0:
                 state = adapter.reset()
@@ -494,14 +566,16 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 )
             run_context.deps["alfworld_current_traj_data"] = traj_data
 
-            trace.write_model_event({
-                "env_type": self.config.env_type,
-                "event": "subtask_started",
-                "run_id": f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}",
-                "taskset_id": taskset.id,
-                "subtask_index": idx,
-                "state": _initial_model_trace_state(state, self.config.observation_mode),
-            })
+            trace.write_model_event(
+                {
+                    "env_type": self.config.env_type,
+                    "event": "subtask_started",
+                    "run_id": f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}",
+                    "taskset_id": taskset.id,
+                    "subtask_index": idx,
+                    "state": _initial_model_trace_state(state, self.config.observation_mode),
+                }
+            )
 
             runtime = GenericAgentRuntime(
                 transport=self._transport_factory(),
@@ -533,27 +607,61 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
 
             final_state = adapter.current_state
             success = adapter.is_current_goal_satisfied()
-            failure_reason = None if success else _subtask_failure_reason(
-                result.error_code, final_state,
+            runtime_failure_reason = (
+                None
+                if success
+                else _subtask_failure_reason(
+                    result.error_code,
+                    final_state,
+                )
             )
-            subtask_results.append(SubtaskResult(
-                index=idx,
-                goal_type=subtask.goal_type,
-                object=subtask.object,
-                target=subtask.toggle or subtask.parent or "",
-                instruction=subtask.instruction,
+            classification = _episode_classification(
                 success=success,
-                failure_reason=failure_reason,
-                steps=final_state.step_index,
-                invalid_actions=final_state.invalid_action_count,
-                goal_condition_success_rate=adapter.current_goal_condition_success_rate(),
-                runtime_status=result.status,
-                trace_path=trace.trace_path,
-            ))
+                failure_reason=runtime_failure_reason,
+                outcome=outcome,
+            )
+            score_eligible = classification in AGENT_SCORE_CLASSIFICATIONS
+            failure_reason = runtime_failure_reason if score_eligible else classification
+            subtask_results.append(
+                SubtaskResult(
+                    index=idx,
+                    goal_type=subtask.goal_type,
+                    object=subtask.object,
+                    target=subtask.toggle or subtask.parent or "",
+                    instruction=subtask.instruction,
+                    success=success,
+                    failure_reason=failure_reason,
+                    steps=final_state.step_index,
+                    invalid_actions=final_state.invalid_action_count,
+                    goal_condition_success_rate=adapter.current_goal_condition_success_rate(),
+                    runtime_status=result.status,
+                    trace_path=trace.trace_path,
+                    classification=classification,
+                    score_eligible=score_eligible,
+                    agent_tool_call_count=outcome.agent_tool_call_count,
+                    backend_action_count=outcome.backend_action_count,
+                    terminal_tool_call_id=outcome.terminal_tool_call_id,
+                    terminal_evidence_ref=outcome.terminal_evidence_ref,
+                )
+            )
             trace.write_summary(subtask_results[-1].to_dict())
 
-            # If a subtask failed, the chain is broken — stop early (scene state
-            # may be in an unexpected configuration for downstream subtasks).
+            if not score_eligible:
+                for pending_idx, pending in enumerate(
+                    taskset.subtasks[idx + 1 :],
+                    start=idx + 1,
+                ):
+                    subtask_results.append(
+                        _not_run_subtask_result(
+                            subtask=pending,
+                            index=pending_idx,
+                            taskset_dir=taskset_dir,
+                        )
+                    )
+                break
+
+            # Agent failure breaks the chain without converting unattempted
+            # work into an infrastructure failure.
             if not success:
                 break
 
@@ -587,10 +695,14 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 "enabled": self.taskset_config.failure_simulation.enabled,
                 "grasp_failure_rate": self.taskset_config.failure_simulation.grasp_failure_rate,
                 "put_failure_rate": self.taskset_config.failure_simulation.put_failure_rate,
-                "navigate_failure_rate": self.taskset_config.failure_simulation.navigate_failure_rate,
+                "navigate_failure_rate": (
+                    self.taskset_config.failure_simulation.navigate_failure_rate
+                ),
             },
             "long_horizon": {
-                "keep_scene_across_subtasks": self.taskset_config.long_horizon.keep_scene_across_subtasks,
+                "keep_scene_across_subtasks": (
+                    self.taskset_config.long_horizon.keep_scene_across_subtasks
+                ),
             },
             "tasksets": [
                 {
@@ -614,3 +726,30 @@ def _subtask_failure_reason(error_code: str | None, state: AlfworldEnvState) -> 
         # Heuristic: ran out of steps without satisfying the goal.
         return "goal_not_satisfied"
     return "goal_not_satisfied"
+
+
+def _not_run_subtask_result(
+    *,
+    subtask: Subtask,
+    index: int,
+    taskset_dir: Path,
+) -> SubtaskResult:
+    trace = AlfworldTraceWriter(taskset_dir / f"subtask-{index + 1:02d}")
+    result = SubtaskResult(
+        index=index,
+        goal_type=subtask.goal_type,
+        object=subtask.object,
+        target=subtask.toggle or subtask.parent or "",
+        instruction=subtask.instruction,
+        success=False,
+        failure_reason=NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
+        steps=0,
+        invalid_actions=0,
+        goal_condition_success_rate=0.0,
+        runtime_status="not_run",
+        trace_path=trace.trace_path,
+        classification=NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
+        score_eligible=False,
+    )
+    trace.write_summary(result.to_dict())
+    return result

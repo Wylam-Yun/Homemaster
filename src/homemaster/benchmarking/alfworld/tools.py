@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
@@ -20,6 +21,14 @@ from homemaster.benchmarking.alfworld.translator import (
 )
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
+
+_TERMINAL_EXECUTION_FAILURES = {
+    "execution_state_uncertain",
+    "harness_grounding_failure",
+    "harness_navigation_failure",
+    "harness_operation_failure",
+    "unclassified_execution_failure",
+}
 
 
 def _adapter(run_context: RunContext) -> AlfworldEnvAdapter:
@@ -53,10 +62,23 @@ def _env_type(run_context: RunContext) -> str:
     config = run_context.deps.get("alfworld_config")
     return str(getattr(config, "env_type", "AlfredThorEnv"))
 
+
 def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResult | ToolResultMessage:
     data = step_result.to_model_visible_data()
     data.pop("admissible_commands", None)
     data["tool_args"] = _model_visible_tool_args(data.get("tool_args", {}))
+    outcome = run_context.deps.get("alfworld_episode_outcome")
+    if outcome is not None:
+        outcome.agent_tool_call_count += 1
+        outcome.backend_action_count += int(getattr(step_result, "backend_action_count", 0))
+    if step_result.failure_reason in _TERMINAL_EXECUTION_FAILURES:
+        data.update(
+            {
+                "terminal": True,
+                "classification": step_result.failure_reason,
+                "score_eligible": False,
+            }
+        )
     if _observation_mode(run_context) == "visual_eval":
         return _visual_tool_result(
             name=step_result.tool_name,
@@ -89,12 +111,14 @@ def _validation_failure(
 ) -> ToolResult | ToolResultMessage:
     state = _adapter(run_context).current_state
     data = state.to_model_visible_dict()
-    data.update({
-        "tool_name": tool_name,
-        "tool_args": _model_visible_tool_args(arguments),
-        "translated_command": None,
-        "feedback": str(error),
-    })
+    data.update(
+        {
+            "tool_name": tool_name,
+            "tool_args": _model_visible_tool_args(arguments),
+            "translated_command": None,
+            "feedback": str(error),
+        }
+    )
     if _observation_mode(run_context) == "visual_eval":
         return _visual_tool_result(
             name=tool_name,
@@ -118,40 +142,17 @@ def _validation_failure(
 def _write_trace(run_context: RunContext, step_result: Any) -> None:
     trace = run_context.deps.get("alfworld_trace")
     if trace is not None:
+        for event in getattr(step_result, "trace_events", ()):
+            if isinstance(event, dict):
+                trace.write_event(event)
         trace.write_event(step_result.to_trace_event())
 
 
-def _exec_inspect_view(
+def _exec_navigate(
     *,
     arguments: dict[str, Any],
     run_context: RunContext,
 ) -> ToolResult | ToolResultMessage:
-    state = _adapter(run_context).current_state
-    data = state.to_model_visible_dict()
-    data.pop("admissible_commands", None)
-    data.update({
-        "tool_name": "robot_inspect_view",
-        "tool_args": _model_visible_tool_args(arguments),
-        "focus": arguments.get("focus"),
-        "non_step_observation": True,
-    })
-    if _observation_mode(run_context) == "visual_eval":
-        return _visual_tool_result(
-            name="robot_inspect_view",
-            success=True,
-            data=data,
-            frame_path=state.frame_path,
-        )
-    return ToolResult(
-        success=True,
-        tool_name="robot_inspect_view",
-        executor_mode="programmatic",
-        data=data,
-        summary="Returned the current visual frame without stepping the environment.",
-    )
-
-
-def _exec_navigate(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
     grounded = dict(arguments)
     target = str(arguments.get("target_receptacle", ""))
     target_grounding = _ground_target(
@@ -286,16 +287,23 @@ def _exec_manipulate(
     _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context)
 
-def _exec_verify(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult | ToolResultMessage:
+
+def _exec_verify(
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
+) -> ToolResult | ToolResultMessage:
     state = _adapter(run_context).current_state
     data = state.to_model_visible_dict()
     data.pop("admissible_commands", None)
-    data.update({
-        "tool_name": "robot_verify",
-        "tool_args": _model_visible_tool_args(arguments),
-        "verified": state.won,
-        "expected_done": arguments.get("expected_done"),
-    })
+    data.update(
+        {
+            "tool_name": "robot_verify",
+            "tool_args": _model_visible_tool_args(arguments),
+            "verified": state.won,
+            "expected_done": arguments.get("expected_done"),
+        }
+    )
     if state.won:
         if _observation_mode(run_context) == "visual_eval":
             return _visual_tool_result(
@@ -340,7 +348,35 @@ def _visual_tool_result(
     failure_reason: str | None = None,
     is_error: bool | None = None,
 ) -> ToolResultMessage:
-    payload: dict[str, Any] = {"success": success}
+    result_data = data
+    effective_failure_reason = failure_reason
+    if name == "robot_manipulate" and _is_put_projection(data):
+        try:
+            payload = _put_visible_payload(
+                data=data,
+                success=success,
+                failure_reason=failure_reason,
+            )
+        except Exception:
+            payload = _put_visible_base(data=data, success=False)
+            payload.update(
+                {
+                    "error": "unclassified_execution_failure",
+                    "detail": "Execution detail could not be safely projected.",
+                    "detail_redacted": True,
+                }
+            )
+            effective_failure_reason = "unclassified_execution_failure"
+            result_data = dict(data)
+            result_data.update(
+                {
+                    "terminal": True,
+                    "classification": "unclassified_execution_failure",
+                    "score_eligible": False,
+                }
+            )
+    else:
+        payload = {"success": success}
     if name == "robot_find_object":
         found = _find_object_visible_payload(data)
         if found:
@@ -349,7 +385,7 @@ def _visual_tool_result(
         target = _go_to_visible_payload(data)
         if target:
             payload["target"] = target
-    if not success:
+    if not success and "error" not in payload:
         payload["error"] = _visual_error(failure_reason)
     content = [ContentBlock(text=_json_dumps(payload))]
     if frame_path:
@@ -362,11 +398,14 @@ def _visual_tool_result(
         name=name,
         content=content,
         is_error=(
-            _visual_result_is_error(success=success, failure_reason=failure_reason)
+            _visual_result_is_error(
+                success=success,
+                failure_reason=effective_failure_reason,
+            )
             if is_error is None
             else is_error
         ),
-        data=data,
+        data=result_data,
     )
 
 
@@ -383,7 +422,84 @@ def _visual_error(failure_reason: str | None) -> str:
         return "invalid_tool_arguments"
     if failure_reason in {"not_won_yet", "not_complete"}:
         return "not_complete"
+    stable_errors = {
+        "action_not_applicable",
+        "execution_state_uncertain",
+        "harness_grounding_failure",
+        "harness_navigation_failure",
+        "harness_operation_failure",
+        "navigation_required",
+        "object_not_held",
+        "placement_failed",
+        "target_not_found",
+        "target_not_receptacle",
+        "unclassified_execution_failure",
+    }
+    if failure_reason in stable_errors:
+        return str(failure_reason)
     return "action_failed"
+
+
+def _is_put_projection(data: dict[str, Any]) -> bool:
+    if data.get("action") == "put":
+        return True
+    tool_args = data.get("tool_args")
+    return isinstance(tool_args, dict) and tool_args.get("action") == "put"
+
+
+def _put_visible_base(*, data: dict[str, Any], success: bool) -> dict[str, Any]:
+    tool_args = data.get("tool_args")
+    args = tool_args if isinstance(tool_args, dict) else {}
+    inventory = data.get("inventory")
+    if not isinstance(inventory, list):
+        inventory = []
+    return {
+        "success": success,
+        "action": "put",
+        "object": data.get("object") or args.get("object"),
+        "target": data.get("target") or args.get("target_receptacle"),
+        "inventory": inventory,
+        "object_state": data.get("object_state"),
+        "state_changed": bool(data.get("state_changed")),
+    }
+
+
+def _put_visible_payload(
+    *,
+    data: dict[str, Any],
+    success: bool,
+    failure_reason: str | None,
+) -> dict[str, Any]:
+    payload = _put_visible_base(data=data, success=success)
+    if not success:
+        payload["error"] = _visual_error(failure_reason)
+    detail = data.get("detail")
+    if detail is not None:
+        projected, redacted = _project_execution_detail(str(detail))
+        payload["detail"] = projected
+        if redacted:
+            payload["detail_redacted"] = True
+    return payload
+
+
+def _project_execution_detail(detail: str) -> tuple[str, bool]:
+    projected = detail
+    patterns = (
+        (r"\b[A-Za-z][A-Za-z0-9]*\|[^\s,;)]+", "[REDACTED_OBJECT_ID]"),
+        (
+            r"\(\s*[+-]?\d+(?:\.\d+)?\s*,\s*[+-]?\d+(?:\.\d+)?\s*,"
+            r"\s*[+-]?\d+(?:\.\d+)?\s*\)",
+            "[REDACTED_COORDINATES]",
+        ),
+        (
+            r"\bcandidate(?:\s+poses?)?\s*\[[^\]]*\]",
+            "[REDACTED_CANDIDATES]",
+        ),
+        (r"\bexpert(?:\s+(?:target|answer))?[^;]*", "[REDACTED_EXPERT]"),
+    )
+    for pattern, replacement in patterns:
+        projected = re.sub(pattern, replacement, projected, flags=re.IGNORECASE)
+    return projected, projected != detail
 
 
 def _json_dumps(payload: dict[str, Any]) -> str:
@@ -526,33 +642,6 @@ def _with_grounding_metadata(
         }
     payload["grounding"] = metadata
     return payload
-
-
-def make_alfworld_robot_inspect_view() -> ToolSpec:
-    return ToolSpec(
-        name="robot_inspect_view",
-        description=(
-            "Return the current visual frame without executing an ALFWorld "
-            "environment action or consuming an environment step. Use only when "
-            "the latest action image is unclear or you need to re-check the "
-            "current view before choosing the next physical action."
-        ),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "focus": {
-                    "type": "string",
-                    "description": (
-                        "Optional short description of what to inspect in the "
-                        "current view, such as sofa surface or held object."
-                    ),
-                },
-            },
-        },
-        executor_mode="programmatic",
-        selectable_by_model=True,
-        executor=_exec_inspect_view,
-    )
 
 
 def make_alfworld_robot_navigate() -> ToolSpec:
@@ -715,9 +804,7 @@ def make_alfworld_robot_verify() -> ToolSpec:
             "properties": {
                 "expected_done": {
                     "type": "string",
-                    "description": (
-                        "Optional description of the expected completed condition."
-                    ),
+                    "description": ("Optional description of the expected completed condition."),
                 },
             },
         },

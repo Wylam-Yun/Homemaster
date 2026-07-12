@@ -8,7 +8,10 @@ from typing import Annotated
 import typer
 
 from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
-from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld, handle_benchmark_alfworld_taskset
+from homemaster.cli.benchmark_alfworld import (
+    handle_benchmark_alfworld,
+    handle_benchmark_alfworld_taskset,
+)
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.interactive_shell import run_interactive_shell
@@ -213,12 +216,20 @@ def benchmark_alfworld_command(
             log_level=log_level,
             observation_mode=observation_mode,
         )
+        metrics = summary.to_dict()
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"episodes: {len(summary.episodes)}")
         typer.echo(f"success_rate: {summary.success_rate:.3f}")
+        typer.echo(f"agent_scored_episodes: {metrics['agent_scored_episodes']}")
         typer.echo(
-            f"trace_root: {trace_root / split_trace_bucket(split) / summary.run_id}"
+            f"agent_success_rate_on_valid: {float(metrics['agent_success_rate_on_valid']):.3f}"
         )
+        typer.echo(f"harness_invalid_episodes: {metrics['harness_invalid_episodes']}")
+        typer.echo(f"harness_valid_coverage: {float(metrics['harness_valid_coverage']):.3f}")
+        typer.echo(
+            f"formal_score_available: {str(bool(metrics['formal_score_available'])).lower()}"
+        )
+        typer.echo(f"trace_root: {trace_root / split_trace_bucket(split) / summary.run_id}")
     except Exception as exc:
         render_error_and_exit(exc)
 
@@ -253,8 +264,19 @@ def benchmark_alfworld_taskset_command(
             alfworld_config=alfworld_config,
             log_level=log_level,
         )
+        metrics = summary.to_dict()
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"tasksets: {len(summary.taskset_results)}")
+        typer.echo(f"agent_scored_tasksets: {metrics['agent_scored_tasksets']}")
+        typer.echo(
+            f"agent_success_rate_on_valid: {float(metrics['agent_success_rate_on_valid']):.3f}"
+        )
+        typer.echo(f"harness_invalid_tasksets: {metrics['harness_invalid_tasksets']}")
+        typer.echo(f"harness_valid_coverage: {float(metrics['harness_valid_coverage']):.3f}")
+        typer.echo(
+            f"formal_score_available: {str(bool(metrics['formal_score_available'])).lower()}"
+        )
+        typer.echo(f"not_run_subtasks: {metrics['not_run_subtasks']}")
         for ts in summary.taskset_results:
             typer.echo(
                 f"  [{ts.difficulty}] {ts.taskset_id} (FloorPlan{ts.floorplan}): "

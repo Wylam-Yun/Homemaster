@@ -7,10 +7,10 @@ onto ALFWorld command labels before the command is sent to the simulator.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
 import json
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -82,9 +82,9 @@ def ground_text(
     judge_config_path: Path | None = None,
 ) -> GroundingResult:
     scoped = _filter_candidates(candidates, allowed_kinds)
-    deterministic = _deterministic_ground(value, scoped)
-    if deterministic is not None:
-        return deterministic
+    stable_match = _stable_ground(value, scoped)
+    if stable_match is not None:
+        return stable_match
     judged = _judge_ground(value, scoped, judge_config_path)
     if judged is not None:
         return judged
@@ -101,7 +101,9 @@ def _subtask_candidates(subtask: Any) -> list[GroundingCandidate]:
         candidates.append(GroundingCandidate(canonical_command_name(obj), "object", "subtask"))
         candidates.append(GroundingCandidate(str(obj), "object", "subtask"))
     if parent:
-        candidates.append(GroundingCandidate(canonical_command_name(parent), "receptacle", "subtask"))
+        candidates.append(
+            GroundingCandidate(canonical_command_name(parent), "receptacle", "subtask")
+        )
         candidates.append(GroundingCandidate(str(parent), "receptacle", "subtask"))
     if toggle:
         candidates.append(GroundingCandidate(canonical_command_name(toggle), "toggle", "subtask"))
@@ -159,7 +161,7 @@ def _filter_candidates(
     return [candidate for candidate in candidates if candidate.kind in allowed]
 
 
-def _deterministic_ground(
+def _stable_ground(
     value: str,
     candidates: list[GroundingCandidate],
 ) -> GroundingResult | None:
@@ -170,11 +172,14 @@ def _deterministic_ground(
     base_key = normalized_key(raw, drop_instance=True)
     raw_has_instance = _has_trailing_instance(raw)
     base_matches = _unique_labels(
-        candidate for candidate in candidates
+        candidate
+        for candidate in candidates
         if normalized_key(candidate.label, drop_instance=True) == base_key
     )
     if not raw_has_instance:
-        instance_matches = [candidate for candidate in base_matches if _has_trailing_instance(candidate.label)]
+        instance_matches = [
+            candidate for candidate in base_matches if _has_trailing_instance(candidate.label)
+        ]
         if len(instance_matches) == 1:
             candidate = instance_matches[0]
             return GroundingResult(
@@ -185,8 +190,7 @@ def _deterministic_ground(
             )
 
     exact = _unique_by_label(
-        candidate for candidate in candidates
-        if normalized_key(candidate.label) == full_key
+        candidate for candidate in candidates if normalized_key(candidate.label) == full_key
     )
     if exact is not None:
         return GroundingResult(
@@ -208,7 +212,8 @@ def _deterministic_ground(
         )
 
     suffix_matches = _unique_labels(
-        candidate for candidate in candidates
+        candidate
+        for candidate in candidates
         if base_key and normalized_key(candidate.label, drop_instance=True).endswith(base_key)
     )
     if len(suffix_matches) == 1:
