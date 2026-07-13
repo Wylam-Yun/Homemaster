@@ -57,3 +57,22 @@
 - Re-ran the final product black-box gate after all trace/state changes in `product-harness-v2`; Shelf 3/4/6 each exited 0 and independently passed return/state/goal/frame assertions.
 - Cleaned an ignored Python 3.10 `__pycache__` directory that alone violated an import-boundary test, and renamed a blocked legacy cleanup term without changing grounding behavior.
 - Final repository verification: `352 passed, 1 skipped`; focused ALFWorld benchmark `121 passed`; Ruff check, Ruff format check, compileall, cleanup guard and `git diff --check` pass.
+
+## 2026-07-13
+
+- Recovered the interrupted V1.8 continuation and checked both existing pose-investigation subagents; both were complete and had made no file changes.
+- Confirmed the canonical `hkust4` worktree is clean at `0fdfeaa` and that the older local staging tree is stale and unsafe for synchronization.
+- Created a fresh isolated clone from the canonical remote commit.
+- Added the V1.8 Oracle-pose and typed-feedback design draft without modifying product code.
+- Marked all direct HomeMaster uses of observed ALFWorld runtime internals `UNVERIFIED` pending the Phase 0 true-environment gate.
+- Began the required independent design-review phase.
+- Completed the independent V1.8 design review with verdict `FIX` and a separate read-only code-boundary audit.
+- Accepted and dispositioned every review item; no finding was rejected.
+- Revised the design to remove hidden-object/legacy navigation bypasses, make typed feedback the sole Adapter-to-Dispatcher authority, split runtime feasibility from product black-box verification, define context rebase/consume/invalid transitions, cover all public actions, and separate responsibility metrics.
+- Started the final design-document self-audit; product code remains untouched.
+- Completed the revised-spec self-audit: Markdown fences are balanced, `git diff --check` passes, and the changed documents contain no API token/credential pattern.
+- Added a Chinese CHANGELOG entry that states the problem, selected design, impact and explicit design-only/UNVERIFIED boundary.
+- Synced the five-file design scope to `hkust4`; local and remote SHA-256 values match for every file, and the remote worktree contains no other change.
+- Logged and isolated one non-mutating remote check quoting error; the equivalent local fence check already passed and the remote secret check is rerun separately.
+- Completed remote staged-scope verification and pushed the five-file, design-only V1.8 commit on `visualagentloop`; no product source, tests or runtime configuration changed.
+- Handoff state is now user design review. Implementation planning and product changes remain blocked on explicit approval, followed by Gate A.

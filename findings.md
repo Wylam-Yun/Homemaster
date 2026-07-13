@@ -184,3 +184,38 @@
 - Full repository suite after generated-cache cleanup: `352 passed, 1 skipped`; the skip is the opt-in live ALFWorld smoke test. The only warning is the existing `jieba` import of deprecated `pkg_resources`.
 - Touched-file Ruff check and Ruff format check pass; compileall, cleanup guard and `git diff --check` pass.
 - JSONL smoke independently read the persisted events and confirmed ordered internal execution records retain objectId/raw/pose evidence while the model-visible projection recursively excludes those fields.
+
+## 2026-07-13 V1.8 Design Continuation
+
+- Canonical repository state is the clean `visualagentloop` branch on `hkust4` at `0fdfeaa00b921d8ea347655ecbd4c32b9ff30d6d`; the older local V1.7 staging tree is not authoritative.
+- The real 10-Episode run produced raw success `5/10`, Agent success `5/6` on score-eligible Episodes, and Harness coverage `6/10`; formal score was unavailable.
+- Exact-trial probes established three separate Harness defects: navigation successes beyond the 65-candidate budget, visible-but-inoperable Drawer poses, and model feedback reading the wrong integration layer. A provider SSE ordering failure was also misclassified as Agent failure.
+- The user selected one upstream architecture: use ALFWorld's generic Oracle receptacle map for low-level poses, remove navigation/Put pose search, keep hidden movable-object exploration under model control, require the exact requested target to be visible after navigation, use single-shot Open/Put, project only typed execution feedback, and exclude Provider/runtime/Harness failures from Agent scoring.
+- Standard Oracle source/data references resembling `controller.receptacles[exact_object_id]["locs"]` were observed in the installed environment, but direct HomeMaster integration and per-instance terminal-state behavior remain `UNVERIFIED`. Review may require the Phase 0 gate but must not endorse these symbols.
+- V1.8 is design-only. No product implementation is authorized until independent review findings are dispositioned, the user approves the revised spec, and Phase 0 verifies runtime return codes plus external terminal states per instance.
+
+### Main-Agent Self-Review Candidates
+
+- `AlfworldExecutionFeedback` does not currently declare `success`, while the required model-visible JSON does. If feedback is the sole authority, success cannot be re-created downstream from `error` or a second generic layer.
+- `action_not_applicable` appears in the Open/Close state flow but is absent from the exhaustive classification table, leaving terminal/scoring/backend-action semantics undefined.
+- Context freshness is underspecified after a non-moving state action. Open must be able to refresh/rebase the same locked Oracle execution context for a following Put; treating every newer event as stale would force an unnecessary second navigation, while accepting arbitrary event drift would use stale proof.
+- A visible movable may expose multiple parent memberships. The design says to choose a visible Oracle-capable anchor but does not yet define a deterministic unique rule or an explicit ambiguity failure; selecting a set-dependent first value would violate target-locking discipline.
+- A successful Oracle move followed by exact-target visibility failure needs an explicit terminal Harness classification distinct from the pre-move, zero-action `target_not_visible` response.
+- Provider/runtime availability and Harness coverage are conceptually separate. The current wording says a Provider failure lowers `coverage` while the formal-score gate is named `harness_valid_coverage`; the metric and denominator need one unambiguous definition.
+- Current `harness_valid_coverage` is implemented as `score_eligible / total`, so Provider/runtime/artifact/cancelled failures are all counted as “Harness invalid.” The revised design should preserve a total formal-score eligibility gate while reporting separate Harness coverage and Provider/runtime availability, or explicitly rename the aggregate metric.
+- The Runner receives `GenericAgentRuntime`'s actual string error code `transport_error`. `LLMProviderError` is an exception class and `provider_error` is a provider-level error type, not necessarily values that reach `_episode_classification()`. Normalization must be specified at one concrete boundary and tested with the real `RunResult` shape rather than a list of unlike symbols.
+- The public registry also exposes `robot_find_object` and `robot_navigate`. Replacing only `robot_go_to` would leave possible navigation/hidden-object bypasses; the design must state whether these entry points delegate to the same Oracle executor, are removed, or remain under a proven non-moving contract.
+- This is a concrete bypass, not a naming concern: `tools._exec_find_object()` calls `env_adapter.find_object()`, whose `_search_visible_object_source()` iterates known receptacles and sends environment navigation commands until the object appears. That behavior directly violates the approved hidden-object boundary and must be removed from the formal path with registry/call-boundary tests. `robot_navigate` separately reaches the legacy environment command path and must not remain an alternative low-level navigation mode.
+- `robot_manipulate` supports take/open/close/put/heat/cool/clean/slice/use. The design's global claim that all model-visible execution state comes from typed feedback is broader than its Open/Close/Put flow and integration-test matrix. It must either define typed feedback for every public robot action or narrow the invariant and explain the unaffected actions without permitting generic result inference.
+- The design must make safe `detail` construction explicit. Regex-redacting a free-form THOR string is not a complete security boundary; model-visible detail should come from allowlisted templates while raw external detail stays internal.
+
+### Independent V1.8 Review Result
+
+- The independent design verdict was `FIX`; a separate read-only code-boundary audit agreed. Neither agent changed files or endorsed external runtime symbols.
+- All ten design findings and five boundary-audit supplements were accepted. The revised spec now includes old navigation bypass removal, typed tri-state feedback, two-stage Gate A/B verification, a context rebase state machine, deterministic anchor failure, exhaustive tool/Episode taxonomies, all-action coverage, distinct counters/metrics, auditable provider retry, exact Take locking and full deletion/synchronization boundaries.
+- The feedback and Oracle integration remain design claims only. No product code was modified and all V1.8 external compositions remain `UNVERIFIED` until the corresponding true-environment gate passes.
+
+### Revised-Spec Self-Audit
+
+- Initial Markdown/diff check passed with no whitespace errors.
+- Corrected four contract-level wording defects found after disposition: the old 6/10 mixed metric is now explicitly historical, the summary covers the full action gateway rather than only Open/Put, typed feedback uses `terminal=true + classification` correctly, and Dispatcher `invalid_tool_arguments/unknown_tool` are included in the closed nonterminal error map.

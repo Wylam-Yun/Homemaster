@@ -2,14 +2,14 @@
 
 ## Goal
 
-Finish and verify the ALFWorld Harness `put` repair described by the V1.7 specifications while preserving the existing dirty worktree and public tool contract.
+Preserve the delivered V1.7 baseline and complete the user-approved V1.8 Oracle-pose/typed-feedback design as a reviewed, design-only commit. Product implementation remains out of scope until the written design is approved and its Phase 0 runtime gate passes.
 
 ## Non-Negotiable Gates
 
-- No implementation before an independent design review, point-by-point disposition, real-environment verification of every `UNVERIFIED` THOR symbol, per-instance pose experiments, and a second independent review of the revised design.
+- No V1.8 product implementation before an independent design review, point-by-point disposition, user approval of the revised design, and real-environment verification of every `UNVERIFIED` ALFWorld/THOR runtime symbol.
 - Root cause and boundary evidence precede fixes; failing tests precede implementation.
 - Completion requires unit tests, interface implementation audit, THOR return-code checks, and per-target black-box terminal-state assertions.
-- No commit or push unless the user separately requests it.
+- A design-only commit and GitHub push are authorized; product-code changes are not.
 
 ## Phases
 
@@ -22,6 +22,11 @@ Finish and verify the ALFWorld Harness `put` repair described by the V1.7 specif
 | 5. TDD implementation | complete | Navigation, put, feedback, outcome, taskset and coverage RED tests now pass. |
 | 6. Verification | complete | Unit, interface-audit, six-Shelf characterization, and Shelf 3/4/6 product black-box gates pass. |
 | 7. Documentation and final regression | complete | Architecture, guide, README, CHANGELOG, pitfalls, handoff state and final test run agree. |
+| 8. Recover V1.8 context | complete | User decisions, real-run root causes, subagent evidence, canonical remote commit and clean worktree are reconciled. |
+| 9. Independent V1.8 design review | complete | Reviewer returned FIX; the separate code-boundary audit confirmed the concrete bypasses without endorsing runtime symbols. |
+| 10. Review disposition and self-audit | complete | All findings were accepted and edited; contract wording, code fences, whitespace and secret scans pass. |
+| 11. Design documentation commit | complete | Spec, CHANGELOG and live handoff docs agree; secret scan and `git diff --check` pass; design-only commit is pushed. |
+| 12. User design approval | in_progress | User reviews the committed V1.8 specification before any implementation planning begins. |
 
 ## Errors Encountered
 
@@ -37,7 +42,10 @@ Finish and verify the ALFWorld Harness `put` repair described by the V1.7 specif
 | First open probe selected hidden `Blinds` and returned failure with empty detail | 1 | Re-ran from an independent reset with a visible closed Drawer; return code and `isOpen` transition passed. |
 | Toggle probes against hidden CellPhone, DeskLamp, and LightSwitch returned `object not found` | 1 | Keep toggle terminal-state contract UNVERIFIED; a later focused probe must first satisfy an exact-target navigation/observation gate. |
 | Local staging `types.py` overwrote newer taskset fields during remote sync | 1 | Restored the taskset patch from its owner, preserved `backend_action_count`, re-synced remote back to staging, and reran outcome/runner/CLI plus the full benchmark suite. |
+| Existing V1.7 local staging was behind remote HEAD and carried the whole prior delivery as uncommitted changes | 1 | Treat `hkust4` commit `0fdfeaa` as canonical and create a fresh isolated V1.8 clone; never upload the stale tree. |
+| Initial SSH-backed `git clone` was denied by the local network sandbox | 1 | Re-ran the same scoped clone with explicit approval; the isolated clone completed. |
+| Combined remote doc check embedded Markdown backticks in nested shell quoting and ended with an unexpected EOF | 1 | Do not repeat that command form; the local balanced-fence check already passed and the remote spec hash is identical. Run the remote secret scan separately without backticks. |
 
 ## Current Next Action
 
-All put-MVP implementation and verification gates are complete. No code, documentation, or verification blockers remain. Successful `toggle/use` remains explicitly outside the put MVP and requires a separate real-environment contract before future implementation.
+Wait for the user's review and approval of `plan/V1.8/alfworld-oracle-pose-execution-feedback-spec.md`. Do not start implementation planning or product-code changes before that approval, and do not claim the Oracle integration works before Gate A/B.
