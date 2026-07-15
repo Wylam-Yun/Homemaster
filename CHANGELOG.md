@@ -4,6 +4,7 @@
 
 ### Documentation
 
+- 新增 HomeMaster 变更配合人评测环境与完整演示设计：用户继续在现有 `homemaster shell` 中发送变更单路径，普通消息仍走原 `run_agent_turn()`，仅由 CLI-facing router 为有效 ticket 注入独立 coworker turn adapter、十一项 DOM/终端/决策工具和两份通用 skill；设计同时冻结 `case_02` 偏序轨迹 ground truth、raw/effective trajectory、trajectory/result/overall 双域评分、真实网页与 tmux/Bash 外部终态门、TigerVNC/FFmpeg 自动录屏及 run-scoped artifact 目录。该提交只交付书面设计和文件边界，不修改 GenericAgentRuntime、默认 home registry 或产品代码；Playwright、VNC 观看、FFmpeg X11 录制和完整模型闭环在真环境通过前保持 `UNVERIFIED`。
 - 新增经独立评审并逐条处置的 V1.8 ALFWorld Oracle 位姿与强类型执行反馈设计：针对真实 10 条运行暴露的候选预算截断、可见但不可操作、Put 状态投影错层和 Provider 误计分问题，明确删除隐藏对象/legacy 导航旁路，以单一 Oracle pose、exact target 可见终态、可 rebase 的执行 context、Adapter 到 Dispatcher 唯一 typed feedback 和分域评分替代 V1.7 搜索路径；本提交仅交付设计，产品接线在 Gate A/B 真环境通过前保持 `UNVERIFIED`。
 
 ### Fixed
