@@ -14,6 +14,9 @@ from homemaster.agent.session_persistence import (
     session_snapshot_path,
 )
 from homemaster.agent.turn import compact_agent_context, new_session_id, run_agent_turn
+from homemaster.benchmarking.coworker_demo.turn import run_coworker_turn
+from homemaster.benchmarking.coworker_demo.types import TicketRouteKind
+from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.config import load_config
 from homemaster.task_state.store import TaskStateStore
@@ -101,9 +104,7 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
             agent_state = compact_result.agent_state
             last_status = compact_result.status
             last_run_id = compact_result.run_id
-            last_trace_path = (
-                str(compact_result.trace_path) if compact_result.trace_path else None
-            )
+            last_trace_path = str(compact_result.trace_path) if compact_result.trace_path else None
             typer.echo(f"上下文压缩：{compact_result.message}")
             continue
         if utterance == "/doctor":
@@ -120,6 +121,36 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
                 typer.echo(f"上一轮 trace 文件：{last_trace_path}")
             else:
                 typer.echo("还没有 trace。")
+            continue
+
+        ticket_route = route_coworker_ticket(utterance)
+        if ticket_route.kind == TicketRouteKind.INVALID_TICKET_INTENT:
+            last_status = "failed"
+            typer.echo(f"变更单无效：{ticket_route.message}")
+            continue
+        if ticket_route.kind == TicketRouteKind.VALID_TICKET:
+            try:
+                coworker_result = run_coworker_turn(ticket_route)
+            except Exception as exc:
+                last_status = "failed"
+                typer.echo(f"变更配合执行失败：{exc}")
+                continue
+            last_status = coworker_result.status
+            last_run_id = coworker_result.run_id
+            last_trace_path = (
+                str(coworker_result.trace_path) if coworker_result.trace_path else None
+            )
+            typer.echo(f"模型回复：{coworker_result.final_reply}")
+            typer.echo(
+                "评分："
+                f"trajectory={coworker_result.trajectory_score:.1f}, "
+                f"result={coworker_result.result_score:.1f}, "
+                f"overall={coworker_result.overall_score:.1f}"
+            )
+            typer.echo(f"正式成功：{coworker_result.formal_success}")
+            typer.echo(f"运行产物：{coworker_result.artifact_path}")
+            if coworker_result.video_path:
+                typer.echo(f"演示视频：{coworker_result.video_path}")
             continue
 
         run_id = new_session_id()
@@ -163,12 +194,15 @@ def _enable_line_editing() -> None:
 
 
 def _render_help() -> str:
-    return "\n".join([
-        "可用命令：",
-        "/new：新建会话，清空当前对话状态。",
-        "/compact：立即压缩已有上下文，会按需调用 summary API。",
-        "/status：查看上一轮状态。",
-        "/events：查看上一轮 trace 文件路径，供调试和可观测性检查。",
-        "/doctor：检查本地配置和依赖。",
-        "/exit：退出 shell。",
-    ])
+    return "\n".join(
+        [
+            "可用命令：",
+            "/new：新建会话，清空当前对话状态。",
+            "/compact：立即压缩已有上下文，会按需调用 summary API。",
+            "/status：查看上一轮状态。",
+            "/events：查看上一轮 trace 文件路径，供调试和可观测性检查。",
+            "/doctor：检查本地配置和依赖。",
+            "/exit：退出 shell。",
+            "发送一条可验证的变更单 JSON 绝对路径，可自主执行整单变更。",
+        ]
+    )

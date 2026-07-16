@@ -2,6 +2,112 @@
 
 最新记录放在最上方。
 
+## 2026-07-16 - 正式成功门自引用产品 artifact 与视频结论
+
+严重程度：高。业务、轨迹和视频都可以真实成功，但若最终门把 `artifact_failure` 固定为 false、只校验 manifest 已列出的条目，或让独立 verifier 信任产品写入的帧结论，缺失、篡改和伪造证据仍可能被报告为正式成功。
+
+### 症状与根因
+
+- 评分器生成了 artifact registry，却在 `formal_success` 计算中把 `artifact_failure` 直接设为 false；registry 的 `verify()` 也不知道哪些路径是必需项。
+- 离线 verifier 会验证 manifest 已列条目的哈希，但必需文件若完全未登记就不会进入循环。
+- 视频只重新运行 ffprobe；首中末帧、FFmpeg exit 和 first-packet growth 仍取信产品 `video_manifest.verified`，形成证据自引用。
+- action ledger 只在 reserve 时检查终态，预先 reserve 的 action 仍能在 terminal decision 后 consume；decision evidence 也未验证是否属于当前 run。
+
+### 修法与教训
+
+- 用显式核心 artifact 集合同时驱动产品 finalization 和独立 verifier；缺少 manifest entry、`complete=false`、文件缺失或哈希漂移都设置 `artifact_failure`，然后才重新计算正式成功。
+- 所有 action 消费、runtime/task/skill 工具先查共享终态。decision evidence 只能引用当前 run 先前持久化的 event/evidence；environment、normalizer 和离线 verifier 分别拒绝未知引用。
+- 离线视频门独立检查 FFmpeg 退出、first-packet 样本增长、视频 SHA-256 和 ffprobe，并直接从 MP4 解码 raw RGB 首中末帧计算非黑比例、方差和首末变化。
+- “独立 verifier”必须从原始字节和外部进程重建结论，不能换一个函数再次读取产品布尔值。必需集合必须检查缺项，而不只是检查现存项。
+
+### 参考
+
+- `apps/case02_openenv/src/case02_openenv/artifacts.py`
+- `apps/case02_openenv/src/case02_openenv/evaluation/scoring.py`
+- `apps/case02_openenv/src/case02_openenv/episode_store.py`
+- `scripts/coworker_demo/verify_run_bundle.py`
+- `tests/case02_openenv/test_{artifacts,episode_store,scoring,independent_bundle_verifier}.py`
+
+## 2026-07-16 - 最终业务成功掩盖必需轨迹节点错序或缺失
+
+严重程度：高。真实模型可以把配置正确写入、业务验证成功并得到 result 100，同时跳过 planner、implementation gate、exact job wait，或在依赖完成前写 progress；若只验最终文件和模型自报，会把不可审计流程误当成正式成功。
+
+### 症状
+
+- 一个真实 normal run 达到 result 100，但因 `PLAN_CREATED` 晚于 prechecks，trajectory 只有 12.5。
+- 另一个 run 用 `browser_observe` 看到 job 已成功而没有调用 `browser_wait`；缺失 `ADD_WAIT` 让 `ADD_GREP` 及后续节点按 DAG 级联失配，trajectory 只有 45.8。
+- 模型在只完成 post alarm 后过早写入 `NORMAL_PROGRESS`。即使后来补齐四项检查并再次调用 progress，首个错序有效动作仍不能被事后覆盖。
+
+### 根因链
+
+1. Prompt 能说明流程，但不能保证模型实际选择对应工具或顺序。
+2. 业务状态机只限制最终 mutation，没有把 planner/progress/wait 当作后继动作的外部前置条件。
+3. 允许错序 runtime event 先进入 append-only audit 后，后续正确事件无法合法改写历史。
+
+### 修法与教训
+
+- ticket 首次读取后，除只读 observe 外的操作必须先看到真实 `task_planner -> PLAN_CREATED`。
+- precheck/implementation proceed 后，下一项浏览器动作必须先看到阶段对应 progress；add grep 后若缺 implementation decision，直接返回准确恢复指令。
+- terminal 启动前要求最新 add/remove job 的 exact `browser_wait`；`NORMAL_PROGRESS` 写入前要求五项 postcheck 与最新 business wait；`ROLLBACK_PROGRESS` 写入前要求 rollback grep。
+- 无效或错序节点在 append 前拒绝，不能由 evaluator 合成、重排、选择后一个候选或倒填。正式成功同时要求 trajectory/result 100、视频与 artifact 门，而不是只看业务终态。
+
+### 参考
+
+- `apps/case02_openenv/src/case02_openenv/episode_store.py`
+- `apps/case02_openenv/src/case02_openenv/terminal/executor.py`
+- `tests/case02_openenv/test_episode_store.py`
+- `var/coworker-demo/coworker-20260716-154711-853f071d/`（修复后 normal PASS）
+- `var/coworker-demo/coworker-20260716-160128-c4f0faa9/`（修复后 anomaly PASS）
+
+## 2026-07-16 - 解引用 venv Python symlink 让子服务丢失依赖环境
+
+严重程度：高。父进程测试和 import 全部通过，但启动的 FastAPI 子服务使用基础解释器，运行时才报依赖缺失，容易被误判为 lock 或安装损坏。
+
+### 症状与根因
+
+- 配置指向 `apps/case02_openenv/.venv/bin/python`，路径校验后却变成 uv 管理的基础 Python。
+- `Path.resolve()` 跟随 venv 中的解释器 symlink；以解引用后的路径启动进程时，Python 不再发现该 venv 的 `site-packages`。
+
+### 修法与教训
+
+- 可执行路径只使用 `expanduser()` 和 `absolute()` 做定位，保留 venv symlink 身份；数据根等普通路径仍可用 `resolve()` 做 containment。
+- preflight 同时验证配置权限、解释器文件与子服务 health。父进程能 import 不能证明子进程解释器正确。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/config.py`
+- `src/homemaster/benchmarking/coworker_demo/environment_client.py`
+- `scripts/coworker_demo/preflight.py`
+
+## 2026-07-16 - FFmpeg 编码进度把未落盘视频误判为首 packet 就绪
+
+严重程度：高。该假阳性会让 Agent 在录屏文件尚不可恢复时开始调用模型；若进程随后异常退出，内部已有几十帧 `frame` trace，但交付 MP4 仍可能只有 28-byte header。
+
+### 症状
+
+- 首次 x11grab linchpin 返回 `pass=true`，FFmpeg progress 已到 `frame=58`，最终 ffprobe 和三帧检查也通过。
+- 逐采样复查却发现录制期间 `demo.mp4` 始终只有 28 bytes，直到发送 `q` 正常收尾后才一次性增长。
+- 因此“编码器处理了帧”和“fragmented MP4 已在外部文件系统写入可增长 packet”并不是同一个终态。
+
+### 根因链
+
+1. first-packet gate 只要求 `frame >= 1`、`total_size > 0` 和文件非空；28-byte container header 也满足“非空”。
+2. x264 默认 GOP 很长，fragmented MP4 只在后续 keyframe/收尾时刷出媒体 fragment。
+3. 最终正常收尾让视频可播放，反过来掩盖了模型调用前的 readiness gate 实际未成立。
+
+### 修法与教训
+
+- RED-test 固定 `[0, 28, 28, 28]` 必须失败，只有观察到 header 后又出现更大的正向文件大小才可通过。
+- 编码命令锁定 `-g 15 -keyint_min 15 -sc_threshold 0`，并同时要求 FFmpeg progress 的 `total_size > 28` 与宿主文件至少两个不同的正值大小。
+- final gate 仍独立要求 FFmpeg exit 0、ffprobe H.264/1920x1080/yuv420p/时长/帧数，以及首中末每帧区域检查；first-packet 与 final-video 是两道不同的门。
+
+### 参考
+
+- `scripts/coworker_demo/linchpin_recording.py`
+- `tests/case02_openenv/test_linchpin_helpers.py`
+- `var/coworker-demo/linchpin/recording/run-001/video_manifest.json`（假阳性证据）
+- `var/coworker-demo/linchpin/recording/run-002/video_manifest.json`（修复后真环境 PASS）
+
 ## 2026-07-12 - ALFWorld Harness 把内部执行回声当成外部成功
 
 严重程度：高。该问题曾让含 Harness 执行失败的 Episode 进入 Agent 评分，并让 `9/10` 的汇总结果无法直接解释为模型能力。

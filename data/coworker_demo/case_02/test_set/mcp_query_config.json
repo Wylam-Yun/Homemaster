@@ -1,0 +1,25 @@
+{
+  "description": "Mock external config for MCP query time window. The change ticket does not contain real begin/end time, so case_02 passes one change-level time window from this config.",
+  "timezone": "Asia/Shanghai",
+  "query_granularity": "sop_tool_occurrence",
+  "change_time_window": {
+    "begin_time": 1768744800,
+    "end_time": 1768754160,
+    "time_window_local": "2026-01-18 22:00:00..2026-01-19 00:36:00"
+  },
+  "mcp_request_contract": {
+    "request_file": "monitor_cls_query_request.json",
+    "required_runtime_inputs": [
+      "key_words",
+      "begin_time",
+      "end_time"
+    ],
+    "key_words_format": "schema.location=<location>",
+    "time_window_source": "change_time_window"
+  },
+  "notes": [
+    "All 13 SOP tool-occurrence requests share the same change-level begin_time/end_time.",
+    "If the same location appears in multiple SOP stages, repeated requests may return the same logs inside this global window.",
+    "The LLM is expected to use operation_access_log.time_local and SOP order to decide which log belongs to which action."
+  ]
+}

@@ -1,0 +1,66 @@
+:root {
+  color: #202525;
+  background: #f3f5f4;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px;
+  letter-spacing: 0;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+a { color: #176a68; text-decoration: none; }
+.topbar { height: 56px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; background: #1f2727; color: #fff; }
+.topbar div, .topbar nav { display: flex; align-items: center; gap: 18px; }
+.topbar a { color: #d4e5e4; }
+.muted { color: #9fb0af; font-size: 13px; }
+main { width: min(1180px, calc(100% - 40px)); margin: 0 auto 48px; }
+.page-heading { padding: 30px 0 22px; border-bottom: 1px solid #cfd6d4; }
+.page-heading.compact { padding-bottom: 18px; }
+h1 { margin: 3px 0 8px; font-size: 28px; line-height: 1.2; letter-spacing: 0; }
+h2 { margin: 0 0 14px; font-size: 18px; letter-spacing: 0; }
+h3 { margin: 4px 0 10px; font-size: 16px; letter-spacing: 0; }
+h4 { margin: 16px 0 4px; font-size: 13px; letter-spacing: 0; }
+p { line-height: 1.55; }
+.eyebrow, .stage { margin: 0; color: #176a68; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.band { padding: 22px 0; border-bottom: 1px solid #cfd6d4; }
+.variables dl { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; }
+.variables dl div { border-left: 3px solid #258783; padding: 3px 10px; }
+dt, label, th, small { color: #5e6b69; font-size: 12px; font-weight: 650; }
+dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.actions { margin-top: 16px; display: flex; gap: 10px; }
+button { min-height: 38px; padding: 8px 14px; border: 1px solid #176a68; border-radius: 4px; background: #176a68; color: #fff; font: inherit; font-weight: 650; cursor: pointer; letter-spacing: 0; }
+button:hover { background: #105957; }
+button:disabled { cursor: wait; opacity: .55; }
+.receipt { margin-top: 12px; min-height: 40px; padding: 10px 12px; border-left: 3px solid #c79022; background: #fff; overflow-wrap: anywhere; }
+.receipt.success { border-color: #258783; }
+.receipt.error { border-color: #b8423e; color: #862b29; }
+.sop article { padding: 18px 0; border-top: 1px solid #dce1df; }
+.preserve { white-space: pre-wrap; }
+pre { margin: 10px 0 0; padding: 14px; overflow: auto; border: 1px solid #d6dcda; border-radius: 4px; background: #fff; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.filters, .form-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)); gap: 14px; }
+label { display: flex; flex-direction: column; gap: 6px; }
+input, select { height: 38px; width: 100%; padding: 6px 9px; border: 1px solid #abb6b3; border-radius: 4px; background: #fff; color: #202525; font: inherit; letter-spacing: 0; }
+.query-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 10px; padding: 22px 0; }
+.query-grid button { min-height: 84px; text-align: left; background: #fff; color: #202525; border-color: #aeb9b6; }
+.query-grid button:hover { border-color: #176a68; }
+.query-grid span, .query-grid small { display: block; }
+.query-grid small { margin-top: 5px; line-height: 1.3; }
+.result-heading { display: flex; align-items: center; justify-content: space-between; }
+.status { display: inline-flex; min-height: 26px; align-items: center; padding: 3px 9px; border-radius: 3px; font-size: 12px; font-weight: 700; }
+.status.pending { color: #714f09; background: #f5e7c5; }
+.status.healthy { color: #135a57; background: #d8eeeb; }
+.status.failed { color: #842d2a; background: #f4dcda; }
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { padding: 10px; border-bottom: 1px solid #dce1df; text-align: left; overflow-wrap: anywhere; }
+.observer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+.score-strip { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.score-strip div { border-left: 3px solid #258783; padding-left: 10px; }
+.score-strip small, .score-strip strong { display: block; }
+.score-strip strong { margin-top: 5px; font-size: 20px; }
+#observer-events { max-height: 670px; overflow: auto; padding-left: 25px; }
+#observer-events li { padding: 5px 0; border-bottom: 1px solid #dce1df; font-size: 12px; }
+@media (max-width: 800px) {
+  main { width: min(100% - 24px, 1180px); }
+  .topbar { height: auto; min-height: 56px; padding: 10px 14px; flex-wrap: wrap; }
+  .variables dl, .filters, .form-grid, .query-grid, .score-strip, .observer-grid { grid-template-columns: 1fr; }
+  .score-strip { grid-column: auto; }
+}

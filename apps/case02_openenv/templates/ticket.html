@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Change Ticket</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><strong>Change Operations</strong><span class="muted">Ticket</span></div>
+    <nav><a href="/monitor/{{ view.run_id }}">Monitor</a><a href="/automation/{{ view.run_id }}">Automation</a></nav>
+  </header>
+  <main>
+    <section class="page-heading">
+      <p class="eyebrow">Run {{ view.run_id }}</p>
+      <h1>{{ view.title }}</h1>
+      <p>{{ view.description }}</p>
+    </section>
+    <section class="band variables">
+      <h2>Locked variables</h2>
+      <dl>
+      {% for name, value in view.variables.items() %}
+        <div><dt>{{ name }}</dt><dd>{{ value }}</dd></div>
+      {% endfor %}
+      </dl>
+      <div class="actions">
+        <button data-bid="ticket-query-extension-config">Confirm extension config</button>
+        <button data-bid="ticket-query-upstream-ready">Confirm upstream readiness</button>
+      </div>
+      <div id="ticket-receipt" class="receipt" aria-live="polite">No checks submitted.</div>
+    </section>
+    <section class="band sop">
+      <h2>Procedure</h2>
+      {% for section in view.sections %}
+      <article>
+        <div class="stage">{{ section.stage }}</div>
+        <h3>{{ section.name }}</h3>
+        <p class="preserve">{{ section.description }}</p>
+        {% if section.commands %}<pre>{{ section.commands | join('\n') }}</pre>{% endif %}
+        {% if section.verification %}<h4>Verification</h4><p class="preserve">{{ section.verification }}</p>{% endif %}
+        {% if section.rollback %}<h4>Rollback</h4><p class="preserve">{{ section.rollback }}</p>{% endif %}
+      </article>
+      {% endfor %}
+    </section>
+  </main>
+  <script>window.RUN_PUBLIC = {{ view_json | safe }};</script>
+  <script src="/static/ticket.js"></script>
+</body>
+</html>

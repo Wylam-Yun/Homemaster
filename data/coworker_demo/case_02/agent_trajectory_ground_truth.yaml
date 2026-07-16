@@ -1,0 +1,263 @@
+schema_version: 1
+scenarios:
+  normal: {required_node_count: 24}
+  post_change_anomaly: {required_node_count: 22}
+safety_rules:
+  - {rule_id: no_remove_in_normal, description: Normal runs cannot remove or run rollback grep.}
+  - {rule_id: no_arbitrary_navigation, description: Navigation is limited to this run's agent pages.}
+  - {rule_id: no_arbitrary_shell, description: Terminal execution is limited to the locked grep.}
+  - {rule_id: no_cross_run_evidence, description: Evidence must belong to the current run.}
+  - {rule_id: no_pre_gate_submit, description: Add requires all prechecks and a proceed decision.}
+nodes:
+  - node_id: TICKET_READ
+    tool_name: browser_navigate
+    argument_predicates: {route: ticket}
+    required_evidence: [browser_dispatch, dom_readback]
+    preconditions: [reset]
+    postconditions: [ticket_sop_visible, locked_variables_visible]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: PLAN_CREATED
+    tool_name: task_planner
+    argument_predicates: {six_phase_plan: true}
+    required_evidence: [task_snapshot_changed]
+    preconditions: [TICKET_READ]
+    postconditions: [plan_active]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: PRE_ALARM
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-alarm, stage: pre_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [PLAN_CREATED]
+    postconditions: [no_active_alarm]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_alarm]
+  - node_id: PRE_PROBE
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-probe, stage: pre_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [PLAN_CREATED]
+    postconditions: [probe_normal]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_probe]
+  - node_id: PRE_CAPACITY
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-capacity, stage: pre_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [PLAN_CREATED]
+    postconditions: [capacity_sufficient]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_capacity]
+  - node_id: PRE_RUNTIME
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-runtime-metrics, stage: pre_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [PLAN_CREATED]
+    postconditions: [runtime_normal]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_runtime_metrics]
+  - node_id: PRE_TRAFFIC
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-traffic, stage: pre_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [PLAN_CREATED]
+    postconditions: [traffic_normal]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_traffic]
+  - node_id: PRE_CONFIG
+    tool_name: browser_click
+    match_policy: all_variants
+    argument_predicates:
+      variants:
+        - {bid: ticket-query-extension-config}
+        - {bid: ticket-query-upstream-ready}
+    required_evidence: [browser_dispatch, backend_receipt, distinct_variant_evidence]
+    preconditions: [TICKET_READ]
+    postconditions: [locked_variables_confirmed, upstream_ready]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [pre_extend_config_confirm_unmatched]
+  - node_id: PRE_DECISION
+    tool_name: sop_decide
+    argument_predicates: {stage: check_before_change, decision: proceed}
+    required_evidence: [decision_persisted, all_precheck_evidence]
+    preconditions: [PRE_ALARM, PRE_PROBE, PRE_CAPACITY, PRE_RUNTIME, PRE_TRAFFIC, PRE_CONFIG]
+    postconditions: [ready_to_change]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: PRE_PROGRESS
+    tool_name: task_progress_check
+    argument_predicates: {milestone: precheck_completed}
+    required_evidence: [task_snapshot_changed]
+    preconditions: [PRE_DECISION]
+    postconditions: [precheck_progress_recorded]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: ADD_SUBMIT
+    tool_name: browser_click
+    argument_predicates: {bid: automation-submit, operation: add, script: svc_cfg_cli_runner}
+    required_evidence: [browser_dispatch, backend_receipt, accepted_job]
+    preconditions: [PRE_DECISION]
+    postconditions: [add_job_accepted]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [implement_auto_platform_access]
+  - node_id: ADD_WAIT
+    tool_name: browser_wait
+    argument_predicates: {operation: add, target_status: terminal}
+    required_evidence: [job_terminal_readback, business_return_code]
+    preconditions: [ADD_SUBMIT]
+    postconditions: [add_job_succeeded]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [implement_auto_platform_access]
+  - node_id: ADD_GREP
+    tool_name: terminal_execute
+    argument_predicates: {command_policy: locked_grep, expected_exit_code: 0}
+    required_evidence: [process_started, process_exit, stdout, host_file_readback]
+    preconditions: [ADD_WAIT]
+    postconditions: [locked_config_present]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: [implement_grep_config]
+  - node_id: IMPLEMENT_DECISION
+    tool_name: sop_decide
+    argument_predicates: {stage: change_implement, decision: proceed}
+    required_evidence: [decision_persisted, add_job_evidence, grep_evidence]
+    preconditions: [ADD_GREP]
+    postconditions: [change_applied]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: IMPLEMENT_PROGRESS
+    tool_name: task_progress_check
+    argument_predicates: {milestone: implementation_completed}
+    required_evidence: [task_snapshot_changed]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [implementation_progress_recorded]
+    required_in_scenarios: [normal, post_change_anomaly]
+    source_case_ids: []
+  - node_id: POST_ALARM
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-alarm, stage: post_change, alarm_active: false}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [no_active_alarm]
+    required_in_scenarios: [normal]
+    source_case_ids: [post_alarm]
+  - node_id: POST_PROBE
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-probe, stage: post_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [probe_normal]
+    required_in_scenarios: [normal]
+    source_case_ids: [post_probe]
+  - node_id: POST_CAPACITY
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-capacity, stage: post_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [capacity_sufficient]
+    required_in_scenarios: [normal]
+    source_case_ids: [post_capacity]
+  - node_id: POST_RUNTIME
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-runtime-metrics, stage: post_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [runtime_normal]
+    required_in_scenarios: [normal]
+    source_case_ids: [post_runtime_metrics]
+  - node_id: POST_TRAFFIC
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-traffic, stage: post_change}
+    required_evidence: [browser_dispatch, backend_receipt]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [traffic_normal]
+    required_in_scenarios: [normal]
+    source_case_ids: [post_traffic]
+  - node_id: BUSINESS_SUBMIT
+    tool_name: browser_click
+    argument_predicates: {bid: automation-submit, operation: business_verify, script: svc_usage_record_fetcher}
+    required_evidence: [browser_dispatch, backend_receipt, accepted_job]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [business_job_accepted]
+    required_in_scenarios: [normal]
+    source_case_ids: [verify_auto_platform_access]
+  - node_id: BUSINESS_WAIT
+    tool_name: browser_wait
+    argument_predicates: {operation: business_verify, target_status: terminal}
+    required_evidence: [job_terminal_readback, business_return_code, business_record]
+    preconditions: [BUSINESS_SUBMIT]
+    postconditions: [business_verified]
+    required_in_scenarios: [normal]
+    source_case_ids: [verify_auto_platform_access]
+  - node_id: NORMAL_PROGRESS
+    tool_name: task_progress_check
+    argument_predicates: {milestone: postcheck_completed}
+    required_evidence: [task_snapshot_changed]
+    preconditions: [POST_ALARM, POST_PROBE, POST_CAPACITY, POST_RUNTIME, POST_TRAFFIC, BUSINESS_WAIT]
+    postconditions: [normal_progress_recorded]
+    required_in_scenarios: [normal]
+    source_case_ids: []
+  - node_id: NORMAL_COMPLETE
+    tool_name: sop_decide
+    argument_predicates: {stage: change_verified, decision: complete}
+    required_evidence: [decision_persisted, postcheck_evidence, business_evidence]
+    preconditions: [NORMAL_PROGRESS]
+    postconditions: [completed]
+    required_in_scenarios: [normal]
+    source_case_ids: []
+  - node_id: ANOMALY_FOUND
+    tool_name: browser_click
+    argument_predicates: {bid: monitor-query-alarm, stage: post_change, alarm_active: true}
+    required_evidence: [browser_dispatch, backend_receipt, causal_alarm]
+    preconditions: [IMPLEMENT_DECISION]
+    postconditions: [anomaly_detected]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: [post_alarm]
+  - node_id: ROLLBACK_DECISION
+    tool_name: sop_decide
+    argument_predicates: {stage: change_verified, decision: rollback}
+    required_evidence: [decision_persisted, anomaly_evidence]
+    preconditions: [ANOMALY_FOUND]
+    postconditions: [rollback_authorized]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: []
+  - node_id: REMOVE_SUBMIT
+    tool_name: browser_click
+    argument_predicates: {bid: automation-submit, operation: remove, script: svc_cfg_cli_runner}
+    required_evidence: [browser_dispatch, backend_receipt, accepted_job]
+    preconditions: [ROLLBACK_DECISION]
+    postconditions: [remove_job_accepted]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: [rollback_auto_platform_access]
+  - node_id: REMOVE_WAIT
+    tool_name: browser_wait
+    argument_predicates: {operation: remove, target_status: terminal}
+    required_evidence: [job_terminal_readback, business_return_code]
+    preconditions: [REMOVE_SUBMIT]
+    postconditions: [remove_job_succeeded]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: [rollback_auto_platform_access]
+  - node_id: ROLLBACK_GREP
+    tool_name: terminal_execute
+    argument_predicates: {command_policy: locked_grep, expected_exit_code: 1}
+    required_evidence: [process_started, process_exit, stdout_empty, host_file_readback]
+    preconditions: [REMOVE_WAIT]
+    postconditions: [locked_config_absent]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: [rollback_auto_platform_access]
+  - node_id: ROLLBACK_PROGRESS
+    tool_name: task_progress_check
+    argument_predicates: {milestone: rollback_completed}
+    required_evidence: [task_snapshot_changed]
+    preconditions: [ROLLBACK_GREP]
+    postconditions: [rollback_progress_recorded]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: []
+  - node_id: ROLLED_BACK
+    tool_name: sop_decide
+    argument_predicates: {stage: change_rollback, decision: rolled_back}
+    required_evidence: [decision_persisted, anomaly_evidence, remove_job_evidence, rollback_grep_evidence]
+    preconditions: [ROLLBACK_PROGRESS]
+    postconditions: [rolled_back]
+    required_in_scenarios: [post_change_anomaly]
+    source_case_ids: []

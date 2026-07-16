@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run Observer</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="observer">
+  <header class="topbar"><div><strong>Run Observer</strong><span class="muted">{{ run_id }}</span></div><span id="observer-phase" class="status pending">{{ state.phase }}</span></header>
+  <main class="observer-grid">
+    <section class="band score-strip">
+      <div><small>Trajectory</small><strong id="trajectory-score">pending</strong></div>
+      <div><small>Result</small><strong id="result-score">pending</strong></div>
+      <div><small>Overall</small><strong id="overall-score">pending</strong></div>
+      <div><small>Video verification</small><strong id="video-status">pending</strong></div>
+      <div><small>Formal success</small><strong id="formal-status">pending</strong></div>
+    </section>
+    <section class="band"><h2>Environment state</h2><pre id="observer-state">{{ state | tojson(indent=2) }}</pre></section>
+    <section class="band"><h2>Evidence timeline</h2><ol id="observer-events"></ol></section>
+  </main>
+  <script>window.OBSERVER_RUN_ID = {{ run_id | tojson }};</script>
+  <script src="/static/observer.js"></script>
+</body>
+</html>

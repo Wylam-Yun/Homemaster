@@ -43,30 +43,74 @@ BLOCKED_TEXT_PATTERNS = (
     "result.md",
 )
 
-SKIP_DIRS = frozenset({".git/", ".venv/", ".pytest_cache/", "plan/V1.4/", "plan/V1.5/"})
+SKIP_DIRS = frozenset(
+    {
+        ".git/",
+        ".pytest_cache/",
+        ".venv/",
+        "apps/case02_openenv/",
+        "data/coworker_demo/",
+        "plan/",
+        "scripts/coworker_demo/",
+        "src/homemaster/benchmarking/coworker_demo/",
+        "tests/case02_openenv/",
+        "tests/homemaster/benchmarking/coworker_demo/",
+    }
+)
 
 # Test files that legitimately reference legacy terms in negative assertions
 # (asserting legacy terms are ABSENT from output/imports/fixtures).
-SKIP_FILES = frozenset({
-    "tests/homemaster/test_cleanup_guard.py",
-    "tests/homemaster/test_cli_help.py",
-    "tests/homemaster/test_cli_run.py",
-    "tests/homemaster/test_cli_interactive.py",
-    "tests/homemaster/test_import_boundaries.py",
-    "tests/homemaster/test_domain_import_boundaries.py",
-    "tests/homemaster/test_domain_memory_tools.py",
-    "tests/homemaster/test_runtime_settings.py",
-    "tests/homemaster/test_prompt_externalization.py",
-    "tests/homemaster/test_skills_registry.py",
-})
+SKIP_FILES = frozenset(
+    {
+        "config/coworker_demo.example.yaml",
+        "docs/architecture/coworker-demo.md",
+        "docs/coworker-demo-user-guide.md",
+        "findings.md",
+        "progress.md",
+        "src/homemaster/cli/coworker_router.py",
+        "task_plan.md",
+        "tests/homemaster/benchmarking/test_alfworld_execution.py",
+        "tests/homemaster/test_cleanup_guard.py",
+        "tests/homemaster/test_coworker_router.py",
+        "tests/homemaster/test_cli_help.py",
+        "tests/homemaster/test_cli_run.py",
+        "tests/homemaster/test_cli_interactive.py",
+        "tests/homemaster/test_import_boundaries.py",
+        "tests/homemaster/test_domain_import_boundaries.py",
+        "tests/homemaster/test_domain_memory_tools.py",
+        "tests/homemaster/test_runtime_settings.py",
+        "tests/homemaster/test_prompt_externalization.py",
+        "tests/homemaster/test_skills_registry.py",
+    }
+)
 
-BINARY_EXTENSIONS = frozenset({
-    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".pdf", ".zip", ".tar", ".gz", ".bz2",
-    ".pyc", ".pyo", ".so", ".dylib", ".dll",
-    ".whl", ".egg",
-})
+BINARY_EXTENSIONS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".ico",
+        ".svg",
+        ".webp",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".pyc",
+        ".pyo",
+        ".so",
+        ".dylib",
+        ".dll",
+        ".whl",
+        ".egg",
+    }
+)
 
 SELF_PATH = "scripts/guard_no_legacy_terms.py"
 

@@ -57,9 +57,7 @@ def show_command(session_id: str) -> None:
             agent_state.get("iteration_index") if isinstance(agent_state, dict) else None
         ),
         "message_count": len(payload.get("messages") or []),
-        "task_status": (
-            task_snapshot.get("status") if isinstance(task_snapshot, dict) else None
-        ),
+        "task_status": (task_snapshot.get("status") if isinstance(task_snapshot, dict) else None),
     }
     typer.echo(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True))
 

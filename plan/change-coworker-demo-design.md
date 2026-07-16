@@ -815,6 +815,8 @@ overall 只用于展示，不能让一项高分掩盖另一项失败。summary �
 
 ### 8.2 Mac 实时演示通道
 
+> **2026-07-16 用户覆盖：** 本次交付不把 Mac Screen Sharing 实时监看作为验收门，也不要求用户在运行或录制时介入。TigerVNC 仍作为 `hkust4` 上真实 headed display 与录屏源，且只监听 loopback；Mac SSH tunnel/Screen Sharing 保留为以后按需启用的可选观察能力。正式 DoD 以服务器 DOM/后端/X11/RFB 证据和 FFmpeg 视频终态为准。
+
 Xvfb 能真实渲染 Chrome，但没有观看通道时不能直接给现场观众看。正式 demo 不把 HomeMaster、BrowserDriver 或评测环境迁到 Mac，而是在 `hkust4` 启动专用 TigerVNC display，并让 Agent 的 Chrome 运行在该 display：
 
 ```text
@@ -853,11 +855,10 @@ Playwright、OpenEnv 和 BrowserGym 在本仓库项目环境中的安装与真�
   -> 收到后端成功状态
   -> 独立 GET /state 看到终态变化
   -> X11 window tree 仍存在目标页面窗口
-  -> TigerVNC 只经 SSH tunnel 被 Mac Screen Sharing 读取
-  -> Mac 端实时看到同一页面变化
+  -> TigerVNC 仅监听 loopback，并可选经 SSH tunnel 观察
 ```
 
-只有该闭环通过，Playwright 和实时演示链路才从 `UNVERIFIED` 变为可用。若 Playwright 无法在 configured display 上工作，应替换 `BrowserDriver` 实现，不给业务逻辑增加第二套 mode。
+只有服务器端 DOM/后端/X11/RFB/截图闭环通过，Playwright 和真实 headed display 才从 `UNVERIFIED` 变为可用。Mac 观察链路按用户覆盖延后，不影响当前录屏交付。若 Playwright 无法在 configured display 上工作，应替换 `BrowserDriver` 实现，不给业务逻辑增加第二套 mode。
 
 ### 8.4 自动录屏与视频交付
 
@@ -1130,7 +1131,7 @@ CLI、observer 和 evaluator 消费同一事件流，但各自投影不同；任
 3. 独立 HTTP/Store 查询证明业务状态变化。
 4. observer 在同一 `run_id` 下显示变化。
 5. X11 window tree 和交付截图证明真实页面窗口存在且非空白。
-6. Mac Screen Sharing 经 localhost-only SSH tunnel 实时显示同一 Chrome 页面变化。
+6. TigerVNC 只监听 loopback；Mac Screen Sharing 是可选观察能力，不是本次验收门。
 
 终端门：
 
@@ -1185,7 +1186,7 @@ Agent 门：
 仍为 `UNVERIFIED`：
 
 - Playwright 在项目锁定版本下启动/连接该 Chrome 并完成真实点击。
-- TigerVNC localhost-only server 经 SSH tunnel 到 Mac Screen Sharing 的实时显示闭环。
+- TigerVNC localhost-only server 经 SSH tunnel 到 Mac Screen Sharing 的可选观察闭环（按用户要求延后，不阻塞本次交付）。
 - FFmpeg x11grab 从专用 TigerVNC display 录制、libx264 编码、ffprobe 和逐帧像素验证的完整闭环。
 - OpenEnv 官方接口是否需要以及具体类名/API。
 - tmux + Bash + bubblewrap + `/opt/app` 文件的完整命令闭环。
@@ -1203,7 +1204,7 @@ Agent 门：
 建议顺序：
 
 1. 冻结数据集导入 manifest、hash、scenario overlay 和 trajectory DAG ground truth。
-2. 先做 headed Chrome + BrowserDriver + 单按钮外部终态 + Mac VNC 实时显示 linchpin probe。
+2. 先做 headed Chrome + BrowserDriver + 单按钮外部终态 + localhost-only VNC linchpin probe；Mac 实时观察按用户要求延后。
 3. 紧接着做 FFmpeg 首 packet -> X11 capture -> H.264 -> ffprobe -> 三帧像素 linchpin probe。
 4. 再做 tmux/Bash/bubblewrap `/opt/app` linchpin probe。
 5. 实现 EpisodeStore、状态机、审计事件、effective trajectory、DAG matcher、result evaluator 和双评分核心。

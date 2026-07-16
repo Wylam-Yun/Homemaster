@@ -83,6 +83,28 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli run \
 PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 ```
 
+## Change Coworker Demo
+
+现有 `homemaster shell` 现在可以识别锁定的 `case_02` 变更单路径，并在独立 child
+run 中自主完成真实网页操作、自动化 job、tmux/Bash 验证、SOP 决策、DAG 评分与
+H.264 录屏。普通对话仍使用原有 HomeMaster runtime；coworker 的十一项工具、两份
+skill、任务状态和证据不会进入默认 home 或 ALFWorld registry。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
+
+# normal
+/home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+
+# post-change anomaly and verified rollback
+post_change_anomaly /home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+```
+
+运行前先执行 `scripts/coworker_demo/preflight.py`。完整配置、操作、评分和产物说明见
+[Change Coworker 用户指南](docs/coworker-demo-user-guide.md)，边界与证据流见
+[Change Coworker 架构](docs/architecture/coworker-demo.md)。Mac Screen Sharing 是可选
+观察通道，不是运行或交付门。
+
 ## ALFWorld Benchmark
 
 `AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划，同时由 Harness 负责准确对象 grounding、主要导航和同目标局部 put 位姿执行。公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`；不产生新观察的 `robot_inspect_view` 已删除。

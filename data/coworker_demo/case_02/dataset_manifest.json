@@ -1,0 +1,102 @@
+{
+  "dataset_id": "validation_dataset_case_02_tool_location_cls_access_log",
+  "description": "This file is metadata only. Ground truth rows are SOP original text + match basis + concrete matched logs.",
+  "input_ticket": "test_set/item_change_ticket.json",
+  "schema_dir": "schema/",
+  "data_files": {
+    "tool_catalog": "test_set/tool_catalog.json",
+    "tool_location_mapping": "test_set/tool_location_mapping.json",
+    "mcp_query_config": "test_set/mcp_query_config.json",
+    "mcp_request_samples": "test_set/monitor_cls_query_request.json",
+    "mcp_response_logs": "test_set/operation_access_log.json",
+    "black_screen_output": "test_set/black_screen_output.json",
+    "ground_truth": "ground_truth/validation_chain_ground_truth.json"
+  },
+  "matching_flow": [
+    "extract keyword from item_change_ticket",
+    "map keyword to tool_catalog.toolId",
+    "map toolId to tool_location_mapping.location",
+    "build MCP request with key_words=schema.location=<location>, begin_time, end_time",
+    "match returned operation_access_log.id"
+  ],
+  "record_counts": {
+    "tool_catalog": 6,
+    "tool_location_mapping": 6,
+    "monitor_cls_query_request": 13,
+    "operation_access_log": 13,
+    "validation_chain_ground_truth": 16,
+    "mcp_query_config.change_time_window": 1,
+    "black_screen_output": 1
+  },
+  "test_set_dir": "test_set/",
+  "ground_truth_dir": "ground_truth/",
+  "contract": {
+    "schema_version": 1,
+    "coverage_scope": "selected_cases",
+    "time_source": "historical",
+    "capabilities": [
+      "white_screen",
+      "black_screen"
+    ],
+    "historical_window_start": {
+      "source_file": "test_set/mcp_query_config.json",
+      "json_pointer": "/change_time_window/begin_time",
+      "unit": "epoch_seconds"
+    },
+    "historical_backfill_times": {
+      "CTX-01-01": "2026-01-18T14:16:00Z",
+      "CTX-01-02": "2026-01-18T14:20:00Z",
+      "CTX-02-01": "2026-01-18T15:30:00Z",
+      "CTX-03-01": "2026-01-18T16:09:00Z",
+      "CTX-03-02": "2026-01-18T16:11:00Z",
+      "CTX-04-01": "2026-01-18T16:31:00Z"
+    },
+    "expected_pipeline_counts": {
+      "steps": 6,
+      "ground_truth_cases": 16
+    },
+    "source_quote_overrides": {
+      "pre_extend_config_confirm_unmatched": "一、变更前需要提前与相关研发接口人确认本次扩展商品配置变更信息，确认内容包括：",
+      "implement_auto_platform_access": "登录自动化执行平台，执行脚本 svc_cfg_cli_runner",
+      "verify_auto_platform_access": "1.在自动化执行平台执行脚本 svc_usage_record_fetcher",
+      "rollback_auto_platform_access": "登录自动化执行平台，执行脚本 svc_cfg_cli_runner"
+    },
+    "file_sha256": {
+      "README.md": "09903bf2759e42b3d347ca3a655cfa573358ed0b778d2c60f4c9edb844da682d",
+      "ground_truth/validation_chain_ground_truth.json": "f2c8859609549c469dcd7371db9675007a59ae59478723fe5e2fe6a6a50c84ea",
+      "schema/black_screen_output.json": "d946a3fd9f612107876476d26b429423548e8cef8f65af2fa1abba762c94a559",
+      "schema/monitor_cls_query_request.json": "216a7b3cf5f04191f7cbba3c7a3f153de37f499da39e61d89af666f07a7ad4ad",
+      "schema/operation_access_log.json": "97c10ddd8ed8d6c576cbe29ad5d663bfc030698c13a2252e86fafd09fee542a5",
+      "schema/tool_catalog.json": "1726b1fcd9ce9e89ff5ccb7594aae9ffa5d6dd289f91b967fa7c1a49ace0e920",
+      "schema/tool_location_mapping.json": "676c22a337b5450d51e16cb8f008b4fbf34f1b41f278d9ab2a4a0606c6c56a23",
+      "schema/validation_chain_ground_truth.json": "ca76db574ea9a54d6bea27dced304ce0eec6bae97f3df484b777e64560d80bc9",
+      "sop_log_mapping.yaml": "16d243c49600295be376cb2fd0767181415f708fb37e7446ef74bcaca67102ac",
+      "test_set/black_screen_output.json": "c62f2e345f376bfad3f4d6aa5530ee9c11c8f19f12ad458b1c3038434b226633",
+      "test_set/item_change_ticket.json": "e76b2d5f7ee4b574e629129c32b140cdc784bea1eb1ebf99c0ecf1d78e0f49bb",
+      "test_set/mcp_query_config.json": "c19c59f868a63e8177f0a8210f0378891604dd2039e830f9ed6624d250eb5bfb",
+      "test_set/monitor_cls_query_request.json": "88377bca179f5017f992c92f42c3fefd4f845045c2d434bf8c391382231e7099",
+      "test_set/operation_access_log.json": "9b91b2d1270ed9af8fa3f94cdbd459fdf9e5b67362060b1f190430c093cd6e3e",
+      "test_set/tool_catalog.json": "425074342e1f6ca814b1577cba0320ca2df47340b40c1cede70c04a87f59f097",
+      "test_set/tool_location_mapping.json": "90f4d50ea4998e376e3b78292cc5eb7c361e6f10aaaa083a1ecedd2bdf7110e4"
+    }
+  },
+  "coworker_demo": {
+    "schema_version": 1,
+    "supported_scenarios": {
+      "normal": {
+        "path": "scenarios/normal.yaml",
+        "sha256": "be2ec12bfa0e22302639c6b73569d407f90a31e6a16db6c52efcd750c4812f5c"
+      },
+      "post_change_anomaly": {
+        "path": "scenarios/post_change_anomaly.yaml",
+        "sha256": "ab5ea9d24067be180a5eabd8bce2422570129b6b5db35db78bcfd6e786cf161d"
+      }
+    },
+    "trajectory_dag": {
+      "path": "agent_trajectory_ground_truth.yaml",
+      "sha256": "5135bab3fecd3e24c66bda6de6d18f08a087bc0f831ab2ab5a46dde5b1aed2dd",
+      "snapshot_path": "agent_trajectory_ground_truth.md",
+      "snapshot_sha256": "c45334e5600b0c237a5103a6570afeadb3d11355e52246e2b9c69c440fa5fae0"
+    }
+  }
+}

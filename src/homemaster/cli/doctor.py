@@ -11,8 +11,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.providers.llm_client import LLMClient, LLMClientError
 from homemaster.config import (
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
@@ -21,6 +19,8 @@ from homemaster.config import (
     ConfigError,
     load_config,
 )
+from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
+from homemaster.providers.llm_client import LLMClient, LLMClientError
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
 
@@ -102,9 +102,7 @@ def _import_checks() -> list[DoctorCheck]:
                 )
             )
         else:
-            checks.append(
-                DoctorCheck(name=f"import:{module}", status="PASS", message="import ok")
-            )
+            checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message="import ok"))
     return checks
 
 
@@ -164,9 +162,7 @@ def _embedding_endpoint_check() -> DoctorCheck:
         name="embedding_endpoint",
         status=status,
         message=f"embedding endpoint={endpoint}",
-        suggestion="Use /v1/embeddings for BGE-M3, not /v1/messages."
-        if status == "WARN"
-        else None,
+        suggestion="Use /v1/embeddings for BGE-M3, not /v1/messages." if status == "WARN" else None,
         details={"provider_name": provider.name, "model": provider.model, "endpoint": endpoint},
     )
 
@@ -210,7 +206,9 @@ def _live_provider_checks() -> list[DoctorCheck]:
 
 def _live_mimo_smoke() -> DoctorCheck:
     try:
-        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
+        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
+            DEFAULT_PROVIDER_NAME, kind="chat"
+        )
         client = LLMClient(provider)
         try:
             response = client.complete_json(
