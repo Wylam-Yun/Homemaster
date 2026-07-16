@@ -42,7 +42,7 @@ Gate evidence:
 - Normal run `coworker-20260716-154711-853f071d`: 24/24 nodes, 14/14 checkpoints, 100/100/100, formal success, terminal exit `[0]`, video SHA-256 `a6cd33f1b3c62ca3820ea870c5ffcbe8f236cfb5c66090332f46ae707593755e`.
 - Anomaly run `coworker-20260716-160128-c4f0faa9`: 22/22 nodes, 11/11 checkpoints, 100/100/100, formal rollback, terminal exits `[0, 1]`, video SHA-256 `d00f19c7b699cc5d832f349eb86a9ab2e0b0aa2a050f7e99b6e335fcfd64cfcd`.
 - Both bundles pass the strengthened product-independent verifier, including manifest completeness/hash checks, evidence-reference ownership, fresh ffprobe and raw-RGB first/middle/last frame checks.
-- Post-disposition full suite: 477 passed, 1 skipped, one upstream Starlette/httpx deprecation warning.
+- Post-disposition full suite: 478 passed, 1 skipped, one upstream Starlette/httpx deprecation warning.
 
 | ID | Severity | Finding | Disposition | Verification |
 |---|---|---|---|---|
