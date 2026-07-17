@@ -50,6 +50,8 @@ SKIP_DIRS = frozenset(
         ".venv/",
         "apps/case02_openenv/",
         "data/coworker_demo/",
+        "docs/superpowers/plans/",
+        "docs/superpowers/specs/",
         "plan/",
         "scripts/coworker_demo/",
         "src/homemaster/benchmarking/coworker_demo/",

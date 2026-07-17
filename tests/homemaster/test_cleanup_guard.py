@@ -20,6 +20,8 @@ from scripts.guard_no_legacy_terms import _should_skip_path
         "data/coworker_demo/case_02/scenarios/normal.yaml",
         "docs/architecture/coworker-demo.md",
         "docs/coworker-demo-user-guide.md",
+        "docs/superpowers/plans/2026-07-17-coworker-executive-demo.md",
+        "docs/superpowers/specs/2026-07-17-coworker-executive-demo-design.md",
         "scripts/coworker_demo/preflight.py",
         "src/homemaster/benchmarking/coworker_demo/types.py",
         "src/homemaster/cli/coworker_router.py",
