@@ -23,6 +23,12 @@ from case02_openenv.models import (
     JobStatus,
     RunState,
 )
+from case02_openenv.presentation import (
+    PresentationInput,
+    PresentationTask,
+    display_stage,
+    map_task,
+)
 
 
 class EpisodeError(RuntimeError):
@@ -42,6 +48,7 @@ class Episode:
     config_file: Path
     registry: ArtifactRegistry
     audit: list[AuditEvent] = field(default_factory=list)
+    current_presentation_task: PresentationTask | None = None
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -111,6 +118,7 @@ class EpisodeStore:
                 anomaly_code=scenario["postcheck"].get("anomaly"),
             )
             episode.audit.clear()
+            episode.current_presentation_task = None
             for path in (
                 episode.run_root / "environment/audit_events.jsonl",
                 episode.run_root / "trajectory/raw_actions.jsonl",
@@ -127,6 +135,31 @@ class EpisodeStore:
 
     def episode(self, run_id: str) -> Episode:
         return self._episode(run_id)
+
+    def presentation_task(
+        self, run_id: str, item: PresentationInput
+    ) -> PresentationTask | None:
+        episode = self._episode(run_id)
+        with episode.lock:
+            task = map_task(
+                episode.ticket,
+                episode.state,
+                item,
+                episode.current_presentation_task,
+            )
+            if task is not None:
+                episode.current_presentation_task = task
+            return task
+
+    def presentation_stage(
+        self,
+        run_id: str,
+        item: PresentationInput,
+        task: PresentationTask | None,
+    ) -> str:
+        episode = self._episode(run_id)
+        with episode.lock:
+            return display_stage(episode.ticket, episode.state, item, task)
 
     def audit(self, run_id: str) -> list[AuditEvent]:
         episode = self._episode(run_id)
