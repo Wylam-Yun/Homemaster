@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
+from homemaster.benchmarking.coworker_demo.presentation import project_runtime_event
 
 
 class CoworkerTraceSink:
@@ -37,12 +38,9 @@ class CoworkerTraceSink:
                 transcript.write(self._transcript_line(payload) + "\n")
                 transcript.flush()
         try:
-            self.client.runtime_event(
-                self.run_id,
-                action_id=payload.get("tool_call_id"),
-                tool_name=str(payload.get("name") or payload.get("type") or "runtime_event"),
-                arguments={"runtime_event_type": payload.get("type")},
-            )
+            projected = project_runtime_event(event)
+            if projected is not None:
+                self.client.presentation_event(self.run_id, projected)
         except Exception as exc:
             self.mirror_failures.append(f"{type(exc).__name__}: {exc}")
 
