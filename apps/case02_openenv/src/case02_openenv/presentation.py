@@ -6,7 +6,7 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from case02_openenv.models import EpisodePhase, RunState
 
@@ -65,6 +65,8 @@ class PresentationInput(BaseModel):
 
 
 class PresentationTask(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     stage: str
     check_name: str
     source_field: Literal["operate_description", "operate_verified", "operate_rollback"]
@@ -152,9 +154,18 @@ def map_task(
         if route == "monitor":
             stage = "change_verified" if post else "check_before_change"
             return ticket_task(ticket, stage, 0, "operate_description")
+        if route != "automation":
+            raise PresentationMappingError(
+                f"No trusted SOP mapping for browser_navigate:{route}"
+            )
         if route == "automation" and state.phase == EpisodePhase.ROLLBACK_SUBMITTED:
             return ticket_task(ticket, "change_implement", 0, "operate_rollback")
-        if route == "automation" and previous is not None:
+        business_task = ticket_task(
+            ticket, "change_verified", 1, "operate_description"
+        )
+        if previous is not None and (
+            previous.stage == "change_implement" or previous == business_task
+        ):
             return previous
         return ticket_task(ticket, "change_implement", 0, "operate_description")
 
@@ -169,12 +180,20 @@ def map_task(
 
     if bid == "automation-submit" or item.tool_name == "browser_wait":
         business_name = ticket["change_verified"][1]["check_name"]
+        if operation is not None and operation not in {"add", "remove", "business_verify"}:
+            raise PresentationMappingError(
+                f"No trusted SOP mapping for {item.tool_name or 'run event'}:{operation}"
+            )
         if operation == "business_verify" or state.phase == EpisodePhase.VERIFYING:
             return ticket_task(ticket, "change_verified", 1, "operate_description")
         if operation == "remove" or state.phase == EpisodePhase.ROLLBACK_SUBMITTED:
             return ticket_task(ticket, "change_implement", 0, "operate_rollback")
         if operation is None and previous is not None and previous.check_name == business_name:
             return previous
+        if operation is None and item.tool_name == "browser_wait":
+            raise PresentationMappingError(
+                "No trusted SOP mapping for browser_wait:None"
+            )
         return ticket_task(ticket, "change_implement", 0, "operate_description")
 
     if item.tool_name == "terminal_execute":

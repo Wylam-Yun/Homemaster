@@ -97,6 +97,21 @@ def test_unknown_control_fails_closed_without_mutating_current_task(store) -> No
     assert store.episode(run_id).current_presentation_task is previous
 
 
+def test_unknown_navigation_route_fails_closed_without_mutating_current_task(store) -> None:
+    run_id = "presentation-unknown-route"
+    store.create(run_id, "normal")
+    previous = store.presentation_task(
+        run_id,
+        item("browser_click", arguments={"bid": "monitor-query-probe"}),
+    )
+    with pytest.raises(PresentationMappingError, match="trusted SOP mapping"):
+        store.presentation_task(
+            run_id,
+            item("browser_navigate", arguments={"route": "not-a-trusted-route"}),
+        )
+    assert store.episode(run_id).current_presentation_task is previous
+
+
 @pytest.mark.parametrize("bid", sorted(CONFIG_BIDS))
 def test_all_config_bids_map_to_locked_config_step(store, bid: str) -> None:
     store.create(f"config-{bid}", "normal")
@@ -142,7 +157,6 @@ def test_all_monitor_bids_use_phase_specific_locked_step(
             "operate_rollback",
         ),
         (EpisodePhase.CREATED, {"route": "automation"}, "change_implement", "operate_description"),
-        (EpisodePhase.CREATED, {"route": "other"}, "change_implement", "operate_description"),
     ],
 )
 def test_browser_navigation_routes_to_exact_sop_source(
@@ -162,6 +176,30 @@ def test_automation_navigation_retains_previous_task(store) -> None:
     store.create("nav-previous", "normal")
     episode = store.episode("nav-previous")
     previous = ticket_task(episode.ticket, "change_verified", 1, "operate_description")
+    call = item("browser_navigate", arguments={"route": "automation"})
+    assert map_task(episode.ticket, episode.state, call, previous) is previous
+
+
+def test_automation_navigation_replaces_unrelated_previous_task_with_add_sop(store) -> None:
+    store.create("nav-unrelated", "normal")
+    episode = store.episode("nav-unrelated")
+    previous = ticket_task(episode.ticket, "check_before_change", 1, "operate_description")
+
+    task = map_task(
+        episode.ticket,
+        episode.state,
+        item("browser_navigate", arguments={"route": "automation"}),
+        previous,
+    )
+
+    assert task is not previous
+    assert_ticket_source(task, episode.ticket, "change_implement", 0, "operate_description")
+
+
+def test_automation_navigation_retains_implementation_task(store) -> None:
+    store.create("nav-implementation", "normal")
+    episode = store.episode("nav-implementation")
+    previous = ticket_task(episode.ticket, "change_implement", 0, "operate_verified")
     call = item("browser_navigate", arguments={"route": "automation"})
     assert map_task(episode.ticket, episode.state, call, previous) is previous
 
@@ -225,12 +263,52 @@ def test_submit_and_wait_map_operations_to_exact_sop_source(
     assert_ticket_source(task, episode.ticket, stage, index, field)
 
 
-def test_submit_without_operation_retains_previous_business_task(store) -> None:
-    store.create("submit-previous", "normal")
-    episode = store.episode("submit-previous")
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [("browser_click", {"bid": "automation-submit"}), ("browser_wait", {})],
+)
+def test_submit_or_wait_without_operation_retains_previous_business_task(
+    store, tool_name: str, arguments: dict
+) -> None:
+    store.create(f"no-operation-previous-{tool_name}", "normal")
+    episode = store.episode(f"no-operation-previous-{tool_name}")
     previous = ticket_task(episode.ticket, "change_verified", 1, "operate_description")
-    call = item("browser_click", arguments={"bid": "automation-submit"})
+    call = item(tool_name, arguments=arguments)
     assert map_task(episode.ticket, episode.state, call, previous) is previous
+
+
+def test_submit_without_operation_or_previous_maps_add_sop(store) -> None:
+    store.create("submit-empty-add", "normal")
+    episode = store.episode("submit-empty-add")
+    call = item("browser_click", arguments={"bid": "automation-submit"})
+    task = map_task(episode.ticket, episode.state, call, None)
+    assert_ticket_source(task, episode.ticket, "change_implement", 0, "operate_description")
+
+
+def test_wait_without_operation_or_compatible_previous_fails_closed(store) -> None:
+    store.create("wait-empty-unrelated", "normal")
+    episode = store.episode("wait-empty-unrelated")
+    previous = ticket_task(episode.ticket, "check_before_change", 0, "operate_description")
+    with pytest.raises(PresentationMappingError, match="trusted SOP mapping"):
+        map_task(episode.ticket, episode.state, item("browser_wait"), previous)
+
+
+@pytest.mark.parametrize("tool_name", ["browser_click", "browser_wait"])
+def test_unknown_nonempty_automation_operation_fails_closed_and_retains_current_task(
+    store, tool_name: str
+) -> None:
+    run_id = f"unknown-operation-{tool_name}"
+    store.create(run_id, "normal")
+    previous = store.presentation_task(
+        run_id,
+        item("browser_click", arguments={"bid": "monitor-query-alarm"}),
+    )
+    arguments = {"operation": "not-a-trusted-operation"}
+    if tool_name == "browser_click":
+        arguments["bid"] = "automation-submit"
+    with pytest.raises(PresentationMappingError, match="trusted SOP mapping"):
+        store.presentation_task(run_id, item(tool_name, arguments=arguments))
+    assert store.episode(run_id).current_presentation_task is previous
 
 
 def test_operation_can_be_read_from_result(store) -> None:
@@ -283,6 +361,17 @@ def test_ticket_task_rejects_empty_locked_source(store) -> None:
     ticket["change_implement"][0]["operate_verified"] = ""
     with pytest.raises(PresentationMappingError, match="trusted SOP mapping"):
         ticket_task(ticket, "change_implement", 0, "operate_verified")
+
+
+@pytest.mark.parametrize("field", ["check_name", "source_text", "source_sha256"])
+def test_returned_presentation_task_cannot_be_mutated(store, field: str) -> None:
+    store.create(f"frozen-task-{field}", "normal")
+    task = store.presentation_task(
+        f"frozen-task-{field}",
+        item("browser_click", arguments={"bid": "monitor-query-alarm"}),
+    )
+    with pytest.raises(ValidationError):
+        setattr(task, field, "caller-corruption")
 
 
 @pytest.mark.parametrize(
