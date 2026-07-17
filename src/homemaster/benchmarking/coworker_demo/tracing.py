@@ -26,6 +26,8 @@ _MAX_MIRROR_FAILURES = 32
 
 
 class CoworkerTraceSink:
+    """Serialize local writes; concurrent HTTP mirrors may complete out of order."""
+
     def __init__(
         self,
         path: Path,
@@ -54,21 +56,24 @@ class CoworkerTraceSink:
                 with self.transcript_path.open("a", encoding="utf-8") as transcript:
                     transcript.write(self._transcript_line(payload) + "\n")
                     transcript.flush()
-            try:
-                if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
-                    raise ProjectionError("trace sink run identity mismatch")
-                projected = project_runtime_event(event)
-                if projected is not None:
-                    self.client.presentation_event(self.run_id, projected)
-            except Exception as exc:
-                self._record_mirror_failure(exc)
+        try:
+            if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
+                raise ProjectionError("trace sink run identity mismatch")
+            projected = project_runtime_event(event)
+            if projected is not None:
+                self.client.presentation_event(self.run_id, projected)
+        except Exception as exc:
+            self._record_mirror_failure(exc)
 
     def _record_mirror_failure(self, exc: Exception) -> None:
-        self.mirror_failure_total += 1
-        failure_type = type(exc).__name__
-        if not failure_type.isascii() or not failure_type.isidentifier():
-            failure_type = "MirrorError"
-        self.mirror_failures.append(f"{failure_type[:48]}: presentation mirror failed")
+        with self._emit_lock:
+            self.mirror_failure_total += 1
+            failure_type = type(exc).__name__
+            if not failure_type.isascii() or not failure_type.isidentifier():
+                failure_type = "MirrorError"
+            self.mirror_failures.append(
+                f"{failure_type[:48]}: presentation mirror failed"
+            )
 
     @staticmethod
     def _transcript_line(payload: dict[str, Any]) -> str:

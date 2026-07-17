@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
+import shlex
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +38,9 @@ _EVIDENCE_ID = re.compile(
 )
 _MAX_EVIDENCE_REFS = 16
 _MAX_EVIDENCE_BYTES = 1024
+_MAX_COMMAND_CHARS = 256
+_TERMINAL_PATH = "/opt/app/service_layer/component/config/extension_item_mapping.json"
+_TERMINAL_TARGET = re.compile(r"[A-Za-z0-9_.-]{1,64}:[A-Za-z0-9_.-]{1,64}\Z")
 
 _SKILLS = {"change_execution", "evidence_discipline"}
 _ROUTES = {"ticket", "monitor", "automation"}
@@ -139,15 +142,25 @@ def _safe_timestamp(value: Any) -> str:
     return normalized.isoformat().replace("+00:00", "Z")
 
 
-def _text_fingerprint(prefix: str, value: Any) -> dict[str, Any]:
-    if not isinstance(value, str):
-        return {f"{prefix}_present": False}
-    encoded = value.encode("utf-8")
-    return {
-        f"{prefix}_present": bool(value),
-        f"{prefix}_length": len(value),
-        f"{prefix}_sha256": hashlib.sha256(encoded).hexdigest(),
-    }
+def _command_kind(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) > _MAX_COMMAND_CHARS
+        or any(ord(character) < 32 for character in value)
+    ):
+        return "other"
+    try:
+        tokens = tuple(shlex.split(value, posix=True))
+    except ValueError:
+        return "other"
+    if (
+        len(tokens) == 5
+        and tokens[:3] == ("grep", "-A", "3")
+        and _TERMINAL_TARGET.fullmatch(tokens[3]) is not None
+        and tokens[4] == _TERMINAL_PATH
+    ):
+        return "sop_grep"
+    return "other"
 
 
 def _safe_arguments(tool_name: str, value: Any) -> dict[str, Any]:
@@ -192,14 +205,7 @@ def _safe_arguments(tool_name: str, value: Any) -> dict[str, Any]:
             ),
         }
     if tool_name == "terminal_execute":
-        command = arguments.get("command")
-        result = _text_fingerprint("command", command)
-        result["command_kind"] = (
-            "sop_grep"
-            if isinstance(command, str) and command.lstrip().startswith("grep -A 3 ")
-            else "other"
-        )
-        return result
+        return {"command_kind": _command_kind(arguments.get("command"))}
     if tool_name == "sop_decide":
         return {
             "stage": _required_closed(arguments, "stage", _SOP_STAGES),
@@ -268,8 +274,10 @@ def summarize_tool_result(tool_name: str, data: Any) -> dict[str, Any]:
         exit_code = safe_data.get("exit_code")
         if isinstance(exit_code, int) and not isinstance(exit_code, bool):
             result["exit_code"] = exit_code
-        result.update(_text_fingerprint("stdout", safe_data.get("stdout")))
-        result.update(_text_fingerprint("stderr", safe_data.get("stderr")))
+        stdout = safe_data.get("stdout")
+        stderr = safe_data.get("stderr")
+        result["stdout_present"] = isinstance(stdout, str) and bool(stdout)
+        result["stderr_present"] = isinstance(stderr, str) and bool(stderr)
         return result
     if tool_name == "sop_decide":
         result = {}

@@ -315,7 +315,7 @@ def test_tool_result_summaries_are_tool_specific_and_clipped() -> None:
         "terminal_execute", {"exit_code": 0, "stdout": "x" * 400, "stderr": "", "token": "no"}
     )
     assert terminal["exit_code"] == 0
-    assert terminal["stdout_length"] == 400
+    assert terminal["stdout_present"] is True
     assert terminal["stderr_present"] is False
     assert "x" * 20 not in json.dumps(terminal)
     with pytest.raises(ProjectionError):
@@ -531,8 +531,11 @@ def test_all_result_string_values_are_omitted_or_safely_summarized(
     assert "signed.invalid" not in serialized
 
 
-def test_terminal_projection_emits_only_hashes_lengths_and_classification() -> None:
-    command = "grep -A 3 tenant-secret /opt/app/config.yaml"
+def test_terminal_projection_emits_only_closed_classification_and_presence() -> None:
+    command = (
+        'grep -A 3 "tenant-a:item-1" '
+        "/opt/app/service_layer/component/config/extension_item_mapping.json"
+    )
     projected = project_runtime_event(
         event(
             "tool.call_started",
@@ -543,16 +546,73 @@ def test_terminal_projection_emits_only_hashes_lengths_and_classification() -> N
     )
     assert projected is not None
     assert projected["arguments"]["command_kind"] == "sop_grep"
-    assert projected["arguments"]["command_length"] == len(command)
-    assert len(projected["arguments"]["command_sha256"]) == 64
+    assert set(projected["arguments"]) == {"command_kind"}
     assert command not in json.dumps(projected)
     result = summarize_tool_result(
         "terminal_execute",
         {"exit_code": 0, "stdout": "secret stdout", "stderr": "signed URL"},
     )
-    assert result["stdout_length"] == len("secret stdout")
+    assert result["stdout_present"] is True
     assert result["stderr_present"] is True
+    assert set(result) == {"exit_code", "stdout_present", "stderr_present"}
     assert "secret stdout" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        (
+            'grep -A 3 "tenant-a:item-1" '
+            "/opt/app/service_layer/component/config/extension_item_mapping.json; exfil"
+        ),
+        (
+            'grep -A 3 "tenant-a:item-1" '
+            "/opt/app/service_layer/component/config/extension_item_mapping.json && exfil"
+        ),
+        (
+            'grep -A 3 "tenant-a:item-1" '
+            "/opt/app/service_layer/component/config/extension_item_mapping.json || exfil"
+        ),
+        (
+            'grep -A 3 "tenant-a:item-1" '
+            "/opt/app/service_layer/component/config/extension_item_mapping.json > /tmp/x"
+        ),
+        (
+            'grep -A 3 "$(exfil):item-1" '
+            "/opt/app/service_layer/component/config/extension_item_mapping.json"
+        ),
+        (
+            'grep -A 3 "tenant-a:item-1"\n'
+            "/opt/app/service_layer/component/config/extension_item_mapping.json"
+        ),
+        "x" * 10_000,
+    ],
+)
+def test_shell_tainted_or_huge_commands_are_never_classified_safe(command: str) -> None:
+    projected = project_runtime_event(
+        event(
+            "tool.call_started",
+            name="terminal_execute",
+            tool_call_id="call-terminal-tainted",
+            payload={"arguments": {"command": command}},
+        )
+    )
+    assert projected is not None
+    assert projected["arguments"] == {"command_kind": "other"}
+    assert command not in json.dumps(projected)
+
+
+def test_low_entropy_terminal_output_has_no_digest_or_length_or_content() -> None:
+    result = summarize_tool_result(
+        "terminal_execute",
+        {"exit_code": 1, "stdout": "password", "stderr": "token"},
+    )
+    assert result == {"exit_code": 1, "stdout_present": True, "stderr_present": True}
+    serialized = json.dumps(result)
+    assert "password" not in serialized
+    assert "token" not in serialized
+    assert "sha" not in serialized
+    assert "length" not in serialized
 
 
 def test_spoofed_result_action_id_raises_projection_error() -> None:
@@ -746,3 +806,59 @@ def test_trace_sink_serializes_concurrent_emits(tmp_path: Path) -> None:
     lines = trace.read_text(encoding="utf-8").splitlines()
     assert len(lines) == len(client.presented) == 40
     assert all(json.loads(line)["type"] == "tool.call_started" for line in lines)
+
+
+class BlockingFirstClient(RecordingClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_entered = threading.Event()
+        self.release_first = threading.Event()
+        self._calls = 0
+        self._calls_lock = threading.Lock()
+
+    def presentation_event(self, run_id: str, payload: dict) -> dict:
+        with self._calls_lock:
+            self._calls += 1
+            call_number = self._calls
+        if call_number == 1:
+            self.first_entered.set()
+            assert self.release_first.wait(timeout=5)
+        return super().presentation_event(run_id, payload)
+
+
+def test_slow_mirror_does_not_block_another_local_trace_append(tmp_path: Path) -> None:
+    client = BlockingFirstClient()
+    trace = tmp_path / "trace.jsonl"
+    sink = CoworkerTraceSink(trace, client, "run-a")
+    first = threading.Thread(
+        target=sink.emit,
+        args=(
+            event(
+                "tool.call_started",
+                name="browser_click",
+                tool_call_id="call-first",
+                payload={"arguments": {"bid": "monitor-query-alarm"}},
+            ),
+        ),
+    )
+    second = threading.Thread(
+        target=sink.emit,
+        args=(
+            event(
+                "tool.call_started",
+                name="browser_click",
+                tool_call_id="call-second",
+                payload={"arguments": {"bid": "monitor-query-alarm"}},
+            ),
+        ),
+    )
+    first.start()
+    assert client.first_entered.wait(timeout=2)
+    second.start()
+    second.join(timeout=1)
+    try:
+        assert not second.is_alive()
+        assert len(trace.read_text(encoding="utf-8").splitlines()) == 2
+    finally:
+        client.release_first.set()
+        first.join(timeout=2)
