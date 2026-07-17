@@ -100,7 +100,9 @@ def create_app(
 
     @app.get("/api/runs/{run_id}/presentation")
     async def get_presentation(run_id: str) -> dict[str, Any]:
-        return {"success": True, "snapshot": store.presentation_snapshot(run_id)}
+        generation, _, snapshot = store.presentation_stream_state(run_id)
+        snapshot["presentation_generation"] = generation
+        return {"success": True, "snapshot": snapshot}
 
     @app.get("/api/runs/{run_id}/presentation-events")
     async def presentation_events(
@@ -111,6 +113,7 @@ def create_app(
         initial_generation, initial_events, initial_snapshot = (
             store.presentation_stream_state(run_id)
         )
+        initial_snapshot["presentation_generation"] = initial_generation
 
         async def stream():
             start = 0
@@ -132,6 +135,7 @@ def create_app(
                 current_generation, current, current_snapshot = (
                     store.presentation_stream_state(run_id)
                 )
+                current_snapshot["presentation_generation"] = current_generation
                 emitted = False
                 if current_generation != generation:
                     generation = current_generation

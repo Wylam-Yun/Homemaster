@@ -1,24 +1,72 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Run Observer</title>
+  <title>Executive Run Observer</title>
   <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="observer">
-  <header class="topbar"><div><strong>Run Observer</strong><span class="muted">{{ run_id }}</span></div><span id="observer-phase" class="status pending">{{ state.phase }}</span></header>
-  <main class="observer-grid">
-    <section class="band score-strip">
-      <div><small>Trajectory</small><strong id="trajectory-score">pending</strong></div>
-      <div><small>Result</small><strong id="result-score">pending</strong></div>
-      <div><small>Overall</small><strong id="overall-score">pending</strong></div>
-      <div><small>Video verification</small><strong id="video-status">pending</strong></div>
-      <div><small>Formal success</small><strong id="formal-status">pending</strong></div>
-    </section>
-    <section class="band"><h2>Environment state</h2><pre id="observer-state">{{ state | tojson(indent=2) }}</pre></section>
-    <section class="band"><h2>Evidence timeline</h2><ol id="observer-events"></ol></section>
+<body class="executive-observer">
+  <header id="sop-stage-strip" class="observer-header" aria-label="Run identity and SOP stages">
+    <div class="observer-run-identity">
+      <span class="observer-kicker">LIVE EXECUTION</span>
+      <strong>RUN <span id="observer-run-id">{{ run_id }}</span></strong>
+    </div>
+    <ol id="stage-list" class="observer-stage-list" aria-label="Seven-stage SOP progress">
+      <li data-stage="check_before_change">变更前检查</li>
+      <li data-stage="change_implement">变更执行</li>
+      <li data-stage="implementation_verify">独立验证</li>
+      <li data-stage="change_verified">变更后检查</li>
+      <li data-stage="business_verify">业务验证</li>
+      <li data-stage="change_rollback">回滚</li>
+      <li data-stage="terminal">完成</li>
+    </ol>
+  </header>
+
+  <main class="recording-canvas" aria-label="Leadership recording canvas">
+    <section class="agent-window-reserved" aria-label="Agent Chrome window reserved area"></section>
+    <aside class="executive-dashboard" aria-label="Read-only executive dashboard">
+      <section class="observer-card current-sop-card" aria-labelledby="current-sop-heading">
+        <h2 id="current-sop-heading">CURRENT SOP TASK</h2>
+        <p class="observer-field-label">STAGE</p>
+        <p id="current-stage" class="observer-prominent">等待开始</p>
+        <p class="observer-field-label">TASK</p>
+        <p id="current-sop-name">等待 Agent 读取变更单</p>
+        <p class="observer-field-label">EXACT SOURCE</p>
+        <pre id="current-sop-text">等待原始 SOP 文本</pre>
+      </section>
+
+      <section class="observer-card" aria-labelledby="agent-action-heading">
+        <h2 id="agent-action-heading">AGENT ACTION</h2>
+        <p class="observer-field-label">TOOL</p>
+        <p id="current-tool-name" class="observer-prominent">等待 Agent 操作</p>
+        <p class="observer-field-label">SAFE ARGUMENTS</p>
+        <pre id="current-tool-arguments">—</pre>
+      </section>
+
+      <section class="observer-card" aria-labelledby="latest-result-heading">
+        <h2 id="latest-result-heading">LATEST RESULT</h2>
+        <p id="latest-result-status" class="observer-status" data-status="running">等待结果</p>
+        <p id="latest-result-summary">尚无执行结果</p>
+        <p class="observer-field-label">EVIDENCE</p>
+        <p id="latest-result-evidence">—</p>
+      </section>
+
+      <section class="observer-card" aria-labelledby="progress-heading">
+        <h2 id="progress-heading">PROGRESS</h2>
+        <p class="observer-field-label">COMPLETED</p>
+        <ol id="completed-steps" aria-label="Successfully completed SOP steps"></ol>
+        <p class="observer-field-label">NEXT</p>
+        <p id="next-step">等待 Agent 读取变更单</p>
+      </section>
+    </aside>
   </main>
+
+  <footer class="observer-footer" aria-label="Run outcome and score summary">
+    <div><span>RUN OUTCOME</span><strong id="run-outcome">IN PROGRESS</strong></div>
+    <div><span>SCORE SUMMARY</span><strong id="score-summary">PENDING EVALUATION</strong></div>
+  </footer>
+
   <script>window.OBSERVER_RUN_ID = {{ run_id | tojson }};</script>
   <script src="/static/observer.js"></script>
 </body>
