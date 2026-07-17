@@ -1,165 +1,412 @@
-"""Safe, allowlisted projection of runtime events for live presentation."""
+"""Safe, field-specific projection of runtime events for live presentation."""
 
 from __future__ import annotations
 
+import hashlib
+import re
+from datetime import datetime, timezone
 from typing import Any
 
 from homemaster.benchmarking.coworker_demo.correlation import action_id_for
 from homemaster.events.runtime_events import RuntimeEvent
 
-_DISPLAY_LIMIT = 320
 _TOOL_EVENTS = {"tool.call_started", "tool.call_completed", "tool.call_failed"}
 _RUNTIME_STATUSES = {
     "runtime.turn_completed": "succeeded",
     "runtime.turn_failed": "failed",
 }
-_ARGUMENT_FIELDS = {
-    "task_planner": ("goal", "current_subtask", "next_focus"),
-    "task_progress_check": ("current_subtask", "next_focus"),
-    "skill_view": ("skill_name",),
-    "browser_navigate": ("route",),
-    "browser_observe": (),
-    "browser_click": ("bid",),
-    "browser_fill": ("bid", "value"),
-    "browser_select": ("bid", "value"),
-    "browser_wait": ("job_id", "target_status"),
-    "terminal_execute": ("command",),
-    "sop_decide": ("stage", "decision"),
+_TOOLS = {
+    "task_planner",
+    "task_progress_check",
+    "skill_view",
+    "browser_navigate",
+    "browser_observe",
+    "browser_click",
+    "browser_fill",
+    "browser_select",
+    "browser_wait",
+    "terminal_execute",
+    "sop_decide",
 }
-_CLICK_RESULT_FIELDS = (
-    "check",
-    "ready",
-    "query",
-    "stage",
-    "status",
-    "alarm_code",
-    "job_id",
-    "operation",
+_SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_JOB_ID = re.compile(r"job-(?:add|remove|business_verify)-[0-9a-f]{10}\Z")
+_EVIDENCE_ID = re.compile(
+    r"(?:ev-[0-9]{5}-[0-9a-f]{8}"
+    r"|terminal-cmd-[0-9a-f]{12}"
+    r"|job-job-(?:add|remove|business_verify)-[0-9a-f]{10}-"
+    r"(?:accepted|running|succeeded|failed))\Z"
 )
+_MAX_EVIDENCE_REFS = 16
+_MAX_EVIDENCE_BYTES = 1024
+
+_SKILLS = {"change_execution", "evidence_discipline"}
+_ROUTES = {"ticket", "monitor", "automation"}
+_BIDS = {
+    "ticket-query-extension-config",
+    "ticket-query-upstream-ready",
+    "monitor-query-alarm",
+    "monitor-query-probe",
+    "monitor-query-capacity",
+    "monitor-query-runtime-metrics",
+    "monitor-query-traffic",
+    "automation-script",
+    "automation-operation",
+    "automation-tenant-id",
+    "automation-item-code",
+    "automation-spec-code",
+    "automation-extension-name",
+    "automation-resource-bucket",
+    "automation-business-timestamp",
+    "automation-factor",
+    "automation-submit",
+}
+_CLOSED_VALUES = {
+    "add",
+    "remove",
+    "business_verify",
+    "svc_cfg_cli_runner",
+    "svc_usage_record_fetcher",
+}
+_OPERATIONS = {"add", "remove", "business_verify"}
+_TARGET_STATUSES = {"terminal"}
+_VISIBLE_STATUSES = {
+    "accepted",
+    "active",
+    "clear",
+    "failed",
+    "normal",
+    "ready",
+    "rejected",
+    "running",
+    "succeeded",
+    "sufficient",
+}
+_RESULT_STAGES = {"pre_change", "post_change"}
+_CHECKS = {"extension_config", "upstream_ready"}
+_QUERIES = {"alarm", "probe", "capacity", "runtime_metrics", "traffic"}
+_SOP_STAGES = {
+    "check_before_change",
+    "change_implement",
+    "change_verified",
+    "change_rollback",
+}
+_DECISIONS = {
+    "proceed",
+    "block",
+    "rollback",
+    "complete",
+    "rolled_back",
+    "escalate",
+    "insufficient_evidence",
+}
+_TASK_STATUSES = {"none", "active", "paused", "completed", "failed", "cancelled"}
 
 
-def _display_primitive(value: Any) -> str | int | float | bool | None:
-    if isinstance(value, str):
-        return value[:_DISPLAY_LIMIT]
-    if value is None or isinstance(value, bool | int | float):
-        return value
-    raise TypeError("presentation fields must be primitives")
-
-
-def _allow_fields(source: Any, fields: tuple[str, ...]) -> dict[str, Any]:
-    if not isinstance(source, dict):
-        return {}
-    result: dict[str, Any] = {}
-    for key in fields:
-        if key not in source:
-            continue
-        try:
-            result[key] = _display_primitive(source[key])
-        except TypeError:
-            continue
-    return result
+class ProjectionError(RuntimeError):
+    """Raised when a runtime event cannot cross the presentation trust boundary."""
 
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _visible_layers(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+def _closed(source: dict[str, Any], key: str, allowed: set[str]) -> str | None:
+    value = source.get(key)
+    return value if isinstance(value, str) and value in allowed else None
+
+
+def _required_closed(source: dict[str, Any], key: str, allowed: set[str]) -> str:
+    value = _closed(source, key, allowed)
+    if value is None:
+        raise ProjectionError(f"invalid presentation {key}")
+    return value
+
+
+def _bounded_count(value: Any, limit: int = 100) -> int:
+    return min(len(value), limit) if isinstance(value, list | tuple) else 0
+
+
+def _safe_timestamp(value: Any) -> str:
+    if not isinstance(value, str) or len(value) > 48:
+        raise ProjectionError("invalid presentation timestamp")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ProjectionError("invalid presentation timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ProjectionError("invalid presentation timestamp")
+    normalized = parsed.astimezone(timezone.utc).replace(microsecond=0)  # noqa: UP017
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
+def _text_fingerprint(prefix: str, value: Any) -> dict[str, Any]:
+    if not isinstance(value, str):
+        return {f"{prefix}_present": False}
+    encoded = value.encode("utf-8")
+    return {
+        f"{prefix}_present": bool(value),
+        f"{prefix}_length": len(value),
+        f"{prefix}_sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def _safe_arguments(tool_name: str, value: Any) -> dict[str, Any]:
+    arguments = _dict(value)
+    if tool_name == "task_planner":
+        return {
+            "subtask_count": _bounded_count(arguments.get("subtasks")),
+            "has_current_subtask": bool(arguments.get("current_subtask")),
+            "has_next_focus": bool(arguments.get("next_focus")),
+        }
+    if tool_name == "task_progress_check":
+        return {
+            "update_count": _bounded_count(arguments.get("updates")),
+            "has_current_subtask": bool(arguments.get("current_subtask")),
+            "has_next_focus": bool(arguments.get("next_focus")),
+        }
+    if tool_name == "skill_view":
+        return {"skill_name": _required_closed(arguments, "skill_name", _SKILLS)}
+    if tool_name == "browser_navigate":
+        return {"route": _required_closed(arguments, "route", _ROUTES)}
+    if tool_name == "browser_observe":
+        return {}
+    if tool_name == "browser_click":
+        return {"bid": _required_closed(arguments, "bid", _BIDS)}
+    if tool_name in {"browser_fill", "browser_select"}:
+        result: dict[str, Any] = {"bid": _required_closed(arguments, "bid", _BIDS)}
+        value_text = arguments.get("value")
+        if isinstance(value_text, str) and value_text in _CLOSED_VALUES:
+            result["value"] = value_text
+        else:
+            result["value_class"] = "free_text"
+            result["value_present"] = isinstance(value_text, str) and bool(value_text)
+        return result
+    if tool_name == "browser_wait":
+        job_id = arguments.get("job_id")
+        if not isinstance(job_id, str) or _JOB_ID.fullmatch(job_id) is None:
+            raise ProjectionError("invalid presentation job_id")
+        return {
+            "job_id": job_id,
+            "target_status": _required_closed(
+                arguments, "target_status", _TARGET_STATUSES
+            ),
+        }
+    if tool_name == "terminal_execute":
+        command = arguments.get("command")
+        result = _text_fingerprint("command", command)
+        result["command_kind"] = (
+            "sop_grep"
+            if isinstance(command, str) and command.lstrip().startswith("grep -A 3 ")
+            else "other"
+        )
+        return result
+    if tool_name == "sop_decide":
+        return {
+            "stage": _required_closed(arguments, "stage", _SOP_STAGES),
+            "decision": _required_closed(arguments, "decision", _DECISIONS),
+        }
+    raise ProjectionError("unknown presentation tool")
+
+
+def _visible_layers(
+    data: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     visible = _dict(data.get("visible_observation"))
     receipt = _dict(visible.get("receipt"))
     payload = _dict(receipt.get("payload"))
     return visible, receipt, payload
 
 
-def _evidence_refs(data: dict[str, Any], receipt: dict[str, Any]) -> list[str]:
-    result: list[str] = []
-    for source in (data.get("evidence_refs"), receipt.get("evidence_refs")):
-        if source is None:
-            continue
-        items = source if isinstance(source, list | tuple) else [source]
-        for item in items:
-            if not isinstance(item, str | bool | int | float):
-                continue
-            rendered = str(item)[:_DISPLAY_LIMIT]
-            if rendered and rendered not in result:
-                result.append(rendered)
+def _valid_job_id(value: Any) -> str | None:
+    return value if isinstance(value, str) and _JOB_ID.fullmatch(value) else None
+
+
+def _browser_result(source: dict[str, Any], *, include_receipt: bool) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, allowed in (
+        ("check", _CHECKS),
+        ("query", _QUERIES),
+        ("stage", _RESULT_STAGES),
+        ("status", _VISIBLE_STATUSES),
+        ("operation", _OPERATIONS),
+    ):
+        safe = _closed(source, key, allowed)
+        if safe is not None:
+            result[key] = safe
+    ready = source.get("ready")
+    if isinstance(ready, bool):
+        result["ready"] = ready
+    job_id = _valid_job_id(source.get("job_id"))
+    if job_id is not None:
+        result["job_id"] = job_id
+    if not include_receipt:
+        bid = _closed(source, "bid", _BIDS)
+        if bid is not None:
+            result["bid"] = bid
+        value = _closed(source, "value", _CLOSED_VALUES)
+        if value is not None:
+            result["value"] = value
+        if isinstance(source.get("value"), str) and isinstance(source.get("readback"), str):
+            result["readback_matches"] = source["value"] == source["readback"]
     return result
 
 
 def summarize_tool_result(tool_name: str, data: Any) -> dict[str, Any]:
-    """Build a fresh, tool-specific result summary from trusted result data."""
+    """Build a fresh result summary without forwarding runtime free text."""
+    if tool_name not in _TOOLS:
+        raise ProjectionError("unknown presentation tool")
     safe_data = _dict(data)
     visible, _receipt, payload = _visible_layers(safe_data)
     if tool_name == "browser_click":
-        summary = _allow_fields(payload, _CLICK_RESULT_FIELDS)
-        if summary:
-            return summary
-        return _allow_fields(visible, ("job_id", "operation", "status"))
+        return _browser_result(payload or visible, include_receipt=True)
     if tool_name == "browser_wait":
-        return _allow_fields(visible or safe_data, ("job_id", "operation", "status"))
+        return _browser_result(visible or safe_data, include_receipt=True)
     if tool_name in {"browser_fill", "browser_select"}:
-        return _allow_fields(visible or safe_data, ("bid", "value", "readback"))
+        return _browser_result(visible or safe_data, include_receipt=False)
     if tool_name == "terminal_execute":
-        return _allow_fields(safe_data, ("exit_code", "stdout", "stderr"))
+        result: dict[str, Any] = {}
+        exit_code = safe_data.get("exit_code")
+        if isinstance(exit_code, int) and not isinstance(exit_code, bool):
+            result["exit_code"] = exit_code
+        result.update(_text_fingerprint("stdout", safe_data.get("stdout")))
+        result.update(_text_fingerprint("stderr", safe_data.get("stderr")))
+        return result
     if tool_name == "sop_decide":
-        return _allow_fields(safe_data, ("backend_status", "terminal", "classification"))
+        result = {}
+        backend = _closed(safe_data, "backend_status", {"accepted", "succeeded"})
+        classification = _closed(safe_data, "classification", _DECISIONS)
+        if backend is not None:
+            result["backend_status"] = backend
+        if isinstance(safe_data.get("terminal"), bool):
+            result["terminal"] = safe_data["terminal"]
+        if classification is not None:
+            result["classification"] = classification
+        return result
     if tool_name in {"task_planner", "task_progress_check"}:
-        return _allow_fields(
-            safe_data,
-            ("success", "status", "goal", "current_subtask", "next_focus", "completion_summary"),
-        )
-    if tool_name == "skill_view":
-        return _allow_fields(safe_data, ("success", "name", "description"))
-    return _allow_fields(safe_data, ("success",))
-
-
-def project_runtime_event(event: RuntimeEvent) -> dict[str, Any] | None:
-    """Project a runtime event into the presentation API's safe lifecycle schema."""
-    if event.type in _RUNTIME_STATUSES:
-        return {
-            "runtime_event_type": event.type,
-            "status": _RUNTIME_STATUSES[event.type],
-            "timestamp": event.timestamp,
+        result = {
+            "subtask_count": _bounded_count(safe_data.get("subtasks")),
+            "has_current_subtask": bool(safe_data.get("current_subtask")),
+            "has_next_focus": bool(safe_data.get("next_focus")),
         }
-    if event.type not in _TOOL_EVENTS:
-        return None
-    if not all(
-        isinstance(value, str) and bool(value.strip())
-        for value in (event.run_id, event.tool_call_id, event.name)
-    ):
-        return None
+        status = _closed(safe_data, "status", _TASK_STATUSES)
+        if status is not None:
+            result["status"] = status
+        if isinstance(safe_data.get("success"), bool):
+            result["success"] = safe_data["success"]
+        return result
+    if tool_name == "skill_view":
+        result = {}
+        skill_name = _closed(safe_data, "name", _SKILLS)
+        if skill_name is not None:
+            result["name"] = skill_name
+        if isinstance(safe_data.get("success"), bool):
+            result["success"] = safe_data["success"]
+        return result
+    if isinstance(safe_data.get("success"), bool):
+        return {"success": safe_data["success"]}
+    return {}
 
-    payload = _dict(event.payload)
-    data = _dict(payload.get("data"))
-    action_id = action_id_for(event.run_id, event.tool_call_id)
-    if event.type != "tool.call_started":
-        trusted_action_id = data.get("action_id")
-        if isinstance(trusted_action_id, str) and trusted_action_id.strip():
-            action_id = trusted_action_id[:_DISPLAY_LIMIT]
 
-    projected: dict[str, Any] = {
-        "runtime_event_type": event.type,
-        "tool_call_id": event.tool_call_id,
-        "action_id": action_id,
-        "tool_name": event.name,
-        "status": _tool_status(event.type, data),
-    }
-    if event.type == "tool.call_started":
-        projected["arguments"] = _allow_fields(
-            payload.get("arguments"), _ARGUMENT_FIELDS.get(event.name, ())
-        )
-    else:
-        projected["result"] = summarize_tool_result(event.name, data)
-        _visible, receipt, _receipt_payload = _visible_layers(data)
-        projected["evidence_refs"] = _evidence_refs(data, receipt)
-    projected["timestamp"] = event.timestamp
-    return projected
+def _evidence_refs(data: dict[str, Any], receipt: dict[str, Any]) -> list[str]:
+    result: list[str] = []
+    total_bytes = 0
+    for source in (data.get("evidence_refs"), receipt.get("evidence_refs")):
+        items = source if isinstance(source, list | tuple) else []
+        for item in items:
+            if not isinstance(item, str) or _EVIDENCE_ID.fullmatch(item) is None:
+                continue
+            size = len(item.encode("utf-8"))
+            if item in result:
+                continue
+            if len(result) >= _MAX_EVIDENCE_REFS or total_bytes + size > _MAX_EVIDENCE_BYTES:
+                return result
+            result.append(item)
+            total_bytes += size
+    return result
+
+
+def _validate_identity(event: RuntimeEvent) -> None:
+    for value in (event.run_id, event.tool_call_id):
+        if not isinstance(value, str) or _SAFE_ID.fullmatch(value) is None:
+            raise ProjectionError("invalid presentation event identity")
+    if event.name not in _TOOLS:
+        raise ProjectionError("unknown presentation tool")
+
+
+def _visible_statuses(data: dict[str, Any]) -> list[str]:
+    visible, _receipt, payload = _visible_layers(data)
+    statuses: list[str] = []
+    for source in (payload, visible):
+        if "status" not in source:
+            continue
+        status = source.get("status")
+        if not isinstance(status, str) or status not in _VISIBLE_STATUSES:
+            raise ProjectionError("inconsistent tool lifecycle")
+        statuses.append(status)
+    return statuses
 
 
 def _tool_status(event_type: str, data: dict[str, Any]) -> str:
     if event_type == "tool.call_started":
         return "running"
-    backend_status = data.get("backend_status")
+    backend = data.get("backend_status")
+    success = data.get("success")
+    visible_statuses = _visible_statuses(data)
+    if "success" in data and not isinstance(success, bool):
+        raise ProjectionError("inconsistent tool lifecycle")
     if event_type == "tool.call_completed":
-        return "accepted" if backend_status == "accepted" else "succeeded"
-    return "rejected" if backend_status == "rejected" else "failed"
+        if (
+            backend not in {None, "accepted", "succeeded"}
+            or success is False
+            or any(status in {"failed", "rejected"} for status in visible_statuses)
+        ):
+            raise ProjectionError("inconsistent tool lifecycle")
+        return "accepted" if backend == "accepted" else "succeeded"
+    if (
+        backend not in {None, "failed", "rejected"}
+        or success is True
+        or any(status in {"accepted", "succeeded"} for status in visible_statuses)
+    ):
+        raise ProjectionError("inconsistent tool lifecycle")
+    return "rejected" if backend == "rejected" else "failed"
+
+
+def project_runtime_event(event: RuntimeEvent) -> dict[str, Any] | None:
+    """Project a runtime event into the presentation API's safe lifecycle schema."""
+    if event.type not in _RUNTIME_STATUSES and event.type not in _TOOL_EVENTS:
+        return None
+    timestamp = _safe_timestamp(event.timestamp)
+    if event.type in _RUNTIME_STATUSES:
+        if not isinstance(event.run_id, str) or _SAFE_ID.fullmatch(event.run_id) is None:
+            raise ProjectionError("invalid presentation event identity")
+        return {
+            "runtime_event_type": event.type,
+            "status": _RUNTIME_STATUSES[event.type],
+            "timestamp": timestamp,
+        }
+    _validate_identity(event)
+    assert event.tool_call_id is not None
+    assert event.name is not None
+
+    payload = _dict(event.payload)
+    data = _dict(payload.get("data"))
+    expected_action_id = action_id_for(event.run_id, event.tool_call_id)
+    if event.type != "tool.call_started" and "action_id" in data:
+        if data.get("action_id") != expected_action_id:
+            raise ProjectionError("action identity mismatch")
+
+    projected: dict[str, Any] = {
+        "runtime_event_type": event.type,
+        "tool_call_id": event.tool_call_id,
+        "action_id": expected_action_id,
+        "tool_name": event.name,
+        "status": _tool_status(event.type, data),
+    }
+    if event.type == "tool.call_started":
+        projected["arguments"] = _safe_arguments(event.name, payload.get("arguments"))
+    else:
+        projected["result"] = summarize_tool_result(event.name, data)
+        _visible, receipt, _receipt_payload = _visible_layers(data)
+        projected["evidence_refs"] = _evidence_refs(data, receipt)
+    projected["timestamp"] = timestamp
+    return projected

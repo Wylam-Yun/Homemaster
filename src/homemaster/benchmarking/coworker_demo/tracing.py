@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import json
+import threading
+from collections import deque
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
-from homemaster.benchmarking.coworker_demo.presentation import project_runtime_event
+from homemaster.benchmarking.coworker_demo.presentation import (
+    ProjectionError,
+    project_runtime_event,
+)
+
+_PROJECTED_EVENTS = {
+    "tool.call_started",
+    "tool.call_completed",
+    "tool.call_failed",
+    "runtime.turn_completed",
+    "runtime.turn_failed",
+}
+_MAX_MIRROR_FAILURES = 32
 
 
 class CoworkerTraceSink:
@@ -24,25 +38,37 @@ class CoworkerTraceSink:
         self.client = client
         self.run_id = run_id
         self.transcript_path = transcript_path
-        self.mirror_failures: list[str] = []
+        self.mirror_failures: deque[str] = deque(maxlen=_MAX_MIRROR_FAILURES)
+        self.mirror_failure_total = 0
+        self._emit_lock = threading.RLock()
         path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, event: Any) -> None:
-        payload = asdict(event)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
-            handle.flush()
-        if self.transcript_path is not None:
-            self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
-            with self.transcript_path.open("a", encoding="utf-8") as transcript:
-                transcript.write(self._transcript_line(payload) + "\n")
-                transcript.flush()
-        try:
-            projected = project_runtime_event(event)
-            if projected is not None:
-                self.client.presentation_event(self.run_id, projected)
-        except Exception as exc:
-            self.mirror_failures.append(f"{type(exc).__name__}: {exc}")
+        with self._emit_lock:
+            payload = asdict(event)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+                handle.flush()
+            if self.transcript_path is not None:
+                self.transcript_path.parent.mkdir(parents=True, exist_ok=True)
+                with self.transcript_path.open("a", encoding="utf-8") as transcript:
+                    transcript.write(self._transcript_line(payload) + "\n")
+                    transcript.flush()
+            try:
+                if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
+                    raise ProjectionError("trace sink run identity mismatch")
+                projected = project_runtime_event(event)
+                if projected is not None:
+                    self.client.presentation_event(self.run_id, projected)
+            except Exception as exc:
+                self._record_mirror_failure(exc)
+
+    def _record_mirror_failure(self, exc: Exception) -> None:
+        self.mirror_failure_total += 1
+        failure_type = type(exc).__name__
+        if not failure_type.isascii() or not failure_type.isidentifier():
+            failure_type = "MirrorError"
+        self.mirror_failures.append(f"{failure_type[:48]}: presentation mirror failed")
 
     @staticmethod
     def _transcript_line(payload: dict[str, Any]) -> str:
