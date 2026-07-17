@@ -35,8 +35,16 @@ def test_guard_skips_non_product_state_and_domain_specific_vocabulary(path: str)
     assert _should_skip_path(path)
 
 
-def test_guard_still_scans_default_homemaster_product_files() -> None:
-    assert not _should_skip_path("src/homemaster/agent/generic_runtime.py")
+@pytest.mark.parametrize(
+    "path",
+    [
+        "docs/product/runtime.md",
+        "docs/superpowers/runtime.md",
+        "src/homemaster/agent/generic_runtime.py",
+    ],
+)
+def test_guard_still_scans_product_files_outside_skip_directories(path: str) -> None:
+    assert not _should_skip_path(path)
 
 
 def test_no_legacy_terms_remain_in_tracked_product_files() -> None:
