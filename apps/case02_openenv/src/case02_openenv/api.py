@@ -27,6 +27,7 @@ from case02_openenv.models import (
     TerminalRequest,
     ToolPayload,
 )
+from case02_openenv.presentation import PresentationInput
 from case02_openenv.public_views import automation_view, monitor_view, ticket_view
 from case02_openenv.recording.display import DisplayManager
 from case02_openenv.recording.recorder import DemoRecorder
@@ -89,6 +90,58 @@ def create_app(
             "success": True,
             "events": [event.model_dump(mode="json") for event in store.audit(run_id)],
         }
+
+    @app.post("/api/runs/{run_id}/presentation-events")
+    async def post_presentation_event(
+        run_id: str, payload: PresentationInput
+    ) -> dict[str, Any]:
+        event = store.record_presentation(run_id, payload)
+        return {"success": True, "event": event.model_dump(mode="json")}
+
+    @app.get("/api/runs/{run_id}/presentation")
+    async def get_presentation(run_id: str) -> dict[str, Any]:
+        return {"success": True, "snapshot": store.presentation_snapshot(run_id)}
+
+    @app.get("/api/runs/{run_id}/presentation-events")
+    async def presentation_events(
+        request: Request,
+        run_id: str,
+        last_event_id: str | None = Header(default=None),
+    ) -> StreamingResponse:
+        store.state(run_id)
+
+        async def stream():
+            initial = store.presentation_events(run_id)
+            start = 0
+            if last_event_id:
+                for index, event in enumerate(initial):
+                    if event.event_id == last_event_id:
+                        start = index + 1
+                        break
+            snapshot = store.presentation_snapshot(run_id)
+            snapshot_json = json.dumps(
+                snapshot, ensure_ascii=False, separators=(",", ":")
+            )
+            yield f"event: presentation.snapshot\ndata: {snapshot_json}\n\n"
+            cursor = start
+            idle = 0
+            while idle < app.state.sse_idle_iterations:
+                if await request.is_disconnected():
+                    break
+                current = store.presentation_events(run_id)
+                while cursor < len(current):
+                    event = current[cursor]
+                    yield (
+                        f"id: {event.event_id}\n"
+                        "event: presentation.event\n"
+                        f"data: {event.model_dump_json()}\n\n"
+                    )
+                    cursor += 1
+                    idle = 0
+                idle += 1
+                await asyncio.sleep(app.state.sse_poll_interval_s)
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
 
     @app.post("/api/runs/{run_id}/runtime-events")
     async def runtime_event(run_id: str, payload: RuntimeEventRequest) -> dict[str, Any]:

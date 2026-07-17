@@ -55,6 +55,16 @@ class EnvironmentClient:
     def audit(self, run_id: str) -> list[dict[str, Any]]:
         return self._request("GET", f"/api/runs/{run_id}/audit")["events"]
 
+    def presentation_event(
+        self, run_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/api/runs/{run_id}/presentation-events",
+            json=payload,
+            check_budget=False,
+        )
+
     def reserve(self, run_id: str, action_id: str, tool_name: str, version: int) -> dict[str, Any]:
         return self._request(
             "POST",

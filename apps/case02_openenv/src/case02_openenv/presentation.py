@@ -93,6 +93,21 @@ class PresentationEvent(BaseModel):
     failure: str | None = None
 
 
+class PresentationSnapshot(BaseModel):
+    schema_version: Literal[1] = 1
+    run_id: str
+    phase: EpisodePhase
+    stage: str
+    terminal_outcome: str | None = None
+    current_task: PresentationTask | None = None
+    in_flight: list[PresentationEvent] = Field(default_factory=list)
+    last_event: PresentationEvent | None = None
+    last_sequence: int = 0
+    completed_steps: list[PresentationTask] = Field(default_factory=list)
+    next_step: str
+    presentation_failures: list[str] = Field(default_factory=list)
+
+
 def ticket_task(
     ticket: dict[str, Any],
     stage: str,

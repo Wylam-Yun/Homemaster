@@ -105,6 +105,9 @@ def test_required_route_methods_are_present(tmp_path: Path) -> None:
         ("POST", "/api/runs/{run_id}/finalize"),
         ("GET", "/api/runs/{run_id}/scores"),
         ("GET", "/api/runs/{run_id}/events"),
+        ("POST", "/api/runs/{run_id}/presentation-events"),
+        ("GET", "/api/runs/{run_id}/presentation-events"),
+        ("GET", "/api/runs/{run_id}/presentation"),
         ("GET", "/ticket/{run_id}"),
         ("GET", "/monitor/{run_id}"),
         ("GET", "/automation/{run_id}"),
@@ -141,6 +144,62 @@ def test_sse_emits_snapshot_and_replays_only_after_last_event_id(tmp_path: Path)
     assert f"id: {second.event_id}" in response.text
     assert f"id: {first.event_id}" not in response.text
     assert '"kind":"second"' in response.text
+
+
+def test_presentation_api_appends_snapshots_and_resumes_sse(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    run_id = "present-api"
+    api.post("/api/runs", json={"run_id": run_id, "scenario_id": "normal"})
+    started = {
+        "runtime_event_type": "tool.call_started",
+        "tool_call_id": "call-1",
+        "action_id": "action-1",
+        "tool_name": "browser_click",
+        "status": "running",
+        "arguments": {"bid": "ticket-query-extension-config"},
+    }
+    completed = {
+        **started,
+        "runtime_event_type": "tool.call_completed",
+        "status": "succeeded",
+        "result": {"message": "ready"},
+    }
+
+    first = api.post(f"/api/runs/{run_id}/presentation-events", json=started)
+    second = api.post(f"/api/runs/{run_id}/presentation-events", json=completed)
+    assert first.status_code == second.status_code == 200
+    assert [first.json()["event"]["sequence"], second.json()["event"]["sequence"]] == [1, 2]
+    snapshot = api.get(f"/api/runs/{run_id}/presentation").json()["snapshot"]
+    assert snapshot["current_task"]["source_field"] == "operate_description"
+    assert snapshot["last_event"]["status"] == "succeeded"
+
+    api.app.state.sse_idle_iterations = 1
+    api.app.state.sse_poll_interval_s = 0
+    response = api.get(
+        f"/api/runs/{run_id}/presentation-events",
+        headers={"Last-Event-ID": first.json()["event"]["event_id"]},
+    )
+    assert response.status_code == 200
+    assert "event: presentation.snapshot" in response.text
+    assert f'id: {first.json()["event"]["event_id"]}' not in response.text
+    assert f'id: {second.json()["event"]["event_id"]}' in response.text
+    assert "event: presentation.event" in response.text
+    assert '"status":"succeeded"' in response.text
+
+
+def test_presentation_rejects_embedded_cross_run_identity(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    api.post("/api/runs", json={"run_id": "run-a", "scenario_id": "normal"})
+    response = api.post(
+        "/api/runs/run-a/presentation-events",
+        json={
+            "runtime_event_type": "tool.call_started",
+            "status": "running",
+            "arguments": {"run_id": "run-b", "bid": "ticket-query-extension-config"},
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "presentation_run_mismatch"
 
 
 def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -> None:

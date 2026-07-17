@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 from case02_openenv.models import EpisodePhase
@@ -497,3 +498,109 @@ def test_presentation_event_requires_identity_and_timestamp() -> None:
             stage="check_before_change",
             status="succeeded",
         )
+
+
+def presentation_item(
+    *,
+    event_type: str = "tool.call_started",
+    status: str = "running",
+    call_id: str | None = "call-1",
+    bid: str = "ticket-query-extension-config",
+) -> PresentationInput:
+    return PresentationInput(
+        runtime_event_type=event_type,
+        tool_call_id=call_id,
+        action_id="action-1",
+        tool_name="browser_click",
+        status=status,
+        arguments={"bid": bid},
+        result={"message": "ready"} if status == "succeeded" else {},
+    )
+
+
+def test_store_appends_presentation_events_and_persists_snapshot(store) -> None:
+    run_id = "presentation-ledger"
+    store.create(run_id, "normal")
+
+    first = store.record_presentation(run_id, presentation_item())
+    second = store.record_presentation(
+        run_id,
+        presentation_item(event_type="tool.call_completed", status="succeeded"),
+    )
+
+    assert [first.sequence, second.sequence] == [1, 2]
+    assert first.event_id.startswith("presentation-00001-")
+    assert second.event_id.startswith("presentation-00002-")
+    assert first.stage == "check_before_change"
+    assert second.task.source_field == "operate_description"
+    snapshot = store.presentation_snapshot(run_id)
+    assert snapshot["schema_version"] == 1
+    assert snapshot["last_event"]["event_id"] == second.event_id
+    assert snapshot["last_sequence"] == 2
+    assert snapshot["in_flight"] == []
+    assert len(snapshot["completed_steps"]) == 1
+    assert snapshot["next_step"] == second.task.check_name
+    root = store.episode(run_id).run_root / "presentation"
+    lines = (root / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["sequence"] for line in lines] == [1, 2]
+    assert json.loads((root / "snapshot.json").read_text(encoding="utf-8")) == snapshot
+
+
+def test_mapping_failure_is_recorded_without_replacing_trusted_task(store) -> None:
+    run_id = "presentation-mapping-failure"
+    store.create(run_id, "normal")
+    trusted = store.record_presentation(run_id, presentation_item())
+
+    failed = store.record_presentation(
+        run_id,
+        presentation_item(bid="not-trusted", event_type="tool.call_completed"),
+    )
+
+    assert failed.failure is not None
+    assert failed.task == trusted.task
+    snapshot = store.presentation_snapshot(run_id)
+    assert snapshot["current_task"] == trusted.task.model_dump(mode="json")
+    assert snapshot["presentation_failures"] == [failed.failure]
+
+
+def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(store) -> None:
+    run_id = "presentation-snapshot"
+    store.create(run_id, "normal")
+    running = store.record_presentation(run_id, presentation_item(call_id="call-1"))
+    store.record_presentation(run_id, presentation_item(call_id=None))
+    store.record_presentation(
+        run_id,
+        presentation_item(
+            call_id="call-1", event_type="tool.call_completed", status="succeeded"
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        presentation_item(
+            call_id="call-2", event_type="tool.call_completed", status="succeeded"
+        ),
+    )
+
+    snapshot = store.presentation_snapshot(run_id)
+    assert [event["tool_call_id"] for event in snapshot["in_flight"]] == [None]
+    assert len(snapshot["completed_steps"]) == 1
+    returned = store.presentation_events(run_id)
+    returned[0].arguments["caller"] = "corruption"
+    assert "caller" not in store.presentation_events(run_id)[0].arguments
+    assert running.tool_call_id == "call-1"
+
+
+def test_reset_clears_presentation_state_and_artifacts(store) -> None:
+    run_id = "presentation-reset"
+    store.create(run_id, "normal")
+    store.record_presentation(run_id, presentation_item())
+    root = store.episode(run_id).run_root / "presentation"
+    assert (root / "events.jsonl").is_file()
+    assert (root / "snapshot.json").is_file()
+
+    store.reset(run_id)
+
+    assert store.presentation_events(run_id) == []
+    assert store.presentation_snapshot(run_id)["last_sequence"] == 0
+    assert not (root / "events.jsonl").exists()
+    assert not (root / "snapshot.json").exists()

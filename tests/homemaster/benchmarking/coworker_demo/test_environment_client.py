@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -49,4 +51,30 @@ def test_fixed_cleanup_endpoints_remain_available_after_terminal_outcome() -> No
     )
     assert client.finalize("run")["success"] is True
     assert client.stop_recording("run")["success"] is True
+    client.close()
+
+
+def test_presentation_event_posts_payload_without_consuming_budget() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"success": True, "event": {"sequence": 1}})
+
+    outcome = CoworkerOutcome()
+    outcome.mark("complete")
+    client = EnvironmentClient(
+        "http://case02.test",
+        transport=httpx.MockTransport(handler),
+        budget=CoworkerBudget(),
+        outcome=outcome,
+    )
+    payload = {"runtime_event_type": "tool.call_started", "status": "running"}
+
+    response = client.presentation_event("run-1", payload)
+
+    assert response["event"]["sequence"] == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == "/api/runs/run-1/presentation-events"
+    assert json.loads(requests[0].content) == payload
     client.close()

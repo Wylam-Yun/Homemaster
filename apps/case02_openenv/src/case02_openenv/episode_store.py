@@ -24,7 +24,10 @@ from case02_openenv.models import (
     RunState,
 )
 from case02_openenv.presentation import (
+    PresentationEvent,
     PresentationInput,
+    PresentationMappingError,
+    PresentationSnapshot,
     PresentationTask,
     display_stage,
     map_task,
@@ -48,7 +51,9 @@ class Episode:
     config_file: Path
     registry: ArtifactRegistry
     audit: list[AuditEvent] = field(default_factory=list)
+    presentation_events: list[PresentationEvent] = field(default_factory=list)
     current_presentation_task: PresentationTask | None = None
+    presentation_failures: list[str] = field(default_factory=list)
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -118,10 +123,14 @@ class EpisodeStore:
                 anomaly_code=scenario["postcheck"].get("anomaly"),
             )
             episode.audit.clear()
+            episode.presentation_events.clear()
             episode.current_presentation_task = None
+            episode.presentation_failures.clear()
             for path in (
                 episode.run_root / "environment/audit_events.jsonl",
                 episode.run_root / "trajectory/raw_actions.jsonl",
+                episode.run_root / "presentation/events.jsonl",
+                episode.run_root / "presentation/snapshot.json",
             ):
                 path.unlink(missing_ok=True)
             atomic_write_json(episode.config_file, {})
@@ -160,6 +169,68 @@ class EpisodeStore:
         episode = self._episode(run_id)
         with episode.lock:
             return display_stage(episode.ticket, episode.state, item, task)
+
+    def record_presentation(
+        self, run_id: str, item: PresentationInput
+    ) -> PresentationEvent:
+        episode = self._episode(run_id)
+        with episode.lock:
+            self._validate_presentation_run_id(run_id, item.arguments)
+            self._validate_presentation_run_id(run_id, item.result)
+            failure = None
+            try:
+                task = map_task(
+                    episode.ticket,
+                    episode.state,
+                    item,
+                    episode.current_presentation_task,
+                )
+            except PresentationMappingError as exc:
+                failure = str(exc)
+                episode.presentation_failures.append(failure)
+                task = episode.current_presentation_task
+            else:
+                if task is not None:
+                    episode.current_presentation_task = task
+
+            sequence = len(episode.presentation_events) + 1
+            event = PresentationEvent(
+                event_id=f"presentation-{sequence:05d}-{uuid.uuid4().hex[:8]}",
+                sequence=sequence,
+                run_id=run_id,
+                event_type=item.runtime_event_type,
+                timestamp=item.timestamp,
+                tool_call_id=item.tool_call_id,
+                action_id=item.action_id,
+                stage=display_stage(episode.ticket, episode.state, item, task),
+                task=task,
+                tool_name=item.tool_name,
+                status=item.status,
+                arguments=copy.deepcopy(item.arguments),
+                result=copy.deepcopy(item.result),
+                evidence_refs=list(item.evidence_refs),
+                failure=failure,
+            )
+            episode.presentation_events.append(event)
+            append_jsonl(
+                episode.run_root / "presentation/events.jsonl",
+                event.model_dump(mode="json"),
+            )
+            atomic_write_json(
+                episode.run_root / "presentation/snapshot.json",
+                self._presentation_snapshot_payload(episode),
+            )
+            return event.model_copy(deep=True)
+
+    def presentation_events(self, run_id: str) -> list[PresentationEvent]:
+        episode = self._episode(run_id)
+        with episode.lock:
+            return [event.model_copy(deep=True) for event in episode.presentation_events]
+
+    def presentation_snapshot(self, run_id: str) -> dict[str, Any]:
+        episode = self._episode(run_id)
+        with episode.lock:
+            return copy.deepcopy(self._presentation_snapshot_payload(episode))
 
     def audit(self, run_id: str) -> list[AuditEvent]:
         episode = self._episode(run_id)
@@ -632,6 +703,65 @@ class EpisodeStore:
         if state.phase in {EpisodePhase.ROLLBACK_SUBMITTED, EpisodePhase.ROLLED_BACK}:
             return "change_rollback"
         return state.phase.value
+
+    @staticmethod
+    def _validate_presentation_run_id(run_id: str, value: Any) -> None:
+        if isinstance(value, dict):
+            embedded = value.get("run_id")
+            if embedded is not None and embedded != run_id:
+                raise EpisodeError(
+                    "presentation_run_mismatch",
+                    f"presentation event run_id {embedded!r} does not match path run {run_id!r}",
+                )
+            for nested in value.values():
+                EpisodeStore._validate_presentation_run_id(run_id, nested)
+        elif isinstance(value, list):
+            for nested in value:
+                EpisodeStore._validate_presentation_run_id(run_id, nested)
+
+    @staticmethod
+    def _presentation_snapshot_payload(episode: Episode) -> dict[str, Any]:
+        events = episode.presentation_events
+        active_by_call: dict[str, PresentationEvent] = {}
+        active_without_call: list[PresentationEvent] = []
+        terminal_statuses = {"accepted", "succeeded", "failed", "rejected"}
+        completed: dict[str, PresentationTask] = {}
+        for event in events:
+            if event.status == "running":
+                if event.tool_call_id is None:
+                    active_without_call.append(event)
+                else:
+                    active_by_call[event.tool_call_id] = event
+            elif event.status in terminal_statuses and event.tool_call_id is not None:
+                active_by_call.pop(event.tool_call_id, None)
+            if event.status == "succeeded" and event.task is not None:
+                completed[event.task.source_sha256] = event.task
+
+        last_event = events[-1] if events else None
+        if last_event is not None:
+            stage = last_event.stage
+        elif episode.state.terminal_outcome is not None:
+            stage = "terminal"
+        else:
+            stage = "check_before_change"
+        snapshot = PresentationSnapshot(
+            run_id=episode.state.run_id,
+            phase=episode.state.phase,
+            stage=stage,
+            terminal_outcome=episode.state.terminal_outcome,
+            current_task=episode.current_presentation_task,
+            in_flight=[*active_by_call.values(), *active_without_call],
+            last_event=last_event,
+            last_sequence=last_event.sequence if last_event is not None else 0,
+            completed_steps=list(completed.values()),
+            next_step=(
+                episode.current_presentation_task.check_name
+                if episode.current_presentation_task is not None
+                else "等待 Agent 读取变更单"
+            ),
+            presentation_failures=list(episode.presentation_failures),
+        )
+        return snapshot.model_dump(mode="json")
 
     def _episode(self, run_id: str) -> Episode:
         episode = self._episodes.get(run_id)
