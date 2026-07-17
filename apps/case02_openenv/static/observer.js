@@ -115,12 +115,20 @@
   };
   const applySnapshot = (snapshot) => {
     const generation = Number(snapshot.presentation_generation || 0);
-    if (presentationGeneration !== null && generation !== presentationGeneration) {
+    const snapshotSequence = Number(snapshot.last_sequence || 0);
+    if (!Number.isFinite(generation) || !Number.isFinite(snapshotSequence)) return false;
+    if (presentationGeneration !== null && generation < presentationGeneration) return false;
+    if (
+      presentationGeneration !== null
+      && generation === presentationGeneration
+      && snapshotSequence < lastSequence
+    ) return false;
+    if (presentationGeneration !== null && generation > presentationGeneration) {
       lastSequence = 0;
       clearDynamicState();
     }
     presentationGeneration = generation;
-    lastSequence = Number(snapshot.last_sequence || 0);
+    lastSequence = snapshotSequence;
     completedKeys.clear();
     (snapshot.completed_steps || []).forEach((task) => {
       const key = task.source_sha256 || task.check_name;
@@ -137,11 +145,13 @@
       ? snapshot.last_event.result.score_summary
       : null;
     setText("score-summary", safeObjectText(score), "PENDING EVALUATION");
+    return true;
   };
   const applyEvent = (event) => {
-    if (!Number.isFinite(event.sequence) || event.sequence <= lastSequence) return;
+    if (!Number.isFinite(event.sequence) || event.sequence <= lastSequence) return false;
     lastSequence = event.sequence;
     renderEvent(event);
+    return true;
   };
   const parseData = (message, apply) => {
     try {
@@ -151,28 +161,27 @@
       setText("latest-result-summary", "Waiting for the next safe presentation update.");
     }
   };
+  const refreshSnapshot = () => fetch(`/api/runs/${runId}/presentation`)
+    .then((response) => {
+      if (!response.ok) throw new Error("snapshot unavailable");
+      return response.json();
+    })
+    .then((payload) => applySnapshot(payload.snapshot))
+    .catch(() => false);
   const connect = () => {
     const stream = new EventSource(`/api/runs/${runId}/presentation-events`);
     stream.addEventListener("presentation.snapshot", (message) => {
       parseData(message, applySnapshot);
     });
     stream.addEventListener("presentation.event", (message) => {
-      parseData(message, applyEvent);
+      parseData(message, (event) => {
+        if (applyEvent(event)) refreshSnapshot();
+      });
     });
     stream.onerror = () => {
       showStatus("anomaly", "RECONNECTING");
       setText("latest-result-summary", "Live presentation stream reconnecting…");
     };
   };
-  fetch(`/api/runs/${runId}/presentation`)
-    .then((response) => {
-      if (!response.ok) throw new Error("snapshot unavailable");
-      return response.json();
-    })
-    .then((payload) => applySnapshot(payload.snapshot))
-    .catch(() => {
-      showStatus("anomaly", "SNAPSHOT UNAVAILABLE");
-      setText("latest-result-summary", "Waiting for the live presentation stream.");
-    })
-    .finally(connect);
+  refreshSnapshot().finally(connect);
 })();

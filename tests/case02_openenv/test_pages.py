@@ -99,7 +99,7 @@ def test_executive_observer_controller_resets_generation_and_rejects_failures(
     script = api.get("/static/observer.js").text
 
     assert "snapshot.presentation_generation" in script
-    assert "generation !== presentationGeneration" in script
+    assert "generation > presentationGeneration" in script
     assert "lastSequence = 0" in script
     assert "clearDynamicState()" in script
     assert "event.sequence <= lastSequence" in script
@@ -125,6 +125,72 @@ def test_snapshot_stage_wins_over_an_older_last_event_stage(tmp_path: Path) -> N
 
     last_event_render = snapshot_block.index("renderEvent(snapshot.last_event)")
     assert snapshot_block.index("renderStages(snapshot.stage)") > last_event_render
+
+
+def test_live_event_refreshes_snapshot_without_creating_another_stream(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    script = api.get("/static/observer.js").text
+    event_handler = script[
+        script.index('addEventListener("presentation.event"') : script.index(
+            "stream.onerror"
+        )
+    ]
+
+    assert "const refreshSnapshot" in script
+    assert "if (applyEvent(event))" in event_handler
+    assert "refreshSnapshot();" in event_handler
+    assert script.count("new EventSource(") == 1
+
+
+def test_snapshot_refresh_rejects_older_generation_and_sequence(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    script = api.get("/static/observer.js").text
+    snapshot_block = script[script.index("const applySnapshot") : script.index("const applyEvent")]
+
+    assert "generation < presentationGeneration" in snapshot_block
+    assert "generation === presentationGeneration" in snapshot_block
+    assert "snapshotSequence < lastSequence" in snapshot_block
+
+
+def test_failed_snapshot_refresh_preserves_the_newer_live_result(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    script = api.get("/static/observer.js").text
+    refresh_block = script[script.index("const refreshSnapshot") : script.index("const connect")]
+
+    assert "showStatus" not in refresh_block
+    assert 'setText("latest-result-summary"' not in refresh_block
+
+
+def test_presentation_snapshot_supplies_live_progress_and_footer_values(
+    tmp_path: Path,
+) -> None:
+    api = client(tmp_path)
+    api.post("/api/runs", json={"run_id": "footer-run", "scenario_id": "normal"})
+    api.app.state.store.episode("footer-run").state.terminal_outcome = "completed"
+    event = api.post(
+        "/api/runs/footer-run/presentation-events",
+        json={
+            "runtime_event_type": "runtime.turn_completed",
+            "status": "succeeded",
+            "result": {
+                "score_summary": {
+                    "outcome_category": "completed",
+                    "formal_success": True,
+                }
+            },
+        },
+    )
+
+    snapshot = api.get("/api/runs/footer-run/presentation").json()["snapshot"]
+
+    assert event.status_code == 200
+    assert snapshot["last_sequence"] == 1
+    assert snapshot["next_step"] == "等待 Agent 读取变更单"
+    assert snapshot["terminal_outcome"] == "completed"
+    assert snapshot["last_event"]["result"]["score_summary"] == {
+        "outcome_category": "completed",
+        "formal_success": True,
+    }
 
 
 def test_executive_observer_css_has_fixed_recording_geometry(tmp_path: Path) -> None:
