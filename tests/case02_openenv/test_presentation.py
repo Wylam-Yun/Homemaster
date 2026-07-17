@@ -535,6 +535,7 @@ def test_store_appends_presentation_events_and_persists_snapshot(store) -> None:
     assert second.task.source_field == "operate_description"
     snapshot = store.presentation_snapshot(run_id)
     assert snapshot["schema_version"] == 1
+    assert snapshot["stage"] == second.stage
     assert snapshot["last_event"]["event_id"] == second.event_id
     assert snapshot["last_sequence"] == 2
     assert snapshot["in_flight"] == []
@@ -553,7 +554,11 @@ def test_mapping_failure_is_recorded_without_replacing_trusted_task(store) -> No
 
     failed = store.record_presentation(
         run_id,
-        presentation_item(bid="not-trusted", event_type="tool.call_completed"),
+        presentation_item(
+            bid="not-trusted",
+            event_type="tool.call_completed",
+            status="succeeded",
+        ),
     )
 
     assert failed.failure is not None
@@ -561,6 +566,7 @@ def test_mapping_failure_is_recorded_without_replacing_trusted_task(store) -> No
     snapshot = store.presentation_snapshot(run_id)
     assert snapshot["current_task"] == trusted.task.model_dump(mode="json")
     assert snapshot["presentation_failures"] == [failed.failure]
+    assert snapshot["completed_steps"] == []
 
 
 def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(store) -> None:
@@ -582,7 +588,7 @@ def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(sto
     )
 
     snapshot = store.presentation_snapshot(run_id)
-    assert [event["tool_call_id"] for event in snapshot["in_flight"]] == [None]
+    assert snapshot["in_flight"] == []
     assert len(snapshot["completed_steps"]) == 1
     returned = store.presentation_events(run_id)
     returned[0].arguments["caller"] = "corruption"
@@ -604,3 +610,37 @@ def test_reset_clears_presentation_state_and_artifacts(store) -> None:
     assert store.presentation_snapshot(run_id)["last_sequence"] == 0
     assert not (root / "events.jsonl").exists()
     assert not (root / "snapshot.json").exists()
+    assert store.presentation_snapshot(run_id)["next_step"] == "等待 Agent 读取变更单"
+
+
+@pytest.mark.parametrize("call_id", [None, ""])
+def test_running_events_without_a_tool_call_id_do_not_occupy_in_flight(
+    store, call_id: str | None
+) -> None:
+    run_id = f"presentation-no-call-{call_id!s}"
+    store.create(run_id, "normal")
+    store.record_presentation(run_id, presentation_item(call_id=call_id))
+
+    assert store.presentation_snapshot(run_id)["in_flight"] == []
+
+
+def test_terminal_outcome_overrides_the_last_presentation_event_stage(store) -> None:
+    run_id = "presentation-terminal-stage"
+    store.create(run_id, "normal")
+    event = store.record_presentation(run_id, presentation_item())
+    assert event.stage == "check_before_change"
+
+    store.episode(run_id).state.terminal_outcome = "completed"
+
+    assert store.presentation_snapshot(run_id)["stage"] == "terminal"
+
+
+def test_rollback_phase_overrides_the_last_presentation_event_stage(store) -> None:
+    run_id = "presentation-rollback-stage"
+    store.create(run_id, "normal")
+    event = store.record_presentation(run_id, presentation_item())
+    assert event.stage == "check_before_change"
+
+    store.episode(run_id).state.phase = EpisodePhase.ROLLBACK_SUBMITTED
+
+    assert store.presentation_snapshot(run_id)["stage"] == "change_rollback"

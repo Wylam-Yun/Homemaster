@@ -723,25 +723,30 @@ class EpisodeStore:
     def _presentation_snapshot_payload(episode: Episode) -> dict[str, Any]:
         events = episode.presentation_events
         active_by_call: dict[str, PresentationEvent] = {}
-        active_without_call: list[PresentationEvent] = []
         terminal_statuses = {"accepted", "succeeded", "failed", "rejected"}
         completed: dict[str, PresentationTask] = {}
         for event in events:
-            if event.status == "running":
-                if event.tool_call_id is None:
-                    active_without_call.append(event)
-                else:
-                    active_by_call[event.tool_call_id] = event
-            elif event.status in terminal_statuses and event.tool_call_id is not None:
+            if event.status == "running" and event.tool_call_id:
+                active_by_call[event.tool_call_id] = event
+            elif event.status in terminal_statuses and event.tool_call_id:
                 active_by_call.pop(event.tool_call_id, None)
-            if event.status == "succeeded" and event.task is not None:
+            if (
+                event.status == "succeeded"
+                and event.failure is None
+                and event.task is not None
+            ):
                 completed[event.task.source_sha256] = event.task
 
         last_event = events[-1] if events else None
-        if last_event is not None:
-            stage = last_event.stage
-        elif episode.state.terminal_outcome is not None:
+        if episode.state.terminal_outcome is not None:
             stage = "terminal"
+        elif episode.state.phase in {
+            EpisodePhase.ROLLBACK_SUBMITTED,
+            EpisodePhase.ROLLED_BACK,
+        }:
+            stage = "change_rollback"
+        elif last_event is not None:
+            stage = last_event.stage
         else:
             stage = "check_before_change"
         snapshot = PresentationSnapshot(
@@ -750,14 +755,14 @@ class EpisodeStore:
             stage=stage,
             terminal_outcome=episode.state.terminal_outcome,
             current_task=episode.current_presentation_task,
-            in_flight=[*active_by_call.values(), *active_without_call],
+            in_flight=list(active_by_call.values()),
             last_event=last_event,
             last_sequence=last_event.sequence if last_event is not None else 0,
             completed_steps=list(completed.values()),
             next_step=(
                 episode.current_presentation_task.check_name
                 if episode.current_presentation_task is not None
-                else "等待 Agent 读取变更单"
+                else "\u7b49\u5f85 Agent \u8bfb\u53d6\u53d8\u66f4\u5355"
             ),
             presentation_failures=list(episode.presentation_failures),
         )
