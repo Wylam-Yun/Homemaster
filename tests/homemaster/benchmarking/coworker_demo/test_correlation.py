@@ -37,6 +37,15 @@ def test_correlated_action_id_is_stable_and_run_scoped() -> None:
     assert correlated_action_id(run_b) != first
 
 
+def test_correlated_action_id_has_unambiguous_run_and_call_boundaries() -> None:
+    first = _run_context("a:b")
+    first.deps["current_tool_call_id"] = "c"
+    second = _run_context("a")
+    second.deps["current_tool_call_id"] = "b:c"
+
+    assert correlated_action_id(first) != correlated_action_id(second)
+
+
 def test_dispatcher_scopes_current_tool_call_id_to_each_executor() -> None:
     observed: list[str] = []
 
