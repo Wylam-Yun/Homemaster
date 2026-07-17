@@ -6,7 +6,7 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from case02_openenv.models import EpisodePhase, RunState
 
@@ -57,11 +57,34 @@ class PresentationInput(BaseModel):
     tool_call_id: str | None = None
     action_id: str | None = None
     tool_name: str | None = None
-    status: str
+    status: Literal["running", "accepted", "succeeded", "failed", "rejected"]
     arguments: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
     evidence_refs: list[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def validate_lifecycle(self) -> PresentationInput:
+        allowed = {
+            "tool.call_started": {"running"},
+            "tool.call_completed": {"accepted", "succeeded"},
+            "tool.call_failed": {"failed", "rejected"},
+            "runtime.turn_completed": {"succeeded"},
+            "runtime.turn_failed": {"failed"},
+        }
+        if self.status not in allowed[self.runtime_event_type]:
+            raise ValueError(
+                f"status {self.status!r} is invalid for {self.runtime_event_type!r}"
+            )
+        if self.runtime_event_type.startswith("tool.") and (
+            not self.tool_call_id or not self.tool_call_id.strip()
+        ):
+            raise ValueError("tool lifecycle events require a nonempty tool_call_id")
+        if self.runtime_event_type.startswith("tool.") and (
+            not self.action_id or not self.action_id.strip()
+        ):
+            raise ValueError("tool lifecycle events require a nonempty action_id")
+        return self
 
 
 class PresentationTask(BaseModel):

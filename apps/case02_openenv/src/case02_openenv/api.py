@@ -108,27 +108,42 @@ def create_app(
         run_id: str,
         last_event_id: str | None = Header(default=None),
     ) -> StreamingResponse:
-        store.state(run_id)
+        initial_generation, initial_events, initial_snapshot = (
+            store.presentation_stream_state(run_id)
+        )
 
         async def stream():
-            initial = store.presentation_events(run_id)
             start = 0
             if last_event_id:
-                for index, event in enumerate(initial):
+                for index, event in enumerate(initial_events):
                     if event.event_id == last_event_id:
                         start = index + 1
                         break
-            snapshot = store.presentation_snapshot(run_id)
             snapshot_json = json.dumps(
-                snapshot, ensure_ascii=False, separators=(",", ":")
+                initial_snapshot, ensure_ascii=False, separators=(",", ":")
             )
             yield f"event: presentation.snapshot\ndata: {snapshot_json}\n\n"
+            generation = initial_generation
             cursor = start
             idle = 0
             while idle < app.state.sse_idle_iterations:
                 if await request.is_disconnected():
                     break
-                current = store.presentation_events(run_id)
+                current_generation, current, current_snapshot = (
+                    store.presentation_stream_state(run_id)
+                )
+                emitted = False
+                if current_generation != generation:
+                    generation = current_generation
+                    cursor = 0
+                    idle = 0
+                    snapshot_json = json.dumps(
+                        current_snapshot,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                    yield f"event: presentation.snapshot\ndata: {snapshot_json}\n\n"
+                    emitted = True
                 while cursor < len(current):
                     event = current[cursor]
                     yield (
@@ -138,10 +153,20 @@ def create_app(
                     )
                     cursor += 1
                     idle = 0
+                    emitted = True
+                if not emitted:
+                    yield ": heartbeat\n\n"
                 idle += 1
                 await asyncio.sleep(app.state.sse_poll_interval_s)
 
-        return StreamingResponse(stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post("/api/runs/{run_id}/runtime-events")
     async def runtime_event(run_id: str, payload: RuntimeEventRequest) -> dict[str, Any]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -54,6 +55,7 @@ class Episode:
     presentation_events: list[PresentationEvent] = field(default_factory=list)
     current_presentation_task: PresentationTask | None = None
     presentation_failures: list[str] = field(default_factory=list)
+    presentation_generation: int = 0
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -126,6 +128,7 @@ class EpisodeStore:
             episode.presentation_events.clear()
             episode.current_presentation_task = None
             episode.presentation_failures.clear()
+            episode.presentation_generation += 1
             for path in (
                 episode.run_root / "environment/audit_events.jsonl",
                 episode.run_root / "trajectory/raw_actions.jsonl",
@@ -177,21 +180,23 @@ class EpisodeStore:
         with episode.lock:
             self._validate_presentation_run_id(run_id, item.arguments)
             self._validate_presentation_run_id(run_id, item.result)
+            candidate_task = episode.current_presentation_task
+            candidate_failures = list(episode.presentation_failures)
             failure = None
             try:
                 task = map_task(
                     episode.ticket,
                     episode.state,
                     item,
-                    episode.current_presentation_task,
+                    candidate_task,
                 )
             except PresentationMappingError as exc:
                 failure = str(exc)
-                episode.presentation_failures.append(failure)
-                task = episode.current_presentation_task
+                candidate_failures.append(failure)
+                task = candidate_task
             else:
                 if task is not None:
-                    episode.current_presentation_task = task
+                    candidate_task = task
 
             sequence = len(episode.presentation_events) + 1
             event = PresentationEvent(
@@ -211,15 +216,38 @@ class EpisodeStore:
                 evidence_refs=list(item.evidence_refs),
                 failure=failure,
             )
-            episode.presentation_events.append(event)
-            append_jsonl(
-                episode.run_root / "presentation/events.jsonl",
-                event.model_dump(mode="json"),
+            candidate_events = [*episode.presentation_events, event]
+            candidate_snapshot = self._build_presentation_snapshot(
+                episode.state,
+                candidate_events,
+                candidate_task,
+                candidate_failures,
             )
-            atomic_write_json(
-                episode.run_root / "presentation/snapshot.json",
-                self._presentation_snapshot_payload(episode),
-            )
+            events_path = episode.run_root / "presentation/events.jsonl"
+            snapshot_path = episode.run_root / "presentation/snapshot.json"
+            events_existed = events_path.exists()
+            events_size = events_path.stat().st_size if events_existed else 0
+            try:
+                append_jsonl(events_path, event.model_dump(mode="json"))
+                atomic_write_json(snapshot_path, candidate_snapshot)
+            except Exception:
+                try:
+                    self._rollback_presentation_jsonl(
+                        events_path,
+                        existed=events_existed,
+                        size=events_size,
+                    )
+                except Exception as rollback_exc:
+                    raise EpisodeError(
+                        "presentation_consistency_error",
+                        "failed to restore presentation ledger after publish failure",
+                        status_code=500,
+                    ) from rollback_exc
+                raise
+
+            episode.presentation_events = candidate_events
+            episode.current_presentation_task = candidate_task
+            episode.presentation_failures = candidate_failures
             return event.model_copy(deep=True)
 
     def presentation_events(self, run_id: str) -> list[PresentationEvent]:
@@ -231,6 +259,17 @@ class EpisodeStore:
         episode = self._episode(run_id)
         with episode.lock:
             return copy.deepcopy(self._presentation_snapshot_payload(episode))
+
+    def presentation_stream_state(
+        self, run_id: str
+    ) -> tuple[int, list[PresentationEvent], dict[str, Any]]:
+        episode = self._episode(run_id)
+        with episode.lock:
+            return (
+                episode.presentation_generation,
+                [event.model_copy(deep=True) for event in episode.presentation_events],
+                copy.deepcopy(self._presentation_snapshot_payload(episode)),
+            )
 
     def audit(self, run_id: str) -> list[AuditEvent]:
         episode = self._episode(run_id)
@@ -721,7 +760,20 @@ class EpisodeStore:
 
     @staticmethod
     def _presentation_snapshot_payload(episode: Episode) -> dict[str, Any]:
-        events = episode.presentation_events
+        return EpisodeStore._build_presentation_snapshot(
+            episode.state,
+            episode.presentation_events,
+            episode.current_presentation_task,
+            episode.presentation_failures,
+        )
+
+    @staticmethod
+    def _build_presentation_snapshot(
+        state: RunState,
+        events: list[PresentationEvent],
+        current_task: PresentationTask | None,
+        failures: list[str],
+    ) -> dict[str, Any]:
         active_by_call: dict[str, PresentationEvent] = {}
         terminal_statuses = {"accepted", "succeeded", "failed", "rejected"}
         completed: dict[str, PresentationTask] = {}
@@ -738,9 +790,9 @@ class EpisodeStore:
                 completed[event.task.source_sha256] = event.task
 
         last_event = events[-1] if events else None
-        if episode.state.terminal_outcome is not None:
+        if state.terminal_outcome is not None:
             stage = "terminal"
-        elif episode.state.phase in {
+        elif state.phase in {
             EpisodePhase.ROLLBACK_SUBMITTED,
             EpisodePhase.ROLLED_BACK,
         }:
@@ -750,23 +802,35 @@ class EpisodeStore:
         else:
             stage = "check_before_change"
         snapshot = PresentationSnapshot(
-            run_id=episode.state.run_id,
-            phase=episode.state.phase,
+            run_id=state.run_id,
+            phase=state.phase,
             stage=stage,
-            terminal_outcome=episode.state.terminal_outcome,
-            current_task=episode.current_presentation_task,
+            terminal_outcome=state.terminal_outcome,
+            current_task=current_task,
             in_flight=list(active_by_call.values()),
             last_event=last_event,
             last_sequence=last_event.sequence if last_event is not None else 0,
             completed_steps=list(completed.values()),
             next_step=(
-                episode.current_presentation_task.check_name
-                if episode.current_presentation_task is not None
+                current_task.check_name
+                if current_task is not None
                 else "\u7b49\u5f85 Agent \u8bfb\u53d6\u53d8\u66f4\u5355"
             ),
-            presentation_failures=list(episode.presentation_failures),
+            presentation_failures=list(failures),
         )
         return snapshot.model_dump(mode="json")
+
+    @staticmethod
+    def _rollback_presentation_jsonl(
+        path: Path, *, existed: bool, size: int
+    ) -> None:
+        if not existed:
+            path.unlink(missing_ok=True)
+            return
+        with path.open("r+b") as handle:
+            handle.truncate(size)
+            handle.flush()
+            os.fsync(handle.fileno())
 
     def _episode(self, run_id: str) -> Episode:
         episode = self._episodes.get(run_id)

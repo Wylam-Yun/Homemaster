@@ -4,6 +4,7 @@ import hashlib
 import json
 
 import pytest
+from case02_openenv.episode_store import EpisodeError
 from case02_openenv.models import EpisodePhase
 from case02_openenv.presentation import (
     CONFIG_BIDS,
@@ -24,13 +25,24 @@ def item(
     tool_name: str | None = None,
     *,
     event_type: str = "tool.call_completed",
+    status: str | None = None,
     arguments: dict | None = None,
     result: dict | None = None,
 ) -> PresentationInput:
+    if status is None:
+        status = {
+            "tool.call_started": "running",
+            "tool.call_completed": "succeeded",
+            "tool.call_failed": "failed",
+            "runtime.turn_completed": "succeeded",
+            "runtime.turn_failed": "failed",
+        }[event_type]
     return PresentationInput(
         runtime_event_type=event_type,
+        tool_call_id="mapping-call" if event_type.startswith("tool.") else None,
+        action_id="mapping-action" if event_type.startswith("tool.") else None,
         tool_name=tool_name,
-        status="succeeded",
+        status=status,
         arguments=arguments or {},
         result=result or {},
     )
@@ -573,7 +585,8 @@ def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(sto
     run_id = "presentation-snapshot"
     store.create(run_id, "normal")
     running = store.record_presentation(run_id, presentation_item(call_id="call-1"))
-    store.record_presentation(run_id, presentation_item(call_id=None))
+    legacy_no_id = presentation_item().model_copy(update={"tool_call_id": None})
+    store.record_presentation(run_id, legacy_no_id)
     store.record_presentation(
         run_id,
         presentation_item(
@@ -619,7 +632,8 @@ def test_running_events_without_a_tool_call_id_do_not_occupy_in_flight(
 ) -> None:
     run_id = f"presentation-no-call-{call_id!s}"
     store.create(run_id, "normal")
-    store.record_presentation(run_id, presentation_item(call_id=call_id))
+    legacy_item = presentation_item().model_copy(update={"tool_call_id": call_id})
+    store.record_presentation(run_id, legacy_item)
 
     assert store.presentation_snapshot(run_id)["in_flight"] == []
 
@@ -644,3 +658,141 @@ def test_rollback_phase_overrides_the_last_presentation_event_stage(store) -> No
     store.episode(run_id).state.phase = EpisodePhase.ROLLBACK_SUBMITTED
 
     assert store.presentation_snapshot(run_id)["stage"] == "change_rollback"
+
+
+@pytest.mark.parametrize("bid", ["ticket-query-extension-config", "not-trusted"])
+def test_append_failure_leaves_presentation_memory_and_files_unchanged(
+    store, monkeypatch, bid: str
+) -> None:
+    run_id = f"presentation-append-failure-{bid}"
+    store.create(run_id, "normal")
+    episode = store.episode(run_id)
+    events_path = episode.run_root / "presentation/events.jsonl"
+    snapshot_path = episode.run_root / "presentation/snapshot.json"
+
+    def fail_append(path, *_args, **_kwargs):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"partial-event")
+        raise OSError("append failed")
+
+    monkeypatch.setattr("case02_openenv.episode_store.append_jsonl", fail_append)
+    with pytest.raises(OSError, match="append failed"):
+        store.record_presentation(run_id, presentation_item(bid=bid))
+
+    assert episode.current_presentation_task is None
+    assert episode.presentation_failures == []
+    assert episode.presentation_events == []
+    assert not events_path.exists()
+    assert not snapshot_path.exists()
+
+
+def test_jsonl_rollback_failure_raises_explicit_consistency_error(
+    store, monkeypatch
+) -> None:
+    run_id = "presentation-rollback-failure"
+    store.create(run_id, "normal")
+
+    def fail_append(*_args, **_kwargs):
+        raise OSError("append failed")
+
+    def fail_rollback(*_args, **_kwargs):
+        raise OSError("rollback failed")
+
+    monkeypatch.setattr("case02_openenv.episode_store.append_jsonl", fail_append)
+    monkeypatch.setattr(store, "_rollback_presentation_jsonl", fail_rollback)
+
+    with pytest.raises(EpisodeError) as caught:
+        store.record_presentation(run_id, presentation_item())
+    assert caught.value.code == "presentation_consistency_error"
+    assert caught.value.status_code == 500
+
+
+def test_snapshot_failure_rolls_back_jsonl_and_memory(store, monkeypatch) -> None:
+    run_id = "presentation-snapshot-failure"
+    store.create(run_id, "normal")
+    store.record_presentation(run_id, presentation_item())
+    episode = store.episode(run_id)
+    events_path = episode.run_root / "presentation/events.jsonl"
+    snapshot_path = episode.run_root / "presentation/snapshot.json"
+    before_events = [event.model_dump(mode="json") for event in episode.presentation_events]
+    before_task = episode.current_presentation_task
+    before_failures = list(episode.presentation_failures)
+    before_jsonl = events_path.read_bytes()
+    before_snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+
+    def fail_snapshot(*_args, **_kwargs):
+        raise OSError("snapshot failed")
+
+    monkeypatch.setattr("case02_openenv.episode_store.atomic_write_json", fail_snapshot)
+    with pytest.raises(OSError, match="snapshot failed"):
+        store.record_presentation(
+            run_id,
+            presentation_item(
+                bid="monitor-query-alarm",
+                event_type="tool.call_completed",
+                status="succeeded",
+            ),
+        )
+
+    assert [
+        event.model_dump(mode="json") for event in episode.presentation_events
+    ] == before_events
+    assert episode.current_presentation_task is before_task
+    assert episode.presentation_failures == before_failures
+    assert events_path.read_bytes() == before_jsonl
+    assert json.loads(snapshot_path.read_text(encoding="utf-8")) == before_snapshot
+
+
+def test_reset_advances_atomic_presentation_stream_generation(store) -> None:
+    run_id = "presentation-stream-generation"
+    store.create(run_id, "normal")
+    first = store.record_presentation(run_id, presentation_item())
+    generation, events, snapshot = store.presentation_stream_state(run_id)
+    assert events == [first]
+    assert snapshot["last_sequence"] == 1
+
+    store.reset(run_id)
+
+    reset_generation, reset_events, reset_snapshot = store.presentation_stream_state(run_id)
+    assert reset_generation == generation + 1
+    assert reset_events == []
+    assert reset_snapshot["last_sequence"] == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "runtime_event_type": "tool.call_completed",
+            "status": "running",
+            "tool_call_id": "call-1",
+            "action_id": "action-1",
+        },
+        {
+            "runtime_event_type": "tool.call_started",
+            "status": "running",
+            "action_id": "action-1",
+        },
+        {
+            "runtime_event_type": "tool.call_started",
+            "status": "running",
+            "tool_call_id": "call-1",
+            "action_id": "",
+        },
+    ],
+)
+def test_presentation_input_rejects_incoherent_tool_lifecycle(payload: dict) -> None:
+    with pytest.raises(ValidationError):
+        PresentationInput(**payload)
+
+
+@pytest.mark.parametrize(
+    ("event_type", "status"),
+    [("runtime.turn_completed", "succeeded"), ("runtime.turn_failed", "failed")],
+)
+def test_runtime_turn_lifecycle_does_not_require_tool_identity(
+    event_type: str, status: str
+) -> None:
+    parsed = PresentationInput(runtime_event_type=event_type, status=status)
+    assert parsed.tool_call_id is None
+    assert parsed.action_id is None
