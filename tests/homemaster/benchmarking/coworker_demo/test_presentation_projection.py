@@ -857,8 +857,68 @@ def test_slow_mirror_does_not_block_another_local_trace_append(tmp_path: Path) -
     second.start()
     second.join(timeout=1)
     try:
-        assert not second.is_alive()
         assert len(trace.read_text(encoding="utf-8").splitlines()) == 2
     finally:
         client.release_first.set()
         first.join(timeout=2)
+        second.join(timeout=2)
+    assert not first.is_alive()
+    assert not second.is_alive()
+
+
+class OrderedBlockingClient(RecordingClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_entered = threading.Event()
+        self.release_first = threading.Event()
+        self.entered_types: list[str] = []
+        self._entered_lock = threading.Lock()
+
+    def presentation_event(self, run_id: str, payload: dict) -> dict:
+        with self._entered_lock:
+            self.entered_types.append(payload["runtime_event_type"])
+            first = len(self.entered_types) == 1
+        if first:
+            self.first_entered.set()
+            assert self.release_first.wait(timeout=5)
+        return super().presentation_event(run_id, payload)
+
+
+def test_concurrent_lifecycle_mirroring_preserves_local_ticket_order(tmp_path: Path) -> None:
+    client = OrderedBlockingClient()
+    trace = tmp_path / "trace.jsonl"
+    sink = CoworkerTraceSink(trace, client, "run-a")
+    call_id = "call-ordered"
+    started = event(
+        "tool.call_started",
+        name="browser_observe",
+        tool_call_id=call_id,
+        payload={"arguments": {}},
+    )
+    completed = event(
+        "tool.call_completed",
+        name="browser_observe",
+        tool_call_id=call_id,
+        payload={"data": {"action_id": action_id_for("run-a", call_id)}},
+    )
+    first = threading.Thread(target=sink.emit, args=(started,))
+    second = threading.Thread(target=sink.emit, args=(completed,))
+
+    first.start()
+    assert client.first_entered.wait(timeout=2)
+    second.start()
+    second.join(timeout=0.5)
+    try:
+        assert len(trace.read_text(encoding="utf-8").splitlines()) == 2
+        assert client.entered_types == ["tool.call_started"]
+        assert second.is_alive()
+    finally:
+        client.release_first.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+    assert client.entered_types == ["tool.call_started", "tool.call_completed"]
+    assert [item[1]["runtime_event_type"] for item in client.presented] == [
+        "tool.call_started",
+        "tool.call_completed",
+    ]

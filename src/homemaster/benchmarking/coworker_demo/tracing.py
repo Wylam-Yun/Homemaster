@@ -26,7 +26,7 @@ _MAX_MIRROR_FAILURES = 32
 
 
 class CoworkerTraceSink:
-    """Serialize local writes; concurrent HTTP mirrors may complete out of order."""
+    """Serialize local writes and mirror projected events in local append order."""
 
     def __init__(
         self,
@@ -43,9 +43,14 @@ class CoworkerTraceSink:
         self.mirror_failures: deque[str] = deque(maxlen=_MAX_MIRROR_FAILURES)
         self.mirror_failure_total = 0
         self._emit_lock = threading.RLock()
+        self._mirror_order = threading.Condition()
+        self._next_mirror_ticket = 0
+        self._mirror_turn = 0
         path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, event: Any) -> None:
+        projected: dict[str, Any] | None = None
+        mirror_ticket: int | None = None
         with self._emit_lock:
             payload = asdict(event)
             with self.path.open("a", encoding="utf-8") as handle:
@@ -56,14 +61,31 @@ class CoworkerTraceSink:
                 with self.transcript_path.open("a", encoding="utf-8") as transcript:
                     transcript.write(self._transcript_line(payload) + "\n")
                     transcript.flush()
+            try:
+                if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
+                    raise ProjectionError("trace sink run identity mismatch")
+                projected = project_runtime_event(event)
+            except Exception as exc:
+                self._record_mirror_failure(exc)
+            else:
+                if projected is not None:
+                    mirror_ticket = self._next_mirror_ticket
+                    self._next_mirror_ticket += 1
+        if projected is not None and mirror_ticket is not None:
+            self._mirror_presentation(mirror_ticket, projected)
+
+    def _mirror_presentation(self, ticket: int, projected: dict[str, Any]) -> None:
+        with self._mirror_order:
+            while ticket != self._mirror_turn:
+                self._mirror_order.wait()
         try:
-            if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
-                raise ProjectionError("trace sink run identity mismatch")
-            projected = project_runtime_event(event)
-            if projected is not None:
-                self.client.presentation_event(self.run_id, projected)
+            self.client.presentation_event(self.run_id, projected)
         except Exception as exc:
             self._record_mirror_failure(exc)
+        finally:
+            with self._mirror_order:
+                self._mirror_turn += 1
+                self._mirror_order.notify_all()
 
     def _record_mirror_failure(self, exc: Exception) -> None:
         with self._emit_lock:
