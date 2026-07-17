@@ -10,6 +10,8 @@ from homemaster.agent.normalized import RunContext
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
 
+_MISSING = object()
+
 
 class ToolDispatcher:
     """Validates tool call and invokes executor. Does not mutate AgentState."""
@@ -118,10 +120,20 @@ class ToolDispatcher:
             try:
                 if hasattr(token, "enter_tool"):
                     token.enter_tool()
-                tool_result = spec.executor(
-                    arguments=tc.arguments,
-                    run_context=run_context,
+                previous_tool_call_id = run_context.deps.get(
+                    "current_tool_call_id", _MISSING
                 )
+                run_context.deps["current_tool_call_id"] = tc.id
+                try:
+                    tool_result = spec.executor(
+                        arguments=tc.arguments,
+                        run_context=run_context,
+                    )
+                finally:
+                    if previous_tool_call_id is _MISSING:
+                        run_context.deps.pop("current_tool_call_id", None)
+                    else:
+                        run_context.deps["current_tool_call_id"] = previous_tool_call_id
             except Exception as exc:
                 tool_result = ToolResult(
                     success=False,

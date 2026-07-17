@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
+from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
@@ -17,7 +17,7 @@ def make_sop_decide() -> ToolSpec:
         budget = run_context.deps["coworker_budget"]
         outcome = run_context.deps["coworker_outcome"]
         budget.before_external(outcome)
-        action_id = f"action-{uuid.uuid4().hex}"
+        action_id = correlated_action_id(run_context)
         version = client.state(run_context.run_id)["state_version"]
         client.reserve(run_context.run_id, action_id, "sop_decide", version)
         payload = client.decision(

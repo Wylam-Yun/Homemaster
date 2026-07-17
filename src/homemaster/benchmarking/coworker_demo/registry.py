@@ -6,6 +6,7 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.coworker_demo.browser_tools import browser_tool_specs
+from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
 from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
 from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
@@ -93,7 +94,7 @@ def _wrap_task_tool(spec: ToolSpec, *, planner: bool) -> ToolSpec:
             node_id = None
         mirrored = client.runtime_event(
             run_context.run_id,
-            action_id=f"task-{spec.name}-{state['state_version']}",
+            action_id=correlated_action_id(run_context),
             tool_name=spec.name,
             arguments=arguments,
             node_id=node_id,

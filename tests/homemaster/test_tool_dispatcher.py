@@ -41,7 +41,7 @@ def _make_run_context(settings: SimpleNamespace | None = None, **kwargs: Any) ->
 
 def test_dispatcher_accepts_generic_agent_state(tmp_path: Any) -> None:
     def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
-        assert run_context.deps == {}
+        assert run_context.deps == {"current_tool_call_id": "call_1"}
         return ToolResult(
             success=True,
             tool_name="echo",

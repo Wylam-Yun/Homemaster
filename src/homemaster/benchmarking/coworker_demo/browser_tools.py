@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.coworker_demo.browser_driver import BrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
+from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
 from homemaster.benchmarking.coworker_demo.types import CoworkerOutcome
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
@@ -29,7 +29,7 @@ def _execute(
 ) -> ToolResult:
     driver, budget, outcome = _deps(run_context)
     budget.before_browser(outcome)
-    action_id = f"action-{uuid.uuid4().hex}"
+    action_id = correlated_action_id(run_context)
     observation = callback(driver, action_id)
     return ToolResult(
         success=True,
