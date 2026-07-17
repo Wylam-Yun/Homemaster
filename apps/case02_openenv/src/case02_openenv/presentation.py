@@ -184,10 +184,14 @@ def map_task(
             raise PresentationMappingError(
                 f"No trusted SOP mapping for {item.tool_name or 'run event'}:{operation}"
             )
-        if operation == "business_verify" or state.phase == EpisodePhase.VERIFYING:
-            return ticket_task(ticket, "change_verified", 1, "operate_description")
-        if operation == "remove" or state.phase == EpisodePhase.ROLLBACK_SUBMITTED:
+        if state.phase == EpisodePhase.ROLLBACK_SUBMITTED or operation == "remove":
             return ticket_task(ticket, "change_implement", 0, "operate_rollback")
+        if operation == "business_verify":
+            return ticket_task(ticket, "change_verified", 1, "operate_description")
+        if operation == "add":
+            return ticket_task(ticket, "change_implement", 0, "operate_description")
+        if state.phase == EpisodePhase.VERIFYING:
+            return ticket_task(ticket, "change_verified", 1, "operate_description")
         if operation is None and previous is not None and previous.check_name == business_name:
             return previous
         if operation is None and item.tool_name == "browser_wait":

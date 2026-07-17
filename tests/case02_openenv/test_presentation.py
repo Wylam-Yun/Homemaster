@@ -241,14 +241,23 @@ def test_fill_and_select_map_values_to_exact_sop_source(
     ("phase", "operation", "stage", "index", "field"),
     [
         (EpisodePhase.CREATED, "business_verify", "change_verified", 1, "operate_description"),
-        (EpisodePhase.VERIFYING, "add", "change_verified", 1, "operate_description"),
+        (EpisodePhase.VERIFYING, "add", "change_implement", 0, "operate_description"),
+        (EpisodePhase.VERIFYING, "remove", "change_implement", 0, "operate_rollback"),
+        (EpisodePhase.VERIFYING, None, "change_verified", 1, "operate_description"),
         (EpisodePhase.CREATED, "remove", "change_implement", 0, "operate_rollback"),
         (EpisodePhase.ROLLBACK_SUBMITTED, "add", "change_implement", 0, "operate_rollback"),
+        (
+            EpisodePhase.ROLLBACK_SUBMITTED,
+            "business_verify",
+            "change_implement",
+            0,
+            "operate_rollback",
+        ),
         (EpisodePhase.CREATED, "add", "change_implement", 0, "operate_description"),
     ],
 )
 def test_submit_and_wait_map_operations_to_exact_sop_source(
-    store, tool_name: str, phase, operation: str, stage: str, index: int, field: str
+    store, tool_name: str, phase, operation: str | None, stage: str, index: int, field: str
 ) -> None:
     store.create(f"{tool_name}-{phase.value}-{operation}", "normal")
     episode = store.episode(f"{tool_name}-{phase.value}-{operation}")
@@ -421,7 +430,7 @@ def test_returned_presentation_task_cannot_be_mutated(store, field: str) -> None
         ),
         (
             EpisodePhase.ROLLBACK_SUBMITTED,
-            item("browser_wait", arguments={"operation": "remove"}),
+            item("browser_wait", arguments={"operation": "business_verify"}),
             "change_implement",
             0,
             "change_rollback",
