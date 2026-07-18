@@ -30,9 +30,9 @@ class AlfworldCommandTranslator:
                 {"mode": "examine", "command_template": "examine {target}"},
             ],
             "navigation": {
-                "tool": "robot_navigate",
-                "required": ["target_receptacle"],
-                "command_template": "go to {target_receptacle}",
+                "tool": "robot_go_to",
+                "required": ["target"],
+                "command_template": "go to {target}",
             },
             "manipulation_actions": [
                 {

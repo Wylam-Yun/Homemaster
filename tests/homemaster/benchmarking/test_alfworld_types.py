@@ -7,6 +7,8 @@ import pytest
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
+    AlfworldExecutionFeedback,
+    AlfworldResetResult,
 )
 
 
@@ -82,3 +84,92 @@ def test_config_rejects_unknown_observation_mode(tmp_path: Path) -> None:
             trace_root=tmp_path / "traces",
             observation_mode="oracle_text",  # type: ignore[arg-type]
         )
+
+
+def test_thor_ready_reset_requires_complete_snapshot_identity() -> None:
+    state = AlfworldEnvState(
+        episode_id="episode-1",
+        task="task",
+        observation="room",
+        inventory=None,
+        last_command=None,
+        last_feedback=None,
+        reward=0.0,
+        done=False,
+        won=False,
+        goal_condition_success_rate=0.0,
+        frame_path="frame-0000.png",
+        step_index=0,
+        invalid_action_count=0,
+    )
+    result = AlfworldResetResult(
+        backend_kind="thor",
+        ready=True,
+        state=state,
+        scene_generation=1,
+        goal_generation=1,
+        scene_reset_fingerprint="1" * 64,
+        goal_trial_fingerprint="2" * 64,
+        snapshot_sha256="3" * 64,
+        snapshot_ref="snapshot.json",
+        setup_trigger=None,
+        setup_failure=None,
+        classification=None,
+        score_eligible=True,
+        setup_backend_action_count=8,
+        recovery_status="restored",
+        cleanup_status="not_needed",
+        quarantine_required=False,
+        environment_disposition="ready",
+        evidence_ref="reset.json",
+    )
+    assert result.ready
+
+    with pytest.raises(ValueError):
+        AlfworldResetResult(**{**result.__dict__, "snapshot_sha256": None})
+
+
+def test_execution_feedback_has_one_safe_model_projection() -> None:
+    feedback = AlfworldExecutionFeedback(
+        success=False,
+        action="navigate",
+        object=None,
+        target="mug 1",
+        inventory=(),
+        inventory_status="ok",
+        object_state=None,
+        object_state_status="not_applicable",
+        target_state="not_visible",
+        target_state_status="ok",
+        state_changed=False,
+        state_read_status="ok",
+        error="target_not_visible",
+        terminal=False,
+        classification=None,
+        score_eligible=True,
+        detail_code="target_not_visible",
+    )
+
+    assert feedback.failure_reason == "target_not_visible"
+    assert feedback.to_model_payload() == {
+        "success": False,
+        "action": "navigate",
+        "object": None,
+        "target": "mug 1",
+        "inventory": [],
+        "inventory_status": "ok",
+        "object_state": None,
+        "object_state_status": "not_applicable",
+        "target_state": "not_visible",
+        "target_state_status": "ok",
+        "state_changed": False,
+        "state_read_status": "ok",
+        "error": "target_not_visible",
+        "terminal": False,
+        "classification": None,
+        "score_eligible": True,
+        "detail": "mug 1 is not visible in the current view.",
+    }
+
+    with pytest.raises(ValueError):
+        AlfworldExecutionFeedback(**{**feedback.__dict__, "terminal": True})

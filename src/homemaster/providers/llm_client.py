@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import time
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -11,8 +15,17 @@ import anthropic
 import httpx
 import openai
 
-from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, UserMessage
+from homemaster.agent.messages import (
+    AssistantMessage,
+    Message,
+    UserMessage,
+)
 from homemaster.config import ProviderProfileConfig
+from homemaster.providers.attempts import (
+    OutboundImageBinding,
+    ProviderAttemptRecord,
+    ProviderAttemptSink,
+)
 from homemaster.providers.errors import (
     LLMAuthError,
     LLMClientError,
@@ -21,6 +34,7 @@ from homemaster.providers.errors import (
     LLMRateLimitError,
 )
 from homemaster.providers.json_utils import extract_json_payload
+from homemaster.providers.token_estimator import TokenEstimator, make_default_estimator
 from homemaster.providers.transports import (
     AnthropicTransport,
     OpenAIChatTransport,
@@ -28,7 +42,6 @@ from homemaster.providers.transports import (
     TransportDelta,
     aggregate_deltas,
 )
-from homemaster.providers.token_estimator import TokenEstimator, make_default_estimator
 
 _DEFAULT_TIMEOUT_S = 60.0
 
@@ -60,7 +73,7 @@ class LLMJsonResponse:
 
 
 class LLMClient:
-    """Provider client that owns SDK clients, key rotation, and retries."""
+    """Provider client that owns SDK clients and sends one frozen request attempt."""
 
     def __init__(
         self,
@@ -69,7 +82,7 @@ class LLMClient:
         timeout_s: float = _DEFAULT_TIMEOUT_S,
         event_sink: Any = None,
         run_id: str = "",
-        max_image_strip_attempts: int = 1,
+        max_image_strip_attempts: int = 0,
         anthropic_client_factory: Any = None,
         openai_client_factory: Any = None,
     ) -> None:
@@ -77,7 +90,7 @@ class LLMClient:
         self._timeout_s = timeout_s
         self._event_sink = event_sink
         self._run_id = run_id
-        self._max_image_strip_attempts = max_image_strip_attempts
+        del max_image_strip_attempts
         self._transport = make_transport(provider)
         self._token_estimator = make_default_estimator(provider)
         self._anthropic_client_factory = anthropic_client_factory or anthropic.Anthropic
@@ -132,88 +145,113 @@ class LLMClient:
         iteration: int | None = None,
         max_output_tokens: int | None = None,
         temperature: float | None = None,
+        attempt_sink: ProviderAttemptSink | None = None,
+        model_attempt_id: str | None = None,
+        provider_key_index: int = 0,
     ) -> Iterator[TransportDelta]:
         sink = event_sink or self._event_sink
         effective_run_id = run_id or self._run_id
-        attempts: list[dict[str, Any]] = []
-        last_error: LLMClientError | None = None
-        effective_messages = messages
-        for strip_attempt in range(self._max_image_strip_attempts + 1):
-            stripped_images = strip_attempt > 0
-            retry_with_stripped_images = False
-            for key_index, api_key in enumerate(self._provider.api_keys, start=1):
-                started = time.perf_counter()
-                try:
-                    kwargs = self._transport.build_create_kwargs(
-                        model=self._provider.model,
-                        messages=effective_messages,
-                        tools=tools,
-                        system_prompt=system_prompt,
-                        max_output_tokens=max_output_tokens or self._provider.max_output_tokens,
-                        temperature=temperature,
+        if not self._provider.api_keys:
+            raise LLMClientError(
+                error_type="no_keys",
+                message="no API keys configured",
+                cause_code="no_keys",
+            )
+        selected_key_index = min(max(provider_key_index, 0), len(self._provider.api_keys) - 1)
+        key_index = selected_key_index + 1
+        api_key = self._provider.api_keys[selected_key_index]
+        request_sha256 = ""
+        recorded = False
+        kwargs: dict[str, Any] = {}
+        try:
+            kwargs = self._transport.build_create_kwargs(
+                model=self._provider.model,
+                messages=messages,
+                tools=tools,
+                system_prompt=system_prompt,
+                max_output_tokens=max_output_tokens or self._provider.max_output_tokens,
+                temperature=temperature,
+            )
+            request_sha256 = _request_sha256(kwargs)
+            _emit(
+                sink,
+                "transport.request_started",
+                session_id=session_id,
+                run_id=effective_run_id,
+                turn_index=turn_index,
+                payload={
+                    "model": self._provider.model,
+                    "api_format": self._provider.api_format,
+                    "transport": self._provider.transport,
+                    "iteration": iteration,
+                    "key_index": key_index,
+                    "stripped_images": False,
+                },
+            )
+            yield from self._stream_once(api_key=api_key, kwargs=kwargs)
+            if attempt_sink is not None:
+                attempt_sink.record_attempt(
+                    _attempt_record(
+                        messages=messages,
+                        request_body=kwargs,
+                        model_attempt_id=model_attempt_id
+                        or _default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_sha256,
+                        stripped_images=False,
+                        response_completed=True,
+                        error=None,
                     )
-                    _emit(
-                        sink,
-                        "transport.request_started",
-                        session_id=session_id,
-                        run_id=effective_run_id,
-                        turn_index=turn_index,
-                        payload={
-                            "model": self._provider.model,
-                            "api_format": self._provider.api_format,
-                            "transport": self._provider.transport,
-                            "iteration": iteration,
-                            "key_index": key_index,
-                            "stripped_images": stripped_images,
-                        },
+                )
+                recorded = True
+            return
+        except LLMClientError as exc:
+            _emit(
+                sink,
+                "transport.request_failed",
+                session_id=session_id,
+                run_id=effective_run_id,
+                turn_index=turn_index,
+                payload={
+                    "error": exc.message,
+                    "error_type": exc.error_type,
+                    "cause_code": exc.cause_code,
+                    "key_index": key_index,
+                    "stripped_images": False,
+                },
+            )
+            if attempt_sink is not None and request_sha256:
+                attempt_sink.record_attempt(
+                    _attempt_record(
+                        messages=messages,
+                        request_body=kwargs,
+                        model_attempt_id=model_attempt_id
+                        or _default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_sha256,
+                        stripped_images=False,
+                        response_completed=False,
+                        error=exc,
                     )
-                    yield from self._stream_once(api_key=api_key, kwargs=kwargs)
-                    attempts.append(
-                        {
-                            "key_index": key_index,
-                            "status": "ok",
-                            "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                            "stripped_images": stripped_images,
-                        }
+                )
+                recorded = True
+            raise
+        finally:
+            if attempt_sink is not None and request_sha256 and not recorded:
+                attempt_sink.record_attempt(
+                    _attempt_record(
+                        messages=messages,
+                        request_body=kwargs,
+                        model_attempt_id=model_attempt_id
+                        or _default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_sha256,
+                        stripped_images=False,
+                        response_completed=False,
+                        error=LLMProviderError(
+                            error_type="stream_aborted",
+                            message="provider stream ended before a complete response",
+                            cause_code="stream_aborted",
+                        ),
                     )
-                    return
-                except LLMClientError as exc:
-                    last_error = exc
-                    attempts.append(
-                        {
-                            "key_index": key_index,
-                            "status": exc.error_type,
-                            "elapsed_ms": round((time.perf_counter() - started) * 1000, 1),
-                            "stripped_images": stripped_images,
-                        }
-                    )
-                    _emit(
-                        sink,
-                        "transport.request_failed",
-                        session_id=session_id,
-                        run_id=effective_run_id,
-                        turn_index=turn_index,
-                        payload={
-                            "error": exc.message,
-                            "error_type": exc.error_type,
-                            "key_index": key_index,
-                            "stripped_images": stripped_images,
-                        },
-                    )
-                    if isinstance(exc, (LLMAuthError, LLMRateLimitError, LLMNetworkError)):
-                        continue
-                    if (
-                        strip_attempt < self._max_image_strip_attempts
-                        and _is_multimodal_corruption(exc.message)
-                    ):
-                        effective_messages = _strip_message_images(messages)
-                        retry_with_stripped_images = True
-                        break
-                    raise
-            if retry_with_stripped_images:
-                continue
-            break
-        raise last_error or LLMClientError(error_type="no_keys", message="no API keys configured")
+                )
 
     def complete_json(
         self,
@@ -264,7 +302,7 @@ class LLMClient:
                     "api_key": api_key,
                     "base_url": self._provider.base_url,
                     "timeout": self._timeout_s,
-                    "max_retries": 2,
+                    "max_retries": 0,
                 }
                 if self._anthropic_client_factory is anthropic.Anthropic:
                     client_kwargs["http_client"] = httpx.Client(
@@ -285,7 +323,7 @@ class LLMClient:
                 "api_key": api_key,
                 "base_url": self._provider.base_url,
                 "timeout": self._timeout_s,
-                "max_retries": 2,
+                "max_retries": 0,
             }
             if self._openai_client_factory is openai.OpenAI:
                 client_kwargs["http_client"] = httpx.Client(
@@ -320,15 +358,28 @@ def make_transport(provider: ProviderProfileConfig) -> ProviderTransport:
 
 
 def _map_sdk_error(exc: Exception) -> LLMClientError:
+    if isinstance(exc, LLMClientError):
+        return exc
     name = type(exc).__name__.lower()
     message = _extract_error_message(exc)
     if "authentication" in name or "permission" in name or "unauthorized" in message.lower():
-        return LLMAuthError(error_type="auth_error", message=message)
+        return LLMAuthError(
+            error_type="auth_error", message=message, cause_code="authentication_rejected"
+        )
     if "ratelimit" in name or "rate_limit" in name:
-        return LLMRateLimitError(error_type="rate_limit", message=message)
+        return LLMRateLimitError(
+            error_type="rate_limit", message=message, cause_code="rate_limit"
+        )
     if "timeout" in name or "network" in name or "connection" in name:
-        return LLMNetworkError(error_type="network_error", message=message)
-    return LLMProviderError(error_type="provider_error", message=message, raw_content=message)
+        return LLMNetworkError(
+            error_type="network_error", message=message, cause_code="transient_network"
+        )
+    return LLMProviderError(
+        error_type="provider_error",
+        message=message,
+        raw_content=message,
+        cause_code="provider_error",
+    )
 
 
 def _extract_error_message(exc: Exception) -> str:
@@ -352,24 +403,100 @@ def _extract_error_message(exc: Exception) -> str:
     return str(exc)
 
 
-def _is_multimodal_corruption(message: str) -> bool:
-    lowered = message.lower()
-    return "multimodal" in lowered and ("corrupt" in lowered or "process" in lowered)
+def _request_sha256(kwargs: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            kwargs,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
-def _strip_message_images(messages: list[Message]) -> list[Message]:
-    stripped: list[Message] = []
-    for message in messages:
-        content = [
-            (
-                ContentBlock(text="[image omitted after provider rejected multimodal payload]")
-                if block.type == "image"
-                else block
+def _default_attempt_id(run_id: str, iteration: int | None) -> str:
+    return f"{run_id or 'provider'}:attempt-{(iteration or 0) + 1:04d}"
+
+
+def _attempt_record(
+    *,
+    messages: list[Message],
+    request_body: dict[str, Any],
+    model_attempt_id: str,
+    request_sha256: str,
+    stripped_images: bool,
+    response_completed: bool,
+    error: LLMClientError | None,
+) -> ProviderAttemptRecord:
+    candidates: list[tuple[str, OutboundImageBinding]] = []
+    for message_index, message in enumerate(messages):
+        for block_index, block in enumerate(message.content):
+            if block.type != "image" or not isinstance(block.source, dict):
+                continue
+            data = block.source.get("data")
+            if not isinstance(data, str):
+                continue
+            try:
+                content = base64.b64decode(data, validate=True)
+            except ValueError:
+                content = data.encode("ascii", errors="replace")
+            frame_binding_id = block.metadata.get("frame_binding_id")
+            candidates.append(
+                (
+                    hashlib.sha256(content).hexdigest(),
+                    OutboundImageBinding(
+                        message_index=message_index,
+                        block_index=block_index,
+                        frame_binding_id=(
+                            frame_binding_id
+                            if isinstance(frame_binding_id, str)
+                            else None
+                        ),
+                        content_sha256=hashlib.sha256(content).hexdigest(),
+                    ),
+                )
             )
-            for block in message.content
-        ]
-        stripped.append(message.model_copy(update={"content": content}))
-    return stripped
+    serialized_counts = Counter(
+        hashlib.sha256(content).hexdigest()
+        for content in _serialized_image_contents(request_body)
+    )
+    bindings: list[OutboundImageBinding] = []
+    for content_sha256, binding in reversed(candidates):
+        if serialized_counts[content_sha256] <= 0:
+            continue
+        serialized_counts[content_sha256] -= 1
+        bindings.append(binding)
+    bindings.reverse()
+    return ProviderAttemptRecord(
+        model_attempt_id=model_attempt_id,
+        request_sha256=request_sha256,
+        outbound_images=tuple(bindings),
+        stripped_images=stripped_images,
+        response_completed=response_completed,
+        error_type=error.error_type if error is not None else None,
+        cause_code=error.cause_code if error is not None else None,
+    )
+
+
+def _serialized_image_contents(value: Any) -> list[bytes]:
+    contents: list[bytes] = []
+    if isinstance(value, dict):
+        source = value.get("source")
+        if value.get("type") == "image" and isinstance(source, dict):
+            data = source.get("data")
+            if isinstance(data, str):
+                try:
+                    contents.append(base64.b64decode(data, validate=True))
+                except ValueError:
+                    contents.append(data.encode("ascii", errors="replace"))
+                return contents
+        for item in value.values():
+            contents.extend(_serialized_image_contents(item))
+    elif isinstance(value, list | tuple):
+        for item in value:
+            contents.extend(_serialized_image_contents(item))
+    return contents
 
 
 def _emit(

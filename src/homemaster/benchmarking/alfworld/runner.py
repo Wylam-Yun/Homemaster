@@ -28,30 +28,42 @@ from homemaster.benchmarking.alfworld.env_adapter import (
 from homemaster.benchmarking.alfworld.prompt import build_episode_prompt, extract_task_text
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.benchmarking.alfworld.tracing import (
+    AlfworldToolDispatchObserver,
     AlfworldTraceWriter,
     split_trace_bucket,
     write_readable_trajectories,
 )
-from homemaster.benchmarking.alfworld.traj_index import load_traj_data
 from homemaster.benchmarking.alfworld.translator import create_translator
+from homemaster.benchmarking.alfworld.trial_selection import (
+    TrialSelectionEntry,
+    build_trial_selection_entry,
+    load_trial_selection_manifest,
+    load_verified_trial_data,
+)
 from homemaster.benchmarking.alfworld.types import (
     AGENT_SCORE_CLASSIFICATIONS,
-    NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
     AlfworldBenchmarkConfig,
+    AlfworldControlTerminalRecord,
     AlfworldEnvState,
     AlfworldEpisodeResult,
+    AlfworldGoalAdvanceResult,
+    AlfworldResetResult,
     AlfworldSummary,
     EpisodeOutcome,
+    NotRunReason,
     Subtask,
     SubtaskResult,
     Taskset,
     TasksetResult,
+    TasksetRootTerminal,
     TasksetRunConfig,
     TasksetRunSummary,
+    TasksetTerminalPhase,
 )
 from homemaster.config import load_config
 from homemaster.events.sinks import JsonlEventSink
 from homemaster.prompts.loader import load_prompt
+from homemaster.providers.attempts import JsonlProviderAttemptSink
 from homemaster.providers.llm_client import LLMClient
 from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.dispatcher import ToolDispatcher
@@ -73,17 +85,34 @@ class AlfworldBenchmarkRunner:
         self.config = config
         self._transport_factory = transport_factory or self._build_transport
         self._adapter_factory = adapter_factory or self._build_adapter
+        self._custom_adapter_factory = adapter_factory is not None
         self.run_id = config.run_id or uuid.uuid4().hex[:12]
         self.trace_bucket = split_trace_bucket(config.split)
         self.run_dir = config.trace_root / self.trace_bucket / self.run_id
 
     def run(self) -> AlfworldSummary:
         self.run_dir.mkdir(parents=True, exist_ok=True)
-        adapter = self._adapter_factory(self.config)
-        episodes = [
-            self._run_episode(adapter=adapter, episode_index=index)
-            for index in range(self.config.episodes)
-        ]
+        selections = self._trial_selections()
+        episodes = []
+        for index in range(self.config.episodes):
+            selection = selections[index] if selections is not None else None
+            adapter = (
+                self._build_pinned_adapter(selection)
+                if selection is not None and not self._custom_adapter_factory
+                else self._adapter_factory(self.config)
+            )
+            try:
+                episodes.append(
+                    self._run_episode(
+                        adapter=adapter,
+                        episode_index=index,
+                        selection=selection,
+                    )
+                )
+            finally:
+                close = getattr(adapter, "close", None)
+                if callable(close):
+                    close()
         summary = AlfworldSummary(
             run_id=self.run_id,
             episodes=episodes,
@@ -102,12 +131,28 @@ class AlfworldBenchmarkRunner:
         *,
         adapter: AlfworldEnvAdapter,
         episode_index: int,
+        selection: TrialSelectionEntry | None = None,
     ) -> AlfworldEpisodeResult:
         episode_run_id = f"{self.run_id}-{episode_index + 1:04d}"
         episode_dir = self.run_dir / f"episode-{episode_index + 1:04d}"
         trace = AlfworldTraceWriter(episode_dir)
         adapter.set_frame_dir(episode_dir / "frames")
-        state = adapter.reset()
+        reset_result = (
+            adapter.reset(selection_entry=selection)
+            if selection is not None
+            else adapter.reset()
+        )
+        if isinstance(reset_result, AlfworldResetResult):
+            if not reset_result.ready:
+                return _setup_terminal_episode_result(
+                    reset_result=reset_result,
+                    episode_run_id=episode_run_id,
+                    trace=trace,
+                )
+            assert reset_result.state is not None
+            state = reset_result.state
+        else:
+            state = reset_result
         trace.write_model_event(
             {
                 "env_type": self.config.env_type,
@@ -152,6 +197,7 @@ class AlfworldBenchmarkRunner:
                 "alfworld_trace": trace,
                 "alfworld_config": self.config,
                 "alfworld_episode_outcome": outcome,
+                "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
                 "alfworld_semantic_judge_config": (
                     self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                 ),
@@ -173,6 +219,10 @@ class AlfworldBenchmarkRunner:
             stop_condition=self._stop_condition(adapter),
             context_assembler=context_assembler,
             system_prompt=system_prompt,
+            model_view_observer=getattr(adapter, "model_view_observer", None),
+            provider_attempt_sink_factory=lambda: JsonlProviderAttemptSink(
+                episode_dir / "provider_attempts.jsonl"
+            ),
         )
         prompt = build_episode_prompt(
             state=state,
@@ -218,6 +268,28 @@ class AlfworldBenchmarkRunner:
             score_eligible=score_eligible,
             agent_tool_call_count=outcome.agent_tool_call_count,
             backend_action_count=outcome.backend_action_count,
+            setup_backend_action_count=(
+                reset_result.setup_backend_action_count
+                if isinstance(reset_result, AlfworldResetResult)
+                else 0
+            ),
+            model_backend_action_count=outcome.backend_action_count,
+            total_backend_action_count=(
+                outcome.backend_action_count
+                + (
+                    reset_result.setup_backend_action_count
+                    if isinstance(reset_result, AlfworldResetResult)
+                    else 0
+                )
+            ),
+            total_external_request_count=(
+                outcome.backend_action_count
+                + (
+                    reset_result.setup_backend_action_count
+                    if isinstance(reset_result, AlfworldResetResult)
+                    else 0
+                )
+            ),
         )
         episode_summary = {
             "episode_id": episode_result.episode_id,
@@ -267,7 +339,39 @@ class AlfworldBenchmarkRunner:
             "observation_mode": self.config.observation_mode,
             "provider_name": self._resolve_provider_profile().name,
             "seed": self.config.seed,
+            "trial_manifest": (
+                str(self.config.trial_manifest) if self.config.trial_manifest is not None else None
+            ),
         }
+
+    def _trial_selections(self) -> tuple[TrialSelectionEntry, ...] | None:
+        if self.config.env_type != "AlfredThorEnv":
+            return None
+        if self.config.trial_manifest is None:
+            raise ValueError("visual THOR runs require --trial-manifest")
+        trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
+        manifest = load_trial_selection_manifest(
+            self.config.trial_manifest,
+            trial_root=trial_root,
+        )
+        if len(manifest.entries) != self.config.episodes:
+            raise ValueError(
+                "trial-selection entry count must equal the requested episode count"
+            )
+        return manifest.entries
+
+    def _build_pinned_adapter(self, selection: TrialSelectionEntry) -> AlfworldEnvAdapter:
+        trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
+        trial_path = trial_root / selection.trial_id
+        return AlfworldEnvAdapter(
+            env=build_alfworld_batch_env_with_first_trial(
+                self.config,
+                first_trial_path=trial_path,
+            ),
+            episode_prefix=self.config.split,
+            seed=self.config.seed,
+            require_v18_reset=True,
+        )
 
     def _stop_condition(
         self,
@@ -340,7 +444,64 @@ class AlfworldBenchmarkRunner:
             env=build_alfworld_batch_env(config),
             episode_prefix=config.split,
             seed=config.seed,
+            require_v18_reset=config.env_type == "AlfredThorEnv",
         )
+
+
+def _setup_terminal_episode_result(
+    *,
+    reset_result: AlfworldResetResult,
+    episode_run_id: str,
+    trace: AlfworldTraceWriter,
+) -> AlfworldEpisodeResult:
+    trace.write_event(
+        {
+            "event": "reset_terminal",
+            "setup_trigger": reset_result.setup_trigger,
+            "setup_failure": reset_result.setup_failure,
+            "classification": reset_result.classification,
+            "score_eligible": reset_result.score_eligible,
+            "setup_backend_action_count": reset_result.setup_backend_action_count,
+            "recovery_status": reset_result.recovery_status,
+            "cleanup_status": reset_result.cleanup_status,
+            "environment_disposition": reset_result.environment_disposition,
+            "evidence_ref": reset_result.evidence_ref,
+        }
+    )
+    episode_result = AlfworldEpisodeResult(
+        episode_id=f"{episode_run_id}/setup-terminal",
+        success=False,
+        failure_reason=reset_result.setup_failure,
+        steps=0,
+        invalid_actions=0,
+        goal_condition_success_rate=0.0,
+        runtime_status="setup_terminal",
+        run_id=episode_run_id,
+        trace_path=trace.trace_path,
+        classification=reset_result.classification or "runtime_failure",
+        score_eligible=False,
+        agent_tool_call_count=0,
+        backend_action_count=0,
+        setup_backend_action_count=reset_result.setup_backend_action_count,
+        total_backend_action_count=reset_result.setup_backend_action_count,
+        total_external_request_count=reset_result.setup_backend_action_count,
+    )
+    summary = {
+        "episode_id": episode_result.episode_id,
+        "failure_reason": episode_result.failure_reason,
+        "goal_condition_success_rate": 0.0,
+        "invalid_actions": 0,
+        "run_id": episode_run_id,
+        "runtime_status": episode_result.runtime_status,
+        "steps": 0,
+        "success": False,
+        "classification": episode_result.classification,
+        "score_eligible": False,
+        "setup_backend_action_count": reset_result.setup_backend_action_count,
+    }
+    trace.write_summary(summary)
+    trace.write_trajectory(summary)
+    return episode_result
 
 
 def _episode_failure_reason(error_code: str | None, done: bool) -> str:
@@ -371,7 +532,22 @@ def _episode_classification(
         return outcome.classification
     if success:
         return "agent_success"
-    infrastructure = {
+    mapping = {
+        "transport_error": "provider_failure",
+        "context_length_exceeded_after_compact": "runtime_failure",
+        "tool_result_id_mismatch": "runtime_failure",
+        "model_output_truncated": "agent_model_failure",
+        "max_tool_iterations_exceeded": "agent_model_failure",
+        "max_consecutive_tool_errors": "agent_model_failure",
+        "max_no_progress_iterations": "agent_model_failure",
+        "benchmark_env_step_limit": "agent_model_failure",
+        "benchmark_invalid_action_limit": "agent_model_failure",
+        "benchmark_done_without_won": "agent_model_failure",
+        "user_interrupted": "cancelled",
+    }
+    if failure_reason in mapping:
+        return mapping[failure_reason]
+    closed = {
         "artifact_failure",
         "cancelled",
         "execution_state_uncertain",
@@ -382,9 +558,11 @@ def _episode_classification(
         "runtime_failure",
         "unclassified_execution_failure",
     }
-    if failure_reason in infrastructure:
+    if failure_reason in closed:
         return str(failure_reason)
-    return "agent_model_failure"
+    if failure_reason in {None, "not_won", "done_without_won"}:
+        return "agent_model_failure"
+    return "unclassified_execution_failure"
 
 
 def _initial_model_trace_state(
@@ -486,197 +664,382 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
     def _run_taskset(self, taskset: Taskset) -> TasksetResult:
         taskset_dir = self.run_dir / f"taskset-{taskset.id}"
         taskset_dir.mkdir(parents=True, exist_ok=True)
-        first_trial = taskset.subtasks[0].traj_path
-        assert first_trial is not None  # TasksetRunConfig.__post_init__ guarantees this
+        try:
+            trial_inputs = self._taskset_trial_inputs(taskset)
+        except (OSError, ValueError) as exc:
+            return _taskset_selection_terminal_result(
+                taskset=taskset,
+                taskset_dir=taskset_dir,
+                detail=str(exc),
+            )
 
+        first_selection, _ = trial_inputs[0]
+        trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
         adapter = AlfworldEnvAdapter(
             env=build_alfworld_batch_env_with_first_trial(
-                self.config, first_trial_path=first_trial
+                self.config,
+                first_trial_path=trial_root / first_selection.trial_id,
             ),
             episode_prefix=f"{self.config.split}/{taskset.id}",
             seed=self.config.seed,
+            require_v18_reset=self.config.env_type == "AlfredThorEnv",
         )
 
-        subtask_results: list[SubtaskResult] = []
-        session = AgentSession(session_id=f"{self.run_id}-{taskset.id}")
-        task_state_store = TaskStateStore(run_id=f"{self.run_id}-{taskset.id}")
-        runtime_sink = JsonlEventSink(taskset_dir / "runtime")
-        translator = create_translator(self.config.env_type)
-        dispatcher = ToolDispatcher()
-        tool_specs = self._register_tools(dispatcher)
-        provider_profile = self._resolve_provider_profile()
-        config = load_config(self.config.provider_config)
-        settings = SimpleNamespace(
-            run_id=f"{self.run_id}-{taskset.id}",
-            max_turns=12,
-            runtime_root=taskset_dir / "runtime",
-            debug_root=taskset_dir / "debug",
-            results_root=taskset_dir / "results",
-            provider_name=provider_profile.name,
-            embedding_provider_name=config.runtime_defaults.default_embedding_provider_name,
-            config_path=config.config_path,
-            memory_path=None,
-            context=config.context,
-            runtime_guards=config.runtime,
-            prompts=config.prompts,
-            observability=config.observability,
-        )
-        run_context = RunContext(
-            session_id=f"{self.run_id}-{taskset.id}",
-            run_id=f"{self.run_id}-{taskset.id}",
-            turn_index=0,
-            settings=settings,
-            event_sink=runtime_sink,
-            deps={
-                "alfworld_env": adapter,
-                "alfworld_translator": translator,
-                "alfworld_config": self.config,
-                "alfworld_semantic_judge_config": (
-                    self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
-                ),
-                "task_state_store": task_state_store,
-            },
-        )
-        dispatcher.set_run_context(run_context)
-        system_prompt = load_prompt(settings.prompts.agent_system_prompt)
-        context_assembler = ContextAssembler(
-            provider=provider_profile,
-            policy=settings.context,
-            system_prompt=system_prompt,
-        )
-
-        for idx, subtask in enumerate(taskset.subtasks):
-            outcome = EpisodeOutcome()
-            subtask_dir = taskset_dir / f"subtask-{idx + 1:02d}"
-            subtask_dir.mkdir(parents=True, exist_ok=True)
-            trace = AlfworldTraceWriter(subtask_dir)
-            adapter.set_frame_dir(subtask_dir / "frames")
-            run_context.deps["alfworld_trace"] = trace
-            run_context.deps["alfworld_current_subtask"] = subtask
-            run_context.deps["alfworld_episode_outcome"] = outcome
-
-            if idx == 0:
-                state = adapter.reset()
-                traj_data = load_traj_data(subtask.traj_path)
-            else:
-                traj_data = load_traj_data(subtask.traj_path)
-                state = adapter.advance_goal(
-                    traj_data,
-                    subtask_label=f"{taskset.id}-subtask-{idx + 1:02d}",
+        try:
+            first_subtask_dir = taskset_dir / "subtask-01"
+            first_trace = AlfworldTraceWriter(first_subtask_dir)
+            adapter.set_frame_dir(first_subtask_dir / "frames")
+            reset_result = adapter.reset(selection_entry=first_selection)
+            if not isinstance(reset_result, AlfworldResetResult):
+                raise TypeError("taskset adapter reset must return AlfworldResetResult")
+            if not reset_result.ready:
+                first_trace.write_event(
+                    {
+                        "event": "reset_terminal",
+                        "setup_trigger": reset_result.setup_trigger,
+                        "setup_failure": reset_result.setup_failure,
+                        "classification": reset_result.classification,
+                        "setup_backend_action_count": reset_result.setup_backend_action_count,
+                    }
                 )
-            run_context.deps["alfworld_current_traj_data"] = traj_data
+                classification = reset_result.classification or "runtime_failure"
+                rows = [
+                    _not_run_subtask_result(
+                        subtask=subtask,
+                        index=index,
+                        taskset_dir=taskset_dir,
+                        reason="taskset_setup_failure",
+                        blocked_by_classification=classification,
+                    )
+                    for index, subtask in enumerate(taskset.subtasks)
+                ]
+                root_terminal = _taskset_root_terminal(
+                    phase="reset_setup",
+                    classification=classification,
+                    subtask_index=None,
+                    control_terminal_record=_reset_terminal_record(reset_result),
+                    setup_backend_action_count=reset_result.setup_backend_action_count,
+                    benchmark_control_action_count=0,
+                    model_backend_action_count=0,
+                )
+                return _taskset_result(
+                    taskset=taskset,
+                    taskset_dir=taskset_dir,
+                    subtasks=rows,
+                    setup_backend_action_count=reset_result.setup_backend_action_count,
+                    benchmark_control_action_count=0,
+                    root_terminal=root_terminal,
+                )
 
-            trace.write_model_event(
-                {
-                    "env_type": self.config.env_type,
-                    "event": "subtask_started",
-                    "run_id": f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}",
-                    "taskset_id": taskset.id,
-                    "subtask_index": idx,
-                    "state": _initial_model_trace_state(state, self.config.observation_mode),
-                }
+            assert reset_result.state is not None
+            initial_state = reset_result.state
+            setup_backend_action_count = reset_result.setup_backend_action_count
+            benchmark_control_action_count = 0
+            root_terminal: TasksetRootTerminal | None = None
+            subtask_results: list[SubtaskResult] = []
+            session = AgentSession(session_id=f"{self.run_id}-{taskset.id}")
+            task_state_store = TaskStateStore(run_id=f"{self.run_id}-{taskset.id}")
+            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
+            translator = create_translator(self.config.env_type)
+            dispatcher = ToolDispatcher()
+            tool_specs = self._register_tools(dispatcher)
+            provider_profile = self._resolve_provider_profile()
+            config = load_config(self.config.provider_config)
+            settings = SimpleNamespace(
+                run_id=f"{self.run_id}-{taskset.id}",
+                max_turns=12,
+                runtime_root=taskset_dir / "runtime",
+                debug_root=taskset_dir / "debug",
+                results_root=taskset_dir / "results",
+                provider_name=provider_profile.name,
+                embedding_provider_name=(
+                    config.runtime_defaults.default_embedding_provider_name
+                ),
+                config_path=config.config_path,
+                memory_path=None,
+                context=config.context,
+                runtime_guards=config.runtime,
+                prompts=config.prompts,
+                observability=config.observability,
             )
-
-            runtime = GenericAgentRuntime(
-                transport=self._transport_factory(),
-                tool_executor=dispatcher,
-                max_tool_iterations=self.config.max_tool_iterations,
-                stop_condition=self._stop_condition(adapter),
-                context_assembler=context_assembler,
+            run_context = RunContext(
+                session_id=f"{self.run_id}-{taskset.id}",
+                run_id=f"{self.run_id}-{taskset.id}",
+                turn_index=0,
+                settings=settings,
+                event_sink=runtime_sink,
+                deps={
+                    "alfworld_env": adapter,
+                    "alfworld_translator": translator,
+                    "alfworld_config": self.config,
+                    "alfworld_semantic_judge_config": (
+                        self.config.alfworld_root
+                        / "configs"
+                        / "semantic_judge_agnes.yaml"
+                    ),
+                    "task_state_store": task_state_store,
+                },
+            )
+            dispatcher.set_run_context(run_context)
+            system_prompt = load_prompt(settings.prompts.agent_system_prompt)
+            context_assembler = ContextAssembler(
+                provider=provider_profile,
+                policy=settings.context,
                 system_prompt=system_prompt,
             )
-            prompt = build_episode_prompt(
-                state=state,
-                translator=translator,
-                memory_mode=self.config.memory_mode,
-                max_invalid_actions=self.config.max_invalid_actions,
-                max_env_steps=self.config.max_env_steps,
-                observation_mode=self.config.observation_mode,
-                subtask_instruction=subtask.instruction,
-            )
-            result = runtime.run(
-                session,
-                prompt,
-                tools=tool_specs,
-                user_content=_initial_user_content(prompt, state.frame_path),
-                event_sink=runtime_sink,
-                run_id=f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}",
-                settings=settings,
-            )
-            trace.write_session_messages(result.session)
 
-            final_state = adapter.current_state
-            success = adapter.is_current_goal_satisfied()
-            runtime_failure_reason = (
-                None
-                if success
-                else _subtask_failure_reason(
-                    result.error_code,
-                    final_state,
-                )
-            )
-            classification = _episode_classification(
-                success=success,
-                failure_reason=runtime_failure_reason,
-                outcome=outcome,
-            )
-            score_eligible = classification in AGENT_SCORE_CLASSIFICATIONS
-            failure_reason = runtime_failure_reason if score_eligible else classification
-            subtask_results.append(
-                SubtaskResult(
-                    index=idx,
-                    goal_type=subtask.goal_type,
-                    object=subtask.object,
-                    target=subtask.toggle or subtask.parent or "",
-                    instruction=subtask.instruction,
-                    success=success,
-                    failure_reason=failure_reason,
-                    steps=final_state.step_index,
-                    invalid_actions=final_state.invalid_action_count,
-                    goal_condition_success_rate=adapter.current_goal_condition_success_rate(),
-                    runtime_status=result.status,
-                    trace_path=trace.trace_path,
-                    classification=classification,
-                    score_eligible=score_eligible,
-                    agent_tool_call_count=outcome.agent_tool_call_count,
-                    backend_action_count=outcome.backend_action_count,
-                    terminal_tool_call_id=outcome.terminal_tool_call_id,
-                    terminal_evidence_ref=outcome.terminal_evidence_ref,
-                )
-            )
-            trace.write_summary(subtask_results[-1].to_dict())
+            for idx, subtask in enumerate(taskset.subtasks):
+                selection, traj_data = trial_inputs[idx]
+                subtask_dir = taskset_dir / f"subtask-{idx + 1:02d}"
+                subtask_dir.mkdir(parents=True, exist_ok=True)
+                trace = AlfworldTraceWriter(subtask_dir)
+                adapter.set_frame_dir(subtask_dir / "frames")
 
-            if not score_eligible:
-                for pending_idx, pending in enumerate(
-                    taskset.subtasks[idx + 1 :],
-                    start=idx + 1,
-                ):
-                    subtask_results.append(
-                        _not_run_subtask_result(
-                            subtask=pending,
-                            index=pending_idx,
-                            taskset_dir=taskset_dir,
-                        )
+                if idx == 0:
+                    state = initial_state
+                else:
+                    advance_result = adapter.advance_goal(
+                        traj_data,
+                        subtask_label=f"{taskset.id}-subtask-{idx + 1:02d}",
+                        selection_entry=selection,
                     )
-                break
+                    if not isinstance(advance_result, AlfworldGoalAdvanceResult):
+                        raise TypeError(
+                            "taskset adapter advance_goal must return "
+                            "AlfworldGoalAdvanceResult"
+                        )
+                    benchmark_control_action_count += (
+                        advance_result.benchmark_control_action_count
+                    )
+                    trace.write_event(
+                        {
+                            "event": (
+                                "goal_advance_completed"
+                                if advance_result.ready
+                                else "goal_advance_terminal"
+                            ),
+                            "advance_trigger": advance_result.advance_trigger,
+                            "advance_failure": advance_result.advance_failure,
+                            "classification": advance_result.classification,
+                            "benchmark_control_action_count": (
+                                advance_result.benchmark_control_action_count
+                            ),
+                            "before_scene_state_sha256": (
+                                advance_result.before_scene_state_sha256
+                            ),
+                            "after_scene_state_sha256": (
+                                advance_result.after_scene_state_sha256
+                            ),
+                        }
+                    )
+                    if not advance_result.ready:
+                        classification = advance_result.classification or "runtime_failure"
+                        for pending_idx, pending in enumerate(
+                            taskset.subtasks[idx:],
+                            start=idx,
+                        ):
+                            subtask_results.append(
+                                _not_run_subtask_result(
+                                    subtask=pending,
+                                    index=pending_idx,
+                                    taskset_dir=taskset_dir,
+                                    reason=(
+                                        "goal_advance_failure"
+                                        if pending_idx == idx
+                                        else "prior_infrastructure_failure"
+                                    ),
+                                    blocked_by_classification=classification,
+                                )
+                            )
+                        root_terminal = _taskset_root_terminal(
+                            phase="goal_advance",
+                            classification=classification,
+                            subtask_index=idx,
+                            control_terminal_record=_goal_terminal_record(
+                                advance_result
+                            ),
+                            setup_backend_action_count=setup_backend_action_count,
+                            benchmark_control_action_count=(
+                                benchmark_control_action_count
+                            ),
+                            model_backend_action_count=sum(
+                                row.backend_action_count for row in subtask_results
+                            ),
+                        )
+                        break
+                    assert advance_result.state is not None
+                    state = advance_result.state
 
-            # Agent failure breaks the chain without converting unattempted
-            # work into an infrastructure failure.
-            if not success:
-                break
+                outcome = EpisodeOutcome()
+                run_context.deps["alfworld_trace"] = trace
+                run_context.deps["alfworld_current_subtask"] = subtask
+                run_context.deps["alfworld_episode_outcome"] = outcome
+                run_context.deps["tool_dispatch_observer"] = (
+                    AlfworldToolDispatchObserver(outcome)
+                )
+                run_context.deps["alfworld_current_traj_data"] = traj_data
+                subtask_run_id = (
+                    f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}"
+                )
+                trace.write_model_event(
+                    {
+                        "env_type": self.config.env_type,
+                        "event": "subtask_started",
+                        "run_id": subtask_run_id,
+                        "taskset_id": taskset.id,
+                        "subtask_index": idx,
+                        "state": _initial_model_trace_state(
+                            state,
+                            self.config.observation_mode,
+                        ),
+                    }
+                )
 
-        chain_success = all(r.success for r in subtask_results) and (
-            len(subtask_results) == len(taskset.subtasks)
-        )
-        return TasksetResult(
-            taskset_id=taskset.id,
-            floorplan=taskset.floorplan,
-            difficulty=taskset.difficulty,
-            description=taskset.description,
-            subtasks=subtask_results,
-            chain_success=chain_success,
-            trace_dir=taskset_dir,
-        )
+                runtime = GenericAgentRuntime(
+                    transport=self._transport_factory(),
+                    tool_executor=dispatcher,
+                    max_tool_iterations=self.config.max_tool_iterations,
+                    stop_condition=self._stop_condition(adapter),
+                    context_assembler=context_assembler,
+                    system_prompt=system_prompt,
+                    model_view_observer=getattr(
+                        adapter,
+                        "model_view_observer",
+                        None,
+                    ),
+                    provider_attempt_sink_factory=lambda path=(
+                        subtask_dir / "provider_attempts.jsonl"
+                    ): JsonlProviderAttemptSink(path),
+                )
+                prompt = build_episode_prompt(
+                    state=state,
+                    translator=translator,
+                    memory_mode=self.config.memory_mode,
+                    max_invalid_actions=self.config.max_invalid_actions,
+                    max_env_steps=self.config.max_env_steps,
+                    observation_mode=self.config.observation_mode,
+                    subtask_instruction=subtask.instruction,
+                )
+                result = runtime.run(
+                    session,
+                    prompt,
+                    tools=tool_specs,
+                    user_content=_initial_user_content(prompt, state.frame_path),
+                    event_sink=runtime_sink,
+                    run_id=subtask_run_id,
+                    settings=settings,
+                )
+                trace.write_session_messages(result.session)
+
+                final_state = adapter.current_state
+                success = adapter.is_current_goal_satisfied()
+                runtime_failure_reason = (
+                    None
+                    if success
+                    else _subtask_failure_reason(result.error_code, final_state)
+                )
+                classification = _episode_classification(
+                    success=success,
+                    failure_reason=runtime_failure_reason,
+                    outcome=outcome,
+                )
+                score_eligible = classification in AGENT_SCORE_CLASSIFICATIONS
+                failure_reason = (
+                    runtime_failure_reason if score_eligible else classification
+                )
+                subtask_results.append(
+                    SubtaskResult(
+                        index=idx,
+                        goal_type=subtask.goal_type,
+                        object=subtask.object,
+                        target=subtask.toggle or subtask.parent or "",
+                        instruction=subtask.instruction,
+                        success=success,
+                        failure_reason=failure_reason,
+                        steps=final_state.step_index,
+                        invalid_actions=final_state.invalid_action_count,
+                        goal_condition_success_rate=(
+                            adapter.current_goal_condition_success_rate()
+                        ),
+                        runtime_status=result.status,
+                        trace_path=trace.trace_path,
+                        classification=classification,
+                        score_eligible=score_eligible,
+                        agent_tool_call_count=outcome.agent_tool_call_count,
+                        backend_action_count=outcome.backend_action_count,
+                        terminal_tool_call_id=outcome.terminal_tool_call_id,
+                        terminal_evidence_ref=outcome.terminal_evidence_ref,
+                    )
+                )
+                trace.write_summary(subtask_results[-1].to_dict())
+
+                if not score_eligible:
+                    for pending_idx, pending in enumerate(
+                        taskset.subtasks[idx + 1 :],
+                        start=idx + 1,
+                    ):
+                        subtask_results.append(
+                            _not_run_subtask_result(
+                                subtask=pending,
+                                index=pending_idx,
+                                taskset_dir=taskset_dir,
+                                reason="prior_infrastructure_failure",
+                                blocked_by_classification=classification,
+                            )
+                        )
+                    root_terminal = _taskset_root_terminal(
+                        phase="subtask_execution",
+                        classification=classification,
+                        subtask_index=idx,
+                        control_terminal_record=None,
+                        setup_backend_action_count=setup_backend_action_count,
+                        benchmark_control_action_count=(
+                            benchmark_control_action_count
+                        ),
+                        model_backend_action_count=sum(
+                            row.backend_action_count for row in subtask_results
+                        ),
+                    )
+                    break
+
+                # Agent failure ends the chain but does not reclassify future work
+                # as an infrastructure failure.
+                if not success:
+                    break
+
+            return _taskset_result(
+                taskset=taskset,
+                taskset_dir=taskset_dir,
+                subtasks=subtask_results,
+                setup_backend_action_count=setup_backend_action_count,
+                benchmark_control_action_count=benchmark_control_action_count,
+                root_terminal=root_terminal,
+            )
+        finally:
+            adapter.close()
+
+    def _taskset_trial_inputs(
+        self,
+        taskset: Taskset,
+    ) -> tuple[tuple[TrialSelectionEntry, dict[str, Any]], ...]:
+        trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
+        expected_scene = f"FloorPlan{taskset.floorplan}"
+        inputs: list[tuple[TrialSelectionEntry, dict[str, Any]]] = []
+        for subtask in taskset.subtasks:
+            assert subtask.traj_path is not None
+            selection = build_trial_selection_entry(
+                subtask.traj_path,
+                trial_root=trial_root,
+                expected_logical_scene=expected_scene,
+                identity_status="taskset_declared",
+            )
+            inputs.append(
+                (
+                    selection,
+                    load_verified_trial_data(selection, trial_root=trial_root),
+                )
+            )
+        return tuple(inputs)
 
     def _taskset_summary_config(self) -> dict[str, object]:
         return {
@@ -733,6 +1096,8 @@ def _not_run_subtask_result(
     subtask: Subtask,
     index: int,
     taskset_dir: Path,
+    reason: NotRunReason,
+    blocked_by_classification: str,
 ) -> SubtaskResult:
     trace = AlfworldTraceWriter(taskset_dir / f"subtask-{index + 1:02d}")
     result = SubtaskResult(
@@ -742,14 +1107,175 @@ def _not_run_subtask_result(
         target=subtask.toggle or subtask.parent or "",
         instruction=subtask.instruction,
         success=False,
-        failure_reason=NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
+        failure_reason=reason,
         steps=0,
         invalid_actions=0,
         goal_condition_success_rate=0.0,
         runtime_status="not_run",
         trace_path=trace.trace_path,
-        classification=NOT_RUN_DUE_TO_INFRASTRUCTURE_FAILURE,
+        classification=None,
         score_eligible=False,
+        execution_status="not_run",
+        not_run_reason=reason,
+        blocked_by_classification=blocked_by_classification,
     )
     trace.write_summary(result.to_dict())
     return result
+
+
+def _taskset_selection_terminal_result(
+    *,
+    taskset: Taskset,
+    taskset_dir: Path,
+    detail: str,
+) -> TasksetResult:
+    trace = AlfworldTraceWriter(taskset_dir / "subtask-01")
+    trace.write_event(
+        {
+            "event": "trial_selection_terminal",
+            "setup_trigger": "expected_manifest_mismatch",
+            "setup_failure": "expected_manifest_mismatch",
+            "classification": "artifact_failure",
+            "detail": detail,
+        }
+    )
+    rows = [
+        _not_run_subtask_result(
+            subtask=subtask,
+            index=index,
+            taskset_dir=taskset_dir,
+            reason="taskset_setup_failure",
+            blocked_by_classification="artifact_failure",
+        )
+        for index, subtask in enumerate(taskset.subtasks)
+    ]
+    control_record = AlfworldControlTerminalRecord(
+        phase="reset_setup",
+        trigger_code="expected_manifest_mismatch",
+        final_code="expected_manifest_mismatch",
+        classification="artifact_failure",
+        worker_process_return_code=None,
+        timed_out=False,
+        recovery_status="not_needed",
+        cleanup_status="not_needed",
+        quarantine_required=False,
+        environment_disposition="not_started",
+        evidence_ref=str(trace.trace_path),
+    )
+    root_terminal = _taskset_root_terminal(
+        phase="reset_setup",
+        classification="artifact_failure",
+        subtask_index=None,
+        control_terminal_record=control_record,
+        setup_backend_action_count=0,
+        benchmark_control_action_count=0,
+        model_backend_action_count=0,
+    )
+    return _taskset_result(
+        taskset=taskset,
+        taskset_dir=taskset_dir,
+        subtasks=rows,
+        setup_backend_action_count=0,
+        benchmark_control_action_count=0,
+        root_terminal=root_terminal,
+    )
+
+
+def _reset_terminal_record(result: AlfworldResetResult) -> AlfworldControlTerminalRecord:
+    if (
+        result.ready
+        or result.setup_trigger is None
+        or result.setup_failure is None
+        or result.classification is None
+    ):
+        raise ValueError("reset terminal record requires a terminal reset result")
+    return AlfworldControlTerminalRecord(
+        phase="reset_setup",
+        trigger_code=result.setup_trigger,
+        final_code=result.setup_failure,
+        classification=result.classification,
+        worker_process_return_code=None,
+        timed_out=False,
+        recovery_status=result.recovery_status,
+        cleanup_status=result.cleanup_status,
+        quarantine_required=result.quarantine_required,
+        environment_disposition=result.environment_disposition,
+        evidence_ref=result.evidence_ref,
+    )
+
+
+def _goal_terminal_record(
+    result: AlfworldGoalAdvanceResult,
+) -> AlfworldControlTerminalRecord:
+    if (
+        result.ready
+        or result.advance_trigger is None
+        or result.advance_failure is None
+        or result.classification is None
+    ):
+        raise ValueError("goal terminal record requires a terminal goal-advance result")
+    return AlfworldControlTerminalRecord(
+        phase="goal_advance",
+        trigger_code=result.advance_trigger,
+        final_code=result.advance_failure,
+        classification=result.classification,
+        worker_process_return_code=None,
+        timed_out=False,
+        recovery_status="not_applicable",
+        cleanup_status=result.cleanup_status,
+        quarantine_required=result.quarantine_required,
+        environment_disposition=result.environment_disposition,
+        evidence_ref=result.evidence_ref,
+    )
+
+
+def _taskset_root_terminal(
+    *,
+    phase: TasksetTerminalPhase,
+    classification: str,
+    subtask_index: int | None,
+    control_terminal_record: AlfworldControlTerminalRecord | None,
+    setup_backend_action_count: int,
+    benchmark_control_action_count: int,
+    model_backend_action_count: int,
+) -> TasksetRootTerminal:
+    total_backend_action_count = setup_backend_action_count + model_backend_action_count
+    return TasksetRootTerminal(
+        phase=phase,
+        classification=classification,
+        subtask_index=subtask_index,
+        control_terminal_record=control_terminal_record,
+        setup_backend_action_count=setup_backend_action_count,
+        benchmark_control_action_count=benchmark_control_action_count,
+        model_backend_action_count=model_backend_action_count,
+        total_backend_action_count=total_backend_action_count,
+        total_external_action_count=(
+            total_backend_action_count + benchmark_control_action_count
+        ),
+    )
+
+
+def _taskset_result(
+    *,
+    taskset: Taskset,
+    taskset_dir: Path,
+    subtasks: list[SubtaskResult],
+    setup_backend_action_count: int,
+    benchmark_control_action_count: int,
+    root_terminal: TasksetRootTerminal | None,
+) -> TasksetResult:
+    chain_success = len(subtasks) == len(taskset.subtasks) and all(
+        row.success for row in subtasks
+    )
+    return TasksetResult(
+        taskset_id=taskset.id,
+        floorplan=taskset.floorplan,
+        difficulty=taskset.difficulty,
+        description=taskset.description,
+        subtasks=subtasks,
+        chain_success=chain_success,
+        trace_dir=taskset_dir,
+        setup_backend_action_count=setup_backend_action_count,
+        benchmark_control_action_count=benchmark_control_action_count,
+        root_terminal=root_terminal,
+    )

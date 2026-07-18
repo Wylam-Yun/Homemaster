@@ -49,6 +49,11 @@ def test_public_action_schema_contains_textworld_put_template() -> None:
     translator = create_translator("AlfredTWEnv")
 
     schema = translator.public_action_schema()
+    assert schema["navigation"] == {
+        "tool": "robot_go_to",
+        "required": ["target"],
+        "command_template": "go to {target}",
+    }
     put_actions = [
         item for item in schema["manipulation_actions"]
         if item["action"] == "put"

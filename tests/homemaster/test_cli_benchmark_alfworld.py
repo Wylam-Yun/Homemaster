@@ -30,6 +30,12 @@ class FakeSummary:
             "formal_score_available": True,
             "harness_invalid_episodes": 0,
             "harness_valid_coverage": 1.0,
+            "raw_success_rate": 1.0,
+            "evaluation_valid_coverage": 1.0,
+            "harness_coverage": 1.0,
+            "provider_availability": 1.0,
+            "runtime_availability": 1.0,
+            "cancelled_episodes": 0,
             "run_id": self.run_id,
             "success_rate": 1.0,
             "total_invalid_actions": 0,
@@ -109,6 +115,7 @@ def test_benchmark_alfworld_cli_invokes_handler(
     assert captured["max_tool_iterations"] == 300
     assert captured["provider_name"] is None
     assert captured["observation_mode"] == "textual_debug"
+    assert captured["trial_manifest"] is None
     assert "success_rate: 1.000" in result.stdout
     assert "agent_success_rate_on_valid: 1.000" in result.stdout
     assert "harness_valid_coverage: 1.000" in result.stdout
@@ -124,6 +131,7 @@ def test_benchmark_alfworld_help_exposes_key_options() -> None:
     assert "--max-invalid-actions" in result.stdout
     assert "--memory-mode" in result.stdout
     assert "--observation-mode" in result.stdout
+    assert "--trial-manifest" in result.stdout
 
 
 def test_benchmark_alfworld_taskset_cli_reports_coverage_and_score_gate(

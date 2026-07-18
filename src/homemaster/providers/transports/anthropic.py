@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall
+from homemaster.providers.errors import LLMProviderError
 from homemaster.providers.transports.base import ProviderTransport
 from homemaster.providers.transports.types import TransportDelta
 
@@ -68,9 +69,12 @@ class AnthropicTransport(ProviderTransport):
 
     def iter_stream_deltas(self, stream: Any) -> Iterator[TransportDelta]:
         tool_blocks: dict[int, dict[str, Any]] = {}
+        message_started = False
         for event in stream:
             event_type = _get(event, "type", "")
-            if event_type == "content_block_start":
+            if event_type == "message_start":
+                message_started = True
+            elif event_type == "content_block_start":
                 index = int(_get(event, "index", 0) or 0)
                 block = _get(event, "content_block", None)
                 if _get(block, "type", "") == "tool_use":
@@ -113,6 +117,12 @@ class AnthropicTransport(ProviderTransport):
                         ),
                     )
             elif event_type == "message_delta":
+                if not message_started:
+                    raise LLMProviderError(
+                        error_type="stream_protocol_error",
+                        message="provider sent message_delta before message_start",
+                        cause_code="message_delta_before_message_start",
+                    )
                 delta = _get(event, "delta", None)
                 stop_reason = _get(delta, "stop_reason", None)
                 usage = _usage_to_dict(_get(event, "usage", None))

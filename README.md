@@ -1,4 +1,4 @@
-# HomeMaster V1.7
+# HomeMaster V1.8
 
 LLM-first generic agent runtime with home-robot domain tools.
 
@@ -85,7 +85,9 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 
 ## ALFWorld Benchmark
 
-`AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划，同时由 Harness 负责准确对象 grounding、主要导航和同目标局部 put 位姿执行。公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`；不产生新观察的 `robot_inspect_view` 已删除。
+`AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划。V1.8 在模型循环前验证 exact trial manifest，执行 controlled-time reset scan，并原子发布 immutable Oracle pose snapshot；公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`。
+
+`robot_go_to` 只接受当前成功 Provider 请求中 strict-visible 的目标，并只使用 snapshot 的一个 exact pose；snapshot 不授权屏外搜索。所有 manipulation 通过统一外部动作网关和强类型反馈返回，内部 objectId、坐标、候选和 snapshot authority 不进入 Provider body。
 
 ```bash
 export ALFWORLD_DATA=/path/to/alfworld/data
@@ -96,11 +98,14 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli benchmark-alfworld \
   --trace-root var/alfworld-trace \
   --env-type AlfredThorEnv \
   --split valid_unseen \
-  --episodes 10 \
+  --episodes 1 \
+  --trial-manifest /path/to/trial-manifest.json \
   --observation-mode visual_eval
 ```
 
-MVP 对 `put` 使用固定生产预算：导航最多 65 个候选、66 个 THOR action、34.804 秒；局部 put 最多 9 个候选、17 个 THOR action、5.669 秒。成功同时要求 THOR 返回成功和准确外部终态；Harness grounding/navigation/operation 或状态矛盾会立即终止 Episode、排除 Agent 分数，并在 CLI/summary 同时报告 `harness_valid_coverage` 与 `formal_score_available`。
+manifest entry 数必须等于 `--episodes`，并绑定相对 trial ID、trial SHA-256、逻辑场景和 goal fingerprint。reset 成功 setup 的 backend action 数是 `N+4`；reset/control terminal 在 Provider 构造前停止。CLI/summary 分开报告 Agent 成功率、evaluation/Harness coverage、Provider/Runtime availability 和 `formal_score_available`。
+
+当前 V1.8 外部验收仍有公开缺口：Gate A 为 19/20 worker，Gate B best-effort 切片在 reset 恢复阶段终止，完整 exact-case 清单与固定十 Episode manifest 均未生成。这些结果是 `UNVERIFIED`/incomplete evidence，不是 PASS，也不能用其他 trial 替代。
 
 使用说明见 [ALFWorld 用户指南](docs/alfworld-user-guide.md)，实现不变量与数据流见 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
 
@@ -124,7 +129,7 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 - 真实：Mimo、BGE-M3。
 - 程序：可靠记忆判定、轻量记忆写回。
 - 模拟：navigation、operation、verification skill。
-- Benchmark：`AlfredThorEnv` 通过真实 THOR 返回码和 scene metadata 验证导航及 put；MVP 尚未为 take/open/use 提供同等级局部恢复契约。
+- Benchmark：`AlfredThorEnv` 已接入 V1.8 trial/reset/snapshot/current-view/typed-feedback 产品边界；内部回归通过，但完整 Gate B 与十 Episode 真实 API 证据仍不可用。
 
 ## 架构
 

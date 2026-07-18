@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -9,6 +14,7 @@ from homemaster.agent.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from homemaster.providers.errors import LLMProviderError
 from homemaster.providers.transports import (
     AnthropicTransport,
     OpenAIChatTransport,
@@ -151,3 +157,19 @@ def test_openai_payload_prepends_system_message_and_max_tokens() -> None:
     assert payload["messages"][0] == {"role": "system", "content": "You are HomeMaster."}
     assert payload["messages"][1]["role"] == "user"
     assert payload["max_tokens"] == 4096
+
+
+def test_anthropic_rejects_historical_message_delta_before_start_fixture() -> None:
+    fixture = (
+        Path(__file__).parents[1]
+        / "fixtures"
+        / "providers"
+        / "mimo_sse_message_delta_before_start.json"
+    )
+    events = json.loads(fixture.read_text(encoding="utf-8"))
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        list(AnthropicTransport().iter_stream_deltas(events))
+
+    assert exc_info.value.error_type == "stream_protocol_error"
+    assert exc_info.value.cause_code == "message_delta_before_message_start"

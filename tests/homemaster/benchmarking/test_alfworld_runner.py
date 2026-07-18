@@ -24,6 +24,8 @@ from homemaster.benchmarking.alfworld.runner import (
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
+    AlfworldGoalAdvanceResult,
+    AlfworldResetResult,
     EpisodeOutcome,
     Subtask,
     Taskset,
@@ -39,8 +41,8 @@ class FakeTransport:
                 tool_calls=[
                     ToolCall(
                         id="call_1",
-                        name="robot_navigate",
-                        arguments={"target_receptacle": "countertop 1"},
+                        name="robot_go_to",
+                        arguments={"target": "countertop 1"},
                     )
                 ],
                 finish_reason="tool_calls",
@@ -128,8 +130,8 @@ class RepeatingNavigateTransport:
             type="transport.delta",
             tool_call_delta=ToolCall(
                 id=f"nav_{self.call_count}",
-                name="robot_navigate",
-                arguments={"target_receptacle": "countertop 1"},
+                name="robot_go_to",
+                arguments={"target": "countertop 1"},
             ),
         )
         yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
@@ -247,6 +249,95 @@ def _provider_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _taskset_fixture(
+    tmp_path: Path,
+    *,
+    taskset_id: str,
+    count: int = 3,
+) -> tuple[Path, Taskset]:
+    alfworld_root = tmp_path / "alfworld"
+    trial_root = alfworld_root / "data" / "json_2.1.1"
+    subtasks = []
+    for index in range(count):
+        trial_path = trial_root / f"trial-{index + 1}" / "traj_data.json"
+        trial_path.parent.mkdir(parents=True)
+        trial_path.write_text(
+            json.dumps(
+                {
+                    "task_type": "pick_and_place_simple",
+                    "pddl_params": {
+                        "object_target": "Pencil",
+                        "parent_target": "Shelf",
+                        "toggle_target": None,
+                        "mrecep_target": None,
+                        "object_sliced": False,
+                    },
+                    "scene": {"floor_plan": "FloorPlan1"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        subtasks.append(
+            Subtask(
+                goal_type="pick_and_place_simple",
+                object="Pencil",
+                parent="Shelf",
+                instruction=f"put pencil on shelf {index + 1}",
+                traj_path=trial_path,
+            )
+        )
+    return alfworld_root, Taskset(
+        id=taskset_id,
+        floorplan=1,
+        subtasks=tuple(subtasks),
+    )
+
+
+def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    observed: dict[str, Any] = {}
+
+    def build_env(
+        config: AlfworldBenchmarkConfig,
+        *,
+        first_trial_path: Path,
+    ) -> object:
+        observed["config"] = config
+        observed["first_trial_path"] = first_trial_path
+        return object()
+
+    monkeypatch.setattr(
+        runner_module,
+        "build_alfworld_batch_env_with_first_trial",
+        build_env,
+    )
+    config = AlfworldBenchmarkConfig(
+        alfworld_root=tmp_path / "alfworld",
+        alfworld_config=tmp_path / "base_config.yaml",
+        trace_root=tmp_path / "traces",
+        env_type="AlfredThorEnv",
+        provider_config=_provider_config(tmp_path),
+    )
+    runner = AlfworldBenchmarkRunner(config=config)
+
+    runner._build_pinned_adapter(  # noqa: SLF001
+        SimpleNamespace(trial_id="case-1/traj_data.json")
+    )
+
+    assert observed == {
+        "config": config,
+        "first_trial_path": (
+            config.alfworld_root
+            / "data"
+            / "json_2.1.1"
+            / "case-1"
+            / "traj_data.json"
+        ),
+    }
 
 
 def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
@@ -423,13 +514,34 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
             self.current_state = state
             self.reset_calls = 0
             self.advance_goal_calls = 0
+            self.close_calls = 0
 
         def set_frame_dir(self, _path: Path) -> None:
             return None
 
-        def reset(self) -> AlfworldEnvState:
+        def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
             self.reset_calls += 1
-            return self.current_state
+            return AlfworldResetResult(
+                backend_kind="textworld",
+                ready=True,
+                state=self.current_state,
+                scene_generation=None,
+                goal_generation=1,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger=None,
+                setup_failure=None,
+                classification=None,
+                score_eligible=True,
+                setup_backend_action_count=0,
+                recovery_status="not_applicable",
+                cleanup_status="not_applicable",
+                quarantine_required=False,
+                environment_disposition="ready",
+                evidence_ref=None,
+            )
 
         def advance_goal(self, *_args: Any, **_kwargs: Any) -> AlfworldEnvState:
             self.advance_goal_calls += 1
@@ -440,6 +552,9 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
 
         def current_goal_condition_success_rate(self) -> float:
             return 0.0
+
+        def close(self) -> None:
+            self.close_calls += 1
 
     adapter = FakeTasksetAdapter()
     observed_outcomes: list[EpisodeOutcome] = []
@@ -476,7 +591,6 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
         "AlfworldEnvAdapter",
         lambda **_kwargs: adapter,
     )
-    monkeypatch.setattr(runner_module, "load_traj_data", lambda _path: {})
     monkeypatch.setattr(
         runner_module,
         "build_episode_prompt",
@@ -484,31 +598,21 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     )
     monkeypatch.setattr(AlfworldTasksetRunner, "_register_tools", lambda *_args: [])
 
-    subtasks = tuple(
-        Subtask(
-            goal_type="pick_and_place_simple",
-            object="Pencil",
-            parent="Shelf",
-            instruction=f"put pencil on shelf {index + 1}",
-            traj_path=tmp_path / f"traj-{index + 1}.json",
-        )
-        for index in range(3)
-    )
-    taskset = Taskset(
-        id="infra-terminal",
-        floorplan=1,
-        subtasks=subtasks,
+    alfworld_root, taskset = _taskset_fixture(
+        tmp_path,
+        taskset_id="infra-terminal",
     )
     runner = AlfworldTasksetRunner(
         taskset_config=TasksetRunConfig(
-            alfworld_root=tmp_path / "alfworld",
+            alfworld_root=alfworld_root,
             alfworld_config=tmp_path / "base_config.yaml",
             trace_root=tmp_path / "traces",
             provider_config=_provider_config(tmp_path),
             provider_name="mimo_v25",
             run_id="taskset-run",
             tasksets=(taskset,),
-        )
+        ),
+        transport_factory=lambda: object(),
     )
 
     summary = runner.run()
@@ -519,6 +623,7 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     assert len(observed_outcomes) == 1
     assert adapter.reset_calls == 1
     assert adapter.advance_goal_calls == 0
+    assert adapter.close_calls == 1
     assert len(result.subtasks) == 3
     assert result.classification == "harness_operation_failure"
     assert result.score_eligible is False
@@ -535,9 +640,14 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     assert payload["subtasks"][0]["backend_action_count"] == 5
     assert payload["subtasks"][0]["terminal_tool_call_id"] == "call_terminal"
     assert payload["subtasks"][0]["terminal_evidence_ref"] == ("attempts.jsonl#execution_terminal")
-    assert [item["classification"] for item in payload["subtasks"][1:]] == [
-        "not_run_due_to_infrastructure_failure",
-        "not_run_due_to_infrastructure_failure",
+    assert [item["classification"] for item in payload["subtasks"][1:]] == [None, None]
+    assert [item["not_run_reason"] for item in payload["subtasks"][1:]] == [
+        "prior_infrastructure_failure",
+        "prior_infrastructure_failure",
+    ]
+    assert [item["blocked_by_classification"] for item in payload["subtasks"][1:]] == [
+        "harness_operation_failure",
+        "harness_operation_failure",
     ]
     assert [item["runtime_status"] for item in payload["subtasks"][1:]] == [
         "not_run",
@@ -550,6 +660,265 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
             (runner.run_dir / "taskset-infra-terminal" / "subtask-02" / "summary.json").read_text(
                 encoding="utf-8"
             )
-        )["classification"]
-        == "not_run_due_to_infrastructure_failure"
+        )["not_run_reason"]
+        == "prior_infrastructure_failure"
     )
+    assert payload["root_terminal"]["phase"] == "subtask_execution"
+    assert payload["root_terminal"]["subtask_index"] == 0
+
+
+def test_taskset_reset_terminal_stops_before_model_and_transport(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    class ResetTerminalAdapter:
+        def __init__(self) -> None:
+            self.close_calls = 0
+
+        def set_frame_dir(self, _path: Path) -> None:
+            return None
+
+        def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
+            assert selection_entry.expected_logical_scene == "FloorPlan1"
+            return AlfworldResetResult(
+                backend_kind="thor",
+                ready=False,
+                state=None,
+                scene_generation=None,
+                goal_generation=None,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=None,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger="external_reset_failed",
+                setup_failure="external_reset_failed",
+                classification="runtime_failure",
+                score_eligible=False,
+                setup_backend_action_count=0,
+                recovery_status="not_needed",
+                cleanup_status="not_needed",
+                quarantine_required=False,
+                environment_disposition="not_started",
+                evidence_ref="reset-terminal.json",
+            )
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    adapter = ResetTerminalAdapter()
+    transport_calls: list[None] = []
+
+    def transport_factory() -> object:
+        transport_calls.append(None)
+        raise AssertionError("reset terminal must stop before transport construction")
+
+    monkeypatch.setattr(
+        runner_module,
+        "build_alfworld_batch_env_with_first_trial",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(runner_module, "AlfworldEnvAdapter", lambda **_kwargs: adapter)
+    alfworld_root, taskset = _taskset_fixture(tmp_path, taskset_id="reset-terminal")
+    runner = AlfworldTasksetRunner(
+        taskset_config=TasksetRunConfig(
+            alfworld_root=alfworld_root,
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            provider_config=_provider_config(tmp_path),
+            provider_name="mimo_v25",
+            run_id="taskset-reset-terminal",
+            tasksets=(taskset,),
+        ),
+        transport_factory=transport_factory,
+    )
+
+    result = runner.run().taskset_results[0]
+    payload = result.to_dict()
+
+    assert transport_calls == []
+    assert adapter.close_calls == 1
+    assert payload["classification"] == "runtime_failure"
+    assert payload["root_terminal"]["phase"] == "reset_setup"
+    assert payload["root_terminal"]["subtask_index"] is None
+    assert payload["root_terminal"]["control_terminal_record"]["final_code"] == (
+        "external_reset_failed"
+    )
+    assert [row["execution_status"] for row in payload["subtasks"]] == [
+        "not_run",
+        "not_run",
+        "not_run",
+    ]
+    assert [row["not_run_reason"] for row in payload["subtasks"]] == [
+        "taskset_setup_failure",
+        "taskset_setup_failure",
+        "taskset_setup_failure",
+    ]
+    assert all(row["classification"] is None for row in payload["subtasks"])
+    assert not (
+        runner.run_dir
+        / "taskset-reset-terminal"
+        / "subtask-01"
+        / "model_trace.jsonl"
+    ).exists()
+
+
+def test_taskset_goal_terminal_stops_current_subtask_before_transport(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state = AlfworldEnvState(
+        episode_id="taskset-goal-terminal",
+        task="put pencil on shelf",
+        observation="",
+        inventory=None,
+        last_command=None,
+        last_feedback=None,
+        reward=0.0,
+        done=True,
+        won=True,
+        goal_condition_success_rate=1.0,
+        frame_path=None,
+        step_index=1,
+        invalid_action_count=0,
+    )
+
+    class GoalTerminalAdapter:
+        def __init__(self) -> None:
+            self.current_state = state
+            self.advance_goal_calls = 0
+            self.close_calls = 0
+
+        def set_frame_dir(self, _path: Path) -> None:
+            return None
+
+        def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
+            return AlfworldResetResult(
+                backend_kind="thor",
+                ready=True,
+                state=state,
+                scene_generation=1,
+                goal_generation=1,
+                scene_reset_fingerprint="a" * 64,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256="b" * 64,
+                snapshot_ref="snapshot.json",
+                setup_trigger=None,
+                setup_failure=None,
+                classification=None,
+                score_eligible=True,
+                setup_backend_action_count=7,
+                recovery_status="restored",
+                cleanup_status="not_needed",
+                quarantine_required=False,
+                environment_disposition="ready",
+                evidence_ref="reset.json",
+            )
+
+        def advance_goal(
+            self,
+            _traj_data: dict[str, Any],
+            *,
+            subtask_label: str,
+            selection_entry: Any,
+        ) -> AlfworldGoalAdvanceResult:
+            assert subtask_label.endswith("subtask-02")
+            self.advance_goal_calls += 1
+            return AlfworldGoalAdvanceResult(
+                backend_kind="thor",
+                ready=False,
+                state=None,
+                scene_generation=1,
+                goal_generation=1,
+                scene_reset_fingerprint="a" * 64,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256="b" * 64,
+                before_scene_state_sha256="c" * 64,
+                after_scene_state_sha256=None,
+                advance_trigger="goal_advance_rejected",
+                advance_failure="goal_advance_rejected",
+                classification="execution_state_uncertain",
+                score_eligible=False,
+                benchmark_control_action_count=1,
+                cleanup_status="succeeded",
+                quarantine_required=True,
+                environment_disposition="closed",
+                evidence_ref="goal-advance.json",
+            )
+
+        def is_current_goal_satisfied(self) -> bool:
+            return True
+
+        def current_goal_condition_success_rate(self) -> float:
+            return 1.0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    class SuccessfulRuntime:
+        def __init__(self, **_kwargs: Any) -> None:
+            return None
+
+        def run(self, session: AgentSession, *_args: Any, **_kwargs: Any) -> Any:
+            return SimpleNamespace(session=session, status="replied", error_code=None)
+
+    adapter = GoalTerminalAdapter()
+    transport_calls: list[None] = []
+
+    def transport_factory() -> object:
+        transport_calls.append(None)
+        return object()
+
+    monkeypatch.setattr(runner_module, "GenericAgentRuntime", SuccessfulRuntime)
+    monkeypatch.setattr(
+        runner_module,
+        "build_alfworld_batch_env_with_first_trial",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(runner_module, "AlfworldEnvAdapter", lambda **_kwargs: adapter)
+    monkeypatch.setattr(
+        runner_module,
+        "build_episode_prompt",
+        lambda **_kwargs: "taskset prompt",
+    )
+    monkeypatch.setattr(AlfworldTasksetRunner, "_register_tools", lambda *_args: [])
+    alfworld_root, taskset = _taskset_fixture(tmp_path, taskset_id="goal-terminal")
+    runner = AlfworldTasksetRunner(
+        taskset_config=TasksetRunConfig(
+            alfworld_root=alfworld_root,
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            provider_config=_provider_config(tmp_path),
+            provider_name="mimo_v25",
+            run_id="taskset-goal-terminal",
+            tasksets=(taskset,),
+        ),
+        transport_factory=transport_factory,
+    )
+
+    result = runner.run().taskset_results[0]
+    payload = result.to_dict()
+
+    assert transport_calls == [None]
+    assert adapter.advance_goal_calls == 1
+    assert adapter.close_calls == 1
+    assert payload["root_terminal"]["phase"] == "goal_advance"
+    assert payload["root_terminal"]["subtask_index"] == 1
+    assert payload["setup_backend_action_count"] == 7
+    assert payload["benchmark_control_action_count"] == 1
+    assert payload["model_backend_action_count"] == 0
+    assert payload["total_backend_action_count"] == 7
+    assert payload["total_external_action_count"] == 8
+    assert payload["subtasks"][0]["execution_status"] == "executed"
+    assert payload["subtasks"][0]["classification"] == "agent_success"
+    assert payload["subtasks"][1]["not_run_reason"] == "goal_advance_failure"
+    assert payload["subtasks"][2]["not_run_reason"] == (
+        "prior_infrastructure_failure"
+    )
+    assert payload["subtasks"][1]["classification"] is None
+    assert payload["subtasks"][2]["classification"] is None
+    assert not (
+        runner.run_dir
+        / "taskset-goal-terminal"
+        / "subtask-02"
+        / "model_trace.jsonl"
+    ).exists()

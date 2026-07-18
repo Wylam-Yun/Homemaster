@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+import hashlib
+
+from homemaster.benchmarking.alfworld.gateway import CleanupResult, ExternalEventRead
+from homemaster.benchmarking.alfworld.pose_snapshot import (
+    CachePoseInput,
+    FrozenOraclePoseStore,
+    OraclePose,
+    SceneObjectScanInput,
+)
+from homemaster.benchmarking.alfworld.reset_transaction import (
+    AlfworldResetTransaction,
+    ResetTransactionInput,
+)
+from homemaster.benchmarking.alfworld.types import AlfworldEnvState
+
+
+def _sha(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+POSE = OraclePose(0, 0.9, 0, 0, 0)
+SCAN_POSE = OraclePose(1, 0.9, 1, 180, 30)
+WORLD = _sha("world")
+VISIBILITY = _sha("visibility")
+FRAME = _sha("frame")
+
+
+def _object() -> SceneObjectScanInput:
+    return SceneObjectScanInput(
+        exact_object_id="Mug|1",
+        object_type="Mug",
+        position=(1.0, 0.8, 1.0),
+        parent_receptacle_ids=(),
+        receptacle_object_ids=(),
+        is_picked_up=False,
+        closed_ancestor_exact_ids=(),
+        pose_freshness_sha256=_sha("mug"),
+    )
+
+
+def _event(
+    action: str,
+    *,
+    success: bool = True,
+    pose: OraclePose = POSE,
+    world: str = WORLD,
+    visible: tuple[str, ...] = (),
+) -> ExternalEventRead:
+    return ExternalEventRead(
+        status="ok",
+        returned_action=action,
+        action_success=success,
+        pose=pose,
+        world_sha256=world,
+        visibility_sha256=VISIBILITY,
+        frame_sha256=FRAME,
+        objects=(_object(),) if action == "Reset" else None,
+        reachable_payload=(b'[{"x":0,"y":0,"z":0}]' if action == "GetReachablePositions" else None),
+        strict_visible_exact_ids=visible,
+        bbox_areas=(("Mug|1", 100.0),) if visible else (),
+        raw_event_ref=f"events/{action}.json",
+        raw_event_sha256=_sha(action + str(success)),
+    )
+
+
+class ScriptedBackend:
+    def __init__(self, events: list[ExternalEventRead], *, cleanup: str = "succeeded") -> None:
+        self.events = list(events)
+        self.requests = []
+        self.cleanup_status = cleanup
+        self.close_calls = 0
+
+    def capture_event(self) -> ExternalEventRead:
+        return _event("Reset")
+
+    def send(self, request):
+        self.requests.append(request)
+        assert self.events
+        return self.events.pop(0)
+
+    def close(self) -> CleanupResult:
+        self.close_calls += 1
+        return CleanupResult(status=self.cleanup_status, evidence_ref="cleanup.json")
+
+
+def _state() -> AlfworldEnvState:
+    return AlfworldEnvState(
+        episode_id="episode-1",
+        task="put mug in cabinet",
+        observation="room",
+        inventory=None,
+        last_command=None,
+        last_feedback=None,
+        reward=0.0,
+        done=False,
+        won=False,
+        goal_condition_success_rate=0.0,
+        frame_path="frame-0000.png",
+        step_index=0,
+        invalid_action_count=0,
+    )
+
+
+def _transaction_input() -> ResetTransactionInput:
+    return ResetTransactionInput(
+        backend_kind="thor",
+        state=_state(),
+        initial_event=_event("Reset"),
+        scene_generation=1,
+        goal_generation=1,
+        scene_reset_fingerprint=_sha("scene"),
+        goal_trial_fingerprint=_sha("goal"),
+        algorithm_version="v18-bounded-scan-1",
+        geometry_policy_version="v18-nearest-yaw-horizon-1",
+        setup_time_control_version="change-time-scale-bracket-v1",
+        public_semantic_vocabulary=("Mug",),
+        cache_entries=(
+            CachePoseInput(
+                exact_object_id="Mug|1",
+                pose=SCAN_POSE,
+                source_record_sha256=_sha("cache"),
+            ),
+        ),
+        snapshot_ref="snapshot.json",
+        evidence_ref="reset.json",
+    )
+
+
+def test_reset_transaction_executes_full_sequence_and_publishes_once() -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event("TeleportFull", pose=SCAN_POSE, visible=("Mug|1",)),
+            _event("TeleportFull"),
+            _event("ChangeTimeScale"),
+        ]
+    )
+    store = FrozenOraclePoseStore()
+    transaction = AlfworldResetTransaction(backend=backend, pose_store=store)
+
+    result = transaction.run(_transaction_input())
+
+    assert result.ready
+    assert result.setup_backend_action_count == 5
+    assert [request.payload["action"] for request in backend.requests] == [
+        "ChangeTimeScale",
+        "GetReachablePositions",
+        "TeleportFull",
+        "TeleportFull",
+        "ChangeTimeScale",
+    ]
+    assert backend.close_calls == 0
+    assert store.get_pose(
+        scene_generation=1,
+        scene_reset_fingerprint=_sha("scene"),
+        exact_anchor_id="Mug|1",
+    ).status == "ok"
+
+
+def test_reset_failure_recovers_time_and_never_publishes_partial_snapshot() -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event("TeleportFull", success=False, pose=SCAN_POSE),
+            _event("TeleportFull"),
+            _event("ChangeTimeScale"),
+        ]
+    )
+    store = FrozenOraclePoseStore()
+    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(
+        _transaction_input()
+    )
+
+    assert not result.ready
+    assert result.setup_trigger == "scan_pose_rejected"
+    assert result.setup_failure == "scan_pose_rejected"
+    assert result.recovery_status == "restored"
+    assert result.environment_disposition == "closed"
+    assert backend.requests[-1].payload == {"action": "ChangeTimeScale", "timeScale": 1.0}
+    assert backend.close_calls == 1
+
+
+def test_pose_recovery_failure_still_attempts_normal_time_and_upgrades_uncertainty() -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event("TeleportFull", success=False, pose=SCAN_POSE),
+            _event("TeleportFull", success=False, pose=SCAN_POSE),
+            _event("ChangeTimeScale", pose=SCAN_POSE),
+        ]
+    )
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input())
+
+    assert not result.ready
+    assert result.setup_trigger == "scan_pose_rejected"
+    assert result.setup_failure == "scan_restore_rejected"
+    assert result.classification == "execution_state_uncertain"
+    assert result.quarantine_required is True
+    assert backend.requests[-1].payload["action"] == "ChangeTimeScale"

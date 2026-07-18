@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.messages import ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from types import SimpleNamespace
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
@@ -120,8 +120,9 @@ def test_dispatch_returns_error_for_unknown_tool() -> None:
         run_context=_make_run_context(),
     )
     assert len(result) == 1
-    assert result[0].is_error is True
-    assert "unknown tool" in result[0].content[0].text
+    assert result[0].is_error is False
+    assert result[0].data is not None
+    assert result[0].data["error"] == "unknown_tool"
 
 
 def test_dispatch_returns_error_when_no_executor() -> None:
@@ -180,8 +181,9 @@ def test_dispatch_validates_required_arguments() -> None:
         tool_calls=[ToolCall(id="call_1", name="echo", arguments={})],
         run_context=_make_run_context(),
     )
-    assert result[0].is_error is True
-    assert "missing required" in result[0].content[0].text
+    assert result[0].is_error is False
+    assert result[0].data is not None
+    assert result[0].data["error"] == "invalid_tool_arguments"
 
 
 def test_dispatcher_callable_adapter(tmp_path: Any) -> None:

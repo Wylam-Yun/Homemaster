@@ -15,6 +15,7 @@ from homemaster.benchmarking.alfworld.execution import (
     ExecutionBudget,
     PoseContext,
 )
+from homemaster.benchmarking.alfworld.trial_selection import TrialSelectionEntry
 
 
 class FakeBatchEnv:
@@ -87,7 +88,10 @@ def test_adapter_reset_normalizes_initial_state_without_visible_admissible_comma
     env = FakeBatchEnv()
     adapter = AlfworldEnvAdapter(env=env, episode_prefix="episode", seed=123)
 
-    state = adapter.reset()
+    reset_result = adapter.reset()
+    assert reset_result.ready
+    assert reset_result.state is not None
+    state = reset_result.state
 
     assert env.reset_called is True
     assert state.episode_id == "pick_and_place/task"
@@ -99,6 +103,80 @@ def test_adapter_reset_normalizes_initial_state_without_visible_admissible_comma
         "look",
         "go to countertop 1",
     ]
+
+
+@pytest.mark.parametrize(
+    ("runtime_scene", "expected_failure"),
+    [
+        pytest.param(
+            "FloorPlan2_physics",
+            "runtime_scene_mismatch",
+            id="wrong-runtime-scene",
+        ),
+        pytest.param(
+            "FloorPlan1",
+            "reset_identity_unreadable",
+            id="bare-logical-scene-is-not-a-runtime-asset",
+        ),
+    ],
+)
+def test_v18_reset_rejects_runtime_scene_before_setup_actions(
+    runtime_scene: str,
+    expected_failure: str,
+) -> None:
+    class Event:
+        metadata = {
+            "lastAction": "Reset",
+            "lastActionSuccess": True,
+            "objects": [],
+            "sceneName": runtime_scene,
+        }
+
+    class ThorEnv:
+        last_event = Event()
+        actions: list[dict[str, Any]] = []
+
+        def step(self, action: dict[str, Any]) -> Any:
+            self.actions.append(action)
+            raise AssertionError("runtime scene failure must precede setup actions")
+
+    class BatchEnv(FakeBatchEnv):
+        def __init__(self) -> None:
+            super().__init__()
+            self.thor = ThorEnv()
+            self.envs = [SimpleNamespace(env=self.thor)]
+            self.close_calls = 0
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    env = BatchEnv()
+    adapter = AlfworldEnvAdapter(
+        env=env,
+        episode_prefix="episode",
+        seed=123,
+        require_v18_reset=True,
+    )
+    selection = TrialSelectionEntry(
+        trial_id="case-1/traj_data.json",
+        trial_sha256="a" * 64,
+        expected_logical_scene="FloorPlan1",
+        goal_identity="{}",
+        goal_fingerprint="b" * 64,
+        identity_status="test",
+    )
+
+    result = adapter.reset(selection_entry=selection)
+
+    assert not result.ready
+    assert result.setup_trigger == expected_failure
+    assert result.setup_failure == expected_failure
+    assert result.classification == "execution_state_uncertain"
+    assert result.setup_backend_action_count == 0
+    assert result.cleanup_status == "succeeded"
+    assert result.environment_disposition == "closed"
+    assert env.thor.actions == []
+    assert env.close_calls == 1
 
 
 def test_adapter_step_uses_environment_feedback_for_invalid_actions() -> None:
@@ -114,7 +192,7 @@ def test_adapter_step_uses_environment_feedback_for_invalid_actions() -> None:
     assert valid.failure_reason is None
     assert valid.state.invalid_action_count == 0
     assert invalid.success is False
-    assert invalid.failure_reason == "invalid_action"
+    assert invalid.failure_reason == "invalid_tool_arguments"
     assert invalid.state.invalid_action_count == 1
     assert "admissible_commands" not in invalid.to_model_visible_data()
 
@@ -141,7 +219,10 @@ def test_adapter_saves_thor_frames_when_available(tmp_path: Path) -> None:
         frame_dir=tmp_path / "frames",
     )
 
-    reset_state = adapter.reset()
+    reset_result = adapter.reset()
+    assert reset_result.ready
+    assert reset_result.state is not None
+    reset_state = reset_result.state
     step_result = adapter.step(
         "go to countertop 1",
         tool_name="robot_navigate",
@@ -849,7 +930,7 @@ def test_manipulate_with_thor_fails_without_metadata_match(tmp_path: Path) -> No
     )
 
     assert result.success is False
-    assert result.failure_reason == "invalid_action"
+    assert result.failure_reason == "invalid_tool_arguments"
     assert result.feedback == "No THOR object matched mug."
     assert thor_env.actions == []
 
@@ -1114,7 +1195,8 @@ def test_navigation_requires_return_visible_and_positive_exact_box_from_same_eve
     assert result.success is True
     assert result.failure_reason is None
     assert result.tool_args["object_id"] == _EXACT_SHELF_ID
-    assert "object_id" not in result.to_model_visible_data()["tool_args"]
+    assert "object_id" not in result.to_model_visible_data()
+    assert "tool_args" not in result.to_model_visible_data()
     assert thor_env.teleport_count == 4
     assert [action["action"] for action in thor_env.actions] == [
         "GetReachablePositions",
@@ -1345,10 +1427,11 @@ def test_navigation_budget_stops_without_an_n_plus_one_teleport(
     )
 
     assert result.success is False
-    assert result.failure_reason == "harness_navigation_failure"
+    assert result.failure_reason == "oracle_navigation_failed"
     assert result.state.invalid_action_count == 0
     assert result.tool_args["budget_stop_reason"] == expected_stop_reason
-    assert "budget_stop_reason" not in result.to_model_visible_data()["tool_args"]
+    assert "budget_stop_reason" not in result.to_model_visible_data()
+    assert "tool_args" not in result.to_model_visible_data()
     assert thor_env.teleport_count == expected_teleports
     assert result.backend_action_count == expected_backend_actions
     terminal = result.trace_events[-1]
@@ -1672,7 +1755,7 @@ def test_put_retries_locked_local_pose_with_exact_ids_and_stops_at_first_success
     assert result.tool_args["pose_candidates_attempted"] == 2
     assert result.tool_args["put_attempt_count"] == 2
     assert result.tool_args["backend_action_count"] == 3
-    model_args = result.to_model_visible_data()["tool_args"]
+    model_args = result.to_model_visible_data()
     for internal_key in (
         "held_object_id",
         "target_object_id",
@@ -1787,7 +1870,7 @@ def test_put_exhaustion_is_terminal_harness_failure_without_invalid_increment() 
     assert result.tool_args["pose_candidates_attempted"] == 2
     assert result.tool_args["put_attempt_count"] == 2
     assert result.tool_args["backend_action_count"] == 3
-    model_args = result.to_model_visible_data()["tool_args"]
+    model_args = result.to_model_visible_data()
     assert "budget_stop_reason" not in model_args
     assert "pose_candidates_attempted" not in model_args
     assert "put_attempt_count" not in model_args
@@ -1820,7 +1903,7 @@ def test_put_success_with_unchanged_terminal_state_stops_uncertain_immediately()
     assert result.tool_args["pose_candidates_attempted"] == 1
     assert result.tool_args["put_attempt_count"] == 1
     assert result.tool_args["backend_action_count"] == 1
-    model_args = result.to_model_visible_data()["tool_args"]
+    model_args = result.to_model_visible_data()
     assert "pose_candidates_attempted" not in model_args
     assert "put_attempt_count" not in model_args
     assert "backend_action_count" not in model_args

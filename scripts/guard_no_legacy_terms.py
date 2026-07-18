@@ -28,7 +28,6 @@ BLOCKED_TEXT_PATTERNS = (
     "stage_statuses",
     "pipeline",
     "scenario",
-    "deterministic",
     "mock_skills",
     "live_models",
     "pipeline_compat",

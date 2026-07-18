@@ -8,6 +8,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldSummary,
     SubtaskResult,
     TasksetResult,
+    TasksetRootTerminal,
     TasksetRunSummary,
 )
 
@@ -128,21 +129,37 @@ def _subtask(
         instruction=f"subtask {index}",
         success=success,
         failure_reason=None if success else classification,
-        steps=1 if classification != "not_run_due_to_infrastructure_failure" else 0,
+        steps=1,
         invalid_actions=0,
         goal_condition_success_rate=1.0 if success else 0.0,
-        runtime_status=(
-            "replied"
-            if success
-            else "not_run"
-            if classification == "not_run_due_to_infrastructure_failure"
-            else "failed"
-        ),
+        runtime_status="replied" if success else "failed",
         trace_path=Path(f"/tmp/subtask-{index}/trace.jsonl"),
         classification=classification,
         score_eligible=score_eligible,
         agent_tool_call_count=0 if index > 0 else 2,
         backend_action_count=0 if index > 0 else 5,
+    )
+
+
+def _not_run_subtask(index: int, *, blocked_by: str) -> SubtaskResult:
+    return SubtaskResult(
+        index=index,
+        goal_type="pick_and_place_simple",
+        object="Pencil",
+        target="Shelf",
+        instruction=f"subtask {index}",
+        success=False,
+        failure_reason="prior_infrastructure_failure",
+        steps=0,
+        invalid_actions=0,
+        goal_condition_success_rate=0.0,
+        runtime_status="not_run",
+        trace_path=Path(f"/tmp/subtask-{index}/trace.jsonl"),
+        classification=None,
+        score_eligible=False,
+        execution_status="not_run",
+        not_run_reason="prior_infrastructure_failure",
+        blocked_by_classification=blocked_by,
     )
 
 
@@ -174,14 +191,24 @@ def test_taskset_summary_excludes_entire_chain_after_infrastructure_failure() ->
                 classification="harness_operation_failure",
                 score_eligible=False,
             ),
-            _subtask(
+            _not_run_subtask(
                 1,
-                classification="not_run_due_to_infrastructure_failure",
-                score_eligible=False,
+                blocked_by="harness_operation_failure",
             ),
         ],
         chain_success=False,
         trace_dir=Path("/tmp/taskset-invalid"),
+        root_terminal=TasksetRootTerminal(
+            phase="subtask_execution",
+            classification="harness_operation_failure",
+            subtask_index=0,
+            control_terminal_record=None,
+            setup_backend_action_count=0,
+            benchmark_control_action_count=0,
+            model_backend_action_count=5,
+            total_backend_action_count=5,
+            total_external_action_count=5,
+        ),
     )
 
     payload = TasksetRunSummary(
@@ -202,7 +229,13 @@ def test_taskset_summary_excludes_entire_chain_after_infrastructure_failure() ->
     assert payload["tasksets"][1]["score_eligible"] is False
     assert payload["tasksets"][1]["agent_tool_call_count"] == 2
     assert payload["tasksets"][1]["backend_action_count"] == 5
-    assert payload["tasksets"][1]["subtasks"][1]["classification"] == (
-        "not_run_due_to_infrastructure_failure"
+    assert payload["tasksets"][1]["subtasks"][1]["classification"] is None
+    assert (
+        payload["tasksets"][1]["subtasks"][1]["not_run_reason"]
+        == "prior_infrastructure_failure"
+    )
+    assert (
+        payload["tasksets"][1]["subtasks"][1]["blocked_by_classification"]
+        == "harness_operation_failure"
     )
     assert payload["tasksets"][1]["subtasks"][1]["runtime_status"] == "not_run"
