@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -9,6 +11,7 @@ import pytest
 from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     _event_world_sha256,
+    _external_event_read,
     split_to_train_eval,
 )
 from homemaster.benchmarking.alfworld.execution import (
@@ -107,6 +110,182 @@ def test_world_hash_ignores_view_metadata_but_tracks_object_state() -> None:
 
     assert _event_world_sha256(before) == _event_world_sha256(after_view_change)
     assert _event_world_sha256(before) != _event_world_sha256(after_object_change)
+
+
+def test_world_hash_ignores_agent_coupled_geometry_for_held_objects() -> None:
+    before = {
+        "objects": [
+            {
+                "objectId": "Statue|1",
+                "isPickedUp": True,
+                "position": {"x": 1.0, "y": 1.0, "z": 1.0},
+                "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "objectBounds": {"center": {"x": 1.0, "y": 1.0, "z": 1.0}},
+            }
+        ],
+        "inventoryObjects": [{"objectId": "Statue|1"}],
+        "sceneName": "FloorPlan1_physics",
+    }
+    after_navigation = {
+        **before,
+        "objects": [
+            {
+                "objectId": "Statue|1",
+                "isPickedUp": True,
+                "position": {"x": 4.0, "y": 1.2, "z": 3.0},
+                "rotation": {"x": 12.0, "y": 90.0, "z": 5.0},
+                "objectBounds": {"center": {"x": 4.0, "y": 1.2, "z": 3.0}},
+            }
+        ],
+    }
+    dropped = {
+        **after_navigation,
+        "objects": [
+            {
+                **after_navigation["objects"][0],
+                "isPickedUp": False,
+            }
+        ],
+        "inventoryObjects": [],
+    }
+    moved_after_drop = {
+        **dropped,
+        "objects": [
+            {
+                **dropped["objects"][0],
+                "position": {"x": 5.0, "y": 1.2, "z": 3.0},
+            }
+        ],
+    }
+
+    assert _event_world_sha256(before) == _event_world_sha256(after_navigation)
+    assert _event_world_sha256(before) != _event_world_sha256(dropped)
+    assert _event_world_sha256(dropped) != _event_world_sha256(moved_after_drop)
+
+
+def test_external_event_control_hash_tracks_alfworld_state_not_current_view() -> None:
+    class Task:
+        task_type = "look_at_obj_in_light"
+        traj = {
+            "task_type": task_type,
+            "pddl_params": {"object_target": "Mug", "toggle_target": "DeskLamp"},
+        }
+        step_num = 0
+        goal_idx = 0
+        finished = -1
+        goal_finished = False
+        num_subgoals = 2
+
+        def goal_conditions_met(self, state: Any) -> tuple[int, int]:
+            visible_lamp = any(
+                item.get("objectType") == "DeskLamp"
+                and item.get("isToggled") is True
+                and item.get("visible") is True
+                for item in state.metadata["objects"]
+            )
+            return (int(visible_lamp), 1)
+
+        def goal_satisfied(self, state: Any) -> bool:
+            return self.goal_conditions_met(state) == (1, 1)
+
+    def event(*, visible: bool) -> Any:
+        return SimpleNamespace(
+            frame=b"frame",
+            instance_detections2D=(
+                {"DeskLamp|1": [0, 0, 10, 10]} if visible else {}
+            ),
+            metadata={
+                "lastAction": "TeleportFull",
+                "lastActionSuccess": True,
+                "sceneName": "FloorPlan1_physics",
+                "inventoryObjects": [],
+                "agent": {
+                    "position": {"x": 0.0, "y": 0.9, "z": 0.0},
+                    "rotation": {"x": 0.0, "y": 0.0, "z": 0.0},
+                    "cameraHorizon": 0.0,
+                },
+                "objects": [
+                    {
+                        "objectId": "DeskLamp|1",
+                        "objectType": "DeskLamp",
+                        "position": {"x": 1.0, "y": 1.0, "z": 1.0},
+                        "isToggled": True,
+                        "visible": visible,
+                        "distance": 1.0 if visible else 9.0,
+                    }
+                ],
+            },
+        )
+
+    thor_env = SimpleNamespace(
+        task=Task(),
+        cleaned_objects=set(),
+        cooled_objects=set(),
+        heated_objects=set(),
+    )
+    thor_env.last_event = event(visible=False)
+    offscreen = _external_event_read(thor_env.last_event, event_sequence=1, thor_env=thor_env)
+    thor_env.last_event = event(visible=True)
+    onscreen = _external_event_read(thor_env.last_event, event_sequence=2, thor_env=thor_env)
+
+    assert offscreen.status == onscreen.status == "ok"
+    assert offscreen.world_sha256 == onscreen.world_sha256
+    assert offscreen.control_sha256 == onscreen.control_sha256
+    assert offscreen.control_payload is not None
+    control_sha256 = hashlib.sha256(
+        json.dumps(
+            offscreen.control_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+    assert control_sha256 == offscreen.control_sha256
+    assert offscreen.raw_metadata_payload is not None
+    assert offscreen.raw_frame_bytes == b"frame"
+    raw_metadata = json.dumps(
+        offscreen.raw_metadata_payload,
+        allow_nan=False,
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    assert hashlib.sha256(raw_metadata + b"frame").hexdigest() == offscreen.raw_event_sha256
+    assert hashlib.sha256(b"frame").hexdigest() == offscreen.frame_sha256
+
+    thor_env.task.step_num = 1
+    advanced = _external_event_read(thor_env.last_event, event_sequence=3, thor_env=thor_env)
+    assert advanced.control_sha256 != onscreen.control_sha256
+
+    class BrokenTask(Task):
+        def goal_conditions_met(self, state: Any) -> tuple[int, int]:
+            raise RuntimeError("goal evaluator failed")
+
+    thor_env.task = BrokenTask()
+    unreadable = _external_event_read(
+        thor_env.last_event,
+        event_sequence=4,
+        thor_env=thor_env,
+    )
+    assert unreadable.status == "malformed"
+    assert unreadable.control_sha256 is None
+    assert unreadable.raw_metadata_payload is not None
+    assert unreadable.raw_frame_bytes == b"frame"
+    unreadable_metadata = json.dumps(
+        unreadable.raw_metadata_payload,
+        allow_nan=False,
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    assert (
+        hashlib.sha256(unreadable_metadata + b"frame").hexdigest()
+        == unreadable.raw_event_sha256
+    )
+    assert hashlib.sha256(b"frame").hexdigest() == unreadable.frame_sha256
 
 
 def test_adapter_reset_normalizes_initial_state_without_visible_admissible_commands() -> None:

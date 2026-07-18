@@ -20,6 +20,7 @@ from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.runner import (
     AlfworldBenchmarkRunner,
     AlfworldTasksetRunner,
+    _episode_classification,
 )
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
@@ -339,6 +340,21 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
             / "traj_data.json"
         ),
     }
+
+
+def test_terminal_harness_navigation_failure_wins_over_runtime_budget_error() -> None:
+    outcome = EpisodeOutcome(agent_tool_call_count=20, backend_action_count=1)
+    outcome.mark_terminal(
+        classification="harness_navigation_failure",
+        tool_call_id="call_navigation",
+    )
+
+    assert _episode_classification(
+        success=False,
+        failure_reason="max_tool_iterations_exceeded",
+        outcome=outcome,
+    ) == "harness_navigation_failure"
+    assert outcome.score_eligible is False
 
 
 def test_runner_uses_generic_runtime_and_marks_success_on_env_won(

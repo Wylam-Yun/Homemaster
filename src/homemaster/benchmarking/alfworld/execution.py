@@ -449,21 +449,22 @@ class OracleNavigationExecutor:
             {"event": "visibility_gate_started", "requested_label": requested_label}
         ]
         target = self._resolve_target(requested_label)
+        lock = target.lock
         trace.append(
             {
                 "event": "visibility_gate_result",
-                "success": target.lock is not None,
+                "success": lock is not None,
                 "error": target.error,
-                "target_id": target.lock.target.object_id if target.lock is not None else None,
+                "target_id": lock.target.object_id if lock is not None else None,
+                "strict_visible": lock.observation.strict_visible if lock is not None else None,
             }
         )
-        if target.lock is None:
+        if lock is None:
             return _navigation_failure(
                 requested_label,
                 target.error or "execution_state_uncertain",
                 trace,
             )
-        lock = target.lock
 
         trace.append({"event": "pose_lookup_started", "target_id": lock.target.object_id})
         try:
@@ -493,6 +494,8 @@ class OracleNavigationExecutor:
         if lookup.status in {"stale", "error"}:
             return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
         if lookup.status in {"unobserved", "relocated", "absent"}:
+            if lock.observation.strict_visible is not True:
+                return _navigation_failure(requested_label, "oracle_pose_missing", trace, lock)
             if self._current_event.objects is None:
                 return _navigation_failure(
                     requested_label, "execution_state_uncertain", trace, lock
@@ -530,6 +533,8 @@ class OracleNavigationExecutor:
         if lookup.pose_freshness_sha256 != anchor_object.pose_freshness_sha256:
             return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
         before = self._current_event
+        if before.control_sha256 is None:
+            return _navigation_failure(requested_label, "oracle_navigation_failed", trace, lock)
         if (
             before.status != "ok"
             or before.pose is None
@@ -607,14 +612,17 @@ class OracleNavigationExecutor:
         if not canonical or type_key not in self._public_type_keys:
             return NavigationTargetResolution(None, "target_not_found")
         candidates = self._scene_index.matching_type(base)
+        if not candidates:
+            return NavigationTargetResolution(None, "target_not_found")
         if ordinal is not None:
             if ordinal <= 0 or ordinal > len(candidates):
-                return NavigationTargetResolution(None, "target_not_visible")
+                return NavigationTargetResolution(None, "target_not_found")
             candidates = (candidates[ordinal - 1],)
         if self._current_event.objects is None:
             return NavigationTargetResolution(None, "execution_state_uncertain")
         current = {item.exact_object_id: item for item in self._current_event.objects}
         held = False
+        offscreen_lock: NavigationTargetLock | None = None
         for candidate in candidates:
             observation = self._view.read(candidate.object_id)
             if observation.status != "ok":
@@ -624,14 +632,17 @@ class OracleNavigationExecutor:
                 return NavigationTargetResolution(None, "execution_state_uncertain")
             if item.is_picked_up:
                 held = True
+                continue
+            lock = NavigationTargetLock(requested_label, candidate, observation, item)
             if observation.strict_visible:
-                return NavigationTargetResolution(
-                    NavigationTargetLock(requested_label, candidate, observation, item),
-                    None,
-                )
+                return NavigationTargetResolution(lock, None)
+            if offscreen_lock is None:
+                offscreen_lock = lock
+        if offscreen_lock is not None:
+            return NavigationTargetResolution(offscreen_lock, None)
         if held:
             return NavigationTargetResolution(None, "object_already_held")
-        return NavigationTargetResolution(None, "target_not_visible")
+        return NavigationTargetResolution(None, "target_not_found")
 
 
 def _lookup_identity_error(
@@ -672,6 +683,8 @@ def _navigation_action_error(
     event = result.event
     if event.status != "ok" or event.returned_action != "TeleportFull":
         return "execution_state_uncertain"
+    if event.control_sha256 is None or event.control_sha256 != before.control_sha256:
+        return "oracle_navigation_failed"
     if event.action_success is not True:
         if (
             event.action_success is False

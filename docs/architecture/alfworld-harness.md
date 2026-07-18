@@ -32,7 +32,7 @@ load and verify complete trial manifest
 
 reset scan 只生成 scene-generation 级 immutable snapshot。每个 addressable exact object row 最多给出一个 direct 或 unique-parent pose；lookup 不搜索、不枚举候选，也不会因一次失败选择另一个 pose。
 
-snapshot 不是可见性授权。`robot_go_to` 首先读取模型当前已看到的 exact event：
+`robot_go_to` 首先验证模型当前 event 的 frame authority：
 
 ```text
 successful Provider request
@@ -40,10 +40,10 @@ successful Provider request
   -> ordered outbound image binding
   -> persisted frame bytes + decoded pixel SHA-256
   -> event sequence
-  -> metadata.visible=true and positive exact bbox
+  -> per-object visibility and exact bbox observation
 ```
 
-只有全部一致时，目标才是 current strict-visible。屏外目标、缺失 ordinal 和当前图片不匹配都不能读取 snapshot、parent 或发送 THOR action。generic label 只在当前 strict-visible peers 中稳定选择；显式 ordinal 绑定 frozen full set，不允许 fallback 到另一个实例。
+frame authority 不要求请求的目标已经可见。目标解析使用 frozen full scene index：generic label 优先锁定当前 strict-visible peer，没有可见 peer 时稳定锁定冻结顺序中的第一个离屏实例；显式 ordinal 绑定 frozen full set，不允许 fallback。只有图片绑定失配、目标不存在或 snapshot pose 不可用时才会在发送前停止。
 
 `FrameLedger` 的 binding ID 只存在于本地 message metadata。Provider serializer 必须删除该字段。一次完整 assistant response append 后、工具 dispatch 前，runtime 用该次成功 attempt 提交 model view。同一 assistant response 中的多个工具共享同一个 committed view；前一个工具产生的新图片不能被同 batch 的后一个工具使用。
 
@@ -56,7 +56,7 @@ successful Provider request
 - `lastActionSuccess=true`；
 - 动作专用 pose/world/终态门通过。
 
-导航只允许把 current-visible exact target 映射到 snapshot 的唯一 pose，并发送一次 `TeleportFull`。返回后必须核对 actual pose、world、准确目标可见性和 bbox；任何矛盾进入 Harness terminal 或 execution uncertainty，不回退到 V1.7 candidate search。
+导航把锁定的 visible 或 offscreen exact target 映射到 snapshot 的唯一 pose，并发送一次 `TeleportFull`。offscreen target 必须拥有 direct pose；`unobserved/relocated/absent` 的 parent fallback 只对已 strict-visible 的目标开放，不能用 hidden containment 定位离屏 child。返回后必须核对 actual pose、physical world、ALFWorld control hash、准确目标可见性和 bbox。physical world projection 去掉 view metadata；对 `isPickedUp=true` 对象还去掉 agent-coupled position/rotation/bounds，但保留 inventory、picked-up、containment 和其余语义状态。任何矛盾进入 Harness terminal 或 execution uncertainty，不回退到 V1.7 candidate search。
 
 Manipulation 锁定准确对象、准确 target 和有效 `OracleExecutionContext`。`take/open/close/put/use/slice/heat/cool/clean` 通过动作专用 precondition、gateway 请求、return-code 和 terminal-state evaluator；context 按动作语义 preserve、rebase、consume 或 invalidate。正式 V1.8 public call graph 不到达 V1.7 navigation/local-Put compatibility implementation，但兼容代码仍物理保留，尚未完成源文件级删除。
 
@@ -123,4 +123,6 @@ formal_score_available
 
 固定运行时为 Python 3.11.15、ALFWorld 0.5.0 和 ai2thor 2.1.0。Gate A `discovery-run-015` 的 20 个 worker 中 19 个通过，补充 Slice worker 因无关 Apple settling 失败；`exact-cases-v3.json` 未生成，Slice 精确行为保持 `UNVERIFIED`。
 
-Gate B best-effort `run-002` 通过真实 Runner/Adapter 进入 THOR，但 reset scan 在 `scan_pose_mismatch` 后的恢复校验最终为 `scan_time_scale_restore_rejected`：5 个 setup backend actions、0 个 Provider request、classification `execution_state_uncertain`。独立 verifier 只确认该不完整切片的 artifact/计数自洽，并以退出码 2 标记完整矩阵缺失；它不是 Gate B PASS。固定十 Episode manifest 随后使用 6 条 historical exact 和 4 条 Gate 前固定的 deterministic replacement 构造；真实运行 10/10 复现同一 reset recovery terminal，合计 50 setup、0 Provider requests，仍不是 PASS。
+历史 Gate B best-effort `run-002` 通过真实 Runner/Adapter 进入 THOR，但 reset scan 在 `scan_pose_mismatch` 后的恢复校验最终为 `scan_time_scale_restore_rejected`：5 个 setup backend actions、0 个 Provider request、classification `execution_state_uncertain`。固定十 Episode manifest 的早期运行也 10/10 复现该 reset recovery terminal；这些历史结果不是 PASS。
+
+2026-07-18 correction 先用单条 smoke 证明 setup、Provider、模型和 backend action 都可达；`alfworld-v18-offscreen-fix-smoke-20260718-003` 为 score-eligible `agent_model_failure/not_won`，而非 Harness invalid。最终固定十 Episode `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` 完整退出：1 个 `agent_success`、5/10 score-eligible、4 个 FloorPlan10 physical-world uncertainty、1 个持有 Basketball 时的 THOR navigation rejection；raw success 0.1、Agent-on-valid 0.2、coverage 0.5、Provider/Runtime availability 1.0、`formal_score_available=false`。独立 artifact verifier 重算 10 个 snapshot、311 组 setup request/event/world/control/raw/frame hashes 和 321 个 event files 全部通过。它证明修复后的链路可运行并如实暴露剩余边界，不等于完整 Gate A/B PASS。

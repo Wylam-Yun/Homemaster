@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from dataclasses import replace
+from pathlib import Path
 
 from homemaster.benchmarking.alfworld.gateway import CleanupResult, ExternalEventRead
 from homemaster.benchmarking.alfworld.pose_snapshot import (
@@ -20,10 +23,36 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _json_sha(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+
 POSE = OraclePose(0, 0.9, 0, 0, 0)
 SCAN_POSE = OraclePose(1, 0.9, 1, 180, 30)
 NORMALIZED_SCAN_POSE = OraclePose(1, 0.9, 1, 180.000006, 30.9)
-WORLD = _sha("world")
+WORLD_PAYLOAD = {
+    "metadata": {"sceneName": "FloorPlan1_physics"},
+    "objects": [{"isOpen": False, "objectId": "Mug|1"}],
+}
+CONTROL_PAYLOAD = {
+    "cleaned_objects": [],
+    "cooled_objects": [],
+    "goal_finished": False,
+    "goal_idx": 0,
+    "heated_objects": [],
+    "step_num": 0,
+    "task_type": "pick_and_place_simple",
+}
+WORLD = _json_sha(WORLD_PAYLOAD)
+CONTROL = _json_sha(CONTROL_PAYLOAD)
 VISIBILITY = _sha("visibility")
 FRAME = _sha("frame")
 
@@ -48,7 +77,10 @@ def _event(
     pose: OraclePose = POSE,
     world: str = WORLD,
     visible: tuple[str, ...] = (),
+    control_payload: dict[str, object] | None = None,
+    event_ref: str | None = None,
 ) -> ExternalEventRead:
+    control = CONTROL_PAYLOAD if control_payload is None else control_payload
     return ExternalEventRead(
         status="ok",
         returned_action=action,
@@ -61,8 +93,11 @@ def _event(
         reachable_payload=(b'[{"x":0,"y":0,"z":0}]' if action == "GetReachablePositions" else None),
         strict_visible_exact_ids=visible,
         bbox_areas=(("Mug|1", 100.0),) if visible else (),
-        raw_event_ref=f"events/{action}.json",
+        raw_event_ref=event_ref or f"events/{action}.json",
         raw_event_sha256=_sha(action + str(success)),
+        control_sha256=_json_sha(control),
+        world_payload=WORLD_PAYLOAD,
+        control_payload=control,
     )
 
 
@@ -104,7 +139,7 @@ def _state() -> AlfworldEnvState:
     )
 
 
-def _transaction_input() -> ResetTransactionInput:
+def _transaction_input(*, artifact_root: Path | None = None) -> ResetTransactionInput:
     return ResetTransactionInput(
         backend_kind="thor",
         state=_state(),
@@ -126,6 +161,7 @@ def _transaction_input() -> ResetTransactionInput:
         ),
         snapshot_ref="snapshot.json",
         evidence_ref="reset.json",
+        artifact_root=artifact_root,
     )
 
 
@@ -145,6 +181,7 @@ def test_reset_transaction_executes_full_sequence_and_publishes_once() -> None:
     result = transaction.run(_transaction_input())
 
     assert result.ready
+    assert result.evidence_ref is None
     assert result.setup_backend_action_count == 5
     assert [request.payload["action"] for request in backend.requests] == [
         "ChangeTimeScale",
@@ -201,6 +238,7 @@ def test_reset_failure_recovers_time_and_never_publishes_partial_snapshot() -> N
     )
 
     assert not result.ready
+    assert result.evidence_ref is None
     assert result.setup_trigger == "scan_pose_rejected"
     assert result.setup_failure == "scan_pose_rejected"
     assert result.recovery_status == "restored"
@@ -230,3 +268,200 @@ def test_pose_recovery_failure_still_attempts_normal_time_and_upgrades_uncertain
     assert result.classification == "execution_state_uncertain"
     assert result.quarantine_required is True
     assert backend.requests[-1].payload["action"] == "ChangeTimeScale"
+
+
+def test_successful_but_wrong_recovery_pose_is_reported_as_restore_mismatch() -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event("TeleportFull", success=False, pose=SCAN_POSE),
+            _event("TeleportFull", pose=SCAN_POSE),
+            _event("ChangeTimeScale"),
+        ]
+    )
+
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input())
+
+    assert not result.ready
+    assert result.setup_trigger == "scan_pose_rejected"
+    assert result.setup_failure == "scan_restore_mismatch"
+    assert result.recovery_status == "failed"
+    assert result.classification == "execution_state_uncertain"
+
+
+def test_reset_rejects_alfworld_control_state_drift() -> None:
+    drifted_control = {**CONTROL_PAYLOAD, "step_num": 1}
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event(
+                "TeleportFull",
+                pose=SCAN_POSE,
+                visible=("Mug|1",),
+                control_payload=drifted_control,
+            ),
+            _event("TeleportFull"),
+            _event("ChangeTimeScale"),
+        ]
+    )
+
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input())
+
+    assert not result.ready
+    assert result.setup_trigger == "scan_world_drift"
+    assert result.recovery_status == "restored"
+
+
+def test_reset_persists_recomputable_snapshot_ledger_and_events(tmp_path: Path) -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale", event_ref="events/0001-slow.json"),
+            _event("GetReachablePositions", event_ref="events/0002-reachable.json"),
+            _event(
+                "TeleportFull",
+                pose=SCAN_POSE,
+                visible=("Mug|1",),
+                event_ref="events/0003-scan.json",
+            ),
+            _event("TeleportFull", event_ref="events/0004-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0005-normal.json"),
+        ]
+    )
+
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input(artifact_root=tmp_path))
+
+    assert result.ready
+    assert result.evidence_ref == "reset.json"
+    snapshot = json.loads((tmp_path / "snapshot.json").read_text())
+    snapshot_sha256 = snapshot.pop("snapshot_sha256")
+    assert _json_sha(snapshot) == snapshot_sha256 == result.snapshot_sha256
+
+    ledger = json.loads((tmp_path / "reset.json").read_text())
+    assert ledger["setup_backend_action_count"] == 5
+    assert ledger["snapshot_sha256"] == result.snapshot_sha256
+    for row in ledger["actions"]:
+        request = row["request"]
+        assert _json_sha(request["payload"]) == request["request_sha256"]
+        response = row["response"]
+        event_payload = json.loads((tmp_path / response["event_ref"]).read_text())
+        assert _json_sha(event_payload) == response["event_payload_sha256"]
+        assert _json_sha(event_payload["world_payload"]) == event_payload["world_sha256"]
+        assert (
+            _json_sha(event_payload["control_payload"])
+            == event_payload["control_sha256"]
+        )
+    assert sorted(ledger["event_files"]) == sorted(
+        path.relative_to(tmp_path).as_posix()
+        for path in (tmp_path / "events").glob("*.json")
+    )
+
+
+def test_failed_reset_persists_recovery_ledger_and_events(tmp_path: Path) -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale", event_ref="events/0001-slow.json"),
+            _event("GetReachablePositions", event_ref="events/0002-reachable.json"),
+            _event(
+                "TeleportFull",
+                success=False,
+                pose=SCAN_POSE,
+                event_ref="events/0003-scan-failed.json",
+            ),
+            _event("TeleportFull", event_ref="events/0004-recovery-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0005-recovery-normal.json"),
+        ]
+    )
+
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input(artifact_root=tmp_path))
+
+    assert not result.ready
+    assert result.evidence_ref == "reset.json"
+    assert result.setup_trigger == result.setup_failure == "scan_pose_rejected"
+    ledger = json.loads((tmp_path / "reset.json").read_text())
+    assert ledger["ready"] is False
+    assert ledger["setup_trigger"] == ledger["setup_failure"] == "scan_pose_rejected"
+    assert ledger["recovery_status"] == "restored"
+    assert ledger["setup_backend_action_count"] == len(ledger["actions"]) == 5
+    assert not (tmp_path / "snapshot.json").exists()
+    assert len(list((tmp_path / "events").glob("*.json"))) == 6
+
+
+def test_reset_rejects_artifact_path_traversal_before_publish(tmp_path: Path) -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale", event_ref="events/0001-slow.json"),
+            _event("GetReachablePositions", event_ref="events/0002-reachable.json"),
+            _event(
+                "TeleportFull",
+                pose=SCAN_POSE,
+                visible=("Mug|1",),
+                event_ref="events/0003-scan.json",
+            ),
+            _event("TeleportFull", event_ref="events/0004-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0005-normal.json"),
+            _event("TeleportFull", event_ref="events/0006-recovery-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0007-recovery-normal.json"),
+        ]
+    )
+    store = FrozenOraclePoseStore()
+    inputs = replace(
+        _transaction_input(artifact_root=tmp_path),
+        snapshot_ref="../snapshot.json",
+    )
+
+    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(inputs)
+
+    assert not result.ready
+    assert result.setup_trigger == "scan_evidence_failed"
+    assert result.classification == "artifact_failure"
+    assert not (tmp_path.parent / "snapshot.json").exists()
+    ledger = json.loads((tmp_path / "reset.json").read_text())
+    assert ledger["ready"] is False
+    assert ledger["setup_failure"] == "scan_evidence_failed"
+
+
+def test_artifact_write_failure_does_not_return_dangling_evidence_ref(
+    tmp_path: Path,
+) -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale", event_ref="events/0001-slow.json"),
+            _event("GetReachablePositions", event_ref="events/0002-reachable.json"),
+            _event(
+                "TeleportFull",
+                pose=SCAN_POSE,
+                visible=("Mug|1",),
+                event_ref="events/0003-scan.json",
+            ),
+            _event("TeleportFull", event_ref="events/0004-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0005-normal.json"),
+            _event("TeleportFull", event_ref="events/0006-recovery-restore.json"),
+            _event("ChangeTimeScale", event_ref="events/0007-recovery-normal.json"),
+        ]
+    )
+    invalid_root = tmp_path / "artifact-root"
+    invalid_root.write_text("not a directory", encoding="utf-8")
+
+    result = AlfworldResetTransaction(
+        backend=backend,
+        pose_store=FrozenOraclePoseStore(),
+    ).run(_transaction_input(artifact_root=invalid_root))
+
+    assert not result.ready
+    assert result.setup_trigger == result.setup_failure == "scan_evidence_failed"
+    assert result.classification == "artifact_failure"
+    assert result.evidence_ref is None

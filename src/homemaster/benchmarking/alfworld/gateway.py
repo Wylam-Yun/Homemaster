@@ -37,6 +37,11 @@ class ExternalEventRead:
     bbox_areas: tuple[tuple[str, float], ...]
     raw_event_ref: str | None
     raw_event_sha256: str | None
+    control_sha256: str | None = None
+    world_payload: dict[str, Any] | None = None
+    control_payload: dict[str, Any] | None = None
+    raw_metadata_payload: dict[str, Any] | None = None
+    raw_frame_bytes: bytes | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"ok", "absent", "malformed", "error"}:
@@ -50,7 +55,12 @@ class ExternalEventRead:
         ):
             raise ValueError("bbox areas must be sorted with one row per exact ID")
         if self.status == "ok":
-            for name in ("world_sha256", "visibility_sha256", "frame_sha256"):
+            for name in (
+                "world_sha256",
+                "control_sha256",
+                "visibility_sha256",
+                "frame_sha256",
+            ):
                 value = getattr(self, name)
                 if value is not None:
                     _validate_sha256(name, value)

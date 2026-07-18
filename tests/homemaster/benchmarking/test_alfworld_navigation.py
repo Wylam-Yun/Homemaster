@@ -36,6 +36,7 @@ MUG_2_FRESH = "4" * 64
 DESK_FRESH = "5" * 64
 POSE_HASH = "6" * 64
 WORLD = "7" * 64
+CONTROL = "b" * 64
 RAW = "8" * 64
 POSE = OraclePose(1.0, 0.9, 2.0, 90.0, 15.0)
 START_POSE = OraclePose(0.0, 0.9, 0.0, 0.0, 0.0)
@@ -91,13 +92,19 @@ def _raw_event(*, visible: tuple[str, ...]) -> Any:
     )
 
 
-def _current_event(*, visible: tuple[str, ...], held: str | None = None) -> ExternalEventRead:
+def _current_event(
+    *,
+    visible: tuple[str, ...],
+    held: str | None = None,
+    control_sha256: str | None = CONTROL,
+) -> ExternalEventRead:
     return ExternalEventRead(
         status="ok",
         returned_action="ChangeTimeScale",
         action_success=True,
         pose=START_POSE,
         world_sha256=WORLD,
+        control_sha256=control_sha256,
         visibility_sha256="9" * 64,
         frame_sha256="a" * 64,
         objects=_scan_objects(held=held),
@@ -161,9 +168,15 @@ class ParentResolverSpy(NavigationAnchorResolver):
 
 
 class GatewaySpy:
-    def __init__(self, *, visible_after: tuple[str, ...] = (MUG_1,)) -> None:
+    def __init__(
+        self,
+        *,
+        visible_after: tuple[str, ...] = (MUG_1,),
+        control_after: str | None = CONTROL,
+    ) -> None:
         self.navigation_calls: list[dict[str, Any]] = []
         self.visible_after = visible_after
+        self.control_after = control_after
 
     def execute_navigation(self, payload: dict[str, Any]) -> GatewayActionResult:
         self.navigation_calls.append(payload)
@@ -174,6 +187,7 @@ class GatewaySpy:
             action_success=True,
             pose=POSE,
             world_sha256=WORLD,
+            control_sha256=self.control_after,
             visibility_sha256="d" * 64,
             frame_sha256="e" * 64,
             objects=_scan_objects(),
@@ -194,6 +208,7 @@ def _executor(
     gateway: GatewaySpy,
     committed: bool = True,
     held: str | None = None,
+    control_sha256: str | None = CONTROL,
 ) -> OracleNavigationExecutor:
     return OracleNavigationExecutor(
         scene_index=SceneObjectIndex.from_objects(
@@ -203,7 +218,11 @@ def _executor(
         ),
         public_object_types=("Desk", "Mug"),
         visible_object_view=_view(visible=visible, committed=committed),
-        current_event=_current_event(visible=visible, held=held),
+        current_event=_current_event(
+            visible=visible,
+            held=held,
+            control_sha256=control_sha256,
+        ),
         pose_store=store,
         parent_resolver=parent,
         gateway=gateway,
@@ -220,9 +239,31 @@ def _run(executor: OracleNavigationExecutor, label: str = "mug"):
     )
 
 
-@pytest.mark.parametrize("direct_status", ["ok", "unobserved"])
-def test_invisible_target_stops_before_snapshot_parent_and_gateway(direct_status: str) -> None:
-    store = PoseStoreSpy({MUG_1: _lookup(direct_status)})
+def test_offscreen_generic_target_uses_frozen_snapshot_pose() -> None:
+    store = PoseStoreSpy({MUG_1: _lookup()})
+    parent = ParentResolverSpy()
+    gateway = GatewaySpy(visible_after=(MUG_1,))
+
+    result = _run(
+        _executor(visible=(), store=store, parent=parent, gateway=gateway)
+    )
+
+    assert result.success is True
+    assert result.target_id == MUG_1
+    assert store.calls == [MUG_1]
+    assert parent.calls == []
+    assert len(gateway.navigation_calls) == 1
+    assert result.trace_events[1] == {
+        "event": "visibility_gate_result",
+        "success": True,
+        "error": None,
+        "target_id": MUG_1,
+        "strict_visible": False,
+    }
+
+
+def test_offscreen_target_without_direct_pose_does_not_use_hidden_parent() -> None:
+    store = PoseStoreSpy({MUG_1: _lookup("unobserved")})
     parent = ParentResolverSpy()
     gateway = GatewaySpy()
 
@@ -230,15 +271,11 @@ def test_invisible_target_stops_before_snapshot_parent_and_gateway(direct_status
         _executor(visible=(), store=store, parent=parent, gateway=gateway)
     )
 
-    assert result.error == "target_not_visible"
-    assert result.terminal is False
-    assert store.calls == []
+    assert result.error == "oracle_pose_missing"
+    assert result.terminal is True
+    assert store.calls == [MUG_1]
     assert parent.calls == []
     assert gateway.navigation_calls == []
-    assert [item["event"] for item in result.trace_events] == [
-        "visibility_gate_started",
-        "visibility_gate_result",
-    ]
 
 
 def test_missing_committed_frame_is_terminal_uncertainty_with_zero_downstream_calls() -> None:
@@ -278,17 +315,33 @@ def test_generic_selects_first_current_visible_in_frozen_full_set_order() -> Non
     assert len(gateway.navigation_calls) == 1
 
 
-def test_explicit_invisible_ordinal_does_not_fallback_to_visible_peer() -> None:
+def test_explicit_offscreen_ordinal_uses_its_frozen_snapshot_pose() -> None:
     store = PoseStoreSpy({MUG_1: _lookup(), MUG_2: _lookup(anchor=MUG_2)})
     parent = ParentResolverSpy()
-    gateway = GatewaySpy()
+    gateway = GatewaySpy(visible_after=(MUG_1,))
 
     result = _run(
         _executor(visible=(MUG_2,), store=store, parent=parent, gateway=gateway),
         "mug 1",
     )
 
-    assert result.error == "target_not_visible"
+    assert result.success is True
+    assert result.target_id == MUG_1
+    assert store.calls == [MUG_1]
+    assert len(gateway.navigation_calls) == 1
+
+
+def test_missing_explicit_ordinal_stops_before_snapshot_and_gateway() -> None:
+    store = PoseStoreSpy({MUG_1: _lookup(), MUG_2: _lookup(anchor=MUG_2)})
+    gateway = GatewaySpy()
+
+    result = _run(
+        _executor(visible=(), store=store, parent=ParentResolverSpy(), gateway=gateway),
+        "mug 3",
+    )
+
+    assert result.error == "target_not_found"
+    assert result.terminal is False
     assert store.calls == []
     assert gateway.navigation_calls == []
 
@@ -385,16 +438,56 @@ def test_success_sends_exactly_one_pose_and_creates_active_context() -> None:
     assert result.context.requested_target_id == MUG_1
 
 
-def test_successful_move_with_final_target_invisible_is_terminal() -> None:
+def test_offscreen_move_with_final_target_invisible_is_terminal() -> None:
     store = PoseStoreSpy({MUG_1: _lookup()})
     parent = ParentResolverSpy()
     gateway = GatewaySpy(visible_after=())
 
     result = _run(
-        _executor(visible=(MUG_1,), store=store, parent=parent, gateway=gateway)
+        _executor(visible=(), store=store, parent=parent, gateway=gateway)
     )
 
     assert result.error == "oracle_target_not_visible"
     assert result.terminal is True
     assert result.backend_action_count == 1
     assert len(gateway.navigation_calls) == 1
+
+
+def test_offscreen_move_with_changed_control_state_is_harness_terminal() -> None:
+    store = PoseStoreSpy({MUG_1: _lookup()})
+    gateway = GatewaySpy(visible_after=(MUG_1,), control_after="0" * 64)
+
+    result = _run(
+        _executor(
+            visible=(),
+            store=store,
+            parent=ParentResolverSpy(),
+            gateway=gateway,
+        )
+    )
+
+    assert result.error == "oracle_navigation_failed"
+    assert result.terminal is True
+    assert result.score_eligible is False
+    assert result.backend_action_count == 1
+
+
+def test_missing_control_state_is_harness_terminal_without_navigation() -> None:
+    store = PoseStoreSpy({MUG_1: _lookup()})
+    gateway = GatewaySpy(visible_after=(MUG_1,))
+
+    result = _run(
+        _executor(
+            visible=(),
+            store=store,
+            parent=ParentResolverSpy(),
+            gateway=gateway,
+            control_sha256=None,
+        )
+    )
+
+    assert result.error == "oracle_navigation_failed"
+    assert result.terminal is True
+    assert result.score_eligible is False
+    assert result.backend_action_count == 0
+    assert gateway.navigation_calls == []

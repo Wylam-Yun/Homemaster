@@ -87,7 +87,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 
 `AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划。V1.8 在模型循环前验证 exact trial manifest，执行 controlled-time reset scan，并原子发布 immutable Oracle pose snapshot；公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`。
 
-`robot_go_to` 只接受当前成功 Provider 请求中 strict-visible 的目标，并只使用 snapshot 的一个 exact pose；snapshot 不授权屏外搜索。所有 manipulation 通过统一外部动作网关和强类型反馈返回，内部 objectId、坐标、候选和 snapshot authority 不进入 Provider body。
+`robot_go_to` 先验证当前成功 Provider 请求与 THOR event 的 frame 绑定，再从 frozen scene index 解析语义目标：优先选择当前 strict-visible 实例，没有可见匹配时允许使用同一 reset snapshot 中的唯一 exact pose 尝试一次离屏导航。返回 event 必须让准确目标 strict-visible，否则按 Harness 导航失败终止。导航校验把 physical world 和 ALFWorld control state 分开；持有物随 agent 移动的 geometry 会规范化，但 inventory、`isPickedUp`、containment 和任务状态仍参与完整性检查。所有 manipulation 通过统一外部动作网关和强类型反馈返回，内部 objectId、坐标、候选和 snapshot authority 不进入 Provider body。
 
 ```bash
 export ALFWORLD_DATA=/path/to/alfworld/data
@@ -105,7 +105,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli benchmark-alfworld \
 
 manifest entry 数必须等于 `--episodes`，并绑定相对 trial ID、trial SHA-256、逻辑场景和 goal fingerprint。reset 成功 setup 的 backend action 数是 `N+4`；reset/control terminal 在 Provider 构造前停止。CLI/summary 分开报告 Agent 成功率、evaluation/Harness coverage、Provider/Runtime availability 和 `formal_score_available`。
 
-当前 V1.8 外部验收仍有公开缺口：Gate A 为 19/20 worker，Gate B best-effort 切片在 reset 恢复阶段终止，完整 exact-case 清单与固定十 Episode manifest 均未生成。这些结果是 `UNVERIFIED`/incomplete evidence，不是 PASS，也不能用其他 trial 替代。
+当前 V1.8 外部验收仍有公开缺口：Gate A 为 19/20 worker，`exact-cases-v3.json` 未生成，不能宣称完整 PASS。中断后的修复已让真实 run 从 0 次模型 backend action 的离屏死锁恢复为正常 Provider/tool/backend 调用；固定十 Episode run `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` 完整退出并得到 1 个 `agent_success`、5 个可计分 Episode、5 个 Harness invalid、29 个模型 backend actions 和 52 个 Provider attempts。4 个 FloorPlan10 Episode 暴露 normal-time physical-world drift，另 1 个 Episode 中 THOR 在手持 Basketball 时拒绝 DeskLamp 冻结位姿；Provider/Runtime availability 均为 1.0，但 coverage 为 0.5、`formal_score_available=false`。这些失败保持可见，不通过放宽终态门伪装成 PASS。
 
 使用说明见 [ALFWorld 用户指南](docs/alfworld-user-guide.md)，实现不变量与数据流见 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
 

@@ -379,6 +379,11 @@ class OraclePoseSnapshot:
         if _snapshot_sha256(self) != self.snapshot_sha256:
             raise ValueError("snapshot canonical hash mismatch")
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return the canonical persisted snapshot, including its digest."""
+
+        return {**_snapshot_payload(self), "snapshot_sha256": self.snapshot_sha256}
+
     @classmethod
     def create(
         cls,
@@ -721,28 +726,30 @@ def _plan_sha256(
 
 
 def _snapshot_sha256(snapshot: OraclePoseSnapshot) -> str:
-    return _sha256_json(
-        {
-            "scene_generation": snapshot.scene_generation,
-            "scene_reset_fingerprint": snapshot.scene_reset_fingerprint,
-            "algorithm_version": snapshot.algorithm_version,
-            "scan_policy_sha256": snapshot.scan_policy_sha256,
-            "reachable_payload_sha256": snapshot.reachable_payload_sha256,
-            "reachable_canonical_sha256": snapshot.reachable_canonical_sha256,
-            "scan_plan_sha256": snapshot.scan_plan_sha256,
-            "initial_event_ref": snapshot.initial_event_ref,
-            "restored_event_ref": snapshot.restored_event_ref,
-            "initial_world_sha256": snapshot.initial_world_sha256,
-            "restored_world_sha256": snapshot.restored_world_sha256,
-            "entries": [
-                {
-                    **asdict(entry),
-                    "pose": _pose_payload(entry.pose) if entry.pose is not None else None,
-                }
-                for entry in snapshot.entries
-            ],
-        }
-    )
+    return _sha256_json(_snapshot_payload(snapshot))
+
+
+def _snapshot_payload(snapshot: OraclePoseSnapshot) -> dict[str, Any]:
+    return {
+        "scene_generation": snapshot.scene_generation,
+        "scene_reset_fingerprint": snapshot.scene_reset_fingerprint,
+        "algorithm_version": snapshot.algorithm_version,
+        "scan_policy_sha256": snapshot.scan_policy_sha256,
+        "reachable_payload_sha256": snapshot.reachable_payload_sha256,
+        "reachable_canonical_sha256": snapshot.reachable_canonical_sha256,
+        "scan_plan_sha256": snapshot.scan_plan_sha256,
+        "initial_event_ref": snapshot.initial_event_ref,
+        "restored_event_ref": snapshot.restored_event_ref,
+        "initial_world_sha256": snapshot.initial_world_sha256,
+        "restored_world_sha256": snapshot.restored_world_sha256,
+        "entries": [
+            {
+                **asdict(entry),
+                "pose": _pose_payload(entry.pose) if entry.pose is not None else None,
+            }
+            for entry in snapshot.entries
+        ],
+    }
 
 
 def _empty_lookup(

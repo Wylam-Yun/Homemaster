@@ -13,7 +13,7 @@ robot_verify(...)
 task_progress_check(...)
 ```
 
-`robot_inspect_view` 已删除。`robot_go_to` 只能移动到模型当前成功 Provider 请求中已经 strict-visible 的目标，不能用来搜索屏外对象。
+`robot_inspect_view` 已删除。`robot_go_to` 不执行探索或多候选搜索，但可以把 frozen scene index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝试一次导航；返回后仍必须看到准确目标。
 
 ## 环境与输入
 
@@ -67,24 +67,26 @@ reset
 -> bounded scan x N
 -> restore initial pose
 -> ChangeTimeScale(1.0)
+-> persist reset ledger, snapshot and event projections
 -> publish snapshot
 ```
 
 成功 setup action 数为 `N+4`。中途失败会尝试恢复 pose 和 normal time；失败或无法读取会关闭/quarantine 环境，产生 score-ineligible setup terminal，并保持 Provider request count 为 0。此时不要把结果解释为模型没有完成任务。
 
-## Current-Visible 导航
+## Frozen-Snapshot 单次导航
 
-目标必须同时满足：
+每次导航必须同时满足：
 
-- 来自当前已提交给模型的准确 event；
-- frame bytes 和 decoded pixels 与成功 Provider request 绑定；
-- `metadata.visible=true`；
-- 准确 objectId 有正面积 bbox；
-- snapshot 有该 exact target 的唯一 direct/unique-parent pose。
+- 当前 THOR event 的 frame bytes 和 decoded pixels 与成功 Provider request 绑定；
+- 语义目标存在于 reset 时冻结的完整 scene index；
+- generic label 优先选择当前 strict-visible 实例，否则稳定选择冻结顺序中的第一个离屏实例；
+- 显式 ordinal 始终绑定冻结完整集合中的对应实例，不 fallback；
+- 离屏目标必须有自己的唯一 direct snapshot pose；只有当前 strict-visible 的目标才允许解析 unique-parent pose；
+- `TeleportFull` 返回后，准确 objectId 必须 `metadata.visible=true` 且有正面积 bbox。
 
-generic `mug` 只在当前可见 Mug 中稳定选择；显式 `mug 2` 绑定 reset 时 frozen full set。`mug 2` 不存在或当前不可见时返回 `target_not_visible`，不降级到 `mug 1`，也不发 THOR 请求。
+generic `mug` 会优先选择当前可见 Mug；全部离屏时选择 frozen full set 中第一个可用实例。显式 `mug 2` 可在离屏时消费自己的 snapshot pose；ordinal 不存在时返回 `target_not_found`，不会降级到 `mug 1`。
 
-导航没有 V1.7 的 65-candidate search。通过授权后只发送 snapshot 给出的一个 `TeleportFull`，再核对返回 action、success、actual pose、world 和准确目标可见性。
+导航没有 V1.7 的 65-candidate search。解析后只发送 snapshot 给出的一个 `TeleportFull`，再核对返回 action、success、actual pose、physical world、ALFWorld control state 和准确目标可见性。physical world 投影忽略视角字段以及 `isPickedUp=true` 对象随 agent 改变的 position/rotation/bounds，但继续哈希 inventory、`isPickedUp`、containment 和其他对象状态，所以持物导航不会误报，真正的拿取、放下或场景变化仍可检测。缺失 pose、状态漂移或移动后仍不可见属于 score-ineligible Harness terminal，不再耗尽模型工具预算。
 
 ## Manipulation 与反馈
 
@@ -161,16 +163,19 @@ provider_attempts.jsonl
 trace.jsonl
 summary.json
 trajectory.md
+reset-transaction.json
+oracle-pose-snapshot.json
+events/*.json
 frames/
 ```
 
-内部 trace 可保存 objectId、pose、snapshot/attempt hash 和 raw event ref；Provider body 与模型 payload 不含这些内部 authority。evidence ref 只是引用，判定时仍需确认对应 artifact 实际存在并可独立核验。
+内部 trace 可保存 objectId、pose、snapshot/attempt hash 和 raw event ref；Provider body 与模型 payload 不含这些内部 authority。成功 reset 会在 snapshot 发布前原子落盘 ledger、snapshot 和每个 setup event；失败 reset 也会落盘原始失败与恢复请求。event artifact 保存 canonical metadata 和 base64 frame bytes，因此 raw event、frame、request、physical world、control state 和 snapshot hash 都可独立重算。
 
-当前 V1.8 外部证据不完整：Gate A 为 19/20 worker，Gate B best-effort 切片在 reset 恢复阶段终止，`exact-cases-v3.json` 仍不存在。固定十 Episode manifest 已从 6 条 historical exact 和 4 条 Gate 前固定的 deterministic replacement 构造并验证；真实运行产生完整 10 行结果，但全部在 `scan_pose_mismatch -> scan_time_scale_restore_rejected` 终止，0 次 Provider 请求，不能解释为 V1.8 PASS。
+当前 V1.8 外部证据不完整：Gate A 为 19/20 worker，`exact-cases-v3.json` 仍不存在。固定十 Episode manifest 由 6 条 historical exact 和 4 条 Gate 前锁定的 deterministic replacement 构成。早期十条运行全部在 reset recovery 终止；修复后的 `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` 完整执行十条，产生 52 次 Provider attempt、29 次模型 backend action、1 个真实 Agent success、5 个 score-eligible Episode 和 5 个 Harness invalid。4 个 FloorPlan10 行在第一次导航后检测到 physical-world drift，1 行在手持 Basketball 时收到 THOR 对 DeskLamp frozen pose 的明确拒绝；coverage 为 0.5，`formal_score_available=false`，不是完整 Gate B PASS。十条 reset 的 10 个 snapshot、311 个 request/event hash 和 321 个 event artifacts 已独立重算通过。
 
 设计、架构和交付状态见：
 
 - `plan/V1.8/alfworld-oracle-pose-execution-feedback-spec.md`
 - `plan/V1.8/alfworld-oracle-pose-execution-feedback-implementation-plan.md`
 - `docs/architecture/alfworld-harness.md`
-- `docs/reports/2026-07-16-alfworld-v18-current-visible-report.md`
+- `docs/reports/2026-07-16-alfworld-v18-current-visible-report.md`（修复前历史报告）

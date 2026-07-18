@@ -1,10 +1,10 @@
-# ALFWorld V1.8 Current-Visible Controlled-Time Oracle Execution Implementation Plan
+# ALFWorld V1.8 Frozen-Snapshot Controlled-Time Oracle Execution Implementation Plan
 
-> **Execution status:** The main agent executed and dispositioned this plan directly under the active no-subagent constraint. Checked steps mean completed or explicitly dispositioned; they do not turn failed Gate rows or unavailable external runs into PASS. The planned independent final reviewer was replaced by one main-agent complete-diff review and is recorded as such.
+> **Execution status:** The interrupted implementation and its 2026-07-18 correction are complete. An independent project review found that the current-visible precondition deadlocked the public tool surface, misattributed budget exhaustion to the model, omitted ALFWorld control state, and referenced reset artifacts that were never persisted. The correction below supersedes the older current-visible rule, is covered by internal tests and real Runner evidence, and preserves non-perfect Gate rows as failures rather than weakening their checks.
 
-**Goal:** Replace ALFWorld's action-time navigation search and ambiguous feedback with a current-model-view authorization gate, one immutable reset-time pose snapshot, one exact execution context/gateway, closed typed outcomes and independently verified external terminal states.
+**Goal:** Replace ALFWorld's action-time candidate search and ambiguous feedback with a committed-frame integrity gate, one immutable reset-time pose snapshot that can navigate a frozen offscreen semantic target, one exact execution context/gateway, closed typed outcomes and independently verified external terminal states.
 
-**Architecture:** Gate A first proves the external `reset -> ChangeTimeScale(0.01) -> query/full scan -> exact pose restore -> ChangeTimeScale(1.0)` transaction, final normal-time event authority, visibility fixture, sole-pose and action contracts on `hkust4` without importing HomeMaster. Product code then separates pure scan/snapshot state in `pose_snapshot.py`, reset orchestration in `reset_transaction.py`, successful Provider-image commits in `model_view.py`, and exact navigation/manipulation in `execution.py`; `AlfworldEnvAdapter` binds those contracts to the real runtime but does not own a second policy layer. Runner completes reset/control before Provider construction, while tools and Dispatcher forward one `AlfworldExecutionFeedback` payload without reconstructing state.
+**Architecture:** Product code separates pure scan/snapshot state in `pose_snapshot.py`, reset orchestration and persisted evidence in `reset_transaction.py`, successful Provider-image commits in `model_view.py`, and exact navigation/manipulation in `execution.py`; `AlfworldEnvAdapter` binds physical THOR state and independent ALFWorld control state to those contracts. Navigation verifies the committed current frame, prefers a visible semantic match, otherwise locks the deterministic frozen offscreen match, consumes one snapshot pose, and requires the exact target to become visible after the move. Runner completes reset/control before Provider construction, while tools and Dispatcher forward one `AlfworldExecutionFeedback` payload without reconstructing state.
 
 **Tech Stack:** Python 3.11, frozen dataclasses and `Protocol`, pytest, Ruff, ALFWorld 0.5.0, ai2thor 2.1.0, NumPy 2.4.6, Pillow 12.3.0, Xvfb, canonical JSON/JSONL, Typer, the existing `/data0/yuqiao/envs/hm_alfworld` environment.
 
@@ -12,10 +12,10 @@
 
 ## Locked Execution Rules
 
-- Authoritative spec: `plan/V1.8/alfworld-oracle-pose-execution-feedback-spec.md`, 1,652 lines, SHA-256 `92ef48a68a30f021aa81cadf5177e07ecf9d12ecda924744a50a4c6f612a9f49`, committed as `61b76dc` and byte-identical on `hkust4`.
-- User-approved upstream rule: every physical `robot_go_to` target must be strict-visible in the current event and that event's RGB must equal the image in the successful Provider request that produced the current assistant tool call.
-- Snapshot `ok`, reset observation, semantic type, addressability, containment and Gate data never authorize an invisible target. The miss is non-terminal `target_not_visible` with zero snapshot, parent, context and backend calls.
-- Generic labels select the first current-visible exact ID in frozen full-set order. Explicit ordinals bind the frozen full set; missing or invisible ordinals return the same error without fallback.
+- Historical design input: `plan/V1.8/alfworld-oracle-pose-execution-feedback-spec.md`, committed as `61b76dc`. Its current-visible authorization rule is superseded by this correction because the shipped tool surface has no rotate/move/exploration action capable of satisfying that precondition.
+- Every physical `robot_go_to` still requires the current THOR event RGB to equal the image in the successful Provider request that produced the assistant tool call. This is an event-integrity gate, not a target-visibility precondition.
+- Generic labels prefer the first current-visible exact ID in frozen full-set order; with no visible match they select the first non-inventory frozen match. Explicit ordinals bind the frozen full set and may resolve offscreen; a missing ordinal returns `target_not_found` without fallback.
+- A locked target consumes at most one snapshot pose and sends at most one navigation request. Offscreen targets require a direct pose; unique-parent fallback is restricted to already strict-visible targets so hidden containment cannot become an offscreen locator. The return event must preserve physical world and ALFWorld control hashes, match the requested pose, and make the exact target strict-visible with a positive bbox. The physical projection normalizes view fields and held-object agent-coupled geometry while retaining inventory, picked-up, containment and other semantic state. Failure is a score-ineligible Harness terminal rather than a model retry loop.
 - Preserve discovery runs 001-007, `matrix-v1.json`, `matrix-v2.json` and every existing helper archive byte-for-byte. The time-control policy changes `matrix-v3.json` and all helper identities; new evidence uses the updated `matrix-v3.json`, a newly created `exact-cases-v3.json`, `discovery-run-008` and `case-run-008` only.
 - Canonical runtime roots are `/data1/haodong2/weilin/red_bird/Homemaster` and `/data1/haodong2/weilin/red_bird/alfworld`; `/home/haodong2/...` resolves to the same directories. Product identities never include either absolute root or the host.
 - Gate A failures are preserved before product/config/test edits, but the user explicitly removed perfect Gate A as a prerequisite on 2026-07-17. Failures remain `UNVERIFIED` evidence and never create a fallback mode.
@@ -25,7 +25,7 @@
 - The pose-restore Teleport event is never the published initial model event. Only the successful `ChangeTimeScale(1.0)` return event may become `restored_event_ref`, `AlfworldEnvState`, model `event_sequence=0` and `frame-0000` after pose/world/visibility/bbox/pixel equality gates.
 - No action-time candidate list, second pose, target switch, hidden-parent search, expert trajectory, legacy `env.step("go to ...")`, local Put retry or automatic container Open is permitted.
 - Provider/model-view state advances only after a complete assistant response from the exact outbound request. Multiple tool calls in one assistant response share one committed view; a frame produced by an earlier call in that batch is not visible to later calls in that batch.
-- The main agent performs all implementation work. The only subagents are the already-authorized one-time plan reviewer and, after all code/evidence/docs, one-time final code reviewer; reviewers are read-only and cannot delegate.
+- The user explicitly authorized an independent project-review subagent. Its findings drive the 2026-07-18 correction; implementation remains in the shared worktree and is verified by focused, full-suite and real-runtime runs.
 - Do not push. A local commit and runtime-worktree synchronization are permitted; pushing requires separate user authorization.
 - Preserve unrelated modified `CLAUDE.md`, `docs/pitfalls.md` and any user bytes. Edit those files only when this implementation produces a qualifying new pitfall/rule, and merge rather than replace existing content.
 
@@ -41,9 +41,12 @@
 - Tasks 2-10 product implementation and internal regression work are complete. The formal V1.8 call graph uses the new gateway/snapshot/exact execution path; physical V1.7 compatibility implementations remain and are recorded as a structural residual rather than deleted late.
 - Gate A stays frozen at `discovery-run-015` with 19/20 workers passing and no `exact-cases-v3.json`.
 - Gate B `run-001` exposed a pinned-Adapter keyword-only call defect, which is fixed with a strict regression. Fresh `run-002` reached real THOR and ended score-ineligible at `scan_pose_mismatch -> scan_time_scale_restore_rejected`, with five setup actions and zero Provider/model actions. Direct review then added exact runtime-scene validation; final production-affecting rerun `run-003` passed that gate on FloorPlan219 and reproduced the same honest terminal/counts. Independent verification exits 2 because the complete matrix is unavailable.
-- The fixed ten-Episode manifest is constructed from the six frozen `historical_exact` rows plus each unresolved Episode's pre-Gate `candidate-1`, explicitly labeled `deterministic_replacement`. The ignored Mimo profile passes a real `LLMClient` request. Run `alfworld-valid_unseen-v18-realapi-20260718-001` executes all ten pinned resets and exposes ten identical `scan_pose_mismatch -> scan_time_scale_restore_rejected` setup terminals, 50 setup requests and zero Provider/model requests; this is a completed failed run, not a PASS.
-- The planned independent final reviewer cannot be used under the active no-subagent constraint. One main-agent direct complete-diff review is used instead and this deviation is reported explicitly.
-- Documentation, final tests, changed-file hashes and one local `hkust4` commit complete the delivery. No push is authorized.
+- The fixed ten-Episode manifest is constructed from the six frozen `historical_exact` rows plus each unresolved Episode's pre-Gate `candidate-1`, explicitly labeled `deterministic_replacement`. Historical run `alfworld-valid_unseen-v18-realapi-20260718-001` exposed ten reset-recovery terminals and zero Provider/model requests; it remains immutable failed evidence.
+- The post-interruption correction persists successful and failed reset ledgers/events, separates physical-world and ALFWorld-control state, permits one frozen direct pose for an offscreen exact target, rejects hidden-parent fallback, normalizes held-object agent-coupled geometry, and gives Harness terminal attribution priority over model budget exhaustion.
+- Smoke `alfworld-v18-offscreen-fix-smoke-20260718-001` removed the zero-action deadlock; `002` exposed held-object transform drift; after the focused normalization, `003` completed with score-eligible `agent_model_failure/not_won`, 36 setup and 4 model backend actions, full evaluation/Harness/Provider/Runtime coverage, and `formal_score_available=true`.
+- Final fixed-manifest run `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` completed all ten entries with 1 Agent success, 5 score-eligible rows, 4 FloorPlan10 physical-world uncertainty rows and 1 THOR navigation rejection while holding Basketball. It issued 52 Provider attempts and 29 model backend actions; coverage is 0.5 and `formal_score_available=false`. Ten snapshots, 311 setup request/event hash sets and 321 event files independently recompute.
+- One user-authorized read-only project reviewer identified the correction set and later performed a focused held-object projection review. The reviewer did not edit code, docs, configuration or evidence.
+- Focused tests are 72 passed; the complete suite is 410 passed, 1 skipped. Scoped Ruff, compileall and whitespace checks pass. A local `hkust4` commit completes delivery; no push is authorized.
 
 ## Recorded Baseline
 
@@ -73,9 +76,9 @@ The one full-pytest failure is present on clean `22cb122`: `scripts/guard_no_leg
 | `src/homemaster/benchmarking/alfworld/runtime_contract.py` | Load the Gate-A-proven runtime contract and reject build/version/Slice drift before reset. |
 | `src/homemaster/benchmarking/alfworld/pose_snapshot.py` | Pure canonical scan policy/plan, addressability, provenance, immutable snapshot/store and lookup overlays. |
 | `src/homemaster/benchmarking/alfworld/model_view.py` | Frame ledger, successful Provider-view commit, strict current observation and model/event pixel binding. |
-| `src/homemaster/benchmarking/alfworld/reset_transaction.py` | Same-environment slow-time/query/full-scan/pose-restore/normal-time transaction and atomic publication from the final event. |
-| `src/homemaster/benchmarking/alfworld/execution.py` | One backend/gateway, current-visible target and anchor resolution, exact context, navigation and manipulation transitions. |
-| `src/homemaster/benchmarking/alfworld/env_adapter.py` | Runtime binding/lifecycle/event capture; only backend implementation may send THOR actions. |
+| `src/homemaster/benchmarking/alfworld/reset_transaction.py` | Same-environment slow-time/query/full-scan/pose-restore/normal-time transaction; atomic ledger/snapshot/event persistence before publication. |
+| `src/homemaster/benchmarking/alfworld/execution.py` | One backend/gateway, visible-preferred frozen target and anchor resolution, exact context, navigation and manipulation transitions. |
+| `src/homemaster/benchmarking/alfworld/env_adapter.py` | Runtime binding/lifecycle/event capture plus separate physical-world and ALFWorld-control projections; only backend implementation may send THOR actions. |
 | `src/homemaster/providers/attempts.py` | Immutable Provider request/attempt identity, actual image-byte hashes and commit state. |
 | `src/homemaster/providers/{errors,llm_client}.py` | Closed provider cause codes and one explicit stream attempt at a time. |
 | `src/homemaster/agent/generic_runtime.py` | One bounded safe retry, successful model-view commit and tool-dispatch commit ordering. |
@@ -852,39 +855,38 @@ Expected: PASS, exactly two attempts only in allowed retry cases, and no later s
 - Create: `tests/homemaster/benchmarking/test_alfworld_navigation.py`
 - Modify: `tests/homemaster/benchmarking/test_alfworld_env_adapter.py`
 
-- [x] **Step 1: Write RED ordering and zero-call tests**
+- [x] **Step 1: Write RED ordering and offscreen-progress tests**
 
-Use spies for `VisibleObjectView`, `OraclePoseStore`, parent resolver, context factory and gateway. For every physical type and both `ok/unobserved` snapshot rows assert:
+Use spies for `VisibleObjectView`, `OraclePoseStore`, parent resolver, context factory and gateway. Assert that a valid committed frame permits an offscreen frozen target to reach snapshot lookup and exactly one gateway send. A missing/mismatched committed frame remains terminal uncertainty with zero downstream calls. A move that fails to reveal the exact target is terminal `oracle_target_not_visible`.
 
 ```python
-assert result.error == "target_not_visible"
-assert result.terminal is False
-assert pose_store.calls == []
+assert result.success is True
+assert pose_store.calls == [exact_target_id]
 assert parent_resolver.calls == []
-assert context_factory.calls == []
-assert gateway.navigation_calls == []
+assert len(context_factory.calls) == 1
+assert len(gateway.navigation_calls) == 1
 ```
 
-Assert trace order is `visibility_gate_started/result` before lookup/move/context. A mismatched/missing model frame is terminal `execution_state_uncertain`, not ordinary invisibility.
+Assert trace order is `visibility_gate_started/result` before lookup/move/context, with `strict_visible=false` recorded for the offscreen path.
 
 - [x] **Step 2: Write RED grounding and sole-pose tests**
 
-Cover generic first-current-visible selection in frozen order; explicit ordinal visible/invisible/missing with no fallback; matching inventory object -> `object_already_held`; invalid public label -> `target_not_found`. Cover direct `ok`, visible `unobserved/relocated/absent` unique reciprocal innermost parent, zero/multiple parent failure, direct coverage miss and malformed/stale/error lookup.
+Cover generic visible-preferred selection followed by deterministic frozen offscreen selection; explicit ordinal visible/offscreen/missing with no fallback; matching inventory object -> `object_already_held`; invalid public label -> `target_not_found`. Cover direct `ok`, `unobserved/relocated/absent` unique reciprocal innermost parent, zero/multiple parent failure, direct coverage miss and malformed/stale/error lookup.
 
 The closed zero-action lookup mappings are explicit: direct `coverage_miss -> oracle_pose_missing`, malformed -> `oracle_pose_malformed`, stale/error -> `execution_state_uncertain`, and visible `unobserved/relocated/absent` without exactly one valid parent -> `oracle_anchor_unresolved`. These errors never trigger another target, parent or pose.
 
-For a visible target, assert one atomic lookup and at most one navigation request. External failure with full unchanged state is Harness navigation failure; changed/unknown state or pose mismatch is uncertain; success with final exact target invisible is terminal `oracle_target_not_visible`. No branch changes target or pose.
+For a visible or offscreen target, assert one atomic lookup and at most one navigation request. External failure with full unchanged state is Harness navigation failure; changed/unknown physical state or pose mismatch is uncertain; changed/missing ALFWorld control state is Harness navigation failure; success with final exact target invisible is terminal `oracle_target_not_visible`. No branch changes target or pose.
 
 - [x] **Step 3: Implement strict observation and target lock**
 
-`VisibleObjectView` returns `ObjectObservationRead` with event/model frame hashes, equality, metadata visibility, normalized finite bbox area and strict-visible. Only `status=ok + frame_matches_model_view + visible + positive area` authorizes. The target resolver combines this view with the frozen `SceneObjectIndex`; it never queries snapshot or containment while selecting an invisible target.
+`VisibleObjectView` returns `ObjectObservationRead` with event/model frame hashes, equality, metadata visibility, normalized finite bbox area and strict-visible. `status=ok + frame_matches_model_view` authorizes the current event. The target resolver combines every matching observation with the frozen `SceneObjectIndex`, prefers strict-visible peers, and otherwise locks the first deterministic offscreen peer.
 
 - [x] **Step 4: Implement anchor, executor and context**
 
-Implement `OracleExecutionContext` with scene/goal generation, source/current event sequence, exact requested/anchor IDs, snapshot/pose/anchor-state hashes, actual pose, final event hash/ref and `active/consumed/invalid`. `NavigationAnchorResolver` reads parent only for the same already-visible `unobserved/relocated/absent` target. `OracleNavigationExecutor` follows exactly:
+Implement `OracleExecutionContext` with scene/goal generation, source/current event sequence, exact requested/anchor IDs, snapshot/pose/anchor-state hashes, actual pose, final event hash/ref and `active/consumed/invalid`. `NavigationAnchorResolver` reads a unique reciprocal parent only for the same locked `unobserved/relocated/absent` target. `OracleNavigationExecutor` follows exactly:
 
 ```text
-read committed current view -> lock exact target -> atomic pose lookup
+verify committed current view -> lock visible-preferred/frozen exact target -> atomic pose lookup
 -> optional unique parent lookup -> one gateway move -> return/pose/final visibility gate
 -> create active context
 ```
@@ -905,7 +907,7 @@ Enable a navigation-scoped sender guard proving every navigation `TeleportFull` 
   tests/homemaster/benchmarking/test_alfworld_env_adapter.py
 ```
 
-Expected: PASS; invisible calls have zero downstream calls and visible calls send exactly one frozen pose.
+Expected: PASS; a valid offscreen target sends exactly one frozen pose, while missing identities and committed-frame failures stop before the gateway.
 
 ## Task 7: Route Every Manipulation Through Exact Context And Typed Feedback
 
@@ -1108,13 +1110,18 @@ Mutation fixtures independently tamper source-tree hash, slow/restore time value
 
 - [x] **Step 3: Implement every feasible product case without substituting trials**
 
+The following case list is the post-correction contract. It supersedes the historical
+visible-only expectation used by `run-001` through `run-003`; those artifacts remain
+immutable evidence and are not reinterpreted under the new rule.
+
 Cover every exact matrix target/action, including:
 
 ```text
-same exact target/snapshot: invisible -> target_not_visible + zero downstream
-Gate fixture frame committed by Provider -> visible -> one sole-pose navigation
-generic multiple visible peers and explicit ordinal hidden/missing without fallback
-closed child: hidden failure -> target-independent public Open sequence -> still hidden failure or visible unique-parent success
+same exact target/snapshot: offscreen direct ok -> one sole-pose navigation -> exact visibility check
+offscreen direct missing/unobserved -> zero parent/backend calls and oracle_pose_missing
+generic visible-preferred peers and deterministic offscreen fallback in frozen order
+explicit ordinal visible/offscreen/missing without peer fallback
+closed child: offscreen direct miss -> no hidden-parent fallback; current-visible child may use one unique parent
 setup terminal -> zero Provider factory/send and Episode 2 fresh Adapter
 setup success -> exact N+4 phases and final normal-time frame committed to Provider
 failure after slow enter -> pose recovery then normal-time recovery; unproven time closes/quarantines
@@ -1124,13 +1131,16 @@ old ALFWorld find/navigate names -> unknown_tool + zero backend
 every snapshot/observation read status and context transition
 ```
 
-Inspect the complete Provider-bound body. Invisible cases with different hidden IDs/poses/parents/snapshot rows must produce identical public failure bytes except enumerated attempt metadata. Visible cases may expose only the real current image, never fixture ID/pose or snapshot data.
+Inspect the complete Provider-bound body. It may expose only the real committed image and
+public typed tool outcomes, never fixture IDs, exact THOR IDs, poses, parents or snapshot
+data. Internal offscreen differences may affect the one backend move and the next real
+frame, but must not leak directly into the Provider request body.
 
 - [x] **Step 4: Run and independently verify Gate B (non-blocking evidence)**
 
 Use new empty `var/alfworld-evidence/20260713-v18-gate-b/run-001`. Attempt the complete matrix and independently verify every produced row. Record nonzero exits, timeouts, cleanup failures, source/runtime identity mismatches and per-case failures exactly; do not use best/any aggregation and do not describe an incomplete or failed row as PASS. A non-perfect Gate B result no longer blocks documentation or the local implementation commit.
 
-**Final disposition:** `run-001` exposed and led to the keyword-only runner fix. `run-002` reached real THOR and stopped at reset recovery. Direct review added exact runtime-scene validation, and final production-affecting `run-003` passed that gate on FloorPlan219 before reproducing the same terminal and counts. The independent verifier exits 2 with `overall_status=incomplete`; the absent exact-case manifest prevents the complete matrix.
+**Final disposition:** Historical `run-001` exposed and led to the keyword-only runner fix. `run-002` reached real THOR and stopped at reset recovery; `run-003` passed the FloorPlan219 identity gate before reproducing that terminal. The independent helper verifier remains `overall_status=incomplete` because the exact-case manifest is absent. The later product correction does not retroactively call those rows PASS; its separate fixed-manifest Runner evidence completes all ten entries and records five Harness-invalid rows exactly.
 
 ## Task 12: Update Docs, Run Ten Real Episodes, Review Once And Commit
 
@@ -1177,13 +1187,13 @@ Do not stop at PID existence or first progress. Wait for process exit and a comp
 
 Attempt all ten entries when credentials/runtime are available and wait for the launched process to terminate. Report the controller/process exit, expected/result bijection, setup and terminal-state evidence, coverage/availability metrics, unclassified failures and formal-score availability exactly. Missing credentials, nonzero exit, incomplete rows or failed thresholds are exposed as failures and do not block the local implementation commit; raw Agent success is always reported separately.
 
-**Final disposition:** The earlier environment-only credential check was incomplete: the ignored HomeMaster config already held a working Mimo profile. `config/alfworld_v18_regression_trials.json` now pins six `historical_exact` trials and the pre-Gate `candidate-1` for Episodes 1/3/7/9 as `deterministic_replacement`; no Gate outcome selected those rows. The ten-Episode process exited 0 with a complete ten-row summary, but every row is score-ineligible `execution_state_uncertain` at `scan_pose_mismatch -> scan_time_scale_restore_rejected`. Counts are 50 setup requests, zero tool/model/Provider requests, 0% evaluation/Harness coverage and `formal_score_available=false`.
+**Final disposition:** The ignored HomeMaster config contains the working Mimo profile and remains untracked and untouched. `config/alfworld_v18_regression_trials.json` pins six `historical_exact` trials and the pre-Gate `candidate-1` for Episodes 1/3/7/9 as `deterministic_replacement`; no Gate outcome selected those rows. Historical ten-row evidence with 50 setup and zero Provider/model requests is preserved as a failed pre-correction run. Post-correction `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` exited 0 with ten rows, 52 Provider attempts, 29 model backend actions and one Agent success. Five rows are score-eligible; four FloorPlan10 rows report physical-world uncertainty and one row reports THOR navigation rejection while holding Basketball. Evaluation/Harness coverage is 0.5, Provider/Runtime availability is 1.0 and `formal_score_available=false`.
 
 - [x] **Step 5: Complete the one-time direct final code review**
 
 Only after code, internal tests, Gate B, ten-Episode terminal evidence and docs are complete, start one read-only reviewer with the frozen spec/plan, complete diff, test logs and raw Gate evidence. The reviewer must label external symbols without real evidence `UNVERIFIED`, must not edit files and must not delegate. Record each finding once; do not request a second review.
 
-**Final disposition:** The active no-subagent constraint replaced the planned reviewer with one main-agent complete-diff review. It found the missing runtime-scene comparison, which was fixed with two regressions and `run-003`; no further blocking defect was found.
+**Final disposition:** The user explicitly authorized one read-only project-review agent. It found missing failed-reset evidence, incorrect recovery attribution, hidden-parent overreach, fail-open control reads, non-recomputable raw evidence and the stale current-visible contract. After those fixes, the same reviewer performed a focused held-object projection check and confirmed the minimal normalization preserves pickup/drop semantics. It did not edit code, documentation, configuration or evidence.
 
 - [x] **Step 6: Disposition findings and run targeted verification**
 
@@ -1216,7 +1226,7 @@ The sole read-only plan review examined candidate SHA-256 `9af25b8314b696d43220e
 - [x] Spec sections 5-15 map to a concrete implementation task and external gate.
 - [x] Controlled-time Gate A v3 and real `discovery-run-008/case-run-008` precede product edits; runs 001-007 remain immutable evidence.
 - [x] V2 matrix/helpers/runs remain immutable evidence; v3 removes public-witness authority from real handlers and self-tests.
-- [x] Same-target invisible/visible cases bind one snapshot row; invisible authorization has zero store/parent/context/backend calls.
+- [x] Visible/offscreen cases bind one frozen exact target; an offscreen direct row may issue exactly one backend move, while hidden-parent, missing identity and committed-frame failures stop before send.
 - [x] Successful Provider request image, current event and persisted frame are independently bound; same-batch calls cannot consume a new frame.
 - [x] Reset policy/plan two-stage freeze, step 0, provenance, addressability, full scan, pose restore, normal-time restore, `N+4` counting and atomic publication from the final event are explicit.
 - [x] Time-control return codes and build-scoped external effects are orthogonal gates; all three frozen temperature sentinels are asserted per instance without any/best aggregation.
@@ -1229,7 +1239,7 @@ The sole read-only plan review examined candidate SHA-256 `9af25b8314b696d43220e
 - [x] Setup/control/model/tool/env/invalid/total counts and responsibility metrics are independently asserted.
 - [x] All Protocol implementations, constructor sites, deleted symbols and direct THOR send sites are audited.
 - [x] Gate B is per instance and independent; ten real Episodes are monitored to terminal completion.
-- [x] Main agent performs implementation; exactly one final read-only review occurs after all evidence/docs.
-- [x] The one-time implementation-plan review was already consumed; this user-approved controlled-time delta receives main-agent self-audit only and no second plan review.
+- [x] Main agent performs implementation; the user-authorized reviewer remains read-only and its focused follow-up does not edit the shared worktree.
+- [x] Review findings, correction tests and non-perfect real-runtime outcomes are recorded without turning unresolved Gate rows into PASS.
 - [x] No push is planned; commit body and CHANGELOG entry are identical.
 - [x] Placeholder, type, path, command, fence, credential and whitespace scans are clean.

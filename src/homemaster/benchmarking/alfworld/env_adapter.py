@@ -415,6 +415,9 @@ class AlfworldEnvAdapter:
                 cache_entries=(),
                 snapshot_ref="oracle-pose-snapshot.json",
                 evidence_ref="reset-transaction.json",
+                artifact_root=(
+                    self._frame_dir.parent if self._frame_dir is not None else None
+                ),
             )
         )
         self._lifecycle = result.environment_disposition
@@ -576,7 +579,11 @@ class AlfworldEnvAdapter:
         try:
             thor_env = self._resolve_thor_env()
             raw_before = getattr(thor_env, "last_event", None)
-            before = _external_event_read(raw_before, event_sequence=self._event_sequence)
+            before = _external_event_read(
+                raw_before,
+                event_sequence=self._event_sequence,
+                thor_env=thor_env,
+            )
             current_scene = _event_logical_scene(raw_before)
         except Exception:
             return self._goal_advance_terminal(
@@ -636,6 +643,7 @@ class AlfworldEnvAdapter:
         after = _external_event_read(
             getattr(thor_env, "last_event", None),
             event_sequence=self._event_sequence,
+            thor_env=thor_env,
         )
         if after.status != "ok" or after.world_sha256 is None:
             return self._goal_advance_terminal(
@@ -4536,13 +4544,18 @@ class _AdapterOracleBackend:
         return _external_event_read(
             getattr(thor_env, "last_event", None),
             event_sequence=self._adapter._event_sequence,
+            thor_env=thor_env,
         )
 
     def send(self, request: ExternalActionRequest) -> ExternalEventRead:
         thor_env = self._adapter._resolve_thor_env()
         event = thor_env.step(dict(request.payload))
         self._adapter._event_sequence += 1
-        return _external_event_read(event, event_sequence=self._adapter._event_sequence)
+        return _external_event_read(
+            event,
+            event_sequence=self._adapter._event_sequence,
+            thor_env=thor_env,
+        )
 
     def close(self) -> CleanupResult:
         return _close_alfworld_env(self._adapter._env)
@@ -4562,7 +4575,12 @@ def _event_logical_scene(event: Any) -> str | None:
     return scene_name.removesuffix("_physics")
 
 
-def _external_event_read(event: Any, *, event_sequence: int) -> ExternalEventRead:
+def _external_event_read(
+    event: Any,
+    *,
+    event_sequence: int,
+    thor_env: Any | None = None,
+) -> ExternalEventRead:
     metadata = getattr(event, "metadata", None)
     if not isinstance(metadata, dict):
         return ExternalEventRead(
@@ -4581,9 +4599,33 @@ def _external_event_read(event: Any, *, event_sequence: int) -> ExternalEventRea
             raw_event_sha256=None,
         )
     try:
+        raw_metadata_payload = _canonical_json_projection(metadata)
+        if not isinstance(raw_metadata_payload, dict):
+            raise ValueError("event metadata projection is unreadable")
+        raw_frame_bytes = _frame_bytes(getattr(event, "frame", None))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return ExternalEventRead(
+            status="malformed",
+            returned_action=None,
+            action_success=None,
+            pose=None,
+            world_sha256=None,
+            visibility_sha256=None,
+            frame_sha256=None,
+            objects=None,
+            reachable_payload=None,
+            strict_visible_exact_ids=(),
+            bbox_areas=(),
+            raw_event_ref=f"events/{event_sequence:04d}-malformed.json",
+            raw_event_sha256=_event_hash(event),
+        )
+    try:
         pose = _oracle_pose_from_event(event)
-        world_sha256 = _event_world_sha256(metadata)
-        frame_sha256 = _frame_sha256(getattr(event, "frame", None))
+        world_payload = _event_world_payload(metadata)
+        world_sha256 = _portable_state_fingerprint(world_payload)
+        control_payload = _alfworld_control_payload(thor_env)
+        control_sha256 = _portable_state_fingerprint(control_payload)
+        frame_sha256 = _frame_sha256(raw_frame_bytes)
         bbox_areas = _event_bbox_areas(event)
         visible_ids = {
             str(item["objectId"])
@@ -4629,7 +4671,15 @@ def _external_event_read(event: Any, *, event_sequence: int) -> ExternalEventRea
             strict_visible_exact_ids=strict_visible,
             bbox_areas=bbox_areas,
             raw_event_ref=f"events/{event_sequence:04d}-{returned_action or 'capture'}.json",
-            raw_event_sha256=_event_hash(event),
+            raw_event_sha256=_raw_event_projection_sha256(
+                raw_metadata_payload,
+                raw_frame_bytes,
+            ),
+            control_sha256=control_sha256,
+            world_payload=world_payload,
+            control_payload=control_payload,
+            raw_metadata_payload=raw_metadata_payload,
+            raw_frame_bytes=raw_frame_bytes,
         )
     except (KeyError, TypeError, ValueError, OverflowError):
         return ExternalEventRead(
@@ -4639,13 +4689,18 @@ def _external_event_read(event: Any, *, event_sequence: int) -> ExternalEventRea
             pose=None,
             world_sha256=None,
             visibility_sha256=None,
-            frame_sha256=None,
+            frame_sha256=_frame_sha256(raw_frame_bytes),
             objects=None,
             reachable_payload=None,
             strict_visible_exact_ids=(),
             bbox_areas=(),
             raw_event_ref=f"events/{event_sequence:04d}-malformed.json",
-            raw_event_sha256=_event_hash(event),
+            raw_event_sha256=_raw_event_projection_sha256(
+                raw_metadata_payload,
+                raw_frame_bytes,
+            ),
+            raw_metadata_payload=raw_metadata_payload,
+            raw_frame_bytes=raw_frame_bytes,
         )
 
 
@@ -4733,10 +4788,108 @@ def _scene_scan_inputs(value: Any) -> tuple[SceneObjectScanInput, ...] | None:
     return tuple(result)
 
 
-def _event_world_sha256(metadata: dict[str, Any]) -> str:
+def _alfworld_control_payload(thor_env: Any | None) -> dict[str, Any]:
+    task = getattr(thor_env, "task", None) if thor_env is not None else None
+    traj = getattr(task, "traj", None)
+    pddl_params = traj.get("pddl_params") if isinstance(traj, dict) else None
+    goal_satisfied, goal_conditions = _view_invariant_goal_state(thor_env, task)
+    payload = {
+        "task_present": task is not None,
+        "task_type": getattr(task, "task_type", None),
+        "task_pddl_params": pddl_params,
+        "step_num": getattr(task, "step_num", None),
+        "goal_idx": getattr(task, "goal_idx", None),
+        "finished": getattr(task, "finished", None),
+        "goal_finished": getattr(task, "goal_finished", None),
+        "num_subgoals": getattr(task, "num_subgoals", None),
+        "goal_satisfied": goal_satisfied,
+        "goal_conditions_met": goal_conditions,
+        "goal_evaluation_visibility": "all_objects_visible",
+        "cleaned_objects": _control_object_ids(thor_env, "cleaned_objects"),
+        "cooled_objects": _control_object_ids(thor_env, "cooled_objects"),
+        "heated_objects": _control_object_ids(thor_env, "heated_objects"),
+    }
+    return _canonical_json_projection(payload)
+
+
+def _view_invariant_goal_state(
+    thor_env: Any | None,
+    task: Any,
+) -> tuple[bool | None, Any]:
+    if thor_env is None:
+        return None, None
+    goal_event = getattr(thor_env, "last_event", None)
+    metadata = getattr(goal_event, "metadata", None)
+    if isinstance(metadata, dict):
+        normalized_metadata = dict(metadata)
+        normalized_objects = []
+        for item in metadata.get("objects", []):
+            if not isinstance(item, dict):
+                normalized_objects.append(item)
+                continue
+            normalized_item = dict(item)
+            normalized_item["visible"] = True
+            normalized_item.pop("distance", None)
+            normalized_objects.append(normalized_item)
+        normalized_metadata["objects"] = normalized_objects
+        goal_event = SimpleNamespace(metadata=normalized_metadata)
+
+    if task is not None:
+        goal_reader = getattr(task, "goal_satisfied", None)
+        conditions_reader = getattr(task, "goal_conditions_met", None)
+        if not callable(goal_reader) or not callable(conditions_reader):
+            raise ValueError("ALFWorld task goal evaluators are unavailable")
+        try:
+            satisfied = bool(goal_reader(goal_event))
+            conditions = conditions_reader(goal_event)
+        except Exception as exc:
+            raise ValueError("ALFWorld task goal state is unreadable") from exc
+    else:
+        satisfied_reader = getattr(thor_env, "get_goal_satisfied", None)
+        conditions_reader = getattr(thor_env, "get_goal_conditions_met", None)
+        if not callable(satisfied_reader) or not callable(conditions_reader):
+            raise ValueError("ALFWorld goal readers are unavailable")
+        try:
+            satisfied = bool(satisfied_reader())
+            conditions = conditions_reader()
+        except Exception as exc:
+            raise ValueError("ALFWorld goal state is unreadable") from exc
+    if not isinstance(conditions, list | tuple) or len(conditions) != 2:
+        raise ValueError("ALFWorld goal conditions are unreadable")
+    return satisfied, list(conditions)
+
+
+def _control_object_ids(owner: Any | None, name: str) -> list[str] | None:
+    if owner is None or not hasattr(owner, name):
+        return None
+    value = getattr(owner, name)
+    if not isinstance(value, set | list | tuple):
+        raise ValueError(f"ALFWorld control field {name} is unreadable")
+    return sorted({str(item) for item in value})
+
+
+def _canonical_json_projection(value: Any) -> Any:
+    return json.loads(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+            default=str,
+        )
+    )
+
+
+def _event_world_payload(metadata: dict[str, Any]) -> dict[str, Any]:
     objects = metadata.get("objects")
     if not isinstance(objects, list):
         raise ValueError("event objects are unreadable")
+    held_geometry_fields = {
+        "objectBounds",
+        "position",
+        "rotation",
+    }
     normalized_objects = []
     for item in objects:
         if not isinstance(item, dict) or not isinstance(item.get("objectId"), str):
@@ -4746,6 +4899,10 @@ def _event_world_sha256(metadata: dict[str, Any]) -> str:
                 key: value
                 for key, value in item.items()
                 if key not in {"visible", "distance"}
+                and not (
+                    item.get("isPickedUp") is True
+                    and key in held_geometry_fields
+                )
             }
         )
     normalized_objects.sort(key=lambda item: str(item["objectId"]))
@@ -4769,7 +4926,13 @@ def _event_world_sha256(metadata: dict[str, Any]) -> str:
             "reachablePositions",
         }
     }
-    return _portable_state_fingerprint({"objects": normalized_objects, "metadata": extras})
+    return _canonical_json_projection(
+        {"objects": normalized_objects, "metadata": extras}
+    )
+
+
+def _event_world_sha256(metadata: dict[str, Any]) -> str:
+    return _portable_state_fingerprint(_event_world_payload(metadata))
 
 
 def _event_bbox_areas(event: Any) -> tuple[tuple[str, float], ...]:
@@ -4789,14 +4952,35 @@ def _event_bbox_areas(event: Any) -> tuple[tuple[str, float], ...]:
 
 
 def _frame_sha256(frame: Any) -> str | None:
+    value = _frame_bytes(frame)
+    return hashlib.sha256(value).hexdigest() if value is not None else None
+
+
+def _frame_bytes(frame: Any) -> bytes | None:
     if frame is None:
         return None
     tobytes = getattr(frame, "tobytes", None)
     if callable(tobytes):
-        return hashlib.sha256(tobytes()).hexdigest()
-    if isinstance(frame, bytes):
-        return hashlib.sha256(frame).hexdigest()
+        value = tobytes()
+        return value if isinstance(value, bytes) else bytes(value)
+    if isinstance(frame, bytes | bytearray | memoryview):
+        return bytes(frame)
     return None
+
+
+def _raw_event_projection_sha256(
+    metadata_payload: dict[str, Any],
+    frame_bytes: bytes | None,
+) -> str:
+    encoded = json.dumps(
+        metadata_payload,
+        allow_nan=False,
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded + (frame_bytes or b"")).hexdigest()
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:
