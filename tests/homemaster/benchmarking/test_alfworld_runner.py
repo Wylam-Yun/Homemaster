@@ -324,10 +324,11 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
     )
     runner = AlfworldBenchmarkRunner(config=config)
 
-    runner._build_pinned_adapter(  # noqa: SLF001
+    adapter = runner._build_pinned_adapter(  # noqa: SLF001
         SimpleNamespace(trial_id="case-1/traj_data.json")
     )
 
+    assert adapter._require_v18_reset is False  # noqa: SLF001
     assert observed == {
         "config": config,
         "first_trial_path": (

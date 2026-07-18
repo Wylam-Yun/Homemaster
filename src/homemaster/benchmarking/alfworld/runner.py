@@ -72,6 +72,11 @@ TransportFactory = Callable[[], Any]
 AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 
 
+# Keep the experimental scan transaction off the production path until it can
+# tolerate the poses returned by real THOR builds without terminating setup.
+_ENABLE_V18_RESET_TRANSACTION = False
+
+
 class AlfworldBenchmarkRunner:
     """Run ALFWorld episodes through GenericAgentRuntime and ALFWorld tools."""
 
@@ -370,7 +375,7 @@ class AlfworldBenchmarkRunner:
             ),
             episode_prefix=self.config.split,
             seed=self.config.seed,
-            require_v18_reset=True,
+            require_v18_reset=_ENABLE_V18_RESET_TRANSACTION,
         )
 
     def _stop_condition(
@@ -444,7 +449,7 @@ class AlfworldBenchmarkRunner:
             env=build_alfworld_batch_env(config),
             episode_prefix=config.split,
             seed=config.seed,
-            require_v18_reset=config.env_type == "AlfredThorEnv",
+            require_v18_reset=_ENABLE_V18_RESET_TRANSACTION,
         )
 
 
@@ -682,7 +687,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
             ),
             episode_prefix=f"{self.config.split}/{taskset.id}",
             seed=self.config.seed,
-            require_v18_reset=self.config.env_type == "AlfredThorEnv",
+            require_v18_reset=_ENABLE_V18_RESET_TRANSACTION,
         )
 
         try:
