@@ -26,6 +26,9 @@ CORE_ARTIFACTS = (
     "scores/trajectory_score.json",
     "scores/result_score.json",
     "scores/summary.json",
+    "presentation/events.jsonl",
+    "presentation/snapshot.json",
+    "presentation/verification.json",
 )
 VIDEO_ARTIFACTS = (
     "video/demo.mp4",
@@ -34,10 +37,41 @@ VIDEO_ARTIFACTS = (
 )
 
 
+def formal_success(
+    *,
+    trajectory_score: float,
+    result_score: float,
+    safety_failure: bool,
+    environment_failure: bool,
+    artifact_failure: bool,
+    presentation_failure: bool,
+) -> bool:
+    return bool(
+        trajectory_score == 100.0
+        and result_score == 100.0
+        and not safety_failure
+        and not environment_failure
+        and not artifact_failure
+        and not presentation_failure
+    )
+
+
 def finalize_run(
-    store: EpisodeStore, run_id: str, *, video_verified: bool = False
+    store: EpisodeStore,
+    run_id: str,
+    *,
+    video_verified: bool = False,
+    observer_was_alive: bool | None = None,
 ) -> dict[str, Any]:
+    if video_verified and observer_was_alive is None:
+        raise ValueError("observer_was_alive is required for video-verified finalization")
     episode = store.episode(run_id)
+    presentation_report = store.verify_presentation(
+        run_id,
+        observer_was_alive=(
+            observer_was_alive if observer_was_alive is not None else True
+        ),
+    )
     events = store.audit(run_id)
     effective, rejected = normalize_events(events)
     write_jsonl(episode.run_root / "trajectory/effective_trajectory.jsonl", effective)
@@ -72,6 +106,7 @@ def finalize_run(
         "safety_failure": bool(match["safety_violations"]),
         "environment_failure": False,
         "artifact_failure": False,
+        "presentation_failure": not presentation_report["passed"],
     }
     summary = {
         "schema_version": 1,
@@ -85,9 +120,14 @@ def finalize_run(
         "required_checkpoints": result["required_count"],
         "passed_checkpoints": result["passed_count"],
         **failures,
+        "presentation_failures": presentation_report["failures"],
         "video_verification": "passed" if video_verified else "pending",
         "formal_success": (
-            bool(trajectory_score == 100.0 and result_score == 100.0 and not any(failures.values()))
+            formal_success(
+                trajectory_score=trajectory_score,
+                result_score=result_score,
+                **failures,
+            )
             if video_verified
             else None
         ),
@@ -107,17 +147,25 @@ def finalize_run(
         path = episode.run_root / relative
         if path.is_file():
             episode.registry.register(relative, producer="evaluator")
+    for relative in (
+        "presentation/events.jsonl",
+        "presentation/snapshot.json",
+        "presentation/verification.json",
+    ):
+        if (episode.run_root / relative).is_file():
+            episode.registry.register(relative, producer="presentation")
     required_artifacts = CORE_ARTIFACTS + (VIDEO_ARTIFACTS if video_verified else ())
     artifact_failures = episode.registry.verify(required_paths=required_artifacts)
     summary["artifact_failure"] = bool(artifact_failures)
     summary["artifact_failures"] = artifact_failures
     if video_verified:
-        summary["formal_success"] = bool(
-            trajectory_score == 100.0
-            and result_score == 100.0
-            and not summary["safety_failure"]
-            and not summary["environment_failure"]
-            and not summary["artifact_failure"]
+        summary["formal_success"] = formal_success(
+            trajectory_score=trajectory_score,
+            result_score=result_score,
+            safety_failure=summary["safety_failure"],
+            environment_failure=summary["environment_failure"],
+            artifact_failure=summary["artifact_failure"],
+            presentation_failure=summary["presentation_failure"],
         )
     atomic_write_json(episode.run_root / "scores/summary.json", summary)
     episode.registry.register("scores/summary.json", producer="evaluator")
@@ -125,10 +173,19 @@ def finalize_run(
 
 
 def publish_video_verification(
-    store: EpisodeStore, run_id: str, video_manifest: dict[str, Any]
+    store: EpisodeStore,
+    run_id: str,
+    video_manifest: dict[str, Any],
+    *,
+    observer_was_alive: bool,
 ) -> dict[str, Any]:
     episode = store.episode(run_id)
-    result = finalize_run(store, run_id, video_verified=True)
+    result = finalize_run(
+        store,
+        run_id,
+        video_verified=True,
+        observer_was_alive=observer_was_alive,
+    )
     summary = result["summary"]
     summary["video_manifest_sha256"] = video_manifest.get("sha256")
     atomic_write_json(episode.run_root / "scores/summary.json", summary)

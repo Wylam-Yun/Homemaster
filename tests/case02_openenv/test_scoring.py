@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from case02_openenv.automation import AutomationEngine
 from case02_openenv.episode_store import EpisodeStore
-from case02_openenv.evaluation.scoring import finalize_run
+from case02_openenv.evaluation.scoring import finalize_run, formal_success
 from case02_openenv.evaluation.trajectory import normalize_events
 from case02_openenv.models import DecisionRequest
+from case02_openenv.presentation import PresentationInput
 
 from tests.case02_openenv.test_automation import wait_job
 from tests.case02_openenv.test_episode_store import complete_prechecks, reserve
@@ -51,6 +52,19 @@ def test_normalizer_rejects_decision_with_unpersisted_evidence(store: EpisodeSto
     effective, rejected = normalize_events(store.audit(run_id))
     assert effective == []
     assert rejected == [{"event_id": forged.event_id, "reason": "unknown_evidence_ref"}]
+
+
+def test_formal_success_rejects_presentation_failure() -> None:
+    common = {
+        "trajectory_score": 100.0,
+        "result_score": 100.0,
+        "safety_failure": False,
+        "environment_failure": False,
+        "artifact_failure": False,
+    }
+
+    assert formal_success(**common, presentation_failure=False) is True
+    assert formal_success(**common, presentation_failure=True) is False
 
 
 def test_full_normal_run_freezes_24_nodes_and_14_results(store: EpisodeStore) -> None:
@@ -135,6 +149,30 @@ def test_full_normal_run_freezes_24_nodes_and_14_results(store: EpisodeStore) ->
         ),
     )
 
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="presentation-test",
+            action_id="action-presentation-test",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "ticket-query-extension-config"},
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="presentation-test",
+            action_id="action-presentation-test",
+            tool_name="browser_click",
+            status="succeeded",
+            arguments={"bid": "ticket-query-extension-config"},
+            result={"status": "ready"},
+        ),
+    )
+
     summary = finalize_run(store, run_id)["summary"]
     assert summary["matched_nodes"] == summary["required_nodes"] == 24
     assert summary["passed_checkpoints"] == summary["required_checkpoints"] == 14
@@ -148,13 +186,36 @@ def test_full_normal_run_freezes_24_nodes_and_14_results(store: EpisodeStore) ->
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"verified-test-artifact")
         episode.registry.register(relative, producer="test")
-    verified = finalize_run(store, run_id, video_verified=True)["summary"]
+    verified = finalize_run(
+        store,
+        run_id,
+        video_verified=True,
+        observer_was_alive=True,
+    )["summary"]
     assert verified["artifact_failure"] is False
     assert verified["artifact_failures"] == []
+    assert verified["presentation_failure"] is False
     assert verified["formal_success"] is True
 
+    observer_failed = finalize_run(
+        store,
+        run_id,
+        video_verified=True,
+        observer_was_alive=False,
+    )["summary"]
+    assert observer_failed["presentation_failure"] is True
+    assert observer_failed["presentation_failures"] == [
+        "observer_exited_before_recording_stop"
+    ]
+    assert observer_failed["formal_success"] is False
+
     (episode.run_root / "input/item_change_ticket.json").write_text("{}\n", encoding="utf-8")
-    tampered = finalize_run(store, run_id, video_verified=True)["summary"]
+    tampered = finalize_run(
+        store,
+        run_id,
+        video_verified=True,
+        observer_was_alive=True,
+    )["summary"]
     assert tampered["artifact_failure"] is True
     assert tampered["artifact_failures"] == ["hash_drift:input/item_change_ticket.json"]
     assert tampered["formal_success"] is False

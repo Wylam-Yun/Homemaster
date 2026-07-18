@@ -796,3 +796,68 @@ def test_runtime_turn_lifecycle_does_not_require_tool_identity(
     parsed = PresentationInput(runtime_event_type=event_type, status=status)
     assert parsed.tool_call_id is None
     assert parsed.action_id is None
+
+
+def test_presentation_verifier_requires_terminal_results_for_every_tool(store) -> None:
+    run_id = "presentation-verify"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-1",
+            action_id="action-1",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "ticket-query-extension-config"},
+        ),
+    )
+
+    report = store.verify_presentation(run_id, observer_was_alive=True)
+
+    assert report["passed"] is False
+    assert report["failures"] == ["missing_terminal_event:call-1"]
+
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-1",
+            action_id="action-1",
+            tool_name="browser_click",
+            status="succeeded",
+            arguments={"bid": "ticket-query-extension-config"},
+            result={"status": "ready"},
+        ),
+    )
+
+    report = store.verify_presentation(run_id, observer_was_alive=True)
+
+    assert report["passed"] is True
+    assert report["event_count"] == 2
+    assert report["tool_call_count"] == 1
+    assert json.loads(
+        (store.episode(run_id).run_root / "presentation/verification.json").read_text(
+            encoding="utf-8"
+        )
+    ) == report
+
+
+def test_presentation_verifier_rejects_action_mismatch_and_dead_observer(store) -> None:
+    run_id = "presentation-health"
+    store.create(run_id, "normal")
+    store.record_presentation(run_id, presentation_item())
+    completed = presentation_item(
+        event_type="tool.call_completed",
+        status="succeeded",
+    ).model_copy(update={"action_id": "different-action"})
+    store.record_presentation(run_id, completed)
+
+    report = store.verify_presentation(run_id, observer_was_alive=False)
+
+    assert report["passed"] is False
+    assert report["observer_was_alive"] is False
+    assert report["failures"] == [
+        "action_id_mismatch:call-1",
+        "observer_exited_before_recording_stop",
+    ]

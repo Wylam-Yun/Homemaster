@@ -32,6 +32,7 @@ from case02_openenv.presentation import (
     PresentationTask,
     display_stage,
     map_task,
+    verify_presentation_payload,
 )
 
 
@@ -134,6 +135,7 @@ class EpisodeStore:
                 episode.run_root / "trajectory/raw_actions.jsonl",
                 episode.run_root / "presentation/events.jsonl",
                 episode.run_root / "presentation/snapshot.json",
+                episode.run_root / "presentation/verification.json",
             ):
                 path.unlink(missing_ok=True)
             atomic_write_json(episode.config_file, {})
@@ -270,6 +272,26 @@ class EpisodeStore:
                 [event.model_copy(deep=True) for event in episode.presentation_events],
                 copy.deepcopy(self._presentation_snapshot_payload(episode)),
             )
+
+    def verify_presentation(
+        self, run_id: str, *, observer_was_alive: bool
+    ) -> dict[str, Any]:
+        episode = self._episode(run_id)
+        with episode.lock:
+            atomic_write_json(
+                episode.run_root / "presentation/snapshot.json",
+                self._presentation_snapshot_payload(episode),
+            )
+            report = verify_presentation_payload(
+                episode.presentation_events,
+                episode.presentation_failures,
+                observer_was_alive=observer_was_alive,
+            )
+            atomic_write_json(
+                episode.run_root / "presentation/verification.json",
+                report,
+            )
+            return copy.deepcopy(report)
 
     def audit(self, run_id: str) -> list[AuditEvent]:
         episode = self._episode(run_id)

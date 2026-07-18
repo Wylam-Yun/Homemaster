@@ -343,7 +343,12 @@ def create_app(
                 episode.registry.register(relative, producer="recorder")
         from case02_openenv.evaluation.scoring import publish_video_verification
 
-        result["summary"] = publish_video_verification(store, run_id, result["manifest"])
+        result["summary"] = publish_video_verification(
+            store,
+            run_id,
+            result["manifest"],
+            observer_was_alive=bool(result["observer_was_alive"]),
+        )
         return result
 
     @app.post("/api/runs/{run_id}/finalize")

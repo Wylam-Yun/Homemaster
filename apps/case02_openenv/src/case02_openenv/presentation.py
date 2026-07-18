@@ -278,3 +278,48 @@ def display_stage(
     if task is not None and task.stage == "change_implement":
         return "change_implement"
     return "check_before_change"
+
+
+def verify_presentation_payload(
+    events: list[PresentationEvent],
+    mapping_failures: list[str],
+    *,
+    observer_was_alive: bool,
+) -> dict[str, Any]:
+    starts = {
+        event.tool_call_id: event
+        for event in events
+        if event.status == "running" and event.tool_call_id
+    }
+    terminal = {
+        event.tool_call_id: event
+        for event in events
+        if event.status in {"accepted", "succeeded", "failed", "rejected"}
+        and event.tool_call_id
+    }
+    failures = list(dict.fromkeys(mapping_failures))
+    for event in events:
+        if event.task is None:
+            continue
+        expected_hash = hashlib.sha256(event.task.source_text.encode("utf-8")).hexdigest()
+        if expected_hash != event.task.source_sha256:
+            failures.append(f"sop_source_hash_mismatch:{event.event_id}")
+    for tool_call_id in sorted(starts):
+        completed = terminal.get(tool_call_id)
+        if completed is None:
+            failures.append(f"missing_terminal_event:{tool_call_id}")
+        elif completed.action_id != starts[tool_call_id].action_id:
+            failures.append(f"action_id_mismatch:{tool_call_id}")
+    if not observer_was_alive:
+        failures.append("observer_exited_before_recording_stop")
+    if not any(event.task and event.task.source_text for event in events):
+        failures.append("missing_sop_source_text")
+    failures = list(dict.fromkeys(failures))
+    return {
+        "schema_version": 1,
+        "passed": not failures,
+        "event_count": len(events),
+        "tool_call_count": len(starts),
+        "observer_was_alive": observer_was_alive,
+        "failures": failures,
+    }

@@ -290,3 +290,42 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
     assert response.status_code == 200
     assert response.json()["display"] == ":144"
     assert "recording-api" in api.app.state.recorders
+
+
+def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypatch) -> None:
+    import case02_openenv.evaluation.scoring as scoring_module
+
+    captured: dict[str, object] = {}
+
+    class FakeRecordingSession:
+        def stop(self):
+            return {
+                "success": True,
+                "status": "verified",
+                "manifest": {"sha256": "video-sha"},
+                "observer_was_alive": False,
+                "display_return_codes": {"observer": 1, "tigervnc": -15},
+            }
+
+    def fake_publish(store, run_id, manifest, *, observer_was_alive):
+        captured.update(
+            run_id=run_id,
+            manifest=manifest,
+            observer_was_alive=observer_was_alive,
+        )
+        return {"formal_success": False, "presentation_failure": True}
+
+    monkeypatch.setattr(scoring_module, "publish_video_verification", fake_publish)
+    api = client(tmp_path)
+    api.post("/api/runs", json={"run_id": "recording-stop", "scenario_id": "normal"})
+    api.app.state.recorders["recording-stop"] = FakeRecordingSession()
+
+    response = api.post("/api/runs/recording-stop/recording/stop")
+
+    assert response.status_code == 200
+    assert response.json()["observer_was_alive"] is False
+    assert captured == {
+        "run_id": "recording-stop",
+        "manifest": {"sha256": "video-sha"},
+        "observer_was_alive": False,
+    }
