@@ -14,8 +14,8 @@ V1.8 产品代码已经完成 trial pinning、controlled-time reset、immutable 
 - `exact-cases-v3.json`：未生成；
 - Gate B 完整 20-case matrix：不可运行；
 - Gate B 单切片：真实进入 THOR，但 reset 恢复终止；
-- 固定十 Episode manifest：未生成；
-- 十 Episode 真实 API run：因清单和凭据均不可用而未启动。
+- 固定十 Episode manifest：已生成并验证，含 6 条 historical exact 和 4 条明确标记的 deterministic replacement；
+- 十 Episode 真实 API run：已完整执行，10/10 在 reset recovery terminal，未触达 Provider。
 
 因此本次交付是“产品实现完成，内部验证通过，外部验证带明确失败/缺失证据”，不是 V1.8 全外部行为 PASS。
 
@@ -72,8 +72,8 @@ CLI/summary 分开报告 raw Agent 成功、Agent-on-valid、evaluation/Harness 
 最终远端验证为：
 
 ```text
-ALFWorld/provider/runtime focused: 202 passed, 1 skipped
-full repository: 394 passed, 1 skipped
+plan-focused tests: 193 passed
+full repository: 395 passed, 1 skipped
 Ruff check on 48 changed Python files: PASS
 compileall: PASS
 cleanup/interface/V1.8 guards: 11 passed
@@ -141,9 +141,11 @@ total backend/external requests: 5
 
 ## 六、十 Episode 运行
 
-实施计划要求从六个 historical exact row 和四个预先锁定 candidate 构造固定十 Episode manifest，禁止根据 Gate 结果挑选更好 trial。由于 Gate A 没有产生 `exact-cases-v3.json`，仓库中不存在 `config/alfworld_v18_regression_trials.json`。
+实施计划要求从六个 historical exact row 和四个预先锁定 candidate 构造固定十 Episode manifest，禁止根据 Gate 结果挑选更好 trial。复核冻结 `matrix-v3.json` 后确认，产品选择不依赖 Gate A 的 exact-case action manifest：Episode 2/4/5/6/8/10 使用 `historical_exact`，Episode 1/3/7/9 使用各自 Gate 前已排序的 `candidate-1`，并明确标记为 `deterministic_replacement`。`config/alfworld_v18_regression_trials.json` 已由产品 builder 生成，十条 trial bytes、scene 和 goal fingerprint 均由产品 loader 重新验证。
 
-运行环境同时没有可用 API key 环境变量。缺少任一前提都不能诚实启动固定十 Episode real-API run，因此本次没有 PID、没有部分 Episode，也没有十行 summary。状态记录为 `UNAVAILABLE`，不是 0/10、不是 skipped PASS，更不是用旧 Shelf 证据替代。
+此前只检查环境变量，遗漏了 ignored `config/homemaster.yaml` 中已有的 Mimo profile。使用相同配置通过项目 `LLMClient` 发起最小请求，`mimo-v2.5` 经 Anthropic SDK 返回 `OK`，证明 endpoint、鉴权、模型和协议可用；配置内容未被改写。
+
+2026-07-18 启动 `alfworld-valid_unseen-v18-realapi-20260718-001`，进程 exit 0 并产生完整十行 summary。结果为 0/10：十条都在 Provider 构造前以 `scan_pose_mismatch -> scan_time_scale_restore_rejected` 终止，分类均为 `execution_state_uncertain`，每条 5 次 setup external request，总计 50；tool/model/Provider request 均为 0。`evaluation_valid_coverage=0`、`harness_coverage=0`、`formal_score_available=false`。CLI 的 `provider_availability=1.0` 仅表示没有观察到 Provider failure，不能解释为本次十条调用过 Provider。
 
 ## 七、已知边界
 
@@ -151,7 +153,7 @@ total backend/external requests: 5
 - Gate B 可运行切片在 reset recovery terminal，未触达 Provider/tool dispatch；
 - reset transaction evidence ref 未持久化为同名 artifact；
 - Slice exact behavior 未验证；
-- 固定十 Episode run 不可用；
+- 固定十 Episode run 已执行，但十条均在 reset recovery terminal，未触达 Provider/tool dispatch；
 - V1.8 正式 call graph 已被 AST guard 证明不进入 V1.7 candidate navigation/local-Put，但 compatibility implementations 仍物理存在于 `env_adapter.py` 和 `execution.py`，严格“产品源中零 legacy symbol”目标未满足；
 - 更换 Python、ALFWorld、ai2thor 或 Unity build 后必须重新验证 runtime contract。
 

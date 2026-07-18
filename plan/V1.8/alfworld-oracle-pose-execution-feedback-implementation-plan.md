@@ -41,7 +41,7 @@
 - Tasks 2-10 product implementation and internal regression work are complete. The formal V1.8 call graph uses the new gateway/snapshot/exact execution path; physical V1.7 compatibility implementations remain and are recorded as a structural residual rather than deleted late.
 - Gate A stays frozen at `discovery-run-015` with 19/20 workers passing and no `exact-cases-v3.json`.
 - Gate B `run-001` exposed a pinned-Adapter keyword-only call defect, which is fixed with a strict regression. Fresh `run-002` reached real THOR and ended score-ineligible at `scan_pose_mismatch -> scan_time_scale_restore_rejected`, with five setup actions and zero Provider/model actions. Direct review then added exact runtime-scene validation; final production-affecting rerun `run-003` passed that gate on FloorPlan219 and reproduced the same honest terminal/counts. Independent verification exits 2 because the complete matrix is unavailable.
-- The fixed ten-Episode manifest cannot be constructed without inventing or outcome-selecting four replacements, and no API-key environment variables are present. The real-API run is therefore `UNAVAILABLE`, not passed or replaced.
+- The fixed ten-Episode manifest is constructed from the six frozen `historical_exact` rows plus each unresolved Episode's pre-Gate `candidate-1`, explicitly labeled `deterministic_replacement`. The ignored Mimo profile passes a real `LLMClient` request. Run `alfworld-valid_unseen-v18-realapi-20260718-001` executes all ten pinned resets and exposes ten identical `scan_pose_mismatch -> scan_time_scale_restore_rejected` setup terminals, 50 setup requests and zero Provider/model requests; this is a completed failed run, not a PASS.
 - The planned independent final reviewer cannot be used under the active no-subagent constraint. One main-agent direct complete-diff review is used instead and this deviation is reported explicitly.
 - Documentation, final tests, changed-file hashes and one local `hkust4` commit complete the delivery. No push is authorized.
 
@@ -1152,7 +1152,7 @@ Document controlled-time reset scan/snapshot, `N+4` accounting, failure recovery
 
 Rerun Task 10 commands and every feasible Gate B case after the last product/doc-affecting fix. Internal regressions introduced by this implementation must be fixed; Gate B failures and unavailable rows are retained and reported rather than hidden or used to stop the implementation.
 
-- [x] **Step 3: Record the fixed ten-Episode run as unavailable when prerequisites are absent**
+- [x] **Step 3: Run the fixed ten-Episode regression when prerequisites are available**
 
 Use the ignored real provider config, print only redacted endpoint/model identity, and run under a detached supervisor that records PID/start/exit metadata:
 
@@ -1171,13 +1171,13 @@ env -C /data1/haodong2/weilin/red_bird/Homemaster \
 
 The supervisor redirects stdout/stderr, writes a machine-readable completion record and never prints token/header/config contents.
 
-- [x] **Step 4: Verify the no-run disposition without substituting Episodes**
+- [x] **Step 4: Verify the complete ten-row disposition without substituting Episodes**
 
 Do not stop at PID existence or first progress. Wait for process exit and a complete ten-entry summary. For every Episode independently verify expected/observed trial identity, reset time/scan/pose+time restore, Provider attempt/image commit, `N+4` setup plus tool/backend/control counts, unique responsibility classification, raw external return/terminal evidence and final frame hashes. Report raw success, Agent-on-valid, evaluation coverage, Harness coverage, Provider availability and Runtime availability separately; incomplete/nonzero runs are not “10 passed.”
 
 Attempt all ten entries when credentials/runtime are available and wait for the launched process to terminate. Report the controller/process exit, expected/result bijection, setup and terminal-state evidence, coverage/availability metrics, unclassified failures and formal-score availability exactly. Missing credentials, nonzero exit, incomplete rows or failed thresholds are exposed as failures and do not block the local implementation commit; raw Agent success is always reported separately.
 
-**Final disposition:** `exact-cases-v3.json`, `config/alfworld_v18_regression_trials.json` and API-key environment variables are all absent. No process was launched, so there is no PID, partial Episode or synthetic ten-row summary. Steps 3-4 are closed as `UNAVAILABLE`, not PASS, and no old or outcome-selected trial was substituted.
+**Final disposition:** The earlier environment-only credential check was incomplete: the ignored HomeMaster config already held a working Mimo profile. `config/alfworld_v18_regression_trials.json` now pins six `historical_exact` trials and the pre-Gate `candidate-1` for Episodes 1/3/7/9 as `deterministic_replacement`; no Gate outcome selected those rows. The ten-Episode process exited 0 with a complete ten-row summary, but every row is score-ineligible `execution_state_uncertain` at `scan_pose_mismatch -> scan_time_scale_restore_rejected`. Counts are 50 setup requests, zero tool/model/Provider requests, 0% evaluation/Harness coverage and `formal_score_available=false`.
 
 - [x] **Step 5: Complete the one-time direct final code review**
 
@@ -1191,7 +1191,7 @@ For each accepted behavior finding, first add a failing regression, implement on
 
 If a final-review fix changes any product/provider/runtime/config path used by the real benchmark, resynchronize source hashes and rerun the full fixed ten-Episode regression to the Step 4 thresholds before commit. A docs-only or test-only fix needs targeted verification but cannot change the recorded product source-tree hash. Final committed product bytes must exactly match the source-tree identity in the accepted real-API evidence.
 
-**Final disposition:** Focused verification passed `202 passed, 1 skipped`; full pytest passed `394 passed, 1 skipped`; all lint/compile/guard/structured checks passed. The unchanged format baseline is 26 files. Gate B remains incomplete exactly as recorded above.
+**Final disposition:** The plan's exact focused command passed `193 passed`; full pytest passed `395 passed, 1 skipped`; all lint/compile/guard/structured checks passed. The unchanged format baseline is 26 files. Gate B remains incomplete exactly as recorded above.
 
 - [x] **Step 7: Make one local implementation commit and resynchronize runtime bytes**
 

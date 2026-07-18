@@ -123,4 +123,4 @@ formal_score_available
 
 固定运行时为 Python 3.11.15、ALFWorld 0.5.0 和 ai2thor 2.1.0。Gate A `discovery-run-015` 的 20 个 worker 中 19 个通过，补充 Slice worker 因无关 Apple settling 失败；`exact-cases-v3.json` 未生成，Slice 精确行为保持 `UNVERIFIED`。
 
-Gate B best-effort `run-002` 通过真实 Runner/Adapter 进入 THOR，但 reset scan 在 `scan_pose_mismatch` 后的恢复校验最终为 `scan_time_scale_restore_rejected`：5 个 setup backend actions、0 个 Provider request、classification `execution_state_uncertain`。独立 verifier 只确认该不完整切片的 artifact/计数自洽，并以退出码 2 标记完整矩阵缺失；它不是 Gate B PASS。固定十 Episode manifest 和真实 API run 均不可用，不能以其他 trial 替代。
+Gate B best-effort `run-002` 通过真实 Runner/Adapter 进入 THOR，但 reset scan 在 `scan_pose_mismatch` 后的恢复校验最终为 `scan_time_scale_restore_rejected`：5 个 setup backend actions、0 个 Provider request、classification `execution_state_uncertain`。独立 verifier 只确认该不完整切片的 artifact/计数自洽，并以退出码 2 标记完整矩阵缺失；它不是 Gate B PASS。固定十 Episode manifest 随后使用 6 条 historical exact 和 4 条 Gate 前固定的 deterministic replacement 构造；真实运行 10/10 复现同一 reset recovery terminal，合计 50 setup、0 Provider requests，仍不是 PASS。

@@ -166,7 +166,7 @@ frames/
 
 内部 trace 可保存 objectId、pose、snapshot/attempt hash 和 raw event ref；Provider body 与模型 payload 不含这些内部 authority。evidence ref 只是引用，判定时仍需确认对应 artifact 实际存在并可独立核验。
 
-当前 V1.8 外部证据不完整：Gate A 为 19/20 worker，Gate B best-effort 切片在 reset 恢复阶段终止，`exact-cases-v3.json` 和固定十 Episode manifest 都不存在。因此十 Episode 真实 API 结果不可用，不能把旧 V1.7 Shelf 结果或其他 trial 当作 V1.8 PASS。
+当前 V1.8 外部证据不完整：Gate A 为 19/20 worker，Gate B best-effort 切片在 reset 恢复阶段终止，`exact-cases-v3.json` 仍不存在。固定十 Episode manifest 已从 6 条 historical exact 和 4 条 Gate 前固定的 deterministic replacement 构造并验证；真实运行产生完整 10 行结果，但全部在 `scan_pose_mismatch -> scan_time_scale_restore_rejected` 终止，0 次 Provider 请求，不能解释为 V1.8 PASS。
 
 设计、架构和交付状态见：
 

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Implement and deliver the user-approved V1.8 Oracle-pose/typed-feedback design on `visualagentloop`, preserve Gate A and Gate B per-instance outcomes without requiring a perfect pass, complete regressions and documentation, and make one local commit without pushing. Launch the fixed ten-Episode real-API regression only when its locked manifest and credentials exist; otherwise record it as `UNAVAILABLE` without substitution.
+Implement and deliver the user-approved V1.8 Oracle-pose/typed-feedback design on `visualagentloop`, preserve Gate A and Gate B per-instance outcomes without requiring a perfect pass, complete regressions and documentation, and make local commits without pushing. Launch the fixed ten-Episode real-API regression from the frozen selection rule and expose every failed row without substitution.
 
 ## Non-Negotiable Gates
 
@@ -43,7 +43,7 @@ Implement and deliver the user-approved V1.8 Oracle-pose/typed-feedback design o
 | 17. Gate B and full verification | complete_with_failures | `run-001` exposed and fixed a keyword-only runner call; `run-002` reached THOR and terminated honestly at reset recovery. After direct review added exact runtime-scene validation, final production-affecting rerun `run-003` reached the same honest terminal. The complete matrix remains unavailable without `exact-cases-v3.json`. |
 | 18. Documentation and Chinese report | complete | Architecture, guide, README, CHANGELOG, live handoff and the Chinese evidence report agree with the failed/incomplete external evidence and final internal counts. |
 | 19. One-time code-review round | complete_direct | The active no-subagent constraint replaced the planned independent reviewer with one main-agent complete-diff review. It found and fixed the runtime-scene identity omission; no further blocking defect was found. |
-| 20. Local commit, runtime sync and real-API launch | complete_with_unavailable | Final runtime bytes, checks and changed-file hashes are ready for the single local commit with no push. The fixed ten-Episode run is `UNAVAILABLE` because neither its locked manifest nor API credentials exists; no substitute was selected. |
+| 20. Local commit, runtime sync and real-API launch | complete_with_failures | The ignored Mimo profile passes a real `LLMClient` probe. The committed ten-entry manifest pins six exact trials plus four pre-Gate `candidate-1` replacements. The ten-Episode process produced all ten rows, each failed before Provider construction at `scan_pose_mismatch -> scan_time_scale_restore_rejected`; no push is authorized. |
 
 ## Errors Encountered
 
