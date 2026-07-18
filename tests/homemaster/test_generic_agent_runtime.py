@@ -6,11 +6,14 @@ importing home domain modules.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
 from homemaster.agent.messages import (
@@ -22,6 +25,15 @@ from homemaster.agent.messages import (
 )
 from homemaster.agent.session import AgentSession
 from homemaster.config.observability import ObservabilityConfig
+from homemaster.providers.attempts import (
+    ListProviderAttemptSink,
+    ProviderAttemptRecord,
+)
+from homemaster.providers.errors import (
+    LLMAuthError,
+    LLMNetworkError,
+    LLMProviderError,
+)
 from homemaster.providers.transports import TransportDelta
 
 
@@ -132,6 +144,86 @@ class ContextLengthFailingTransport:
         self.call_count += 1
         raise RuntimeError("context_length_exceeded")
         yield
+
+
+class AuditedRetryTransport:
+    def __init__(
+        self,
+        *,
+        first_error: Exception,
+        partial_delta: bool = False,
+        change_retry_hash: bool = False,
+    ) -> None:
+        self.first_error = first_error
+        self.partial_delta = partial_delta
+        self.change_retry_hash = change_retry_hash
+        self.call_count = 0
+        self.key_indices: list[int] = []
+        self.attempt_ids: list[str] = []
+        self.request_hashes: list[str] = []
+
+    def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        *,
+        system_prompt: str = "",
+        attempt_sink: Any,
+        model_attempt_id: str,
+        provider_key_index: int,
+        **_kwargs: Any,
+    ) -> Iterator[TransportDelta]:
+        payload = {
+            "messages": [message.model_dump(mode="json") for message in messages],
+            "system_prompt": system_prompt,
+            "tools": tools,
+        }
+        if self.change_retry_hash and self.call_count == 1:
+            payload["retry_mutation"] = True
+        request_sha256 = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        self.key_indices.append(provider_key_index)
+        self.attempt_ids.append(model_attempt_id)
+        self.request_hashes.append(request_sha256)
+        call_index = self.call_count
+        self.call_count += 1
+        if call_index == 0:
+            if self.partial_delta:
+                yield TransportDelta(type="transport.delta", text_delta="partial")
+            assert isinstance(self.first_error, Exception)
+            error_type = getattr(self.first_error, "error_type", None)
+            cause_code = getattr(self.first_error, "cause_code", None)
+            attempt_sink.record_attempt(
+                ProviderAttemptRecord(
+                    model_attempt_id=model_attempt_id,
+                    request_sha256=request_sha256,
+                    outbound_images=(),
+                    stripped_images=False,
+                    response_completed=False,
+                    error_type=error_type,
+                    cause_code=cause_code,
+                )
+            )
+            raise self.first_error
+        attempt_sink.record_attempt(
+            ProviderAttemptRecord(
+                model_attempt_id=model_attempt_id,
+                request_sha256=request_sha256,
+                outbound_images=(),
+                stripped_images=False,
+                response_completed=True,
+                error_type=None,
+                cause_code=None,
+            )
+        )
+        yield TransportDelta(type="transport.delta", text_delta="done")
+        yield TransportDelta(type="transport.delta", finish_reason="stop")
 
 
 class FakeToolExecutor:
@@ -470,3 +562,181 @@ def test_reactive_compact_retries_context_length_error_twice_by_default() -> Non
     assert transport.call_count == 3
     assert result.status == "failed"
     assert result.error_code == "context_length_exceeded_after_compact"
+
+
+def test_runtime_retries_one_frozen_retryable_provider_attempt() -> None:
+    transport = AuditedRetryTransport(
+        first_error=LLMNetworkError(
+            error_type="network_error",
+            message="connection reset",
+            cause_code="transient_network",
+        )
+    )
+    sinks: list[ListProviderAttemptSink] = []
+
+    def sink_factory() -> ListProviderAttemptSink:
+        sink = ListProviderAttemptSink()
+        sinks.append(sink)
+        return sink
+
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=sink_factory,
+    )
+
+    result = runtime.run(AgentSession(session_id="retry"), "hello", tools=[])
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert transport.call_count == 2
+    assert transport.key_indices == [0, 1]
+    assert len(set(transport.attempt_ids)) == 2
+    assert transport.request_hashes[0] == transport.request_hashes[1]
+    assert len(sinks) == 2
+    assert sinks[0].records[0].response_completed is False
+    assert sinks[1].records[0].response_completed is True
+    assert sum(event.type == "transport.request_retrying" for event in result.events) == 1
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        LLMAuthError(
+            error_type="auth_error",
+            message="invalid key",
+            cause_code="authentication_rejected",
+        ),
+        LLMProviderError(
+            error_type="provider_error",
+            message="provider rejected request",
+            cause_code="provider_error",
+        ),
+    ],
+    ids=["auth", "generic-provider"],
+)
+def test_runtime_does_not_retry_closed_nonretryable_provider_errors(
+    error: Exception,
+) -> None:
+    transport = AuditedRetryTransport(first_error=error)
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = runtime.run(AgentSession(session_id="no-retry"), "hello", tools=[])
+
+    assert result.status == "failed"
+    assert result.error_code == "transport_error"
+    assert transport.call_count == 1
+
+
+def test_runtime_does_not_retry_after_partial_provider_delta() -> None:
+    transport = AuditedRetryTransport(
+        first_error=LLMNetworkError(
+            error_type="network_error",
+            message="connection reset",
+            cause_code="transient_network",
+        ),
+        partial_delta=True,
+    )
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = runtime.run(AgentSession(session_id="partial"), "hello", tools=[])
+
+    assert result.status == "failed"
+    assert result.error_code == "transport_error"
+    assert transport.call_count == 1
+    assert [message.role for message in result.session.messages] == ["user"]
+
+
+def test_runtime_rejects_retry_request_hash_drift() -> None:
+    transport = AuditedRetryTransport(
+        first_error=LLMNetworkError(
+            error_type="network_error",
+            message="connection reset",
+            cause_code="transient_network",
+        ),
+        change_retry_hash=True,
+    )
+    runtime = GenericAgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = runtime.run(AgentSession(session_id="hash-drift"), "hello", tools=[])
+
+    assert result.status == "failed"
+    assert result.error_code == "transport_error"
+    assert transport.call_count == 2
+    assert transport.request_hashes[0] != transport.request_hashes[1]
+    assert [message.role for message in result.session.messages] == ["user"]
+
+
+def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
+    order: list[str] = []
+    committed_attempts: list[ProviderAttemptRecord] = []
+
+    class ToolTransport:
+        def stream(
+            self,
+            _messages: list[Message],
+            *,
+            attempt_sink: Any,
+            model_attempt_id: str,
+            **_kwargs: Any,
+        ) -> Iterator[TransportDelta]:
+            attempt_sink.record_attempt(
+                ProviderAttemptRecord(
+                    model_attempt_id=model_attempt_id,
+                    request_sha256="d" * 64,
+                    outbound_images=(),
+                    stripped_images=False,
+                    response_completed=True,
+                    error_type=None,
+                    cause_code=None,
+                )
+            )
+            yield TransportDelta(
+                type="transport.delta",
+                tool_call_delta=ToolCall(id="call-1", name="test_tool", arguments={}),
+            )
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class Observer:
+        def bind_messages(self, messages: list[Message]) -> list[Message]:
+            return messages
+
+        def commit_successful_response(self, *, attempt: ProviderAttemptRecord) -> None:
+            order.append("model_view_commit")
+            committed_attempts.append(attempt)
+
+    class Executor(FakeToolExecutor):
+        def dispatch(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
+            order.append("tool_dispatch")
+            return super().dispatch(name, arguments)
+
+    runtime = GenericAgentRuntime(
+        transport=ToolTransport(),
+        tool_executor=Executor(),
+        max_tool_iterations=1,
+        model_view_observer=Observer(),
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = runtime.run(AgentSession(session_id="commit-order"), "hello", tools=[])
+
+    assert result.error_code == "max_tool_iterations_exceeded"
+    assert order == ["model_view_commit", "tool_dispatch"]
+    assert len(committed_attempts) == 1
+    assert committed_attempts[0].request_sha256 == "d" * 64

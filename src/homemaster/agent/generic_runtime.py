@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import signal
 import time
 import uuid
@@ -23,6 +24,11 @@ from homemaster.agent.session_persistence import SessionPersistenceManager
 from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.sinks import FanoutEventSink
+from homemaster.providers.attempts import (
+    AttemptCommitState,
+    ProviderAttemptRecord,
+)
+from homemaster.providers.errors import LLMClientError
 from homemaster.providers.transports.types import aggregate_deltas
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
@@ -37,6 +43,11 @@ _CONTEXT_LENGTH_KEYWORDS = (
     "context window",
     "exceeds the available context size",
 )
+_RETRYABLE_PROVIDER_FAILURES = {
+    ("network_error", "transient_network"),
+    ("rate_limit", "rate_limit"),
+    ("stream_protocol_error", "message_delta_before_message_start"),
+}
 
 
 def _is_context_length_error(error_msg: str) -> bool:
@@ -104,6 +115,8 @@ class GenericAgentRuntime:
         stop_condition: StopCondition | None = None,
         context_assembler: ContextAssembler | None = None,
         system_prompt: str = "",
+        model_view_observer: Any = None,
+        provider_attempt_sink_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._transport = transport
         self._tool_executor = tool_executor
@@ -111,6 +124,8 @@ class GenericAgentRuntime:
         self._stop_condition = stop_condition
         self._context_assembler = context_assembler
         self._system_prompt = system_prompt
+        self._model_view_observer = model_view_observer
+        self._provider_attempt_sink_factory = provider_attempt_sink_factory
 
     def run(
         self,
@@ -269,41 +284,132 @@ class GenericAgentRuntime:
                         )
                         save_snapshot()
 
-                try:
-                    stream = self._transport.stream(
-                        context_messages,
-                        tools=context_tools,
-                        system_prompt=context_system_prompt,
-                        event_sink=event_sink,
-                        run_id=run_id,
-                        session_id=session.session_id,
-                        turn_index=0,
-                        iteration=iteration,
+                if self._model_view_observer is not None:
+                    bind_messages = getattr(
+                        self._model_view_observer,
+                        "bind_messages",
+                        None,
                     )
-                    interrupt.set_stream(stream)
-                    deltas = []
-                    try:
-                        for delta in stream:
-                            if interrupt.cancelled:
-                                break
-                            deltas.append(delta)
-                    finally:
-                        interrupt.clear_stream()
-                        close = getattr(stream, "close", None)
-                        if callable(close):
-                            close()
-                    if interrupt.cancelled:
-                        return self._cancel_result(
-                            session,
-                            run_id,
-                            events,
-                            emit=emit,
-                            phase="llm_call",
-                            agent_state=agent_state,
-                            task_state_store=task_state_store,
-                            persistence=persistence,
+                    if callable(bind_messages):
+                        try:
+                            context_messages = bind_messages(context_messages)
+                        except Exception as exc:
+                            invalidate = getattr(
+                                self._model_view_observer,
+                                "invalidate",
+                                None,
+                            )
+                            if callable(invalidate):
+                                invalidate(f"{type(exc).__name__}: {exc}")
+
+                try:
+                    attempt_index = 0
+                    first_request_sha256: str | None = None
+                    successful_attempt: ProviderAttemptRecord | None = None
+                    attempt_commit_state = AttemptCommitState(
+                        assistant_committed=False,
+                        tool_dispatch_committed=False,
+                        external_action_committed=False,
+                    )
+                    while True:
+                        base_attempt_id = f"{run_id}:attempt-{iteration + 1:04d}"
+                        model_attempt_id = (
+                            base_attempt_id
+                            if attempt_index == 0
+                            else f"{base_attempt_id}:retry-{attempt_index:02d}"
                         )
-                    assistant_msg = aggregate_deltas(deltas)
+                        attempt_sink = None
+                        stream_kwargs = {
+                            "tools": context_tools,
+                            "system_prompt": context_system_prompt,
+                            "event_sink": event_sink,
+                            "run_id": run_id,
+                            "session_id": session.session_id,
+                            "turn_index": 0,
+                            "iteration": iteration,
+                        }
+                        if (
+                            self._provider_attempt_sink_factory is not None
+                            and _accepts_attempt_sink(self._transport.stream)
+                        ):
+                            attempt_sink = self._provider_attempt_sink_factory()
+                            stream_kwargs.update(
+                                {
+                                    "attempt_sink": attempt_sink,
+                                    "model_attempt_id": model_attempt_id,
+                                }
+                            )
+                        if _accepts_stream_parameter(
+                            self._transport.stream,
+                            "provider_key_index",
+                        ):
+                            stream_kwargs["provider_key_index"] = attempt_index
+
+                        deltas = []
+                        try:
+                            stream = self._transport.stream(
+                                context_messages,
+                                **stream_kwargs,
+                            )
+                            interrupt.set_stream(stream)
+                            try:
+                                for delta in stream:
+                                    if interrupt.cancelled:
+                                        break
+                                    deltas.append(delta)
+                            finally:
+                                interrupt.clear_stream()
+                                close = getattr(stream, "close", None)
+                                if callable(close):
+                                    close()
+                        except Exception as exc:
+                            failed_attempt = _last_provider_attempt(attempt_sink)
+                            if (
+                                attempt_index == 0
+                                and _provider_retry_allowed(
+                                    error=exc,
+                                    deltas=deltas,
+                                    commit_state=attempt_commit_state,
+                                    attempt=failed_attempt,
+                                )
+                            ):
+                                assert failed_attempt is not None
+                                first_request_sha256 = failed_attempt.request_sha256
+                                attempt_index = 1
+                                emit(
+                                    "transport.request_retrying",
+                                    payload={
+                                        "cause_code": failed_attempt.cause_code,
+                                        "first_model_attempt_id": (
+                                            failed_attempt.model_attempt_id
+                                        ),
+                                    },
+                                )
+                                continue
+                            raise
+
+                        if interrupt.cancelled:
+                            return self._cancel_result(
+                                session,
+                                run_id,
+                                events,
+                                emit=emit,
+                                phase="llm_call",
+                                agent_state=agent_state,
+                                task_state_store=task_state_store,
+                                persistence=persistence,
+                            )
+                        successful_attempt = _last_provider_attempt(attempt_sink)
+                        if first_request_sha256 is not None and (
+                            successful_attempt is None
+                            or successful_attempt.request_sha256
+                            != first_request_sha256
+                        ):
+                            raise RuntimeError(
+                                "provider retry changed the frozen request body"
+                            )
+                        assistant_msg = aggregate_deltas(deltas)
+                        break
                 except Exception as exc:
                     if self._context_assembler is not None and _is_context_length_error(str(exc)):
                         max_retries = self._reactive_compact_max_retries(settings)
@@ -346,6 +452,22 @@ class GenericAgentRuntime:
 
                 model_elapsed_ms = round((time.perf_counter() - model_started) * 1000, 1)
                 session.append(assistant_msg)
+                attempt_commit_state = AttemptCommitState(
+                    assistant_committed=True,
+                    tool_dispatch_committed=False,
+                    external_action_committed=False,
+                )
+                if self._model_view_observer is not None and assistant_msg.tool_calls:
+                    try:
+                        if successful_attempt is None:
+                            raise ValueError("provider attempt record is unavailable")
+                        self._model_view_observer.commit_successful_response(
+                            attempt=successful_attempt,
+                        )
+                    except Exception as exc:
+                        invalidate = getattr(self._model_view_observer, "invalidate", None)
+                        if callable(invalidate):
+                            invalidate(f"{type(exc).__name__}: {exc}")
                 if assistant_msg.reasoning_content:
                     emit(
                         "assistant.thinking",
@@ -754,3 +876,50 @@ class GenericAgentRuntime:
                     )
                 )
         return results
+
+
+def _accepts_attempt_sink(stream: Any) -> bool:
+    return _accepts_stream_parameter(stream, "attempt_sink")
+
+
+def _accepts_stream_parameter(stream: Any, name: str) -> bool:
+    try:
+        parameters = inspect.signature(stream).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(
+        parameter.name == name
+        or parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+
+
+def _last_provider_attempt(sink: Any) -> ProviderAttemptRecord | None:
+    record = getattr(sink, "last_record", None)
+    return record if isinstance(record, ProviderAttemptRecord) else None
+
+
+def _provider_retry_allowed(
+    *,
+    error: Exception,
+    deltas: list[Any],
+    commit_state: AttemptCommitState,
+    attempt: ProviderAttemptRecord | None,
+) -> bool:
+    if not isinstance(error, LLMClientError) or attempt is None or deltas:
+        return False
+    if any(
+        (
+            commit_state.assistant_committed,
+            commit_state.tool_dispatch_committed,
+            commit_state.external_action_committed,
+        )
+    ):
+        return False
+    if attempt.response_completed or attempt.stripped_images:
+        return False
+    failure = (error.error_type, error.cause_code)
+    return (
+        failure in _RETRYABLE_PROVIDER_FAILURES
+        and (attempt.error_type, attempt.cause_code) == failure
+    )

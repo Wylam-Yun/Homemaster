@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Protocol
 
 from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
+
+
+class ToolDispatchObserver(Protocol):
+    def on_call(self, tool_call: ToolCall) -> None: ...
+
+    def terminal_result(self, tool_call: ToolCall) -> ToolResultMessage | None: ...
+
+    def on_result(self, tool_call: ToolCall, result: Any) -> None: ...
+
+    def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage: ...
 
 
 class ToolDispatcher:
@@ -51,6 +61,10 @@ class ToolDispatcher:
         """
         results: list[ToolResultMessage] = []
         token = run_context.cancellation_token
+        observer = run_context.deps.get("tool_dispatch_observer")
+        if observer is not None:
+            for tool_call in tool_calls:
+                observer.on_call(tool_call)
         for index, tc in enumerate(tool_calls):
             if getattr(token, "cancelled", False):
                 for pending in tool_calls[index:]:
@@ -70,18 +84,31 @@ class ToolDispatcher:
                         )
                     )
                 break
-            terminal_result = _terminal_alfworld_result(tc, run_context)
+            terminal_result = observer.terminal_result(tc) if observer is not None else None
             if terminal_result is not None:
                 results.append(terminal_result)
                 continue
             spec = self._specs.get(tc.name)
             if spec is None:
+                payload = {
+                    "success": False,
+                    "error": "unknown_tool",
+                    "terminal": False,
+                    "classification": None,
+                    "score_eligible": True,
+                    "detail": "The requested tool is unavailable.",
+                }
                 results.append(
                     ToolResultMessage(
                         tool_call_id=tc.id,
                         name=tc.name,
-                        content=[ContentBlock(text=f'{{"error": "unknown tool: {tc.name}"}}')],
-                        is_error=True,
+                        content=[
+                            ContentBlock(
+                                text=json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                            )
+                        ],
+                        is_error=False,
+                        data=payload,
                     )
                 )
                 continue
@@ -91,13 +118,25 @@ class ToolDispatcher:
             required = schema.get("required", [])
             missing = [f for f in required if f not in tc.arguments]
             if missing:
-                error_text = f'{{"error": "missing required arguments: {missing}"}}'
+                payload = {
+                    "success": False,
+                    "error": "invalid_tool_arguments",
+                    "terminal": False,
+                    "classification": None,
+                    "score_eligible": True,
+                    "detail": "The tool arguments are invalid.",
+                }
                 results.append(
                     ToolResultMessage(
                         tool_call_id=tc.id,
                         name=tc.name,
-                        content=[ContentBlock(text=error_text)],
-                        is_error=True,
+                        content=[
+                            ContentBlock(
+                                text=json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                            )
+                        ],
+                        is_error=False,
+                        data=payload,
                     )
                 )
                 continue
@@ -132,23 +171,21 @@ class ToolDispatcher:
                     else:
                         run_context.deps.pop("current_tool_call_id", None)
             except Exception as exc:
-                tool_result = ToolResult(
-                    success=False,
-                    tool_name=tc.name,
-                    executor_mode=spec.executor_mode,
-                    failure_reason=f"{type(exc).__name__}: {exc}",
-                )
+                if observer is not None:
+                    tool_result = observer.on_exception(tc, exc)
+                else:
+                    tool_result = ToolResult(
+                        success=False,
+                        tool_name=tc.name,
+                        executor_mode=spec.executor_mode,
+                        failure_reason=f"{type(exc).__name__}: {exc}",
+                    )
             finally:
                 if hasattr(token, "exit_tool"):
                     token.exit_tool()
 
-            terminal_data = getattr(tool_result, "data", None)
-            if isinstance(terminal_data, dict):
-                _sync_alfworld_outcome(
-                    run_context=run_context,
-                    tool_call_id=tc.id,
-                    data=terminal_data,
-                )
+            if observer is not None:
+                observer.on_result(tc, tool_result)
 
             if isinstance(tool_result, ToolResult):
                 if tool_result.success:
@@ -196,53 +233,3 @@ class ToolDispatcher:
                 )
 
         return results
-
-
-def _terminal_alfworld_result(
-    tool_call: ToolCall,
-    run_context: RunContext,
-) -> ToolResultMessage | None:
-    outcome = run_context.deps.get("alfworld_episode_outcome")
-    if outcome is None or not bool(getattr(outcome, "terminal", False)):
-        return None
-    if not tool_call.name.startswith("robot_"):
-        return None
-    classification = str(
-        getattr(outcome, "classification", None) or "unclassified_execution_failure"
-    )
-    payload = {
-        "success": False,
-        "error": "episode_terminated",
-        "terminal": True,
-        "classification": classification,
-        "score_eligible": bool(getattr(outcome, "score_eligible", False)),
-    }
-    return ToolResultMessage(
-        tool_call_id=tool_call.id,
-        name=tool_call.name,
-        content=[ContentBlock(text=json.dumps(payload, ensure_ascii=False, sort_keys=True))],
-        is_error=True,
-        data=payload,
-    )
-
-
-def _sync_alfworld_outcome(
-    *,
-    run_context: RunContext,
-    tool_call_id: str,
-    data: dict[str, Any],
-) -> None:
-    if data.get("terminal") is not True:
-        return
-    outcome = run_context.deps.get("alfworld_episode_outcome")
-    if outcome is None or bool(getattr(outcome, "terminal", False)):
-        return
-    classification = str(data.get("classification") or "unclassified_execution_failure")
-    marker = getattr(outcome, "mark_terminal", None)
-    if callable(marker):
-        marker(classification=classification, tool_call_id=tool_call_id)
-        return
-    outcome.terminal = True
-    outcome.classification = classification
-    outcome.terminal_tool_call_id = tool_call_id
-    outcome.score_eligible = bool(data.get("score_eligible", False))

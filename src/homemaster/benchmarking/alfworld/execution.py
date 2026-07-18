@@ -6,8 +6,31 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal, Protocol
+
+from homemaster.benchmarking.alfworld.gateway import (
+    ExternalEventRead,
+    GatewayActionResult,
+    OracleActionGateway,
+)
+from homemaster.benchmarking.alfworld.model_view import (
+    ObjectObservationRead,
+    VisibleObjectView,
+)
+from homemaster.benchmarking.alfworld.pose_snapshot import (
+    OraclePose,
+    OraclePoseLookup,
+    OraclePoseStore,
+    SceneObjectScanInput,
+    oracle_pose_matches,
+)
+from homemaster.benchmarking.alfworld.types import (
+    AlfworldAction,
+    AlfworldExecutionFeedback,
+    make_execution_feedback,
+)
 
 ReadStatus = Literal["ok", "error", "missing"]
 ActionStatus = Literal["success", "failure", "uncertain"]
@@ -190,6 +213,10 @@ class SceneObjectIndex:
             return None
         return self.by_canonical_label[labels[0]]
 
+    def matching_type(self, label: str) -> tuple[SceneObjectRef, ...]:
+        labels = self.labels_by_type.get(_object_type_key(label), ())
+        return tuple(self.by_canonical_label[item] for item in labels)
+
 
 @dataclass(frozen=True)
 class GroundingDecision:
@@ -226,6 +253,1420 @@ def reconcile_target_resolution(
         score_eligible=True,
         resolved_object_id=authoritative.object_id,
     )
+
+
+NavigationError = Literal[
+    "target_not_found",
+    "target_not_visible",
+    "object_already_held",
+    "oracle_anchor_unresolved",
+    "oracle_pose_missing",
+    "oracle_pose_malformed",
+    "oracle_navigation_failed",
+    "oracle_pose_mismatch",
+    "oracle_target_not_visible",
+    "execution_state_uncertain",
+]
+ExecutionContextState = Literal["active", "consumed", "invalid"]
+
+
+@dataclass(frozen=True)
+class OracleExecutionContext:
+    scene_generation: int
+    goal_generation: int
+    source_event_sequence: int
+    current_event_sequence: int
+    requested_target_id: str
+    navigation_anchor_id: str
+    oracle_snapshot_hash: str
+    oracle_pose_hash: str
+    anchor_state_hash: str
+    actual_pose: OraclePose
+    final_event_hash: str
+    final_event_ref: str
+    state: ExecutionContextState = "active"
+
+    def __post_init__(self) -> None:
+        if self.scene_generation < 0 or self.goal_generation < 0:
+            raise ValueError("execution context generations cannot be negative")
+        if self.source_event_sequence < 0 or self.current_event_sequence < 0:
+            raise ValueError("execution context event sequences cannot be negative")
+        if self.current_event_sequence < self.source_event_sequence:
+            raise ValueError("execution context event sequence moved backwards")
+        for name in (
+            "oracle_snapshot_hash",
+            "oracle_pose_hash",
+            "anchor_state_hash",
+            "final_event_hash",
+        ):
+            if not _is_sha256(getattr(self, name)):
+                raise ValueError(f"execution context requires a valid {name}")
+        if (
+            not self.requested_target_id
+            or not self.navigation_anchor_id
+            or not self.final_event_ref
+        ):
+            raise ValueError("execution context requires exact target, anchor, and final event")
+        if self.state not in {"active", "consumed", "invalid"}:
+            raise ValueError(f"unsupported execution context state: {self.state}")
+
+
+@dataclass(frozen=True)
+class NavigationTargetLock:
+    requested_label: str
+    target: SceneObjectRef
+    observation: ObjectObservationRead
+    current_object: SceneObjectScanInput
+
+
+@dataclass(frozen=True)
+class NavigationTargetResolution:
+    lock: NavigationTargetLock | None
+    error: NavigationError | None
+
+
+@dataclass(frozen=True)
+class NavigationAnchorResolution:
+    anchor_id: str | None
+    lookup: OraclePoseLookup | None
+    anchor_object: SceneObjectScanInput | None
+    error: NavigationError | None
+
+
+@dataclass(frozen=True)
+class OracleNavigationResult:
+    success: bool
+    error: NavigationError | None
+    terminal: bool
+    score_eligible: bool
+    target_label: str
+    target_id: str | None
+    anchor_id: str | None
+    context: OracleExecutionContext | None
+    final_event: ExternalEventRead | None
+    backend_action_count: int
+    trace_events: tuple[dict[str, Any], ...]
+
+    def __post_init__(self) -> None:
+        if self.success:
+            if self.error is not None or self.terminal or not self.score_eligible:
+                raise ValueError("successful navigation result has terminal fields")
+            if self.context is None or self.backend_action_count != 1:
+                raise ValueError("successful navigation requires one action and active context")
+        elif self.error is None:
+            raise ValueError("failed navigation result requires an error")
+
+
+class NavigationAnchorResolver:
+    def resolve(
+        self,
+        *,
+        target: SceneObjectScanInput,
+        objects: tuple[SceneObjectScanInput, ...],
+        pose_store: OraclePoseStore,
+        scene_generation: int,
+        scene_reset_fingerprint: str,
+        snapshot_sha256: str,
+    ) -> NavigationAnchorResolution:
+        by_id = {item.exact_object_id: item for item in objects}
+        parents = []
+        for parent_id in target.parent_receptacle_ids:
+            parent = by_id.get(parent_id)
+            if parent is not None and target.exact_object_id in parent.receptacle_object_ids:
+                parents.append(parent)
+        innermost = [
+            parent
+            for parent in parents
+            if not any(
+                parent.exact_object_id in other.parent_receptacle_ids
+                for other in parents
+                if other.exact_object_id != parent.exact_object_id
+            )
+        ]
+        if len(innermost) != 1:
+            return NavigationAnchorResolution(None, None, None, "oracle_anchor_unresolved")
+        parent = innermost[0]
+        try:
+            lookup = pose_store.get_pose(
+                scene_generation=scene_generation,
+                scene_reset_fingerprint=scene_reset_fingerprint,
+                exact_anchor_id=parent.exact_object_id,
+            )
+        except Exception:
+            return NavigationAnchorResolution(None, None, None, "execution_state_uncertain")
+        identity_error = _lookup_identity_error(
+            lookup,
+            scene_generation=scene_generation,
+            scene_reset_fingerprint=scene_reset_fingerprint,
+            snapshot_sha256=snapshot_sha256,
+        )
+        if identity_error is not None:
+            return NavigationAnchorResolution(None, lookup, parent, identity_error)
+        if lookup.status in {"stale", "error"}:
+            return NavigationAnchorResolution(None, lookup, parent, "execution_state_uncertain")
+        if (
+            lookup.status != "ok"
+            or lookup.pose is None
+            or lookup.pose_sha256 is None
+            or lookup.pose_freshness_sha256 != parent.pose_freshness_sha256
+        ):
+            return NavigationAnchorResolution(None, lookup, parent, "oracle_anchor_unresolved")
+        return NavigationAnchorResolution(parent.exact_object_id, lookup, parent, None)
+
+
+class OracleNavigationExecutor:
+    def __init__(
+        self,
+        *,
+        scene_index: SceneObjectIndex,
+        public_object_types: tuple[str, ...],
+        visible_object_view: VisibleObjectView,
+        current_event: ExternalEventRead,
+        pose_store: OraclePoseStore,
+        parent_resolver: NavigationAnchorResolver,
+        gateway: OracleActionGateway,
+        context_factory: Callable[..., OracleExecutionContext] = OracleExecutionContext,
+    ) -> None:
+        self._scene_index = scene_index
+        self._public_type_keys = {_object_type_key(item) for item in public_object_types}
+        self._view = visible_object_view
+        self._current_event = current_event
+        self._pose_store = pose_store
+        self._parent_resolver = parent_resolver
+        self._gateway = gateway
+        self._context_factory = context_factory
+
+    def execute(
+        self,
+        requested_label: str,
+        *,
+        scene_generation: int,
+        goal_generation: int,
+        scene_reset_fingerprint: str,
+        snapshot_sha256: str,
+    ) -> OracleNavigationResult:
+        trace: list[dict[str, Any]] = [
+            {"event": "visibility_gate_started", "requested_label": requested_label}
+        ]
+        target = self._resolve_target(requested_label)
+        lock = target.lock
+        trace.append(
+            {
+                "event": "visibility_gate_result",
+                "success": lock is not None,
+                "error": target.error,
+                "target_id": lock.target.object_id if lock is not None else None,
+                "strict_visible": lock.observation.strict_visible if lock is not None else None,
+            }
+        )
+        if lock is None:
+            return _navigation_failure(
+                requested_label,
+                target.error or "execution_state_uncertain",
+                trace,
+            )
+
+        trace.append({"event": "pose_lookup_started", "target_id": lock.target.object_id})
+        try:
+            lookup = self._pose_store.get_pose(
+                scene_generation=scene_generation,
+                scene_reset_fingerprint=scene_reset_fingerprint,
+                exact_anchor_id=lock.target.object_id,
+            )
+        except Exception:
+            return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
+        trace.append({"event": "pose_lookup_result", "status": lookup.status})
+        identity_error = _lookup_identity_error(
+            lookup,
+            scene_generation=scene_generation,
+            scene_reset_fingerprint=scene_reset_fingerprint,
+            snapshot_sha256=snapshot_sha256,
+        )
+        if identity_error is not None:
+            return _navigation_failure(requested_label, identity_error, trace, lock)
+
+        anchor_id = lock.target.object_id
+        anchor_object = lock.current_object
+        if lookup.status == "coverage_miss":
+            return _navigation_failure(requested_label, "oracle_pose_missing", trace, lock)
+        if lookup.status == "malformed":
+            return _navigation_failure(requested_label, "oracle_pose_malformed", trace, lock)
+        if lookup.status in {"stale", "error"}:
+            return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
+        if lookup.status in {"unobserved", "relocated", "absent"}:
+            if lock.observation.strict_visible is not True:
+                return _navigation_failure(requested_label, "oracle_pose_missing", trace, lock)
+            if self._current_event.objects is None:
+                return _navigation_failure(
+                    requested_label, "execution_state_uncertain", trace, lock
+                )
+            anchor = self._parent_resolver.resolve(
+                target=lock.current_object,
+                objects=tuple(self._current_event.objects),
+                pose_store=self._pose_store,
+                scene_generation=scene_generation,
+                scene_reset_fingerprint=scene_reset_fingerprint,
+                snapshot_sha256=snapshot_sha256,
+            )
+            trace.append(
+                {
+                    "event": "parent_anchor_result",
+                    "anchor_id": anchor.anchor_id,
+                    "error": anchor.error,
+                }
+            )
+            if anchor.error is not None or anchor.lookup is None or anchor.anchor_object is None:
+                return _navigation_failure(
+                    requested_label,
+                    anchor.error or "oracle_anchor_unresolved",
+                    trace,
+                    lock,
+                )
+            anchor_id = anchor.anchor_id or ""
+            anchor_object = anchor.anchor_object
+            lookup = anchor.lookup
+        elif lookup.status != "ok":
+            return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
+
+        if lookup.pose is None or lookup.pose_sha256 is None:
+            return _navigation_failure(requested_label, "oracle_pose_malformed", trace, lock)
+        if lookup.pose_freshness_sha256 != anchor_object.pose_freshness_sha256:
+            return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
+        before = self._current_event
+        if before.control_sha256 is None:
+            return _navigation_failure(requested_label, "oracle_navigation_failed", trace, lock)
+        if (
+            before.status != "ok"
+            or before.pose is None
+            or before.world_sha256 is None
+            or before.raw_event_sha256 is None
+        ):
+            return _navigation_failure(requested_label, "execution_state_uncertain", trace, lock)
+
+        action = self._gateway.execute_navigation(_navigation_payload(lookup.pose))
+        trace.append(
+            {
+                "event": "navigation_gateway_result",
+                "request_sha256": action.request.request_sha256,
+                "success": action.success,
+            }
+        )
+        error = _navigation_action_error(
+            action,
+            before=before,
+            requested_pose=lookup.pose,
+            requested_target_id=lock.target.object_id,
+        )
+        if error is not None:
+            return _navigation_failure(
+                requested_label,
+                error,
+                trace,
+                lock,
+                anchor_id=anchor_id,
+                final_event=action.event,
+                backend_action_count=1,
+            )
+        event = action.event
+        assert event.raw_event_ref is not None
+        assert event.raw_event_sha256 is not None
+        context = self._context_factory(
+            scene_generation=scene_generation,
+            goal_generation=goal_generation,
+            source_event_sequence=self._view.event_sequence,
+            current_event_sequence=self._view.event_sequence + 1,
+            requested_target_id=lock.target.object_id,
+            navigation_anchor_id=anchor_id,
+            oracle_snapshot_hash=lookup.snapshot_sha256,
+            oracle_pose_hash=lookup.pose_sha256,
+            anchor_state_hash=anchor_object.pose_freshness_sha256,
+            actual_pose=event.pose,
+            final_event_hash=event.raw_event_sha256,
+            final_event_ref=event.raw_event_ref,
+            state="active",
+        )
+        trace.append({"event": "execution_context_created", "state": context.state})
+        return OracleNavigationResult(
+            success=True,
+            error=None,
+            terminal=False,
+            score_eligible=True,
+            target_label=requested_label,
+            target_id=lock.target.object_id,
+            anchor_id=anchor_id,
+            context=context,
+            final_event=event,
+            backend_action_count=1,
+            trace_events=tuple(trace),
+        )
+
+    def _resolve_target(self, requested_label: str) -> NavigationTargetResolution:
+        canonical = _canonical_query(requested_label)
+        explicit = _EXPLICIT_INSTANCE.fullmatch(canonical)
+        if explicit is not None:
+            base, ordinal_text = canonical.rsplit(" ", 1)
+            ordinal = int(ordinal_text)
+        else:
+            base, ordinal = canonical, None
+        type_key = _object_type_key(base)
+        if not canonical or type_key not in self._public_type_keys:
+            return NavigationTargetResolution(None, "target_not_found")
+        candidates = self._scene_index.matching_type(base)
+        if not candidates:
+            return NavigationTargetResolution(None, "target_not_found")
+        if ordinal is not None:
+            if ordinal <= 0 or ordinal > len(candidates):
+                return NavigationTargetResolution(None, "target_not_found")
+            candidates = (candidates[ordinal - 1],)
+        if self._current_event.objects is None:
+            return NavigationTargetResolution(None, "execution_state_uncertain")
+        current = {item.exact_object_id: item for item in self._current_event.objects}
+        held = False
+        offscreen_lock: NavigationTargetLock | None = None
+        for candidate in candidates:
+            observation = self._view.read(candidate.object_id)
+            if observation.status != "ok":
+                return NavigationTargetResolution(None, "execution_state_uncertain")
+            item = current.get(candidate.object_id)
+            if item is None:
+                return NavigationTargetResolution(None, "execution_state_uncertain")
+            if item.is_picked_up:
+                held = True
+                continue
+            lock = NavigationTargetLock(requested_label, candidate, observation, item)
+            if observation.strict_visible:
+                return NavigationTargetResolution(lock, None)
+            if offscreen_lock is None:
+                offscreen_lock = lock
+        if offscreen_lock is not None:
+            return NavigationTargetResolution(offscreen_lock, None)
+        if held:
+            return NavigationTargetResolution(None, "object_already_held")
+        return NavigationTargetResolution(None, "target_not_found")
+
+
+def _lookup_identity_error(
+    lookup: OraclePoseLookup,
+    *,
+    scene_generation: int,
+    scene_reset_fingerprint: str,
+    snapshot_sha256: str,
+) -> NavigationError | None:
+    if (
+        lookup.scene_generation != scene_generation
+        or lookup.scene_reset_fingerprint != scene_reset_fingerprint
+        or lookup.snapshot_sha256 != snapshot_sha256
+    ):
+        return "execution_state_uncertain"
+    return None
+
+
+def _navigation_payload(pose: OraclePose) -> dict[str, Any]:
+    return {
+        "action": "TeleportFull",
+        "x": pose.x,
+        "y": pose.y,
+        "z": pose.z,
+        "rotateOnTeleport": True,
+        "rotation": pose.rotation,
+        "horizon": pose.horizon,
+    }
+
+
+def _navigation_action_error(
+    result: GatewayActionResult,
+    *,
+    before: ExternalEventRead,
+    requested_pose: OraclePose,
+    requested_target_id: str,
+) -> NavigationError | None:
+    event = result.event
+    if event.status != "ok" or event.returned_action != "TeleportFull":
+        return "execution_state_uncertain"
+    if event.control_sha256 is None or event.control_sha256 != before.control_sha256:
+        return "oracle_navigation_failed"
+    if event.action_success is not True:
+        if (
+            event.action_success is False
+            and event.world_sha256 == before.world_sha256
+            and oracle_pose_matches(event.pose, before.pose)
+        ):
+            return "oracle_navigation_failed"
+        return "execution_state_uncertain"
+    if event.world_sha256 is None or event.world_sha256 != before.world_sha256:
+        return "execution_state_uncertain"
+    if not oracle_pose_matches(event.pose, requested_pose):
+        return "oracle_pose_mismatch"
+    if event.raw_event_ref is None or event.raw_event_sha256 is None:
+        return "execution_state_uncertain"
+    if requested_target_id not in event.strict_visible_exact_ids:
+        return "oracle_target_not_visible"
+    return None
+
+
+def _navigation_failure(
+    target_label: str,
+    error: NavigationError,
+    trace: list[dict[str, Any]],
+    lock: NavigationTargetLock | None = None,
+    *,
+    anchor_id: str | None = None,
+    final_event: ExternalEventRead | None = None,
+    backend_action_count: int = 0,
+) -> OracleNavigationResult:
+    terminal = error not in {"target_not_found", "target_not_visible", "object_already_held"}
+    return OracleNavigationResult(
+        success=False,
+        error=error,
+        terminal=terminal,
+        score_eligible=not terminal,
+        target_label=target_label,
+        target_id=lock.target.object_id if lock is not None else None,
+        anchor_id=anchor_id,
+        context=None,
+        final_event=final_event,
+        backend_action_count=backend_action_count,
+        trace_events=tuple(trace),
+    )
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+@dataclass(frozen=True)
+class ThorObjectView:
+    exact_object_id: str
+    object_type: str
+    visible: bool
+    is_picked_up: bool
+    parent_ids: tuple[str, ...]
+    child_ids: tuple[str, ...]
+    pickupable: bool | None
+    receptacle: bool | None
+    openable: bool | None
+    is_open: bool | None
+    toggleable: bool | None
+    is_toggled: bool | None
+    sliceable: bool | None
+    is_sliced: bool | None
+    is_dirty: bool | None
+    temperature: str | None
+
+
+@dataclass(frozen=True)
+class ThorStateSnapshot:
+    status: Literal["ok", "malformed", "error"]
+    inventory_ids: tuple[str, ...]
+    objects: tuple[ThorObjectView, ...]
+    state_sha256: str | None
+
+    def get(self, exact_object_id: str) -> ThorObjectView | None:
+        return next(
+            (item for item in self.objects if item.exact_object_id == exact_object_id),
+            None,
+        )
+
+
+@dataclass(frozen=True)
+class OracleManipulationResult:
+    feedback: AlfworldExecutionFeedback
+    context: OracleExecutionContext | None
+    backend_action_count: int
+    trace_events: tuple[dict[str, Any], ...]
+
+    @property
+    def success(self) -> bool:
+        return self.feedback.success
+
+
+class OracleManipulationExecutor:
+    def __init__(
+        self,
+        *,
+        scene_index: SceneObjectIndex,
+        visible_object_view: VisibleObjectView,
+        current_event: ExternalEventRead,
+        raw_event: Any,
+        raw_event_reader: Callable[[], Any],
+        context: OracleExecutionContext | None,
+        gateway: OracleActionGateway,
+        scene_generation: int,
+        goal_generation: int,
+    ) -> None:
+        self._scene_index = scene_index
+        self._view = visible_object_view
+        self._current_event = current_event
+        self._raw_event = raw_event
+        self._raw_event_reader = raw_event_reader
+        self._context = context
+        self._gateway = gateway
+        self._scene_generation = scene_generation
+        self._goal_generation = goal_generation
+
+    def execute(
+        self,
+        action: AlfworldAction,
+        *,
+        object_label: str | None,
+        target_label: str | None,
+    ) -> OracleManipulationResult:
+        trace: list[dict[str, Any]] = [{"event": "manipulation_precondition_started"}]
+        context = self._context
+        if action not in {"take", "open", "close", "put", "use", "slice", "heat", "cool", "clean"}:
+            return self._zero_failure(
+                action,
+                "action_not_applicable",
+                object_label,
+                target_label,
+                trace,
+            )
+        if (
+            context is None
+            or context.state != "active"
+            or context.scene_generation != self._scene_generation
+            or context.goal_generation != self._goal_generation
+        ):
+            return self._zero_failure(
+                action,
+                "navigation_required",
+                object_label,
+                target_label,
+                trace,
+            )
+        requested_label = _manipulation_requested_target(
+            action,
+            object_label=object_label,
+            target_label=target_label,
+        )
+        context_ref = self._scene_index.by_canonical_label.get(
+            _label_for_exact_id(self._scene_index, context.requested_target_id) or ""
+        )
+        if (
+            requested_label is None
+            or context_ref is None
+            or not _label_matches_ref(requested_label, context_ref, self._scene_index)
+        ):
+            return self._zero_failure(
+                action,
+                "navigation_required",
+                object_label,
+                target_label,
+                trace,
+            )
+        observation = self._view.read(context.requested_target_id)
+        if observation.status != "ok":
+            return self._uncertain(action, object_label, target_label, trace)
+        if not observation.strict_visible:
+            return self._zero_failure(
+                action,
+                "navigation_required",
+                object_label,
+                target_label,
+                trace,
+            )
+        if (
+            self._view.event_sequence != context.current_event_sequence
+            or not oracle_pose_matches(self._current_event.pose, context.actual_pose)
+        ):
+            return self._uncertain(action, object_label, target_label, trace)
+
+        before = read_thor_state_snapshot(self._raw_event)
+        if before.status != "ok":
+            return self._uncertain(action, object_label, target_label, trace)
+        target = before.get(context.requested_target_id)
+        if target is None:
+            return self._uncertain(action, object_label, target_label, trace)
+        inventory_labels = _inventory_labels_from_index(before.inventory_ids, self._scene_index)
+        trace.append({"event": "manipulation_precondition_passed", "action": action})
+
+        if action == "take":
+            return self._take(
+                context,
+                target,
+                before,
+                object_label,
+                inventory_labels,
+                trace,
+            )
+        if action in {"open", "close"}:
+            return self._open_close(
+                action,
+                context,
+                target,
+                before,
+                target_label or object_label,
+                inventory_labels,
+                trace,
+            )
+        if action == "put":
+            return self._put(
+                context,
+                target,
+                before,
+                object_label,
+                target_label,
+                inventory_labels,
+                trace,
+            )
+        if action == "use":
+            return self._use(
+                context,
+                target,
+                before,
+                object_label,
+                inventory_labels,
+                trace,
+            )
+        if action == "slice":
+            # Gate A did not verify whether this runtime preserves or replaces the exact ID.
+            return self._zero_failure(
+                action,
+                "unclassified_execution_failure",
+                object_label,
+                target_label,
+                trace,
+            )
+        return self._macro(
+            action,
+            context,
+            target,
+            before,
+            object_label,
+            target_label,
+            inventory_labels,
+            trace,
+        )
+
+    def _take(
+        self,
+        context: OracleExecutionContext,
+        target: ThorObjectView,
+        before: ThorStateSnapshot,
+        object_label: str | None,
+        inventory: tuple[str, ...],
+        trace: list[dict[str, Any]],
+    ) -> OracleManipulationResult:
+        if target.is_picked_up or target.exact_object_id in before.inventory_ids:
+            return self._zero_failure(
+                "take",
+                "object_already_held",
+                object_label,
+                None,
+                trace,
+                inventory=inventory,
+                object_state="held",
+            )
+        if target.pickupable is not True:
+            return self._zero_failure(
+                "take", "action_not_applicable", object_label, None, trace, inventory=inventory
+            )
+        return self._send_single(
+            action="take",
+            payload={
+                "action": "PickupObject",
+                "objectId": target.exact_object_id,
+                "forceAction": True,
+            },
+            context=context,
+            before=before,
+            object_label=object_label,
+            target_label=None,
+            terminal=lambda after: (
+                target.exact_object_id in after.inventory_ids
+                and (after.get(target.exact_object_id) or target).is_picked_up
+            ),
+            object_state="held",
+            context_state="consumed",
+            trace=trace,
+        )
+
+    def _open_close(
+        self,
+        action: Literal["open", "close"],
+        context: OracleExecutionContext,
+        target: ThorObjectView,
+        before: ThorStateSnapshot,
+        target_label: str | None,
+        inventory: tuple[str, ...],
+        trace: list[dict[str, Any]],
+    ) -> OracleManipulationResult:
+        if target.openable is not True or target.is_open is None:
+            return self._zero_failure(
+                action,
+                "action_not_applicable",
+                None,
+                target_label,
+                trace,
+                inventory=inventory,
+            )
+        want_open = action == "open"
+        state = "open" if want_open else "closed"
+        if target.is_open is want_open:
+            feedback = make_execution_feedback(
+                action=action,
+                success=True,
+                target_label=target_label,
+                inventory=inventory,
+                inventory_status="ok",
+                target_state=state,
+                target_state_status="ok",
+                state_changed=False,
+                state_read_status="ok",
+            )
+            return OracleManipulationResult(feedback, context, 0, tuple(trace))
+        backend_action = "OpenObject" if want_open else "CloseObject"
+        return self._send_single(
+            action=action,
+            payload={
+                "action": backend_action,
+                "objectId": target.exact_object_id,
+                "forceAction": True,
+            },
+            context=context,
+            before=before,
+            object_label=None,
+            target_label=target_label,
+            terminal=lambda after: (
+                (after.get(target.exact_object_id) is not None)
+                and (after.get(target.exact_object_id).is_open is want_open)
+            ),
+            target_state=state,
+            context_state="active",
+            trace=trace,
+        )
+
+    def _put(
+        self,
+        context: OracleExecutionContext,
+        target: ThorObjectView,
+        before: ThorStateSnapshot,
+        object_label: str | None,
+        target_label: str | None,
+        inventory: tuple[str, ...],
+        trace: list[dict[str, Any]],
+    ) -> OracleManipulationResult:
+        object_ref = self._scene_index.resolve(object_label or "")
+        if object_ref is None:
+            return self._zero_failure(
+                "put", "target_not_found", object_label, target_label, trace, inventory=inventory
+            )
+        held = before.get(object_ref.object_id)
+        if held is None:
+            return self._uncertain("put", object_label, target_label, trace)
+        if object_ref.object_id not in before.inventory_ids or not held.is_picked_up:
+            return self._zero_failure(
+                "put",
+                "object_not_held",
+                object_label,
+                target_label,
+                trace,
+                inventory=inventory,
+                object_state="not_held",
+            )
+        if target.receptacle is not True:
+            return self._zero_failure(
+                "put",
+                "target_not_receptacle",
+                object_label,
+                target_label,
+                trace,
+                inventory=inventory,
+                object_state="held",
+            )
+        if target.openable is True and target.is_open is False:
+            return self._zero_failure(
+                "put",
+                "target_closed",
+                object_label,
+                target_label,
+                trace,
+                inventory=inventory,
+                object_state="held",
+                target_state="closed",
+            )
+        return self._send_single(
+            action="put",
+            payload={
+                "action": "PutObject",
+                "objectId": object_ref.object_id,
+                "receptacleObjectId": target.exact_object_id,
+                "forceAction": True,
+                "placeStationary": True,
+            },
+            context=context,
+            before=before,
+            object_label=object_label,
+            target_label=target_label,
+            terminal=lambda after: _put_terminal(
+                after,
+                object_id=object_ref.object_id,
+                target_id=target.exact_object_id,
+            ),
+            object_state="placed",
+            context_state="consumed",
+            trace=trace,
+        )
+
+    def _use(
+        self,
+        context: OracleExecutionContext,
+        target: ThorObjectView,
+        before: ThorStateSnapshot,
+        object_label: str | None,
+        inventory: tuple[str, ...],
+        trace: list[dict[str, Any]],
+    ) -> OracleManipulationResult:
+        if target.toggleable is not True or target.is_toggled is None:
+            return self._zero_failure(
+                "use",
+                "action_not_applicable",
+                object_label,
+                None,
+                trace,
+                inventory=inventory,
+            )
+        if target.is_toggled:
+            feedback = make_execution_feedback(
+                action="use",
+                success=True,
+                object_label=object_label,
+                inventory=inventory,
+                inventory_status="ok",
+                target_state="toggled_on",
+                target_state_status="ok",
+                state_changed=False,
+                state_read_status="ok",
+            )
+            return OracleManipulationResult(feedback, context, 0, tuple(trace))
+        return self._send_single(
+            action="use",
+            payload={
+                "action": "ToggleObjectOn",
+                "objectId": target.exact_object_id,
+                "forceAction": True,
+            },
+            context=context,
+            before=before,
+            object_label=object_label,
+            target_label=None,
+            terminal=lambda after: (
+                (after.get(target.exact_object_id) is not None)
+                and after.get(target.exact_object_id).is_toggled is True
+            ),
+            target_state="toggled_on",
+            context_state="active",
+            trace=trace,
+        )
+
+    def _macro(
+        self,
+        action: Literal["heat", "cool", "clean"],
+        context: OracleExecutionContext,
+        target: ThorObjectView,
+        before: ThorStateSnapshot,
+        object_label: str | None,
+        target_label: str | None,
+        inventory: tuple[str, ...],
+        trace: list[dict[str, Any]],
+    ) -> OracleManipulationResult:
+        object_ref = self._scene_index.resolve(object_label or "")
+        if object_ref is None or object_ref.object_id not in before.inventory_ids:
+            return self._zero_failure(
+                action,
+                "object_not_held",
+                object_label,
+                target_label,
+                trace,
+                inventory=inventory,
+                object_state="not_held",
+            )
+        plan = _macro_plan(
+            action,
+            object_id=object_ref.object_id,
+            target_id=target.exact_object_id,
+            before=before,
+        )
+        if plan is None:
+            return self._zero_failure(
+                action,
+                "unclassified_execution_failure",
+                object_label,
+                target_label,
+                trace,
+            )
+        current = before
+        final_event: ExternalEventRead | None = None
+        count = 0
+        for payload, predicate in plan:
+            result = self._gateway.execute_manipulation(payload)
+            count += 1
+            after = read_thor_state_snapshot(self._raw_event_reader())
+            if after.status != "ok" or not oracle_pose_matches(
+                result.event.pose, context.actual_pose
+            ):
+                return self._uncertain(
+                    action, object_label, target_label, trace, backend_action_count=count
+                )
+            if not result.success:
+                error = (
+                    "harness_operation_failure"
+                    if after.state_sha256 == current.state_sha256
+                    else "execution_state_uncertain"
+                )
+                return self._failure(
+                    action,
+                    error,
+                    object_label,
+                    target_label,
+                    after,
+                    trace,
+                    backend_action_count=count,
+                )
+            if not predicate(after):
+                return self._uncertain(
+                    action, object_label, target_label, trace, backend_action_count=count
+                )
+            current = after
+            final_event = result.event
+        final_object = current.get(object_ref.object_id)
+        if final_event is None or final_object is None or not _macro_terminal(action, final_object):
+            return self._uncertain(
+                action, object_label, target_label, trace, backend_action_count=count
+            )
+        object_state = {"heat": "heated", "cool": "cooled", "clean": "clean"}[action]
+        feedback = make_execution_feedback(
+            action=action,
+            success=True,
+            object_label=object_label,
+            target_label=target_label,
+            inventory=_inventory_labels_from_index(current.inventory_ids, self._scene_index),
+            inventory_status="ok",
+            object_state=object_state,
+            object_state_status="ok",
+            state_changed=True,
+            state_read_status="ok",
+        )
+        return OracleManipulationResult(
+            feedback,
+            _rebase_context(context, final_event, state="consumed", action_count=count),
+            count,
+            tuple(trace),
+        )
+
+    def _send_single(
+        self,
+        *,
+        action: AlfworldAction,
+        payload: dict[str, Any],
+        context: OracleExecutionContext,
+        before: ThorStateSnapshot,
+        object_label: str | None,
+        target_label: str | None,
+        terminal: Callable[[ThorStateSnapshot], bool],
+        context_state: ExecutionContextState,
+        trace: list[dict[str, Any]],
+        object_state: str | None = None,
+        target_state: str | None = None,
+    ) -> OracleManipulationResult:
+        result = self._gateway.execute_manipulation(payload)
+        after = read_thor_state_snapshot(self._raw_event_reader())
+        trace.append(
+            {"event": "manipulation_gateway_result", "success": result.success}
+        )
+        if after.status != "ok" or not oracle_pose_matches(
+            result.event.pose, context.actual_pose
+        ):
+            return self._uncertain(
+                action, object_label, target_label, trace, backend_action_count=1
+            )
+        if not result.success:
+            error = (
+                "harness_operation_failure"
+                if after.state_sha256 == before.state_sha256
+                else "execution_state_uncertain"
+            )
+            return self._failure(
+                action,
+                error,
+                object_label,
+                target_label,
+                after,
+                trace,
+                backend_action_count=1,
+            )
+        if not terminal(after):
+            return self._uncertain(
+                action, object_label, target_label, trace, backend_action_count=1
+            )
+        feedback = make_execution_feedback(
+            action=action,
+            success=True,
+            object_label=object_label,
+            target_label=target_label,
+            inventory=_inventory_labels_from_index(after.inventory_ids, self._scene_index),
+            inventory_status="ok",
+            object_state=object_state,
+            object_state_status="ok" if object_state is not None else "not_applicable",
+            target_state=target_state,
+            target_state_status="ok" if target_state is not None else "not_applicable",
+            state_changed=True,
+            state_read_status="ok",
+        )
+        return OracleManipulationResult(
+            feedback,
+            _rebase_context(context, result.event, state=context_state, action_count=1),
+            1,
+            tuple(trace),
+        )
+
+    def _zero_failure(
+        self,
+        action: AlfworldAction,
+        error: str,
+        object_label: str | None,
+        target_label: str | None,
+        trace: list[dict[str, Any]],
+        *,
+        inventory: tuple[str, ...] | None = None,
+        object_state: str | None = None,
+        target_state: str | None = None,
+    ) -> OracleManipulationResult:
+        feedback = make_execution_feedback(
+            action=action,
+            success=False,
+            error=error,
+            object_label=object_label,
+            target_label=target_label,
+            inventory=inventory,
+            inventory_status="ok" if inventory is not None else "not_applicable",
+            object_state=object_state,
+            object_state_status="ok" if object_state is not None else "not_applicable",
+            target_state=target_state,
+            target_state_status="ok" if target_state is not None else "not_applicable",
+            state_changed=False,
+            state_read_status="ok",
+        )
+        return OracleManipulationResult(feedback, self._context, 0, tuple(trace))
+
+    def _failure(
+        self,
+        action: AlfworldAction,
+        error: str,
+        object_label: str | None,
+        target_label: str | None,
+        after: ThorStateSnapshot,
+        trace: list[dict[str, Any]],
+        *,
+        backend_action_count: int,
+    ) -> OracleManipulationResult:
+        feedback = make_execution_feedback(
+            action=action,
+            success=False,
+            error=error,
+            object_label=object_label,
+            target_label=target_label,
+            inventory=_inventory_labels_from_index(after.inventory_ids, self._scene_index),
+            inventory_status="ok",
+            state_changed=False,
+            state_read_status="ok",
+        )
+        context = self._context
+        if error == "execution_state_uncertain" and context is not None:
+            context = replace(context, state="invalid")
+        return OracleManipulationResult(
+            feedback, context, backend_action_count, tuple(trace)
+        )
+
+    def _uncertain(
+        self,
+        action: AlfworldAction,
+        object_label: str | None,
+        target_label: str | None,
+        trace: list[dict[str, Any]],
+        *,
+        backend_action_count: int = 0,
+    ) -> OracleManipulationResult:
+        return self._failure(
+            action,
+            "execution_state_uncertain",
+            object_label,
+            target_label,
+            ThorStateSnapshot("error", (), (), None),
+            trace,
+            backend_action_count=backend_action_count,
+        )
+
+
+def read_thor_state_snapshot(event: Any) -> ThorStateSnapshot:
+    try:
+        metadata = getattr(event, "metadata", None)
+        if not isinstance(metadata, dict) or not isinstance(metadata.get("objects"), list):
+            return ThorStateSnapshot("malformed", (), (), None)
+        inventory_raw = metadata.get("inventoryObjects")
+        if not isinstance(inventory_raw, list):
+            return ThorStateSnapshot("malformed", (), (), None)
+        inventory = tuple(
+            sorted(
+                str(item["objectId"])
+                for item in inventory_raw
+                if isinstance(item, dict) and isinstance(item.get("objectId"), str)
+            )
+        )
+        if len(inventory) != len(inventory_raw):
+            return ThorStateSnapshot("malformed", (), (), None)
+        objects: list[ThorObjectView] = []
+        for raw in metadata["objects"]:
+            if not isinstance(raw, dict):
+                return ThorStateSnapshot("malformed", (), (), None)
+            object_id = raw.get("objectId")
+            object_type = raw.get("objectType")
+            visible = raw.get("visible")
+            is_picked_up = raw.get("isPickedUp")
+            if (
+                not isinstance(object_id, str)
+                or not isinstance(object_type, str)
+                or not isinstance(visible, bool)
+                or not isinstance(is_picked_up, bool)
+            ):
+                return ThorStateSnapshot("malformed", (), (), None)
+            objects.append(
+                ThorObjectView(
+                    exact_object_id=object_id,
+                    object_type=object_type,
+                    visible=visible,
+                    is_picked_up=is_picked_up,
+                    parent_ids=_optional_string_tuple(raw.get("parentReceptacles")),
+                    child_ids=_optional_string_tuple(raw.get("receptacleObjectIds")),
+                    pickupable=_optional_bool(raw.get("pickupable")),
+                    receptacle=_optional_bool(raw.get("receptacle")),
+                    openable=_optional_bool(raw.get("openable")),
+                    is_open=_optional_bool(raw.get("isOpen")),
+                    toggleable=_optional_bool(raw.get("toggleable")),
+                    is_toggled=_optional_bool(raw.get("isToggled")),
+                    sliceable=_optional_bool(raw.get("sliceable")),
+                    is_sliced=_optional_bool(raw.get("isSliced")),
+                    is_dirty=_optional_bool(raw.get("isDirty")),
+                    temperature=(
+                        str(raw["ObjectTemperature"])
+                        if isinstance(raw.get("ObjectTemperature"), str)
+                        else None
+                    ),
+                )
+            )
+        canonical = [
+            asdict(item)
+            for item in sorted(objects, key=lambda item: item.exact_object_id)
+        ]
+        state_sha256 = hashlib.sha256(
+            json.dumps(
+                {"inventory": inventory, "objects": canonical},
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        return ThorStateSnapshot("ok", inventory, tuple(objects), state_sha256)
+    except (KeyError, TypeError, ValueError):
+        return ThorStateSnapshot("malformed", (), (), None)
+
+
+def _optional_string_tuple(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list | tuple) or any(not isinstance(item, str) for item in value):
+        raise ValueError("malformed object membership")
+    return tuple(sorted(set(value)))
+
+
+def _optional_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _label_for_exact_id(index: SceneObjectIndex, exact_object_id: str) -> str | None:
+    for label, item in index.by_canonical_label.items():
+        if item.object_id == exact_object_id:
+            return label
+    return None
+
+
+def _label_matches_ref(label: str, ref: SceneObjectRef, index: SceneObjectIndex) -> bool:
+    canonical = _canonical_query(label)
+    if _EXPLICIT_INSTANCE.fullmatch(canonical):
+        resolved = index.resolve(canonical)
+        return resolved is not None and resolved.object_id == ref.object_id
+    return _object_type_key(canonical) == _object_type_key(ref.object_type)
+
+
+def _manipulation_requested_target(
+    action: AlfworldAction,
+    *,
+    object_label: str | None,
+    target_label: str | None,
+) -> str | None:
+    if action in {"open", "close", "put", "heat", "cool", "clean"}:
+        return target_label or object_label
+    return object_label or target_label
+
+
+def _inventory_labels_from_index(
+    inventory_ids: tuple[str, ...],
+    index: SceneObjectIndex,
+) -> tuple[str, ...]:
+    labels = []
+    for object_id in inventory_ids:
+        label = _label_for_exact_id(index, object_id)
+        if label is not None:
+            labels.append(label)
+    return tuple(sorted(labels))
+
+
+def _put_terminal(
+    state: ThorStateSnapshot,
+    *,
+    object_id: str,
+    target_id: str,
+) -> bool:
+    obj = state.get(object_id)
+    target = state.get(target_id)
+    return (
+        obj is not None
+        and target is not None
+        and object_id not in state.inventory_ids
+        and not obj.is_picked_up
+        and target_id in obj.parent_ids
+        and object_id in target.child_ids
+    )
+
+
+def _rebase_context(
+    context: OracleExecutionContext,
+    event: ExternalEventRead,
+    *,
+    state: ExecutionContextState,
+    action_count: int,
+) -> OracleExecutionContext:
+    if event.pose is None or event.raw_event_sha256 is None or event.raw_event_ref is None:
+        return replace(context, state="invalid")
+    return replace(
+        context,
+        current_event_sequence=context.current_event_sequence + action_count,
+        actual_pose=event.pose,
+        final_event_hash=event.raw_event_sha256,
+        final_event_ref=event.raw_event_ref,
+        state=state,
+    )
+
+
+def _macro_plan(
+    action: Literal["heat", "cool", "clean"],
+    *,
+    object_id: str,
+    target_id: str,
+    before: ThorStateSnapshot,
+) -> tuple[tuple[dict[str, Any], Callable[[ThorStateSnapshot], bool]], ...] | None:
+    def open_target(state: ThorStateSnapshot) -> bool:
+        target = state.get(target_id)
+        return target is not None and target.is_open is True
+
+    def close_target(state: ThorStateSnapshot) -> bool:
+        target = state.get(target_id)
+        return target is not None and target.is_open is False
+
+    def put_target(state: ThorStateSnapshot) -> bool:
+        return _put_terminal(state, object_id=object_id, target_id=target_id)
+
+    def pickup(state: ThorStateSnapshot) -> bool:
+        obj = state.get(object_id)
+        return object_id in state.inventory_ids and obj is not None and obj.is_picked_up
+    if action == "heat":
+        return (
+            ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
+            (
+                {
+                    "action": "PutObject",
+                    "objectId": object_id,
+                    "receptacleObjectId": target_id,
+                    "forceAction": True,
+                    "placeStationary": True,
+                },
+                put_target,
+            ),
+            ({"action": "CloseObject", "objectId": target_id, "forceAction": True}, close_target),
+            (
+                {"action": "ToggleObjectOn", "objectId": target_id, "forceAction": True},
+                lambda state: state.get(target_id) is not None
+                and state.get(target_id).is_toggled is True,
+            ),
+            (
+                {"action": "ToggleObjectOff", "objectId": target_id, "forceAction": True},
+                lambda state: state.get(target_id) is not None
+                and state.get(target_id).is_toggled is False,
+            ),
+            ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
+            ({"action": "PickupObject", "objectId": object_id, "forceAction": True}, pickup),
+            ({"action": "CloseObject", "objectId": target_id, "forceAction": True}, close_target),
+        )
+    if action == "cool":
+        return (
+            ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
+            (
+                {
+                    "action": "PutObject",
+                    "objectId": object_id,
+                    "receptacleObjectId": target_id,
+                    "forceAction": True,
+                    "placeStationary": True,
+                },
+                put_target,
+            ),
+            ({"action": "CloseObject", "objectId": target_id, "forceAction": True}, close_target),
+            ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
+            ({"action": "PickupObject", "objectId": object_id, "forceAction": True}, pickup),
+            ({"action": "CloseObject", "objectId": target_id, "forceAction": True}, close_target),
+        )
+    faucets = [item for item in before.objects if _object_type_key(item.object_type) == "faucet"]
+    if len(faucets) != 1:
+        return None
+    faucet_id = faucets[0].exact_object_id
+    return (
+        (
+            {
+                "action": "PutObject",
+                "objectId": object_id,
+                "receptacleObjectId": target_id,
+                "forceAction": True,
+                "placeStationary": True,
+            },
+            put_target,
+        ),
+        (
+            {"action": "ToggleObjectOn", "objectId": faucet_id, "forceAction": True},
+            lambda state: state.get(faucet_id) is not None
+            and state.get(faucet_id).is_toggled is True,
+        ),
+        (
+            {"action": "ToggleObjectOff", "objectId": faucet_id, "forceAction": True},
+            lambda state: state.get(faucet_id) is not None
+            and state.get(faucet_id).is_toggled is False,
+        ),
+        ({"action": "PickupObject", "objectId": object_id, "forceAction": True}, pickup),
+    )
+
+
+def _macro_terminal(
+    action: Literal["heat", "cool", "clean"],
+    obj: ThorObjectView,
+) -> bool:
+    if action == "heat":
+        return obj.temperature == "Hot"
+    if action == "cool":
+        return obj.temperature == "Cold"
+    return obj.is_dirty is False
 
 
 @dataclass(frozen=True)

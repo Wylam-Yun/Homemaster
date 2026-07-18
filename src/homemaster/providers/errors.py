@@ -12,10 +12,12 @@ class LLMClientError(RuntimeError):
         error_type: str,
         message: str,
         raw_content: str | None = None,
+        cause_code: str | None = None,
     ) -> None:
         self.error_type = error_type
         self.message = message
         self.raw_content = raw_content
+        self.cause_code = cause_code
         super().__init__(message)
 
 

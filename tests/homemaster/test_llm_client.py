@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -8,6 +9,8 @@ import pytest
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.config import ProviderProfileConfig
 from homemaster.events.trace import sanitize_for_log
+from homemaster.providers.attempts import ListProviderAttemptSink
+from homemaster.providers.errors import LLMProviderError, LLMRateLimitError
 from homemaster.providers.llm_client import (
     LLMClient,
     LLMProviderResponseError,
@@ -63,7 +66,7 @@ class FakeAnthropicClient:
         self.messages = FakeAnthropicMessages(events, requests, enter_error)
 
 
-def _provider() -> ProviderProfileConfig:
+def _provider(*, api_keys: list[str] | None = None) -> ProviderProfileConfig:
     return ProviderProfileConfig(
         name="Mimo",
         kind="chat",
@@ -71,7 +74,7 @@ def _provider() -> ProviderProfileConfig:
         transport="anthropic_sdk",
         base_url="https://mimo.example/anthropic",
         model="mimo-v2-pro",
-        api_keys=["secret-one"],
+        api_keys=api_keys or ["secret-one"],
         context_window_tokens=1_000_000,
         max_output_tokens=None,
     )
@@ -95,6 +98,7 @@ def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> Non
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
+        {"type": "message_start", "message": {}},
         {
             "type": "content_block_delta",
             "index": 0,
@@ -135,7 +139,7 @@ def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> Non
             "api_key": "secret-one",
             "base_url": "https://mimo.example/anthropic",
             "timeout": 60.0,
-            "max_retries": 2,
+            "max_retries": 0,
         }
     ]
     assert requests == [
@@ -160,6 +164,7 @@ def test_llm_client_rejects_anthropic_thinking_without_text_for_json_parsing() -
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
+        {"type": "message_start", "message": {}},
         {
             "type": "content_block_delta",
             "index": 0,
@@ -187,6 +192,7 @@ def test_llm_client_treats_provider_token_stop_as_truncation() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
+        {"type": "message_start", "message": {}},
         {
             "type": "content_block_delta",
             "index": 0,
@@ -211,6 +217,7 @@ def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation() -> 
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
+        {"type": "message_start", "message": {}},
         {
             "type": "content_block_delta",
             "index": 0,
@@ -251,12 +258,13 @@ def test_sanitize_for_log_redacts_secret_fields() -> None:
     assert sanitized["safe"] == "visible"
 
 
-def test_llm_client_retries_multimodal_corruption_with_images_stripped(tmp_path) -> None:
+def test_llm_client_exposes_multimodal_corruption_without_stripping_images(tmp_path) -> None:
     image_path = tmp_path / "frame.png"
     image_path.write_bytes(b"fake-png")
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
+        {"type": "message_start", "message": {}},
         {
             "type": "content_block_delta",
             "index": 0,
@@ -277,16 +285,115 @@ def test_llm_client_retries_multimodal_corruption_with_images_stripped(tmp_path)
         ),
     )
 
-    message = client.complete([
-        UserMessage(
-            content=[
-                ContentBlock(text="Look"),
-                ContentBlock.from_image_path(image_path),
-            ]
-        )
-    ])
+    with pytest.raises(LLMProviderError) as exc_info:
+        client.complete([
+            UserMessage(
+                content=[
+                    ContentBlock(text="Look"),
+                    ContentBlock.from_image_path(image_path),
+                ]
+            )
+        ])
 
-    assert message.text == "ok"
-    assert len(requests) == 2
+    assert exc_info.value.error_type == "provider_error"
+    assert "Multimodal data is corrupted" in exc_info.value.message
+    assert len(requests) == 1
     assert requests[0]["messages"][0]["content"][1]["type"] == "image"
-    assert requests[1]["messages"][0]["content"][1]["type"] == "text"
+
+
+def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_path) -> None:
+    image_path = tmp_path / "frame.png"
+    image_path.write_bytes(b"exact-image-bytes")
+    image_block = ContentBlock.from_image_path(image_path).model_copy(
+        update={
+            "metadata": {
+                "path": str(image_path),
+                "frame_binding_id": "frame-bound-exact",
+            }
+        }
+    )
+    requests: list[dict[str, Any]] = []
+    constructions: list[dict[str, Any]] = []
+    sink = ListProviderAttemptSink()
+    client = LLMClient(
+        _provider(),
+        anthropic_client_factory=_anthropic_factory(
+            [
+                {"type": "message_start", "message": {}},
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "ok"},
+                },
+                {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+            ],
+            requests,
+            constructions,
+        ),
+    )
+
+    list(
+        client.stream(
+            [
+                UserMessage(
+                    content=[
+                        ContentBlock(text="Look"),
+                        image_block,
+                    ]
+                )
+            ],
+            attempt_sink=sink,
+            model_attempt_id="run-1:attempt-0001",
+        )
+    )
+
+    assert len(sink.records) == 1
+    record = sink.records[0]
+    assert record.model_attempt_id == "run-1:attempt-0001"
+    assert record.response_completed is True
+    assert record.stripped_images is False
+    assert record.error_type is None
+    assert record.request_sha256 == hashlib.sha256(
+        json.dumps(
+            requests[0],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert len(record.outbound_images) == 1
+    assert record.outbound_images[0].frame_binding_id == "frame-bound-exact"
+    assert record.outbound_images[0].content_sha256 == hashlib.sha256(
+        b"exact-image-bytes"
+    ).hexdigest()
+    assert "frame-bound-exact" not in json.dumps(requests[0], ensure_ascii=False)
+
+
+def test_llm_client_selects_one_requested_key_without_internal_rotation() -> None:
+    class RateLimitError(RuntimeError):
+        pass
+
+    requests: list[dict[str, Any]] = []
+    constructions: list[dict[str, Any]] = []
+    client = LLMClient(
+        _provider(api_keys=["key-one", "key-two"]),
+        anthropic_client_factory=_anthropic_factory(
+            [],
+            requests,
+            constructions,
+            enter_errors=[RateLimitError("rate limited")],
+        ),
+    )
+
+    with pytest.raises(LLMRateLimitError):
+        list(
+            client.stream(
+                [UserMessage.from_text("hello")],
+                provider_key_index=1,
+            )
+        )
+
+    assert len(constructions) == 1
+    assert constructions[0]["api_key"] == "key-two"
+    assert len(requests) == 1

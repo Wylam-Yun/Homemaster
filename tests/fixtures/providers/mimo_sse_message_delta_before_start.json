@@ -1,0 +1,18 @@
+[
+  {
+    "type": "message_delta",
+    "delta": {
+      "stop_reason": "end_turn"
+    },
+    "usage": {
+      "input_tokens": 19,
+      "output_tokens": 0
+    }
+  },
+  {
+    "type": "message_start",
+    "message": {
+      "id": "msg_historical_out_of_order"
+    }
+  }
+]

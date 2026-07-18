@@ -1,0 +1,85 @@
+{
+  "entries": [
+    {
+      "expected_logical_scene": "FloorPlan219",
+      "goal_fingerprint": "fb043cf846a084620a0547d12bf96a4a8c2af548d17488ccdba1b4c206f4685a",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Statue\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "identity_status": "deterministic_replacement",
+      "trial_id": "valid_unseen/look_at_obj_in_light-Statue-None-FloorLamp-219/trial_T20190908_041333_727215/traj_data.json",
+      "trial_sha256": "92e02d2733dd3aafc522ed69a6b14646d0757e342ad229caa924912de460e29e"
+    },
+    {
+      "expected_logical_scene": "FloorPlan219",
+      "goal_fingerprint": "27c8fefc2b532a493df48777f903626d0bafbfee0cedee45fccf225bbf08402c",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"CreditCard\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/look_at_obj_in_light-CreditCard-None-FloorLamp-219/trial_T20190909_103553_077615/traj_data.json",
+      "trial_sha256": "a3135db6620e7fe701fcb2631853402263abf982a34379b520a15c1daba1dfb3"
+    },
+    {
+      "expected_logical_scene": "FloorPlan10",
+      "goal_fingerprint": "6c370f6f6900f2d999353a142efb76269b7abaa0d5a0e7d376295406c8ab291d",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Cup\",\"parent_target\":\"Cabinet\",\"toggle_target\":\"\"},\"task_type\":\"pick_heat_then_place_in_recep\"}",
+      "identity_status": "deterministic_replacement",
+      "trial_id": "valid_unseen/pick_heat_then_place_in_recep-Cup-None-Cabinet-10/trial_T20190907_083346_800823/traj_data.json",
+      "trial_sha256": "b9284de78741af293d77a2d9f624687b2b9cc526b58bd08e1b992b290350cbc3"
+    },
+    {
+      "expected_logical_scene": "FloorPlan10",
+      "goal_fingerprint": "68254289d1f6ba529b73ca54037568c7d248b8dad29450f7d317b8e74affdedd",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"SaltShaker\",\"parent_target\":\"Drawer\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/pick_and_place_simple-SaltShaker-None-Drawer-10/trial_T20190909_021728_339782/traj_data.json",
+      "trial_sha256": "a7988670d07e28e0b15ddc5036d7d01f48f8cf3fd4ad2ca0f5de9929fb5f797c"
+    },
+    {
+      "expected_logical_scene": "FloorPlan219",
+      "goal_fingerprint": "35c0a548bf07b8ac6f9894920ea27e69b8e48545f125d94f1a1c51d4a0a26a0f",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"RemoteControl\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
+      "trial_sha256": "0e91b92f6e7fbd57ea1bc0037837650e8bbb5423cd1b7879c3e19b871ba58bf8"
+    },
+    {
+      "expected_logical_scene": "FloorPlan10",
+      "goal_fingerprint": "9a582d800113174c6023dc9ea10c708162ff4c6b038826be09b221df9e0ded89",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"PepperShaker\",\"parent_target\":\"Drawer\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/pick_and_place_simple-PepperShaker-None-Drawer-10/trial_T20190918_154424_844749/traj_data.json",
+      "trial_sha256": "007398a953d080c23e88030fe3f48d951cef30c4ccd9c1c52b59bdad4bcb49eb"
+    },
+    {
+      "expected_logical_scene": "FloorPlan10",
+      "goal_fingerprint": "db8289d4095faa8120970239e88da2aa7dd72f145d4ed5529240506626ff358e",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Mug\",\"parent_target\":\"CoffeeMachine\",\"toggle_target\":\"\"},\"task_type\":\"pick_cool_then_place_in_recep\"}",
+      "identity_status": "deterministic_replacement",
+      "trial_id": "valid_unseen/pick_cool_then_place_in_recep-Mug-None-CoffeeMachine-10/trial_T20190907_183715_299073/traj_data.json",
+      "trial_sha256": "669312d9a4210f64ab3af4b744444ca05d1c806c2802342ed206b32f6aff19b8"
+    },
+    {
+      "expected_logical_scene": "FloorPlan308",
+      "goal_fingerprint": "0eca5093b6820cdfacd72062c7faf0d13e7f41d6448fb241f17992bb28004553",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Mug\",\"parent_target\":\"\",\"toggle_target\":\"DeskLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/look_at_obj_in_light-Mug-None-DeskLamp-308/trial_T20190908_201421_021646/traj_data.json",
+      "trial_sha256": "941b028aaff36c0de26455f96ecf3caf1c9c4d9e6e2632463175a3186e51b169"
+    },
+    {
+      "expected_logical_scene": "FloorPlan308",
+      "goal_fingerprint": "ac797a10cc2eebec373328a1198dbfc6e9218a0578f6d9b8cc7de2b808e47780",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"BasketBall\",\"parent_target\":\"\",\"toggle_target\":\"DeskLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "identity_status": "deterministic_replacement",
+      "trial_id": "valid_unseen/look_at_obj_in_light-BasketBall-None-DeskLamp-308/trial_T20190907_161210_531813/traj_data.json",
+      "trial_sha256": "70763b411f6b93ff58e299715b7b3f3a17585b089eb52bdd8e78d82af97134eb"
+    },
+    {
+      "expected_logical_scene": "FloorPlan308",
+      "goal_fingerprint": "c1ed9156105fc5752c1143ca88ca0d28a75fbd15d128096e6ffff57f114eb505",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Pencil\",\"parent_target\":\"Shelf\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+      "identity_status": "historical_exact",
+      "trial_id": "valid_unseen/pick_and_place_simple-Pencil-None-Shelf-308/trial_T20190908_121952_610012/traj_data.json",
+      "trial_sha256": "eee07174ba836270c17920c4f62be97bc9cb5514f51cca11614526a4cfd9d23e"
+    }
+  ],
+  "schema_version": "alfworld-trial-selection-v1"
+}

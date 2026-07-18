@@ -10,7 +10,7 @@ import os
 import sys
 import time
 from collections.abc import Iterator
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,16 +21,50 @@ from homemaster.benchmarking.alfworld.execution import (
     ExternalActionResult,
     ExternalRead,
     ManipulationExecutor,
+    NavigationAnchorResolver,
+    OracleExecutionContext,
+    OracleManipulationExecutor,
+    OracleNavigationExecutor,
     PoseContext,
     PutExecutionRequest,
     ReadStatus,
     SceneObjectIndex,
     SceneObjectRef,
 )
+from homemaster.benchmarking.alfworld.gateway import (
+    CleanupResult,
+    ExternalActionRequest,
+    ExternalEventRead,
+    OracleActionGateway,
+)
+from homemaster.benchmarking.alfworld.model_view import (
+    AlfworldModelViewObserver,
+    FrameLedger,
+    VisibleObjectView,
+)
+from homemaster.benchmarking.alfworld.pose_snapshot import (
+    FrozenOraclePoseStore,
+    OraclePose,
+    SceneObjectScanInput,
+    load_public_object_vocabulary,
+)
+from homemaster.benchmarking.alfworld.reset_transaction import (
+    AlfworldResetTransaction,
+    ResetTransactionInput,
+)
+from homemaster.benchmarking.alfworld.trial_selection import (
+    TrialSelectionEntry,
+    trial_goal_identity,
+    trial_logical_scene,
+)
 from homemaster.benchmarking.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
+    AlfworldExecutionFeedback,
+    AlfworldGoalAdvanceResult,
+    AlfworldResetResult,
     AlfworldStepResult,
+    make_execution_feedback,
 )
 
 
@@ -197,18 +231,30 @@ class AlfworldEnvAdapter:
         episode_prefix: str,
         seed: int,
         frame_dir: Path | None = None,
+        require_v18_reset: bool = False,
     ) -> None:
         self._env = env
         self._episode_prefix = episode_prefix
         self._seed = seed
         self._frame_dir = frame_dir
+        self._require_v18_reset = require_v18_reset
         self._state: AlfworldEnvState | None = None
         self._last_go_to_object_id: str | None = None
         self._scene_generation = 0
         self._goal_generation = 0
         self._event_sequence = 0
         self._scene_object_index: SceneObjectIndex | None = None
-        self._pose_context: PoseContext | None = None
+        self._pose_context: PoseContext | OracleExecutionContext | None = None
+        self._scene_reset_fingerprint: str | None = None
+        self._snapshot_sha256: str | None = None
+        self._trial_selection: TrialSelectionEntry | None = None
+        self._pose_store = FrozenOraclePoseStore()
+        self._frame_ledger = FrameLedger()
+        self._model_view_observer = AlfworldModelViewObserver(
+            frame_ledger=self._frame_ledger
+        )
+        self._lifecycle = "not_started"
+        self._last_reset_result: AlfworldResetResult | None = None
         self._navigation_budget = SimpleNamespace(
             max_navigation_candidates=_DEFAULT_NAVIGATION_MAX_CANDIDATES,
             max_navigation_backend_actions=_DEFAULT_NAVIGATION_MAX_BACKEND_ACTIONS,
@@ -233,16 +279,218 @@ class AlfworldEnvAdapter:
         return self._state
 
     @property
-    def current_pose_context(self) -> PoseContext | None:
+    def current_pose_context(self) -> PoseContext | OracleExecutionContext | None:
         return self._pose_context
 
-    def reset(self) -> AlfworldEnvState:
+    @property
+    def lifecycle(self) -> str:
+        return self._lifecycle
+
+    @property
+    def last_reset_result(self) -> AlfworldResetResult | None:
+        return self._last_reset_result
+
+    @property
+    def model_view_observer(self) -> AlfworldModelViewObserver:
+        return self._model_view_observer
+
+    def reset(
+        self,
+        *,
+        selection_entry: TrialSelectionEntry | None = None,
+    ) -> AlfworldResetResult:
+        if self._lifecycle in {"closed", "quarantined"}:
+            raise RuntimeError(f"cannot reset an ALFWorld adapter in {self._lifecycle} state")
+        try:
+            state = self._reset_state()
+        except Exception:
+            result = AlfworldResetResult(
+                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
+                ready=False,
+                state=None,
+                scene_generation=None,
+                goal_generation=None,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=None,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger="external_reset_failed",
+                setup_failure="external_reset_failed",
+                classification="runtime_failure",
+                score_eligible=False,
+                setup_backend_action_count=0,
+                recovery_status="not_needed",
+                cleanup_status="not_needed",
+                quarantine_required=False,
+                environment_disposition="not_started",
+                evidence_ref=None,
+            )
+            self._last_reset_result = result
+            return result
+
+        if self._require_v18_reset:
+            self._goal_generation = 1
+        self._trial_selection = selection_entry
+        if self._require_v18_reset:
+            if selection_entry is None:
+                return self._reset_identity_terminal(
+                    trigger="reset_identity_unreadable",
+                    goal_fingerprint=None,
+                )
+            try:
+                thor_env = self._resolve_thor_env()
+                runtime_scene = _event_logical_scene(
+                    getattr(thor_env, "last_event", None)
+                )
+            except RuntimeError:
+                runtime_scene = None
+            if runtime_scene is None:
+                return self._reset_identity_terminal(
+                    trigger="reset_identity_unreadable",
+                    goal_fingerprint=selection_entry.goal_fingerprint,
+                )
+            if runtime_scene != selection_entry.expected_logical_scene:
+                return self._reset_identity_terminal(
+                    trigger="runtime_scene_mismatch",
+                    goal_fingerprint=selection_entry.goal_fingerprint,
+                )
+        goal_fingerprint = (
+            selection_entry.goal_fingerprint
+            if selection_entry is not None
+            else _portable_state_fingerprint(
+                {"episode_id": state.episode_id, "task": state.task}
+            )
+        )
+        if not self._require_v18_reset or not self._looks_like_thor_backend():
+            result = AlfworldResetResult(
+                backend_kind="textworld",
+                ready=True,
+                state=state,
+                scene_generation=None,
+                goal_generation=self._goal_generation,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=goal_fingerprint,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger=None,
+                setup_failure=None,
+                classification=None,
+                score_eligible=True,
+                setup_backend_action_count=0,
+                recovery_status="not_applicable",
+                cleanup_status="not_applicable",
+                quarantine_required=False,
+                environment_disposition="ready",
+                evidence_ref=None,
+            )
+            self._lifecycle = "ready"
+            self._last_reset_result = result
+            return result
+
+        backend = _AdapterOracleBackend(self)
+        initial_event = backend.capture_event()
+        scene_fingerprint = _portable_state_fingerprint(
+            {
+                "episode_id": state.episode_id,
+                "world_sha256": initial_event.world_sha256,
+            }
+        )
+        vocabulary = load_public_object_vocabulary()
+        result = AlfworldResetTransaction(
+            backend=backend,
+            pose_store=self._pose_store,
+        ).run(
+            ResetTransactionInput(
+                backend_kind="thor",
+                state=state,
+                initial_event=initial_event,
+                scene_generation=self._scene_generation,
+                goal_generation=self._goal_generation,
+                scene_reset_fingerprint=scene_fingerprint,
+                goal_trial_fingerprint=goal_fingerprint,
+                algorithm_version="v18-bounded-scan-1",
+                geometry_policy_version="v18-nearest-yaw-horizon-1",
+                setup_time_control_version="change-time-scale-bracket-v1",
+                public_semantic_vocabulary=vocabulary.object_types,
+                cache_entries=(),
+                snapshot_ref="oracle-pose-snapshot.json",
+                evidence_ref="reset-transaction.json",
+                artifact_root=(
+                    self._frame_dir.parent if self._frame_dir is not None else None
+                ),
+            )
+        )
+        self._lifecycle = result.environment_disposition
+        self._last_reset_result = result
+        if not result.ready:
+            self._state = None
+            self._scene_reset_fingerprint = None
+            self._snapshot_sha256 = None
+        elif result.state is not None:
+            final_state = replace(
+                result.state,
+                frame_path=self._save_current_frame(step_index=0),
+            )
+            self._state = final_state
+            self._scene_reset_fingerprint = result.scene_reset_fingerprint
+            self._snapshot_sha256 = result.snapshot_sha256
+            result = replace(result, state=final_state)
+            self._last_reset_result = result
+            self._refresh_scene_object_index()
+        return result
+
+    def _reset_identity_terminal(
+        self,
+        *,
+        trigger: str,
+        goal_fingerprint: str | None,
+    ) -> AlfworldResetResult:
+        cleanup = self.close()
+        final_code = trigger
+        classification = "execution_state_uncertain"
+        if cleanup.status != "succeeded":
+            final_code = "scan_cleanup_failed"
+            classification = "runtime_failure"
+        result = AlfworldResetResult(
+            backend_kind="thor",
+            ready=False,
+            state=None,
+            scene_generation=self._scene_generation,
+            goal_generation=self._goal_generation,
+            scene_reset_fingerprint=None,
+            goal_trial_fingerprint=goal_fingerprint,
+            snapshot_sha256=None,
+            snapshot_ref=None,
+            setup_trigger=trigger,
+            setup_failure=final_code,
+            classification=classification,
+            score_eligible=False,
+            setup_backend_action_count=0,
+            recovery_status="not_needed",
+            cleanup_status=cleanup.status,
+            quarantine_required=cleanup.status != "succeeded",
+            environment_disposition=(
+                "closed" if cleanup.status == "succeeded" else "quarantined"
+            ),
+            evidence_ref=None,
+        )
+        self._last_reset_result = result
+        return result
+
+    def _reset_state(self) -> AlfworldEnvState:
         obs, infos = self._env.reset()
+        self._frame_ledger = FrameLedger()
+        self._model_view_observer = AlfworldModelViewObserver(
+            frame_ledger=self._frame_ledger
+        )
         self._scene_generation += 1
         self._goal_generation = 0
         self._event_sequence = 0
         self._scene_object_index = None
         self._pose_context = None
+        self._scene_reset_fingerprint = None
+        self._snapshot_sha256 = None
+        self._trial_selection = None
         observation = _first(obs, "")
         gamefile = _first_info(infos, "extra.gamefile", f"{self._episode_prefix}/unknown")
         state = AlfworldEnvState(
@@ -270,53 +518,174 @@ class AlfworldEnvAdapter:
         self._refresh_scene_object_index()
         return state
 
+    def _looks_like_thor_backend(self) -> bool:
+        try:
+            thor_env = self._resolve_thor_env()
+        except RuntimeError:
+            return False
+        event = getattr(thor_env, "last_event", None)
+        metadata = getattr(event, "metadata", None)
+        return callable(getattr(thor_env, "step", None)) and isinstance(metadata, dict)
+
+    def close(self) -> CleanupResult:
+        if self._lifecycle == "closed":
+            return CleanupResult(status="succeeded", evidence_ref=None)
+        cleanup = _close_alfworld_env(self._env)
+        self._state = None
+        self._pose_context = None
+        self._lifecycle = "closed" if cleanup.status == "succeeded" else "quarantined"
+        return cleanup
+
     # ------------------------------------------------------------------
     # Long-horizon: advance to the next goal WITHOUT resetting the scene.
     # ------------------------------------------------------------------
 
-    def advance_goal(self, traj_data: dict[str, Any], *, subtask_label: str) -> AlfworldEnvState:
-        """Swap the current goal in the same loaded scene (C-route long horizon).
+    def advance_goal(
+        self,
+        traj_data: dict[str, Any],
+        *,
+        subtask_label: str,
+        selection_entry: TrialSelectionEntry,
+    ) -> AlfworldGoalAdvanceResult:
+        previous = self.current_state
+        try:
+            declared_scene = trial_logical_scene(traj_data)
+            goal_identity = trial_goal_identity(traj_data)
+        except ValueError:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_identity_unreadable",
+                action_count=0,
+                before_sha256=None,
+                after_sha256=None,
+            )
+        if goal_identity != selection_entry.goal_identity:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="expected_goal_trial_mismatch",
+                action_count=0,
+                before_sha256=None,
+                after_sha256=None,
+            )
+        if declared_scene != selection_entry.expected_logical_scene:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_scene_mismatch",
+                action_count=0,
+                before_sha256=None,
+                after_sha256=None,
+            )
 
-        Calls the底层 ThorEnv.set_task(traj_data, args), which only replaces
-        `env.task` (a fresh BaseTask with goal_idx=0/step_num=0). It does NOT
-        reload the scene or restore object_poses, so world state accumulated by
-        previous subtasks is preserved.
+        try:
+            thor_env = self._resolve_thor_env()
+            raw_before = getattr(thor_env, "last_event", None)
+            before = _external_event_read(
+                raw_before,
+                event_sequence=self._event_sequence,
+                thor_env=thor_env,
+            )
+            current_scene = _event_logical_scene(raw_before)
+        except Exception:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_runtime_failed",
+                action_count=0,
+                before_sha256=None,
+                after_sha256=None,
+            )
+        if current_scene != selection_entry.expected_logical_scene:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_scene_mismatch",
+                action_count=0,
+                before_sha256=before.world_sha256,
+                after_sha256=None,
+            )
+        if (
+            before.status != "ok"
+            or before.world_sha256 is None
+            or self._scene_reset_fingerprint is None
+            or self._snapshot_sha256 is None
+        ):
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_runtime_failed",
+                action_count=0,
+                before_sha256=before.world_sha256,
+                after_sha256=None,
+            )
 
-        Verified against alfworld/env/thor_env.py:133 (set_task) and
-        alfworld/env/tasks.py:14 (BaseTask.__init__ resets counters).
-
-        Returns a refreshed AlfworldEnvState describing the new goal. The
-        observation text is taken from the new traj_data's templated task desc
-        so the model sees the new instruction.
-        """
-        thor_env = self._resolve_thor_env()
-        args = _build_set_task_args(thor_env)
         try:
             from alfworld.agents.utils.misc import get_templated_task_desc
 
             task_desc = get_templated_task_desc(traj_data)
         except Exception:
-            task_desc = str(subtask_label)
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_identity_unreadable",
+                action_count=0,
+                before_sha256=before.world_sha256,
+                after_sha256=None,
+            )
 
-        thor_env.set_task(traj_data, args, reward_type="dense")
-        self._goal_generation += 1
-        self._pose_context = None
-        self._last_go_to_object_id = None
-        # Refresh goal-satisfaction fields from the new task without stepping.
+        try:
+            args = _build_set_task_args(thor_env)
+            thor_env.set_task(traj_data, args, reward_type="dense")
+        except Exception:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_advance_rejected",
+                action_count=1,
+                before_sha256=before.world_sha256,
+                after_sha256=None,
+            )
+
+        after = _external_event_read(
+            getattr(thor_env, "last_event", None),
+            event_sequence=self._event_sequence,
+            thor_env=thor_env,
+        )
+        if after.status != "ok" or after.world_sha256 is None:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_state_unreadable",
+                action_count=1,
+                before_sha256=before.world_sha256,
+                after_sha256=after.world_sha256,
+            )
+        if before.world_sha256 != after.world_sha256:
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_world_drift",
+                action_count=1,
+                before_sha256=before.world_sha256,
+                after_sha256=after.world_sha256,
+            )
         try:
             won = bool(thor_env.get_goal_satisfied())
             pcs = thor_env.get_goal_conditions_met()
+            if not isinstance(pcs, tuple | list) or len(pcs) != 2:
+                raise ValueError("goal condition state is unreadable")
             goal_rate = float(pcs[0]) / float(pcs[1]) if pcs[1] else 0.0
         except Exception:
-            won, goal_rate = False, 0.0
+            return self._goal_advance_terminal(
+                selection_entry=selection_entry,
+                trigger="goal_state_unreadable",
+                action_count=1,
+                before_sha256=before.world_sha256,
+                after_sha256=after.world_sha256,
+            )
 
-        previous = self._state
-        # Carry over world-state-derived fields; reset per-subtask counters.
+        self._goal_generation += 1
+        if isinstance(self._pose_context, OracleExecutionContext):
+            self._pose_context = replace(self._pose_context, state="invalid")
+        else:
+            self._pose_context = None
         new_state = AlfworldEnvState(
             episode_id=f"{self._episode_prefix}/{subtask_label}",
             task=task_desc,
             observation=task_desc,
-            inventory=previous.inventory if previous else None,
+            inventory=previous.inventory,
             last_command=None,
             last_feedback=None,
             reward=0.0,
@@ -329,7 +698,82 @@ class AlfworldEnvAdapter:
             admissible_commands=tuple(),
         )
         self._state = new_state
-        return new_state
+        self._trial_selection = selection_entry
+        return AlfworldGoalAdvanceResult(
+            backend_kind="thor",
+            ready=True,
+            state=new_state,
+            scene_generation=self._scene_generation,
+            goal_generation=self._goal_generation,
+            scene_reset_fingerprint=self._scene_reset_fingerprint,
+            goal_trial_fingerprint=selection_entry.goal_fingerprint,
+            snapshot_sha256=self._snapshot_sha256,
+            before_scene_state_sha256=before.world_sha256,
+            after_scene_state_sha256=after.world_sha256,
+            advance_trigger=None,
+            advance_failure=None,
+            classification=None,
+            score_eligible=True,
+            benchmark_control_action_count=1,
+            cleanup_status="not_needed",
+            quarantine_required=False,
+            environment_disposition="ready",
+            evidence_ref="goal-advance.json",
+        )
+
+    def _goal_advance_terminal(
+        self,
+        *,
+        selection_entry: TrialSelectionEntry,
+        trigger: str,
+        action_count: int,
+        before_sha256: str | None,
+        after_sha256: str | None,
+    ) -> AlfworldGoalAdvanceResult:
+        cleanup = self.close()
+        classification_by_trigger = {
+            "expected_goal_trial_mismatch": "artifact_failure",
+            "goal_scene_mismatch": "artifact_failure",
+            "goal_identity_unreadable": "artifact_failure",
+            "goal_advance_rejected": "execution_state_uncertain",
+            "goal_state_unreadable": "execution_state_uncertain",
+            "goal_world_drift": "execution_state_uncertain",
+            "goal_advance_unexpected": "unclassified_execution_failure",
+            "goal_runtime_failed": "runtime_failure",
+            "goal_cleanup_failed": "runtime_failure",
+        }
+        classification = classification_by_trigger.get(trigger, "unclassified_execution_failure")
+        final_code = "goal_cleanup_failed" if cleanup.status != "succeeded" else trigger
+        if final_code == "goal_cleanup_failed":
+            classification = "runtime_failure"
+        state_uncertain = action_count > 0 or classification in {
+            "execution_state_uncertain",
+            "runtime_failure",
+            "unclassified_execution_failure",
+        }
+        return AlfworldGoalAdvanceResult(
+            backend_kind="thor",
+            ready=False,
+            state=None,
+            scene_generation=self._scene_generation,
+            goal_generation=self._goal_generation,
+            scene_reset_fingerprint=self._scene_reset_fingerprint,
+            goal_trial_fingerprint=selection_entry.goal_fingerprint,
+            snapshot_sha256=self._snapshot_sha256,
+            before_scene_state_sha256=before_sha256,
+            after_scene_state_sha256=after_sha256,
+            advance_trigger=trigger,
+            advance_failure=final_code,
+            classification=classification,
+            score_eligible=False,
+            benchmark_control_action_count=action_count,
+            cleanup_status=cleanup.status,
+            quarantine_required=cleanup.status != "succeeded" or state_uncertain,
+            environment_disposition=(
+                "closed" if cleanup.status == "succeeded" else "quarantined"
+            ),
+            evidence_ref="goal-advance.json",
+        )
 
     def _refresh_scene_object_index(self) -> None:
         try:
@@ -511,8 +955,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(tool_args),
                 translated_command=command,
                 success=False,
-                failure_reason="env_error",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, tool_args, success=False, failure_reason="env_error"
+                ),
                 feedback=str(exc),
             )
 
@@ -539,8 +985,13 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=not invalid,
-            failure_reason="invalid_action" if invalid else None,
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                tool_args,
+                success=not invalid,
+                failure_reason="invalid_action" if invalid else None,
+            ),
             feedback=observation,
         )
 
@@ -595,8 +1046,13 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=success,
-            failure_reason=None if success else "navigation_target_not_visible",
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                tool_args,
+                success=success,
+                failure_reason=None if success else "navigation_target_not_visible",
+            ),
             feedback=observation,
             backend_action_count=backend_action_count,
         )
@@ -608,6 +1064,12 @@ class AlfworldEnvAdapter:
         tool_name: str,
         tool_args: dict[str, Any],
     ) -> AlfworldStepResult:
+        if self._require_v18_reset:
+            return self._go_to_target_v18(
+                target,
+                tool_name=tool_name,
+                tool_args=tool_args,
+            )
         previous = self.current_state
         previous_pose_context = self._pose_context
         self._pose_context = None
@@ -632,8 +1094,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(tool_args),
                 translated_command=command,
                 success=False,
-                failure_reason="env_error",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, tool_args, success=False, failure_reason="env_error"
+                ),
                 feedback=str(exc),
                 trace_events=_empty_execution_trace_events(
                     execution_kind="navigation",
@@ -674,8 +1138,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(enriched_args),
                 translated_command=command,
                 success=False,
-                failure_reason="target_not_found",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, enriched_args, success=False, failure_reason="target_not_found"
+                ),
                 feedback=resolved.feedback,
                 trace_events=_empty_execution_trace_events(
                     execution_kind="navigation",
@@ -797,11 +1263,116 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(enriched_args),
             translated_command=command,
             success=nav_result.success,
-            failure_reason=nav_result.failure_reason,
             state=nav_result.state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                enriched_args,
+                success=nav_result.success,
+                failure_reason=nav_result.failure_reason,
+            ),
             feedback=feedback,
             backend_action_count=nav.backend_action_count,
             trace_events=tuple(trace_events),
+        )
+
+    def _go_to_target_v18(
+        self,
+        target: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ) -> AlfworldStepResult:
+        previous = self.current_state
+        command = f"go to target {target.strip()}"
+        try:
+            thor_env = self._resolve_thor_env()
+            raw_event = getattr(thor_env, "last_event", None)
+            backend = _AdapterOracleBackend(self)
+            current_event = backend.capture_event()
+            if (
+                self._scene_object_index is None
+                or self._scene_reset_fingerprint is None
+                or self._snapshot_sha256 is None
+            ):
+                raise RuntimeError("V1.8 navigation identity is unavailable")
+            result = OracleNavigationExecutor(
+                scene_index=self._scene_object_index,
+                public_object_types=load_public_object_vocabulary().object_types,
+                visible_object_view=VisibleObjectView(
+                    event=raw_event,
+                    event_sequence=self._event_sequence,
+                    committed_view=self._model_view_observer.current_view,
+                ),
+                current_event=current_event,
+                pose_store=self._pose_store,
+                parent_resolver=NavigationAnchorResolver(),
+                gateway=OracleActionGateway(backend=backend),
+            ).execute(
+                target,
+                scene_generation=self._scene_generation,
+                goal_generation=self._goal_generation,
+                scene_reset_fingerprint=self._scene_reset_fingerprint,
+                snapshot_sha256=self._snapshot_sha256,
+            )
+        except Exception:
+            result = None
+
+        if result is None:
+            return AlfworldStepResult(
+                tool_name=tool_name,
+                tool_args=_model_visible_tool_args(tool_args),
+                translated_command=command,
+                success=False,
+                state=previous,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name,
+                    tool_args,
+                    success=False,
+                    failure_reason="execution_state_uncertain",
+                ),
+                feedback="The current execution state could not be verified.",
+            )
+
+        if result.backend_action_count == 0:
+            feedback = _safe_navigation_feedback(result.error, target)
+            return AlfworldStepResult(
+                tool_name=tool_name,
+                tool_args=_model_visible_tool_args(tool_args),
+                translated_command=command,
+                success=False,
+                state=previous,
+                execution_feedback=_navigation_execution_feedback(result.error, target),
+                feedback=feedback,
+                backend_action_count=0,
+                trace_events=result.trace_events,
+            )
+
+        self._pose_context = None
+        state_result = self._state_from_virtual_navigation(
+            previous=previous,
+            command=command,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            success=result.success,
+            failure_reason=result.error,
+            feedback=(
+                f"Reached {target.strip()}."
+                if result.success
+                else _safe_navigation_feedback(result.error, target)
+            ),
+        )
+        if result.success:
+            self._pose_context = result.context
+        return replace(
+            state_result,
+            execution_feedback=_navigation_execution_feedback(
+                result.error,
+                target,
+                success=result.success,
+                state_changed=True if result.success else None,
+            ),
+            backend_action_count=result.backend_action_count,
+            trace_events=result.trace_events,
         )
 
     def _state_from_virtual_navigation(
@@ -843,8 +1414,15 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=success,
-            failure_reason=None if success else (failure_reason or "harness_navigation_failure"),
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                tool_args,
+                success=success,
+                failure_reason=(
+                    None if success else (failure_reason or "harness_navigation_failure")
+                ),
+            ),
             feedback=feedback,
         )
 
@@ -906,8 +1484,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(tool_args),
                 translated_command=command,
                 success=False,
-                failure_reason="env_error",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, tool_args, success=False, failure_reason="env_error"
+                ),
                 feedback=str(exc),
             )
 
@@ -930,8 +1510,13 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(enriched_args),
                 translated_command=command,
                 success=False,
-                failure_reason="object_not_found",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name,
+                    enriched_args,
+                    success=False,
+                    failure_reason="object_not_found",
+                ),
                 feedback=found.feedback,
             )
 
@@ -961,8 +1546,13 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(enriched_args),
             translated_command=command,
             success=nav_result.success,
-            failure_reason=nav_result.failure_reason,
             state=nav_result.state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                enriched_args,
+                success=nav_result.success,
+                failure_reason=nav_result.failure_reason,
+            ),
             feedback=feedback,
         )
 
@@ -1027,8 +1617,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(enriched_args),
                 translated_command=f"{command} -> {nav_command}",
                 success=True,
-                failure_reason=None,
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, enriched_args, success=True, failure_reason=None
+                ),
                 feedback=f"Found {object_label} at {source}. {observation}",
             )
 
@@ -1057,8 +1649,10 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=command,
             success=False,
-            failure_reason="object_not_visible",
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name, tool_args, success=False, failure_reason="object_not_visible"
+            ),
             feedback=f"Could not find a visible {target} at any known navigable place.",
         )
 
@@ -1070,6 +1664,12 @@ class AlfworldEnvAdapter:
         tool_args: dict[str, Any],
     ) -> AlfworldStepResult:
         normalized_action = action.strip().lower()
+        if self._require_v18_reset:
+            return self._manipulate_with_thor_v18(
+                normalized_action,
+                tool_name=tool_name,
+                tool_args=tool_args,
+            )
         if normalized_action == "put":
             return self._manipulate_put_with_executor(
                 tool_name=tool_name,
@@ -1100,8 +1700,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(tool_args),
                 translated_command=command,
                 success=False,
-                failure_reason="env_error",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, tool_args, success=False, failure_reason="env_error"
+                ),
                 feedback=str(exc),
             )
 
@@ -1137,10 +1739,151 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(enriched_args),
             translated_command=command,
             success=result.success,
-            failure_reason=None if result.success else "invalid_action",
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                enriched_args,
+                success=result.success,
+                failure_reason=None if result.success else "invalid_action",
+            ),
             feedback=result.feedback,
             backend_action_count=len(result.backend_actions),
+        )
+
+    def _manipulate_with_thor_v18(
+        self,
+        action: str,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+    ) -> AlfworldStepResult:
+        previous = self.current_state
+        allowed = {"take", "open", "close", "put", "use", "slice", "heat", "cool", "clean"}
+        if action not in allowed:
+            execution_feedback = make_execution_feedback(
+                action="verify",
+                success=False,
+                error="invalid_tool_arguments",
+            )
+            return AlfworldStepResult(
+                tool_name=tool_name,
+                tool_args=_model_visible_tool_args(tool_args),
+                translated_command=f"thor {action}",
+                success=False,
+                state=previous,
+                execution_feedback=execution_feedback,
+                feedback=execution_feedback.to_model_payload()["detail"],
+            )
+        try:
+            thor_env = self._resolve_thor_env()
+            raw_event = getattr(thor_env, "last_event", None)
+            backend = _AdapterOracleBackend(self)
+            current_event = backend.capture_event()
+            if self._scene_object_index is None:
+                raise RuntimeError("scene object index is unavailable")
+            context = (
+                self._pose_context
+                if isinstance(self._pose_context, OracleExecutionContext)
+                else None
+            )
+            object_label = str(tool_args.get("object") or "").strip() or None
+            target_label = str(
+                tool_args.get("tool_receptacle")
+                or tool_args.get("target_receptacle")
+                or ""
+            ).strip() or None
+            result = OracleManipulationExecutor(
+                scene_index=self._scene_object_index,
+                visible_object_view=VisibleObjectView(
+                    event=raw_event,
+                    event_sequence=self._event_sequence,
+                    committed_view=self._model_view_observer.current_view,
+                ),
+                current_event=current_event,
+                raw_event=raw_event,
+                raw_event_reader=lambda: getattr(thor_env, "last_event", None),
+                context=context,
+                gateway=OracleActionGateway(backend=backend),
+                scene_generation=self._scene_generation,
+                goal_generation=self._goal_generation,
+            ).execute(
+                action,
+                object_label=object_label,
+                target_label=target_label,
+            )
+        except Exception:
+            execution_feedback = make_execution_feedback(
+                action=action,
+                success=False,
+                error="execution_state_uncertain",
+                object_label=str(tool_args.get("object") or "").strip() or None,
+                target_label=str(
+                    tool_args.get("tool_receptacle")
+                    or tool_args.get("target_receptacle")
+                    or ""
+                ).strip()
+                or None,
+            )
+            result = SimpleNamespace(
+                feedback=execution_feedback,
+                context=None,
+                backend_action_count=0,
+                trace_events=(),
+            )
+
+        self._pose_context = result.context
+        payload = result.feedback.to_model_payload()
+        if result.backend_action_count == 0:
+            return AlfworldStepResult(
+                tool_name=tool_name,
+                tool_args=_model_visible_tool_args(tool_args),
+                translated_command=f"thor {action}",
+                success=result.feedback.success,
+                state=previous,
+                execution_feedback=result.feedback,
+                feedback=payload["detail"],
+                backend_action_count=0,
+                trace_events=result.trace_events,
+            )
+
+        won = self.is_current_goal_satisfied() if result.feedback.success else previous.won
+        goal_rate = (
+            self.current_goal_condition_success_rate()
+            if result.feedback.success
+            else previous.goal_condition_success_rate
+        )
+        inventory = result.feedback.inventory
+        state = AlfworldEnvState(
+            episode_id=previous.episode_id,
+            task=previous.task,
+            observation=str(payload["detail"] or "Action completed."),
+            inventory=(
+                "You are carrying: " + ", ".join(inventory)
+                if inventory
+                else "You are carrying nothing."
+            ),
+            last_command=f"thor {action}",
+            last_feedback=str(payload["detail"] or "Action completed."),
+            reward=previous.reward,
+            done=won,
+            won=won,
+            goal_condition_success_rate=goal_rate,
+            frame_path=self._save_current_frame(step_index=previous.step_index + 1),
+            step_index=previous.step_index + 1,
+            invalid_action_count=previous.invalid_action_count,
+            admissible_commands=previous.admissible_commands,
+        )
+        self._state = state
+        return AlfworldStepResult(
+            tool_name=tool_name,
+            tool_args=_model_visible_tool_args(tool_args),
+            translated_command=f"thor {action}",
+            success=result.feedback.success,
+            state=state,
+            execution_feedback=result.feedback,
+            feedback=payload["detail"],
+            backend_action_count=result.backend_action_count,
+            trace_events=result.trace_events,
         )
 
     def _manipulate_put_with_executor(
@@ -1523,8 +2266,13 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(enriched_args),
             translated_command=command,
             success=success,
-            failure_reason=None if success else classification,
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                enriched_args,
+                success=success,
+                failure_reason=None if success else classification,
+            ),
             feedback=feedback,
             backend_action_count=backend_action_count,
             trace_events=trace_events,
@@ -1559,8 +2307,13 @@ class AlfworldEnvAdapter:
                     tool_args=_model_visible_tool_args(tool_args),
                     translated_command=f"force use {object_type}",
                     success=False,
-                    failure_reason="ambiguous_grounding",
                     state=state,
+                    execution_feedback=_legacy_execution_feedback(
+                        tool_name,
+                        tool_args,
+                        success=False,
+                        failure_reason="ambiguous_grounding",
+                    ),
                     feedback=feedback,
                 )
             target_object_id = str(matches[0]["objectId"])
@@ -1587,8 +2340,10 @@ class AlfworldEnvAdapter:
                 tool_args=_model_visible_tool_args(tool_args),
                 translated_command=f"force use {object_type}",
                 success=False,
-                failure_reason="env_error",
                 state=state,
+                execution_feedback=_legacy_execution_feedback(
+                    tool_name, tool_args, success=False, failure_reason="env_error"
+                ),
                 feedback=feedback,
             )
 
@@ -1614,8 +2369,13 @@ class AlfworldEnvAdapter:
             tool_args=_model_visible_tool_args(tool_args),
             translated_command=f"force use {object_type}",
             success=success,
-            failure_reason=None if success else "invalid_action",
             state=state,
+            execution_feedback=_legacy_execution_feedback(
+                tool_name,
+                tool_args,
+                success=success,
+                failure_reason=None if success else "invalid_action",
+            ),
             feedback=feedback,
         )
 
@@ -1657,6 +2417,7 @@ class AlfworldEnvAdapter:
             self._frame_dir.mkdir(parents=True, exist_ok=True)
             path = self._frame_dir / f"frame-{step_index:04d}.png"
             Image.fromarray(frame).save(path)
+            self._frame_ledger.record_frame(path, event_sequence=self._event_sequence)
             return str(path)
         except Exception:
             return None
@@ -1665,6 +2426,125 @@ class AlfworldEnvAdapter:
 def _is_invalid_feedback(observation: str) -> bool:
     normalized = observation.strip().lower().rstrip(".")
     return normalized == "nothing happens"
+
+
+def _safe_navigation_feedback(error: str | None, target: str) -> str:
+    label = target.strip() or "the requested target"
+    templates = {
+        "target_not_found": f"{label} is not a supported target.",
+        "target_not_visible": f"{label} is not visible in the current view.",
+        "object_already_held": f"{label} is already held.",
+        "oracle_anchor_unresolved": f"No verified navigation anchor is available for {label}.",
+        "oracle_pose_missing": f"No verified navigation pose is available for {label}.",
+        "oracle_pose_malformed": f"The verified navigation pose for {label} is invalid.",
+        "oracle_navigation_failed": f"Navigation to {label} was rejected.",
+        "oracle_pose_mismatch": f"Navigation to {label} did not reach the verified pose.",
+        "oracle_target_not_visible": f"{label} was not visible after navigation.",
+        "execution_state_uncertain": "The current execution state could not be verified.",
+    }
+    return templates.get(error, "Navigation could not be completed.")
+
+
+def _navigation_execution_feedback(
+    error: str | None,
+    target: str,
+    *,
+    success: bool = False,
+    state_changed: bool | None = False,
+) -> AlfworldExecutionFeedback:
+    target_state = None
+    target_state_status = "not_applicable"
+    if success:
+        target_state = "visible"
+        target_state_status = "ok"
+    elif error in {"target_not_visible", "oracle_target_not_visible"}:
+        target_state = "not_visible"
+        target_state_status = "ok"
+    return make_execution_feedback(
+        action="navigate",
+        success=success,
+        error=error,
+        target_label=target,
+        target_state=target_state,
+        target_state_status=target_state_status,
+        state_changed=state_changed,
+        state_read_status="ok" if state_changed is not None else "not_applicable",
+    )
+
+
+def _legacy_execution_feedback(
+    tool_name: str,
+    tool_args: dict[str, Any],
+    *,
+    success: bool,
+    failure_reason: str | None,
+) -> AlfworldExecutionFeedback:
+    raw_action = str(tool_args.get("action") or "").strip().lower()
+    allowed_actions = {
+        "take",
+        "open",
+        "close",
+        "put",
+        "use",
+        "slice",
+        "heat",
+        "cool",
+        "clean",
+        "verify",
+    }
+    if raw_action in allowed_actions:
+        action = raw_action
+    elif tool_name in {"robot_go_to", "robot_navigate", "robot_find_object"}:
+        action = "navigate"
+    else:
+        action = "verify"
+    error_map = {
+        "env_error": "execution_state_uncertain",
+        "invalid_action": "invalid_tool_arguments",
+        "navigation_target_not_visible": "target_not_visible",
+        "object_not_visible": "target_not_visible",
+        "object_not_found": "target_not_found",
+        "ambiguous_grounding": "unclassified_execution_failure",
+        "harness_navigation_failure": "oracle_navigation_failed",
+    }
+    closed_errors = {
+        "invalid_tool_arguments",
+        "unknown_tool",
+        "target_not_found",
+        "target_not_visible",
+        "object_already_held",
+        "object_not_held",
+        "target_not_receptacle",
+        "target_closed",
+        "action_not_applicable",
+        "navigation_required",
+        "oracle_anchor_unresolved",
+        "oracle_pose_missing",
+        "oracle_pose_malformed",
+        "oracle_navigation_failed",
+        "oracle_pose_mismatch",
+        "oracle_target_not_visible",
+        "harness_operation_failure",
+        "execution_state_uncertain",
+        "unclassified_execution_failure",
+    }
+    mapped = error_map.get(failure_reason or "", failure_reason)
+    if mapped not in closed_errors:
+        mapped = "unclassified_execution_failure"
+    object_label = str(tool_args.get("object") or "").strip() or None
+    target_label = str(
+        tool_args.get("target")
+        or tool_args.get("target_receptacle")
+        or tool_args.get("tool_receptacle")
+        or ""
+    ).strip() or None
+    return make_execution_feedback(
+        action=action,
+        success=success,
+        error=None if success else mapped,
+        object_label=object_label,
+        target_label=target_label,
+    )
 
 
 def _build_set_task_args(thor_env: Any) -> SimpleNamespace:
@@ -3653,6 +4533,488 @@ def _bbox_area_score(box: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
+class _AdapterOracleBackend:
+    def __init__(self, adapter: AlfworldEnvAdapter) -> None:
+        self._adapter = adapter
+
+    def capture_event(self) -> ExternalEventRead:
+        thor_env = self._adapter._resolve_thor_env()
+        return _external_event_read(
+            getattr(thor_env, "last_event", None),
+            event_sequence=self._adapter._event_sequence,
+            thor_env=thor_env,
+        )
+
+    def send(self, request: ExternalActionRequest) -> ExternalEventRead:
+        thor_env = self._adapter._resolve_thor_env()
+        event = thor_env.step(dict(request.payload))
+        self._adapter._event_sequence += 1
+        return _external_event_read(
+            event,
+            event_sequence=self._adapter._event_sequence,
+            thor_env=thor_env,
+        )
+
+    def close(self) -> CleanupResult:
+        return _close_alfworld_env(self._adapter._env)
+
+
+def _event_logical_scene(event: Any) -> str | None:
+    metadata = getattr(event, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    scene_name = metadata.get("sceneName")
+    if (
+        not isinstance(scene_name, str)
+        or not scene_name.startswith("FloorPlan")
+        or not scene_name.endswith("_physics")
+    ):
+        return None
+    return scene_name.removesuffix("_physics")
+
+
+def _external_event_read(
+    event: Any,
+    *,
+    event_sequence: int,
+    thor_env: Any | None = None,
+) -> ExternalEventRead:
+    metadata = getattr(event, "metadata", None)
+    if not isinstance(metadata, dict):
+        return ExternalEventRead(
+            status="malformed",
+            returned_action=None,
+            action_success=None,
+            pose=None,
+            world_sha256=None,
+            visibility_sha256=None,
+            frame_sha256=None,
+            objects=None,
+            reachable_payload=None,
+            strict_visible_exact_ids=(),
+            bbox_areas=(),
+            raw_event_ref=None,
+            raw_event_sha256=None,
+        )
+    try:
+        raw_metadata_payload = _canonical_json_projection(metadata)
+        if not isinstance(raw_metadata_payload, dict):
+            raise ValueError("event metadata projection is unreadable")
+        raw_frame_bytes = _frame_bytes(getattr(event, "frame", None))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return ExternalEventRead(
+            status="malformed",
+            returned_action=None,
+            action_success=None,
+            pose=None,
+            world_sha256=None,
+            visibility_sha256=None,
+            frame_sha256=None,
+            objects=None,
+            reachable_payload=None,
+            strict_visible_exact_ids=(),
+            bbox_areas=(),
+            raw_event_ref=f"events/{event_sequence:04d}-malformed.json",
+            raw_event_sha256=_event_hash(event),
+        )
+    try:
+        pose = _oracle_pose_from_event(event)
+        world_payload = _event_world_payload(metadata)
+        world_sha256 = _portable_state_fingerprint(world_payload)
+        control_payload = _alfworld_control_payload(thor_env)
+        control_sha256 = _portable_state_fingerprint(control_payload)
+        frame_sha256 = _frame_sha256(raw_frame_bytes)
+        bbox_areas = _event_bbox_areas(event)
+        visible_ids = {
+            str(item["objectId"])
+            for item in metadata.get("objects", [])
+            if isinstance(item, dict)
+            and isinstance(item.get("objectId"), str)
+            and item.get("visible") is True
+        }
+        area_ids = {object_id for object_id, area in bbox_areas if area > 0}
+        strict_visible = tuple(sorted(visible_ids & area_ids))
+        visibility_sha256 = _portable_state_fingerprint(
+            {"strict_visible_exact_ids": strict_visible, "bbox_areas": bbox_areas}
+        )
+        objects = _scene_scan_inputs(metadata.get("objects"))
+        action = metadata.get("lastAction")
+        returned_action = action if isinstance(action, str) and action else None
+        action_success = metadata.get("lastActionSuccess")
+        if not isinstance(action_success, bool):
+            action_success = None
+        reachable_payload = None
+        if returned_action == "GetReachablePositions":
+            reachable = metadata.get("actionReturn")
+            if not isinstance(reachable, list):
+                reachable = metadata.get("reachablePositions")
+            if isinstance(reachable, list):
+                reachable_payload = json.dumps(
+                    reachable,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ).encode("utf-8")
+        return ExternalEventRead(
+            status="ok",
+            returned_action=returned_action,
+            action_success=action_success,
+            pose=pose,
+            world_sha256=world_sha256,
+            visibility_sha256=visibility_sha256,
+            frame_sha256=frame_sha256,
+            objects=objects,
+            reachable_payload=reachable_payload,
+            strict_visible_exact_ids=strict_visible,
+            bbox_areas=bbox_areas,
+            raw_event_ref=f"events/{event_sequence:04d}-{returned_action or 'capture'}.json",
+            raw_event_sha256=_raw_event_projection_sha256(
+                raw_metadata_payload,
+                raw_frame_bytes,
+            ),
+            control_sha256=control_sha256,
+            world_payload=world_payload,
+            control_payload=control_payload,
+            raw_metadata_payload=raw_metadata_payload,
+            raw_frame_bytes=raw_frame_bytes,
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return ExternalEventRead(
+            status="malformed",
+            returned_action=None,
+            action_success=None,
+            pose=None,
+            world_sha256=None,
+            visibility_sha256=None,
+            frame_sha256=_frame_sha256(raw_frame_bytes),
+            objects=None,
+            reachable_payload=None,
+            strict_visible_exact_ids=(),
+            bbox_areas=(),
+            raw_event_ref=f"events/{event_sequence:04d}-malformed.json",
+            raw_event_sha256=_raw_event_projection_sha256(
+                raw_metadata_payload,
+                raw_frame_bytes,
+            ),
+            raw_metadata_payload=raw_metadata_payload,
+            raw_frame_bytes=raw_frame_bytes,
+        )
+
+
+def _oracle_pose_from_event(event: Any) -> OraclePose | None:
+    pose = _agent_pose_from_event(event)
+    if pose is None:
+        return None
+    return OraclePose(
+        x=pose.x,
+        y=pose.y,
+        z=pose.z,
+        rotation=pose.rotation,
+        horizon=pose.horizon,
+    )
+
+
+def _scene_scan_inputs(value: Any) -> tuple[SceneObjectScanInput, ...] | None:
+    if not isinstance(value, list):
+        return None
+    objects: dict[str, dict[str, Any]] = {}
+    for item in value:
+        if not isinstance(item, dict):
+            return None
+        object_id = item.get("objectId")
+        object_type = item.get("objectType")
+        position = item.get("position")
+        if (
+            not isinstance(object_id, str)
+            or not object_id
+            or not isinstance(object_type, str)
+            or not object_type
+            or not isinstance(position, dict)
+        ):
+            return None
+        objects[object_id] = item
+
+    def closed_ancestors(object_id: str) -> tuple[str, ...]:
+        found: set[str] = set()
+        pending = list(_string_tuple(objects[object_id].get("parentReceptacles")))
+        visited: set[str] = set()
+        while pending:
+            parent_id = pending.pop()
+            if parent_id in visited:
+                continue
+            visited.add(parent_id)
+            parent = objects.get(parent_id)
+            if parent is None:
+                raise ValueError(f"unknown parent receptacle: {parent_id}")
+            if parent.get("openable") is True and parent.get("isOpen") is False:
+                found.add(parent_id)
+            pending.extend(_string_tuple(parent.get("parentReceptacles")))
+        return tuple(sorted(found))
+
+    result: list[SceneObjectScanInput] = []
+    for object_id in sorted(objects):
+        item = objects[object_id]
+        position = item["position"]
+        parent_ids = _string_tuple(item.get("parentReceptacles"))
+        child_ids = _string_tuple(item.get("receptacleObjectIds"))
+        freshness = _portable_state_fingerprint(
+            {
+                "object_id": object_id,
+                "position": position,
+                "rotation": item.get("rotation"),
+                "parent_receptacle_ids": parent_ids,
+                "receptacle_object_ids": child_ids,
+            }
+        )
+        result.append(
+            SceneObjectScanInput(
+                exact_object_id=object_id,
+                object_type=str(item["objectType"]),
+                position=(
+                    float(position["x"]),
+                    float(position["y"]),
+                    float(position["z"]),
+                ),
+                parent_receptacle_ids=parent_ids,
+                receptacle_object_ids=child_ids,
+                is_picked_up=item.get("isPickedUp") is True,
+                closed_ancestor_exact_ids=closed_ancestors(object_id),
+                pose_freshness_sha256=freshness,
+            )
+        )
+    return tuple(result)
+
+
+def _alfworld_control_payload(thor_env: Any | None) -> dict[str, Any]:
+    task = getattr(thor_env, "task", None) if thor_env is not None else None
+    traj = getattr(task, "traj", None)
+    pddl_params = traj.get("pddl_params") if isinstance(traj, dict) else None
+    goal_satisfied, goal_conditions = _view_invariant_goal_state(thor_env, task)
+    payload = {
+        "task_present": task is not None,
+        "task_type": getattr(task, "task_type", None),
+        "task_pddl_params": pddl_params,
+        "step_num": getattr(task, "step_num", None),
+        "goal_idx": getattr(task, "goal_idx", None),
+        "finished": getattr(task, "finished", None),
+        "goal_finished": getattr(task, "goal_finished", None),
+        "num_subgoals": getattr(task, "num_subgoals", None),
+        "goal_satisfied": goal_satisfied,
+        "goal_conditions_met": goal_conditions,
+        "goal_evaluation_visibility": "all_objects_visible",
+        "cleaned_objects": _control_object_ids(thor_env, "cleaned_objects"),
+        "cooled_objects": _control_object_ids(thor_env, "cooled_objects"),
+        "heated_objects": _control_object_ids(thor_env, "heated_objects"),
+    }
+    return _canonical_json_projection(payload)
+
+
+def _view_invariant_goal_state(
+    thor_env: Any | None,
+    task: Any,
+) -> tuple[bool | None, Any]:
+    if thor_env is None:
+        return None, None
+    goal_event = getattr(thor_env, "last_event", None)
+    metadata = getattr(goal_event, "metadata", None)
+    if isinstance(metadata, dict):
+        normalized_metadata = dict(metadata)
+        normalized_objects = []
+        for item in metadata.get("objects", []):
+            if not isinstance(item, dict):
+                normalized_objects.append(item)
+                continue
+            normalized_item = dict(item)
+            normalized_item["visible"] = True
+            normalized_item.pop("distance", None)
+            normalized_objects.append(normalized_item)
+        normalized_metadata["objects"] = normalized_objects
+        goal_event = SimpleNamespace(metadata=normalized_metadata)
+
+    if task is not None:
+        goal_reader = getattr(task, "goal_satisfied", None)
+        conditions_reader = getattr(task, "goal_conditions_met", None)
+        if not callable(goal_reader) or not callable(conditions_reader):
+            raise ValueError("ALFWorld task goal evaluators are unavailable")
+        try:
+            satisfied = bool(goal_reader(goal_event))
+            conditions = conditions_reader(goal_event)
+        except Exception as exc:
+            raise ValueError("ALFWorld task goal state is unreadable") from exc
+    else:
+        satisfied_reader = getattr(thor_env, "get_goal_satisfied", None)
+        conditions_reader = getattr(thor_env, "get_goal_conditions_met", None)
+        if not callable(satisfied_reader) or not callable(conditions_reader):
+            raise ValueError("ALFWorld goal readers are unavailable")
+        try:
+            satisfied = bool(satisfied_reader())
+            conditions = conditions_reader()
+        except Exception as exc:
+            raise ValueError("ALFWorld goal state is unreadable") from exc
+    if not isinstance(conditions, list | tuple) or len(conditions) != 2:
+        raise ValueError("ALFWorld goal conditions are unreadable")
+    return satisfied, list(conditions)
+
+
+def _control_object_ids(owner: Any | None, name: str) -> list[str] | None:
+    if owner is None or not hasattr(owner, name):
+        return None
+    value = getattr(owner, name)
+    if not isinstance(value, set | list | tuple):
+        raise ValueError(f"ALFWorld control field {name} is unreadable")
+    return sorted({str(item) for item in value})
+
+
+def _canonical_json_projection(value: Any) -> Any:
+    return json.loads(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+            default=str,
+        )
+    )
+
+
+def _event_world_payload(metadata: dict[str, Any]) -> dict[str, Any]:
+    objects = metadata.get("objects")
+    if not isinstance(objects, list):
+        raise ValueError("event objects are unreadable")
+    held_geometry_fields = {
+        "objectBounds",
+        "position",
+        "rotation",
+    }
+    normalized_objects = []
+    for item in objects:
+        if not isinstance(item, dict) or not isinstance(item.get("objectId"), str):
+            raise ValueError("event object is unreadable")
+        normalized_objects.append(
+            {
+                key: value
+                for key, value in item.items()
+                if key not in {"visible", "distance"}
+                and not (
+                    item.get("isPickedUp") is True
+                    and key in held_geometry_fields
+                )
+            }
+        )
+    normalized_objects.sort(key=lambda item: str(item["objectId"]))
+    extras = {
+        key: value
+        for key, value in metadata.items()
+        if key
+        not in {
+            "actionReturn",
+            "agent",
+            "cameraPosition",
+            "colorBounds",
+            "colors",
+            "currentTime",
+            "errorCode",
+            "errorMessage",
+            "lastAction",
+            "lastActionSuccess",
+            "objects",
+            "hand",
+            "reachablePositions",
+        }
+    }
+    return _canonical_json_projection(
+        {"objects": normalized_objects, "metadata": extras}
+    )
+
+
+def _event_world_sha256(metadata: dict[str, Any]) -> str:
+    return _portable_state_fingerprint(_event_world_payload(metadata))
+
+
+def _event_bbox_areas(event: Any) -> tuple[tuple[str, float], ...]:
+    detections = getattr(event, "instance_detections2D", None)
+    if not isinstance(detections, dict):
+        return ()
+    result = []
+    for object_id, box in detections.items():
+        if not isinstance(object_id, str):
+            raise ValueError("detection object ID is unreadable")
+        area = _bbox_area_score(box)
+        if not math.isfinite(area):
+            raise ValueError("detection bbox area must be finite")
+        if area > 0:
+            result.append((object_id, area))
+    return tuple(sorted(result))
+
+
+def _frame_sha256(frame: Any) -> str | None:
+    value = _frame_bytes(frame)
+    return hashlib.sha256(value).hexdigest() if value is not None else None
+
+
+def _frame_bytes(frame: Any) -> bytes | None:
+    if frame is None:
+        return None
+    tobytes = getattr(frame, "tobytes", None)
+    if callable(tobytes):
+        value = tobytes()
+        return value if isinstance(value, bytes) else bytes(value)
+    if isinstance(frame, bytes | bytearray | memoryview):
+        return bytes(frame)
+    return None
+
+
+def _raw_event_projection_sha256(
+    metadata_payload: dict[str, Any],
+    frame_bytes: bytes | None,
+) -> str:
+    encoded = json.dumps(
+        metadata_payload,
+        allow_nan=False,
+        default=str,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded + (frame_bytes or b"")).hexdigest()
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list | tuple) or any(not isinstance(item, str) for item in value):
+        raise ValueError("object containment IDs are unreadable")
+    return tuple(sorted(set(value)))
+
+
+def _portable_state_fingerprint(value: Any) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _close_alfworld_env(env: Any) -> CleanupResult:
+    for name in ("close", "stop"):
+        closer = getattr(env, name, None)
+        if not callable(closer):
+            continue
+        try:
+            closer()
+        except Exception:
+            return CleanupResult(status="failed", evidence_ref=None)
+        return CleanupResult(status="succeeded", evidence_ref=None)
+    return CleanupResult(status="unverified", evidence_ref=None)
 
 
 def _latest_thor_frame(env: Any) -> Any | None:

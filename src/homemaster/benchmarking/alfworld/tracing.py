@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
+
 SECRET_KEY_FRAGMENTS = ("api_key", "token", "auth", "secret", "password")
 USAGE_TOKEN_KEYS = {
     "cache_creation_input_tokens",
@@ -15,6 +17,69 @@ USAGE_TOKEN_KEYS = {
     "output_tokens",
     "total_tokens",
 }
+
+
+class AlfworldToolDispatchObserver:
+    def __init__(self, outcome: Any) -> None:
+        self._outcome = outcome
+
+    def on_call(self, tool_call: ToolCall) -> None:
+        del tool_call
+        self._outcome.agent_tool_call_count += 1
+
+    def terminal_result(self, tool_call: ToolCall) -> ToolResultMessage | None:
+        if not self._outcome.terminal or not tool_call.name.startswith("robot_"):
+            return None
+        payload = {
+            "success": False,
+            "error": "unclassified_execution_failure",
+            "terminal": True,
+            "classification": self._outcome.classification
+            or "unclassified_execution_failure",
+            "score_eligible": False,
+            "detail": "The episode has already terminated.",
+        }
+        return ToolResultMessage(
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            content=[ContentBlock(text=json.dumps(payload, ensure_ascii=False, sort_keys=True))],
+            is_error=True,
+            data=payload,
+        )
+
+    def on_result(self, tool_call: ToolCall, result: Any) -> None:
+        data = getattr(result, "data", None)
+        if not isinstance(data, dict) or data.get("terminal") is not True:
+            return
+        classification = str(
+            data.get("classification") or "unclassified_execution_failure"
+        )
+        self._outcome.mark_terminal(
+            classification=classification,
+            tool_call_id=tool_call.id,
+        )
+
+    def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage:
+        del error
+        payload = {
+            "success": False,
+            "error": "unclassified_execution_failure",
+            "terminal": True,
+            "classification": "runtime_failure",
+            "score_eligible": False,
+            "detail": "Tool execution failed before a verified result was produced.",
+        }
+        self._outcome.mark_terminal(
+            classification="runtime_failure",
+            tool_call_id=tool_call.id,
+        )
+        return ToolResultMessage(
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            content=[ContentBlock(text=json.dumps(payload, ensure_ascii=False, sort_keys=True))],
+            is_error=True,
+            data=payload,
+        )
 
 
 class AlfworldTraceWriter:

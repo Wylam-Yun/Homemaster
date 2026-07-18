@@ -1,4 +1,4 @@
-# HomeMaster V1.7
+# HomeMaster V1.8
 
 LLM-first generic agent runtime with home-robot domain tools.
 
@@ -107,7 +107,9 @@ post_change_anomaly /home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data
 
 ## ALFWorld Benchmark
 
-`AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划，同时由 Harness 负责准确对象 grounding、主要导航和同目标局部 put 位姿执行。公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`；不产生新观察的 `robot_inspect_view` 已删除。
+`AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划。V1.8 在模型循环前验证 exact trial manifest，执行 controlled-time reset scan，并原子发布 immutable Oracle pose snapshot；公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`。
+
+`robot_go_to` 先验证当前成功 Provider 请求与 THOR event 的 frame 绑定，再从 frozen scene index 解析语义目标：优先选择当前 strict-visible 实例，没有可见匹配时允许使用同一 reset snapshot 中的唯一 exact pose 尝试一次离屏导航。返回 event 必须让准确目标 strict-visible，否则按 Harness 导航失败终止。导航校验把 physical world 和 ALFWorld control state 分开；持有物随 agent 移动的 geometry 会规范化，但 inventory、`isPickedUp`、containment 和任务状态仍参与完整性检查。所有 manipulation 通过统一外部动作网关和强类型反馈返回，内部 objectId、坐标、候选和 snapshot authority 不进入 Provider body。
 
 ```bash
 export ALFWORLD_DATA=/path/to/alfworld/data
@@ -118,11 +120,14 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli benchmark-alfworld \
   --trace-root var/alfworld-trace \
   --env-type AlfredThorEnv \
   --split valid_unseen \
-  --episodes 10 \
+  --episodes 1 \
+  --trial-manifest /path/to/trial-manifest.json \
   --observation-mode visual_eval
 ```
 
-MVP 对 `put` 使用固定生产预算：导航最多 65 个候选、66 个 THOR action、34.804 秒；局部 put 最多 9 个候选、17 个 THOR action、5.669 秒。成功同时要求 THOR 返回成功和准确外部终态；Harness grounding/navigation/operation 或状态矛盾会立即终止 Episode、排除 Agent 分数，并在 CLI/summary 同时报告 `harness_valid_coverage` 与 `formal_score_available`。
+manifest entry 数必须等于 `--episodes`，并绑定相对 trial ID、trial SHA-256、逻辑场景和 goal fingerprint。reset 成功 setup 的 backend action 数是 `N+4`；reset/control terminal 在 Provider 构造前停止。CLI/summary 分开报告 Agent 成功率、evaluation/Harness coverage、Provider/Runtime availability 和 `formal_score_available`。
+
+当前 V1.8 外部验收仍有公开缺口：Gate A 为 19/20 worker，`exact-cases-v3.json` 未生成，不能宣称完整 PASS。中断后的修复已让真实 run 从 0 次模型 backend action 的离屏死锁恢复为正常 Provider/tool/backend 调用；固定十 Episode run `alfworld-valid_unseen-v18-offscreen-fix-20260718-002` 完整退出并得到 1 个 `agent_success`、5 个可计分 Episode、5 个 Harness invalid、29 个模型 backend actions 和 52 个 Provider attempts。4 个 FloorPlan10 Episode 暴露 normal-time physical-world drift，另 1 个 Episode 中 THOR 在手持 Basketball 时拒绝 DeskLamp 冻结位姿；Provider/Runtime availability 均为 1.0，但 coverage 为 0.5、`formal_score_available=false`。这些失败保持可见，不通过放宽终态门伪装成 PASS。
 
 使用说明见 [ALFWorld 用户指南](docs/alfworld-user-guide.md)，实现不变量与数据流见 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
 
@@ -146,7 +151,7 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 - 真实：Mimo、BGE-M3。
 - 程序：可靠记忆判定、轻量记忆写回。
 - 模拟：navigation、operation、verification skill。
-- Benchmark：`AlfredThorEnv` 通过真实 THOR 返回码和 scene metadata 验证导航及 put；MVP 尚未为 take/open/use 提供同等级局部恢复契约。
+- Benchmark：`AlfredThorEnv` 已接入 V1.8 trial/reset/snapshot/current-view/typed-feedback 产品边界；内部回归通过，但完整 Gate B 与十 Episode 真实 API 证据仍不可用。
 
 ## 架构
 

@@ -9,7 +9,9 @@ def test_disabled_memory_registry_excludes_memory_tools() -> None:
 
     assert "robot_observe" not in names
     assert "robot_inspect_view" not in names
-    assert "robot_navigate" in names
+    assert "robot_go_to" in names
+    assert "robot_navigate" not in names
+    assert "robot_find_object" not in names
     assert "robot_manipulate" in names
     assert "robot_verify" in names
     assert "task_interpreter" not in names

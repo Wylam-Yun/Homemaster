@@ -49,6 +49,7 @@ homemaster = [
   "prompts/*.md",
   "prompts/*.txt",
   "benchmarking/coworker_demo/skills/*/SKILL.md",
+  "benchmarking/alfworld/*.json",
 ]
 
 [tool.pytest.ini_options]

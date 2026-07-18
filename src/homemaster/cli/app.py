@@ -196,6 +196,13 @@ def benchmark_alfworld_command(
         str,
         typer.Option("--observation-mode", help="visual_eval or textual_debug."),
     ] = "visual_eval",
+    trial_manifest: Annotated[
+        Path | None,
+        typer.Option(
+            "--trial-manifest",
+            help="Required ordered trial-selection manifest for AlfredThorEnv runs.",
+        ),
+    ] = None,
 ) -> None:
     """Run HomeMaster on ALFWorld benchmark episodes."""
     try:
@@ -215,17 +222,31 @@ def benchmark_alfworld_command(
             run_id=run_id,
             log_level=log_level,
             observation_mode=observation_mode,
+            trial_manifest=trial_manifest,
         )
         metrics = summary.to_dict()
         typer.echo(f"run_id: {summary.run_id}")
         typer.echo(f"episodes: {len(summary.episodes)}")
         typer.echo(f"success_rate: {summary.success_rate:.3f}")
+        typer.echo(f"raw_success_rate: {float(metrics['raw_success_rate']):.3f}")
         typer.echo(f"agent_scored_episodes: {metrics['agent_scored_episodes']}")
         typer.echo(
             f"agent_success_rate_on_valid: {float(metrics['agent_success_rate_on_valid']):.3f}"
         )
         typer.echo(f"harness_invalid_episodes: {metrics['harness_invalid_episodes']}")
         typer.echo(f"harness_valid_coverage: {float(metrics['harness_valid_coverage']):.3f}")
+        typer.echo(
+            "evaluation_valid_coverage: "
+            f"{float(metrics['evaluation_valid_coverage']):.3f}"
+        )
+        typer.echo(f"harness_coverage: {float(metrics['harness_coverage']):.3f}")
+        typer.echo(
+            f"provider_availability: {float(metrics['provider_availability']):.3f}"
+        )
+        typer.echo(
+            f"runtime_availability: {float(metrics['runtime_availability']):.3f}"
+        )
+        typer.echo(f"cancelled_episodes: {int(metrics['cancelled_episodes'])}")
         typer.echo(
             f"formal_score_available: {str(bool(metrics['formal_score_available'])).lower()}"
         )

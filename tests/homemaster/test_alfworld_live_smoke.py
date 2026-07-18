@@ -29,7 +29,10 @@ def test_live_alfworld_textworld_reset_and_look(tmp_path: Path) -> None:
     )
     env = build_alfworld_batch_env(config)
     adapter = AlfworldEnvAdapter(env=env, episode_prefix=config.split, seed=42)
-    state = adapter.reset()
+    reset_result = adapter.reset()
+    assert reset_result.ready, reset_result.setup_failure
+    assert reset_result.state is not None
+    state = reset_result.state
 
     assert state.observation
     assert state.frame_path is None

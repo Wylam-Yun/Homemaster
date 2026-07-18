@@ -36,6 +36,7 @@ def handle_benchmark_alfworld(
     run_id: str | None = None,
     log_level: str = "INFO",
     observation_mode: str = "visual_eval",
+    trial_manifest: Path | None = None,
 ) -> AlfworldSummary:
     setup_logging(level=log_level)
     config = AlfworldBenchmarkConfig(
@@ -53,6 +54,7 @@ def handle_benchmark_alfworld(
         provider_name=provider_name,
         run_id=run_id,
         observation_mode=cast(ObservationMode, observation_mode),
+        trial_manifest=trial_manifest,
     )
     return AlfworldBenchmarkRunner(config=config).run()
 
