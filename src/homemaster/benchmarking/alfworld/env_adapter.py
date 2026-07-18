@@ -4756,6 +4756,8 @@ def _event_world_sha256(metadata: dict[str, Any]) -> str:
         not in {
             "actionReturn",
             "agent",
+            "cameraPosition",
+            "colorBounds",
             "colors",
             "currentTime",
             "errorCode",
@@ -4763,6 +4765,7 @@ def _event_world_sha256(metadata: dict[str, Any]) -> str:
             "lastAction",
             "lastActionSuccess",
             "objects",
+            "hand",
             "reachablePositions",
         }
     }

@@ -16,6 +16,7 @@ from homemaster.benchmarking.alfworld.pose_snapshot import (
     SceneObjectScanInput,
     SceneScanPlanBuilder,
     load_public_object_vocabulary,
+    oracle_pose_matches,
     pose_sha256,
 )
 
@@ -88,6 +89,21 @@ def _inputs(*, reverse: bool = False) -> ScanPolicyInput:
         objects=tuple(objects),
         cache_entries=tuple(cache_entries),
         reachable_payload=reachable_bytes,
+    )
+
+
+def test_oracle_pose_match_accepts_thor_normalization_but_rejects_real_drift() -> None:
+    requested = OraclePose(-5.5, 0.9010564, 1.0, 183.164758, -12.88501)
+
+    assert oracle_pose_matches(
+        OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -12.0), requested
+    )
+    assert oracle_pose_matches(OraclePose(0, 0.9, 0, 0.0, 0), OraclePose(0, 0.9, 0, 360, 0))
+    assert not oracle_pose_matches(
+        OraclePose(-5.499, 0.9010564, 1.0, 183.164764, -12.0), requested
+    )
+    assert not oracle_pose_matches(
+        OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -11.0), requested
     )
 
 

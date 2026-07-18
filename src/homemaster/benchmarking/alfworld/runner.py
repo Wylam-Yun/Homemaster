@@ -72,9 +72,9 @@ TransportFactory = Callable[[], Any]
 AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 
 
-# Keep the experimental scan transaction off the production path until it can
-# tolerate the poses returned by real THOR builds without terminating setup.
-_ENABLE_V18_RESET_TRANSACTION = False
+# The bounded scan is part of the V1.8 THOR contract. Pose comparison and world
+# hashing normalize the view-only differences produced by the pinned THOR build.
+_ENABLE_V18_RESET_TRANSACTION = True
 
 
 class AlfworldBenchmarkRunner:

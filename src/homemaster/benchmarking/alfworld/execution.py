@@ -24,6 +24,7 @@ from homemaster.benchmarking.alfworld.pose_snapshot import (
     OraclePoseLookup,
     OraclePoseStore,
     SceneObjectScanInput,
+    oracle_pose_matches,
 )
 from homemaster.benchmarking.alfworld.types import (
     AlfworldAction,
@@ -675,13 +676,13 @@ def _navigation_action_error(
         if (
             event.action_success is False
             and event.world_sha256 == before.world_sha256
-            and event.pose == before.pose
+            and oracle_pose_matches(event.pose, before.pose)
         ):
             return "oracle_navigation_failed"
         return "execution_state_uncertain"
     if event.world_sha256 is None or event.world_sha256 != before.world_sha256:
         return "execution_state_uncertain"
-    if event.pose != requested_pose:
+    if not oracle_pose_matches(event.pose, requested_pose):
         return "oracle_pose_mismatch"
     if event.raw_event_ref is None or event.raw_event_sha256 is None:
         return "execution_state_uncertain"
@@ -857,7 +858,7 @@ class OracleManipulationExecutor:
             )
         if (
             self._view.event_sequence != context.current_event_sequence
-            or self._current_event.pose != context.actual_pose
+            or not oracle_pose_matches(self._current_event.pose, context.actual_pose)
         ):
             return self._uncertain(action, object_label, target_label, trace)
 
@@ -1192,7 +1193,9 @@ class OracleManipulationExecutor:
             result = self._gateway.execute_manipulation(payload)
             count += 1
             after = read_thor_state_snapshot(self._raw_event_reader())
-            if after.status != "ok" or result.event.pose != context.actual_pose:
+            if after.status != "ok" or not oracle_pose_matches(
+                result.event.pose, context.actual_pose
+            ):
                 return self._uncertain(
                     action, object_label, target_label, trace, backend_action_count=count
                 )
@@ -1262,7 +1265,9 @@ class OracleManipulationExecutor:
         trace.append(
             {"event": "manipulation_gateway_result", "success": result.success}
         )
-        if after.status != "ok" or result.event.pose != context.actual_pose:
+        if after.status != "ok" or not oracle_pose_matches(
+            result.event.pose, context.actual_pose
+        ):
             return self._uncertain(
                 action, object_label, target_label, trace, backend_action_count=1
             )

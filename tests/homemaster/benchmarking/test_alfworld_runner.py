@@ -328,7 +328,7 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
         SimpleNamespace(trial_id="case-1/traj_data.json")
     )
 
-    assert adapter._require_v18_reset is False  # noqa: SLF001
+    assert adapter._require_v18_reset is True  # noqa: SLF001
     assert observed == {
         "config": config,
         "first_trial_path": (

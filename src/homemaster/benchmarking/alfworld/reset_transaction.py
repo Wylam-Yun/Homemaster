@@ -20,6 +20,7 @@ from homemaster.benchmarking.alfworld.pose_snapshot import (
     ScanPolicyInput,
     SceneObjectScanInput,
     SceneScanPlanBuilder,
+    oracle_pose_matches,
     pose_sha256,
 )
 from homemaster.benchmarking.alfworld.types import (
@@ -157,7 +158,7 @@ class AlfworldResetTransaction:
                 self._record_observations(
                     observations,
                     action.event,
-                    pose=step.pose,
+                    pose=action.event.pose,
                     provenances={
                         provenance.exact_object_id: provenance.source_kind
                         for provenance in step.provenances
@@ -310,7 +311,10 @@ class AlfworldResetTransaction:
             raise _Abort(unreadable)
         if not result.success:
             raise _Abort(rejected)
-        if result.event.pose != pose or result.event.world_sha256 != world_sha256:
+        if (
+            not oracle_pose_matches(result.event.pose, pose)
+            or result.event.world_sha256 != world_sha256
+        ):
             raise _Abort(mismatch)
 
     @staticmethod
@@ -324,7 +328,7 @@ class AlfworldResetTransaction:
             raise _Abort("scan_observation_unreadable")
         if not result.success:
             raise _Abort("scan_pose_rejected")
-        if result.event.pose != pose:
+        if not oracle_pose_matches(result.event.pose, pose):
             raise _Abort("scan_pose_mismatch")
         if result.event.world_sha256 != world_sha256:
             raise _Abort("scan_world_drift")
@@ -338,7 +342,10 @@ class AlfworldResetTransaction:
     ) -> None:
         if not result.success:
             raise _Abort("scan_restore_rejected")
-        if result.event.pose != pose or result.event.world_sha256 != world_sha256:
+        if (
+            not oracle_pose_matches(result.event.pose, pose)
+            or result.event.world_sha256 != world_sha256
+        ):
             raise _Abort("scan_restore_mismatch")
 
     @classmethod
@@ -361,7 +368,7 @@ class AlfworldResetTransaction:
     ) -> bool:
         return (
             result.success
-            and result.event.pose == pose
+            and oracle_pose_matches(result.event.pose, pose)
             and result.event.world_sha256 == world_sha256
         )
 
@@ -373,7 +380,7 @@ class AlfworldResetTransaction:
         event = result.event
         return (
             result.success
-            and event.pose == initial.pose
+            and oracle_pose_matches(event.pose, initial.pose)
             and event.world_sha256 == initial.world_sha256
             and event.visibility_sha256 == initial.visibility_sha256
             and event.frame_sha256 == initial.frame_sha256

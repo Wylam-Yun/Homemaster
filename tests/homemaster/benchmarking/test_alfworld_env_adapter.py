@@ -8,6 +8,7 @@ import pytest
 
 from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
+    _event_world_sha256,
     split_to_train_eval,
 )
 from homemaster.benchmarking.alfworld.execution import (
@@ -82,6 +83,30 @@ def test_split_to_train_eval_mapping() -> None:
     assert split_to_train_eval("train") == "train"
     assert split_to_train_eval("valid_seen") == "eval_in_distribution"
     assert split_to_train_eval("valid_unseen") == "eval_out_of_distribution"
+
+
+def test_world_hash_ignores_view_metadata_but_tracks_object_state() -> None:
+    before = {
+        "objects": [{"objectId": "Mug|1", "isOpen": False, "visible": True, "distance": 1}],
+        "cameraPosition": {"x": 0, "y": 1, "z": 0},
+        "colorBounds": [{"color": [1, 2, 3], "bounds": [0, 0, 1, 1]}],
+        "hand": {"localPosition": {"x": 0.0, "y": -0.16, "z": 0.38}},
+        "sceneName": "FloorPlan1_physics",
+    }
+    after_view_change = {
+        "objects": [{"objectId": "Mug|1", "isOpen": False, "visible": False, "distance": 9}],
+        "cameraPosition": {"x": 4, "y": 1, "z": 2},
+        "colorBounds": [],
+        "hand": {"localPosition": {"x": 1e-7, "y": -0.16000002, "z": 0.38000005}},
+        "sceneName": "FloorPlan1_physics",
+    }
+    after_object_change = {
+        **after_view_change,
+        "objects": [{"objectId": "Mug|1", "isOpen": True, "visible": False, "distance": 9}],
+    }
+
+    assert _event_world_sha256(before) == _event_world_sha256(after_view_change)
+    assert _event_world_sha256(before) != _event_world_sha256(after_object_change)
 
 
 def test_adapter_reset_normalizes_initial_state_without_visible_admissible_commands() -> None:

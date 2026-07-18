@@ -22,6 +22,7 @@ def _sha(value: str) -> str:
 
 POSE = OraclePose(0, 0.9, 0, 0, 0)
 SCAN_POSE = OraclePose(1, 0.9, 1, 180, 30)
+NORMALIZED_SCAN_POSE = OraclePose(1, 0.9, 1, 180.000006, 30.9)
 WORLD = _sha("world")
 VISIBILITY = _sha("visibility")
 FRAME = _sha("frame")
@@ -158,6 +159,30 @@ def test_reset_transaction_executes_full_sequence_and_publishes_once() -> None:
         scene_reset_fingerprint=_sha("scene"),
         exact_anchor_id="Mug|1",
     ).status == "ok"
+
+
+def test_reset_accepts_thor_pose_normalization_and_stores_returned_pose() -> None:
+    backend = ScriptedBackend(
+        [
+            _event("ChangeTimeScale"),
+            _event("GetReachablePositions"),
+            _event("TeleportFull", pose=NORMALIZED_SCAN_POSE, visible=("Mug|1",)),
+            _event("TeleportFull"),
+            _event("ChangeTimeScale"),
+        ]
+    )
+    store = FrozenOraclePoseStore()
+
+    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(
+        _transaction_input()
+    )
+
+    assert result.ready
+    assert store.get_pose(
+        scene_generation=1,
+        scene_reset_fingerprint=_sha("scene"),
+        exact_anchor_id="Mug|1",
+    ).pose == NORMALIZED_SCAN_POSE
 
 
 def test_reset_failure_recovers_time_and_never_publishes_partial_snapshot() -> None:

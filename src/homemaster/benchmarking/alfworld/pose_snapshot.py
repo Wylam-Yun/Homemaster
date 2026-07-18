@@ -56,6 +56,22 @@ class OraclePose:
             object.__setattr__(self, name, _normalize_zero(value))
 
 
+def oracle_pose_matches(actual: OraclePose | None, expected: OraclePose | None) -> bool:
+    """Compare poses using the precision preserved by the pinned THOR build."""
+
+    if actual is None or expected is None:
+        return False
+    rotation_delta = abs((actual.rotation - expected.rotation) % 360.0)
+    rotation_delta = min(rotation_delta, 360.0 - rotation_delta)
+    return (
+        abs(actual.x - expected.x) <= 1e-4
+        and abs(actual.y - expected.y) <= 1e-4
+        and abs(actual.z - expected.z) <= 1e-4
+        and rotation_delta <= 1e-4
+        and abs(actual.horizon - expected.horizon) <= 1.0
+    )
+
+
 @dataclass(frozen=True, order=True)
 class ScanPoseProvenance:
     exact_object_id: str
