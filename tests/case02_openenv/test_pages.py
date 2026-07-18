@@ -77,6 +77,12 @@ def test_executive_observer_script_uses_safe_presentation_stream(tmp_path: Path)
     assert "new EventSource(`/api/runs/${runId}/presentation-events`)" in script.text
     assert 'addEventListener("presentation.snapshot"' in script.text
     assert 'addEventListener("presentation.event"' in script.text
+    assert "fetch(`/api/runs/${runId}/scores`)" in script.text
+    assert "window.setInterval(refreshScores, 400)" in script.text
+    assert "trajectory=${formatScore(summary.trajectory_score)}" in script.text
+    assert "result=${formatScore(summary.result_score)}" in script.text
+    assert "video_verification=${formatState(summary.video_verification)}" in script.text
+    assert "formal_success=${formatState(summary.formal_success)}" in script.text
     assert "textContent" in script.text
     assert "createElement" in script.text
     assert "replaceChildren" in script.text
@@ -87,9 +93,12 @@ def test_executive_observer_script_uses_safe_presentation_stream(tmp_path: Path)
         "eval(",
         "/state",
         "/audit",
-        "/scores",
     ):
         assert forbidden not in script.text
+
+    for name in ("ticket", "monitor", "automation"):
+        agent_script = api.get(f"/static/{name}.js")
+        assert "/scores" not in agent_script.text
 
 
 def test_executive_observer_controller_resets_generation_and_rejects_failures(
@@ -209,6 +218,7 @@ def test_executive_observer_css_has_fixed_recording_geometry(tmp_path: Path) -> 
         "grid-template-columns: 1320px 600px",
         "height: 84px",
         "font-size: 20px",
+        "#score-summary { font-size: 17px; }",
         "line-height: 1.55",
         "white-space: pre-wrap",
         "box-sizing: border-box",

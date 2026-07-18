@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from case02_openenv.models import EpisodePhase, RunState
 
 MONITOR_BIDS = {
+    "monitor-cluster",
+    "monitor-region",
     "monitor-query-alarm",
     "monitor-query-probe",
     "monitor-query-capacity",
@@ -231,6 +233,12 @@ def map_task(
         if state.phase == EpisodePhase.VERIFYING:
             return ticket_task(ticket, "change_verified", 1, "operate_description")
         if operation is None and previous is not None and previous.check_name == business_name:
+            return previous
+        if (
+            operation is None
+            and previous is not None
+            and previous.stage == "change_implement"
+        ):
             return previous
         if operation is None and item.tool_name == "browser_wait":
             raise PresentationMappingError(

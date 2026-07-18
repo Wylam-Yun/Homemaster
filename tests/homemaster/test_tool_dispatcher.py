@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.messages import ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from types import SimpleNamespace
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec

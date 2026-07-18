@@ -62,7 +62,7 @@ Do not modify the Agent prompt, tool schemas, DAG requirements, result checkpoin
 - Modify: `src/homemaster/benchmarking/coworker_demo/registry.py:72-103`
 - Test: `tests/homemaster/benchmarking/coworker_demo/test_correlation.py`
 
-- [ ] **Step 1: Write failing tests for stable IDs and dispatcher scoping**
+- [x] **Step 1: Write failing tests for stable IDs and dispatcher scoping**
 
 ```python
 from __future__ import annotations
@@ -117,7 +117,7 @@ def test_dispatcher_scopes_current_tool_call_id_per_executor() -> None:
     assert "current_tool_call_id" not in context.deps
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail because the helper/context do not exist**
+- [x] **Step 2: Run the tests and verify they fail because the helper/context do not exist**
 
 Run:
 
@@ -127,7 +127,7 @@ Run:
 
 Expected: collection fails with `ModuleNotFoundError` for `correlation`.
 
-- [ ] **Step 3: Implement the stable helper and scoped dispatcher context**
+- [x] **Step 3: Implement the stable helper and scoped dispatcher context**
 
 Create `correlation.py`:
 
@@ -191,7 +191,7 @@ action_id=correlated_action_id(run_context),
 
 Remove now-unused `uuid` imports.
 
-- [ ] **Step 4: Run focused correlation and existing dispatcher tests**
+- [x] **Step 4: Run focused correlation and existing dispatcher tests**
 
 Run:
 
@@ -204,7 +204,7 @@ Run:
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit the correlation slice**
+- [x] **Step 5: Commit the correlation slice**
 
 ```bash
 git add \
@@ -225,7 +225,7 @@ git commit -m "feat(coworker): correlate model tools with external actions"
 - Modify: `apps/case02_openenv/src/case02_openenv/episode_store.py:35-121`
 - Test: `tests/case02_openenv/test_presentation.py`
 
-- [ ] **Step 1: Write failing tests for exact source text, stage disambiguation, and fail-closed mapping**
+- [x] **Step 1: Write failing tests for exact source text, stage disambiguation, and fail-closed mapping**
 
 ```python
 from __future__ import annotations
@@ -335,7 +335,7 @@ def test_unknown_business_control_fails_closed(store) -> None:
         )
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail before presentation models exist**
+- [x] **Step 2: Run the tests and verify they fail before presentation models exist**
 
 ```bash
 .venv/bin/pytest tests/case02_openenv/test_presentation.py -q
@@ -343,7 +343,7 @@ def test_unknown_business_control_fails_closed(store) -> None:
 
 Expected: collection fails with `ModuleNotFoundError: case02_openenv.presentation`.
 
-- [ ] **Step 3: Implement typed presentation input/event/task models and the exact mapper**
+- [x] **Step 3: Implement typed presentation input/event/task models and the exact mapper**
 
 Create these public contracts in `presentation.py`:
 
@@ -554,7 +554,7 @@ def display_stage(
 
 Add `presentation_task()` and `presentation_stage()` to `EpisodeStore` as thin, locked calls to `map_task(...)` and `display_stage(...)`. Store `current_presentation_task` on `Episode` and update it only after a successful mapping. In `record_presentation()`, set `PresentationEvent.stage` from `display_stage(...)`, not from `EpisodeStore.stage_for(...)`.
 
-- [ ] **Step 4: Run mapper tests and existing episode tests**
+- [x] **Step 4: Run mapper tests and existing episode tests**
 
 ```bash
 .venv/bin/pytest \
@@ -564,7 +564,7 @@ Add `presentation_task()` and `presentation_stage()` to `EpisodeStore` as thin, 
 
 Expected: all tests pass; existing business phases remain unchanged.
 
-- [ ] **Step 5: Commit the SOP mapping slice**
+- [x] **Step 5: Commit the SOP mapping slice**
 
 ```bash
 git add \
@@ -584,7 +584,7 @@ git commit -m "feat(coworker): map live actions to exact SOP text"
 - Modify: `tests/case02_openenv/test_api_contract.py`
 - Modify: `tests/case02_openenv/test_presentation.py`
 
-- [ ] **Step 1: Add failing API tests for append, snapshot, cross-run rejection, and resume**
+- [x] **Step 1: Add failing API tests for append, snapshot, cross-run rejection, and resume**
 
 ```python
 def test_presentation_post_snapshot_and_sse_resume(tmp_path: Path) -> None:
@@ -650,7 +650,7 @@ def test_presentation_rejects_run_mismatch(tmp_path: Path) -> None:
     assert response.json()["error_code"] == "presentation_run_mismatch"
 ```
 
-- [ ] **Step 2: Run the new API tests and verify 404/attribute failures**
+- [x] **Step 2: Run the new API tests and verify 404/attribute failures**
 
 ```bash
 .venv/bin/pytest \
@@ -660,7 +660,7 @@ def test_presentation_rejects_run_mismatch(tmp_path: Path) -> None:
 
 Expected: tests fail because presentation routes and ledger methods do not exist.
 
-- [ ] **Step 3: Implement ledger recording, state snapshots, and reset cleanup**
+- [x] **Step 3: Implement ledger recording, state snapshots, and reset cleanup**
 
 Add ledger state to `Episode`:
 
@@ -762,7 +762,7 @@ return snapshot
 
 On reset, clear presentation lists and delete `presentation/events.jsonl` and `presentation/snapshot.json` together with existing run-local traces.
 
-- [ ] **Step 4: Add POST, snapshot GET, and SSE GET endpoints plus the client method**
+- [x] **Step 4: Add POST, snapshot GET, and SSE GET endpoints plus the client method**
 
 In `api.py`, add:
 
@@ -819,7 +819,7 @@ def presentation_event(self, run_id: str, payload: dict[str, Any]) -> dict[str, 
     )
 ```
 
-- [ ] **Step 5: Run API, ledger, and client tests**
+- [x] **Step 5: Run API, ledger, and client tests**
 
 ```bash
 .venv/bin/pytest \
@@ -830,7 +830,7 @@ def presentation_event(self, run_id: str, payload: dict[str, Any]) -> dict[str, 
 
 Expected: all tests pass except the known OpenAPI snapshot test, which is refreshed in Task 8.
 
-- [ ] **Step 6: Commit the presentation API slice**
+- [x] **Step 6: Commit the presentation API slice**
 
 ```bash
 git add \
@@ -851,7 +851,7 @@ git commit -m "feat(coworker): add presentation event stream"
 - Modify: `src/homemaster/benchmarking/coworker_demo/tracing.py:13-63`
 - Test: `tests/homemaster/benchmarking/coworker_demo/test_presentation_projection.py`
 
-- [ ] **Step 1: Write failing tests for allowlisted projection and start/result correlation**
+- [x] **Step 1: Write failing tests for allowlisted projection and start/result correlation**
 
 ```python
 from __future__ import annotations
@@ -919,7 +919,7 @@ def test_non_tool_noise_is_not_projected() -> None:
     assert project_runtime_event(event) is None
 ```
 
-- [ ] **Step 2: Run the tests and verify the projection module is missing**
+- [x] **Step 2: Run the tests and verify the projection module is missing**
 
 ```bash
 .venv/bin/pytest tests/homemaster/benchmarking/coworker_demo/test_presentation_projection.py -q
@@ -927,7 +927,7 @@ def test_non_tool_noise_is_not_projected() -> None:
 
 Expected: collection fails with `ModuleNotFoundError`.
 
-- [ ] **Step 3: Implement a tool-specific allowlist projector**
+- [x] **Step 3: Implement a tool-specific allowlist projector**
 
 Create `presentation.py` with these constants and entry point:
 
@@ -1076,7 +1076,7 @@ def summarize_tool_result(
     return {"success": bool(data.get("success", True))}, evidence
 ```
 
-- [ ] **Step 4: Mirror only projected events from `CoworkerTraceSink`**
+- [x] **Step 4: Mirror only projected events from `CoworkerTraceSink`**
 
 Replace the generic runtime mirror in `emit()` with:
 
@@ -1093,7 +1093,7 @@ if projected is not None:
 
 Keep the local full runtime trace and human transcript behavior unchanged. Do not send assistant thinking/reply payloads to the presentation endpoint.
 
-- [ ] **Step 5: Test projection, trace sink behavior, and secret exclusion**
+- [x] **Step 5: Test projection, trace sink behavior, and secret exclusion**
 
 ```bash
 .venv/bin/pytest \
@@ -1104,7 +1104,7 @@ Keep the local full runtime trace and human transcript behavior unchanged. Do no
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit the runtime projection slice**
+- [x] **Step 6: Commit the runtime projection slice**
 
 ```bash
 git add \
@@ -1124,7 +1124,7 @@ git commit -m "feat(coworker): project safe live tool results"
 - Modify: `apps/case02_openenv/src/case02_openenv/api.py:339-346`
 - Modify: `tests/case02_openenv/test_pages.py`
 
-- [ ] **Step 1: Write failing page-contract tests for the executive dashboard**
+- [x] **Step 1: Write failing page-contract tests for the executive dashboard**
 
 ```python
 def test_observer_is_read_only_executive_dashboard(tmp_path: Path) -> None:
@@ -1156,7 +1156,7 @@ def test_observer_script_uses_text_content_for_event_data(tmp_path: Path) -> Non
     assert ".innerHTML" not in script
 ```
 
-- [ ] **Step 2: Run page tests and verify missing IDs/EventSource failures**
+- [x] **Step 2: Run page tests and verify missing IDs/EventSource failures**
 
 ```bash
 .venv/bin/pytest tests/case02_openenv/test_pages.py -q
@@ -1164,7 +1164,7 @@ def test_observer_script_uses_text_content_for_event_data(tmp_path: Path) -> Non
 
 Expected: the two new tests fail against the raw-state observer.
 
-- [ ] **Step 3: Replace the observer template with semantic, read-only regions**
+- [x] **Step 3: Replace the observer template with semantic, read-only regions**
 
 Use this structure; render all dynamic content as initially empty text nodes:
 
@@ -1210,7 +1210,7 @@ Use this structure; render all dynamic content as initially empty text nodes:
 </body>
 ```
 
-- [ ] **Step 4: Implement snapshot/SSE rendering without HTML injection**
+- [x] **Step 4: Implement snapshot/SSE rendering without HTML injection**
 
 In `observer.js`, define stage labels and safe render helpers:
 
@@ -1317,7 +1317,7 @@ In `observer.js`, define stage labels and safe render helpers:
 })();
 ```
 
-- [ ] **Step 5: Add executive layout CSS while keeping Agent page selectors unchanged**
+- [x] **Step 5: Add executive layout CSS while keeping Agent page selectors unchanged**
 
 Add observer-scoped rules only:
 
@@ -1342,7 +1342,7 @@ Add observer-scoped rules only:
 
 Add status classes for `running`, `accepted`, `succeeded`, `failed`, `rejected`, and `anomaly`, with contrast-safe colors.
 
-- [ ] **Step 6: Run page/API tests**
+- [x] **Step 6: Run page/API tests**
 
 ```bash
 .venv/bin/pytest \
@@ -1352,7 +1352,7 @@ Add status classes for `running`, `accepted`, `succeeded`, `failed`, `rejected`,
 
 Expected: all tests except the deferred OpenAPI snapshot refresh pass.
 
-- [ ] **Step 7: Commit the executive observer UI**
+- [x] **Step 7: Commit the executive observer UI**
 
 ```bash
 git add \
@@ -1372,7 +1372,7 @@ git commit -m "feat(coworker): add executive recording dashboard"
 - Modify: `config/coworker_demo.example.yaml:15-31`
 - Modify: `tests/case02_openenv/test_recorder.py`
 
-- [ ] **Step 1: Write failing tests for observer geometry and removal of xterm**
+- [x] **Step 1: Write failing tests for observer geometry and removal of xterm**
 
 ```python
 def test_executive_observer_command_is_full_screen_and_has_no_xterm(tmp_path: Path) -> None:
@@ -1395,7 +1395,7 @@ def test_display_stop_reports_observer_was_alive(tmp_path: Path) -> None:
     assert result["observer_was_alive"] is True
 ```
 
-- [ ] **Step 2: Run recorder tests and verify helper/health failures**
+- [x] **Step 2: Run recorder tests and verify helper/health failures**
 
 ```bash
 .venv/bin/pytest tests/case02_openenv/test_recorder.py -q
@@ -1403,7 +1403,7 @@ def test_display_stop_reports_observer_was_alive(tmp_path: Path) -> None:
 
 Expected: failures because `_observer_command` and `observer_was_alive` do not exist.
 
-- [ ] **Step 3: Refactor DisplayManager to launch only the observer background**
+- [x] **Step 3: Refactor DisplayManager to launch only the observer background**
 
 Replace `start_companion_windows` with:
 
@@ -1443,7 +1443,7 @@ Remove xterm construction. In `stop()`, capture `observer_was_alive = process.po
 
 Update `_ServiceRecordingSession` to call `start_companion_windows(observer_url=...)` and preserve the structured display health in the recording-stop result.
 
-- [ ] **Step 4: Publish the fixed Agent window geometry**
+- [x] **Step 4: Publish the fixed Agent window geometry**
 
 Change the tracked example to:
 
@@ -1459,7 +1459,7 @@ browser:
 
 For the acceptance server only, apply the same non-secret browser block to the gitignored `config/coworker_demo.yaml`; do not stage that file.
 
-- [ ] **Step 5: Run recorder, configuration, and linchpin helper tests**
+- [x] **Step 5: Run recorder, configuration, and linchpin helper tests**
 
 ```bash
 .venv/bin/pytest \
@@ -1470,7 +1470,7 @@ For the acceptance server only, apply the same non-secret browser block to the g
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit layout changes**
+- [x] **Step 6: Commit layout changes**
 
 ```bash
 git add \
@@ -1490,7 +1490,7 @@ git commit -m "feat(coworker): record executive observer layout"
 - Modify: `tests/case02_openenv/test_presentation.py`
 - Modify: `tests/case02_openenv/test_scoring.py`
 
-- [ ] **Step 1: Write failing verification tests for complete and incomplete streams**
+- [x] **Step 1: Write failing verification tests for complete and incomplete streams**
 
 ```python
 def test_presentation_verifier_requires_terminal_results_for_every_tool(store) -> None:
@@ -1548,7 +1548,7 @@ def test_formal_success_rejects_presentation_failure() -> None:
     ) is False
 ```
 
-- [ ] **Step 2: Run verification/scoring tests and verify missing method/field failures**
+- [x] **Step 2: Run verification/scoring tests and verify missing method/field failures**
 
 ```bash
 .venv/bin/pytest \
@@ -1558,7 +1558,7 @@ def test_formal_success_rejects_presentation_failure() -> None:
 
 Expected: failures because presentation verification and summary fields do not exist.
 
-- [ ] **Step 3: Implement independent presentation verification**
+- [x] **Step 3: Implement independent presentation verification**
 
 Add `verify_presentation(events, failures, observer_was_alive)` in `presentation.py`:
 
@@ -1596,7 +1596,7 @@ def verify_presentation_payload(
 
 `EpisodeStore.verify_presentation()` writes `presentation/verification.json` atomically and returns it.
 
-- [ ] **Step 4: Register required presentation artifacts and gate formal success**
+- [x] **Step 4: Register required presentation artifacts and gate formal success**
 
 Add to `CORE_ARTIFACTS`:
 
@@ -1709,7 +1709,7 @@ result = finalize_run(
 
 Change `publish_video_verification` to require `observer_was_alive: bool` (no default), rerun `store.verify_presentation()` with that final display health, then recompute and atomically rewrite the summary. Update `_ServiceRecordingSession.stop()`, the recording-stop API response model, and their tests for the structured display-stop payload.
 
-- [ ] **Step 5: Run scoring, artifact, API, and recorder tests**
+- [x] **Step 5: Run scoring, artifact, API, and recorder tests**
 
 ```bash
 .venv/bin/pytest \
@@ -1722,7 +1722,7 @@ Change `publish_video_verification` to require `observer_was_alive: bool` (no de
 
 Expected: all focused tests pass except the deferred OpenAPI snapshot refresh.
 
-- [ ] **Step 6: Commit presentation delivery gates**
+- [x] **Step 6: Commit presentation delivery gates**
 
 ```bash
 git add \
@@ -1743,7 +1743,7 @@ git commit -m "feat(coworker): verify executive presentation artifacts"
 - Modify: `docs/coworker-demo-user-guide.md`
 - Modify: `docs/architecture/coworker-demo.md`
 
-- [ ] **Step 1: Write a failing standard-library verifier test**
+- [x] **Step 1: Write a failing standard-library verifier test**
 
 ```python
 from __future__ import annotations
@@ -1774,7 +1774,7 @@ def test_independent_verifier_rejects_missing_tool_completion(tmp_path: Path) ->
     assert "sop_source_hash_mismatch:presentation-1" in failures
 ```
 
-- [ ] **Step 2: Run the verifier test and verify missing helper failure**
+- [x] **Step 2: Run the verifier test and verify missing helper failure**
 
 ```bash
 .venv/bin/pytest tests/coworker_demo/test_verify_run_bundle_presentation.py -q
@@ -1782,7 +1782,7 @@ def test_independent_verifier_rejects_missing_tool_completion(tmp_path: Path) ->
 
 Expected: collection fails because `verify_presentation_bundle` does not exist.
 
-- [ ] **Step 3: Extend the independent verifier without importing product evaluator code**
+- [x] **Step 3: Extend the independent verifier without importing product evaluator code**
 
 Implement `verify_presentation_bundle(run_root: Path) -> list[str]` using only the standard library:
 
@@ -1816,7 +1816,7 @@ def verify_presentation_bundle(run_root: Path) -> list[str]:
 
 Call it from the existing run verifier, compare its failures with `presentation/verification.json`, and require all three presentation artifacts in the manifest with matching hashes.
 
-- [ ] **Step 4: Refresh the offline OpenAPI snapshot and run drift test**
+- [x] **Step 4: Refresh the offline OpenAPI snapshot and run drift test**
 
 Generate the snapshot from `create_app(...).openapi()` using the same `ServiceConfig` as `test_openapi_snapshot_matches_runtime_schema`, serialize with `ensure_ascii=False`, sorted keys, and a trailing newline. Then run:
 
@@ -1826,7 +1826,7 @@ Generate the snapshot from `create_app(...).openapi()` using the same `ServiceCo
 
 Expected: PASS.
 
-- [ ] **Step 5: Update user and architecture documentation**
+- [x] **Step 5: Update user and architecture documentation**
 
 Document these exact operator facts:
 
@@ -1838,7 +1838,7 @@ Document these exact operator facts:
 - A presentation failure can make `formal_success=false` without changing business scores.
 - The observer is not available to the Agent and does not confirm real monitoring truth.
 
-- [ ] **Step 6: Run formatting, focused suites, and the full test suite**
+- [x] **Step 6: Run formatting, focused suites, and the full test suite**
 
 ```bash
 .venv/bin/ruff check src apps/case02_openenv/src tests scripts
@@ -1848,7 +1848,7 @@ Document these exact operator facts:
 
 Expected: ruff exits 0 and all tests pass. If a live-provider test is explicitly marked/skipped by existing policy, record the skip reason; do not hide an unexpected failure.
 
-- [ ] **Step 7: Run the secret-safe preflight**
+- [x] **Step 7: Run the secret-safe preflight**
 
 ```bash
 .venv/bin/python scripts/coworker_demo/preflight.py \
@@ -1858,7 +1858,7 @@ Expected: ruff exits 0 and all tests pass. If a live-provider test is explicitly
 
 Expected: PASS without printing provider credentials; port 8765 is free and both configs retain mode 0600.
 
-- [ ] **Step 8: Record a fresh normal run and verify its complete bundle**
+- [x] **Step 8: Record a fresh normal run and verify its complete bundle**
 
 Start the existing shell and submit only the locked normal ticket path:
 
@@ -1891,7 +1891,7 @@ formal success true
 
 Visually inspect `var/coworker-demo/$NORMAL_COWORKER_RUN_ID/video/demo.mp4` and confirm the stage, exact SOP task, tool, and result are readable throughout.
 
-- [ ] **Step 9: Record a fresh anomaly run and verify rollback presentation**
+- [x] **Step 9: Record a fresh anomaly run and verify rollback presentation**
 
 Submit:
 
@@ -1920,7 +1920,7 @@ video verification passed
 formal success true
 ```
 
-- [ ] **Step 10: Commit docs, verifier, snapshot, and acceptance-test changes**
+- [x] **Step 10: Commit docs, verifier, snapshot, and acceptance-test changes**
 
 ```bash
 git add \
@@ -1934,13 +1934,13 @@ git commit -m "docs(coworker): document verified executive recording"
 
 ## Final Verification Checklist
 
-- [ ] `git status --short` is empty.
-- [ ] `git diff --check HEAD~8..HEAD` reports no whitespace errors.
-- [ ] The full pytest suite passes.
-- [ ] Both fresh run bundle verifications pass independently.
-- [ ] Neither presentation stream contains `api_key`, provider credentials, raw prompt text, evaluator-only hidden scenario fields, or assistant thinking.
-- [ ] The Agent page remains restricted to ticket, monitor, and automation routes.
-- [ ] The observer has no `data-bid` mutation controls.
-- [ ] Every tool start has a same-`tool_call_id`, same-`action_id` terminal presentation event.
-- [ ] Every displayed SOP source hash matches the locked ticket text.
-- [ ] The delivered video is the original continuous recording, not a post-produced derivative.
+- [x] `git status --short` is empty.
+- [x] `git diff --check HEAD~8..HEAD` reports no whitespace errors.
+- [x] The full pytest suite passes.
+- [x] Both fresh run bundle verifications pass independently.
+- [x] Neither presentation stream contains `api_key`, provider credentials, raw prompt text, evaluator-only hidden scenario fields, or assistant thinking.
+- [x] The Agent page remains restricted to ticket, monitor, and automation routes.
+- [x] The observer has no `data-bid` mutation controls.
+- [x] Every tool start has a same-`tool_call_id`, same-`action_id` terminal presentation event.
+- [x] Every displayed SOP source hash matches the locked ticket text.
+- [x] The delivered video is the original continuous recording, not a post-produced derivative.

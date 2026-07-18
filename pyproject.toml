@@ -52,7 +52,7 @@ homemaster = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "apps/case02_openenv/src"]
+pythonpath = [".", "src", "apps/case02_openenv/src"]
 testpaths = ["tests"]
 markers = [
   "live_api: runs tests that call real external APIs",

@@ -16,14 +16,8 @@ from typing import Any
 
 from homemaster.benchmarking.alfworld.traj_index import resolve_subtask_trajs
 from homemaster.benchmarking.alfworld.types import (
-    Difficulty,
-    EnvType,
     FailureSimulation,
-    GoalType,
     LongHorizonSettings,
-    MemoryMode,
-    ObservationMode,
-    SplitName,
     Subtask,
     Taskset,
     TasksetRunConfig,
@@ -73,7 +67,9 @@ def _parse_taskset(raw: dict[str, Any]) -> Taskset:
     subtasks = tuple(_parse_subtask(st, ts_id, i) for i, st in enumerate(raw_subtasks))
     difficulty = str(raw.get("difficulty", "easy"))
     if difficulty not in {"easy", "hard"}:
-        raise ValueError(f"taskset[{ts_id}].difficulty must be 'easy' or 'hard', got '{difficulty}'")
+        raise ValueError(
+            f"taskset[{ts_id}].difficulty must be 'easy' or 'hard', got '{difficulty}'"
+        )
     return Taskset(
         id=ts_id,
         floorplan=floorplan,

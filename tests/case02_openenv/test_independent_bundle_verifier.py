@@ -35,6 +35,10 @@ def test_verifier_rederives_required_nodes_from_raw_evidence() -> None:
 def test_independent_frame_metrics_are_derived_from_raw_rgb() -> None:
     frame = bytes([0, 0, 0, 255, 255, 255])
     stats, grayscale = _frame_stats(frame, 2, 1)
-    assert stats == {"nonblack_ratio": 0.5, "variance": 16256.25}
+    assert stats == {
+        "nonblack_ratio": 0.5,
+        "dark_ratio": 0.5,
+        "variance": 16256.25,
+    }
     assert grayscale == bytes([0, 255])
     assert _changed_pixels(grayscale, bytes([0, 254])) == 1

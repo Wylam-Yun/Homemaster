@@ -98,11 +98,17 @@ def make_task_planner_tool() -> ToolSpec:
                 "goal": {"type": "string", "description": "The task goal."},
                 "subtasks": {
                     "type": "array",
-                    "description": "Concise subtask list. Use stable string ids and refer to those ids from current_subtask and next_focus.",
+                    "description": (
+                        "Concise subtask list. Use stable string ids and refer to those "
+                        "ids from current_subtask and next_focus."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": {"type": "string", "description": "Stable subtask id, such as '1' or 'find_mug'."},
+                            "id": {
+                                "type": "string",
+                                "description": "Stable subtask id, such as '1' or 'find_mug'.",
+                            },
                             "description": {"type": "string"},
                             "status": {
                                 "type": "string",
@@ -118,14 +124,22 @@ def make_task_planner_tool() -> ToolSpec:
                             "evidence": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Model-visible evidence supporting the subtask status.",
+                                "description": (
+                                    "Model-visible evidence supporting the subtask status."
+                                ),
                             },
                         },
                         "required": ["id", "description"],
                     },
                 },
-                "current_subtask": {"type": "string", "description": "Subtask id currently being worked on."},
-                "next_focus": {"type": "string", "description": "Subtask id or short focus statement for the next action."},
+                "current_subtask": {
+                    "type": "string",
+                    "description": "Subtask id currently being worked on.",
+                },
+                "next_focus": {
+                    "type": "string",
+                    "description": "Subtask id or short focus statement for the next action.",
+                },
                 "open_questions": {"type": "array", "items": {"type": "string"}},
                 "constraints": {"type": "array", "items": {"type": "string"}},
             },
@@ -149,7 +163,10 @@ def make_task_progress_check_tool() -> ToolSpec:
                     "items": {
                         "type": "object",
                         "properties": {
-                            "subtask_id": {"type": "string", "description": "Existing subtask id from the task plan."},
+                            "subtask_id": {
+                                "type": "string",
+                                "description": "Existing subtask id from the task plan.",
+                            },
                             "status": {
                                 "type": "string",
                                 "enum": [
@@ -164,14 +181,25 @@ def make_task_progress_check_tool() -> ToolSpec:
                             "evidence": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "Model-visible evidence. If there is one item, still pass it as an array.",
+                                "description": (
+                                    "Model-visible evidence. If there is one item, still "
+                                    "pass it as an array."
+                                ),
                             },
                         },
                         "required": ["subtask_id", "status"],
                     },
                 },
-                "current_subtask": {"type": "string", "description": "Existing subtask id currently being worked on."},
-                "next_focus": {"type": "string", "description": "Existing subtask id or short focus statement for the next action."},
+                "current_subtask": {
+                    "type": "string",
+                    "description": "Existing subtask id currently being worked on.",
+                },
+                "next_focus": {
+                    "type": "string",
+                    "description": (
+                        "Existing subtask id or short focus statement for the next action."
+                    ),
+                },
                 "task_status": {
                     "type": "string",
                     "enum": ["active", "paused", "completed", "failed", "cancelled"],

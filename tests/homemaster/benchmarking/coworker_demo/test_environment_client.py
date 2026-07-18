@@ -78,3 +78,23 @@ def test_presentation_event_posts_payload_without_consuming_budget() -> None:
     assert requests[0].url.path == "/api/runs/run-1/presentation-events"
     assert json.loads(requests[0].content) == payload
     client.close()
+
+
+def test_recording_start_has_a_dedicated_startup_timeout() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"])
+        return httpx.Response(200, json={"success": True})
+
+    client = EnvironmentClient(
+        "http://case02.test",
+        timeout_s=20.0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.start_recording("run")["success"] is True
+    assert timeouts == [
+        {"connect": 45.0, "read": 45.0, "write": 45.0, "pool": 45.0}
+    ]
+    client.close()

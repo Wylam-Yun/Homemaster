@@ -47,6 +47,8 @@ _ROUTES = {"ticket", "monitor", "automation"}
 _BIDS = {
     "ticket-query-extension-config",
     "ticket-query-upstream-ready",
+    "monitor-cluster",
+    "monitor-region",
     "monitor-query-alarm",
     "monitor-query-probe",
     "monitor-query-capacity",

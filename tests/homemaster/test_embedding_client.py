@@ -5,13 +5,13 @@ import json
 import httpx
 import pytest
 
+from homemaster.config import ProviderProfileConfig
+from homemaster.events.trace import sanitize_for_log
 from homemaster.providers.embedding_client import (
     BGEEmbeddingClient,
     EmbeddingProviderResponseError,
     derive_embeddings_url,
 )
-from homemaster.config import ProviderProfileConfig
-from homemaster.events.trace import sanitize_for_log
 
 
 def _provider(**overrides: object) -> ProviderProfileConfig:

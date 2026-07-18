@@ -137,7 +137,9 @@ class EnvironmentClient:
         return self._request("POST", f"/api/runs/{run_id}/finalize", check_budget=False)
 
     def start_recording(self, run_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/api/runs/{run_id}/recording/start")
+        return self._request(
+            "POST", f"/api/runs/{run_id}/recording/start", timeout_s=45.0
+        )
 
     def recording_status(self, run_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/runs/{run_id}/recording", check_budget=False)
@@ -155,12 +157,14 @@ class EnvironmentClient:
         *,
         json: dict[str, Any] | None = None,
         check_budget: bool = True,
+        timeout_s: float | None = None,
     ) -> dict[str, Any]:
+        request_timeout_s = timeout_s if timeout_s is not None else self.timeout_s
         if check_budget and self.budget is not None:
             self.budget.before_external(self.outcome)
-            timeout = self.budget.timeout(self.timeout_s)
+            timeout = self.budget.timeout(request_timeout_s)
         else:
-            timeout = self.timeout_s
+            timeout = request_timeout_s
         try:
             response = self._client.request(method, path, json=json, timeout=timeout)
         except httpx.HTTPError as exc:

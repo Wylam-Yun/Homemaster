@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from PIL import ImageGrab, ImageStat
+
 
 class DisplayManager:
     def __init__(
@@ -96,7 +98,15 @@ class DisplayManager:
             f"--app={observer_url}",
             f"--user-data-dir={profile}",
             "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-default-apps",
             "--disable-dev-shm-usage",
+            "--disable-sync",
+            "--metrics-recording-only",
+            "--password-store=basic",
+            "--disable-features=OptimizationHints,MediaRouter,Translate",
             "--window-position=0,0",
             "--window-size=1920,1080",
         ]
@@ -109,6 +119,36 @@ class DisplayManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        self._wait_for_observer_ready()
+
+    def _wait_for_observer_ready(self, *, timeout_s: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            observer = self.processes["observer"]
+            if observer.poll() is not None:
+                raise RuntimeError(
+                    f"observer exited during startup: {observer.returncode}"
+                )
+            if self._display_has_visible_content():
+                return
+            time.sleep(0.1)
+        raise TimeoutError("observer did not render visible content")
+
+    def _display_has_visible_content(self) -> bool:
+        try:
+            image = ImageGrab.grab(xdisplay=self.display)
+        except OSError:
+            return False
+        try:
+            gray = image.convert("L")
+            histogram = gray.histogram()
+            count = gray.width * gray.height
+            nonblack_ratio = sum(histogram[17:]) / count
+            dark_ratio = sum(histogram[:64]) / count
+            variance = ImageStat.Stat(gray).var[0]
+            return nonblack_ratio >= 0.05 and dark_ratio >= 0.05 and variance >= 5
+        finally:
+            image.close()
 
     def stop(self) -> dict[str, Any]:
         observer = self.processes.get("observer")

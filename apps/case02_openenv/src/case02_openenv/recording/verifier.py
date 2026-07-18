@@ -87,7 +87,11 @@ class VideoVerifier:
                 raise RuntimeError(f"{name} frame extraction failed")
             paths[name] = destination
             frames[name] = self._frame_stats(destination)
-            if frames[name]["nonblack_ratio"] < 0.05 or frames[name]["variance"] < 5:
+            if (
+                frames[name]["nonblack_ratio"] < 0.05
+                or frames[name]["dark_ratio"] < 0.05
+                or frames[name]["variance"] < 5
+            ):
                 raise RuntimeError(f"{name} frame is blank or lacks visible content")
         changed = self._changed_pixels(paths["first"], paths["last"])
         if changed < 1000:
@@ -117,8 +121,10 @@ class VideoVerifier:
             gray = image.convert("RGB").crop((0, 0, 1920, 1080)).convert("L")
             histogram = gray.histogram()
             nonblack = sum(histogram[17:])
+            dark = sum(histogram[:64])
             return {
                 "nonblack_ratio": nonblack / (gray.width * gray.height),
+                "dark_ratio": dark / (gray.width * gray.height),
                 "variance": ImageStat.Stat(gray).var[0],
             }
 

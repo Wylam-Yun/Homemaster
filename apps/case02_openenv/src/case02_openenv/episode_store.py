@@ -185,20 +185,37 @@ class EpisodeStore:
             candidate_task = episode.current_presentation_task
             candidate_failures = list(episode.presentation_failures)
             failure = None
-            try:
-                task = map_task(
-                    episode.ticket,
-                    episode.state,
-                    item,
-                    candidate_task,
-                )
-            except PresentationMappingError as exc:
-                failure = str(exc)
-                candidate_failures.append(failure)
-                task = candidate_task
+            correlated_start = next(
+                (
+                    event
+                    for event in reversed(episode.presentation_events)
+                    if event.tool_call_id == item.tool_call_id
+                    and event.status == "running"
+                ),
+                None,
+            )
+            has_explicit_control = any(
+                key in item.arguments for key in ("bid", "route", "operation", "value")
+            )
+            if item.status in {"accepted", "succeeded", "failed", "rejected"} and (
+                correlated_start is not None and not has_explicit_control
+            ):
+                task = correlated_start.task
             else:
-                if task is not None:
-                    candidate_task = task
+                try:
+                    task = map_task(
+                        episode.ticket,
+                        episode.state,
+                        item,
+                        candidate_task,
+                    )
+                except PresentationMappingError as exc:
+                    failure = str(exc)
+                    candidate_failures.append(failure)
+                    task = candidate_task
+                else:
+                    if task is not None:
+                        candidate_task = task
 
             sequence = len(episode.presentation_events) + 1
             event = PresentationEvent(

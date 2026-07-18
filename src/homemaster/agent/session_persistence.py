@@ -10,8 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from homemaster.agent.messages import AssistantMessage
-from homemaster.agent.messages import Message
+from homemaster.agent.messages import AssistantMessage, Message
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.events.runtime_events import RuntimeEvent

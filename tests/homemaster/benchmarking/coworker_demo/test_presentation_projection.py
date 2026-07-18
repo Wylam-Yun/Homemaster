@@ -403,6 +403,8 @@ def test_trace_sink_records_projection_mirror_failures_without_raising(tmp_path:
             },
         ),
         ("browser_fill", {"bid": "automation-tenant-id", "value": "FORBIDDEN-CREDENTIAL"}),
+        ("browser_select", {"bid": "monitor-cluster", "value": "FORBIDDEN-CREDENTIAL"}),
+        ("browser_select", {"bid": "monitor-region", "value": "FORBIDDEN-CREDENTIAL"}),
         ("browser_select", {"bid": "automation-script", "value": "FORBIDDEN-CREDENTIAL"}),
         ("terminal_execute", {"command": "grep FORBIDDEN-CREDENTIAL https://signed.invalid"}),
     ],

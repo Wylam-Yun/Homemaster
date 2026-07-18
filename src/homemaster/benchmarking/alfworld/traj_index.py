@@ -67,7 +67,11 @@ def _subtask_key(subtask: Subtask, floorplan: int) -> tuple[str, str, str, str, 
 
     look_at_obj_in_light stores the toggle in the parent slot of the folder name.
     """
-    parent_or_toggle = subtask.toggle if subtask.goal_type == "look_at_obj_in_light" else subtask.parent
+    parent_or_toggle = (
+        subtask.toggle
+        if subtask.goal_type == "look_at_obj_in_light"
+        else subtask.parent
+    )
     mrecep = subtask.mrecep or "None"
     return (
         subtask.goal_type,

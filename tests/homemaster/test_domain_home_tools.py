@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
-from types import SimpleNamespace
 from homemaster.domain.tool_registry import build_home_tool_registry
 from homemaster.tools.results import ToolResult
 

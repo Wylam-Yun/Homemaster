@@ -257,3 +257,4 @@ th, td { padding: 10px; border-bottom: 1px solid #dce1df; text-align: left; over
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.executive-observer #score-summary { font-size: 17px; }

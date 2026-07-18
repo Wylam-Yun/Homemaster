@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from homemaster.agent.context import ContextAssembler
@@ -9,9 +11,7 @@ from homemaster.agent.generic_runtime import GenericAgentRuntime
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
-from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
-from types import SimpleNamespace
-from homemaster.config import load_config
+from homemaster.config import ContextPolicyConfig, ProviderProfileConfig, load_config
 from homemaster.prompts.loader import PromptId, load_prompt
 from homemaster.providers.llm_client import LLMClient
 from homemaster.task_state.store import TaskStateStore

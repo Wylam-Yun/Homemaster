@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
@@ -21,7 +22,6 @@ from homemaster.agent.messages import (
 )
 from homemaster.agent.session import AgentSession
 from homemaster.config.observability import ObservabilityConfig
-from types import SimpleNamespace
 from homemaster.providers.transports import TransportDelta
 
 

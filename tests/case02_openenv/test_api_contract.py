@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -30,6 +31,17 @@ def test_health_create_unknown_and_docs_contract(tmp_path: Path) -> None:
     missing = api.get("/api/runs/does-not-exist/state")
     assert missing.status_code == 404
     assert missing.json()["error_code"] == "unknown_run"
+
+
+def test_recording_start_waits_off_the_async_service_loop(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    route = next(
+        route
+        for route in api.app.routes
+        if getattr(route, "path", None) == "/api/runs/{run_id}/recording/start"
+    )
+
+    assert inspect.iscoroutinefunction(route.endpoint) is False
 
 
 def test_stale_and_replayed_action_fail_without_mutation(tmp_path: Path) -> None:

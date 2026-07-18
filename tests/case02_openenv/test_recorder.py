@@ -4,6 +4,8 @@ from pathlib import Path
 
 from case02_openenv.recording.display import DisplayManager
 from case02_openenv.recording.recorder import DemoRecorder
+from case02_openenv.recording.verifier import VideoVerifier
+from PIL import Image
 
 
 def test_recorder_contract_uses_fragmented_h264_x11grab(tmp_path: Path) -> None:
@@ -40,6 +42,17 @@ def test_executive_observer_command_is_full_screen_and_has_no_xterm(
 
     assert "--window-position=0,0" in command
     assert "--window-size=1920,1080" in command
+    for argument in (
+        "--no-default-browser-check",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--metrics-recording-only",
+        "--password-store=basic",
+        "--disable-features=OptimizationHints,MediaRouter,Translate",
+    ):
+        assert argument in command
     assert all("xterm" not in part for part in command)
 
 
@@ -64,3 +77,72 @@ def test_display_stop_reports_observer_was_alive(tmp_path: Path) -> None:
 
     assert result["observer_was_alive"] is True
     assert result["return_codes"] == {"observer": -15}
+
+
+def test_observer_readiness_waits_for_visible_content(tmp_path: Path, monkeypatch) -> None:
+    manager = DisplayManager(tmp_path)
+    manager.display_number = 120
+
+    class FakeProcess:
+        def poll(self) -> None:
+            return None
+
+    manager.processes["observer"] = FakeProcess()  # type: ignore[assignment]
+    visible = iter([False, False, True])
+    monkeypatch.setattr(manager, "_display_has_visible_content", lambda: next(visible))
+    monkeypatch.setattr("case02_openenv.recording.display.time.sleep", lambda _delay: None)
+
+    manager._wait_for_observer_ready(timeout_s=1)
+
+
+def test_observer_readiness_allows_slow_fresh_profile_startup(tmp_path: Path) -> None:
+    source = Path(
+        "apps/case02_openenv/src/case02_openenv/recording/display.py"
+    ).read_text(encoding="utf-8")
+
+    assert "timeout_s: float = 30.0" in source
+
+
+def test_observer_readiness_rejects_a_white_loading_screen(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = DisplayManager(tmp_path)
+    manager.display_number = 120
+
+    monkeypatch.setattr(
+        "case02_openenv.recording.display.ImageGrab.grab",
+        lambda **_kwargs: Image.new("RGB", (20, 10), "white"),
+    )
+
+    assert manager._display_has_visible_content() is False
+
+
+def test_observer_readiness_accepts_contrasting_dark_content(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manager = DisplayManager(tmp_path)
+    manager.display_number = 120
+    rendered = Image.new("RGB", (20, 10), "white")
+    for x in range(10):
+        for y in range(10):
+            rendered.putpixel((x, y), (20, 20, 20))
+
+    monkeypatch.setattr(
+        "case02_openenv.recording.display.ImageGrab.grab",
+        lambda **_kwargs: rendered.copy(),
+    )
+
+    assert manager._display_has_visible_content() is True
+
+
+def test_video_frame_stats_include_dark_pixel_ratio(tmp_path: Path) -> None:
+    frame = Image.new("RGB", (1920, 1080), "white")
+    frame.paste("black", (0, 0, 960, 1080))
+    path = tmp_path / "frame.png"
+    frame.save(path)
+
+    assert VideoVerifier._frame_stats(path) == {
+        "nonblack_ratio": 0.5,
+        "dark_ratio": 0.5,
+        "variance": 16256.25,
+    }

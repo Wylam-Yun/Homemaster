@@ -5,9 +5,9 @@ from typing import Any
 
 import pytest
 
+from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.config import ProviderProfileConfig
 from homemaster.events.trace import sanitize_for_log
-from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.providers.llm_client import (
     LLMClient,
     LLMProviderResponseError,
@@ -25,7 +25,7 @@ class FakeAnthropicStream:
         self._events = events
         self._enter_error = enter_error
 
-    def __enter__(self) -> "FakeAnthropicStream":
+    def __enter__(self) -> FakeAnthropicStream:
         if self._enter_error is not None:
             raise self._enter_error
         return self

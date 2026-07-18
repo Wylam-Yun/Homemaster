@@ -309,7 +309,7 @@ def create_app(
         )
 
     @app.post("/api/runs/{run_id}/recording/start")
-    async def start_recording(run_id: str) -> dict[str, Any]:
+    def start_recording(run_id: str) -> dict[str, Any]:
         episode = store.episode(run_id)
         manager = app.state.recorders.get(run_id)
         if manager is None:

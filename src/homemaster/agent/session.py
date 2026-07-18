@@ -61,7 +61,9 @@ class AgentSession:
         }
 
     @classmethod
-    def from_snapshot_dict(cls, data: dict[str, Any]) -> tuple[AgentSession, AgentState, TaskStateStore]:
+    def from_snapshot_dict(
+        cls, data: dict[str, Any]
+    ) -> tuple[AgentSession, AgentState, TaskStateStore]:
         session = cls(session_id=str(data["session_id"]))
         session._created_at = float(data.get("created_at") or time.time())
         session._messages = [

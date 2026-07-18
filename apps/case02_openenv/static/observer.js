@@ -168,6 +168,27 @@
     })
     .then((payload) => applySnapshot(payload.snapshot))
     .catch(() => false);
+  const formatScore = (value) => value === null || value === undefined
+    ? "pending"
+    : Number(value).toFixed(1);
+  const formatState = (value) => value === null || value === undefined
+    ? "pending"
+    : String(value);
+  const refreshScores = () => fetch(`/api/runs/${runId}/scores`)
+    .then((response) => {
+      if (!response.ok) throw new Error("scores unavailable");
+      return response.json();
+    })
+    .then((payload) => {
+      if (payload.status !== "final" || !payload.summary) return false;
+      const summary = payload.summary;
+      setText(
+        "score-summary",
+        `trajectory=${formatScore(summary.trajectory_score)} result=${formatScore(summary.result_score)} video_verification=${formatState(summary.video_verification)} formal_success=${formatState(summary.formal_success)}`,
+      );
+      return true;
+    })
+    .catch(() => false);
   const connect = () => {
     const stream = new EventSource(`/api/runs/${runId}/presentation-events`);
     stream.addEventListener("presentation.snapshot", (message) => {
@@ -183,5 +204,9 @@
       setText("latest-result-summary", "Live presentation stream reconnecting…");
     };
   };
-  refreshSnapshot().finally(connect);
+  refreshSnapshot().finally(() => {
+    connect();
+    refreshScores();
+    window.setInterval(refreshScores, 400);
+  });
 })();

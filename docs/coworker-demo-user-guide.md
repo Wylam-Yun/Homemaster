@@ -1,6 +1,6 @@
 # Change Coworker Demo User Guide
 
-The coworker demo runs entirely on `hkust4`. Mac Screen Sharing is optional and is not a completion requirement. The headed Chrome, observer, transcript, terminal execution, scoring, and recording all belong to one server-side run ID.
+The coworker demo runs entirely on `hkust4`. Mac Screen Sharing is optional and is not a completion requirement. The headed Agent Chrome, read-only observer, terminal execution, scoring, and recording all belong to one server-side run ID.
 
 ## Setup
 
@@ -50,49 +50,53 @@ The shell prints the final reply, three scores, formal success, run root, and vi
 
 ## Observe And Record
 
-The run automatically starts a localhost-only TigerVNC display containing the observer, Agent Chrome, and live transcript, then records the full 1920x1080 display with FFmpeg/libx264. No manual observer is needed.
+The run automatically starts a localhost-only TigerVNC display, then records the full 1920x1080 display with FFmpeg/libx264. The left region is the real Agent Chrome and the right region is a read-only executive observer; the persistent stage strip remains visible above the Agent window. No manual observer is needed.
+
+The observer's current task is the exact source text from the locked ticket, with its source hash retained in the presentation ledger. Tool and result cards are allowlisted projections of runtime events, not raw prompts, assistant thinking, or chain-of-thought. The observer is unavailable to the Agent and summarizes workflow evidence only; it does not independently confirm real monitoring truth.
 
 For optional remote viewing, use the RFB port recorded in the run's display artifacts and forward it over SSH; do not expose the VNC listener publicly. Mac Screen Sharing behavior is not part of the delivery gate.
 
-The primary video is:
+Each delivered run contains one original, continuous, unedited recording:
 
 ```text
-var/coworker-demo/coworker-20260716-154711-853f071d/video/demo.mp4
-```
-
-The rollback proof video is:
-
-```text
-var/coworker-demo/coworker-20260716-160128-c4f0faa9/video/demo.mp4
+var/coworker-demo/{run_id}/video/demo.mp4
 ```
 
 The video intentionally shows frozen numeric scores with `video_verification=pending` and `formal_success=pending`. FFmpeg must stop before ffprobe, frame, and hash verification can set the final summary to formal success.
 
 ## Artifacts And Scores
 
-Each `var/coworker-demo/{run_id}` contains locked inputs, Agent runtime events and task state, environment audit/state snapshots, browser trace/screenshots, terminal command evidence, normalized trajectory and DAG match, three score files, video frames/manifest, and `run_manifest.json` hashes.
+Each `var/coworker-demo/{run_id}` contains locked inputs, Agent runtime events and task state, environment audit/state snapshots, browser trace/screenshots, terminal command evidence, normalized trajectory and DAG match, three score files, video frames/manifest, and `run_manifest.json` hashes. The required presentation artifacts are `presentation/events.jsonl`, `presentation/snapshot.json`, and `presentation/verification.json`.
 
 - `trajectory_score`: required externally grounded actions matched in valid DAG order.
 - `result_score`: required external state checkpoints passed for the selected scenario.
 - `overall_score`: mean of trajectory and result scores.
-- `formal_success`: true only when both scores are 100, no safety/environment/artifact failure exists, and independent video verification passed.
+- `formal_success`: true only when both scores are 100, no safety/environment/artifact/presentation failure exists, and independent video verification passed. A presentation failure can make formal success false without changing either business score.
 
 Verify a run without importing the product evaluator:
 
 ```bash
 .venv/bin/python scripts/coworker_demo/verify_run_bundle.py \
-  var/coworker-demo/coworker-20260716-154711-853f071d
-
-.venv/bin/python scripts/coworker_demo/verify_run_bundle.py \
-  var/coworker-demo/coworker-20260716-160128-c4f0faa9
+  var/coworker-demo/{run_id}
 ```
 
-The verifier rechecks required nodes/checkpoints, terminal exit codes, final config presence or absence, every manifest hash, H.264 stream properties, frame count/duration, and the verified video manifest.
+The verifier rechecks required nodes/checkpoints, terminal exit codes, final config presence or absence, every manifest hash, SOP source hashes, presentation action/result correlation, the product presentation report, H.264 stream properties, frame count/duration, and the verified video manifest.
+
+## Accepted Fresh Runs
+
+The final implementation was exercised through the existing shell on 2026-07-18. Both bundles passed the independent verifier and manual first/middle/last frame review.
+
+| Scenario | Run ID | Trajectory | Results | Terminal exits | Outcome | Video SHA-256 |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| normal | `coworker-20260718-114159-20d39698` | 24/24 | 14/14 | `[0]` | `complete` | `ec33476aeb44ef872729c10f85dfeb2dfc6bcc701fd4a7da30c27d8e6169ebb0` |
+| post-change anomaly | `coworker-20260718-114422-a848e90d` | 22/22 | 11/11 | `[0, 1]` | `rolled_back` | `31f89d350244f98ab563e006c25dd2c17bfbe27dc0e47c014fe4d563840d6001` |
+
+Both summaries have `formal_success=true`. The normal recording begins on the rendered Observer rather than a Chrome loading page and ends with all four frozen score fields visible. The anomaly recording visibly shows the causal active alarm, enters the rollback stage, selects `remove`, proves grep absence, and ends with `rolled_back` plus the frozen scores.
 
 ## Failure Ownership
 
 - Router/config/bundle failures happen before provider invocation and do not create a business run.
 - DOM/backend rejections leave the mutation uncommitted and return a stable recovery reason.
 - A submitted job is not success; the exact visible row must reach terminal status before terminal or progress gates open.
-- Provider premature replies, budget exhaustion, service/display/terminal failures, video failures, safety violations, missing artifacts, and any score below 100 make formal success false.
+- Provider premature replies, budget exhaustion, service/display/terminal failures, video or presentation failures, safety violations, missing artifacts, and any score below 100 make formal success false.
 - Never repair a failed trajectory by editing audit files, reordering events, or copying evidence from another run. Fix the gate, add a regression, and use a fresh run ID.

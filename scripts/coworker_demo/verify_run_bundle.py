@@ -26,6 +26,9 @@ REQUIRED_MANIFEST_ARTIFACTS = (
     "scores/trajectory_score.json",
     "scores/result_score.json",
     "scores/summary.json",
+    "presentation/events.jsonl",
+    "presentation/snapshot.json",
+    "presentation/verification.json",
     "video/demo.mp4",
     "video/poster.png",
     "video/video_manifest.json",
@@ -72,12 +75,14 @@ def _frame_stats(frame: bytes, width: int, height: int) -> tuple[dict[str, float
         raise ValueError(f"raw frame size {len(frame)} != {expected}")
     grayscale = bytearray(width * height)
     nonblack = 0
+    dark = 0
     total = 0
     total_squared = 0
     for pixel, offset in enumerate(range(0, len(frame), 3)):
         value = (frame[offset] + frame[offset + 1] + frame[offset + 2]) // 3
         grayscale[pixel] = value
         nonblack += value >= 17
+        dark += value <= 63
         total += value
         total_squared += value * value
     count = width * height
@@ -85,6 +90,7 @@ def _frame_stats(frame: bytes, width: int, height: int) -> tuple[dict[str, float
     return (
         {
             "nonblack_ratio": nonblack / count,
+            "dark_ratio": dark / count,
             "variance": total_squared / count - mean * mean,
         },
         bytes(grayscale),
@@ -97,6 +103,50 @@ def _changed_pixels(left: bytes, right: bytes) -> int:
     return sum(
         left_pixel != right_pixel for left_pixel, right_pixel in zip(left, right, strict=True)
     )
+
+
+def verify_presentation_bundle(run_root: Path) -> list[str]:
+    events_path = run_root / "presentation/events.jsonl"
+    if not events_path.is_file():
+        return ["missing:presentation/events.jsonl"]
+    try:
+        events = _read_jsonl(events_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"invalid:presentation/events.jsonl:{type(exc).__name__}"]
+
+    starts = {
+        event.get("tool_call_id"): event
+        for event in events
+        if event.get("status") == "running" and event.get("tool_call_id")
+    }
+    terminal = {
+        event.get("tool_call_id"): event
+        for event in events
+        if event.get("status") in {"accepted", "succeeded", "failed", "rejected"}
+        and event.get("tool_call_id")
+    }
+    failures: list[str] = []
+    for event in events:
+        if event.get("failure"):
+            failures.append(str(event["failure"]))
+        task = event.get("task") or {}
+        source_text = task.get("source_text")
+        source_hash = task.get("source_sha256")
+        if (
+            source_text
+            and hashlib.sha256(source_text.encode("utf-8")).hexdigest() != source_hash
+        ):
+            failures.append(f"sop_source_hash_mismatch:{event.get('event_id')}")
+    for tool_call_id in sorted(starts):
+        started = starts[tool_call_id]
+        completed = terminal.get(tool_call_id)
+        if completed is None:
+            failures.append(f"missing_terminal_event:{tool_call_id}")
+        elif completed.get("action_id") != started.get("action_id"):
+            failures.append(f"action_id_mismatch:{tool_call_id}")
+    if not any((event.get("task") or {}).get("source_text") for event in events):
+        failures.append("missing_sop_source_text")
+    return list(dict.fromkeys(failures))
 
 
 def verify(run_root: Path, data_root: Path) -> dict[str, Any]:
@@ -155,6 +205,23 @@ def verify(run_root: Path, data_root: Path) -> dict[str, Any]:
         failures.append("formal_success_not_true")
     if summary.get("video_verification") != "passed":
         failures.append("video_not_passed")
+
+    presentation_failures = verify_presentation_bundle(run_root)
+    verification_path = run_root / "presentation/verification.json"
+    if verification_path.is_file():
+        presentation_report = _read_json(verification_path)
+        if not presentation_report.get("observer_was_alive", False):
+            presentation_failures.append("observer_exited_before_recording_stop")
+        presentation_failures = list(dict.fromkeys(presentation_failures))
+        reported_failures = presentation_report.get("failures")
+        if reported_failures != presentation_failures:
+            failures.append("presentation_verification_mismatch")
+        expected_pass = not bool(reported_failures)
+        if presentation_report.get("passed") != expected_pass:
+            failures.append("presentation_pass_flag_mismatch")
+    else:
+        failures.append("missing:presentation/verification.json")
+    failures.extend(presentation_failures)
 
     commands_path = run_root / "terminal/commands.jsonl"
     commands = _read_jsonl(commands_path) if commands_path.is_file() else []
@@ -260,7 +327,11 @@ def verify(run_root: Path, data_root: Path) -> dict[str, Any]:
         }.items():
             frame = _extract_frame(video, timestamp)
             frame_stats[name], grayscale[name] = _frame_stats(frame, 1920, 1080)
-            if frame_stats[name]["nonblack_ratio"] < 0.05 or frame_stats[name]["variance"] < 5:
+            if (
+                frame_stats[name]["nonblack_ratio"] < 0.05
+                or frame_stats[name]["dark_ratio"] < 0.05
+                or frame_stats[name]["variance"] < 5
+            ):
                 failures.append(f"video_{name}_frame_blank")
         if _changed_pixels(grayscale["first"], grayscale["last"]) < 1000:
             failures.append("video_first_last_unchanged")

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from homemaster.agent.normalized import RunContext
-from types import SimpleNamespace
 from homemaster.task_state.store import TaskStateStore
 from homemaster.task_state.tools import (
     make_task_planner_tool,

@@ -11,16 +11,6 @@ from typing import Any, Protocol
 import httpx
 from pydantic import ValidationError
 
-from homemaster.domain.contracts import (
-    MemoryRetrievalHit,
-    MemoryRetrievalQuery,
-    MemoryRetrievalResult,
-    TaskCard,
-)
-from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.providers.llm_client import LLMClient, LLMClientError
-from homemaster.events.logger import get_logger
-from homemaster.prompts.loader import render
 from homemaster.config import (
     DEFAULT_EMBEDDING_PROVIDER_NAME,
     DEFAULT_PROVIDER_NAME,
@@ -30,7 +20,17 @@ from homemaster.config import (
     ProviderProfileConfig,
     load_config,
 )
+from homemaster.domain.contracts import (
+    MemoryRetrievalHit,
+    MemoryRetrievalQuery,
+    MemoryRetrievalResult,
+    TaskCard,
+)
+from homemaster.events.logger import get_logger
 from homemaster.events.trace import append_jsonl_event, write_json
+from homemaster.prompts.loader import render
+from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
+from homemaster.providers.llm_client import LLMClient, LLMClientError
 
 from .index import (
     JsonEmbeddingCache,
@@ -43,6 +43,7 @@ from .tokenizer import (
     JiebaMemoryTokenizer,
     build_domain_terms_from_object_memory,
 )
+
 
 def _default_memory_case_root() -> Path:
     configured = load_config().runtime_paths.memory_case_root

@@ -307,6 +307,19 @@ def test_submit_without_operation_or_previous_maps_add_sop(store) -> None:
     assert_ticket_source(task, episode.ticket, "change_implement", 0, "operate_description")
 
 
+def test_wait_without_operation_retains_previous_implementation_task(store) -> None:
+    store.create("wait-empty-implementation", "normal")
+    episode = store.episode("wait-empty-implementation")
+    previous = ticket_task(
+        episode.ticket,
+        "change_implement",
+        0,
+        "operate_description",
+    )
+
+    assert map_task(episode.ticket, episode.state, item("browser_wait"), previous) is previous
+
+
 def test_wait_without_operation_or_compatible_previous_fails_closed(store) -> None:
     store.create("wait-empty-unrelated", "normal")
     episode = store.episode("wait-empty-unrelated")
@@ -557,6 +570,30 @@ def test_store_appends_presentation_events_and_persists_snapshot(store) -> None:
     lines = (root / "events.jsonl").read_text(encoding="utf-8").splitlines()
     assert [json.loads(line)["sequence"] for line in lines] == [1, 2]
     assert json.loads((root / "snapshot.json").read_text(encoding="utf-8")) == snapshot
+
+
+def test_terminal_event_reuses_correlated_start_task_when_controls_are_omitted(
+    store,
+) -> None:
+    run_id = "presentation-correlated-task"
+    store.create(run_id, "normal")
+    started = store.record_presentation(run_id, presentation_item())
+
+    completed = store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-1",
+            action_id="action-1",
+            tool_name="browser_click",
+            status="succeeded",
+            result={"check": "extension_config", "ready": True},
+        ),
+    )
+
+    assert completed.task == started.task
+    assert completed.failure is None
+    assert store.presentation_snapshot(run_id)["presentation_failures"] == []
 
 
 def test_mapping_failure_is_recorded_without_replacing_trusted_task(store) -> None:

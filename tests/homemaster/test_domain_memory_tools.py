@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from homemaster.agent.normalized import RunContext
-from types import SimpleNamespace
 from homemaster.domain.tool_registry import build_home_tool_registry
 
 
