@@ -29,3 +29,38 @@ def test_display_allocator_skips_live_socket(tmp_path: Path, monkeypatch) -> Non
 
     monkeypatch.setattr(Path, "exists", fake_exists)
     assert manager._allocate_display() == 121
+
+
+def test_executive_observer_command_is_full_screen_and_has_no_xterm(
+    tmp_path: Path,
+) -> None:
+    manager = DisplayManager(tmp_path)
+
+    command = manager._observer_command("http://127.0.0.1:8765/observer/run")
+
+    assert "--window-position=0,0" in command
+    assert "--window-size=1920,1080" in command
+    assert all("xterm" not in part for part in command)
+
+
+def test_display_stop_reports_observer_was_alive(tmp_path: Path) -> None:
+    manager = DisplayManager(tmp_path)
+
+    class FakeProcess:
+        returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def wait(self, timeout: float) -> int | None:
+            return self.returncode
+
+    manager.processes["observer"] = FakeProcess()  # type: ignore[assignment]
+
+    result = manager.stop()
+
+    assert result["observer_was_alive"] is True
+    assert result["return_codes"] == {"observer": -15}

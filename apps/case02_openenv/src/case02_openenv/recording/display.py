@@ -19,14 +19,12 @@ class DisplayManager:
         display_max: int = 159,
         tigervnc: str = "/usr/bin/Xtigervnc",
         chrome: str = "/usr/bin/google-chrome",
-        xterm: str = "/usr/bin/xterm",
     ) -> None:
         self.run_root = run_root
         self.display_min = display_min
         self.display_max = display_max
         self.tigervnc = tigervnc
         self.chrome = chrome
-        self.xterm = xterm
         self.display_number: int | None = None
         self.vnc_port: int | None = None
         self.processes: dict[str, subprocess.Popen[Any]] = {}
@@ -90,52 +88,33 @@ class DisplayManager:
         self.stop()
         raise TimeoutError("TigerVNC display did not become ready")
 
-    def start_companion_windows(self, *, observer_url: str, transcript: Path) -> None:
-        environment = {**os.environ, "DISPLAY": self.display}
-        transcript.parent.mkdir(parents=True, exist_ok=True)
-        transcript.touch(exist_ok=True)
+    def _observer_command(self, observer_url: str) -> list[str]:
         profile = self.run_root / "browser/observer-profile"
         profile.mkdir(parents=True, exist_ok=True)
+        return [
+            self.chrome,
+            f"--app={observer_url}",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--disable-dev-shm-usage",
+            "--window-position=0,0",
+            "--window-size=1920,1080",
+        ]
+
+    def start_companion_windows(self, *, observer_url: str) -> None:
+        environment = {**os.environ, "DISPLAY": self.display}
         self.processes["observer"] = subprocess.Popen(
-            [
-                self.chrome,
-                f"--app={observer_url}",
-                f"--user-data-dir={profile}",
-                "--no-first-run",
-                "--disable-dev-shm-usage",
-                "--window-position=0,0",
-                "--window-size=640,720",
-            ],
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        self.processes["transcript"] = subprocess.Popen(
-            [
-                self.xterm,
-                "-geometry",
-                "236x18+0+720",
-                "-fa",
-                "Monospace",
-                "-fs",
-                "10",
-                "-title",
-                "HomeMaster live transcript",
-                "-e",
-                "/usr/bin/tail",
-                "-n",
-                "+1",
-                "-F",
-                str(transcript),
-            ],
+            self._observer_command(observer_url),
             env=environment,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
 
-    def stop(self) -> dict[str, int | None]:
+    def stop(self) -> dict[str, Any]:
+        observer = self.processes.get("observer")
+        observer_was_alive = observer is not None and observer.poll() is None
         returns: dict[str, int | None] = {}
-        for name in ("transcript", "observer", "tigervnc"):
+        for name in ("observer", "tigervnc"):
             process = self.processes.get(name)
             if process is None:
                 continue
@@ -149,7 +128,10 @@ class DisplayManager:
             returns[name] = process.returncode
         for handle in self.logs:
             handle.close()
-        return returns
+        return {
+            "observer_was_alive": observer_was_alive,
+            "return_codes": returns,
+        }
 
     def _allocate_display(self) -> int:
         for number in range(self.display_min, self.display_max + 1):

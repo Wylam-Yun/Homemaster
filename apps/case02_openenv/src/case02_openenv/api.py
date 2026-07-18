@@ -462,10 +462,7 @@ class _ServiceRecordingSession:
             return self.status()
         try:
             self.display_info = self.display.start()
-            self.display.start_companion_windows(
-                observer_url=self.observer_url,
-                transcript=self.run_root / "agent/cli_transcript.log",
-            )
+            self.display.start_companion_windows(observer_url=self.observer_url)
             self.recorder = DemoRecorder(
                 run_id=self.run_id,
                 run_root=self.run_root,
@@ -498,6 +495,9 @@ class _ServiceRecordingSession:
         try:
             result = self.recorder.stop()
         finally:
-            display_returns = self.display.stop()
-        result["display_return_codes"] = display_returns
-        return result
+            display_result = self.display.stop()
+        return {
+            **result,
+            "observer_was_alive": display_result["observer_was_alive"],
+            "display_return_codes": display_result["return_codes"],
+        }
