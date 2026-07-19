@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from case02_openenv.models import EpisodePhase, RunState
+from case02_openenv.presentation_models import (
+    PresentationEvent,
+    PresentationInput,
+    PresentationSnapshot,
+    PresentationTask,
+)
+
+__all__ = [
+    "PresentationEvent",
+    "PresentationInput",
+    "PresentationSnapshot",
+    "PresentationTask",
+]
 
 MONITOR_BIDS = {
     "monitor-cluster",
@@ -42,95 +52,6 @@ DISPLAY_STAGES = {
 
 class PresentationMappingError(RuntimeError):
     """Raised when an action cannot be mapped to trusted ticket text."""
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-class PresentationInput(BaseModel):
-    runtime_event_type: Literal[
-        "tool.call_started",
-        "tool.call_completed",
-        "tool.call_failed",
-        "runtime.turn_completed",
-        "runtime.turn_failed",
-    ]
-    tool_call_id: str | None = None
-    action_id: str | None = None
-    tool_name: str | None = None
-    status: Literal["running", "accepted", "succeeded", "failed", "rejected"]
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    result: dict[str, Any] = Field(default_factory=dict)
-    evidence_refs: list[str] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=utc_now)
-
-    @model_validator(mode="after")
-    def validate_lifecycle(self) -> PresentationInput:
-        allowed = {
-            "tool.call_started": {"running"},
-            "tool.call_completed": {"accepted", "succeeded"},
-            "tool.call_failed": {"failed", "rejected"},
-            "runtime.turn_completed": {"succeeded"},
-            "runtime.turn_failed": {"failed"},
-        }
-        if self.status not in allowed[self.runtime_event_type]:
-            raise ValueError(
-                f"status {self.status!r} is invalid for {self.runtime_event_type!r}"
-            )
-        if self.runtime_event_type.startswith("tool.") and (
-            not self.tool_call_id or not self.tool_call_id.strip()
-        ):
-            raise ValueError("tool lifecycle events require a nonempty tool_call_id")
-        if self.runtime_event_type.startswith("tool.") and (
-            not self.action_id or not self.action_id.strip()
-        ):
-            raise ValueError("tool lifecycle events require a nonempty action_id")
-        return self
-
-
-class PresentationTask(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    stage: str
-    check_name: str
-    source_field: Literal["operate_description", "operate_verified", "operate_rollback"]
-    source_text: str
-    source_sha256: str
-
-
-class PresentationEvent(BaseModel):
-    schema_version: Literal[1] = 1
-    event_id: str
-    sequence: int
-    run_id: str
-    event_type: str
-    timestamp: datetime
-    tool_call_id: str | None = None
-    action_id: str | None = None
-    stage: str
-    task: PresentationTask | None = None
-    tool_name: str | None = None
-    status: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    result: dict[str, Any] = Field(default_factory=dict)
-    evidence_refs: list[str] = Field(default_factory=list)
-    failure: str | None = None
-
-
-class PresentationSnapshot(BaseModel):
-    schema_version: Literal[1] = 1
-    run_id: str
-    phase: EpisodePhase
-    stage: str
-    terminal_outcome: str | None = None
-    current_task: PresentationTask | None = None
-    in_flight: list[PresentationEvent] = Field(default_factory=list)
-    last_event: PresentationEvent | None = None
-    last_sequence: int = 0
-    completed_steps: list[PresentationTask] = Field(default_factory=list)
-    next_step: str
-    presentation_failures: list[str] = Field(default_factory=list)
 
 
 def ticket_task(
@@ -195,14 +116,10 @@ def map_task(
             stage = "change_verified" if post else "check_before_change"
             return ticket_task(ticket, stage, 0, "operate_description")
         if route != "automation":
-            raise PresentationMappingError(
-                f"No trusted SOP mapping for browser_navigate:{route}"
-            )
+            raise PresentationMappingError(f"No trusted SOP mapping for browser_navigate:{route}")
         if route == "automation" and state.phase == EpisodePhase.ROLLBACK_SUBMITTED:
             return ticket_task(ticket, "change_implement", 0, "operate_rollback")
-        business_task = ticket_task(
-            ticket, "change_verified", 1, "operate_description"
-        )
+        business_task = ticket_task(ticket, "change_verified", 1, "operate_description")
         if previous is not None and (
             previous.stage == "change_implement" or previous == business_task
         ):
@@ -234,16 +151,10 @@ def map_task(
             return ticket_task(ticket, "change_verified", 1, "operate_description")
         if operation is None and previous is not None and previous.check_name == business_name:
             return previous
-        if (
-            operation is None
-            and previous is not None
-            and previous.stage == "change_implement"
-        ):
+        if operation is None and previous is not None and previous.stage == "change_implement":
             return previous
         if operation is None and item.tool_name == "browser_wait":
-            raise PresentationMappingError(
-                "No trusted SOP mapping for browser_wait:None"
-            )
+            raise PresentationMappingError("No trusted SOP mapping for browser_wait:None")
         return ticket_task(ticket, "change_implement", 0, "operate_description")
 
     if item.tool_name == "terminal_execute":
@@ -302,8 +213,7 @@ def verify_presentation_payload(
     terminal = {
         event.tool_call_id: event
         for event in events
-        if event.status in {"accepted", "succeeded", "failed", "rejected"}
-        and event.tool_call_id
+        if event.status in {"accepted", "succeeded", "failed", "rejected"} and event.tool_call_id
     }
     failures = list(dict.fromkeys(mapping_failures))
     for event in events:
@@ -324,7 +234,7 @@ def verify_presentation_payload(
         failures.append("missing_sop_source_text")
     failures = list(dict.fromkeys(failures))
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": not failures,
         "event_count": len(events),
         "tool_call_count": len(starts),

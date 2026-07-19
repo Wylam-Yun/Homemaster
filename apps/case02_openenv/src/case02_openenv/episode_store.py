@@ -24,6 +24,7 @@ from case02_openenv.models import (
     JobStatus,
     RunState,
 )
+from case02_openenv.observable_presentation import reduce_observable_state
 from case02_openenv.presentation import (
     PresentationEvent,
     PresentationInput,
@@ -150,9 +151,7 @@ class EpisodeStore:
     def episode(self, run_id: str) -> Episode:
         return self._episode(run_id)
 
-    def presentation_task(
-        self, run_id: str, item: PresentationInput
-    ) -> PresentationTask | None:
+    def presentation_task(self, run_id: str, item: PresentationInput) -> PresentationTask | None:
         episode = self._episode(run_id)
         with episode.lock:
             task = map_task(
@@ -175,9 +174,7 @@ class EpisodeStore:
         with episode.lock:
             return display_stage(episode.ticket, episode.state, item, task)
 
-    def record_presentation(
-        self, run_id: str, item: PresentationInput
-    ) -> PresentationEvent:
+    def record_presentation(self, run_id: str, item: PresentationInput) -> PresentationEvent:
         episode = self._episode(run_id)
         with episode.lock:
             self._validate_presentation_run_id(run_id, item.arguments)
@@ -189,8 +186,7 @@ class EpisodeStore:
                 (
                     event
                     for event in reversed(episode.presentation_events)
-                    if event.tool_call_id == item.tool_call_id
-                    and event.status == "running"
+                    if event.tool_call_id == item.tool_call_id and event.status == "running"
                 ),
                 None,
             )
@@ -229,13 +225,38 @@ class EpisodeStore:
                 stage=display_stage(episode.ticket, episode.state, item, task),
                 task=task,
                 tool_name=item.tool_name,
+                tool_label_zh=item.tool_label_zh,
+                tool_kind=item.tool_kind,
                 status=item.status,
                 arguments=copy.deepcopy(item.arguments),
                 result=copy.deepcopy(item.result),
                 evidence_refs=list(item.evidence_refs),
                 failure=failure,
+                failure_code=item.failure_code,
+                plan=item.plan,
+                public_model_output=item.public_model_output,
             )
             candidate_events = [*episode.presentation_events, event]
+            observable = reduce_observable_state(episode.state, candidate_events)
+            incident_delta = next(
+                (
+                    incident
+                    for incident in observable.incidents
+                    if incident.opened_sequence == sequence
+                    or (
+                        incident.recovery is not None
+                        and incident.recovery.resolved_sequence == sequence
+                    )
+                ),
+                None,
+            )
+            event = event.model_copy(
+                update={
+                    "decision_summary": observable.decision_summary,
+                    "incident_delta": incident_delta,
+                }
+            )
+            candidate_events[-1] = event
             candidate_snapshot = self._build_presentation_snapshot(
                 episode.state,
                 candidate_events,
@@ -290,9 +311,7 @@ class EpisodeStore:
                 copy.deepcopy(self._presentation_snapshot_payload(episode)),
             )
 
-    def verify_presentation(
-        self, run_id: str, *, observer_was_alive: bool
-    ) -> dict[str, Any]:
+    def verify_presentation(self, run_id: str, *, observer_was_alive: bool) -> dict[str, Any]:
         episode = self._episode(run_id)
         with episode.lock:
             atomic_write_json(
@@ -821,11 +840,7 @@ class EpisodeStore:
                 active_by_call[event.tool_call_id] = event
             elif event.status in terminal_statuses and event.tool_call_id:
                 active_by_call.pop(event.tool_call_id, None)
-            if (
-                event.status == "succeeded"
-                and event.failure is None
-                and event.task is not None
-            ):
+            if event.status == "succeeded" and event.failure is None and event.task is not None:
                 completed[event.task.source_sha256] = event.task
 
         last_event = events[-1] if events else None
@@ -840,12 +855,20 @@ class EpisodeStore:
             stage = last_event.stage
         else:
             stage = "check_before_change"
+        observable = reduce_observable_state(state, events)
         snapshot = PresentationSnapshot(
             run_id=state.run_id,
             phase=state.phase,
             stage=stage,
             terminal_outcome=state.terminal_outcome,
             current_task=current_task,
+            plan=observable.plan,
+            current_action=observable.current_action,
+            last_result=observable.last_result,
+            public_model_output=observable.public_model_output,
+            decision_summary=observable.decision_summary,
+            incidents=list(observable.incidents),
+            critical_history=list(observable.critical_history),
             in_flight=list(active_by_call.values()),
             last_event=last_event,
             last_sequence=last_event.sequence if last_event is not None else 0,
@@ -860,9 +883,7 @@ class EpisodeStore:
         return snapshot.model_dump(mode="json")
 
     @staticmethod
-    def _rollback_presentation_jsonl(
-        path: Path, *, existed: bool, size: int
-    ) -> None:
+    def _rollback_presentation_jsonl(path: Path, *, existed: bool, size: int) -> None:
         if not existed:
             path.unlink(missing_ok=True)
             return

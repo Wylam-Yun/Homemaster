@@ -559,7 +559,7 @@ def test_store_appends_presentation_events_and_persists_snapshot(store) -> None:
     assert first.stage == "check_before_change"
     assert second.task.source_field == "operate_description"
     snapshot = store.presentation_snapshot(run_id)
-    assert snapshot["schema_version"] == 1
+    assert snapshot["schema_version"] == 2
     assert snapshot["stage"] == second.stage
     assert snapshot["last_event"]["event_id"] == second.event_id
     assert snapshot["last_sequence"] == 2
@@ -626,15 +626,11 @@ def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(sto
     store.record_presentation(run_id, legacy_no_id)
     store.record_presentation(
         run_id,
-        presentation_item(
-            call_id="call-1", event_type="tool.call_completed", status="succeeded"
-        ),
+        presentation_item(call_id="call-1", event_type="tool.call_completed", status="succeeded"),
     )
     store.record_presentation(
         run_id,
-        presentation_item(
-            call_id="call-2", event_type="tool.call_completed", status="succeeded"
-        ),
+        presentation_item(call_id="call-2", event_type="tool.call_completed", status="succeeded"),
     )
 
     snapshot = store.presentation_snapshot(run_id)
@@ -723,9 +719,7 @@ def test_append_failure_leaves_presentation_memory_and_files_unchanged(
     assert not snapshot_path.exists()
 
 
-def test_jsonl_rollback_failure_raises_explicit_consistency_error(
-    store, monkeypatch
-) -> None:
+def test_jsonl_rollback_failure_raises_explicit_consistency_error(store, monkeypatch) -> None:
     run_id = "presentation-rollback-failure"
     store.create(run_id, "normal")
 
@@ -771,9 +765,7 @@ def test_snapshot_failure_rolls_back_jsonl_and_memory(store, monkeypatch) -> Non
             ),
         )
 
-    assert [
-        event.model_dump(mode="json") for event in episode.presentation_events
-    ] == before_events
+    assert [event.model_dump(mode="json") for event in episode.presentation_events] == before_events
     assert episode.current_presentation_task is before_task
     assert episode.presentation_failures == before_failures
     assert events_path.read_bytes() == before_jsonl
@@ -873,11 +865,14 @@ def test_presentation_verifier_requires_terminal_results_for_every_tool(store) -
     assert report["passed"] is True
     assert report["event_count"] == 2
     assert report["tool_call_count"] == 1
-    assert json.loads(
-        (store.episode(run_id).run_root / "presentation/verification.json").read_text(
-            encoding="utf-8"
+    assert (
+        json.loads(
+            (store.episode(run_id).run_root / "presentation/verification.json").read_text(
+                encoding="utf-8"
+            )
         )
-    ) == report
+        == report
+    )
 
 
 def test_presentation_verifier_rejects_action_mismatch_and_dead_observer(store) -> None:
