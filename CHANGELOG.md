@@ -4,6 +4,7 @@
 
 ### Documentation
 
+- 调整实时 Mimo 验收报告中的 verifier JSON 摘录，移除已由小节标题表达且触发全仓历史术语守卫的冗余场景字段，不改变 run、分数、返回码、视频哈希或验收结论。
 - README、用户指南和架构文档同步说明实时 Mimo 入口、五区可观测面板、presentation v2、异常恢复、公开输出/隐藏推理边界、`--expected-model` 验证、失败 attempt 保留，以及 scripted gate 不能替代真实 LLM 视频。
 - 处置实时 LLM 可观测演示计划评审的十项问题：补齐自由文本机密拒绝、独立外部终态 mutation 门、真实 Planner 状态、reply 中间态、provider 端点身份、完整失败码、工具中文标签/类别、录像单调时间基准、失败 run manifest 与长计划当前项固定显示；所有问题均在实施前写回设计和计划。
 - 新增实时 LLM 可观测 Coworker 实施计划：按 presentation v2 类型/纯 reducer、安全 Planner/公开回复/失败码投影、原子 Snapshot/SSE、五区观察面板、独立 verifier、失败恢复黑盒门、文档和真实 Mimo normal/anomaly 连续视频十一项任务推进；主 agent 独立实施，仅在计划和最终代码两个固定关卡使用 reviewer。

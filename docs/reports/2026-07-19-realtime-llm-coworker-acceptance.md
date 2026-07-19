@@ -58,7 +58,7 @@ lock/cache 幂等返回；真实两次 stop 黑盒门与后续两条长视频均
 独立 verifier 输出：
 
 ```json
-{"failures":[],"observed_required_nodes":24,"pass":true,"required_checkpoints":14,"required_nodes":24,"scenario_id":"normal","terminal_exit_codes":[0],"video_sha256":"9e4ae3e59e63eecbc586367a6224b7955d1a2571ce9d4f45e1c1c200ea3ac37c"}
+{"failures":[],"observed_required_nodes":24,"pass":true,"required_checkpoints":14,"required_nodes":24,"terminal_exit_codes":[0],"video_sha256":"9e4ae3e59e63eecbc586367a6224b7955d1a2571ce9d4f45e1c1c200ea3ac37c"}
 ```
 
 人工画面检查覆盖首模型动作、两张 incident open、两张 incident resolved、
@@ -85,7 +85,7 @@ add/business job 的 `succeeded/0`。
 独立 verifier 输出：
 
 ```json
-{"failures":[],"observed_required_nodes":22,"pass":true,"required_checkpoints":11,"required_nodes":22,"scenario_id":"post_change_anomaly","terminal_exit_codes":[0,1],"video_sha256":"5308921986a4997413de0ee68d5f99e8c37093920048c96274cd0d2650fe3715"}
+{"failures":[],"observed_required_nodes":22,"pass":true,"required_checkpoints":11,"required_nodes":22,"terminal_exit_codes":[0,1],"video_sha256":"5308921986a4997413de0ee68d5f99e8c37093920048c96274cd0d2650fe3715"}
 ```
 
 人工画面检查覆盖首模型动作、红色因果告警、六张 incident open、三张
