@@ -699,6 +699,13 @@ class EpisodeStore:
         episode = self._episode(run_id)
         with episode.lock:
             self._require_active(episode.state)
+            if node_id == "PLAN_CREATED" and not self._has_event_node(
+                episode, "TICKET_READ", source="browser", kind="browser_action"
+            ):
+                raise EpisodeError(
+                    "ticket_read_required",
+                    "open and read the ticket before calling task_planner",
+                )
             if node_id == "NORMAL_PROGRESS":
                 required = {"alarm", "probe", "capacity", "runtime_metrics", "traffic"}
                 missing = sorted(required.difference(episode.state.postchecks))

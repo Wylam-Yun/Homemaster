@@ -303,6 +303,25 @@ def test_operational_browser_action_requires_real_plan_after_ticket_read(
     assert allowed == "after-plan"
 
 
+def test_plan_requires_ticket_read_first(store: EpisodeStore) -> None:
+    run_id = "ticket-before-plan"
+    store.create(run_id, "normal")
+
+    with pytest.raises(EpisodeError, match="open and read the ticket"):
+        store.validate_runtime_node(run_id, "PLAN_CREATED")
+
+    store.record(
+        run_id,
+        source="browser",
+        kind="browser_action",
+        status="succeeded",
+        arguments={"tool_name": "browser_navigate", "route": "ticket"},
+        node_id="TICKET_READ",
+        mutate_version=False,
+    )
+    store.validate_runtime_node(run_id, "PLAN_CREATED")
+
+
 @pytest.mark.parametrize(
     ("phase", "business_verified", "required_node"),
     [
