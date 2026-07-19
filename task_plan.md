@@ -33,8 +33,8 @@ acceptance.
 | 5. Recording-stop lifecycle repair | complete | Dedicated timeout, idempotent service stop, RED/green tests, and real two-stop HTTP gate pass. |
 | 6. Real normal acceptance | complete | `coworker-20260720-024949-b7004546` passes shell, external-state, video, visual, and independent verifier gates. |
 | 7. Real anomaly acceptance | complete | `coworker-20260720-025635-a46d87ca` passes per-target rollback, video, visual, and independent verifier gates. |
-| 8. Acceptance report and final audit | in progress | All attempts and evidence are reported; full tests and final audits remain. |
-| 9. Final code review | pending | One reviewer reports findings; main agent dispositions them and runs targeted verification. |
+| 8. Acceptance report and final audit | complete | All attempts, hashes, evidence, 793/1 tests, preflight, dual verifiers, docs, and clean worktree agree. |
+| 9. Final code review | in progress | One reviewer reports findings; main agent dispositions them and runs targeted verification. |
 
 ## Failed Attempts To Preserve
 
@@ -45,5 +45,4 @@ acceptance.
 
 ## Current Next Action
 
-Run the full final audit and both independent bundle verifiers, then start the
-single allowed final reviewer.
+Start the single allowed read-only final reviewer and disposition every finding.

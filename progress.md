@@ -12,7 +12,8 @@
 - 接受 normal `coworker-20260720-024949-b7004546`：Mimo 42 次调用，24/24、14/14、100 分、终态 complete、独立 verifier PASS，7 张关键帧人工通过。
 - 接受 anomaly `coworker-20260720-025635-a46d87ca`：Mimo 44 次调用，22/22、11/11、100 分、终态 rolled_back、add/remove/grep/config 外部终态与独立 verifier PASS，12 张命名帧人工通过。
 - 验收报告已写入 `docs/reports/2026-07-19-realtime-llm-coworker-acceptance.md`，保留并拒绝生命周期失败的首个真实 normal attempt。
-- 下一步：运行全量测试、两条 bundle 最终复验、文档/secret/interface 审计；全部完成后启动唯一一次最终代码评审。
+- 最终内部审计通过：793 passed、1 skipped；ruff lint、compileall、cleanup guard、本次文件 format-check、preflight、双 bundle verifier、协议 v2、文档/secret 和 clean-worktree 审计全部通过。全库 format-check 仅保留 40 个未触及历史文件。
+- 下一步：启动唯一一次只读最终代码评审，主 agent 逐条处置发现并只做针对性复验。
 
 # Historical ALFWorld Harness Progress
 
