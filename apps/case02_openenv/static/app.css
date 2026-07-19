@@ -258,3 +258,217 @@ th, td { padding: 10px; border-bottom: 1px solid #dce1df; text-align: left; over
   white-space: nowrap;
 }
 .executive-observer #score-summary { font-size: 17px; }
+
+/* Presentation v2 observer. These declarations replace the legacy four-row view. */
+.executive-observer {
+  color: #f4f7f5;
+  background: #090b0a;
+}
+.executive-observer .observer-header,
+.executive-observer .observer-footer {
+  border-color: #3d4b47;
+  background: #151918;
+}
+.executive-observer .observer-run-identity { border-color: #3d4b47; }
+.executive-observer .observer-kicker,
+.executive-observer .observer-field-label,
+.executive-observer .observer-footer span,
+.executive-observer .observer-card h2 { letter-spacing: 0; }
+.executive-observer .observer-stage-list li {
+  border-color: #48534f;
+  color: #c8d0cd;
+  background: #202522;
+}
+.executive-observer .observer-stage-list li.completed {
+  border-color: #3ca27f;
+  color: #dff9ef;
+  background: #183c31;
+}
+.executive-observer .observer-stage-list li.active {
+  border-color: #65d6c0;
+  color: #071411;
+  background: #65d6c0;
+}
+.executive-observer .recording-canvas,
+.executive-observer .agent-window-reserved { background: #050706; }
+.executive-observer .executive-dashboard {
+  grid-template-rows: 150px 190px 145px 205px 162px;
+  gap: 12px;
+  height: 900px;
+  padding: 0 12px;
+  border-color: #3d4b47;
+  background: #101312;
+}
+.executive-observer .observer-card {
+  padding: 10px 13px;
+  border-color: #3d4b47;
+  border-radius: 6px;
+  background: #1a1f1d;
+}
+.executive-observer .observer-card h2 {
+  margin: 0 0 6px;
+  color: #72d9c4;
+  font-size: 14px;
+}
+.executive-observer .observer-card p { margin: 2px 0 5px; line-height: 1.3; }
+.executive-observer .observer-card pre {
+  margin: 2px 0 5px;
+  padding: 5px 7px;
+  border-color: #39443f;
+  color: #eff4f1;
+  background: #0f1211;
+  font-size: 12px;
+  line-height: 1.25;
+}
+.executive-observer .observer-field-label {
+  color: #aeb9b5;
+  font-size: 10px;
+}
+.executive-observer .observer-prominent { font-size: 15px; }
+.executive-observer .sop-grid {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+}
+.executive-observer .current-sop-card #current-sop-text {
+  max-height: 66px;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.executive-observer .plan-pinned {
+  min-height: 47px;
+  padding: 5px 7px;
+  border-left: 3px solid #f1bd5b;
+  background: #25251d;
+  overflow: hidden;
+}
+.executive-observer .plan-pinned #plan-active {
+  font-size: 10px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.executive-observer .plan-meta {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 8px;
+  margin: 5px 0;
+  min-height: 48px;
+  color: #b9c2be;
+  font-size: 11px;
+}
+.executive-observer .plan-meta strong {
+  display: block;
+  color: #fff;
+  font-size: 9px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.executive-observer #model-plan {
+  max-height: 45px;
+  margin: 0;
+  padding-left: 20px;
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.executive-observer #model-plan li { margin: 1px 0; color: #cbd5d1; }
+.executive-observer #model-plan li[data-status="completed"] { color: #70cda9; }
+.executive-observer #model-plan li[data-status="blocked"],
+.executive-observer #model-plan li[data-status="uncertain"] { color: #f1bd5b; }
+.executive-observer .model-output-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  gap: 8px;
+}
+.executive-observer .model-output-card .observer-prominent { color: #f1bd5b; }
+.executive-observer .model-content {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 9px;
+  min-height: 0;
+}
+.executive-observer .model-tool-name {
+  color: #fff;
+  font-family: Consolas, monospace;
+  font-size: 18px;
+  font-weight: 700;
+}
+.executive-observer .model-tool-label { color: #72d9c4; font-size: 12px; }
+.executive-observer #model-output-arguments {
+  max-height: 52px;
+  margin: 0;
+}
+.executive-observer .public-model-reply {
+  max-width: 100%;
+  max-height: 32px;
+  color: #d9dfdc;
+  font-size: 11px;
+  overflow: hidden;
+}
+.executive-observer .result-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 12px;
+}
+.executive-observer .observer-status {
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.executive-observer .status-running { border-color: #72d9c4; background: #21584d; }
+.executive-observer .status-accepted { border-color: #f1bd5b; background: #604c22; }
+.executive-observer .status-succeeded { border-color: #67d39e; background: #245d43; }
+.executive-observer .status-failed,
+.executive-observer .status-rejected { border-color: #ff8585; background: #722f32; }
+.executive-observer .status-anomaly { border-color: #f1bd5b; background: #604c22; }
+.executive-observer #environment-result-summary {
+  max-height: 92px;
+  font-size: 11px;
+}
+.executive-observer .decision-summary {
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 1px solid #3d4b47;
+}
+.executive-observer .decision-summary p {
+  max-height: 31px;
+  color: #e8eeeb;
+  font-size: 12px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.executive-observer .decision-summary .decision-next {
+  color: #f1bd5b;
+  font-weight: 700;
+}
+.executive-observer .failure-code {
+  min-height: 17px;
+  color: #ff9696;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+}
+.executive-observer .open-incident {
+  min-height: 47px;
+  padding: 6px 8px;
+  border-left: 4px solid #5a6863;
+  color: #ced6d2;
+  background: #111513;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.executive-observer .open-incident[data-status="open"] {
+  border-color: #ff7777;
+  color: #fff0f0;
+  background: #4a2426;
+}
+.executive-observer .resolved-incidents,
+.executive-observer .critical-history {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  font-size: 10px;
+  line-height: 1.3;
+  overflow: hidden;
+}
+.executive-observer .resolved-incidents { max-height: 30px; color: #77d7ad; }
+.executive-observer .critical-history { max-height: 43px; color: #bdc7c3; }
