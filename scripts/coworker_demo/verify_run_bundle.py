@@ -201,6 +201,13 @@ def verify_presentation_bundle(run_root: Path) -> list[str]:
             or event.get("status") != "succeeded"
         ):
             failures.append(f"presentation_plan_owner:{event.get('event_id')}")
+        if (
+            event.get("event_type") == "tool.call_completed"
+            and event.get("tool_name") in {"task_planner", "task_progress_check"}
+            and event.get("status") == "succeeded"
+            and event.get("plan") is None
+        ):
+            failures.append(f"presentation_plan_missing:{event.get('event_id')}")
         if event.get("failure"):
             failures.append(str(event["failure"]))
         task = event.get("task") or {}
@@ -331,6 +338,51 @@ def verify_provider_identity(run_root: Path, expected_model: str) -> list[str]:
         failures.append("provider_request_missing")
     if not responses:
         failures.append("provider_success_response_missing")
+    transport_positions: dict[str, dict[int, list[int]]] = {
+        "transport.request_started": {},
+        "transport.response_completed": {},
+    }
+    invalid_iteration = False
+    for index, event in enumerate(runtime):
+        event_type = event.get("type")
+        if event_type not in transport_positions:
+            continue
+        iteration = (event.get("payload") or {}).get("iteration")
+        if not isinstance(iteration, int) or isinstance(iteration, bool) or iteration < 0:
+            invalid_iteration = True
+            continue
+        transport_positions[event_type].setdefault(iteration, []).append(index)
+    if invalid_iteration:
+        failures.append("provider_transport_iteration")
+    request_positions = transport_positions["transport.request_started"]
+    response_positions = transport_positions["transport.response_completed"]
+    if any(
+        len(positions) != 1
+        for positions in (*request_positions.values(), *response_positions.values())
+    ):
+        failures.append("provider_transport_duplicate_iteration")
+    request_iterations = set(request_positions)
+    response_iterations = set(response_positions)
+    if request_iterations != response_iterations:
+        failures.append("provider_transport_pairing")
+    paired_iterations = request_iterations & response_iterations
+    if paired_iterations and paired_iterations != set(range(len(paired_iterations))):
+        failures.append("provider_transport_iteration_sequence")
+    if any(
+        request_positions[iteration][0] >= response_positions[iteration][0]
+        for iteration in paired_iterations
+        if len(request_positions[iteration]) == len(response_positions[iteration]) == 1
+    ):
+        failures.append("provider_transport_order")
+    transport_state = "idle"
+    for event in runtime:
+        if event.get("type") == "transport.request_started":
+            transport_state = "pending"
+        elif event.get("type") == "transport.response_completed":
+            transport_state = "completed"
+        elif event.get("type") == "tool.call_started" and transport_state != "completed":
+            failures.append("provider_tool_without_response")
+            break
     for event in transport:
         if (event.get("payload") or {}).get("model") != expected_model:
             failures.append("runtime_model_identity")

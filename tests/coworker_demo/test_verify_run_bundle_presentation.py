@@ -86,6 +86,11 @@ def test_independent_verifier_accepts_correlated_locked_sop_events(tmp_path: Pat
             "tool_kind": "planner",
             "status": "succeeded",
             "task": {"source_text": source_text, "source_sha256": source_sha256},
+            "plan": {
+                "items": [{"id": "precheck", "title": "Run checks", "status": "pending"}],
+                "current_id": "precheck",
+                "next_focus": "Run checks",
+            },
         },
     ]
     path.write_text(
@@ -111,6 +116,14 @@ def test_independent_verifier_accepts_correlated_locked_sop_events(tmp_path: Pat
     )
 
     assert verify_presentation_bundle(run_root) == []
+
+    events[1].pop("plan")
+    path.write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    assert "presentation_plan_missing:presentation-2" in verify_presentation_bundle(run_root)
 
 
 def _write_provider_fixture(run_root: Path) -> None:
@@ -151,12 +164,12 @@ def _write_provider_fixture(run_root: Path) -> None:
     runtime = [
         {
             "type": "transport.request_started",
-            "payload": {"model": "mimo-v2.5"},
+            "payload": {"model": "mimo-v2.5", "iteration": 0},
             "timestamp": "2026-07-19T00:00:01+00:00",
         },
         {
             "type": "transport.response_completed",
-            "payload": {"model": "mimo-v2.5", "status": "ok"},
+            "payload": {"model": "mimo-v2.5", "status": "ok", "iteration": 0},
             "timestamp": "2026-07-19T00:00:02+00:00",
         },
     ]
@@ -172,6 +185,11 @@ def _write_provider_fixture(run_root: Path) -> None:
         ("override", "provider_identity_override"),
         ("wrong_model", "provider_identity_model"),
         ("no_response", "provider_success_response_missing"),
+        ("missing_iteration", "provider_transport_iteration"),
+        ("mismatched_iteration", "provider_transport_pairing"),
+        ("duplicate_response", "provider_transport_duplicate_iteration"),
+        ("response_before_request", "provider_transport_order"),
+        ("tool_before_response", "provider_tool_without_response"),
         ("late_identity", "provider_identity_after_request"),
     ],
 )
@@ -190,6 +208,31 @@ def test_provider_identity_rejects_spoofable_or_incomplete_artifact(
     elif mutation == "no_response":
         runtime_path = tmp_path / "agent/runtime_events.jsonl"
         runtime_path.write_text(runtime_path.read_text().splitlines()[0] + "\n")
+    elif mutation == "missing_iteration":
+        runtime_path = tmp_path / "agent/runtime_events.jsonl"
+        runtime = [json.loads(line) for line in runtime_path.read_text().splitlines()]
+        runtime[1]["payload"].pop("iteration")
+        runtime_path.write_text("".join(json.dumps(event) + "\n" for event in runtime))
+    elif mutation == "mismatched_iteration":
+        runtime_path = tmp_path / "agent/runtime_events.jsonl"
+        runtime = [json.loads(line) for line in runtime_path.read_text().splitlines()]
+        runtime[1]["payload"]["iteration"] = 1
+        runtime_path.write_text("".join(json.dumps(event) + "\n" for event in runtime))
+    elif mutation == "duplicate_response":
+        runtime_path = tmp_path / "agent/runtime_events.jsonl"
+        runtime = [json.loads(line) for line in runtime_path.read_text().splitlines()]
+        runtime.append(runtime[1])
+        runtime_path.write_text("".join(json.dumps(event) + "\n" for event in runtime))
+    elif mutation == "response_before_request":
+        runtime_path = tmp_path / "agent/runtime_events.jsonl"
+        runtime = [json.loads(line) for line in runtime_path.read_text().splitlines()]
+        runtime.reverse()
+        runtime_path.write_text("".join(json.dumps(event) + "\n" for event in runtime))
+    elif mutation == "tool_before_response":
+        runtime_path = tmp_path / "agent/runtime_events.jsonl"
+        runtime = [json.loads(line) for line in runtime_path.read_text().splitlines()]
+        runtime.insert(1, {"type": "tool.call_started", "payload": {}})
+        runtime_path.write_text("".join(json.dumps(event) + "\n" for event in runtime))
     elif mutation == "late_identity":
         identity["created_at_utc"] = "2026-07-19T00:00:03+00:00"
     if mutation != "no_response":

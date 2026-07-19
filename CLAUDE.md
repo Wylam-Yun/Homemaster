@@ -2,6 +2,8 @@
 
 ## Coworker 外部编排纪律
 
+- 成功的 `task_planner` / `task_progress_check` 必须安全投影出合法 plan；无法投影时记录 presentation failure，禁止发布无 plan 的 succeeded 事件。独立 verifier 必须逐个成功 Planner 结果检查 plan 存在，不能只验证已有 plan 的归属。
+- 真实 provider 验收必须按 iteration 逐实例核对：连续非负编号、每轮 request/response 各一次、集合一致、request 先于成功 response、工具选择不早于成功 response。至少一个 request/response 只能证明 provider 曾被调用，不能证明完整轨迹由真实模型执行。
 - 修改 run 生命周期 helper、attempt manifest 或 CLI 异常传播后，必须用与真实入口完全相同的参数跑一次顶层 shell smoke，并断言 run root 实际创建、失败/成功路径都打印该路径；helper 单测不能替代入口验收，形参与落盘字段不得同名冲突。
 - 正式成功只能在必需 artifact 全部登记后计算，并逐项验证存在、`complete=true` 和当前字节哈希；manifest 未列出的必需项也必须失败，禁止把 `artifact_failure` 写成常量或只遍历已有条目。
 - 每个 action 消费、runtime/task/skill 写入和外部调用都必须先检查共享终态；decision 引用只能指向当前 run 已持久化的先前 evidence，伪造、跨 run 或终态后引用必须在写审计前拒绝。

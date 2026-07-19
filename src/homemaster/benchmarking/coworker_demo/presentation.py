@@ -659,7 +659,8 @@ def project_runtime_event(
             "task_progress_check",
         }:
             plan = _safe_plan_snapshot(data, sensitive_values=sensitive_values)
-            if plan is not None:
-                projected["plan"] = plan
+            if plan is None:
+                raise ProjectionError("unsafe planner snapshot")
+            projected["plan"] = plan
     projected["timestamp"] = timestamp
     return projected

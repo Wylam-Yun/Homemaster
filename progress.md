@@ -13,7 +13,10 @@
 - 接受 anomaly `coworker-20260720-025635-a46d87ca`：Mimo 44 次调用，22/22、11/11、100 分、终态 rolled_back、add/remove/grep/config 外部终态与独立 verifier PASS，12 张命名帧人工通过。
 - 验收报告已写入 `docs/reports/2026-07-19-realtime-llm-coworker-acceptance.md`，保留并拒绝生命周期失败的首个真实 normal attempt。
 - 最终内部审计通过：793 passed、1 skipped；ruff lint、compileall、cleanup guard、本次文件 format-check、preflight、双 bundle verifier、协议 v2、文档/secret 和 clean-worktree 审计全部通过。全库 format-check 仅保留 40 个未触及历史文件。
-- 下一步：启动唯一一次只读最终代码评审，主 agent 逐条处置发现并只做针对性复验。
+- 唯一一次最终 reviewer 提出两个 P2：Planner 投影失败可静默成功、provider 只验至少一个响应；两项均采纳，10 个 RED 回归覆盖根因。
+- 修复后 128 项聚焦测试通过，两条 accepted bundle 在逐 Planner plan 与逐 iteration provider 配对的更强 verifier 下仍 PASS。
+- 评审修复后最终全量回归 798 passed、1 skipped，compileall 与双 bundle verifier PASS。
+- 下一步：提交评审修复并完成交付；不追加 reviewer。
 
 # Historical ALFWorld Harness Progress
 

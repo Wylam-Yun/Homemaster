@@ -26,6 +26,7 @@
 
 ### Fixed
 
+- 修复成功 Planner/进度快照投影失败后仍发布无 plan 的 succeeded 事件，以及真实 provider 验收只要求至少一个 request/response 的假阳性窗口；投影现拒绝无法安全生成的 plan，独立 verifier 逐个要求成功 Planner 带 plan，并按连续 iteration 核对 request/response 唯一配对、顺序和工具调用前置响应。
 - 修复长视频停止验证继承 20 秒通用请求超时、超时清理再次向已退出 FFmpeg 写入 `q` 的问题；客户端现使用 180 秒专用停止超时，服务录制会话用锁缓存完成结果并幂等返回，避免已成功视频被重复停止标成失败 attempt。
 - 修复 attempt manifest 的 `run_root` 字段与 helper 形参冲突导致真实 shell 在分配 run 后立即失败，以及固定 0.35 秒命名帧越过下一事件却仍通过像素门的问题；顶层 shell 黑盒门和独立 verifier 现在分别锁定真实入口与帧事件边界。
 - 修复 coworker 正式成功把 `artifact_failure` 固定为 false、manifest 缺项不失败的问题；最终评分和独立 verifier 现在都要求核心 artifact 已登记、完整且哈希一致。
@@ -50,6 +51,7 @@
 
 ### Verification
 
+- 最终 reviewer 的两项 P2 均已采纳：新增 10 个 RED 回归后，Planner 投影与 provider iteration 加强门 128 项聚焦测试通过；评审修复后全量 798 项通过、1 项跳过，两条 accepted real-Mimo bundle 在更强 verifier 下仍独立 PASS。
 - 最终审计通过：793 项测试通过、1 项跳过；ruff lint、compileall、历史术语守卫、本次 4 个代码/测试文件 format-check、preflight 和两条真实 bundle 独立验证均通过。全库 format-check 仍只报告 40 个未触及的历史文件，不纳入本次格式化范围。
 - 完成两条由真实 Mimo `mimo-v2.5` 现场决策的可观测录屏：normal `coworker-20260720-024949-b7004546` 与 post_change_anomaly `coworker-20260720-025635-a46d87ca` 均通过模型身份、工具/展示关联、真实配置终态、自动化返回码、grep、连续 H.264 视频、逐张人工画面检查和独立 bundle verifier；失败 normal `coworker-20260720-022516-8c773877` 同时保留并写入验收报告。
 - 真实服务幂等停止黑盒门 `recording-stop-gate-20260720-024549` 连续两次 `recording/stop` 均返回 HTTP 200，FFmpeg 返回码 0，两个响应与磁盘 MP4 的 SHA-256 一致，证明重复停止不再触碰已退出的录制进程。

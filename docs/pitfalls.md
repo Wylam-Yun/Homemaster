@@ -2,6 +2,30 @@
 
 最新记录放在最上方。
 
+## 2026-07-20 - 聚合存在性检查让缺失 Planner 和部分真实模型调用仍可通过验收
+
+严重程度：高。最终评审发现两个假阳性窗口：成功 Planner 结果可以静默丢弃不安全/超限 plan；provider 门只要求至少一个 request 和 response，不能证明完整实时推演都由真实模型响应驱动。
+
+### 症状与根因
+
+- `_safe_plan_snapshot()` 返回 `None` 后，投影仍发布 `tool.call_completed/succeeded`，导致页面保留旧计划或等待状态；verifier 又只检查“存在的 plan 是否属于 Planner”，没有检查“成功 Planner 是否必须有 plan”。
+- provider verifier 分别检查 request 列表和 response 列表非空，但不核对 iteration 缺失、重复、集合不一致、顺序颠倒或工具在成功响应前启动。
+- 两个门都把“至少有一个/已有的都合法”误当成“每个必需实例都合法”，属于聚合判据掩盖 per-instance 缺失。
+
+### 修法与教训
+
+- 成功 `task_planner` / `task_progress_check` 的安全快照无法生成时必须抛出投影错误，不能降级为无 plan 的成功事件。
+- 独立 presentation verifier 逐事件要求每个成功 Planner/进度结果带合法 plan。
+- provider verifier 要求每个 transport iteration 都是连续非负整数，request/response 各一次、集合相等、request 早于 response，且工具不能在成功 response 前启动。
+- 对必需实例验收，写“每一个”的反例 mutation 测试；不要用非空、any 或只验证现存项替代完整配对。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/presentation.py`
+- `scripts/coworker_demo/verify_run_bundle.py`
+- `tests/homemaster/benchmarking/coworker_demo/test_presentation_projection.py`
+- `tests/coworker_demo/test_verify_run_bundle_presentation.py`
+
 ## 2026-07-20 - 长视频停止已成功却因客户端超时触发重复非幂等停止
 
 严重程度：高。真实 Mimo 已完成 24/24 轨迹、14/14 结果检查和 100 分，FFmpeg 也已正常退出并产出通过验证的 362 秒视频，但顶层 attempt 仍被标记失败。

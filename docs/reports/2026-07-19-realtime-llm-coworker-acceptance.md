@@ -120,3 +120,18 @@ rolled_back。
 
 Controlled/scripted normal 与 anomaly 仅用于 presentation failure matrix 和画面
 回归，未被列为最终接受视频，也不能替代上述真实 Mimo run。
+
+## 最终评审处置
+
+最终只读 reviewer 提出两项 P2，均采纳并修复：
+
+- 成功 Planner/进度结果如果无法安全投影 plan，不再静默发布 succeeded；独立
+  verifier 逐个要求合法 plan。
+- provider trace 不再只检查 request/response 非空；现在逐 iteration 要求连续
+  非负编号、各一次、集合一致、request 早于成功 response，且工具不能在成功
+  response 前启动。
+
+新增 10 个 RED 回归后聚焦测试 128 项通过。加强后的 verifier 再次验证两条
+accepted bundle，normal 与 anomaly 均保持 PASS；真实 trace 分别为 42/42 和
+44/44 request/response 完整配对。评审修复后的全量回归为 798 passed、
+1 skipped。

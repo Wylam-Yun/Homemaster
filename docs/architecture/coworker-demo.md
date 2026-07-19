@@ -88,8 +88,10 @@ Trajectory and result evaluation are separate. The normal denominator is 24 DAG 
 business, presentation, recording, or verification failure. `run_manifest.json` is the artifact
 index and hashes every registered artifact except itself. Presentation v2 artifacts are
 required, and the independent verifier rederives SOP hashes, tool/action/incident correlation,
-current-run external state, provider identity and fresh successful model response without
-importing the product evaluator. With `--expected-model mimo-v2.5`, loopback/generated
+current-run external state, provider identity and every request/response iteration without
+importing the product evaluator. Every successful Planner/progress result must carry a legal
+plan, and every provider iteration must have exactly one ordered successful response before its
+tool selection. With `--expected-model mimo-v2.5`, loopback/generated
 overrides and `scripted-coworker` are rejected.
 
 Finalization first freezes numeric scores while recording is active. After the score hold,

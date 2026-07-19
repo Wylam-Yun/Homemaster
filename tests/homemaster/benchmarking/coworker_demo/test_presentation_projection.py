@@ -242,16 +242,15 @@ def test_successful_task_snapshot_projects_bounded_plan() -> None:
     ],
 )
 def test_unsafe_or_oversized_plan_field_rejects_plan_projection(mutation: dict) -> None:
-    projected = project_runtime_event(
-        event(
-            "tool.call_completed",
-            name="task_progress_check",
-            tool_call_id="call-plan-limits",
-            payload={"data": mutation},
+    with pytest.raises(ProjectionError, match="unsafe planner snapshot"):
+        project_runtime_event(
+            event(
+                "tool.call_completed",
+                name="task_progress_check",
+                tool_call_id="call-plan-limits",
+                payload={"data": mutation},
+            )
         )
-    )
-    assert projected is not None
-    assert "plan" not in projected
 
 
 def test_exact_plan_and_reply_limits_are_accepted() -> None:

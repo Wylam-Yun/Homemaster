@@ -34,7 +34,7 @@ acceptance.
 | 6. Real normal acceptance | complete | `coworker-20260720-024949-b7004546` passes shell, external-state, video, visual, and independent verifier gates. |
 | 7. Real anomaly acceptance | complete | `coworker-20260720-025635-a46d87ca` passes per-target rollback, video, visual, and independent verifier gates. |
 | 8. Acceptance report and final audit | complete | All attempts, hashes, evidence, 793/1 tests, preflight, dual verifiers, docs, and clean worktree agree. |
-| 9. Final code review | in progress | One reviewer reports findings; main agent dispositions them and runs targeted verification. |
+| 9. Final code review | complete | Both P2 findings are fixed; 798/1 tests, compileall, focused checks, and dual stronger verifiers pass. |
 
 ## Failed Attempts To Preserve
 
@@ -45,4 +45,5 @@ acceptance.
 
 ## Current Next Action
 
-Start the single allowed read-only final reviewer and disposition every finding.
+Commit both accepted reviewer fixes and publish the final handoff. Do not start
+another review.
