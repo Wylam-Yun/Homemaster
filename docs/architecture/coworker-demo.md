@@ -93,7 +93,10 @@ importing the product evaluator. With `--expected-model mimo-v2.5`, loopback/gen
 overrides and `scripted-coworker` are rejected.
 
 Finalization first freezes numeric scores while recording is active. After the score hold,
-Playwright closes and FFmpeg exits normally. Independent checks cover observer health,
+Playwright closes and FFmpeg exits normally. Recording stop has a dedicated 180-second client
+timeout because long videos require multiple frame decodes. The service serializes stop and
+caches its completed recorder/display result, so a retry returns the same outcome without
+writing to an already-closed FFmpeg stdin. Independent checks cover observer health,
 H.264/1920x1080/yuv420p, duration, first-packet evidence, first/middle/last pixels, and named
 first-action/incident/causal-alarm/terminal frames. A named-frame offset must remain before the
 next presentation event. Presentation failure leaves business scores unchanged but makes formal

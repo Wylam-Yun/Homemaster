@@ -2,6 +2,30 @@
 
 最新记录放在最上方。
 
+## 2026-07-20 - 长视频停止已成功却因客户端超时触发重复非幂等停止
+
+严重程度：高。真实 Mimo 已完成 24/24 轨迹、14/14 结果检查和 100 分，FFmpeg 也已正常退出并产出通过验证的 362 秒视频，但顶层 attempt 仍被标记失败。
+
+### 症状与根因
+
+- 通用环境请求超时固定为 20 秒，而长视频停止还要执行 ffprobe、首中末帧和多张命名事件帧解码，第一次 `recording/stop` 在服务端完成并返回 200 时，客户端已经超时。
+- 调用方只有在完整 HTTP 响应返回后才设置 `recording_stopped=True`，因此 `finally` 把超时误判成“尚未停止”，再次调用同一副作用接口。
+- 录制会话没有缓存完成结果，第二次停止继续向已正常退出的 FFmpeg stdin 写入 `q`，在 `flush()` 抛出 `BrokenPipeError` 并返回 500。
+- 业务分数、视频 manifest 和第一次 200 都是成功证据；attempt 失败属于生命周期协议错误，不能反向把真实模型或视频判成失败。
+
+### 修法与教训
+
+- `recording/stop` 使用 180 秒专用验证超时，不继承短请求的通用 20 秒预算。
+- 服务会话用互斥锁保护停止过程，并缓存 recorder/display 的完成结果；重复调用返回深拷贝缓存，不再触碰 FFmpeg 或 display。
+- 对“请求超时但服务端可能已执行”的副作用接口，必须同时设计足够的操作级超时与服务端幂等语义；仅在客户端加重试会把已成功的外部终态破坏掉。
+- 验收继续要求顶层 attempt 成功、外部返回码和独立 bundle verifier 同时通过，不能只因已存在可播放视频就接受失败 attempt。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/environment_client.py`
+- `apps/case02_openenv/src/case02_openenv/api.py`
+- `var/coworker-demo/coworker-20260720-022516-8c773877/`
+
 ## 2026-07-20 - 命名事件帧跨过下一事件却仍通过像素门
 
 严重程度：高。manifest 的 source event、时间戳和像素统计都可以正确，但截图时刻已经进入下一条 presentation event，导致一张名为 `rollback_decision_required` 的帧实际显示 `progress_required`。

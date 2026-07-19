@@ -1,4 +1,17 @@
-# ALFWorld Harness Findings
+# Current Coworker Demo Findings
+
+## 2026-07-20 Recording Stop Root Cause
+
+- Failed real normal attempt: `var/coworker-demo/coworker-20260720-022516-8c773877/`.
+- Model/provider path was real Mimo `mimo-v2.5`; business state reached 24/24 trajectory nodes, 14/14 result checkpoints, overall 100, and terminal complete.
+- `video/video_manifest.json` proves FFmpeg return code 0, H.264 1920x1080/yuv420p, 362.066667 seconds, 5431 frames, verified named frames, and SHA-256 `b545af36773eeae1a9629c2e582a5859453e91151bd7ddd94dbc6ec6da377f87`.
+- `environment/process/service.stdout.log` records the first `POST .../recording/stop` as 200 OK and the cleanup retry as 500 Internal Server Error.
+- `environment/process/service.stderr.log` locates the retry failure at `DemoRecorder.stop -> self.process.stdin.flush -> BrokenPipeError`.
+- Root cause: the client inherited a 20-second generic request timeout for a long video verification operation; the caller marked recording stopped only after response receipt; the non-idempotent cleanup retry touched an already-closed FFmpeg process.
+- Fix contract: 180-second dedicated stop timeout plus lock-protected cached stop result at the service session boundary.
+- Orthogonal black-box gate `recording-stop-gate-20260720-024549` started the real service, TigerVNC, and FFmpeg, then issued two HTTP stop requests. Both returned 200 with FFmpeg code 0 and SHA-256 `d9f4c807743cff81596ea0f9a9cae4775b2af1aa1bf950293c27bc53a9186835`, matching the 340606-byte MP4 on disk.
+
+# Historical ALFWorld Harness Findings
 
 ## 2026-07-12 Initial State
 

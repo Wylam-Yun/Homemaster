@@ -94,7 +94,23 @@ def test_recording_start_has_a_dedicated_startup_timeout() -> None:
     )
 
     assert client.start_recording("run")["success"] is True
-    assert timeouts == [
-        {"connect": 45.0, "read": 45.0, "write": 45.0, "pool": 45.0}
-    ]
+    assert timeouts == [{"connect": 45.0, "read": 45.0, "write": 45.0, "pool": 45.0}]
+    client.close()
+
+
+def test_recording_stop_has_a_dedicated_verification_timeout() -> None:
+    timeouts: list[dict[str, float]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"])
+        return httpx.Response(200, json={"success": True})
+
+    client = EnvironmentClient(
+        "http://case02.test",
+        timeout_s=20.0,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.stop_recording("run")["success"] is True
+    assert timeouts == [{"connect": 180.0, "read": 180.0, "write": 180.0, "pool": 180.0}]
     client.close()

@@ -11,6 +11,7 @@
 
 ## 外部录制终态纪律
 
+- 对停止、提交等超时后可能已经在外部完成的副作用请求，按操作最坏耗时设置专用客户端超时，并在服务端用锁与完成结果缓存提供幂等重试；不得在不查询或缓存外部终态时重复触发一次性进程输入。
 - 命名事件帧必须证明画面语义对应 source event：取帧 offset 必须严格早于下一条 presentation event，并逐帧核对 exact tool/failure code/中文原因/恢复状态；source ID、offset 公式、非空像素和区域方差都不能单独作为语义正确门。
 - 独立 bundle verifier 不得信任产品写入的 `verified` 或帧统计；必须重新核对 FFmpeg 退出与 first-packet 落盘证据，独立运行 ffprobe，并从交付视频重新解码首中末帧计算内容门。
 - 把“编码器处理了帧”和“视频 packet 已写入外部文件”分开。first-packet 门必须同时看到 FFmpeg progress 的有效帧/字节状态，以及输出文件在非零 header 之后至少一次可观测的正向增长；仅有 `frame`、`total_size > 0`、进程存活或非空文件一律不得放行模型调用。

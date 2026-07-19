@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -461,6 +463,8 @@ class _ServiceRecordingSession:
         self.display = DisplayManager(run_root)
         self.recorder: DemoRecorder | None = None
         self.display_info: dict[str, Any] | None = None
+        self._stop_lock = threading.Lock()
+        self._stop_result: dict[str, Any] | None = None
 
     def start(self) -> dict[str, Any]:
         if self.recorder is not None:
@@ -495,14 +499,18 @@ class _ServiceRecordingSession:
         }
 
     def stop(self) -> dict[str, Any]:
-        if self.recorder is None:
-            raise RuntimeError("recording session has not started")
-        try:
-            result = self.recorder.stop()
-        finally:
-            display_result = self.display.stop()
-        return {
-            **result,
-            "observer_was_alive": display_result["observer_was_alive"],
-            "display_return_codes": display_result["return_codes"],
-        }
+        with self._stop_lock:
+            if self._stop_result is not None:
+                return copy.deepcopy(self._stop_result)
+            if self.recorder is None:
+                raise RuntimeError("recording session has not started")
+            try:
+                result = self.recorder.stop()
+            finally:
+                display_result = self.display.stop()
+            self._stop_result = {
+                **result,
+                "observer_was_alive": display_result["observer_was_alive"],
+                "display_return_codes": display_result["return_codes"],
+            }
+            return copy.deepcopy(self._stop_result)

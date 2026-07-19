@@ -1,4 +1,17 @@
-# ALFWorld Harness Progress
+# Current Coworker Demo Progress
+
+## 2026-07-20
+
+- Presentation v2、五区观察面板、Planner/公开回复/工具/结果/异常恢复展示已实现并提交。
+- Controlled normal/anomaly failure gates 已通过，12 张 incident 帧已逐张人工核对。
+- 全量内部验证已通过：791 passed、1 skipped；preflight 确认 Mimo `mimo-v2.5` 配置可用。
+- 第一条真实 normal attempt `coworker-20260720-022516-8c773877` 已由 Mimo 完成 24/24、14/14 和 100 分，并产出通过视频验证的 362 秒 MP4。
+- 该 attempt 因 20 秒录屏停止客户端超时及清理路径重复停止被标记失败；stdout 证明第一次 stop 为 200，第二次为 500，stderr 为已关闭 FFmpeg stdin 的 `BrokenPipeError`。
+- 已用 RED 测试锁定专用停止超时与会话幂等约束；实现后聚焦测试 21 passed，lint/format/diff check 通过。
+- 真实服务黑盒门 `recording-stop-gate-20260720-024549` 录制外部 MP4 后连续停止两次，两个 HTTP 返回码均为 200、FFmpeg 返回码 0、响应和磁盘视频哈希一致。
+- 下一步：提交生命周期修复，重新跑真实 normal 与 anomaly，逐条执行独立 bundle 验证和画面人工核对，完成验收报告后做唯一一次最终代码评审。
+
+# Historical ALFWorld Harness Progress
 
 ## 2026-07-12
 

@@ -411,3 +411,41 @@ def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypat
         "manifest": {"sha256": "video-sha"},
         "observer_was_alive": False,
     }
+
+
+def test_recording_session_stop_is_idempotent(tmp_path: Path) -> None:
+    import case02_openenv.api as api_module
+
+    calls = {"recorder": 0, "display": 0}
+
+    class FakeRecorder:
+        def stop(self):
+            calls["recorder"] += 1
+            return {
+                "success": True,
+                "status": "verified",
+                "manifest": {"sha256": "video-sha"},
+            }
+
+    class FakeDisplay:
+        def stop(self):
+            calls["display"] += 1
+            return {
+                "observer_was_alive": True,
+                "return_codes": {"observer": -15, "tigervnc": -15},
+            }
+
+    session = api_module._ServiceRecordingSession(
+        run_id="recording-idempotent",
+        run_root=tmp_path,
+        observer_url="http://127.0.0.1:8765/observer/recording-idempotent",
+    )
+    session.recorder = FakeRecorder()
+    session.display = FakeDisplay()
+
+    first = session.stop()
+    second = session.stop()
+
+    assert second == first
+    assert second is not first
+    assert calls == {"recorder": 1, "display": 1}
