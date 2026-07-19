@@ -1038,7 +1038,11 @@ class EpisodeStore:
     def _load_bundle_sources(self, scenario_id: str) -> _BundleSources:
         manifest_path = self.data_root / "dataset_manifest.json"
         if not manifest_path.is_file():
-            raise EpisodeError("bundle_source_invalid", "dataset manifest is missing", status_code=422)
+            raise EpisodeError(
+                "bundle_source_invalid",
+                "dataset manifest is missing",
+                status_code=422,
+            )
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
