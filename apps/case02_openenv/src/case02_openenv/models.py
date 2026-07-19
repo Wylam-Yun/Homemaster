@@ -108,6 +108,7 @@ class RunState(BaseModel):
 class RunCreateRequest(BaseModel):
     run_id: str
     scenario_id: Literal["normal", "post_change_anomaly"] = "normal"
+    locked_hashes: dict[str, str]
 
 
 class RuntimeEventRequest(BaseModel):

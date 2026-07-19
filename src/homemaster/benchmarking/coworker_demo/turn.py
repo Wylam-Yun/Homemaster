@@ -35,6 +35,7 @@ from homemaster.benchmarking.coworker_demo.types import (
 )
 from homemaster.config import HOMEMASTER_CONFIG_PATH, load_config
 from homemaster.events.sinks import ConsoleEventSink, FanoutEventSink
+from homemaster.providers.attempts import JsonlProviderAttemptSink
 from homemaster.providers.llm_client import LLMClient
 from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.dispatcher import ToolDispatcher
@@ -66,6 +67,16 @@ class DeadlineAwareTransport:
         return self.client.complete(*args, **kwargs)
 
 
+def _resolve_configured_bundle(route: ValidTicketRoute, data_root: Path):
+    configured_root = data_root.resolve()
+    if route.case_root.resolve() != configured_root:
+        raise ValueError("ticket bundle root does not match configured coworker data_root")
+    bundle = CaseRepository(configured_root).resolve(route.ticket_path, route.scenario_id)
+    if dict(bundle.locked_hashes) != route.locked_hashes:
+        raise ValueError("ticket bundle hashes changed after routing")
+    return bundle
+
+
 def run_coworker_turn(
     route: ValidTicketRoute,
     *,
@@ -79,9 +90,7 @@ def run_coworker_turn(
     if provider_config_path is None and configured_provider:
         provider_config_path = Path(configured_provider)
     config = load_coworker_config(coworker_config_path)
-    bundle = CaseRepository(route.case_root).resolve(route.ticket_path, route.scenario_id)
-    if dict(bundle.locked_hashes) != route.locked_hashes:
-        raise ValueError("ticket bundle hashes changed after routing")
+    bundle = _resolve_configured_bundle(route, config.paths.data_root)
     run_id = new_coworker_run_id()
     run_root = config.paths.artifact_root / run_id
     run_root.mkdir(parents=True, exist_ok=False)
@@ -113,7 +122,7 @@ def run_coworker_turn(
     }
     try:
         service.start(client)
-        client.create_run(run_id, route.scenario_id)
+        client.create_run(run_id, route.scenario_id, dict(bundle.locked_hashes))
         recording = client.start_recording(run_id)
         recording_started = True
         display = str(recording["display"])
@@ -194,6 +203,29 @@ def run_coworker_turn(
         trace_path=trace_path,
         classification=outcome.classification,
         process_returns=process_returns,
+    )
+
+
+def _make_coworker_runtime(
+    *,
+    transport: Any,
+    dispatcher: Any,
+    max_tool_iterations: int,
+    stop_condition: Any,
+    context_assembler: Any,
+    system_prompt: str,
+    run_root: Path,
+) -> GenericAgentRuntime:
+    return GenericAgentRuntime(
+        transport=transport,
+        tool_executor=dispatcher,
+        max_tool_iterations=max_tool_iterations,
+        stop_condition=stop_condition,
+        context_assembler=context_assembler,
+        system_prompt=system_prompt,
+        provider_attempt_sink_factory=lambda: JsonlProviderAttemptSink(
+            run_root / "agent/provider_attempts.jsonl"
+        ),
     )
 
 
@@ -296,13 +328,14 @@ def _run_runtime(
             payload={"classification": outcome.classification},
         )
 
-    runtime = GenericAgentRuntime(
+    runtime = _make_coworker_runtime(
         transport=transport,
-        tool_executor=dispatcher,
+        dispatcher=dispatcher,
         max_tool_iterations=max_tool_iterations,
         stop_condition=stop_condition,
         context_assembler=context,
         system_prompt=SYSTEM_PROMPT,
+        run_root=run_root,
     )
     return runtime.run(
         AgentSession(session_id=run_id),

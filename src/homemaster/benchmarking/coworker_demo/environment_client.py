@@ -41,9 +41,20 @@ class EnvironmentClient:
     def health(self) -> dict[str, Any]:
         return self._request("GET", "/healthz", check_budget=False)
 
-    def create_run(self, run_id: str, scenario_id: str) -> dict[str, Any]:
+    def create_run(
+        self,
+        run_id: str,
+        scenario_id: str,
+        locked_hashes: dict[str, str],
+    ) -> dict[str, Any]:
         return self._request(
-            "POST", "/api/runs", json={"run_id": run_id, "scenario_id": scenario_id}
+            "POST",
+            "/api/runs",
+            json={
+                "run_id": run_id,
+                "scenario_id": scenario_id,
+                "locked_hashes": locked_hashes,
+            },
         )
 
     def reset(self, run_id: str) -> dict[str, Any]:

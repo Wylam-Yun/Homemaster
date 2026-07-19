@@ -3,12 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests.case02_openenv.test_api_contract import client
+from tests.case02_openenv.test_api_contract import client, create_run
 
 
 def test_agent_pages_render_unique_data_bids_and_no_hidden_sentinel(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "page-run", "scenario_id": "normal"})
+    create_run(api, "page-run")
     api.app.state.store.episode("page-run").state.anomaly_code = "HIDDEN_FAULT_SENTINEL"
     for route in ("ticket", "monitor", "automation"):
         response = api.get(f"/{route}/page-run")
@@ -24,7 +24,7 @@ def test_agent_pages_render_unique_data_bids_and_no_hidden_sentinel(tmp_path: Pa
 
 def test_executive_observer_page_is_read_only_and_leadership_scoped(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "leadership-run", "scenario_id": "normal"})
+    create_run(api, "leadership-run")
 
     response = api.get("/observer/leadership-run")
 
@@ -119,7 +119,7 @@ def test_executive_observer_controller_resets_generation_and_rejects_failures(
 
 def test_observer_presentation_snapshot_exposes_stream_generation(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "generation-run", "scenario_id": "normal"})
+    create_run(api, "generation-run")
 
     response = api.get("/api/runs/generation-run/presentation")
 
@@ -174,7 +174,7 @@ def test_presentation_snapshot_supplies_live_progress_and_footer_values(
     tmp_path: Path,
 ) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "footer-run", "scenario_id": "normal"})
+    create_run(api, "footer-run")
     api.app.state.store.episode("footer-run").state.terminal_outcome = "completed"
     event = api.post(
         "/api/runs/footer-run/presentation-events",
@@ -239,10 +239,7 @@ def test_agent_public_projections_exclude_observer_only_state(tmp_path: Path) ->
     from case02_openenv.public_views import automation_view, monitor_view, ticket_view
 
     api = client(tmp_path)
-    api.post(
-        "/api/runs",
-        json={"run_id": "projection-run", "scenario_id": "post_change_anomaly"},
-    )
+    create_run(api, "projection-run", "post_change_anomaly")
     episode = api.app.state.store.episode("projection-run")
     episode.state.anomaly_code = "HIDDEN_FAULT_SENTINEL"
     episode.state.causal_add_job_id = "HIDDEN_JOB_SENTINEL"

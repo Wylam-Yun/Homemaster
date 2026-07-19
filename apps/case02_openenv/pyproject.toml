@@ -26,6 +26,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+case02_openenv = ["static/*", "templates/*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,7 @@ from case02_openenv.recording.recorder import DemoRecorder
 from case02_openenv.terminal.executor import TerminalExecutor
 from case02_openenv.terminal.policy import CommandPolicyError
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+PACKAGE_ROOT = files("case02_openenv")
 
 
 def create_app(
@@ -56,8 +57,12 @@ def create_app(
     app.state.recorders = {}
     app.state.sse_idle_iterations = 300
     app.state.sse_poll_interval_s = 0.1
-    templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
-    app.mount("/static", StaticFiles(directory=str(PACKAGE_ROOT / "static")), name="static")
+    templates = Jinja2Templates(directory=str(PACKAGE_ROOT.joinpath("templates")))
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(PACKAGE_ROOT.joinpath("static"))),
+        name="static",
+    )
 
     @app.exception_handler(EpisodeError)
     async def handle_episode_error(_request: Request, exc: EpisodeError) -> JSONResponse:
@@ -72,7 +77,11 @@ def create_app(
 
     @app.post("/api/runs")
     async def create_run(payload: RunCreateRequest) -> dict[str, Any]:
-        state = store.create(payload.run_id, payload.scenario_id)
+        state = store.create(
+            payload.run_id,
+            payload.scenario_id,
+            locked_hashes=payload.locked_hashes,
+        )
         return {"success": True, "run_id": state.run_id, "state": _state_payload(state)}
 
     @app.post("/api/runs/{run_id}/reset")

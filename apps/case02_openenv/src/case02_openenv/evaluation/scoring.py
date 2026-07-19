@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import yaml
-
 from case02_openenv.artifacts import atomic_write_json
 from case02_openenv.episode_store import EpisodeStore
 from case02_openenv.evaluation.matcher import match_trajectory
@@ -66,6 +64,7 @@ def finalize_run(
     if video_verified and observer_was_alive is None:
         raise ValueError("observer_was_alive is required for video-verified finalization")
     episode = store.episode(run_id)
+    store.verify_locked_sources(run_id)
     presentation_report = store.verify_presentation(
         run_id,
         observer_was_alive=(
@@ -76,8 +75,7 @@ def finalize_run(
     effective, rejected = normalize_events(events)
     write_jsonl(episode.run_root / "trajectory/effective_trajectory.jsonl", effective)
     atomic_write_json(episode.run_root / "trajectory/rejected_actions.json", rejected)
-    dag = yaml.safe_load((store.data_root / "agent_trajectory_ground_truth.yaml").read_text())
-    match = match_trajectory(dag, episode.scenario_id, effective)
+    match = match_trajectory(episode.trajectory_dag, episode.scenario_id, effective)
     atomic_write_json(episode.run_root / "trajectory/trajectory_match.json", match)
     result = evaluate_results(store, run_id)
     atomic_write_json(episode.run_root / "environment/evaluator_inputs.json", result)

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import threading
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,11 +45,27 @@ class EpisodeError(RuntimeError):
         self.status_code = status_code
 
 
+@dataclass(frozen=True)
+class _BundleSources:
+    manifest_path: Path
+    ticket_path: Path
+    scenario_path: Path
+    dag_path: Path
+    manifest: dict[str, Any]
+    ticket: dict[str, Any]
+    scenario: dict[str, Any]
+    trajectory_dag: dict[str, Any]
+    locked_hashes: dict[str, str]
+
+
 @dataclass
 class Episode:
     state: RunState
     scenario_id: str
     ticket: dict[str, Any]
+    scenario: dict[str, Any]
+    trajectory_dag: dict[str, Any]
+    locked_hashes: dict[str, str]
     run_root: Path
     episode_root: Path
     config_file: Path
@@ -67,7 +85,13 @@ class EpisodeStore:
         self._episodes: dict[str, Episode] = {}
         self._lock = threading.RLock()
 
-    def create(self, run_id: str, scenario_id: str) -> RunState:
+    def create(
+        self,
+        run_id: str,
+        scenario_id: str,
+        *,
+        locked_hashes: Mapping[str, str] | None = None,
+    ) -> RunState:
         if not run_id or "/" in run_id or ".." in run_id:
             raise EpisodeError(
                 "invalid_run_id", "run_id contains unsafe characters", status_code=422
@@ -75,22 +99,20 @@ class EpisodeStore:
         with self._lock:
             if run_id in self._episodes:
                 raise EpisodeError("run_exists", f"run already exists: {run_id}")
-            scenario_path = self.data_root / "scenarios" / f"{scenario_id}.yaml"
-            if not scenario_path.is_file():
+            sources = self._load_bundle_sources(scenario_id)
+            if locked_hashes is not None and dict(locked_hashes) != sources.locked_hashes:
                 raise EpisodeError(
-                    "unknown_scenario", f"unknown scenario: {scenario_id}", status_code=422
+                    "bundle_hash_mismatch",
+                    "locked bundle hashes do not match the configured data root",
                 )
-            scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
-            ticket_path = self.data_root / "test_set/item_change_ticket.json"
-            ticket = json.loads(ticket_path.read_text(encoding="utf-8-sig"))
-            variables = copy.deepcopy(scenario["variables"])
-            target = copy.deepcopy(scenario["target"])
+            variables = copy.deepcopy(sources.scenario["variables"])
+            target = copy.deepcopy(sources.scenario["target"])
             state = RunState(
                 run_id=run_id,
                 variables=variables,
                 target=target,
-                upstream_ready=bool(scenario["precheck"]["upstream_ready"]),
-                anomaly_code=scenario["postcheck"].get("anomaly"),
+                upstream_ready=bool(sources.scenario["precheck"]["upstream_ready"]),
+                anomaly_code=sources.scenario["postcheck"].get("anomaly"),
             )
             run_root = self.artifact_root / run_id
             episode_root = run_root / "environment/episode_root"
@@ -102,22 +124,25 @@ class EpisodeStore:
             episode = Episode(
                 state=state,
                 scenario_id=scenario_id,
-                ticket=ticket,
+                ticket=copy.deepcopy(sources.ticket),
+                scenario=copy.deepcopy(sources.scenario),
+                trajectory_dag=copy.deepcopy(sources.trajectory_dag),
+                locked_hashes=dict(sources.locked_hashes),
                 run_root=run_root,
                 episode_root=episode_root,
                 config_file=config_file,
                 registry=registry,
             )
             self._episodes[run_id] = episode
-            self._write_inputs(episode, scenario, scenario_path, ticket_path)
+            self._write_inputs(episode, sources)
             self._snapshot(episode)
             return state.model_copy(deep=True)
 
     def reset(self, run_id: str) -> RunState:
         episode = self._episode(run_id)
         with episode.lock:
-            scenario_path = self.data_root / "scenarios" / f"{episode.scenario_id}.yaml"
-            scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
+            self.verify_locked_sources(run_id)
+            scenario = episode.scenario
             episode.state = RunState(
                 run_id=run_id,
                 variables=copy.deepcopy(scenario["variables"]),
@@ -141,6 +166,18 @@ class EpisodeStore:
             atomic_write_json(episode.config_file, {})
             self._snapshot(episode)
             return episode.state.model_copy(deep=True)
+
+    def source_hashes(self, scenario_id: str) -> dict[str, str]:
+        return dict(self._load_bundle_sources(scenario_id).locked_hashes)
+
+    def verify_locked_sources(self, run_id: str) -> None:
+        episode = self._episode(run_id)
+        actual = self._load_bundle_sources(episode.scenario_id).locked_hashes
+        if actual != episode.locked_hashes:
+            raise EpisodeError(
+                "bundle_hash_mismatch",
+                "configured bundle changed after the run was created",
+            )
 
     def state(self, run_id: str) -> RunState:
         episode = self._episode(run_id)
@@ -998,23 +1035,121 @@ class EpisodeStore:
     def _stdout_has_variables(state: RunState, stdout: str) -> bool:
         return all(value in stdout for value in state.variables.values())
 
-    def _write_inputs(
-        self, episode: Episode, scenario: dict[str, Any], scenario_path: Path, ticket_path: Path
-    ) -> None:
+    def _load_bundle_sources(self, scenario_id: str) -> _BundleSources:
+        manifest_path = self.data_root / "dataset_manifest.json"
+        if not manifest_path.is_file():
+            raise EpisodeError("bundle_source_invalid", "dataset manifest is missing", status_code=422)
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise EpisodeError(
+                "bundle_source_invalid",
+                f"dataset manifest is invalid: {type(exc).__name__}",
+                status_code=422,
+            ) from exc
+        if not isinstance(manifest, dict):
+            raise EpisodeError("bundle_source_invalid", "dataset manifest must be an object")
+
+        ticket_relative = manifest.get("input_ticket")
+        coworker = manifest.get("coworker_demo")
+        scenarios = coworker.get("supported_scenarios") if isinstance(coworker, dict) else None
+        scenario_entry = scenarios.get(scenario_id) if isinstance(scenarios, dict) else None
+        dag_entry = coworker.get("trajectory_dag") if isinstance(coworker, dict) else None
+        if not isinstance(ticket_relative, str) or not isinstance(scenario_entry, dict):
+            raise EpisodeError(
+                "unknown_scenario",
+                f"unknown scenario: {scenario_id}",
+                status_code=422,
+            )
+        if not isinstance(scenario_entry.get("path"), str) or not isinstance(dag_entry, dict):
+            raise EpisodeError("bundle_source_invalid", "coworker manifest entries are invalid")
+        if not isinstance(dag_entry.get("path"), str):
+            raise EpisodeError("bundle_source_invalid", "trajectory DAG entry is invalid")
+
+        ticket_path = self._inside_data_root(ticket_relative)
+        scenario_path = self._inside_data_root(scenario_entry["path"])
+        dag_path = self._inside_data_root(dag_entry["path"])
+        for path, label in (
+            (ticket_path, "ticket"),
+            (scenario_path, "scenario"),
+            (dag_path, "trajectory DAG"),
+        ):
+            if not path.is_file():
+                raise EpisodeError("bundle_source_invalid", f"{label} source is missing")
+
+        declared = manifest.get("contract", {}).get("file_sha256")
+        if not isinstance(declared, dict) or not declared:
+            raise EpisodeError("bundle_source_invalid", "manifest source hashes are missing")
+        for relative, expected in declared.items():
+            if not isinstance(relative, str) or not isinstance(expected, str):
+                raise EpisodeError("bundle_source_invalid", "manifest source hash is invalid")
+            source = self._inside_data_root(relative)
+            if not source.is_file() or self._sha256(source) != expected:
+                raise EpisodeError(
+                    "bundle_source_invalid",
+                    f"declared source hash mismatch: {relative}",
+                )
+        for entry, path, label in (
+            (scenario_entry, scenario_path, "scenario"),
+            (dag_entry, dag_path, "trajectory DAG"),
+        ):
+            if entry.get("sha256") != self._sha256(path):
+                raise EpisodeError("bundle_source_invalid", f"{label} hash mismatch")
+
+        try:
+            ticket = json.loads(ticket_path.read_text(encoding="utf-8-sig"))
+            scenario = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
+            trajectory_dag = yaml.safe_load(dag_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            raise EpisodeError(
+                "bundle_source_invalid",
+                f"bundle source is invalid: {type(exc).__name__}",
+                status_code=422,
+            ) from exc
+        if not all(isinstance(value, dict) for value in (ticket, scenario, trajectory_dag)):
+            raise EpisodeError("bundle_source_invalid", "bundle source roots must be mappings")
+
+        locked_hashes = {
+            "manifest": self._sha256(manifest_path),
+            "ticket": self._sha256(ticket_path),
+            "scenario": self._sha256(scenario_path),
+            "trajectory_dag": self._sha256(dag_path),
+        }
+        return _BundleSources(
+            manifest_path=manifest_path,
+            ticket_path=ticket_path,
+            scenario_path=scenario_path,
+            dag_path=dag_path,
+            manifest=manifest,
+            ticket=ticket,
+            scenario=scenario,
+            trajectory_dag=trajectory_dag,
+            locked_hashes=locked_hashes,
+        )
+
+    def _inside_data_root(self, relative: str) -> Path:
+        candidate = (self.data_root / relative).resolve()
+        if candidate != self.data_root and self.data_root not in candidate.parents:
+            raise EpisodeError("bundle_source_invalid", "bundle source escapes data root")
+        return candidate
+
+    @staticmethod
+    def _sha256(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _write_inputs(self, episode: Episode, sources: _BundleSources) -> None:
         input_root = episode.run_root / "input"
         atomic_write_json(input_root / "item_change_ticket.json", episode.ticket)
-        atomic_write_json(input_root / "scenario.json", scenario)
-        manifest = json.loads(
-            (self.data_root / "dataset_manifest.json").read_text(encoding="utf-8")
-        )
-        atomic_write_json(input_root / "dataset_manifest.json", manifest)
+        atomic_write_json(input_root / "scenario.json", episode.scenario)
+        atomic_write_json(input_root / "dataset_manifest.json", sources.manifest)
         atomic_write_json(
             input_root / "ground_truth_hashes.json",
             {
-                "ticket_source": str(ticket_path),
-                "scenario_source": str(scenario_path),
-                "declared_hashes": manifest["contract"]["file_sha256"],
-                "coworker_demo": manifest["coworker_demo"],
+                "ticket_source": str(sources.ticket_path),
+                "scenario_source": str(sources.scenario_path),
+                "declared_hashes": sources.manifest["contract"]["file_sha256"],
+                "coworker_demo": sources.manifest["coworker_demo"],
+                "locked_route_hashes": episode.locked_hashes,
             },
         )
         for name in (

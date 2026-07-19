@@ -7,9 +7,18 @@ The coworker demo runs entirely on `hkust4`. Mac Screen Sharing is optional and 
 From the project root:
 
 ```bash
+uv venv --python 3.11 .venv
+uv pip install --python .venv/bin/python ".[dev,coworker]"
+
+uv venv --python 3.11 apps/case02_openenv/.venv
+uv pip install --python apps/case02_openenv/.venv/bin/python \
+  -e apps/case02_openenv
+
 cp config/coworker_demo.example.yaml config/coworker_demo.yaml
 cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/coworker_demo.yaml config/homemaster.yaml
+
+realpath data/coworker_demo/case_02/test_set/item_change_ticket.json
 ```
 
 Keep real provider keys only in `config/homemaster.yaml`. Both real config files are gitignored. The coworker config must point to the project data root, artifact root, app venv Python, system Chrome, TigerVNC, FFmpeg/ffprobe, tmux, Bash, and bubblewrap.
@@ -32,16 +41,16 @@ Start the normal HomeMaster entrypoint:
 .venv/bin/homemaster shell
 ```
 
-For the normal scenario, send only the absolute ticket path:
+For the normal scenario, send only the absolute ticket path printed by `realpath`:
 
 ```text
-/home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+<HomeMaster project absolute path>/data/coworker_demo/case_02/test_set/item_change_ticket.json
 ```
 
 For the anomaly and rollback scenario, prefix the same path with the stable scenario token:
 
 ```text
-post_change_anomaly /home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+post_change_anomaly <HomeMaster project absolute path>/data/coworker_demo/case_02/test_set/item_change_ticket.json
 ```
 
 Do not send API calls, shell commands, hidden scenario values, or evaluator hints. A valid route creates a child coworker run; an ordinary message still follows the default HomeMaster path.

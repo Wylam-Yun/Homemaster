@@ -91,13 +91,18 @@ H.264 录屏。普通对话仍使用原有 HomeMaster runtime；coworker 的十�
 skill、任务状态和证据不会进入默认 home 或 ALFWorld registry。
 
 ```bash
+uv pip install --python .venv/bin/python ".[dev,coworker]"
+uv venv --python 3.11 apps/case02_openenv/.venv
+uv pip install --python apps/case02_openenv/.venv/bin/python -e apps/case02_openenv
+
+TICKET_PATH="$(realpath data/coworker_demo/case_02/test_set/item_change_ticket.json)"
 PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 
 # normal
-/home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+<TICKET_PATH 的绝对路径输出>
 
 # post-change anomaly and verified rollback
-post_change_anomaly /home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
+post_change_anomaly <TICKET_PATH 的绝对路径输出>
 ```
 
 运行前先执行 `scripts/coworker_demo/preflight.py`。完整配置、操作、评分和产物说明见

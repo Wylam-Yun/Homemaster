@@ -20,17 +20,54 @@ def client(tmp_path: Path) -> TestClient:
     )
 
 
+def create_run(
+    api: TestClient,
+    run_id: str,
+    scenario_id: str = "normal",
+):
+    return api.post(
+        "/api/runs",
+        json={
+            "run_id": run_id,
+            "scenario_id": scenario_id,
+            "locked_hashes": api.app.state.store.source_hashes(scenario_id),
+        },
+    )
+
+
 def test_health_create_unknown_and_docs_contract(tmp_path: Path) -> None:
     api = client(tmp_path)
     assert api.get("/healthz").status_code == 200
     assert api.get("/docs").status_code == 404
     assert api.get("/openapi.json").status_code == 404
-    created = api.post("/api/runs", json={"run_id": "api-run", "scenario_id": "normal"})
+    created = create_run(api, "api-run")
     assert created.status_code == 200
     assert created.json()["state"]["phase"] == "created"
     missing = api.get("/api/runs/does-not-exist/state")
     assert missing.status_code == 404
     assert missing.json()["error_code"] == "unknown_run"
+
+
+def test_create_requires_hashes_for_the_configured_bundle(tmp_path: Path) -> None:
+    api = client(tmp_path)
+    missing = api.post(
+        "/api/runs",
+        json={"run_id": "missing-hashes", "scenario_id": "normal"},
+    )
+    assert missing.status_code == 422
+
+    locked_hashes = api.app.state.store.source_hashes("normal")
+    locked_hashes["ticket"] = "0" * 64
+    mismatched = api.post(
+        "/api/runs",
+        json={
+            "run_id": "mismatched-hashes",
+            "scenario_id": "normal",
+            "locked_hashes": locked_hashes,
+        },
+    )
+    assert mismatched.status_code == 409
+    assert mismatched.json()["error_code"] == "bundle_hash_mismatch"
 
 
 def test_recording_start_waits_off_the_async_service_loop(tmp_path: Path) -> None:
@@ -46,7 +83,7 @@ def test_recording_start_waits_off_the_async_service_loop(tmp_path: Path) -> Non
 
 def test_stale_and_replayed_action_fail_without_mutation(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "ledger-api", "scenario_id": "normal"})
+    create_run(api, "ledger-api")
     reservation = {
         "operation": "reserve",
         "action_id": "once",
@@ -71,7 +108,7 @@ def test_stale_and_replayed_action_fail_without_mutation(tmp_path: Path) -> None
 
 def test_recorded_browser_action_consumes_its_reservation(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "read-ledger", "scenario_id": "normal"})
+    create_run(api, "read-ledger")
     reservation = {
         "operation": "reserve",
         "action_id": "observe-once",
@@ -142,7 +179,7 @@ def test_openapi_snapshot_matches_runtime_schema(tmp_path: Path) -> None:
 
 def test_sse_emits_snapshot_and_replays_only_after_last_event_id(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "sse-run", "scenario_id": "normal"})
+    create_run(api, "sse-run")
     store = api.app.state.store
     first = store.record("sse-run", source="state", kind="first", status="succeeded")
     second = store.record("sse-run", source="state", kind="second", status="succeeded")
@@ -161,7 +198,7 @@ def test_sse_emits_snapshot_and_replays_only_after_last_event_id(tmp_path: Path)
 def test_presentation_api_appends_snapshots_and_resumes_sse(tmp_path: Path) -> None:
     api = client(tmp_path)
     run_id = "present-api"
-    api.post("/api/runs", json={"run_id": run_id, "scenario_id": "normal"})
+    create_run(api, run_id)
     started = {
         "runtime_event_type": "tool.call_started",
         "tool_call_id": "call-1",
@@ -204,7 +241,7 @@ def test_presentation_api_appends_snapshots_and_resumes_sse(tmp_path: Path) -> N
 
 def test_presentation_rejects_embedded_cross_run_identity(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "run-a", "scenario_id": "normal"})
+    create_run(api, "run-a")
     response = api.post(
         "/api/runs/run-a/presentation-events",
         json={
@@ -221,7 +258,7 @@ def test_presentation_rejects_embedded_cross_run_identity(tmp_path: Path) -> Non
 
 def test_presentation_api_rejects_incoherent_lifecycle_payloads(tmp_path: Path) -> None:
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "lifecycle-api", "scenario_id": "normal"})
+    create_run(api, "lifecycle-api")
     contradictory = api.post(
         "/api/runs/lifecycle-api/presentation-events",
         json={
@@ -246,7 +283,7 @@ def test_presentation_sse_restarts_cursor_after_reset(
 
     api = client(tmp_path)
     run_id = "presentation-sse-reset"
-    api.post("/api/runs", json={"run_id": run_id, "scenario_id": "normal"})
+    create_run(api, run_id)
     store = api.app.state.store
     old = store.record_presentation(
         run_id,
@@ -297,7 +334,7 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
 
     monkeypatch.setattr(api_module, "_ServiceRecordingSession", FakeRecordingSession)
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "recording-api", "scenario_id": "normal"})
+    create_run(api, "recording-api")
     response = api.post("/api/runs/recording-api/recording/start")
     assert response.status_code == 200
     assert response.json()["display"] == ":144"
@@ -329,7 +366,7 @@ def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypat
 
     monkeypatch.setattr(scoring_module, "publish_video_verification", fake_publish)
     api = client(tmp_path)
-    api.post("/api/runs", json={"run_id": "recording-stop", "scenario_id": "normal"})
+    create_run(api, "recording-stop")
     api.app.state.recorders["recording-stop"] = FakeRecordingSession()
 
     response = api.post("/api/runs/recording-stop/recording/stop")

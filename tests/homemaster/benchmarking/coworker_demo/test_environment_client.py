@@ -37,6 +37,34 @@ def test_client_rejects_non_json_response() -> None:
     client.close()
 
 
+def test_create_run_posts_the_locked_bundle_hashes() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"success": True, "state": {}})
+
+    client = EnvironmentClient(
+        "http://case02.test",
+        transport=httpx.MockTransport(handler),
+    )
+    locked_hashes = {
+        "manifest": "a" * 64,
+        "ticket": "b" * 64,
+        "scenario": "c" * 64,
+        "trajectory_dag": "d" * 64,
+    }
+
+    client.create_run("run-1", "normal", locked_hashes)
+
+    assert json.loads(requests[0].content) == {
+        "run_id": "run-1",
+        "scenario_id": "normal",
+        "locked_hashes": locked_hashes,
+    }
+    client.close()
+
+
 def test_fixed_cleanup_endpoints_remain_available_after_terminal_outcome() -> None:
     transport = httpx.MockTransport(
         lambda _request: httpx.Response(200, json={"success": True, "summary": {}})

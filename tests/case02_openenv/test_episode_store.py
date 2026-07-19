@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 from case02_openenv.episode_store import EpisodeError, EpisodeStore
@@ -36,6 +38,19 @@ def test_runs_have_isolated_state_files_jobs_and_ledgers(store: EpisodeStore) ->
     assert event.run_id == "normal-a"
     assert store.audit("anomaly-b") == []
     assert "a-1" not in store.state("anomaly-b").action_ledger
+
+
+def test_locked_bundle_drift_is_rejected_after_run_creation(tmp_path: Path) -> None:
+    data_root = tmp_path / "case_02"
+    shutil.copytree(Path("data/coworker_demo/case_02"), data_root)
+    isolated = EpisodeStore(data_root=data_root, artifact_root=tmp_path / "runs")
+    locked_hashes = isolated.source_hashes("normal")
+    isolated.create("locked-run", "normal", locked_hashes=locked_hashes)
+    ticket = data_root / "test_set/item_change_ticket.json"
+    ticket.write_text(ticket.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    with pytest.raises(EpisodeError, match="hash mismatch"):
+        isolated.verify_locked_sources("locked-run")
 
 
 def test_reset_clears_current_evidence_and_restores_file(store: EpisodeStore) -> None:
