@@ -2,7 +2,9 @@
 
 ## Status
 
-Approved for implementation planning on 2026-07-19.
+Approved for implementation planning on 2026-07-19. The independent plan
+review completed the same day; all ten findings are incorporated into this
+design and the implementation plan before code work begins.
 
 ## Goal
 
@@ -151,6 +153,7 @@ The presentation API and persisted artifacts move to schema version 2.
 Version 2 adds:
 
 - plan;
+- server-produced tool_label_zh and tool_kind;
 - public_model_output;
 - decision_summary;
 - incident_delta;
@@ -160,6 +163,13 @@ Version 2 adds:
 Every producer, model, store, verifier, fixture, API snapshot, and observer
 consumer is updated together. A protocol audit test enumerates all public
 presentation fields and verifies producer and consumer coverage.
+
+Each action/result event carries the server-produced tool_label_zh and a closed
+tool_kind value: orchestration, observation, mutation, wait, verification, or
+gate. The observer renders these values and never infers a tool's business
+meaning from its name. The protocol audit also requires the model-output-kind
+consumer to render whether the current model output is a tool selection,
+intermediate public reply, terminal reply, or premature reply.
 
 ## Safe Model Output
 
@@ -199,10 +209,14 @@ Limits:
 - item ID at most 64 safe identifier characters;
 - title at most 160 Unicode characters after control-character rejection;
 - next_focus at most 240 Unicode characters;
-- statuses use the existing closed task-status set;
+- statuses use the exact existing task-status set: pending, in_progress,
+  completed, blocked, cancelled, and uncertain;
 - evidence text, constraints, open questions, completion summaries, prompts,
   and arbitrary nested values are excluded; and
-- unsafe text is redacted and records a presentation failure.
+- the active item is rendered in a pinned row above the bounded historical
+  item list so a 12-item plan cannot scroll the current work out of view; and
+- unsafe text is rejected, never replaced by a display redaction marker, and
+  records a presentation failure.
 
 The plan panel updates only after the task store returns a successful persisted
 snapshot.
@@ -216,10 +230,19 @@ hiding it would hide observable model behavior. The projected reply is:
 - plain text only;
 - capped at 1,200 Unicode characters;
 - stripped of control characters;
-- passed through secret-pattern checks; and
+- passed through dedicated free-text secret checks against configured provider
+  secrets held only in memory, known credential/JWT/PEM/signed-URL/sk-token
+  patterns, and high-entropy token detection;
 - omitted with a presentation failure if it cannot be safely projected; and
-- marked terminal or premature from the authoritative runtime outcome rather
-  than inferred from its wording.
+- initially marked intermediate because the runtime emits assistant.reply
+  before following tool calls or runtime.turn_completed; the reducer later
+  reclassifies the latest reply as terminal only when the authoritative
+  environment state is terminal, or premature when runtime completes without
+  a business terminal state.
+
+Application-generated stop-condition text is never synthesized as model
+output. Secret values and rejected source strings are never written to the
+presentation ledger or diagnostic log.
 
 Raw assistant.thinking, reasoning deltas, prompts, and provider responses remain
 forbidden.
@@ -276,18 +299,33 @@ The client projector extracts only stable, allowlisted control codes:
 
 | Safe code | Chinese label | Recovery target |
 |---|---|---|
+| plan_required | 尚未创建执行计划 | successful task_planner |
 | missing_precheck_evidence | 变更前检查证据不完整 | successful precheck proceed |
 | progress_required | 当前阶段进度尚未记录 | successful progress update |
 | wait_required | 尚未等待准确任务完成 | successful matching wait |
+| postchecks_required | 变更后检查尚未完成 | complete required postchecks |
+| rollback_verification_required | 回滚验证尚未完成 | successful absence verification |
 | rollback_decision_required | 尚未授权回滚 | successful rollback authorization |
+| missing_anomaly_evidence | 缺少因果异常证据 | record current-run causal alarm |
+| missing_implementation_evidence | 缺少实施完成证据 | record current-run implementation |
+| missing_postcheck_evidence | 缺少变更后检查证据 | record required postchecks |
+| missing_rollback_evidence | 缺少回滚完成证据 | record current-run rollback evidence |
+| external_state_mismatch | 外部状态与预期不一致 | refresh and verify external state |
+| parameter_mismatch | 操作参数与锁定目标不一致 | retry exact locked target |
+| command_not_allowed | 命令不在允许范围 | use an allowlisted command |
 | invalid_decision_for_stage | 当前阶段不接受该决定 | successful valid decision |
 | stale_state_version | 页面状态已经变化 | fresh read and retry |
 | action_replay | 重复动作已被拒绝 | fresh distinct action |
 | terminal_outcome | 运行已经结束 | no recovery |
 | unclassified_failure | 未分类执行失败 | correlated retry if possible |
 
-Message-only errors such as "remove requires a rollback decision" are
-normalized to a safe code at the projector boundary.
+These are the stable EpisodeError.code values plus safe wrapper mappings used
+by the actual environment. Message-only errors such as "remove requires a
+rollback decision" are normalized to a safe code at the projector boundary.
+Where a wrapper does not expose an exact stable code, it maps to a closed safe
+family; unrestricted exception text never enters the protocol. Tests enumerate
+every safety-relevant code and fail when a new EpisodeError code lacks an
+explicit safe mapping.
 
 ## Incident Lifecycle
 
@@ -363,6 +401,10 @@ Each region has stable dimensions and internal overflow. Dynamic text cannot
 resize the grid or overlap adjacent regions. The active plan item and open
 incident remain visible without interaction.
 
+The active plan item and next focus are pinned above the scrollable/compressed
+completed-item list. A long-plan 12-item screenshot test must prove both remain
+visible without scrolling.
+
 The observer uses text nodes only and has no mutating controls or tabs that can
 hide current evidence.
 
@@ -422,7 +464,8 @@ No client-only incident or planner state is authoritative.
 - open incidents are expanded and red;
 - resolved incidents collapse to one line;
 - critical history excludes noncritical successful tools;
-- public replies are visible and marked terminal or premature from runtime state;
+- public replies are visible as intermediate, then reclassified terminal or
+  premature from authoritative runtime and business state;
 - no unsafe HTML APIs are used; and
 - fixed 1920x1080 geometry prevents overlap.
 
@@ -443,7 +486,10 @@ This validates presentation behavior but does not substitute for real LLM.
 Run normal and post_change_anomaly through the normal HomeMaster shell with
 Mimo / mimo-v2.5. Each run is valid only when:
 
-1. transport events name mimo-v2.5, never scripted-coworker;
+1. transport events name mimo-v2.5, never scripted-coworker, and the run-owned
+   safe provider identity artifact names provider Mimo, HTTPS scheme,
+   token-plan-cn.xiaomimimo.com host, and a key-free configuration fingerprint;
+   generated provider overrides and loopback endpoints are rejected;
 2. the model receives only the locked Ticket, normal prompt, tools, and skills;
 3. recording starts before the first provider call and remains continuous;
 4. every tool has a presentation start and terminal result;
@@ -455,6 +501,39 @@ Mimo / mimo-v2.5. Each run is valid only when:
    start, middle, terminal, and incident frames; and
 10. the independent verifier passes hashes, presentation completeness, video
     properties, current-run IDs, and external end state.
+
+The safe provider artifact proves which client configuration was used, not the
+server's internal model implementation. Server-side model identity remains
+UNVERIFIED until fresh provider responses return successfully and name the
+expected model. No key, credential, header, query secret, or full endpoint URL
+is persisted.
+
+The independent verifier reconstructs the business evidence from raw run-owned
+artifacts. For normal it requires the exact four-field configuration record,
+the matching add job succeeded with external return code 0, and the locked grep
+returned exit 0 with exact stdout. For anomaly it additionally requires the
+current run's causal alarm to reference that add job, rollback authorization to
+precede remove submission, the exact remove job to succeed with return code 0,
+and the absence grep to return exit 1 with empty stdout. Mutation tests alter
+each fact independently and must fail per scenario instance.
+
+### Recording Time Base And Failed Attempts
+
+The recorder persists UTC wall-clock and monotonic timestamps for recording
+start and first-packet-ready, plus FFmpeg out_time observations. Presentation
+events persist UTC time and same-host monotonic offset. Named-frame MP4 offsets
+are calculated from the shared monotonic origin plus a bounded UI settle margin,
+then clamped only when the source event is inside the recording interval. Each
+manifest entry stores the source event ID, source timestamps, calculated offset,
+settle margin, and video duration. DOM screenshots assert exact text; decoded
+video frames independently assert nonblank pixels and a visible observer region.
+
+run_coworker_turn creates attempt_manifest.json immediately after allocating a
+run root and atomically updates it through provider, business, presentation,
+recording, and verification outcomes. The shell prints the run root from a
+typed failure carrying that path, while the acceptance harness also discovers
+new attempt manifests by before/after directory diff. Thus a provider or video
+exception cannot make a real attempt disappear from the report.
 
 A real-model business failure is retained as an evaluation sample. It does not
 count as a successful final demo and is never relabeled as scripted acceptance.

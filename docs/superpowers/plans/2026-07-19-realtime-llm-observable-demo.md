@@ -164,7 +164,9 @@ Implement these public shapes in presentation_models.py. Keep closed labels in
 the same module so validation and display vocabulary share one source:
 
 ~~~python
-PlanStatus = Literal["pending", "in_progress", "completed", "failed", "cancelled"]
+PlanStatus = Literal[
+    "pending", "in_progress", "completed", "blocked", "cancelled", "uncertain"
+]
 DecisionState = Literal[
     "planning",
     "observing",
@@ -244,7 +246,7 @@ class PublicModelOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal["assistant_reply"]
     text: str
-    outcome: Literal["terminal", "premature"]
+    outcome: Literal["intermediate", "terminal", "premature"]
 
 
 class ObservablePresentationState(BaseModel):
@@ -262,6 +264,9 @@ Add closed dictionaries FAILURE_LABELS_ZH, TOOL_LABELS_ZH,
 FACT_LABELS_ZH, JUDGMENT_LABELS_ZH, and NEXT_ACTION_LABELS_ZH. Models reject
 unknown codes rather than accept arbitrary text.
 
+Add reducer tests for real Planner statuses blocked and uncertain, and a
+negative schema test proving the nonexistent failed status is rejected.
+
 - [ ] **Step 4: Upgrade service presentation contracts to v2**
 
 Move PresentationInput, PresentationTask, PresentationEvent, and
@@ -272,6 +277,10 @@ interface. Add typed optional fields:
 
 ~~~python
 failure_code: str | None = None
+tool_label_zh: str | None = None
+tool_kind: Literal[
+    "orchestration", "observation", "mutation", "wait", "verification", "gate"
+] | None = None
 plan: ObservablePlan | None = None
 public_model_output: PublicModelOutput | None = None
 decision_summary: DecisionSummary | None = None
@@ -281,6 +290,11 @@ incident_delta: PresentationIncident | None = None
 PresentationInput.runtime_event_type also accepts model.public_reply. The client
 projector includes schema_version: 2 on every POST; version 1 is not silently
 upgraded.
+
+tool.call_started and its correlated result carry tool_label_zh and tool_kind
+from a closed server mapping. Unknown tools fail presentation projection rather
+than letting observer.js infer a label or action class. The protocol audit
+requires both fields and the model-output-kind rendering path.
 
 PresentationSnapshot adds:
 
@@ -311,7 +325,7 @@ def reduce_observable_state(
     incidents = reduce_incidents(events)
     history = select_critical_history(events, incidents)
     decision = derive_decision_summary(state, events, incidents)
-    public_output = latest_public_model_output(events)
+    public_output = classify_latest_public_model_output(state, events)
     return ObservablePresentationState(
         plan=plan,
         current_action=current_action,
@@ -325,6 +339,13 @@ def reduce_observable_state(
 
 The reducer reads only ordered persisted events and RunState. It performs no
 I/O and does not mutate Episode.
+
+assistant.reply is first stored as intermediate. When a later authoritative
+runtime.turn_completed event arrives, the reducer reclassifies the latest reply
+as terminal only if RunState is already terminal; otherwise it becomes
+premature. A text-plus-tool-calls reply stays intermediate while the runtime
+continues. Add explicit tests for all three lifecycles, and never create a
+public output event from application-generated stop-condition text.
 
 - [ ] **Step 6: Implement exact incident recovery rules**
 
@@ -431,7 +452,12 @@ def test_assistant_reply_projects_bounded_public_text_but_thinking_does_not() ->
 
 Add per-limit tests for 12 plan items, 64-character IDs, 160-character titles,
 240-character next focus, 1,200-character reply, control characters, and secret
-sentinels.
+sentinels. Secret cases must include the actual configured provider secrets
+passed to the projector only as in-memory sensitive values plus realistic
+Bearer/API-key assignments, JWTs, PEM blocks, signed URLs, sk-prefixed tokens,
+and high-entropy opaque tokens. Tests assert the field is absent, the serialized
+event contains neither source secret nor a redaction marker treated as content,
+and logs do not contain the secret.
 
 - [ ] **Step 2: Run tests and verify RED**
 
@@ -469,12 +495,15 @@ def _safe_plan_snapshot(value: Any) -> dict[str, Any] | None:
     }
 ~~~
 
-Any unsafe item makes the affected field null/redacted and records a generic
+Any unsafe item makes the affected field absent/rejected and records a generic
 projection failure code. Never forward evidence arrays or free-form constraints.
-Use homemaster.events.trace.sanitize_for_log only as a detector: if sanitized
-text differs from input text, reject the field instead of displaying the
-redaction marker. This prevents a secret-bearing plan/reply from being treated
-as a successful presentation.
+Do not use homemaster.events.trace.sanitize_for_log for free-text detection: it
+only redacts dictionary values whose keys look sensitive and passes strings
+unchanged. Add a dedicated reject_secret_text(text, sensitive_values) boundary
+that compares exact configured secrets without logging them, recognizes closed
+credential/JWT/PEM/signed-URL/sk patterns, and rejects high-entropy token-like
+segments. Reject the entire affected title/next_focus/reply field before event
+construction; never persist the source string or a display redaction marker.
 
 - [ ] **Step 4: Implement closed failure-code normalization**
 
@@ -482,10 +511,20 @@ Match only exact code prefixes or exact stable substrings:
 
 ~~~python
 _FAILURE_PATTERNS = (
+    ("plan_required", "plan_required"),
     ("missing_precheck_evidence", "missing_precheck_evidence"),
     ("progress_required", "progress_required"),
     ("wait_required", "wait_required"),
+    ("postchecks_required", "postchecks_required"),
+    ("rollback_verification_required", "rollback_verification_required"),
     ("remove requires a rollback decision", "rollback_decision_required"),
+    ("missing_anomaly_evidence", "missing_anomaly_evidence"),
+    ("missing_implementation_evidence", "missing_implementation_evidence"),
+    ("missing_postcheck_evidence", "missing_postcheck_evidence"),
+    ("missing_rollback_evidence", "missing_rollback_evidence"),
+    ("external_state_mismatch", "external_state_mismatch"),
+    ("parameter_mismatch", "parameter_mismatch"),
+    ("command_not_allowed", "command_not_allowed"),
     ("invalid_decision_for_stage", "invalid_decision_for_stage"),
     ("stale_state_version", "stale_state_version"),
     ("action_replay", "action_replay"),
@@ -496,12 +535,17 @@ _FAILURE_PATTERNS = (
 Return unclassified_failure when no pattern matches. Do not include the raw
 failure string in the projected payload.
 
+Audit every EpisodeError.code and every safe wrapper mapping in the environment
+against this closed table. Add one parametrized test per safety-relevant code;
+the audit fails when a new stable code has no Chinese label and recovery class.
+
 - [ ] **Step 5: Project public replies without thinking**
 
 Add assistant.reply to the trace mirror set. Emit runtime_event_type
-model.public_reply with bounded plain text and no tool identity. Keep
-assistant.thinking excluded. Mark a public reply premature or terminal from the
-authoritative Coworker outcome supplied by turn.py, never from reply wording.
+model.public_reply with bounded plain text, no tool identity, and outcome
+intermediate immediately. Keep assistant.thinking excluded. The server reducer
+later reclassifies the latest output from runtime.turn_completed plus RunState:
+terminal when business state is terminal, premature otherwise.
 
 Do not synthesize a model reply when stop_condition creates an application
 terminal message; the footer already owns terminal outcome.
@@ -682,10 +726,13 @@ Require these IDs:
 
 ~~~text
 model-plan
+plan-active
 plan-current
 plan-next
 model-output-kind
 model-output-tool
+model-output-tool-label
+model-output-tool-kind
 model-output-arguments
 public-model-reply
 environment-result-status
@@ -741,7 +788,9 @@ Implement small functions:
 ~~~javascript
 const renderPlan = (plan) => {
   const items = (plan && plan.items) || [];
-  const rows = items.map((entry) => {
+  const active = items.find((entry) => entry.id === (plan && plan.current_id));
+  setText("plan-active", active && active.title, "等待计划当前项");
+  const rows = items.filter((entry) => !active || entry.id !== active.id).map((entry) => {
     const item = document.createElement("li");
     item.dataset.status = entry.status;
     item.textContent = entry.title;
@@ -753,7 +802,10 @@ const renderPlan = (plan) => {
 };
 
 const renderModelOutput = (action, publicOutput) => {
+  setText("model-output-kind", action ? "模型工具调用" : publicOutput && publicOutput.outcome);
   setText("model-output-tool", action && action.tool_name, "等待模型选择工具");
+  setText("model-output-tool-label", action && action.tool_label_zh);
+  setText("model-output-tool-kind", action && action.tool_kind);
   setText("model-output-arguments", safeObjectText(action && action.arguments));
   setText("public-model-reply", publicOutput && publicOutput.text);
 };
@@ -798,8 +850,9 @@ const renderCriticalHistory = (history) => {
 Replace the empty bodies with textContent/createElement/replaceChildren logic.
 Open incidents render expanded with failure code and Chinese label. Resolved
 incidents render one collapsed line containing failure and recovery tool.
-Every tool name uses the server-provided closed label and remains visible in
-large text.
+Every tool name uses the server-provided tool_label_zh and tool_kind and remains
+visible in large text. observer.js does not derive labels or business meaning
+from tool_name.
 
 applySnapshot replaces all six dynamic structures atomically. applyEvent may
 render immediate current action/result but always refreshes the authoritative
@@ -836,6 +889,10 @@ Use the case app test client plus Playwright to post a v2 snapshot containing:
 
 Capture 1920x1080 and assert every required element has a positive bounding box
 inside its card and no sibling rectangles overlap.
+
+The long-plan test additionally asserts plan-active and plan-next are inside the
+visible card viewport without scrolling. Completed/nonactive rows may compress
+or scroll below them, but the active title and next focus stay pinned.
 
 - [ ] **Step 7: Run observer tests**
 
@@ -879,7 +936,10 @@ git commit -m "feat(coworker): render observable model behavior" \
 
 - Modify: apps/case02_openenv/src/case02_openenv/presentation.py
 - Modify: apps/case02_openenv/src/case02_openenv/evaluation/scoring.py
+- Modify: apps/case02_openenv/src/case02_openenv/recording/recorder.py
 - Modify: apps/case02_openenv/src/case02_openenv/recording/verifier.py
+- Modify: src/homemaster/benchmarking/coworker_demo/turn.py
+- Modify: src/homemaster/cli/interactive_shell.py
 - Modify: scripts/coworker_demo/verify_run_bundle.py
 - Modify: apps/case02_openenv/openapi.json
 - Modify: tests/coworker_demo/test_verify_run_bundle_presentation.py
@@ -903,6 +963,16 @@ Build valid v2 fixture bundles, then mutate one fact at a time:
         ("history_unknown_event", "presentation_history_event"),
         ("forbidden_thinking", "presentation_forbidden_field"),
         ("wrong_model", "runtime_model_identity"),
+        ("loopback_provider", "provider_identity_endpoint"),
+        ("generated_provider_override", "provider_identity_override"),
+        ("normal_wrong_config_field", "normal_external_config"),
+        ("normal_job_nonzero", "normal_business_job_return_code"),
+        ("normal_grep_wrong_stdout", "normal_grep_stdout"),
+        ("anomaly_alarm_wrong_job", "anomaly_causal_alarm_job"),
+        ("anomaly_remove_before_rollback", "anomaly_rollback_order"),
+        ("anomaly_remove_nonzero", "anomaly_remove_return_code"),
+        ("anomaly_rollback_grep_stdout", "anomaly_rollback_grep_stdout"),
+        ("named_frame_outside_video", "video_event_frame_offset"),
     ],
 )
 def test_v2_verifier_rejects_single_contract_violation(
@@ -963,15 +1033,41 @@ When expected_model is provided, parse agent/runtime_events.jsonl and require:
 4. tool-start count equals presentation verification tool_call_count; and
 5. every runtime failed tool has a matching presentation failure code.
 
+Also require a run-owned provider_identity.json produced before the first
+request with only provider name, model, HTTPS scheme, endpoint host, and a
+SHA-256 fingerprint of nonsecret provider configuration. Require provider Mimo,
+host token-plan-cn.xiaomimimo.com, no loopback/local address, no generated
+provider override, and no credential/query/header value in the artifact. A
+successful fresh transport response must name expected_model; until that occurs
+server-side model identity remains UNVERIFIED even if the config matches.
+
 Expose CLI option:
 
 ~~~text
 --expected-model mimo-v2.5
 ~~~
 
+Independently reconstruct the scenario end state from raw environment and audit
+artifacts rather than trusting scores/summary.json or
+presentation/verification.json:
+
+- normal: exact locked four-field configuration object, current-run add job
+  status succeeded and external return code 0, locked grep exit 0 and exact
+  stdout;
+- anomaly: current-run add job succeeded with return code 0, causal alarm
+  caused_by_current_change and references that add job, rollback decision event
+  precedes remove submission, current-run remove job succeeded with return code
+  0, absence grep exit 1 with empty stdout, and target config absent.
+
+Each mutation test changes one raw fact while leaving self-reported summaries
+green. The verifier must fail that scenario instance specifically.
+
 - [ ] **Step 5: Add named event-frame verification**
 
-Persist presentation sequence timestamps for:
+Recorder.start persists UTC wall-clock and monotonic recording origins;
+first-packet readiness persists UTC/monotonic time and the observed FFmpeg
+out_time relationship. Persist presentation event UTC and same-host monotonic
+offsets for:
 
 - first model action;
 - each incident open;
@@ -979,7 +1075,11 @@ Persist presentation sequence timestamps for:
 - causal alarm;
 - terminal outcome.
 
-The recorder verifier extracts those frames in addition to first/middle/last.
+For each event, compute MP4 offset from the monotonic recording origin plus a
+bounded UI settle margin. Store source event ID, UTC/monotonic timestamps,
+calculated offset, margin, FFmpeg basis, and video duration in video_manifest;
+reject any offset outside [0, duration]. The recorder verifier extracts those
+frames in addition to first/middle/last.
 For each 1920x1080 frame, assert nonblank content and that the right observer
 region has nontrivial variance. Store paths and checks under video_manifest.
 
@@ -987,13 +1087,23 @@ Do not use OCR as the only correctness gate. Correlate each frame timestamp
 with the persisted presentation event and separately use Playwright DOM
 assertions for exact visible text.
 
-- [ ] **Step 6: Refresh OpenAPI snapshot**
+- [ ] **Step 6: Persist every allocated attempt before fallible work**
+
+Immediately after run-root allocation, atomically create attempt_manifest.json
+with run ID/root, scenario, start time, and status allocated. Update it through
+provider, business, presentation, recording, and verifier states. Failures carry
+the run root in a typed CoworkerAttemptError; interactive_shell prints the run
+root in both success and failure paths. The acceptance harness also snapshots
+attempt manifests before launch and discovers every newly created manifest
+after exit, so shell-log parsing is not the sole source of truth.
+
+- [ ] **Step 7: Refresh OpenAPI snapshot**
 
 Generate apps/case02_openenv/openapi.json using the same ServiceConfig fixture
 as test_openapi_snapshot_matches_runtime_schema. Serialize sorted UTF-8 JSON
 with one trailing newline.
 
-- [ ] **Step 7: Run verifier and API tests**
+- [ ] **Step 8: Run verifier and API tests**
 
 Run:
 
@@ -1006,7 +1116,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 8: Record the changelog and commit**
+- [ ] **Step 9: Record the changelog and commit**
 
 Add:
 
@@ -1020,7 +1130,10 @@ Commit:
 git add \
   apps/case02_openenv/src/case02_openenv/presentation.py \
   apps/case02_openenv/src/case02_openenv/evaluation/scoring.py \
+  apps/case02_openenv/src/case02_openenv/recording/recorder.py \
   apps/case02_openenv/src/case02_openenv/recording/verifier.py \
+  src/homemaster/benchmarking/coworker_demo/turn.py \
+  src/homemaster/cli/interactive_shell.py \
   scripts/coworker_demo/verify_run_bundle.py \
   apps/case02_openenv/openapi.json \
   tests/coworker_demo/test_verify_run_bundle_presentation.py \
@@ -1078,6 +1191,20 @@ remove, matching wait, absence grep, rolled_back
 
 This profile tests presentation only. Its model remains scripted-coworker.
 
+In addition to the narrative normal/anomaly sequences, add a table-driven
+controlled gate that triggers every safety-relevant mapping at its valid state:
+plan_required, missing_precheck_evidence, progress_required, wait_required,
+postchecks_required, rollback_verification_required,
+rollback_decision_required, missing_anomaly_evidence,
+missing_implementation_evidence, missing_postcheck_evidence,
+missing_rollback_evidence, external_state_mismatch, parameter_mismatch,
+command_not_allowed, invalid_decision_for_stage, stale_state_version,
+action_replay, and terminal_outcome. For each code independently assert the
+external environment rejected the call, exact stable/safe code was persisted,
+Chinese explanation is visible in the DOM, and the incident either resolves by
+its exact recovery rule or remains terminal by design. Generic
+unclassified_failure cannot satisfy a known-code case.
+
 - [ ] **Step 2: Run tests and verify RED**
 
 Run:
@@ -1117,6 +1244,10 @@ Expected:
 - each failure and recovery has a named event frame;
 - video and presentation verification pass.
 
+The exact incident count applies to the narrative normal profile only. The
+table-driven code matrix reports and asserts each additional instance
+separately; no aggregate any/best predicate is allowed.
+
 - [ ] **Step 5: Run the controlled anomaly failure gate**
 
 Run:
@@ -1137,6 +1268,9 @@ Expected:
 - no open incident;
 - causal alarm and all failure/recovery frames present;
 - add grep exit 0 and rollback grep exit 1 with empty output.
+
+The exact four-incident count applies to the narrative anomaly profile only;
+the code matrix remains per-instance evidence.
 
 - [ ] **Step 6: Inspect every incident frame**
 
@@ -1358,14 +1492,18 @@ Run:
 ~~~bash
 TICKET=/home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
 printf '%s\n/exit\n' "$TICKET" \
-  | .venv/bin/homemaster shell \
+  | .venv/bin/homemaster shell 2>&1 \
   | tee var/coworker-demo/real-normal-shell.log
+SHELL_RC=${PIPESTATUS[1]}
 NORMAL_RUN_ROOT=$(sed -n 's/^运行产物：//p' \
   var/coworker-demo/real-normal-shell.log | tail -n 1)
 test -n "$NORMAL_RUN_ROOT" && test -d "$NORMAL_RUN_ROOT"
+test -f "$NORMAL_RUN_ROOT/attempt_manifest.json"
 ~~~
 
-Expected: shell prints a fresh run root and video path.
+Run this block under Bash with pipefail enabled. The shell must print a fresh
+run root on success and failure. Preserve SHELL_RC and the attempt manifest even
+when later verification fails; only an accepted run requires SHELL_RC=0.
 
 - [ ] **Step 2: Verify provider identity before judging business outcome**
 
@@ -1378,7 +1516,8 @@ Run:
 ~~~
 
 Expected: process exit 0, no scripted-coworker transport, and verifier report
-pass true.
+pass true. It also requires a successful provider response/status and the safe
+provider identity artifact; a config-only model label is insufficient.
 
 - [ ] **Step 3: Assert normal external end state**
 
@@ -1439,14 +1578,18 @@ accepted normal video.
 ~~~bash
 TICKET=/home/haodong2/weilin/red_bird/Homemaster-coworker-demo/data/coworker_demo/case_02/test_set/item_change_ticket.json
 printf '%s\n/exit\n' "post_change_anomaly $TICKET" \
-  | .venv/bin/homemaster shell \
+  | .venv/bin/homemaster shell 2>&1 \
   | tee var/coworker-demo/real-anomaly-shell.log
+SHELL_RC=${PIPESTATUS[1]}
 ANOMALY_RUN_ROOT=$(sed -n 's/^运行产物：//p' \
   var/coworker-demo/real-anomaly-shell.log | tail -n 1)
 test -n "$ANOMALY_RUN_ROOT" && test -d "$ANOMALY_RUN_ROOT"
+test -f "$ANOMALY_RUN_ROOT/attempt_manifest.json"
 ~~~
 
-Expected: shell prints a fresh anomaly run root and video path.
+Run under Bash with pipefail enabled. Expected accepted run: SHELL_RC=0. On a
+failed attempt, the same command still yields the fresh run root and persisted
+attempt manifest, which must be retained and reported before retrying.
 
 - [ ] **Step 2: Verify model identity and bundle**
 
