@@ -49,6 +49,7 @@
 
 ### Verification
 
+- 完成两条由真实 Mimo `mimo-v2.5` 现场决策的可观测录屏：normal `coworker-20260720-024949-b7004546` 与 post_change_anomaly `coworker-20260720-025635-a46d87ca` 均通过模型身份、工具/展示关联、真实配置终态、自动化返回码、grep、连续 H.264 视频、逐张人工画面检查和独立 bundle verifier；失败 normal `coworker-20260720-022516-8c773877` 同时保留并写入验收报告。
 - 真实服务幂等停止黑盒门 `recording-stop-gate-20260720-024549` 连续两次 `recording/stop` 均返回 HTTP 200，FFmpeg 返回码 0，两个响应与磁盘 MP4 的 SHA-256 一致，证明重复停止不再触碰已退出的录制进程。
 - 最终审计处置后全量测试为 `478 passed, 1 skipped`；两个正式 bundle 均通过加强后的独立 manifest/evidence/ffprobe/raw-RGB 帧验证。
 - 真实 Mimo `normal` run `coworker-20260716-154711-853f071d` 达到 24/24 节点、14/14 检查点和 trajectory/result/overall 100，正式成功；H.264 视频 SHA-256 为 `a6cd33f1b3c62ca3820ea870c5ffcbe8f236cfb5c66090332f46ae707593755e`。

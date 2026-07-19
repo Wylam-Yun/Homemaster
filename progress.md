@@ -9,7 +9,10 @@
 - 该 attempt 因 20 秒录屏停止客户端超时及清理路径重复停止被标记失败；stdout 证明第一次 stop 为 200，第二次为 500，stderr 为已关闭 FFmpeg stdin 的 `BrokenPipeError`。
 - 已用 RED 测试锁定专用停止超时与会话幂等约束；实现后聚焦测试 21 passed，lint/format/diff check 通过。
 - 真实服务黑盒门 `recording-stop-gate-20260720-024549` 录制外部 MP4 后连续停止两次，两个 HTTP 返回码均为 200、FFmpeg 返回码 0、响应和磁盘视频哈希一致。
-- 下一步：提交生命周期修复，重新跑真实 normal 与 anomaly，逐条执行独立 bundle 验证和画面人工核对，完成验收报告后做唯一一次最终代码评审。
+- 接受 normal `coworker-20260720-024949-b7004546`：Mimo 42 次调用，24/24、14/14、100 分、终态 complete、独立 verifier PASS，7 张关键帧人工通过。
+- 接受 anomaly `coworker-20260720-025635-a46d87ca`：Mimo 44 次调用，22/22、11/11、100 分、终态 rolled_back、add/remove/grep/config 外部终态与独立 verifier PASS，12 张命名帧人工通过。
+- 验收报告已写入 `docs/reports/2026-07-19-realtime-llm-coworker-acceptance.md`，保留并拒绝生命周期失败的首个真实 normal attempt。
+- 下一步：运行全量测试、两条 bundle 最终复验、文档/secret/interface 审计；全部完成后启动唯一一次最终代码评审。
 
 # Historical ALFWorld Harness Progress
 

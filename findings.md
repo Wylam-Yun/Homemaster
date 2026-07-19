@@ -11,6 +11,13 @@
 - Fix contract: 180-second dedicated stop timeout plus lock-protected cached stop result at the service session boundary.
 - Orthogonal black-box gate `recording-stop-gate-20260720-024549` started the real service, TigerVNC, and FFmpeg, then issued two HTTP stop requests. Both returned 200 with FFmpeg code 0 and SHA-256 `d9f4c807743cff81596ea0f9a9cae4775b2af1aa1bf950293c27bc53a9186835`, matching the 340606-byte MP4 on disk.
 
+## 2026-07-20 Final Real Acceptance
+
+- Accepted normal: `coworker-20260720-024949-b7004546`, Mimo `mimo-v2.5`, 42 provider calls, 43 tool calls, 2 rejected calls, 24/24 nodes, 14/14 checkpoints, complete, video SHA-256 `9e4ae3e59e63eecbc586367a6224b7955d1a2571ce9d4f45e1c1c200ea3ac37c`, independent verifier PASS.
+- Accepted anomaly: `coworker-20260720-025635-a46d87ca`, Mimo `mimo-v2.5`, 44 provider calls, 44 tool calls, 6 rejected calls, 22/22 nodes, 11/11 checkpoints, rolled_back, video SHA-256 `5308921986a4997413de0ee68d5f99e8c37093920048c96274cd0d2650fe3715`, independent verifier PASS.
+- Normal external state retains the exact four-field config record and both add/business jobs returned 0. Anomaly state binds the causal alarm to the exact add job, add/remove returned 0, grep changed from 0 to 1 with empty rollback stdout, and final config is `{}`.
+- Every named frame was inspected. The anomaly first-action frame catches Chrome during navigation, but the right observer identifies `browser_navigate`; an independent frame from the same MP4 at 10 seconds shows the ticket loaded and success result.
+
 # Historical ALFWorld Harness Findings
 
 ## 2026-07-12 Initial State

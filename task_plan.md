@@ -31,9 +31,9 @@ acceptance.
 | 3. Controlled presentation gates | complete | Normal/anomaly failure recovery and every named incident frame pass. |
 | 4. Internal verification | complete | 791 tests pass, lint/compile pass, and Mimo preflight passes. |
 | 5. Recording-stop lifecycle repair | complete | Dedicated timeout, idempotent service stop, RED/green tests, and real two-stop HTTP gate pass. |
-| 6. Real normal acceptance | pending | Fresh normal attempt passes shell, external-state, video, and independent verifier gates. |
-| 7. Real anomaly acceptance | pending | Fresh anomaly attempt passes per-target rollback, video, and independent verifier gates. |
-| 8. Acceptance report and final audit | pending | All attempts, hashes, evidence, full tests, docs, and clean worktree agree. |
+| 6. Real normal acceptance | complete | `coworker-20260720-024949-b7004546` passes shell, external-state, video, visual, and independent verifier gates. |
+| 7. Real anomaly acceptance | complete | `coworker-20260720-025635-a46d87ca` passes per-target rollback, video, visual, and independent verifier gates. |
+| 8. Acceptance report and final audit | in progress | All attempts and evidence are reported; full tests and final audits remain. |
 | 9. Final code review | pending | One reviewer reports findings; main agent dispositions them and runs targeted verification. |
 
 ## Failed Attempts To Preserve
@@ -45,4 +45,5 @@ acceptance.
 
 ## Current Next Action
 
-Rerun real normal from the standard shell with no provider override.
+Run the full final audit and both independent bundle verifiers, then start the
+single allowed final reviewer.
