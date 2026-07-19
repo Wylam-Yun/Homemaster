@@ -65,3 +65,13 @@ class CoworkerTurnResult:
     trace_path: Path | None = None
     classification: str | None = None
     process_returns: dict[str, int | None] = field(default_factory=dict)
+
+
+class CoworkerAttemptError(RuntimeError):
+    """Safe failure carrying the already allocated run bundle path."""
+
+    def __init__(self, *, run_id: str, run_root: Path, error_type: str) -> None:
+        super().__init__(f"coworker attempt failed: {error_type}")
+        self.run_id = run_id
+        self.run_root = run_root
+        self.error_type = error_type

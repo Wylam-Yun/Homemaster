@@ -17,7 +17,9 @@ from case02_openenv.presentation import (
     display_stage,
     map_task,
     ticket_task,
+    verify_presentation_payload,
 )
+from case02_openenv.presentation_models import ObservablePlan
 from pydantic import ValidationError
 
 
@@ -154,6 +156,23 @@ def test_snapshot_reconnect_rebuilds_exact_wait_incident_and_recovery(store) -> 
         "job",
         "recovery",
     ]
+
+
+def test_presentation_event_uses_recording_host_monotonic_offset(store, monkeypatch) -> None:
+    run_id = "presentation-monotonic-offset"
+    store.create(run_id, "normal")
+    store.set_recording_timebase(run_id, {"recording_started_monotonic_s": 100.0})
+    monkeypatch.setattr("case02_openenv.episode_store.time.monotonic", lambda: 105.25)
+
+    event = store.record_presentation(run_id, presentation_item())
+
+    assert event.monotonic_offset_s == 5.25
+    persisted = json.loads(
+        (store.episode(run_id).run_root / "presentation/events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    assert persisted["monotonic_offset_s"] == 5.25
 
 
 def test_store_maps_monitor_to_exact_pre_and_post_sop_text(store) -> None:
@@ -992,3 +1011,66 @@ def test_presentation_verifier_rejects_action_mismatch_and_dead_observer(store) 
         "action_id_mismatch:call-1",
         "observer_exited_before_recording_stop",
     ]
+
+
+def test_presentation_verifier_rejects_orphan_incident_and_unknown_history(store) -> None:
+    run_id = "presentation-contract-mutations"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-failed",
+            action_id="action-failed",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "ticket-query-extension-config"},
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_failed",
+            tool_call_id="call-failed",
+            action_id="action-failed",
+            tool_name="browser_click",
+            status="rejected",
+            failure_code="plan_required",
+        ),
+    )
+    snapshot = store.presentation_snapshot(run_id)
+    snapshot["incidents"][0]["failed_action_id"] = "orphan-action"
+    snapshot["critical_history"][0]["sequence"] = 999
+
+    report = verify_presentation_payload(
+        store.presentation_events(run_id),
+        [],
+        snapshot=snapshot,
+        observer_was_alive=True,
+    )
+
+    assert "presentation_incident_orphan:incident-00002" in report["failures"]
+    assert "presentation_history_event:history-incident-00002" in report["failures"]
+
+
+def test_presentation_verifier_rejects_plan_on_non_planner_and_forbidden_field(store) -> None:
+    run_id = "presentation-contract-owner"
+    store.create(run_id, "normal")
+    event = store.record_presentation(run_id, presentation_item())
+    mutated = event.model_copy(
+        update={
+            "plan": ObservablePlan(items=({"id": "x", "title": "x", "status": "in_progress"},)),
+            "arguments": {"prompt": "hidden"},
+        }
+    )
+    snapshot = store.presentation_snapshot(run_id)
+
+    report = verify_presentation_payload(
+        [mutated],
+        [],
+        snapshot=snapshot,
+        observer_was_alive=True,
+    )
+
+    assert f"presentation_plan_owner:{event.event_id}" in report["failures"]
+    assert 'presentation_forbidden_field:"prompt"' in report["failures"]

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
 import uuid
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from urllib.parse import urlsplit
 
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.generic_runtime import GenericAgentRuntime, RuntimeStopDecision, ToolSpec
@@ -29,6 +31,7 @@ from homemaster.benchmarking.coworker_demo.skills import load_coworker_skills
 from homemaster.benchmarking.coworker_demo.ticket_bundle import CaseRepository
 from homemaster.benchmarking.coworker_demo.tracing import CoworkerTraceSink
 from homemaster.benchmarking.coworker_demo.types import (
+    CoworkerAttemptError,
     CoworkerOutcome,
     CoworkerTurnResult,
     ValidTicketRoute,
@@ -42,6 +45,67 @@ from homemaster.tools.dispatcher import ToolDispatcher
 
 def new_coworker_run_id() -> str:
     return f"coworker-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+
+def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
+def _update_attempt_manifest(run_root: Path, **updates: Any) -> dict[str, Any]:
+    path = run_root / "attempt_manifest.json"
+    current: dict[str, Any] = {}
+    if path.is_file():
+        current = json.loads(path.read_text(encoding="utf-8"))
+    allowed_fields = {
+        "schema_version",
+        "run_id",
+        "run_root",
+        "scenario_id",
+        "status",
+        "started_at_utc",
+        "error_type",
+        "formal_success",
+        "video_path",
+        "provider_identity_path",
+    }
+    current.update({key: value for key, value in updates.items() if key in allowed_fields})
+    current["updated_at_utc"] = datetime.now(UTC).isoformat()
+    _atomic_json(path, current)
+    return current
+
+
+def _safe_provider_identity(
+    provider: Any,
+    *,
+    provider_config_override: bool,
+) -> dict[str, Any]:
+    endpoint = urlsplit(str(provider.base_url))
+    nonsecret = {
+        "provider": str(provider.name),
+        "model": str(provider.model),
+        "api_format": str(provider.api_format),
+        "transport": str(provider.transport),
+        "scheme": endpoint.scheme.lower(),
+        "host": (endpoint.hostname or "").lower(),
+        "api_key_count": len(provider.api_keys),
+        "provider_config_override": provider_config_override,
+    }
+    fingerprint_source = json.dumps(
+        nonsecret, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return {
+        "schema_version": 1,
+        "created_at_utc": datetime.now(UTC).isoformat(),
+        **nonsecret,
+        "config_fingerprint_sha256": hashlib.sha256(fingerprint_source).hexdigest(),
+    }
 
 
 class DeadlineAwareTransport:
@@ -85,6 +149,15 @@ def run_coworker_turn(
     run_id = new_coworker_run_id()
     run_root = config.paths.artifact_root / run_id
     run_root.mkdir(parents=True, exist_ok=False)
+    _update_attempt_manifest(
+        run_root,
+        schema_version=1,
+        run_id=run_id,
+        run_root=str(run_root),
+        scenario_id=route.scenario_id,
+        status="allocated",
+        started_at_utc=datetime.now(UTC).isoformat(),
+    )
     transcript_path = run_root / "agent/cli_transcript.log"
     trace_path = run_root / "agent/runtime_events.jsonl"
     outcome = CoworkerOutcome()
@@ -113,9 +186,12 @@ def run_coworker_turn(
     }
     try:
         service.start(client)
+        _update_attempt_manifest(run_root, status="service_started")
         client.create_run(run_id, route.scenario_id)
+        _update_attempt_manifest(run_root, status="environment_created")
         recording = client.start_recording(run_id)
         recording_started = True
+        _update_attempt_manifest(run_root, status="recording_started")
         display = str(recording["display"])
         driver = PlaywrightBrowserDriver(
             run_id=run_id,
@@ -144,9 +220,11 @@ def run_coworker_turn(
             trace_path=trace_path,
             ticket_url=f"{config.service.public_base_url}/ticket/{run_id}",
         )
+        _update_attempt_manifest(run_root, status="runtime_completed")
         if not outcome.terminal:
             outcome.classification = "premature_reply"
         frozen = client.finalize(run_id)["summary"]
+        _update_attempt_manifest(run_root, status="presentation_finalized")
         _append_transcript(
             transcript_path,
             "FROZEN SCORES "
@@ -158,8 +236,23 @@ def run_coworker_turn(
         driver = None
         stopped = client.stop_recording(run_id)
         recording_stopped = True
+        _update_attempt_manifest(run_root, status="recording_verified")
         summary = stopped["summary"]
         process_returns.update(stopped.get("display_return_codes", {}))
+    except Exception as exc:
+        try:
+            _update_attempt_manifest(
+                run_root,
+                status="failed",
+                error_type=type(exc).__name__,
+            )
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+        raise CoworkerAttemptError(
+            run_id=run_id,
+            run_root=run_root,
+            error_type=type(exc).__name__,
+        ) from exc
     finally:
         if driver is not None:
             try:
@@ -176,6 +269,12 @@ def run_coworker_turn(
         client.close()
         _write_process_returns(run_root, process_returns)
     status = "completed" if summary.get("formal_success") else "failed"
+    _update_attempt_manifest(
+        run_root,
+        status=status,
+        formal_success=bool(summary.get("formal_success")),
+        video_path=str(run_root / "video/demo.mp4"),
+    )
     final_reply = (
         runtime_result.final_reply
         if runtime_result is not None and runtime_result.final_reply
@@ -214,6 +313,16 @@ def _run_runtime(
     home_config = load_config(provider_config_path or HOMEMASTER_CONFIG_PATH)
     provider = home_config.get_provider(
         home_config.runtime_defaults.default_provider_name, kind="chat"
+    )
+    provider_identity = _safe_provider_identity(
+        provider,
+        provider_config_override=provider_config_path is not None,
+    )
+    _atomic_json(run_root / "agent/provider_identity.json", provider_identity)
+    _update_attempt_manifest(
+        run_root,
+        status="provider_identity_recorded",
+        provider_identity_path="agent/provider_identity.json",
     )
     client_timeout = budget.timeout(home_config.provider_client.timeout_s)
     llm_client = LLMClient(provider, timeout_s=client_timeout, run_id=run_id)

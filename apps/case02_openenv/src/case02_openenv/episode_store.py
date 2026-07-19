@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +59,7 @@ class Episode:
     current_presentation_task: PresentationTask | None = None
     presentation_failures: list[str] = field(default_factory=list)
     presentation_generation: int = 0
+    recording_monotonic_start_s: float | None = None
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -131,6 +133,7 @@ class EpisodeStore:
             episode.current_presentation_task = None
             episode.presentation_failures.clear()
             episode.presentation_generation += 1
+            episode.recording_monotonic_start_s = None
             for path in (
                 episode.run_root / "environment/audit_events.jsonl",
                 episode.run_root / "trajectory/raw_actions.jsonl",
@@ -150,6 +153,18 @@ class EpisodeStore:
 
     def episode(self, run_id: str) -> Episode:
         return self._episode(run_id)
+
+    def set_recording_timebase(self, run_id: str, timebase: dict[str, Any]) -> None:
+        episode = self._episode(run_id)
+        start = timebase.get("recording_started_monotonic_s")
+        if not isinstance(start, int | float):
+            raise EpisodeError(
+                "presentation_consistency_error",
+                "recording monotonic origin is unavailable",
+                status_code=500,
+            )
+        with episode.lock:
+            episode.recording_monotonic_start_s = float(start)
 
     def presentation_task(self, run_id: str, item: PresentationInput) -> PresentationTask | None:
         episode = self._episode(run_id)
@@ -223,6 +238,11 @@ class EpisodeStore:
                 run_id=run_id,
                 event_type=item.runtime_event_type,
                 timestamp=item.timestamp,
+                monotonic_offset_s=(
+                    time.monotonic() - episode.recording_monotonic_start_s
+                    if episode.recording_monotonic_start_s is not None
+                    else None
+                ),
                 tool_call_id=item.tool_call_id,
                 action_id=item.action_id,
                 stage=display_stage(episode.ticket, episode.state, item, task),
@@ -317,13 +337,15 @@ class EpisodeStore:
     def verify_presentation(self, run_id: str, *, observer_was_alive: bool) -> dict[str, Any]:
         episode = self._episode(run_id)
         with episode.lock:
+            snapshot = self._presentation_snapshot_payload(episode)
             atomic_write_json(
                 episode.run_root / "presentation/snapshot.json",
-                self._presentation_snapshot_payload(episode),
+                snapshot,
             )
             report = verify_presentation_payload(
                 episode.presentation_events,
                 episode.presentation_failures,
+                snapshot=snapshot,
                 observer_was_alive=observer_was_alive,
             )
             atomic_write_json(

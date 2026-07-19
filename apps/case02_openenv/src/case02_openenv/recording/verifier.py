@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,13 @@ class VideoVerifier:
         self.ffmpeg = ffmpeg
         self.ffprobe = ffprobe
 
-    def verify(self, video: Path, run_id: str) -> dict[str, Any]:
+    def verify(
+        self,
+        video: Path,
+        run_id: str,
+        *,
+        named_frames: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         probe = subprocess.run(
             [
                 self.ffprobe,
@@ -98,8 +105,49 @@ class VideoVerifier:
             raise RuntimeError("video first and last frames do not show meaningful change")
         poster = video.parent / "poster.png"
         poster.write_bytes(paths["middle"].read_bytes())
+        event_frames: dict[str, dict[str, Any]] = {}
+        for request in named_frames or []:
+            name = request.get("name")
+            timestamp = request.get("timestamp_s")
+            if not isinstance(name, str) or re.fullmatch(r"[a-z0-9_]+", name) is None:
+                raise RuntimeError("named frame has an invalid name")
+            if not isinstance(timestamp, int | float) or timestamp < 0 or timestamp > duration:
+                raise RuntimeError(f"named frame timestamp is outside video: {name}")
+            destination = frames_dir / f"{name}.png"
+            extraction = subprocess.run(
+                [
+                    self.ffmpeg,
+                    "-v",
+                    "error",
+                    "-ss",
+                    f"{timestamp:.3f}",
+                    "-i",
+                    str(video),
+                    "-frames:v",
+                    "1",
+                    "-y",
+                    str(destination),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if extraction.returncode != 0 or not destination.is_file():
+                raise RuntimeError(f"named frame extraction failed: {name}")
+            stats = self._frame_stats(destination)
+            observer_stats = self._region_stats(destination, (1320, 96, 1920, 996))
+            if stats["variance"] < 5 or observer_stats["variance"] < 5:
+                raise RuntimeError(f"named frame lacks visible observer content: {name}")
+            event_frames[name] = {
+                **request,
+                "timestamp_s": float(timestamp),
+                "video_duration_s": duration,
+                "path": str(destination),
+                "frame_stats": stats,
+                "observer_region_stats": observer_stats,
+            }
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": run_id,
             "path": str(video),
             "sha256": hashlib.sha256(video.read_bytes()).hexdigest(),
@@ -112,6 +160,7 @@ class VideoVerifier:
             "contract_checks": contract,
             "frame_checks": frames,
             "first_last_changed_pixels": changed,
+            "event_frames": event_frames,
             "verified": True,
         }
 
@@ -135,3 +184,16 @@ class VideoVerifier:
                 left_image.convert("RGB"), right_image.convert("RGB")
             )
             return sum(difference.convert("L").histogram()[1:])
+
+    @staticmethod
+    def _region_stats(path: Path, box: tuple[int, int, int, int]) -> dict[str, float]:
+        with Image.open(path) as image:
+            gray = image.convert("RGB").crop(box).convert("L")
+            histogram = gray.histogram()
+            nonblack = sum(histogram[17:])
+            dark = sum(histogram[:64])
+            return {
+                "nonblack_ratio": nonblack / (gray.width * gray.height),
+                "dark_ratio": dark / (gray.width * gray.height),
+                "variance": ImageStat.Stat(gray).var[0],
+            }

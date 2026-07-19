@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any, Literal
 
 from case02_openenv.models import EpisodePhase, RunState
 from case02_openenv.presentation_models import (
+    FAILURE_LABELS_ZH,
     PresentationEvent,
     PresentationInput,
     PresentationSnapshot,
@@ -207,6 +209,7 @@ def verify_presentation_payload(
     events: list[PresentationEvent],
     mapping_failures: list[str],
     *,
+    snapshot: dict[str, Any],
     observer_was_alive: bool,
 ) -> dict[str, Any]:
     starts = {
@@ -214,24 +217,126 @@ def verify_presentation_payload(
         for event in events
         if event.status == "running" and event.tool_call_id
     }
-    terminal = {
-        event.tool_call_id: event
-        for event in events
-        if event.status in {"accepted", "succeeded", "failed", "rejected"} and event.tool_call_id
-    }
     failures = list(dict.fromkeys(mapping_failures))
     for event in events:
+        if event.schema_version != 2:
+            failures.append(f"presentation_schema_version:{event.event_id}")
+        if event.event_type.startswith("tool.") and (
+            not event.tool_label_zh or not event.tool_kind
+        ):
+            failures.append(f"presentation_tool_metadata:{event.event_id}")
+        if event.status in {"failed", "rejected"} and event.failure_code not in FAILURE_LABELS_ZH:
+            failures.append(f"presentation_failure_code:{event.event_id}")
+        if event.public_model_output is not None and event.public_model_output.outcome not in {
+            "intermediate",
+            "terminal",
+            "premature",
+        }:
+            failures.append(f"presentation_public_reply_outcome:{event.event_id}")
+        if event.plan is not None and (
+            event.tool_name not in {"task_planner", "task_progress_check"}
+            or event.status != "succeeded"
+        ):
+            failures.append(f"presentation_plan_owner:{event.event_id}")
         if event.task is None:
             continue
         expected_hash = hashlib.sha256(event.task.source_text.encode("utf-8")).hexdigest()
         if expected_hash != event.task.source_sha256:
             failures.append(f"sop_source_hash_mismatch:{event.event_id}")
     for tool_call_id in sorted(starts):
-        completed = terminal.get(tool_call_id)
-        if completed is None:
+        completed = [
+            event
+            for event in events
+            if event.tool_call_id == tool_call_id
+            and event.status in {"accepted", "succeeded", "failed", "rejected"}
+        ]
+        if not completed:
             failures.append(f"missing_terminal_event:{tool_call_id}")
-        elif completed.action_id != starts[tool_call_id].action_id:
+        elif len(completed) != 1:
+            failures.append(f"terminal_event_count:{tool_call_id}:{len(completed)}")
+        elif completed[0].action_id != starts[tool_call_id].action_id:
             failures.append(f"action_id_mismatch:{tool_call_id}")
+
+    failed_by_action = {
+        event.action_id: event
+        for event in events
+        if event.status in {"failed", "rejected"} and event.action_id
+    }
+    events_by_sequence = {event.sequence: event for event in events}
+    incidents = snapshot.get("incidents") or []
+    incident_actions = {incident.get("failed_action_id") for incident in incidents}
+    for action_id in sorted(set(failed_by_action) - incident_actions):
+        failures.append(f"presentation_incident_missing:{action_id}")
+    for incident in incidents:
+        incident_id = incident.get("incident_id")
+        source = failed_by_action.get(incident.get("failed_action_id"))
+        if source is None:
+            failures.append(f"presentation_incident_orphan:{incident_id}")
+            continue
+        if incident.get("opened_sequence") != source.sequence:
+            failures.append(f"presentation_incident_sequence:{incident_id}")
+        if incident.get("failure_code") != source.failure_code:
+            failures.append(f"presentation_incident_code:{incident_id}")
+        recovery = incident.get("recovery")
+        if recovery is None:
+            if incident.get("status") != "open":
+                failures.append(f"presentation_recovery_missing:{incident_id}")
+            continue
+        resolved_sequence = recovery.get("resolved_sequence")
+        recovered_by = events_by_sequence.get(resolved_sequence)
+        if (
+            not isinstance(resolved_sequence, int)
+            or resolved_sequence <= source.sequence
+            or recovered_by is None
+            or recovered_by.status != "succeeded"
+        ):
+            failures.append(f"presentation_recovery_order:{incident_id}")
+            continue
+        if (
+            recovery.get("action_id") != recovered_by.action_id
+            or recovery.get("tool_name") != recovered_by.tool_name
+        ):
+            failures.append(f"presentation_recovery_event:{incident_id}")
+        if incident.get("status") != "resolved":
+            failures.append(f"presentation_recovery_status:{incident_id}")
+
+    event_sequences = set(events_by_sequence)
+    for entry in snapshot.get("critical_history") or []:
+        history_id = entry.get("history_id")
+        sequence = entry.get("sequence")
+        if sequence not in event_sequences:
+            failures.append(f"presentation_history_event:{history_id}")
+        if entry.get("kind") == "incident" and not any(
+            incident.get("opened_sequence") == sequence
+            and history_id == f"history-incident-{sequence:05d}"
+            for incident in incidents
+        ):
+            failures.append(f"presentation_history_incident:{history_id}")
+        if entry.get("kind") == "recovery" and not any(
+            (incident.get("recovery") or {}).get("resolved_sequence") == sequence
+            and history_id == f"history-recovery-{sequence:05d}"
+            for incident in incidents
+        ):
+            failures.append(f"presentation_history_incident:{history_id}")
+
+    serialized = json.dumps(
+        {
+            "events": [event.model_dump(mode="json") for event in events],
+            "snapshot": snapshot,
+        },
+        ensure_ascii=False,
+    ).lower()
+    for forbidden in (
+        "assistant.thinking",
+        '"prompt"',
+        '"headers"',
+        '"authorization"',
+        '"api_key"',
+        '"constraints"',
+        '"open_questions"',
+    ):
+        if forbidden in serialized:
+            failures.append(f"presentation_forbidden_field:{forbidden}")
     if not observer_was_alive:
         failures.append("observer_exited_before_recording_stop")
     if not any(event.task and event.task.source_text for event in events):

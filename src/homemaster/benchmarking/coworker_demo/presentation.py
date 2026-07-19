@@ -442,6 +442,12 @@ def _browser_result(source: dict[str, Any], *, include_receipt: bool) -> dict[st
     ready = source.get("ready")
     if isinstance(ready, bool):
         result["ready"] = ready
+    caused_by_current_change = source.get("caused_by_current_change")
+    if isinstance(caused_by_current_change, bool):
+        result["caused_by_current_change"] = caused_by_current_change
+    causal_job_id = _valid_job_id(source.get("causal_add_job_id"))
+    if causal_job_id is not None:
+        result["causal_add_job_id"] = causal_job_id
     job_id = _valid_job_id(source.get("job_id"))
     if job_id is not None:
         result["job_id"] = job_id

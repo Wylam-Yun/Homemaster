@@ -168,6 +168,22 @@ class LLMClient:
                         },
                     )
                     yield from self._stream_once(api_key=api_key, kwargs=kwargs)
+                    _emit(
+                        sink,
+                        "transport.response_completed",
+                        session_id=session_id,
+                        run_id=effective_run_id,
+                        turn_index=turn_index,
+                        payload={
+                            "model": self._provider.model,
+                            "api_format": self._provider.api_format,
+                            "transport": self._provider.transport,
+                            "iteration": iteration,
+                            "key_index": key_index,
+                            "status": "ok",
+                            "stripped_images": stripped_images,
+                        },
+                    )
                     attempts.append(
                         {
                             "key_index": key_index,
@@ -202,9 +218,8 @@ class LLMClient:
                     )
                     if isinstance(exc, (LLMAuthError, LLMRateLimitError, LLMNetworkError)):
                         continue
-                    if (
-                        strip_attempt < self._max_image_strip_attempts
-                        and _is_multimodal_corruption(exc.message)
+                    if strip_attempt < self._max_image_strip_attempts and _is_multimodal_corruption(
+                        exc.message
                     ):
                         effective_messages = _strip_message_images(messages)
                         retry_with_stripped_images = True

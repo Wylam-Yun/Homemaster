@@ -15,7 +15,7 @@ from homemaster.agent.session_persistence import (
 )
 from homemaster.agent.turn import compact_agent_context, new_session_id, run_agent_turn
 from homemaster.benchmarking.coworker_demo.turn import run_coworker_turn
-from homemaster.benchmarking.coworker_demo.types import TicketRouteKind
+from homemaster.benchmarking.coworker_demo.types import CoworkerAttemptError, TicketRouteKind
 from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.config import load_config
@@ -131,6 +131,14 @@ def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
         if ticket_route.kind == TicketRouteKind.VALID_TICKET:
             try:
                 coworker_result = run_coworker_turn(ticket_route)
+            except CoworkerAttemptError as exc:
+                last_status = "failed"
+                last_run_id = exc.run_id
+                candidate_trace = exc.run_root / "agent/runtime_events.jsonl"
+                last_trace_path = str(candidate_trace) if candidate_trace.is_file() else None
+                typer.echo(f"变更配合执行失败：{exc.error_type}")
+                typer.echo(f"运行产物：{exc.run_root}")
+                continue
             except Exception as exc:
                 last_status = "failed"
                 typer.echo(f"变更配合执行失败：{exc}")

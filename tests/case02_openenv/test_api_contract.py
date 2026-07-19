@@ -355,6 +355,11 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
     class FakeRecordingSession:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            self.recorder = type(
+                "Recorder",
+                (),
+                {"timebase": {"recording_started_monotonic_s": 123.0}},
+            )()
 
         def start(self):
             return {"success": True, "status": "recording", "display": ":144"}
@@ -366,6 +371,7 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
     assert response.status_code == 200
     assert response.json()["display"] == ":144"
     assert "recording-api" in api.app.state.recorders
+    assert api.app.state.store.episode("recording-api").recording_monotonic_start_s == 123.0
 
 
 def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypatch) -> None:
