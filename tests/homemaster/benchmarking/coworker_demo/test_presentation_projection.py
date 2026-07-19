@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from pathlib import Path
 
 import pytest
 
+from homemaster.benchmarking.coworker_demo import presentation as presentation_projection
 from homemaster.benchmarking.coworker_demo.correlation import action_id_for
 from homemaster.benchmarking.coworker_demo.presentation import (
     ProjectionError,
     project_runtime_event,
+    reject_secret_text,
     summarize_tool_result,
 )
 from homemaster.benchmarking.coworker_demo.tracing import CoworkerTraceSink
@@ -47,10 +50,13 @@ def test_started_tool_projects_only_allowlisted_arguments() -> None:
     )
 
     assert projected == {
+        "schema_version": 2,
         "runtime_event_type": "tool.call_started",
         "tool_call_id": "call-1",
         "action_id": action_id_for("run-a", "call-1"),
         "tool_name": "browser_click",
+        "tool_label_zh": "执行页面操作",
+        "tool_kind": "mutation",
         "status": "running",
         "arguments": {"bid": "monitor-query-alarm"},
         "timestamp": "2026-07-17T08:00:00Z",
@@ -150,10 +156,13 @@ def test_completed_click_uses_trusted_identity_and_safe_receipt_fields() -> None
     )
 
     assert projected == {
+        "schema_version": 2,
         "runtime_event_type": "tool.call_completed",
         "tool_call_id": "call-1",
         "action_id": action_id_for("run-a", "call-1"),
         "tool_name": "browser_click",
+        "tool_label_zh": "执行页面操作",
+        "tool_kind": "mutation",
         "status": "succeeded",
         "result": {"query": "alarm", "status": "ready"},
         "evidence_refs": ["ev-00001-abcdef12", "ev-00002-abcdef12"],
@@ -167,7 +176,227 @@ def test_completed_click_uses_trusted_identity_and_safe_receipt_fields() -> None
 def test_private_and_assistant_events_are_not_projected() -> None:
     thinking = event("assistant.thinking", payload={"thinking": "private"})
     assert project_runtime_event(thinking) is None
-    assert project_runtime_event(event("assistant.reply", payload={"reply": "private"})) is None
+
+
+def test_successful_task_snapshot_projects_bounded_plan() -> None:
+    projected = project_runtime_event(
+        event(
+            "tool.call_completed",
+            name="task_planner",
+            tool_call_id="call-plan",
+            payload={
+                "data": {
+                    "subtasks": [
+                        {
+                            "id": "precheck",
+                            "description": "Complete checks",
+                            "status": "blocked",
+                            "evidence": ["must-not-project"],
+                        },
+                        {
+                            "id": "verify",
+                            "description": "Verify uncertain result",
+                            "status": "uncertain",
+                        },
+                    ],
+                    "current_subtask": "precheck",
+                    "next_focus": "Collect current evidence",
+                    "constraints": ["must-not-project"],
+                    "open_questions": ["must-not-project"],
+                    "completion_summary": "must-not-project",
+                }
+            },
+        )
+    )
+
+    assert projected["schema_version"] == 2
+    assert projected["plan"] == {
+        "items": [
+            {"id": "precheck", "title": "Complete checks", "status": "blocked"},
+            {"id": "verify", "title": "Verify uncertain result", "status": "uncertain"},
+        ],
+        "current_id": "precheck",
+        "next_focus": "Collect current evidence",
+    }
+    serialized_plan = json.dumps(projected["plan"])
+    assert "must-not-project" not in serialized_plan
+    assert all("evidence" not in item for item in projected["plan"]["items"])
+    assert "constraints" not in serialized_plan
+    assert "open_questions" not in serialized_plan
+    assert "completion_summary" not in serialized_plan
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {"subtasks": [{"id": f"step-{index}", "description": "Step"} for index in range(13)]},
+        {"subtasks": [{"id": "x" * 65, "description": "Step"}]},
+        {"subtasks": [{"id": "step", "description": "x" * 161}]},
+        {"subtasks": [{"id": "step", "description": "Step", "status": "failed"}]},
+        {
+            "subtasks": [{"id": "step", "description": "Step"}],
+            "next_focus": "x" * 241,
+        },
+        {"subtasks": [{"id": "step", "description": "unsafe\x00title"}]},
+        {"subtasks": [{"id": "step", "description": "sk-abcdefghijklmnopqrstuvwxyz"}]},
+    ],
+)
+def test_unsafe_or_oversized_plan_field_rejects_plan_projection(mutation: dict) -> None:
+    projected = project_runtime_event(
+        event(
+            "tool.call_completed",
+            name="task_progress_check",
+            tool_call_id="call-plan-limits",
+            payload={"data": mutation},
+        )
+    )
+    assert projected is not None
+    assert "plan" not in projected
+
+
+def test_exact_plan_and_reply_limits_are_accepted() -> None:
+    plan = project_runtime_event(
+        event(
+            "tool.call_completed",
+            name="task_planner",
+            tool_call_id="call-plan-exact-limits",
+            payload={
+                "data": {
+                    "subtasks": [
+                        {"id": f"step-{index}", "description": "x" * 160} for index in range(12)
+                    ],
+                    "current_subtask": "step-0",
+                    "next_focus": "x" * 240,
+                }
+            },
+        )
+    )
+    reply = project_runtime_event(event("assistant.reply", payload={"reply": "x" * 1_200}))
+    assert len(plan["plan"]["items"]) == 12
+    assert len(reply["public_model_output"]["text"]) == 1_200
+
+
+@pytest.mark.parametrize("reply", ["x" * 1_201, "unsafe\x00reply"])
+def test_unsafe_or_oversized_reply_is_rejected(reply: str) -> None:
+    assert project_runtime_event(event("assistant.reply", payload={"reply": reply})) is None
+
+
+@pytest.mark.parametrize(
+    "failure_code",
+    [
+        "plan_required",
+        "missing_precheck_evidence",
+        "progress_required",
+        "wait_required",
+        "postchecks_required",
+        "rollback_verification_required",
+        "rollback_decision_required",
+        "missing_anomaly_evidence",
+        "missing_implementation_evidence",
+        "missing_postcheck_evidence",
+        "missing_rollback_evidence",
+        "external_state_mismatch",
+        "parameter_mismatch",
+        "command_not_allowed",
+        "invalid_decision_for_stage",
+        "stale_state_version",
+        "action_replay",
+        "terminal_outcome",
+    ],
+)
+def test_every_safety_failure_code_is_normalized_without_raw_exception(
+    failure_code: str,
+) -> None:
+    raw = f"EnvironmentClientError: {failure_code}: raw internal detail"
+    projected = project_runtime_event(
+        event(
+            "tool.call_failed",
+            name="browser_click",
+            tool_call_id=f"call-{failure_code}",
+            payload={"data": {"failure_reason": raw, "success": False}},
+        )
+    )
+    assert projected["failure_code"] == failure_code
+    assert "raw internal detail" not in json.dumps(projected)
+
+
+def test_every_episode_error_code_has_an_explicit_safe_mapping() -> None:
+    repo_root = Path(__file__).resolve().parents[4]
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (repo_root / "apps/case02_openenv/src/case02_openenv").rglob("*.py")
+    )
+    episode_codes = set(re.findall(r'EpisodeError\(\s*"([a-z0-9_]+)"', source))
+
+    assert episode_codes
+    assert episode_codes <= set(presentation_projection._FAILURE_CODE_ALIASES)
+    assert set(presentation_projection._FAILURE_CODE_ALIASES.values()) <= (
+        presentation_projection._SAFE_FAILURE_CODES
+    )
+
+
+def test_message_only_rollback_failure_maps_to_safe_code() -> None:
+    projected = project_runtime_event(
+        event(
+            "tool.call_failed",
+            name="browser_click",
+            tool_call_id="call-remove",
+            payload={
+                "data": {
+                    "failure_reason": "RuntimeError: remove requires a rollback decision",
+                    "success": False,
+                }
+            },
+        )
+    )
+    assert projected["failure_code"] == "rollback_decision_required"
+    assert "RuntimeError" not in json.dumps(projected)
+
+
+def test_assistant_reply_projects_bounded_public_text_but_thinking_does_not() -> None:
+    reply = project_runtime_event(event("assistant.reply", payload={"reply": "Run blocked."}))
+    assert reply == {
+        "schema_version": 2,
+        "runtime_event_type": "model.public_reply",
+        "status": "succeeded",
+        "public_model_output": {
+            "kind": "assistant_reply",
+            "text": "Run blocked.",
+            "outcome": "intermediate",
+        },
+        "timestamp": "2026-07-17T08:00:00Z",
+    }
+    assert (
+        project_runtime_event(
+            event("assistant.thinking", payload={"thinking": "private reasoning"})
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "actual-configured-provider-secret",
+        "Bearer abcdefghijklmnopqrstuvwxyz123456",
+        "api_key=abcdefghijklmnopqrstuvwxyz123456",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signaturevalue",
+        "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+        "https://example.test/file?X-Amz-Signature=abcdef1234567890",
+        "sk-abcdefghijklmnopqrstuvwxyz123456",
+        "aZ8Pq3Lw9Xk2Vm7Nc4Rt6Ys1Hd5Jf0Bu",
+    ],
+)
+def test_free_text_secret_patterns_are_rejected_without_logging_source(secret: str) -> None:
+    configured = ("actual-configured-provider-secret",)
+    assert reject_secret_text(secret, sensitive_values=configured) is True
+    assert (
+        project_runtime_event(
+            event("assistant.reply", payload={"reply": f"Result {secret}"}),
+            sensitive_values=configured,
+        )
+        is None
+    )
 
 
 def test_unallowlisted_payload_regions_never_reach_projection() -> None:
@@ -256,9 +485,7 @@ def test_status_mapping_accepts_only_trusted_backend_lifecycle_status() -> None:
                 tool_call_id=f"call-{backend_status}-{event_type}",
                 payload={
                     "data": (
-                        {"backend_status": backend_status}
-                        if backend_status is not None
-                        else {}
+                        {"backend_status": backend_status} if backend_status is not None else {}
                     )
                 },
             )
@@ -279,6 +506,7 @@ def test_runtime_turn_projection_has_no_prompt_reply_or_thinking() -> None:
             )
         )
         assert projected == {
+            "schema_version": 2,
             "runtime_event_type": event_type,
             "status": expected_status,
             "timestamp": "2026-07-17T08:00:00Z",
@@ -334,7 +562,9 @@ class RecordingClient:
         return {"success": True}
 
 
-def test_trace_sink_keeps_full_local_records_but_posts_only_projection(tmp_path: Path) -> None:
+def test_trace_sink_redacts_secrets_locally_and_posts_only_safe_projection(
+    tmp_path: Path,
+) -> None:
     client = RecordingClient()
     trace = tmp_path / "trace.jsonl"
     transcript = tmp_path / "transcript.txt"
@@ -357,12 +587,34 @@ def test_trace_sink_keeps_full_local_records_but_posts_only_projection(tmp_path:
     local_transcript = transcript.read_text(encoding="utf-8")
     assert "full private thought" in local_trace
     assert "full assistant reply" in local_trace
-    assert "full secret" in local_trace
+    assert "full secret" not in local_trace
     assert "MODEL: working through the change procedure" in local_transcript
     assert "MODEL: full assistant reply" in local_transcript
-    assert len(client.presented) == 1
-    assert client.presented[0][1]["arguments"] == {"bid": "monitor-query-alarm"}
+    assert len(client.presented) == 2
+    assert client.presented[0][1]["public_model_output"]["text"] == "full assistant reply"
+    assert client.presented[1][1]["arguments"] == {"bid": "monitor-query-alarm"}
     assert "secret" not in json.dumps(client.presented)
+
+
+def test_trace_sink_never_logs_or_mirrors_configured_secret_in_reply(tmp_path: Path) -> None:
+    secret = "actual-configured-provider-secret"
+    client = RecordingClient()
+    trace = tmp_path / "trace.jsonl"
+    transcript = tmp_path / "transcript.txt"
+    sink = CoworkerTraceSink(
+        trace,
+        client,
+        "run-a",
+        transcript_path=transcript,
+        sensitive_values=(secret,),
+    )
+
+    sink.emit(event("assistant.reply", payload={"reply": f"Result: {secret}"}))
+
+    assert secret not in trace.read_text(encoding="utf-8")
+    assert secret not in transcript.read_text(encoding="utf-8")
+    assert client.presented == []
+    assert sink.mirror_failure_total == 1
 
 
 def test_trace_sink_records_projection_mirror_failures_without_raising(tmp_path: Path) -> None:
@@ -435,9 +687,7 @@ def test_free_text_allowlisted_arguments_are_summarized_without_values(
         ("sop_decide", {"stage": "FORBIDDEN-CREDENTIAL", "decision": "proceed"}),
     ],
 )
-def test_invalid_closed_argument_values_fail_projection(
-    tool_name: str, arguments: dict
-) -> None:
+def test_invalid_closed_argument_values_fail_projection(tool_name: str, arguments: dict) -> None:
     with pytest.raises(ProjectionError):
         project_runtime_event(
             event(
@@ -686,6 +936,7 @@ def test_timestamp_is_canonicalized_to_utc_whole_seconds() -> None:
     )
     source.timestamp = "2026-07-17T16:00:00.987654+08:00"
     assert project_runtime_event(source) == {
+        "schema_version": 2,
         "runtime_event_type": "runtime.turn_completed",
         "status": "succeeded",
         "timestamp": "2026-07-17T08:00:00Z",
@@ -764,9 +1015,7 @@ def test_contradictory_result_status_fails_closed(event_type: str, data: dict) -
 
 
 def test_mirror_failure_history_is_bounded_and_sanitized(tmp_path: Path) -> None:
-    sink = CoworkerTraceSink(
-        tmp_path / "trace.jsonl", RecordingClient(fail=True), "run-a"
-    )
+    sink = CoworkerTraceSink(tmp_path / "trace.jsonl", RecordingClient(fail=True), "run-a")
     for index in range(100):
         sink.emit(
             event(

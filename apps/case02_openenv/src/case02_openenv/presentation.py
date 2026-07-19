@@ -87,7 +87,11 @@ def map_task(
     item: PresentationInput,
     previous: PresentationTask | None,
 ) -> PresentationTask | None:
-    if item.runtime_event_type in {"runtime.turn_completed", "runtime.turn_failed"}:
+    if item.runtime_event_type in {
+        "model.public_reply",
+        "runtime.turn_completed",
+        "runtime.turn_failed",
+    }:
         return previous
 
     arguments = item.arguments

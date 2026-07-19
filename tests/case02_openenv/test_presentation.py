@@ -34,6 +34,7 @@ def item(
             "tool.call_started": "running",
             "tool.call_completed": "succeeded",
             "tool.call_failed": "failed",
+            "model.public_reply": "succeeded",
             "runtime.turn_completed": "succeeded",
             "runtime.turn_failed": "failed",
         }[event_type]
@@ -55,6 +56,27 @@ def assert_ticket_source(task, ticket: dict, stage: str, index: int, field: str)
     assert task.source_field == field
     assert task.source_text == source[field]
     assert task.source_sha256 == hashlib.sha256(source[field].encode("utf-8")).hexdigest()
+
+
+def test_store_persists_public_reply_and_reclassifies_it_on_runtime_completion(store) -> None:
+    run_id = "presentation-public-reply"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="model.public_reply",
+            status="succeeded",
+            public_model_output={
+                "kind": "assistant_reply",
+                "text": "I will inspect the current state.",
+                "outcome": "intermediate",
+            },
+        ),
+    )
+    assert store.presentation_snapshot(run_id)["public_model_output"]["outcome"] == ("intermediate")
+
+    store.record_presentation(run_id, item(event_type="runtime.turn_completed"))
+    assert store.presentation_snapshot(run_id)["public_model_output"]["outcome"] == ("premature")
 
 
 def test_store_maps_monitor_to_exact_pre_and_post_sop_text(store) -> None:
