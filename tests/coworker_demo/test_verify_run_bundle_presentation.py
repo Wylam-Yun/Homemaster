@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.coworker_demo.scripted_shell_gate import ScriptedConversation
 from scripts.coworker_demo.verify_run_bundle import (
     verify_presentation_bundle,
     verify_provider_identity,
@@ -222,3 +223,95 @@ def test_provider_identity_valid_fixture_requires_successful_response(tmp_path: 
     _write_provider_fixture(tmp_path)
 
     assert verify_provider_identity(tmp_path, "mimo-v2.5") == []
+
+
+def _step_index(
+    steps: list[tuple[str, dict]],
+    name: str,
+    *,
+    start: int = 0,
+    **arguments: str,
+) -> int:
+    return next(
+        index
+        for index, (tool_name, payload) in enumerate(steps[start:], start=start)
+        if tool_name == name and all(payload.get(key) == value for key, value in arguments.items())
+    )
+
+
+def test_observable_failure_normal_profile_has_two_narrative_recovery_points() -> None:
+    steps = ScriptedConversation("normal", "observable_failures").steps
+    premature_progress = _step_index(steps, "task_progress_check")
+    rejected_precheck = _step_index(
+        steps,
+        "sop_decide",
+        reason="Attempted before all checks were observed",
+    )
+    monitor = _step_index(steps, "browser_navigate", route="monitor", start=rejected_precheck)
+    success_precheck = _step_index(
+        steps,
+        "sop_decide",
+        reason="All visible prechecks passed",
+        start=monitor,
+    )
+    rejected_navigation = _step_index(
+        steps,
+        "browser_navigate",
+        route="automation",
+        start=success_precheck,
+    )
+    recovery_progress = _step_index(
+        steps,
+        "task_progress_check",
+        start=rejected_navigation,
+    )
+
+    assert premature_progress < rejected_precheck < monitor < success_precheck
+    assert success_precheck < rejected_navigation < recovery_progress
+
+
+def test_observable_failure_anomaly_profile_has_four_narrative_recovery_points() -> None:
+    steps = ScriptedConversation("post_change_anomaly", "observable_failures").steps
+    rejected_precheck = _step_index(
+        steps,
+        "sop_decide",
+        reason="Attempted before all checks were observed",
+    )
+    add_wait = _step_index(steps, "browser_wait", job_id="$job_add")
+    rejected_grep = _step_index(steps, "terminal_execute")
+    recovered_grep = _step_index(steps, "terminal_execute", start=add_wait)
+    alarm_indices = [
+        index
+        for index, (name, payload) in enumerate(steps)
+        if name == "browser_click" and payload.get("bid") == "monitor-query-alarm"
+    ]
+    causal_alarm = alarm_indices[-1]
+    expected_reads = [
+        "monitor-query-probe",
+        "monitor-query-capacity",
+        "monitor-query-runtime-metrics",
+        "monitor-query-traffic",
+    ]
+    observed_reads = [steps[causal_alarm + offset][1].get("bid") for offset in range(1, 5)]
+    rejected_remove = _step_index(
+        steps,
+        "browser_click",
+        start=causal_alarm + 5,
+        bid="automation-submit",
+    )
+    wrong_stage = _step_index(
+        steps,
+        "sop_decide",
+        start=rejected_remove,
+        reason="Attempted rollback before authorization",
+    )
+    valid_rollback = _step_index(
+        steps,
+        "sop_decide",
+        start=wrong_stage,
+        decision="rollback",
+    )
+
+    assert rejected_precheck < rejected_grep < add_wait < recovered_grep < causal_alarm
+    assert observed_reads == expected_reads
+    assert causal_alarm < rejected_remove < wrong_stage < valid_rollback

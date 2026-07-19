@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import pytest
+from case02_openenv.presentation_models import FAILURE_LABELS_ZH
 from PIL import Image, ImageStat
 
 from tests.case02_openenv.test_api_contract import client
@@ -374,6 +375,101 @@ def test_long_plan_keeps_active_item_and_next_focus_visible_without_overlap(
     image = Image.open(screenshot).convert("RGB")
     observer_region = image.crop((1320, 96, 1920, 996))
     assert max(ImageStat.Stat(observer_region).var) > 100
+
+
+def test_every_safe_failure_code_renders_expanded_then_one_line_resolved(
+    tmp_path: Path,
+) -> None:
+    playwright = pytest.importorskip("playwright.sync_api")
+    api = client(tmp_path)
+    run_id = "failure-matrix-layout"
+    api.post("/api/runs", json={"run_id": run_id, "scenario_id": "normal"})
+    html = api.get(f"/observer/{run_id}").text
+    css = api.get("/static/app.css").text
+    script = api.get("/static/observer.js").text
+    base_snapshot = {
+        "presentation_generation": 0,
+        "last_sequence": 1,
+        "stage": "check_before_change",
+        "terminal_outcome": None,
+        "current_task": None,
+        "plan": {"items": [], "current_id": None, "next_focus": None},
+        "current_action": None,
+        "last_result": None,
+        "public_model_output": None,
+        "decision_summary": {
+            "fact": {"label_zh": "当前存在未恢复异常", "values": {}},
+            "judgment": {"label_zh": "必须先完成匹配恢复", "values": {}},
+            "next_action": {"label_zh": "执行异常要求的恢复动作", "values": {}},
+        },
+        "incidents": [],
+        "critical_history": [],
+    }
+    html = html.replace('<link rel="stylesheet" href="/static/app.css">', f"<style>{css}</style>")
+
+    def render_html(snapshot: dict) -> str:
+        serialized_snapshot = json.dumps(snapshot, ensure_ascii=False)
+        bootstrap = f"""
+          <script>
+            window.fetch = () => Promise.resolve({{
+              ok: true,
+              json: () => Promise.resolve({{snapshot: {serialized_snapshot}}}),
+            }});
+            window.EventSource = class {{ addEventListener() {{}} }};
+            window.setInterval = () => 0;
+          </script>
+        """
+        return html.replace(
+            '<script src="/static/observer.js"></script>',
+            f"{bootstrap}<script>{script}</script>",
+        )
+
+    with playwright.sync_playwright() as manager:
+        browser = manager.chromium.launch(
+            headless=True,
+            executable_path="/usr/bin/google-chrome",
+            args=["--no-sandbox"],
+        )
+        page = browser.new_page(viewport={"width": 1920, "height": 1080})
+        for index, (failure_code, label) in enumerate(FAILURE_LABELS_ZH.items(), start=1):
+            incident = {
+                "incident_id": f"incident-{index:05d}",
+                "status": "open",
+                "failure_code": failure_code,
+                "label_zh": label,
+                "failed_tool": "browser_click",
+                "failed_action_id": f"failed-{index}",
+                "opened_sequence": index,
+                "target": {"bid": "automation-submit"},
+                "recovery": None,
+            }
+            open_snapshot = {**base_snapshot, "incidents": [incident]}
+            page.set_content(render_html(open_snapshot), wait_until="domcontentloaded")
+            page.wait_for_function(
+                "code => document.getElementById('open-incident').textContent.includes(code)",
+                arg=failure_code,
+            )
+            open_text = page.locator("#open-incident").text_content()
+            assert open_text and failure_code in open_text and label in open_text
+            assert page.locator("#open-incident").get_attribute("data-status") == "open"
+
+            incident["status"] = "resolved"
+            incident["recovery"] = {
+                "tool_name": "browser_click",
+                "action_id": f"recovery-{index}",
+                "resolved_sequence": index + 1,
+                "intervening_model_calls": 1,
+            }
+            resolved_snapshot = {**base_snapshot, "incidents": [incident]}
+            page.set_content(render_html(resolved_snapshot), wait_until="domcontentloaded")
+            page.wait_for_function(
+                "() => document.querySelectorAll('#resolved-incidents li').length === 1"
+            )
+            assert page.locator("#open-incident").text_content() == "当前无未恢复异常"
+            resolved = page.locator("#resolved-incidents li")
+            assert resolved.count() == 1
+            assert resolved.first.text_content() == f"{label} · browser_click"
+        browser.close()
 
 
 def test_linked_javascript_does_not_embed_hidden_contract_terms(tmp_path: Path) -> None:

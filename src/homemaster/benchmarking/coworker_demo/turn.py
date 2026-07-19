@@ -58,8 +58,8 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
-def _update_attempt_manifest(run_root: Path, **updates: Any) -> dict[str, Any]:
-    path = run_root / "attempt_manifest.json"
+def _update_attempt_manifest(artifact_root: Path, **updates: Any) -> dict[str, Any]:
+    path = artifact_root / "attempt_manifest.json"
     current: dict[str, Any] = {}
     if path.is_file():
         current = json.loads(path.read_text(encoding="utf-8"))

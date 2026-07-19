@@ -168,6 +168,88 @@ def test_wait_incident_resolves_only_for_same_job() -> None:
     assert recovered.incidents[0].recovery.action_id == "action-recovered"
 
 
+@pytest.mark.parametrize(
+    ("failure_code", "failed_tool", "recovery_tool"),
+    [
+        ("plan_required", "browser_navigate", "task_planner"),
+        ("missing_precheck_evidence", "sop_decide", "sop_decide"),
+        ("progress_required", "browser_navigate", "task_progress_check"),
+        ("wait_required", "browser_wait", "browser_wait"),
+        ("postchecks_required", "task_progress_check", "browser_click"),
+        ("rollback_verification_required", "task_progress_check", "terminal_execute"),
+        ("rollback_decision_required", "browser_click", "sop_decide"),
+        ("missing_anomaly_evidence", "sop_decide", "sop_decide"),
+        ("missing_implementation_evidence", "sop_decide", "sop_decide"),
+        ("missing_postcheck_evidence", "sop_decide", "sop_decide"),
+        ("missing_rollback_evidence", "sop_decide", "sop_decide"),
+        ("external_state_mismatch", "sop_decide", "browser_observe"),
+        ("parameter_mismatch", "browser_fill", "browser_fill"),
+        ("command_not_allowed", "terminal_execute", "terminal_execute"),
+        ("invalid_decision_for_stage", "sop_decide", "sop_decide"),
+        ("stale_state_version", "browser_fill", "browser_fill"),
+        ("action_replay", "browser_fill", "browser_fill"),
+        ("terminal_outcome", "browser_click", None),
+    ],
+)
+def test_every_safe_failure_code_has_an_exact_incident_recovery_rule(
+    failure_code: str,
+    failed_tool: str,
+    recovery_tool: str | None,
+) -> None:
+    target = (
+        {"job_id": "job-add-abcdef1234"}
+        if failure_code == "wait_required"
+        else (
+            {"bid": "automation-tenant-id", "value": "tenant-a"}
+            if failed_tool == "browser_fill"
+            else {}
+        )
+    )
+    failed = presentation_event(
+        1,
+        "tool.call_failed",
+        status="rejected",
+        tool_name=failed_tool,
+        action_id=f"failed-{failure_code}",
+        tool_call_id=f"call-{failure_code}",
+        failure_code=failure_code,
+        arguments=target,
+    )
+    events = [failed]
+    if recovery_tool is not None:
+        recovery_result = dict(target)
+        recovery_plan = None
+        if failure_code == "plan_required":
+            recovery_plan = ObservablePlan(
+                items=(ObservablePlanItem(id="recover", title="Recover", status="in_progress"),)
+            )
+        events.append(
+            presentation_event(
+                2,
+                "tool.call_completed",
+                status="succeeded",
+                tool_name=recovery_tool,
+                action_id=f"recovery-{failure_code}",
+                tool_call_id=f"recovery-call-{failure_code}",
+                arguments=target,
+                result=recovery_result,
+                plan=recovery_plan,
+            )
+        )
+
+    observable = reduce_observable_state(run_state(), events)
+    incident = observable.incidents[0]
+
+    assert incident.failure_code == failure_code
+    if recovery_tool is None:
+        assert incident.status == "open"
+        assert incident.recovery is None
+    else:
+        assert incident.status == "resolved"
+        assert incident.recovery is not None
+        assert incident.recovery.tool_name == recovery_tool
+
+
 def test_public_reply_lifecycle_is_intermediate_terminal_or_premature() -> None:
     reply = presentation_event(
         1,

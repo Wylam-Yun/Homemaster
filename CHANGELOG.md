@@ -12,6 +12,7 @@
 
 ### Added
 
+- 新增仅用于展示黑盒验收的 `observable_failures` 脚本 profile：normal/anomaly 分别逐实例触发并恢复叙事门禁错误，全码矩阵另行验证 18 个稳定安全码的投影、恢复规则和 Chrome 展开/折叠；该 profile 明确不计入最终真实 LLM 验收。
 - 产品与独立 bundle verifier 现在强制核对 presentation v2 全字段、异常/恢复/历史关联、禁止字段、每次工具生命周期、关键事件画面、当前 run 外部终态和真实 provider 模型身份；`--expected-model mimo-v2.5` 会拒绝 scripted 视频、回环/覆盖 provider、缺少成功响应或身份文件晚于首个请求的验收。
 - 高管录屏面板改为五区固定布局，常驻展示真实模型计划、每次模型工具选择、独立环境返回和确定性决策摘要；异常展开置顶并在匹配恢复后折叠保留，长文本不再挤压或覆盖相邻区域。
 - EpisodeStore 现从候选 append-only 展示事件原子重建 presentation v2 Snapshot，SSE 重连可恢复模型计划、当前动作/结果、决策摘要和异常历史，不在浏览器或 Episode 中维护漂移副本。
@@ -23,6 +24,7 @@
 
 ### Fixed
 
+- 修复 attempt manifest 的 `run_root` 字段与 helper 形参冲突导致真实 shell 在分配 run 后立即失败，以及固定 0.35 秒命名帧越过下一事件却仍通过像素门的问题；顶层 shell 黑盒门和独立 verifier 现在分别锁定真实入口与帧事件边界。
 - 修复 coworker 正式成功把 `artifact_failure` 固定为 false、manifest 缺项不失败的问题；最终评分和独立 verifier 现在都要求核心 artifact 已登记、完整且哈希一致。
 - 修复终态后预留 action、runtime event 和内置 planner/progress/skill 仍可继续执行，以及 decision 可引用伪造或跨 run evidence 的问题；服务端、工具端、归一化和离线 verifier 现在共享终态与证据所有权门禁。
 - 修复独立 bundle verifier 信任产品首中末帧布尔结论的问题；它现在独立核对 FFmpeg/first-packet/视频哈希，并从视频重新解码 raw RGB 帧计算非黑比例、方差和首末变化。

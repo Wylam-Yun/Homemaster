@@ -75,12 +75,14 @@ def test_attempt_manifest_is_created_and_updated_without_secret_values(tmp_path)
         tmp_path,
         schema_version=1,
         run_id="run-a",
+        run_root=str(tmp_path),
         status="allocated",
         secret="must-not-be-used",
     )
     second = _update_attempt_manifest(tmp_path, status="failed", error_type="TimeoutError")
 
     assert first["status"] == "allocated"
+    assert first["run_root"] == str(tmp_path)
     assert second["status"] == "failed"
     encoded = (tmp_path / "attempt_manifest.json").read_text(encoding="utf-8")
     assert "must-not-be-used" not in encoded

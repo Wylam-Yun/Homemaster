@@ -200,6 +200,18 @@ class DemoRecorder:
             offset = event.get("monotonic_offset_s")
             if name in used_names or not isinstance(offset, int | float):
                 continue
+            next_offset = next(
+                (
+                    candidate.get("monotonic_offset_s")
+                    for candidate in events
+                    if candidate.get("sequence", 0) > event.get("sequence", 0)
+                    and isinstance(candidate.get("monotonic_offset_s"), int | float)
+                ),
+                None,
+            )
+            settle_margin = self.ui_settle_margin_s
+            if isinstance(next_offset, int | float) and next_offset > offset:
+                settle_margin = min(settle_margin, (float(next_offset) - float(offset)) / 2)
             used_names.add(name)
             requests.append(
                 {
@@ -208,10 +220,10 @@ class DemoRecorder:
                     "source_sequence": event.get("sequence"),
                     "source_timestamp_utc": event.get("timestamp"),
                     "source_monotonic_offset_s": float(offset),
-                    "ui_settle_margin_s": self.ui_settle_margin_s,
-                    "calculated_offset_s": float(offset) + self.ui_settle_margin_s,
+                    "ui_settle_margin_s": settle_margin,
+                    "calculated_offset_s": float(offset) + settle_margin,
                     "ffmpeg_basis": "recording_monotonic_origin",
-                    "timestamp_s": float(offset) + self.ui_settle_margin_s,
+                    "timestamp_s": float(offset) + settle_margin,
                 }
             )
         return requests

@@ -719,8 +719,9 @@ def verify(
         expected_frame_names.discard("causal_alarm")
         for name in sorted(expected_frame_names - available_names):
             failures.append(f"video_event_frame_missing:{name}")
-        presentation_event_ids = {
-            event.get("event_id") for event in _read_jsonl(run_root / "presentation/events.jsonl")
+        presentation_events = _read_jsonl(run_root / "presentation/events.jsonl")
+        presentation_by_id = {
+            event.get("event_id"): event for event in presentation_events if event.get("event_id")
         }
         for name, entry in event_frames.items():
             timestamp = entry.get("timestamp_s")
@@ -740,8 +741,21 @@ def verify(
             ):
                 failures.append(f"video_event_frame_offset:{name}")
                 continue
-            if entry.get("source_event_id") not in presentation_event_ids:
+            source_event = presentation_by_id.get(entry.get("source_event_id"))
+            if source_event is None:
                 failures.append(f"video_event_frame_source:{name}")
+            else:
+                next_event = next(
+                    (
+                        event
+                        for event in presentation_events
+                        if event.get("sequence", 0) > source_event.get("sequence", 0)
+                        and isinstance(event.get("monotonic_offset_s"), int | float)
+                    ),
+                    None,
+                )
+                if next_event is not None and timestamp >= next_event["monotonic_offset_s"]:
+                    failures.append(f"video_event_frame_crossed_next_event:{name}")
             frame = _extract_frame(video, float(timestamp))
             observer = _crop_rgb(frame, 1920, 1080, (1320, 96, 1920, 996))
             observer_stats, _ = _frame_stats(observer, 600, 900)

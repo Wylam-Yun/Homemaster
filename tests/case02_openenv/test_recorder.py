@@ -209,6 +209,45 @@ def test_named_frames_use_persisted_monotonic_offsets_and_settle_margin(tmp_path
     assert all(request["ui_settle_margin_s"] == 0.35 for request in requests)
 
 
+def test_named_frame_settle_margin_stays_before_the_next_presentation_event(
+    tmp_path: Path,
+) -> None:
+    recorder = DemoRecorder(
+        run_id="run",
+        run_root=tmp_path,
+        display=":144",
+        ui_settle_margin_s=0.35,
+    )
+    events = [
+        {
+            "event_id": "event-source",
+            "sequence": 1,
+            "event_type": "tool.call_started",
+            "timestamp": "2026-07-19T08:00:00Z",
+            "monotonic_offset_s": 1.0,
+        },
+        {
+            "event_id": "event-next",
+            "sequence": 2,
+            "event_type": "model.public_reply",
+            "timestamp": "2026-07-19T08:00:00.200Z",
+            "monotonic_offset_s": 1.2,
+        },
+    ]
+    path = tmp_path / "presentation/events.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "".join(json.dumps(event) + "\n" for event in events),
+        encoding="utf-8",
+    )
+
+    request = recorder._named_frame_requests()[0]
+
+    assert round(request["ui_settle_margin_s"], 3) == 0.1
+    assert round(request["timestamp_s"], 3) == 1.1
+    assert request["timestamp_s"] < events[1]["monotonic_offset_s"]
+
+
 def test_observer_region_stats_are_independent_from_full_frame(tmp_path: Path) -> None:
     frame = Image.new("RGB", (1920, 1080), "black")
     frame.paste("white", (1320, 96, 1620, 996))
