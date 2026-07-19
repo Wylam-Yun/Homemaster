@@ -79,6 +79,83 @@ def test_store_persists_public_reply_and_reclassifies_it_on_runtime_completion(s
     assert store.presentation_snapshot(run_id)["public_model_output"]["outcome"] == ("premature")
 
 
+def test_snapshot_reconnect_rebuilds_exact_wait_incident_and_recovery(store) -> None:
+    run_id = "presentation-wait-recovery"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-submit",
+            action_id="action-submit",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "automation-submit", "operation": "add"},
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-failed-wait",
+            action_id="action-failed-wait",
+            tool_name="browser_wait",
+            status="running",
+            arguments={"job_id": "job-add-abcdef1234", "target_status": "terminal"},
+        ),
+    )
+    failed = store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_failed",
+            tool_call_id="call-failed-wait",
+            action_id="action-failed-wait",
+            tool_name="browser_wait",
+            status="rejected",
+            failure_code="wait_required",
+        ),
+    )
+    assert failed.arguments["job_id"] == "job-add-abcdef1234"
+    failed_snapshot = store.presentation_snapshot(run_id)
+    assert failed_snapshot["last_result"]["failure_code"] == "wait_required"
+    assert failed_snapshot["incidents"][0]["target"] == {"job_id": "job-add-abcdef1234"}
+    assert failed_snapshot["incidents"][0]["status"] == "open"
+
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-wrong-wait",
+            action_id="action-wrong-wait",
+            tool_name="browser_wait",
+            status="succeeded",
+            result={"job_id": "job-add-other9999", "status": "succeeded"},
+        ),
+    )
+    assert store.presentation_snapshot(run_id)["incidents"][0]["status"] == "open"
+
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-recovered-wait",
+            action_id="action-recovered-wait",
+            tool_name="browser_wait",
+            status="succeeded",
+            result={"job_id": "job-add-abcdef1234", "status": "succeeded"},
+        ),
+    )
+    recovered = store.presentation_snapshot(run_id)
+    assert recovered["incidents"][0]["status"] == "resolved"
+    assert recovered["incidents"][0]["recovery"]["action_id"] == "action-recovered-wait"
+    assert [entry["kind"] for entry in recovered["critical_history"]] == [
+        "incident",
+        "job",
+        "job",
+        "recovery",
+    ]
+
+
 def test_store_maps_monitor_to_exact_pre_and_post_sop_text(store) -> None:
     run_id = "presentation-map"
     store.create(run_id, "normal")

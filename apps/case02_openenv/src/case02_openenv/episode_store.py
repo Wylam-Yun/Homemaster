@@ -214,6 +214,9 @@ class EpisodeStore:
                         candidate_task = task
 
             sequence = len(episode.presentation_events) + 1
+            event_arguments = item.arguments
+            if not event_arguments and correlated_start is not None:
+                event_arguments = correlated_start.arguments
             event = PresentationEvent(
                 event_id=f"presentation-{sequence:05d}-{uuid.uuid4().hex[:8]}",
                 sequence=sequence,
@@ -228,7 +231,7 @@ class EpisodeStore:
                 tool_label_zh=item.tool_label_zh,
                 tool_kind=item.tool_kind,
                 status=item.status,
-                arguments=copy.deepcopy(item.arguments),
+                arguments=copy.deepcopy(event_arguments),
                 result=copy.deepcopy(item.result),
                 evidence_refs=list(item.evidence_refs),
                 failure=failure,
