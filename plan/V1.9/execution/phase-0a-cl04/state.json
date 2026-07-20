@@ -1,0 +1,88 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0A-CL04",
+  "change_list": "CL-04-legacy-tool-adapter",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "46f2b15d348aa9204251121fedfac320ed5e6720",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "m0": "IMPLEMENTING",
+    "cl02": "VERIFYING",
+    "cl03": "VERIFYING",
+    "exception": "User directed implementation-first stacking with live tests concentrated later on hkust4; this checkpoint cannot claim GATE_PASSED before deferred dependencies and its single review are resolved."
+  },
+  "review_policy": {
+    "phase_review_rounds": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "cl04-spec-adapter",
+      "goal": "Adapt legacy tools.spec.ToolSpec and runtime-local ToolSpec into canonical definition/registration values while preserving selectability and recording schema/policy migration debt."
+    },
+    {
+      "id": "cl04-result-adapter",
+      "goal": "Normalize legacy ToolResult, ToolResultMessage, and dict outcomes into typed canonical results with the original tool-call envelope and explicit lossy-field accounting."
+    },
+    {
+      "id": "cl04-executor-adapter",
+      "goal": "Wrap sync legacy executors as awaitable canonical executors using an explicit LegacyToolExecutionContext carrying the old RunContext without capturing session state."
+    },
+    {
+      "id": "cl04-observer-parity",
+      "goal": "Characterize existing ToolDispatchObserver call/terminal/exception/result order and prove adapter normalization preserves tool call ids and legal tool-result pairing without duplicating dispatch control flow."
+    },
+    {
+      "id": "cl04-zero-drift",
+      "goal": "Keep all legacy ToolRegistry, ToolDispatcher, runtime and domain owners executable and behaviorally unchanged."
+    }
+  ],
+  "allowed_deltas": [
+    "src/homemaster/tools/legacy_adapter.py additive compatibility adapters",
+    "tests/homemaster/tools/test_legacy_adapter.py",
+    "plan/V1.9/execution/phase-0a-cl04/state.json",
+    "no existing production owner changes"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/tools/test_legacy_adapter.py tests/homemaster/test_tool_dispatcher.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "46f2b15d348aa9204251121fedfac320ed5e6720",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Read CL-04 requirements; canonical CL-02/03 contracts; legacy ToolSpec, runtime ToolSpec, ToolResult, ToolResultMessage, RunContext and ToolDispatcher owners; observer terminal/exception/result implementations and existing dispatcher tests."
+    },
+    {
+      "kind": "implementation",
+      "status": "pass",
+      "details": "Added only the allowed legacy adapter owner and focused tests. Adapter SHA-256 bd5a6df4ddc3763ddc74fc013c48f2a9e38e9aaf79a9119f21d54979f5348491; test SHA-256 d8522b66e18a0773484914d48a4182480824dd1267a1288b1fae03af0a5f7d7a."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "uv run pytest -q tests/homemaster/tools/test_legacy_adapter.py tests/homemaster/test_tool_dispatcher.py: 20 passed."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker': 942 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Ruff, compileall, git diff --check, legacy-term guard, and upstream port manifest validator passed; port manifest reports locked OpenHarness commit with port_count=2."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The single CL-04 independent review round has not been consumed. Status remains VERIFYING and cannot advance to GATE_PASSED before that review and deferred dependency gates."
+    }
+  ],
+  "reviews": []
+}
