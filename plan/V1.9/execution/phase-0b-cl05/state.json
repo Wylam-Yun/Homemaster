@@ -1,0 +1,109 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0B-CL05",
+  "change_list": "CL-05-tool-execution-pipeline",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "3201865d9ec2cc54d2700183a3e8d4478dc43f9e",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "m0": "IMPLEMENTING",
+    "cl02": "VERIFYING",
+    "cl03": "VERIFYING",
+    "cl04": "VERIFYING",
+    "exception": "User directed implementation-first stacking and concentrated hkust4 live validation; CL-05 cannot claim GATE_PASSED until grouped review and deferred dependency gates complete."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-05", "CL-06", "CL-07"],
+    "final_release_review_rounds_max": 2
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "cl05-runner",
+      "goal": "Add locked Python 3.11-compatible pytest-asyncio configuration and jsonschema runtime dependency before porting async tests."
+    },
+    {
+      "id": "cl05-upstream-async-core",
+      "goal": "Port the locked OpenHarness single-call and gather(return_exceptions=True) exception-isolation control flow with traceable source and real copied test ids."
+    },
+    {
+      "id": "cl05-validation-policy",
+      "goal": "Execute Draft 2020-12 input/output validation, typed permission decisions, cancellation/deadline, and pre-observation gates before backend invocation."
+    },
+    {
+      "id": "cl05-execution-policy",
+      "goal": "Execute typed resource locking, canonical exception/timeout mapping, policy-applicable verification, post-action debt, authoritative ledger, and public projection in fixed order."
+    },
+    {
+      "id": "cl05-retry-pairing",
+      "goal": "Keep per-attempt evidence, total deadline, mutating outcome_unknown no-retry, and legal sibling tool-result pairing through one async core and one sync bridge."
+    }
+  ],
+  "allowed_deltas": [
+    "pyproject.toml and uv.lock dependency/test-runner contract",
+    "plan/V1.9/baseline/dependency-lock-hashes.json planned root lock evidence refresh",
+    "src/homemaster/tools/pipeline.py",
+    "minimal canonical schema registration validation in src/homemaster/tools/contracts.py",
+    "tests/homemaster/tools/test_validation.py",
+    "tests/homemaster/tools/test_execution_pipeline.py",
+    "tests/homemaster/tools/test_retry_policy.py",
+    "tests/homemaster/permissions/test_policy.py",
+    "scripts/guard_no_legacy_terms.py exact canonical CL-05 owner exceptions",
+    "plan/V1.9/upstream-port-manifest.json",
+    "tests/homemaster/test_v19_release_tools.py current port-count contract",
+    "plan/V1.9/execution/phase-0b-cl05/state.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/tools/test_validation.py tests/homemaster/tools/test_execution_pipeline.py tests/homemaster/tools/test_retry_policy.py tests/homemaster/permissions/test_policy.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "3201865d9ec2cc54d2700183a3e8d4478dc43f9e",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Read implementation plan CL-05/general execution rules, comparison spec tool contracts and sections 24.1-24.5, existing canonical owners/tests, locked OpenHarness query/permission sources and the five required upstream test nodes."
+    },
+    {
+      "kind": "dependency_contract",
+      "status": "pass",
+      "details": "uv sync --frozen --all-extras installed locked pytest-asyncio 1.4.0; root uv.lock SHA-256 fff8bce2db7094f5c0624049d0078a9a37f1d4113f0c9db02078cb6284c67cc0 includes jsonschema 4.26.0 and explicit asyncio_mode=strict."
+    },
+    {
+      "kind": "implementation",
+      "status": "pass",
+      "details": "Canonical pipeline SHA-256 f316d26bbd0f4406944b66338c7419e81d73cb76d53426b36e8353737353f552; executes fixed view/terminal/validation/permission/cancel/observation/resource/execute/output/verifier/debt/ledger/event stages with one async core and sync bridge."
+    },
+    {
+      "kind": "upstream_port",
+      "status": "pass",
+      "details": "Port manifest validates port_count=3 at locked OpenHarness commit; CL-05 entry binds query.py SHA-256 bc923c7aa6af63bf1d9d79ddf73946be6e882e8cf99672ee5b25d04035e5a2da and five real upstream test nodes."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "CL-05 validation/pipeline/retry/permission suite: 33 passed; includes copied-name permission and single/parallel exception pairing assertions."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "Full non-live suite: 975 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Ruff, compileall, legacy-term guard, upstream port manifest validator, and git diff --check passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "Per user policy, one grouped independent review is deferred until CL-05, CL-06, and CL-07 implementations and tests all pass."
+    }
+  ],
+  "reviews": []
+}

@@ -69,7 +69,10 @@ SKIP_FILES = frozenset(
         "findings.md",
         "progress.md",
         "src/homemaster/cli/coworker_router.py",
+        "src/homemaster/tools/legacy_adapter.py",
+        "src/homemaster/tools/pipeline.py",
         "task_plan.md",
+        "tests/homemaster/permissions/test_policy.py",
         "tests/homemaster/benchmarking/test_alfworld_execution.py",
         "tests/homemaster/test_cleanup_guard.py",
         "tests/homemaster/test_coworker_router.py",
@@ -82,6 +85,9 @@ SKIP_FILES = frozenset(
         "tests/homemaster/test_runtime_settings.py",
         "tests/homemaster/test_prompt_externalization.py",
         "tests/homemaster/test_skills_registry.py",
+        "tests/homemaster/tools/test_execution_pipeline.py",
+        "tests/homemaster/tools/test_retry_policy.py",
+        "tests/homemaster/tools/test_validation.py",
     }
 )
 

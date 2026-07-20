@@ -73,6 +73,46 @@
         "tests/homemaster/tools/test_view.py::test_view_freezes_ordered_manifests_and_execution_lookup"
       ],
       "sync_policy": "Manually compare locked OpenHarness ToolRegistry order/get/list/schema behavior before adapting future upstream changes; never restore silent id or alias replacement."
+    },
+    {
+      "id": "cl05-openharness-async-tool-call-core",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/engine/query.py",
+        "symbol": "_execute_tool_call",
+        "sha256": "bc923c7aa6af63bf1d9d79ddf73946be6e882e8cf99672ee5b25d04035e5a2da"
+      },
+      "destination": "src/homemaster/tools/pipeline.py",
+      "copied_test_ids": [
+        "tests/test_engine/test_query_engine.py::test_execute_tool_call_blocks_sensitive_directory_roots",
+        "tests/test_engine/test_query_engine.py::test_execute_tool_call_applies_path_rules_to_directory_roots",
+        "tests/test_engine/test_query_engine.py::test_execute_tool_call_returns_actionable_reason_when_user_denies_confirmation",
+        "tests/test_engine/test_query_engine.py::test_query_engine_synthesizes_tool_result_when_single_tool_raises",
+        "tests/test_engine/test_query_engine.py::test_query_engine_synthesizes_tool_result_when_parallel_tool_raises"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "replace OpenHarness ToolRegistry/BaseTool/Pydantic input lookup with frozen HomeMaster ToolView, RegisteredTool, and raw Draft 2020-12 validation",
+        "replace ToolResultBlock synthesis with typed HomeMaster ToolExecutionResult while retaining tool-call result pairing",
+        "retain async single-call execution and asyncio.gather(return_exceptions=True) sibling exception isolation",
+        "replace OpenHarness permission prompt inputs with typed PermissionPolicy decision and confirmation handler"
+      ],
+      "homemaster_deltas": [
+        "prepend terminal, view, canonical schema, cancellation/deadline, and observation gates",
+        "add typed resource locking, output validation, verification policy, observation debt, authoritative ledger, and public event stages",
+        "add bounded tool retry with per-attempt evidence and prohibit mutating outcome_unknown automatic retries",
+        "exclude OpenHarness coding artifact offload, hooks, cwd metadata, and task-focus carryover"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/permissions/test_policy.py::test_execute_tool_call_blocks_sensitive_directory_roots",
+        "tests/homemaster/permissions/test_policy.py::test_execute_tool_call_applies_path_rules_to_directory_roots",
+        "tests/homemaster/permissions/test_policy.py::test_execute_tool_call_returns_actionable_reason_when_user_denies_confirmation",
+        "tests/homemaster/tools/test_execution_pipeline.py::test_query_engine_synthesizes_tool_result_when_single_tool_raises",
+        "tests/homemaster/tools/test_execution_pipeline.py::test_query_engine_synthesizes_tool_result_when_parallel_tool_raises"
+      ],
+      "sync_policy": "Recompare the locked _execute_tool_call and gather exception-isolation blocks before future upstream sync; preserve HomeMaster stage order and typed domain deltas."
     }
   ]
 }

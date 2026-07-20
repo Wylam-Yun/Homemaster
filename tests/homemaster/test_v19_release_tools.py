@@ -28,14 +28,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENHARNESS_ROOT = REPO_ROOT.parent / "OpenHarness"
 
 
-def test_upstream_port_manifest_is_valid_with_cl02_port() -> None:
+def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
     report = validate_manifest(
         REPO_ROOT / "plan/V1.9/upstream-port-manifest.json", repo_root=REPO_ROOT
     )
     assert report == {
         "status": "PASS",
         "upstream_commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
-        "port_count": 2,
+        "port_count": 3,
     }
 
 
@@ -80,7 +80,7 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
                     "search_evidence": ["rg BaseTool tests"],
                 },
                 "characterization_test_ids": [
-                    "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
+                    "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_current_ports"
                 ],
                 "sync_policy": "manual upstream comparison",
             }
@@ -98,7 +98,7 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
         validate_manifest(path, repo_root=REPO_ROOT)
 
     payload["ports"][0]["characterization_test_ids"] = [
-        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
+        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_current_ports"
     ]
     payload["ports"][0]["source"]["symbol"] = "DefinitelyNotInSource"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -108,14 +108,14 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
     payload["ports"][0]["source"]["symbol"] = "BaseTool"
     payload["ports"][0]["characterization_test_ids"] = [
         "tests/homemaster/test_v19_release_tools.py::"
-        "test_upstream_port_manifest_is_valid_with_cl02_port[definitely-not-collected]"
+        "test_upstream_port_manifest_is_valid_with_current_ports[definitely-not-collected]"
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="parameter id"):
         validate_manifest(path, repo_root=REPO_ROOT)
 
     payload["ports"][0]["characterization_test_ids"] = [
-        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
+        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_current_ports"
     ]
     payload["ports"][0]["upstream_test_gap"] = None
     path.write_text(json.dumps(payload), encoding="utf-8")

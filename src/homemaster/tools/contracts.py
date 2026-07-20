@@ -16,6 +16,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
@@ -169,11 +170,18 @@ class ToolDefinition:
         for effect in effects:
             _require_token(effect, label="state effect")
         object.__setattr__(self, "state_effects", effects)
-        object.__setattr__(self, "input_schema", _freeze_json_object(self.input_schema, "input"))
+        input_schema = _freeze_json_object(self.input_schema, "input")
+        output_schema = _freeze_json_object(self.output_schema, "output")
+        try:
+            Draft202012Validator.check_schema(_thaw_json(input_schema))
+            Draft202012Validator.check_schema(_thaw_json(output_schema))
+        except SchemaError as exc:
+            raise ValueError(f"invalid JSON Schema: {exc.message}") from exc
+        object.__setattr__(self, "input_schema", input_schema)
         object.__setattr__(
             self,
             "output_schema",
-            _freeze_json_object(self.output_schema, "output"),
+            output_schema,
         )
 
     def to_model_manifest(self) -> dict[str, object]:
