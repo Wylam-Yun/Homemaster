@@ -4,5 +4,40 @@
     "repo": "../OpenHarness",
     "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
-  "ports": []
+  "ports": [
+    {
+      "id": "cl02-openharness-base-tool-schema",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/tools/base.py",
+        "symbol": "BaseTool",
+        "sha256": "30402d4c8f4530455c621bcdd7b5a243c1f8aaa039f1daf4af9749481e7bb7a7"
+      },
+      "destination": "src/homemaster/tools/contracts.py",
+      "copied_test_ids": [],
+      "mechanical_deltas": [
+        "replace OpenHarness ToolExecutionContext and text-only ToolResult imports with HomeMaster canonical context and result contracts",
+        "retain BaseTool async execute, is_read_only, and to_api_schema control flow"
+      ],
+      "homemaster_deltas": [
+        "split serializable ToolDefinition from RegisteredTool executor and verifier capabilities",
+        "add stable identity, provenance, version, schema, effects, resource, verification, and typed result invariants",
+        "preserve HomeMaster ContentBlock and ToolResultMessage media and structured result projection"
+      ],
+      "upstream_test_gap": {
+        "reason": "The locked OpenHarness commit has no direct BaseTool.to_api_schema schema test; registry mentions are integration setup rather than schema characterization.",
+        "search_evidence": [
+          "git grep -n 'to_api_schema' 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 -- tests returned no matches",
+          "git grep -n 'BaseTool' 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 -- tests found subclasses/imports but no direct schema assertion"
+        ]
+      },
+      "characterization_test_ids": [
+        "tests/homemaster/tools/test_definition.py::test_openharness_base_tool_api_schema_characterization",
+        "tests/homemaster/tools/test_definition.py::test_definition_is_deeply_immutable_serializable_and_manifest_is_derived"
+      ],
+      "sync_policy": "Manually compare locked OpenHarness BaseTool execute/is_read_only/to_api_schema before adapting future upstream changes; preserve HomeMaster typed contract deltas."
+    }
+  ]
 }

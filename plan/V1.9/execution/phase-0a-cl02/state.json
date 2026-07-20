@@ -1,0 +1,74 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0A-CL02",
+  "change_list": "CL-02-canonical-tool-contracts",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "a1de092b4d621228f088a8736c93683a2b7a8ee1",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "m0": "IMPLEMENTING",
+    "exception": "User directed implementation-first stacking with the remaining Xorg/THOR/provider live checks concentrated later on hkust4; CL-02 cannot claim GATE_PASSED before its own tests and the deferred dependency gate are resolved."
+  },
+  "review_policy": {
+    "phase_review_rounds": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "cl02-definition",
+      "goal": "Add a deeply immutable and serializable ToolDefinition with validated stable id, alias, version, provenance, schemas, effects/resource policy, and typed verification policy."
+    },
+    {
+      "id": "cl02-registration",
+      "goal": "Keep executor and verifier capabilities exclusively on RegisteredTool and define explicit per-call ToolExecutionContext and async protocols without changing legacy entry behavior."
+    },
+    {
+      "id": "cl02-result",
+      "goal": "Add typed ToolExecutionResult status/error/certainty/verification/terminal invariants and lossless ToolResultMessage projection for text, data, images, attachments, observation refs, and evidence refs."
+    },
+    {
+      "id": "cl02-upstream-port",
+      "goal": "Record the actual OpenHarness BaseTool/to_api_schema source port with its locked source hash, empty copied tests, explicit upstream test gap, and real local characterization nodes."
+    },
+    {
+      "id": "cl02-zero-drift",
+      "goal": "Keep all current registries, dispatchers, runtimes, domain owners, and production entry behavior unchanged while the canonical contracts remain additive."
+    }
+  ],
+  "allowed_deltas": [
+    "src/homemaster/tools/contracts.py additive canonical contracts",
+    "src/homemaster/tools/__init__.py canonical contract exports only if required",
+    "tests/homemaster/tools/test_definition.py and test_execution_result.py characterization/negative tests",
+    "plan/V1.9/upstream-port-manifest.json one locked CL-02 port record",
+    "plan/V1.9/execution/phase-0a-cl02/state.json phase state/evidence",
+    "no legacy ToolSpec, ToolRegistry, ToolDispatcher, runtime, benchmark, or app production behavior changes"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/tools/test_definition.py tests/homemaster/tools/test_execution_result.py",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "a1de092b4d621228f088a8736c93683a2b7a8ee1",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Read CL-02 and shared Phase 0A sections in the comparison spec and implementation plan, current ToolSpec/ToolResult/ToolRegistry/ToolDispatcher/runtime message owners and tests, locked OpenHarness tools/base.py, upstream grep evidence, and the formal upstream port manifest contract."
+    },
+    {
+      "kind": "implementation",
+      "status": "verified",
+      "details": "Added deep-frozen serializable ToolDefinition, RegisteredTool capability boundary, explicit ToolExecutionContext/protocols, typed ToolExecutionResult and lossless ToolResultMessage projection, plus locked OpenHarness BaseTool schema provenance. Focused contracts: 33 passed. Full non-live: 921 passed, 7 deselected, 1 pre-existing warning. Ruff, compileall, legacy-term guard, upstream manifest validator, diff-check, and legacy owner zero-delta checks passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The single allowed independent phase review has not been consumed; no GATE_PASSED claim is made while M0 live qualification remains deferred by user direction."
+    }
+  ],
+  "reviews": []
+}

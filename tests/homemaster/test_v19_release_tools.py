@@ -28,14 +28,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENHARNESS_ROOT = REPO_ROOT.parent / "OpenHarness"
 
 
-def test_bootstrap_upstream_port_manifest_is_valid_and_empty() -> None:
+def test_upstream_port_manifest_is_valid_with_cl02_port() -> None:
     report = validate_manifest(
         REPO_ROOT / "plan/V1.9/upstream-port-manifest.json", repo_root=REPO_ROOT
     )
     assert report == {
         "status": "PASS",
         "upstream_commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
-        "port_count": 0,
+        "port_count": 1,
     }
 
 
@@ -80,7 +80,7 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
                     "search_evidence": ["rg BaseTool tests"],
                 },
                 "characterization_test_ids": [
-                    "tests/homemaster/test_v19_release_tools.py::test_bootstrap_upstream_port_manifest_is_valid_and_empty"
+                    "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
                 ],
                 "sync_policy": "manual upstream comparison",
             }
@@ -98,7 +98,7 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
         validate_manifest(path, repo_root=REPO_ROOT)
 
     payload["ports"][0]["characterization_test_ids"] = [
-        "tests/homemaster/test_v19_release_tools.py::test_bootstrap_upstream_port_manifest_is_valid_and_empty"
+        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
     ]
     payload["ports"][0]["source"]["symbol"] = "DefinitelyNotInSource"
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -108,14 +108,14 @@ def test_port_without_upstream_tests_requires_gap_and_local_characterization(
     payload["ports"][0]["source"]["symbol"] = "BaseTool"
     payload["ports"][0]["characterization_test_ids"] = [
         "tests/homemaster/test_v19_release_tools.py::"
-        "test_bootstrap_upstream_port_manifest_is_valid_and_empty[definitely-not-collected]"
+        "test_upstream_port_manifest_is_valid_with_cl02_port[definitely-not-collected]"
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="parameter id"):
         validate_manifest(path, repo_root=REPO_ROOT)
 
     payload["ports"][0]["characterization_test_ids"] = [
-        "tests/homemaster/test_v19_release_tools.py::test_bootstrap_upstream_port_manifest_is_valid_and_empty"
+        "tests/homemaster/test_v19_release_tools.py::test_upstream_port_manifest_is_valid_with_cl02_port"
     ]
     payload["ports"][0]["upstream_test_gap"] = None
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -350,6 +350,12 @@ def test_import_identity_resolves_symlinks_before_containment(
 def test_baseline_capture_writes_exact_sanitized_contract_artifacts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # Phase -1's source lock is tested separately below. Later additive phases
+    # isolate serialization determinism from the expected production-tree drift.
+    monkeypatch.setattr(
+        "scripts.v19_release.capture_baseline._verify_locked_sources",
+        lambda **kwargs: None,
+    )
     monkeypatch.setattr(
         "scripts.v19_release.capture_baseline._run_pytest",
         lambda repo_root, *args: SimpleNamespace(
