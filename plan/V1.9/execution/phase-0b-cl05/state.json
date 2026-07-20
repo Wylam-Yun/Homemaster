@@ -4,7 +4,7 @@
   "change_list": "CL-05-tool-execution-pipeline",
   "status": "VERIFYING",
   "source_commits": {
-    "homemaster": "3201865d9ec2cc54d2700183a3e8d4478dc43f9e",
+    "homemaster": "cef2287",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
@@ -87,12 +87,12 @@
     {
       "kind": "focused_tests",
       "status": "pass",
-      "details": "CL-05 validation/pipeline/retry/permission suite: 33 passed; includes copied-name permission and single/parallel exception pairing assertions."
+      "details": "CL-05 validation/pipeline/retry/permission suite plus retry stage-order, pending-verification receipt preservation, frozen-view executor isolation, and same-resource serialization passed."
     },
     {
       "kind": "non_live_suite",
       "status": "pass",
-      "details": "Full non-live suite: 975 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+      "details": "Full non-live suite after grouped-review remediation: 999 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
     },
     {
       "kind": "static_gates",
@@ -101,9 +101,19 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "Per user policy, one grouped independent review is deferred until CL-05, CL-06, and CL-07 implementations and tests all pass."
+      "status": "pass",
+      "details": "Unique grouped independent review completed once. Eleven findings were remediated in cef2287; no second grouped review is permitted."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl05-cl07-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": 11,
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "cef2287"
+    }
+  ]
 }

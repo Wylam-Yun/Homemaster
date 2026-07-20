@@ -4,7 +4,7 @@
   "change_list": "CL-07-environment-tool-profiles",
   "status": "VERIFYING",
   "source_commits": {
-    "homemaster": "d7435b2500e90ba6eb7a3e49e7ada502f81dfe08",
+    "homemaster": "cef2287",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
@@ -47,7 +47,7 @@
     {
       "kind": "implementation",
       "status": "pass",
-      "details": "Canonical Home/ALFWorld/Coworker Catalog/View profiles use one shared ObservationService and environment-specific definitions/policies; profile adapter SHA-256 06f5d73c8aa99e172ef2eaedd384e067f860fe474b375f966bc7e4e49f279313."
+      "details": "Canonical Home/ALFWorld/Coworker profiles now have environment-specific observation executors/verifiers/schemas and concrete Home/ALFWorld/Coworker capture adapters; implementation is in cef2287."
     },
     {
       "kind": "surface_contract",
@@ -57,17 +57,17 @@
     {
       "kind": "implicit_media_removal",
       "status": "pass",
-      "details": "Dispatcher frame_path conversion, ALF initial image injection, and ALF action/verify result image attachment were removed; prompts and skills now require explicit observe."
+      "details": "Dispatcher frame_path conversion, ALF initial image injection, and ALF action/verify result image attachment remain removed; legacy ALF runner now registers an explicit observe compatibility tool, while Home/Coworker model surfaces use canonical robot_go_to/observe aliases."
     },
     {
       "kind": "focused_tests",
       "status": "pass",
-      "details": "Profile/no-implicit-media/transcript plus impacted prompt, dispatcher, tools, and release suites: 29 passed."
+      "details": "Profile/no-implicit-media/transcript, explicit ALF observe, canonical alias, verifier, and impacted prompt/dispatcher/tool suites passed."
     },
     {
       "kind": "non_live_suite",
       "status": "pass",
-      "details": "Full non-live suite: 990 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+      "details": "Full non-live suite after grouped-review remediation: 999 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
     },
     {
       "kind": "static_gates",
@@ -76,9 +76,19 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "The required single independent CL-05/06/07 grouped review begins after this phase commit."
+      "status": "pass",
+      "details": "Required single independent CL-05/06/07 grouped review completed once. All eleven findings, including real runner aliases, environment capture, verifier evidence, retry stages, and concurrency, were remediated in cef2287."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl05-cl07-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": 11,
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "cef2287"
+    }
+  ]
 }

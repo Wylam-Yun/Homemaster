@@ -4,7 +4,7 @@
   "change_list": "CL-06-observation-service",
   "status": "VERIFYING",
   "source_commits": {
-    "homemaster": "f36dd476845d0e2c148d86ad51d3ced90f1c2e8c",
+    "homemaster": "cef2287",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
@@ -46,17 +46,17 @@
     {
       "kind": "provider_contract",
       "status": "pass",
-      "details": "OutboundImageBinding carries optional observation identity/hash/sequence metadata; generic runtime snapshots provider inputs per attempt and retries without recapture. Baseline provider contract refreshed with SHA-256 63593316390b8471bef3c7bb50a9774e62bf6de51233eb4d00cb3c81388cfd9b."
+      "details": "ProviderAttemptRecord carries exact outbound observation bindings; successful unmodified attempts alone can bind current observations, and GenericAgentRuntime invokes the run-scoped provider commit observer before tool dispatch."
     },
     {
       "kind": "focused_tests",
       "status": "pass",
-      "details": "Observation and frozen-binding suites: 11 passed; existing LLM/model-view/runtime regressions: 31 passed."
+      "details": "Observation, frozen-binding, lower-sequence freshness, provider commit-order, LLM serialization, and runtime regression suites passed."
     },
     {
       "kind": "non_live_suite",
       "status": "pass",
-      "details": "Full non-live suite: 983 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+      "details": "Full non-live suite after grouped-review remediation: 999 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
     },
     {
       "kind": "static_gates",
@@ -65,9 +65,19 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "One grouped independent review remains deferred until CL-05, CL-06, and CL-07 are complete."
+      "status": "pass",
+      "details": "Unique grouped independent review completed once; forged binding, missing provider boundary, and stale freshness findings were remediated in cef2287."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl05-cl07-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": 11,
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "cef2287"
+    }
+  ]
 }

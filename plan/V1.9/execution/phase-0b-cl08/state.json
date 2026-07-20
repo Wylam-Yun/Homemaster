@@ -1,0 +1,69 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0B-CL08",
+  "change_list": "CL-08-application-contracts-resource-scope",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "cef2287",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl05": "VERIFYING",
+    "cl06": "VERIFYING",
+    "cl07": "VERIFYING",
+    "exception": "Implementation-first stacking; CL-08/09/10 grouped review and deferred hkust4/live gates remain pending."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-08", "CL-09", "CL-10"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/application/__init__.py",
+    "src/homemaster/application/contracts.py",
+    "src/homemaster/application/resources.py",
+    "tests/homemaster/application/test_resource_scope.py",
+    "plan/V1.9/execution/phase-0b-cl08/state.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/application/test_resource_scope.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "fe7a986",
+  "evidence": [
+    {
+      "kind": "contracts",
+      "status": "pass",
+      "details": "RunRequest, RunResult, RunPolicy, TerminalPolicy, EnvironmentBackend, ResourceBinding, ownership and lifetime enums are immutable and validate metadata/tool-id contracts."
+    },
+    {
+      "kind": "resource_scope",
+      "status": "pass",
+      "details": "RunResourceScope registers each successful acquisition before startup, rolls back in reverse order, closes owned resources once, never closes borrowed resources, continues after close errors, and preserves a primary exception."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "Resource lifecycle and contract tests: 5 passed."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "Full non-live suite: 999 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Ruff, compileall, and git diff --check passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "Grouped CL-08/09/10 review is reserved for the single review after CL-10."
+    }
+  ],
+  "reviews": []
+}
