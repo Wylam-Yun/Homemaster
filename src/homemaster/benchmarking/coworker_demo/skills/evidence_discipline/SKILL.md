@@ -1,7 +1,7 @@
 ---
 name: evidence_discipline
 description: Keep business conclusions bound to current-run external receipts and readback.
-tool_names: ["browser_observe", "browser_click", "browser_wait", "terminal_execute", "sop_decide", "task_progress_check"]
+tool_names: ["observe", "browser_click", "browser_wait", "terminal_execute", "sop_decide", "task_progress_check"]
 constraints: ["Never reuse evidence from another run or stage.", "A submitted action is not a completed external state change."]
 success_criteria: ["Each decision cites returned evidence references.", "Process status and independent readback agree."]
 version: v1

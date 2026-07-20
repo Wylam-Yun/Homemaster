@@ -584,13 +584,8 @@ def _initial_model_trace_state(
 
 
 def _initial_user_content(prompt: str, frame_path: str | None) -> list[ContentBlock]:
-    content = [ContentBlock(text=prompt)]
-    if frame_path:
-        try:
-            content.append(ContentBlock.from_image_path(frame_path))
-        except OSError:
-            pass
-    return content
+    del frame_path
+    return [ContentBlock(text=prompt)]
 
 
 # ----------------------------------------------------------------------

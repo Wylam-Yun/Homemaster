@@ -382,7 +382,7 @@ def test_baseline_capture_writes_exact_sanitized_contract_artifacts(
     )
     assert {path.name for path in output.iterdir()} == BASELINE_FILES
     surfaces = json.loads((output / "tool-surfaces.json").read_text(encoding="utf-8"))
-    assert surfaces["profiles"]["coworker"]["ordered_tool_names"][4] == "browser_observe"
+    assert surfaces["profiles"]["coworker"]["ordered_tool_names"][4] == "observe"
     assert len(surfaces["profiles"]["coworker"]["ordered_tool_names"]) == 11
     for path in output.iterdir():
         assert str(REPO_ROOT) not in path.read_text(encoding="utf-8")

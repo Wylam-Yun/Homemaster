@@ -1,7 +1,7 @@
 ---
 name: check_object_state
 description: Navigate to a location, observe a target object, and report its state to the user.
-tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_navigate", "robot_observe", "robot_verify", "memory_writer", "task_summarizer"]
+tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_go_to", "observe", "robot_verify", "memory_writer", "task_summarizer"]
 constraints: ["Must ground target before navigating", "Must verify observation before reporting"]
 success_criteria: ["Object state reported to user", "Memory updated with findings"]
 ---
@@ -16,8 +16,8 @@ navigation and perception to locate and observe objects, then reports findings t
 - **task_interpreter**: Extracts target object from user request
 - **memory_retriever**: Queries object memory for likely locations
 - **target_grounder**: Selects best location candidate
-- **robot_navigate**: Moves robot to candidate location
-- **robot_observe**: Observes object state
+- **robot_go_to**: Moves robot to candidate location
+- **observe**: Observes object state
 - **robot_verify**: Confirms observation matches expectations
 - **memory_writer**: Updates memory with observations
 - **task_summarizer**: Records task completion

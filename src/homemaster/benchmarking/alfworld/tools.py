@@ -71,12 +71,11 @@ def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResultMe
     outcome = run_context.deps.get("alfworld_episode_outcome")
     if outcome is not None:
         outcome.backend_action_count += int(getattr(step_result, "backend_action_count", 0))
-    return _visual_tool_result(
+    return _receipt_tool_result(
         name=step_result.tool_name,
         success=step_result.success,
         data=data,
         failure_reason=step_result.failure_reason,
-        frame_path=step_result.state.frame_path,
         is_error=step_result.execution_feedback.terminal,
     )
 
@@ -88,7 +87,6 @@ def _validation_failure(
     run_context: RunContext,
     error: Exception,
 ) -> ToolResultMessage:
-    state = _adapter(run_context).current_state
     feedback = make_execution_feedback(
         action=_feedback_action(tool_name, arguments),
         success=False,
@@ -100,12 +98,11 @@ def _validation_failure(
         or None,
     )
     data = feedback.to_model_payload()
-    return _visual_tool_result(
+    return _receipt_tool_result(
         name=tool_name,
         success=False,
         data=data,
         failure_reason=feedback.failure_reason,
-        frame_path=state.frame_path,
         is_error=True,
     )
 
@@ -218,37 +215,29 @@ def _exec_verify(
     )
     data = feedback.to_model_payload()
     if state.won:
-        return _visual_tool_result(
+        return _receipt_tool_result(
             name="robot_verify",
             success=True,
             data=data,
-            frame_path=state.frame_path,
         )
-    return _visual_tool_result(
+    return _receipt_tool_result(
         name="robot_verify",
         success=False,
         data=data,
         failure_reason=feedback.failure_reason,
-        frame_path=state.frame_path,
         is_error=False,
     )
 
 
-def _visual_tool_result(
+def _receipt_tool_result(
     *,
     name: str,
     success: bool,
     data: dict[str, Any],
-    frame_path: str | None,
     failure_reason: str | None = None,
     is_error: bool | None = None,
 ) -> ToolResultMessage:
     content = [ContentBlock(text=_json_dumps(data))]
-    if frame_path:
-        try:
-            content.append(ContentBlock.from_image_path(frame_path))
-        except OSError:
-            pass
     return ToolResultMessage(
         tool_call_id="",
         name=name,

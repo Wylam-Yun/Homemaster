@@ -1,0 +1,84 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0B-CL07",
+  "change_list": "CL-07-environment-tool-profiles",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "d7435b2500e90ba6eb7a3e49e7ada502f81dfe08",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl03": "VERIFYING",
+    "cl04": "VERIFYING",
+    "cl06": "VERIFYING",
+    "exception": "User directed implementation-first stacking; this phase completes the CL-05/06/07 group before its one independent review."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-05", "CL-06", "CL-07"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/adapters/__init__.py",
+    "src/homemaster/adapters/profiles.py",
+    "src/homemaster/domain/tools.py formal home navigation/observation aliases and compatibility metadata",
+    "src/homemaster/domain/tool_registry.py canonical legacy registry names",
+    "src/homemaster/benchmarking/alfworld/tools.py explicit observe compatibility executor",
+    "src/homemaster/benchmarking/alfworld/registry.py explicit observe compatibility registration",
+    "src/homemaster/benchmarking/coworker_demo/browser_tools.py observe model alias with legacy backend mapping",
+    "src/homemaster/benchmarking/coworker_demo/registry.py exact eleven-tool order",
+    "Home/ALFWorld/Coworker prompt and skill model-facing names",
+    "tests/homemaster/integration/test_observation_profiles.py",
+    "tests/homemaster/integration/test_no_implicit_model_media.py",
+    "tests/homemaster/integration/test_observation_transcript.py",
+    "tests updated for approved V1.9 profile deltas",
+    "plan/V1.9/baseline/tool-surfaces.json",
+    "plan/V1.9/execution/phase-0b-cl07/state.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/integration/test_observation_profiles.py tests/homemaster/integration/test_no_implicit_model_media.py tests/homemaster/integration/test_observation_transcript.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "d7435b2500e90ba6eb7a3e49e7ada502f81dfe08",
+  "evidence": [
+    {
+      "kind": "implementation",
+      "status": "pass",
+      "details": "Canonical Home/ALFWorld/Coworker Catalog/View profiles use one shared ObservationService and environment-specific definitions/policies; profile adapter SHA-256 06f5d73c8aa99e172ef2eaedd384e067f860fe474b375f966bc7e4e49f279313."
+    },
+    {
+      "kind": "surface_contract",
+      "status": "pass",
+      "details": "Each profile exposes exactly one observe alias; Home/ALF use robot_go_to only; Coworker remains exactly 11 ordered tools with observe fifth. Canonical surface artifact SHA-256 ffb7cc387772da81619511f1ac4fa5036af666eefa8f404dc5e1c78c6b34ec02."
+    },
+    {
+      "kind": "implicit_media_removal",
+      "status": "pass",
+      "details": "Dispatcher frame_path conversion, ALF initial image injection, and ALF action/verify result image attachment were removed; prompts and skills now require explicit observe."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "Profile/no-implicit-media/transcript plus impacted prompt, dispatcher, tools, and release suites: 29 passed."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "Full non-live suite: 990 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Ruff, compileall, git diff --check, legacy-term guard, and upstream port manifest validator passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The required single independent CL-05/06/07 grouped review begins after this phase commit."
+    }
+  ],
+  "reviews": []
+}

@@ -51,10 +51,19 @@ def build_episode_prompt(
         ]
     else:
         observation_lines = [
-            "Use camera observations and available actions to complete the task.",
-            "Tool results provide images and minimal execution status.",
-            "Each robot action result image is the latest observation after that action.",
-            "Inspect the latest image and success/error signal before choosing the next action.",
+            "Use the explicit observe tool and available actions to complete the task.",
+            (
+                "Action results provide receipts and minimal execution status; "
+                "they do not observe the world."
+            ),
+            (
+                "Call observe after actions when you need a fresh model-visible "
+                "environment observation."
+            ),
+            (
+                "Inspect the latest explicit observation and success/error signal "
+                "before choosing the next action."
+            ),
             (
                 "Use task_progress_check only to record progress judgments supported "
                 "by recent images or tool results."

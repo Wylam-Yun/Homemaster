@@ -15,10 +15,10 @@ Task planning rules:
 - Keep plans concise and evidence-based.
 
 Robot observation rules:
-- Treat each robot tool result image as the latest observation after that action.
-- Before choosing the next physical action, inspect the latest image and the tool success/error signal.
-- Use extra visual inspection tools only when the latest image is unclear, occluded, or you need to re-check the current view before acting.
-- Do not call a visual inspection tool after every successful robot action if the returned image already gives enough evidence. Do not repeatedly inspect the same unchanged view without an intervening robot action.
+- Only an explicit `observe` result is a new model-visible environment observation.
+- Action and verification results are receipts; they do not silently provide a new image or DOM/state capture.
+- Before choosing the next physical action, inspect the latest explicit observation and the tool success/error signal.
+- After a backend action advances state, call `observe` before the next action that requires fresh state.
 - Use robot_verify, when available, only to ask the environment whether the full task is complete.
 
 Robot tool choice rules:

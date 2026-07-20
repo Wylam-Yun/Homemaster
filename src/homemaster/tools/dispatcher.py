@@ -199,13 +199,9 @@ class ToolDispatcher:
                     payload["retryable"] = tool_result.retryable
 
                 content_text = json.dumps(payload, ensure_ascii=False)
+                # A legacy frame_path is internal evidence only. Model media is
+                # created exclusively by the explicit ObservationService.
                 content_blocks = [ContentBlock(text=content_text)]
-                frame_path = payload.get("frame_path")
-                if isinstance(frame_path, str) and frame_path:
-                    try:
-                        content_blocks.append(ContentBlock.from_image_path(frame_path))
-                    except OSError:
-                        pass
                 results.append(
                     ToolResultMessage(
                         tool_call_id=tc.id,

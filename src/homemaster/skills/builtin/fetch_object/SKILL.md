@@ -1,7 +1,7 @@
 ---
 name: fetch_object
 description: Navigate to a location, find a target object, pick it up, and deliver it to the user.
-tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_navigate", "robot_observe", "robot_manipulate", "robot_verify", "memory_writer", "task_summarizer"]
+tool_names: ["task_interpreter", "memory_retriever", "target_grounder", "skill_view", "robot_go_to", "observe", "robot_manipulate", "robot_verify", "memory_writer", "task_summarizer"]
 constraints: ["Must verify object identity before picking up", "Must check delivery target before placing"]
 success_criteria: ["Object delivered to user's location", "Memory updated with new object location"]
 ---
@@ -16,8 +16,8 @@ navigation, perception, and manipulation to locate, pick up, and deliver objects
 - **task_interpreter**: Extracts target object from user request
 - **memory_retriever**: Queries object memory for likely locations
 - **target_grounder**: Selects best location candidate
-- **robot_navigate**: Moves robot to candidate location
-- **robot_observe**: Confirms object presence
+- **robot_go_to**: Moves robot to candidate location
+- **observe**: Confirms object presence
 - **robot_manipulate**: Picks up and delivers the object
 - **robot_verify**: Confirms successful delivery
 - **memory_writer**: Updates object location after delivery

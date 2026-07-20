@@ -17,10 +17,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
-from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
+from homemaster.adapters import build_environment_profiles
 from homemaster.config import load_config
-from homemaster.domain.tool_registry import build_home_tool_registry
 from homemaster.providers.attempts import (
     AttemptCommitState,
     OutboundImageBinding,
@@ -219,34 +217,35 @@ def capture_baseline(
 
 
 def _tool_surfaces() -> dict[str, Any]:
-    registries = {
-        "home": build_home_tool_registry(),
-        "alfworld": build_alfworld_tool_registry(),
-        "coworker": build_coworker_tool_registry(),
-    }
     profiles = {}
-    for name, registry in registries.items():
+    for name, profile in build_environment_profiles().items():
         tools = []
-        for tool_name in registry.all_names():
-            spec = registry.get(tool_name)
-            if spec is None:
-                raise RuntimeError(f"registry lost tool: {tool_name}")
+        for registered in profile.view.list_tools():
+            definition = registered.definition
+            snapshot = definition.to_dict()
             tools.append(
                 {
-                    "name": spec.name,
-                    "selectable_by_model": spec.selectable_by_model,
-                    "executor_mode": spec.executor_mode,
-                    "requires_verification": spec.requires_verification,
-                    "input_schema_sha256": sha256_bytes(canonical_json_bytes(spec.input_schema)),
+                    "name": definition.model_alias,
+                    "selectable_by_model": True,
+                    "executor_mode": definition.execution_backend.value,
+                    "requires_verification": (
+                        definition.verification_policy.execution_proof.value != "none"
+                    ),
+                    "input_schema_sha256": sha256_bytes(
+                        canonical_json_bytes(snapshot["input_schema"])
+                    ),
                     "output_schema_sha256": sha256_bytes(
-                        canonical_json_bytes(spec.output_schema)
+                        canonical_json_bytes(snapshot["output_schema"])
                     ),
                     "model_manifest_sha256": sha256_bytes(
-                        canonical_json_bytes(spec.to_mimo_manifest())
+                        canonical_json_bytes(definition.to_model_manifest())
                     ),
                 }
             )
-        profiles[name] = {"ordered_tool_names": registry.all_names(), "tools": tools}
+        profiles[name] = {
+            "ordered_tool_names": list(profile.model_tool_names),
+            "tools": tools,
+        }
     return {"schema_version": "homemaster-v1.9-baseline-tool-surfaces-v1", "profiles": profiles}
 
 
