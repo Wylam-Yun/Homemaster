@@ -7,6 +7,7 @@ import signal
 import time
 import uuid
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -302,6 +303,11 @@ class GenericAgentRuntime:
                             if callable(invalidate):
                                 invalidate(f"{type(exc).__name__}: {exc}")
 
+                # Freeze provider inputs once so retry cannot recapture or rebuild media.
+                frozen_messages = [message.model_copy(deep=True) for message in context_messages]
+                frozen_tools = deepcopy(context_tools)
+                frozen_system_prompt = context_system_prompt
+
                 try:
                     attempt_index = 0
                     first_request_sha256: str | None = None
@@ -320,8 +326,8 @@ class GenericAgentRuntime:
                         )
                         attempt_sink = None
                         stream_kwargs = {
-                            "tools": context_tools,
-                            "system_prompt": context_system_prompt,
+                            "tools": frozen_tools,
+                            "system_prompt": frozen_system_prompt,
                             "event_sink": event_sink,
                             "run_id": run_id,
                             "session_id": session.session_id,
@@ -348,8 +354,8 @@ class GenericAgentRuntime:
                         deltas = []
                         try:
                             stream = self._transport.stream(
-                                context_messages,
-                                **stream_kwargs,
+                                [message.model_copy(deep=True) for message in frozen_messages],
+                                **{**stream_kwargs, "tools": deepcopy(frozen_tools)},
                             )
                             interrupt.set_stream(stream)
                             try:

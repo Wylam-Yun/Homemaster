@@ -14,6 +14,14 @@ class OutboundImageBinding:
     block_index: int
     frame_binding_id: str | None
     content_sha256: str
+    observation_id: str | None = None
+    observation_content_sha256: str | None = None
+    observation_pixel_sha256: str | None = None
+    observation_backend_id: str | None = None
+    observation_run_id: str | None = None
+    observation_generation: int | None = None
+    observation_state_sequence: int | None = None
+    observation_capture_event_sequence: int | None = None
 
 
 @dataclass(frozen=True)

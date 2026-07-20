@@ -455,17 +455,58 @@ def _attempt_record(
                 content = base64.b64decode(data, validate=True)
             except ValueError:
                 content = data.encode("ascii", errors="replace")
+            content_sha256 = hashlib.sha256(content).hexdigest()
             frame_binding_id = block.metadata.get("frame_binding_id")
+            observation_id = _optional_str(block.metadata.get("observation_id"))
+            observation_content_sha256 = _optional_str(
+                block.metadata.get("observation_content_sha256")
+            )
+            if observation_id is not None and observation_content_sha256 is None:
+                observation_content_sha256 = _optional_str(block.metadata.get("content_sha256"))
+            if (
+                observation_content_sha256 is not None
+                and observation_content_sha256 != content_sha256
+            ):
+                raise ValueError("outbound observation bytes do not match observation content hash")
             candidates.append(
                 (
-                    hashlib.sha256(content).hexdigest(),
+                    content_sha256,
                     OutboundImageBinding(
                         message_index=message_index,
                         block_index=block_index,
                         frame_binding_id=(
                             frame_binding_id if isinstance(frame_binding_id, str) else None
                         ),
-                        content_sha256=hashlib.sha256(content).hexdigest(),
+                        content_sha256=content_sha256,
+                        observation_id=observation_id,
+                        observation_content_sha256=observation_content_sha256,
+                        observation_pixel_sha256=_optional_str(
+                            block.metadata.get("observation_pixel_sha256")
+                            or block.metadata.get("pixel_sha256")
+                        ),
+                        observation_backend_id=_optional_str(
+                            block.metadata.get("observation_backend_id")
+                            or block.metadata.get("backend_id")
+                        ),
+                        observation_run_id=_optional_str(
+                            block.metadata.get("observation_run_id")
+                            or block.metadata.get("run_id")
+                        ),
+                        observation_generation=_optional_int(
+                            block.metadata.get("observation_generation")
+                            if "observation_generation" in block.metadata
+                            else block.metadata.get("generation")
+                        ),
+                        observation_state_sequence=_optional_int(
+                            block.metadata.get("observation_state_sequence")
+                            if "observation_state_sequence" in block.metadata
+                            else block.metadata.get("state_sequence")
+                        ),
+                        observation_capture_event_sequence=_optional_int(
+                            block.metadata.get("observation_capture_event_sequence")
+                            if "observation_capture_event_sequence" in block.metadata
+                            else block.metadata.get("capture_event_sequence")
+                        ),
                     ),
                 )
             )
@@ -488,6 +529,14 @@ def _attempt_record(
         error_type=error.error_type if error is not None else None,
         cause_code=error.cause_code if error is not None else None,
     )
+
+
+def _optional_str(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _serialized_image_contents(value: Any) -> list[bytes]:
