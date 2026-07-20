@@ -116,6 +116,7 @@ _PLAN_STATUSES = {
     "uncertain",
 }
 _PLAN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+_MAX_PLAN_ITEMS = 24
 _TOOL_PRESENTATION = {
     "task_planner": ("创建执行计划", "orchestration"),
     "task_progress_check": ("更新计划进度", "orchestration"),
@@ -264,7 +265,7 @@ def _safe_plan_snapshot(
 ) -> dict[str, Any] | None:
     source = _dict(value)
     subtasks = source.get("subtasks")
-    if not isinstance(subtasks, list) or len(subtasks) > 12:
+    if not isinstance(subtasks, list) or len(subtasks) > _MAX_PLAN_ITEMS:
         return None
     items: list[dict[str, str]] = []
     for raw_item in subtasks:

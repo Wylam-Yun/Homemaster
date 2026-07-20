@@ -229,7 +229,7 @@ def test_successful_task_snapshot_projects_bounded_plan() -> None:
 @pytest.mark.parametrize(
     "mutation",
     [
-        {"subtasks": [{"id": f"step-{index}", "description": "Step"} for index in range(13)]},
+        {"subtasks": [{"id": f"step-{index}", "description": "Step"} for index in range(25)]},
         {"subtasks": [{"id": "x" * 65, "description": "Step"}]},
         {"subtasks": [{"id": "step", "description": "x" * 161}]},
         {"subtasks": [{"id": "step", "description": "Step", "status": "failed"}]},
@@ -262,7 +262,7 @@ def test_exact_plan_and_reply_limits_are_accepted() -> None:
             payload={
                 "data": {
                     "subtasks": [
-                        {"id": f"step-{index}", "description": "x" * 160} for index in range(12)
+                        {"id": f"step-{index}", "description": "x" * 160} for index in range(24)
                     ],
                     "current_subtask": "step-0",
                     "next_focus": "x" * 240,
@@ -271,7 +271,7 @@ def test_exact_plan_and_reply_limits_are_accepted() -> None:
         )
     )
     reply = project_runtime_event(event("assistant.reply", payload={"reply": "x" * 1_200}))
-    assert len(plan["plan"]["items"]) == 12
+    assert len(plan["plan"]["items"]) == 24
     assert len(reply["public_model_output"]["text"]) == 1_200
 
 
