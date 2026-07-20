@@ -135,3 +135,26 @@ Controlled/scripted normal 与 anomaly 仅用于 presentation failure matrix 和
 accepted bundle，normal 与 anomaly 均保持 PASS；真实 trace 分别为 42/42 和
 44/44 request/response 完整配对。评审修复后的全量回归为 798 passed、
 1 skipped。
+
+## Integration 合并后复现
+
+`fix/integration-review-20260719` 在 merge commit `7b08ec0` 合入 coworker
+`019f89e` 后，使用同一真实 `homemaster shell` 入口、Mimo `mimo-v2.5`、连续
+H.264 录屏和独立 verifier 重新执行两种场景。
+
+首次 normal `coworker-20260720-104418-aba4fde6` 保留为失败 attempt：业务轨迹
+24/24、检查点 14/14、三项分数 100、视频验证通过，但真实模型生成的 15 项计划
+超过 presentation 的历史 12 项硬上限，导致 6 个成功 Planner/Progress 终态未被
+投影，`formal_success=false`。该 run 未被改写或列为接受结果。修复 `e57ef59`
+将仍然有界的展示上限与 normal 的 24 节点任务规模对齐；24 项接受、25 项拒绝的
+边界回归通过，失败 run 的 6 条不可变终态离线重放为 6/6 可投影。
+
+| 场景 | Run ID | 轨迹 | 检查点 | 终端返回码 | 终态 | 独立 verifier | 视频 SHA-256 |
+| --- | --- | ---: | ---: | --- | --- | --- | --- |
+| normal | `coworker-20260720-105825-348af0ad` | 24/24 | 14/14 | `[0]` | `complete` | PASS | `34a545b14a9c9c9159fa6b39ae33115145a8a7f0d619742b3caa3e5417f53ed5` |
+| post_change_anomaly | `coworker-20260720-110909-7fa97b1a` | 22/22 | 11/11 | `[0,1]` | `rolled_back` | PASS | `3e9c93f951d2593ae30e06148eaa7faf438c71f46af12f7bc5ca3ddb58a5b6f7` |
+
+合并与修复后的全量回归为 863 passed、1 skipped；Ruff、compileall 和术语守卫
+通过。ALFWorld 专属源码/测试未被本次 coworker 增量修改，定向回归为 169 passed、
+1 skipped；跳过项是需要显式配置 `HOMEMASTER_ALFWORLD_ROOT` 和
+`HOMEMASTER_ALFWORLD_CONFIG` 的真实 live smoke。
