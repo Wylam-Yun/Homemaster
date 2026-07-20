@@ -2,6 +2,123 @@
 
 最新记录放在最上方。
 
+## 2026-07-20 - 聚合存在性检查让缺失 Planner 和部分真实模型调用仍可通过验收
+
+严重程度：高。最终评审发现两个假阳性窗口：成功 Planner 结果可以静默丢弃不安全/超限 plan；provider 门只要求至少一个 request 和 response，不能证明完整实时推演都由真实模型响应驱动。
+
+### 症状与根因
+
+- `_safe_plan_snapshot()` 返回 `None` 后，投影仍发布 `tool.call_completed/succeeded`，导致页面保留旧计划或等待状态；verifier 又只检查“存在的 plan 是否属于 Planner”，没有检查“成功 Planner 是否必须有 plan”。
+- provider verifier 分别检查 request 列表和 response 列表非空，但不核对 iteration 缺失、重复、集合不一致、顺序颠倒或工具在成功响应前启动。
+- 两个门都把“至少有一个/已有的都合法”误当成“每个必需实例都合法”，属于聚合判据掩盖 per-instance 缺失。
+
+### 修法与教训
+
+- 成功 `task_planner` / `task_progress_check` 的安全快照无法生成时必须抛出投影错误，不能降级为无 plan 的成功事件。
+- 独立 presentation verifier 逐事件要求每个成功 Planner/进度结果带合法 plan。
+- provider verifier 要求每个 transport iteration 都是连续非负整数，request/response 各一次、集合相等、request 早于 response，且工具不能在成功 response 前启动。
+- 对必需实例验收，写“每一个”的反例 mutation 测试；不要用非空、any 或只验证现存项替代完整配对。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/presentation.py`
+- `scripts/coworker_demo/verify_run_bundle.py`
+- `tests/homemaster/benchmarking/coworker_demo/test_presentation_projection.py`
+- `tests/coworker_demo/test_verify_run_bundle_presentation.py`
+
+## 2026-07-20 - 长视频停止已成功却因客户端超时触发重复非幂等停止
+
+严重程度：高。真实 Mimo 已完成 24/24 轨迹、14/14 结果检查和 100 分，FFmpeg 也已正常退出并产出通过验证的 362 秒视频，但顶层 attempt 仍被标记失败。
+
+### 症状与根因
+
+- 通用环境请求超时固定为 20 秒，而长视频停止还要执行 ffprobe、首中末帧和多张命名事件帧解码，第一次 `recording/stop` 在服务端完成并返回 200 时，客户端已经超时。
+- 调用方只有在完整 HTTP 响应返回后才设置 `recording_stopped=True`，因此 `finally` 把超时误判成“尚未停止”，再次调用同一副作用接口。
+- 录制会话没有缓存完成结果，第二次停止继续向已正常退出的 FFmpeg stdin 写入 `q`，在 `flush()` 抛出 `BrokenPipeError` 并返回 500。
+- 业务分数、视频 manifest 和第一次 200 都是成功证据；attempt 失败属于生命周期协议错误，不能反向把真实模型或视频判成失败。
+
+### 修法与教训
+
+- `recording/stop` 使用 180 秒专用验证超时，不继承短请求的通用 20 秒预算。
+- 服务会话用互斥锁保护停止过程，并缓存 recorder/display 的完成结果；重复调用返回深拷贝缓存，不再触碰 FFmpeg 或 display。
+- 对“请求超时但服务端可能已执行”的副作用接口，必须同时设计足够的操作级超时与服务端幂等语义；仅在客户端加重试会把已成功的外部终态破坏掉。
+- 验收继续要求顶层 attempt 成功、外部返回码和独立 bundle verifier 同时通过，不能只因已存在可播放视频就接受失败 attempt。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/environment_client.py`
+- `apps/case02_openenv/src/case02_openenv/api.py`
+- `var/coworker-demo/coworker-20260720-022516-8c773877/`
+
+## 2026-07-20 - 命名事件帧跨过下一事件却仍通过像素门
+
+严重程度：高。manifest 的 source event、时间戳和像素统计都可以正确，但截图时刻已经进入下一条 presentation event，导致一张名为 `rollback_decision_required` 的帧实际显示 `progress_required`。
+
+### 症状与根因
+
+- 两个失败事件只相隔约 0.32 秒，recorder 固定使用 `source + 0.35s` 的 UI settle margin。
+- 独立 verifier 只核对 offset 公式、source event 存在和 observer 区域非空；下一事件同样是非空有效 UI，因此全部门都假绿。
+- controlled provider 连续返回工具调用，没有给 observer 留出稳定展示失败事件的窗口。
+
+### 修法与教训
+
+- 每个命名帧的 settle margin 取配置上限与“到下一 presentation event 间隔的一半”的较小值，保证取帧时刻严格早于下一事件。
+- 独立 verifier 反向检查每个命名帧不得跨过 source 后的下一事件；controlled failure profile 另留固定观察窗口。
+- 最终仍逐张人工判读 exact failure code、中文原因、失败工具和恢复折叠；source ID、非空像素和区域方差不能证明画面语义正确。
+
+### 参考
+
+- `apps/case02_openenv/src/case02_openenv/recording/recorder.py`
+- `scripts/coworker_demo/verify_run_bundle.py`
+- `var/coworker-demo/coworker-20260720-012043-f3f9680b/`（跨事件的反例）
+- `var/coworker-demo/coworker-20260720-014757-c9a55e12/`（修复后 anomaly PASS）
+
+## 2026-07-20 - attempt manifest 字段名与函数形参冲突让真实入口立即失败
+
+严重程度：高。Task 5 的 286 项单测、静态检查和 verifier mutation 全绿，但第一次真实 shell 黑盒 run 在分配目录后立刻抛出 `_update_attempt_manifest() got multiple values for argument 'run_root'`。
+
+### 症状与根因
+
+- helper 的第一个位置形参叫 `run_root`，manifest 同时需要写入名为 `run_root` 的字段。
+- 真实入口调用 `_update_attempt_manifest(run_root, run_root=str(run_root), ...)`，Python 在进入函数前就因重复绑定失败。
+- 单测只覆盖了 status/error 更新，没有使用与真实入口完全相同的 `run_root` 字段，因此内部 helper 绿不能证明顶层入口可运行。
+
+### 修法与教训
+
+- 将内部路径形参改名为 `artifact_root`，保留外部 manifest 的 `run_root` 字段。
+- 回归测试按真实入口参数形态创建 manifest，并由 normal/anomaly shell 黑盒 run 证明目录、视频和最终 bundle 都真实生成。
+- 修改生命周期 helper、参数名或 attempt tracking 后，必须跑至少一次顶层 CLI smoke；不能把 helper 单测当作入口验收。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/turn.py`
+- `tests/homemaster/benchmarking/coworker_demo/test_turn.py`
+- `var/coworker-demo/observable-failure-gate/shell-normal-observable_failures.stdout.log`
+
+## 2026-07-20 - 零失败轨迹无法证明异常原因在视频中可观察
+
+严重程度：高。clean scripted 视频和单测都可以通过，但没有失败实例时，无法证明真实 LLM 被门禁拒绝后，具体原因会持续显示并在匹配恢复后折叠。
+
+### 症状与根因
+
+- 旧演示只有成功路径，observer 的 latest result 很快被后续动作覆盖。
+- 展示投影若丢失稳定错误码，只剩通用失败文本，clean 轨迹仍不会暴露问题。
+- 聚合检查只要存在一张好图就通过，会掩盖其他 incident 帧错误。
+
+### 修法与教训
+
+- 发布前运行仅用于展示验收的 `observable_failures` profile，normal 和 anomaly 分别逐实例触发并恢复门禁错误。
+- 对全部稳定安全码分别验证投影、恢复规则和真实 Chrome open/resolved DOM；叙事黑盒 run 另外验证真实环境拒绝、连续视频和外部终态。
+- scripted gate 只证明展示能力，绝不替代最终 Mimo `mimo-v2.5` 实时执行验收。
+
+### 参考
+
+- `scripts/coworker_demo/scripted_shell_gate.py`
+- `tests/case02_openenv/test_observable_presentation.py`
+- `tests/case02_openenv/test_pages.py`
+- `var/coworker-demo/coworker-20260720-015325-2101b694/`（normal PASS）
+- `var/coworker-demo/coworker-20260720-014757-c9a55e12/`（anomaly PASS）
+
 ## 2026-07-16 - 正式成功门自引用产品 artifact 与视频结论
 
 严重程度：高。业务、轨迹和视频都可以真实成功，但若最终门把 `artifact_failure` 固定为 false、只校验 manifest 已列出的条目，或让独立 verifier 信任产品写入的帧结论，缺失、篡改和伪造证据仍可能被报告为正式成功。

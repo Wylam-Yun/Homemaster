@@ -3,12 +3,24 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from case02_openenv.models import EpisodePhase, RunState
+from case02_openenv.presentation_models import (
+    FAILURE_LABELS_ZH,
+    PresentationEvent,
+    PresentationInput,
+    PresentationSnapshot,
+    PresentationTask,
+)
+
+__all__ = [
+    "PresentationEvent",
+    "PresentationInput",
+    "PresentationSnapshot",
+    "PresentationTask",
+]
 
 MONITOR_BIDS = {
     "monitor-cluster",
@@ -44,95 +56,6 @@ class PresentationMappingError(RuntimeError):
     """Raised when an action cannot be mapped to trusted ticket text."""
 
 
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
-class PresentationInput(BaseModel):
-    runtime_event_type: Literal[
-        "tool.call_started",
-        "tool.call_completed",
-        "tool.call_failed",
-        "runtime.turn_completed",
-        "runtime.turn_failed",
-    ]
-    tool_call_id: str | None = None
-    action_id: str | None = None
-    tool_name: str | None = None
-    status: Literal["running", "accepted", "succeeded", "failed", "rejected"]
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    result: dict[str, Any] = Field(default_factory=dict)
-    evidence_refs: list[str] = Field(default_factory=list)
-    timestamp: datetime = Field(default_factory=utc_now)
-
-    @model_validator(mode="after")
-    def validate_lifecycle(self) -> PresentationInput:
-        allowed = {
-            "tool.call_started": {"running"},
-            "tool.call_completed": {"accepted", "succeeded"},
-            "tool.call_failed": {"failed", "rejected"},
-            "runtime.turn_completed": {"succeeded"},
-            "runtime.turn_failed": {"failed"},
-        }
-        if self.status not in allowed[self.runtime_event_type]:
-            raise ValueError(
-                f"status {self.status!r} is invalid for {self.runtime_event_type!r}"
-            )
-        if self.runtime_event_type.startswith("tool.") and (
-            not self.tool_call_id or not self.tool_call_id.strip()
-        ):
-            raise ValueError("tool lifecycle events require a nonempty tool_call_id")
-        if self.runtime_event_type.startswith("tool.") and (
-            not self.action_id or not self.action_id.strip()
-        ):
-            raise ValueError("tool lifecycle events require a nonempty action_id")
-        return self
-
-
-class PresentationTask(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    stage: str
-    check_name: str
-    source_field: Literal["operate_description", "operate_verified", "operate_rollback"]
-    source_text: str
-    source_sha256: str
-
-
-class PresentationEvent(BaseModel):
-    schema_version: Literal[1] = 1
-    event_id: str
-    sequence: int
-    run_id: str
-    event_type: str
-    timestamp: datetime
-    tool_call_id: str | None = None
-    action_id: str | None = None
-    stage: str
-    task: PresentationTask | None = None
-    tool_name: str | None = None
-    status: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-    result: dict[str, Any] = Field(default_factory=dict)
-    evidence_refs: list[str] = Field(default_factory=list)
-    failure: str | None = None
-
-
-class PresentationSnapshot(BaseModel):
-    schema_version: Literal[1] = 1
-    run_id: str
-    phase: EpisodePhase
-    stage: str
-    terminal_outcome: str | None = None
-    current_task: PresentationTask | None = None
-    in_flight: list[PresentationEvent] = Field(default_factory=list)
-    last_event: PresentationEvent | None = None
-    last_sequence: int = 0
-    completed_steps: list[PresentationTask] = Field(default_factory=list)
-    next_step: str
-    presentation_failures: list[str] = Field(default_factory=list)
-
-
 def ticket_task(
     ticket: dict[str, Any],
     stage: str,
@@ -166,7 +89,11 @@ def map_task(
     item: PresentationInput,
     previous: PresentationTask | None,
 ) -> PresentationTask | None:
-    if item.runtime_event_type in {"runtime.turn_completed", "runtime.turn_failed"}:
+    if item.runtime_event_type in {
+        "model.public_reply",
+        "runtime.turn_completed",
+        "runtime.turn_failed",
+    }:
         return previous
 
     arguments = item.arguments
@@ -195,14 +122,10 @@ def map_task(
             stage = "change_verified" if post else "check_before_change"
             return ticket_task(ticket, stage, 0, "operate_description")
         if route != "automation":
-            raise PresentationMappingError(
-                f"No trusted SOP mapping for browser_navigate:{route}"
-            )
+            raise PresentationMappingError(f"No trusted SOP mapping for browser_navigate:{route}")
         if route == "automation" and state.phase == EpisodePhase.ROLLBACK_SUBMITTED:
             return ticket_task(ticket, "change_implement", 0, "operate_rollback")
-        business_task = ticket_task(
-            ticket, "change_verified", 1, "operate_description"
-        )
+        business_task = ticket_task(ticket, "change_verified", 1, "operate_description")
         if previous is not None and (
             previous.stage == "change_implement" or previous == business_task
         ):
@@ -234,16 +157,10 @@ def map_task(
             return ticket_task(ticket, "change_verified", 1, "operate_description")
         if operation is None and previous is not None and previous.check_name == business_name:
             return previous
-        if (
-            operation is None
-            and previous is not None
-            and previous.stage == "change_implement"
-        ):
+        if operation is None and previous is not None and previous.stage == "change_implement":
             return previous
         if operation is None and item.tool_name == "browser_wait":
-            raise PresentationMappingError(
-                "No trusted SOP mapping for browser_wait:None"
-            )
+            raise PresentationMappingError("No trusted SOP mapping for browser_wait:None")
         return ticket_task(ticket, "change_implement", 0, "operate_description")
 
     if item.tool_name == "terminal_execute":
@@ -292,6 +209,7 @@ def verify_presentation_payload(
     events: list[PresentationEvent],
     mapping_failures: list[str],
     *,
+    snapshot: dict[str, Any],
     observer_was_alive: bool,
 ) -> dict[str, Any]:
     starts = {
@@ -299,32 +217,133 @@ def verify_presentation_payload(
         for event in events
         if event.status == "running" and event.tool_call_id
     }
-    terminal = {
-        event.tool_call_id: event
-        for event in events
-        if event.status in {"accepted", "succeeded", "failed", "rejected"}
-        and event.tool_call_id
-    }
     failures = list(dict.fromkeys(mapping_failures))
     for event in events:
+        if event.schema_version != 2:
+            failures.append(f"presentation_schema_version:{event.event_id}")
+        if event.event_type.startswith("tool.") and (
+            not event.tool_label_zh or not event.tool_kind
+        ):
+            failures.append(f"presentation_tool_metadata:{event.event_id}")
+        if event.status in {"failed", "rejected"} and event.failure_code not in FAILURE_LABELS_ZH:
+            failures.append(f"presentation_failure_code:{event.event_id}")
+        if event.public_model_output is not None and event.public_model_output.outcome not in {
+            "intermediate",
+            "terminal",
+            "premature",
+        }:
+            failures.append(f"presentation_public_reply_outcome:{event.event_id}")
+        if event.plan is not None and (
+            event.tool_name not in {"task_planner", "task_progress_check"}
+            or event.status != "succeeded"
+        ):
+            failures.append(f"presentation_plan_owner:{event.event_id}")
         if event.task is None:
             continue
         expected_hash = hashlib.sha256(event.task.source_text.encode("utf-8")).hexdigest()
         if expected_hash != event.task.source_sha256:
             failures.append(f"sop_source_hash_mismatch:{event.event_id}")
     for tool_call_id in sorted(starts):
-        completed = terminal.get(tool_call_id)
-        if completed is None:
+        completed = [
+            event
+            for event in events
+            if event.tool_call_id == tool_call_id
+            and event.status in {"accepted", "succeeded", "failed", "rejected"}
+        ]
+        if not completed:
             failures.append(f"missing_terminal_event:{tool_call_id}")
-        elif completed.action_id != starts[tool_call_id].action_id:
+        elif len(completed) != 1:
+            failures.append(f"terminal_event_count:{tool_call_id}:{len(completed)}")
+        elif completed[0].action_id != starts[tool_call_id].action_id:
             failures.append(f"action_id_mismatch:{tool_call_id}")
+
+    failed_by_action = {
+        event.action_id: event
+        for event in events
+        if event.status in {"failed", "rejected"} and event.action_id
+    }
+    events_by_sequence = {event.sequence: event for event in events}
+    incidents = snapshot.get("incidents") or []
+    incident_actions = {incident.get("failed_action_id") for incident in incidents}
+    for action_id in sorted(set(failed_by_action) - incident_actions):
+        failures.append(f"presentation_incident_missing:{action_id}")
+    for incident in incidents:
+        incident_id = incident.get("incident_id")
+        source = failed_by_action.get(incident.get("failed_action_id"))
+        if source is None:
+            failures.append(f"presentation_incident_orphan:{incident_id}")
+            continue
+        if incident.get("opened_sequence") != source.sequence:
+            failures.append(f"presentation_incident_sequence:{incident_id}")
+        if incident.get("failure_code") != source.failure_code:
+            failures.append(f"presentation_incident_code:{incident_id}")
+        recovery = incident.get("recovery")
+        if recovery is None:
+            if incident.get("status") != "open":
+                failures.append(f"presentation_recovery_missing:{incident_id}")
+            continue
+        resolved_sequence = recovery.get("resolved_sequence")
+        recovered_by = events_by_sequence.get(resolved_sequence)
+        if (
+            not isinstance(resolved_sequence, int)
+            or resolved_sequence <= source.sequence
+            or recovered_by is None
+            or recovered_by.status != "succeeded"
+        ):
+            failures.append(f"presentation_recovery_order:{incident_id}")
+            continue
+        if (
+            recovery.get("action_id") != recovered_by.action_id
+            or recovery.get("tool_name") != recovered_by.tool_name
+        ):
+            failures.append(f"presentation_recovery_event:{incident_id}")
+        if incident.get("status") != "resolved":
+            failures.append(f"presentation_recovery_status:{incident_id}")
+
+    event_sequences = set(events_by_sequence)
+    for entry in snapshot.get("critical_history") or []:
+        history_id = entry.get("history_id")
+        sequence = entry.get("sequence")
+        if sequence not in event_sequences:
+            failures.append(f"presentation_history_event:{history_id}")
+        if entry.get("kind") == "incident" and not any(
+            incident.get("opened_sequence") == sequence
+            and history_id == f"history-incident-{sequence:05d}"
+            for incident in incidents
+        ):
+            failures.append(f"presentation_history_incident:{history_id}")
+        if entry.get("kind") == "recovery" and not any(
+            (incident.get("recovery") or {}).get("resolved_sequence") == sequence
+            and history_id == f"history-recovery-{sequence:05d}"
+            for incident in incidents
+        ):
+            failures.append(f"presentation_history_incident:{history_id}")
+
+    serialized = json.dumps(
+        {
+            "events": [event.model_dump(mode="json") for event in events],
+            "snapshot": snapshot,
+        },
+        ensure_ascii=False,
+    ).lower()
+    for forbidden in (
+        "assistant.thinking",
+        '"prompt"',
+        '"headers"',
+        '"authorization"',
+        '"api_key"',
+        '"constraints"',
+        '"open_questions"',
+    ):
+        if forbidden in serialized:
+            failures.append(f"presentation_forbidden_field:{forbidden}")
     if not observer_was_alive:
         failures.append("observer_exited_before_recording_stop")
     if not any(event.task and event.task.source_text for event in events):
         failures.append("missing_sop_source_text")
     failures = list(dict.fromkeys(failures))
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "passed": not failures,
         "event_count": len(events),
         "tool_call_count": len(starts),

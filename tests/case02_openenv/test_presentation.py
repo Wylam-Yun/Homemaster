@@ -17,7 +17,9 @@ from case02_openenv.presentation import (
     display_stage,
     map_task,
     ticket_task,
+    verify_presentation_payload,
 )
+from case02_openenv.presentation_models import ObservablePlan
 from pydantic import ValidationError
 
 
@@ -34,6 +36,7 @@ def item(
             "tool.call_started": "running",
             "tool.call_completed": "succeeded",
             "tool.call_failed": "failed",
+            "model.public_reply": "succeeded",
             "runtime.turn_completed": "succeeded",
             "runtime.turn_failed": "failed",
         }[event_type]
@@ -55,6 +58,121 @@ def assert_ticket_source(task, ticket: dict, stage: str, index: int, field: str)
     assert task.source_field == field
     assert task.source_text == source[field]
     assert task.source_sha256 == hashlib.sha256(source[field].encode("utf-8")).hexdigest()
+
+
+def test_store_persists_public_reply_and_reclassifies_it_on_runtime_completion(store) -> None:
+    run_id = "presentation-public-reply"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="model.public_reply",
+            status="succeeded",
+            public_model_output={
+                "kind": "assistant_reply",
+                "text": "I will inspect the current state.",
+                "outcome": "intermediate",
+            },
+        ),
+    )
+    assert store.presentation_snapshot(run_id)["public_model_output"]["outcome"] == ("intermediate")
+
+    store.record_presentation(run_id, item(event_type="runtime.turn_completed"))
+    assert store.presentation_snapshot(run_id)["public_model_output"]["outcome"] == ("premature")
+
+
+def test_snapshot_reconnect_rebuilds_exact_wait_incident_and_recovery(store) -> None:
+    run_id = "presentation-wait-recovery"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-submit",
+            action_id="action-submit",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "automation-submit", "operation": "add"},
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-failed-wait",
+            action_id="action-failed-wait",
+            tool_name="browser_wait",
+            status="running",
+            arguments={"job_id": "job-add-abcdef1234", "target_status": "terminal"},
+        ),
+    )
+    failed = store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_failed",
+            tool_call_id="call-failed-wait",
+            action_id="action-failed-wait",
+            tool_name="browser_wait",
+            status="rejected",
+            failure_code="wait_required",
+        ),
+    )
+    assert failed.arguments["job_id"] == "job-add-abcdef1234"
+    failed_snapshot = store.presentation_snapshot(run_id)
+    assert failed_snapshot["last_result"]["failure_code"] == "wait_required"
+    assert failed_snapshot["incidents"][0]["target"] == {"job_id": "job-add-abcdef1234"}
+    assert failed_snapshot["incidents"][0]["status"] == "open"
+
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-wrong-wait",
+            action_id="action-wrong-wait",
+            tool_name="browser_wait",
+            status="succeeded",
+            result={"job_id": "job-add-other9999", "status": "succeeded"},
+        ),
+    )
+    assert store.presentation_snapshot(run_id)["incidents"][0]["status"] == "open"
+
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_completed",
+            tool_call_id="call-recovered-wait",
+            action_id="action-recovered-wait",
+            tool_name="browser_wait",
+            status="succeeded",
+            result={"job_id": "job-add-abcdef1234", "status": "succeeded"},
+        ),
+    )
+    recovered = store.presentation_snapshot(run_id)
+    assert recovered["incidents"][0]["status"] == "resolved"
+    assert recovered["incidents"][0]["recovery"]["action_id"] == "action-recovered-wait"
+    assert [entry["kind"] for entry in recovered["critical_history"]] == [
+        "incident",
+        "job",
+        "job",
+        "recovery",
+    ]
+
+
+def test_presentation_event_uses_recording_host_monotonic_offset(store, monkeypatch) -> None:
+    run_id = "presentation-monotonic-offset"
+    store.create(run_id, "normal")
+    store.set_recording_timebase(run_id, {"recording_started_monotonic_s": 100.0})
+    monkeypatch.setattr("case02_openenv.episode_store.time.monotonic", lambda: 105.25)
+
+    event = store.record_presentation(run_id, presentation_item())
+
+    assert event.monotonic_offset_s == 5.25
+    persisted = json.loads(
+        (store.episode(run_id).run_root / "presentation/events.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[0]
+    )
+    assert persisted["monotonic_offset_s"] == 5.25
 
 
 def test_store_maps_monitor_to_exact_pre_and_post_sop_text(store) -> None:
@@ -559,7 +677,7 @@ def test_store_appends_presentation_events_and_persists_snapshot(store) -> None:
     assert first.stage == "check_before_change"
     assert second.task.source_field == "operate_description"
     snapshot = store.presentation_snapshot(run_id)
-    assert snapshot["schema_version"] == 1
+    assert snapshot["schema_version"] == 2
     assert snapshot["stage"] == second.stage
     assert snapshot["last_event"]["event_id"] == second.event_id
     assert snapshot["last_sequence"] == 2
@@ -626,15 +744,11 @@ def test_presentation_snapshot_tracks_calls_dedupes_steps_and_returns_copies(sto
     store.record_presentation(run_id, legacy_no_id)
     store.record_presentation(
         run_id,
-        presentation_item(
-            call_id="call-1", event_type="tool.call_completed", status="succeeded"
-        ),
+        presentation_item(call_id="call-1", event_type="tool.call_completed", status="succeeded"),
     )
     store.record_presentation(
         run_id,
-        presentation_item(
-            call_id="call-2", event_type="tool.call_completed", status="succeeded"
-        ),
+        presentation_item(call_id="call-2", event_type="tool.call_completed", status="succeeded"),
     )
 
     snapshot = store.presentation_snapshot(run_id)
@@ -723,9 +837,7 @@ def test_append_failure_leaves_presentation_memory_and_files_unchanged(
     assert not snapshot_path.exists()
 
 
-def test_jsonl_rollback_failure_raises_explicit_consistency_error(
-    store, monkeypatch
-) -> None:
+def test_jsonl_rollback_failure_raises_explicit_consistency_error(store, monkeypatch) -> None:
     run_id = "presentation-rollback-failure"
     store.create(run_id, "normal")
 
@@ -771,9 +883,7 @@ def test_snapshot_failure_rolls_back_jsonl_and_memory(store, monkeypatch) -> Non
             ),
         )
 
-    assert [
-        event.model_dump(mode="json") for event in episode.presentation_events
-    ] == before_events
+    assert [event.model_dump(mode="json") for event in episode.presentation_events] == before_events
     assert episode.current_presentation_task is before_task
     assert episode.presentation_failures == before_failures
     assert events_path.read_bytes() == before_jsonl
@@ -873,11 +983,14 @@ def test_presentation_verifier_requires_terminal_results_for_every_tool(store) -
     assert report["passed"] is True
     assert report["event_count"] == 2
     assert report["tool_call_count"] == 1
-    assert json.loads(
-        (store.episode(run_id).run_root / "presentation/verification.json").read_text(
-            encoding="utf-8"
+    assert (
+        json.loads(
+            (store.episode(run_id).run_root / "presentation/verification.json").read_text(
+                encoding="utf-8"
+            )
         )
-    ) == report
+        == report
+    )
 
 
 def test_presentation_verifier_rejects_action_mismatch_and_dead_observer(store) -> None:
@@ -898,3 +1011,66 @@ def test_presentation_verifier_rejects_action_mismatch_and_dead_observer(store) 
         "action_id_mismatch:call-1",
         "observer_exited_before_recording_stop",
     ]
+
+
+def test_presentation_verifier_rejects_orphan_incident_and_unknown_history(store) -> None:
+    run_id = "presentation-contract-mutations"
+    store.create(run_id, "normal")
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_started",
+            tool_call_id="call-failed",
+            action_id="action-failed",
+            tool_name="browser_click",
+            status="running",
+            arguments={"bid": "ticket-query-extension-config"},
+        ),
+    )
+    store.record_presentation(
+        run_id,
+        PresentationInput(
+            runtime_event_type="tool.call_failed",
+            tool_call_id="call-failed",
+            action_id="action-failed",
+            tool_name="browser_click",
+            status="rejected",
+            failure_code="plan_required",
+        ),
+    )
+    snapshot = store.presentation_snapshot(run_id)
+    snapshot["incidents"][0]["failed_action_id"] = "orphan-action"
+    snapshot["critical_history"][0]["sequence"] = 999
+
+    report = verify_presentation_payload(
+        store.presentation_events(run_id),
+        [],
+        snapshot=snapshot,
+        observer_was_alive=True,
+    )
+
+    assert "presentation_incident_orphan:incident-00002" in report["failures"]
+    assert "presentation_history_event:history-incident-00002" in report["failures"]
+
+
+def test_presentation_verifier_rejects_plan_on_non_planner_and_forbidden_field(store) -> None:
+    run_id = "presentation-contract-owner"
+    store.create(run_id, "normal")
+    event = store.record_presentation(run_id, presentation_item())
+    mutated = event.model_copy(
+        update={
+            "plan": ObservablePlan(items=({"id": "x", "title": "x", "status": "in_progress"},)),
+            "arguments": {"prompt": "hidden"},
+        }
+    )
+    snapshot = store.presentation_snapshot(run_id)
+
+    report = verify_presentation_payload(
+        [mutated],
+        [],
+        snapshot=snapshot,
+        observer_was_alive=True,
+    )
+
+    assert f"presentation_plan_owner:{event.event_id}" in report["failures"]
+    assert 'presentation_forbidden_field:"prompt"' in report["failures"]

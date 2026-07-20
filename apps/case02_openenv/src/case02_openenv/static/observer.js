@@ -18,7 +18,6 @@
     "rejected",
     "anomaly",
   ]);
-  const completedKeys = new Set();
   let presentationGeneration = null;
   let lastSequence = 0;
 
@@ -36,16 +35,14 @@
     const projected = {};
     keys.forEach((key) => {
       const item = value[key];
-      projected[key] = item && typeof item === "object"
-        ? safeObjectText(item)
-        : item;
+      projected[key] = item && typeof item === "object" ? safeObjectText(item) : item;
     });
     return JSON.stringify(projected, null, 2);
   };
   const statusValue = (status) => closedStatuses.has(status) ? status : "anomaly";
   const showStatus = (status, label) => {
     const value = statusValue(status);
-    const target = node("latest-result-status");
+    const target = node("environment-result-status");
     target.dataset.status = value;
     target.className = `observer-status status-${value}`;
     target.textContent = label || value.toUpperCase();
@@ -66,52 +63,94 @@
     setText("current-sop-name", task && task.check_name, "等待 Agent 读取变更单");
     setText("current-sop-text", task && task.source_text, "等待原始 SOP 文本");
   };
-  const renderCompleted = () => {
-    const items = [];
-    completedKeys.forEach((encoded) => {
-      const item = document.createElement("li");
-      item.textContent = encoded.split("\u0000", 2)[1] || encoded;
-      items.push(item);
-    });
-    node("completed-steps").replaceChildren(...items);
+  const renderPlanItem = (entry) => {
+    const item = document.createElement("li");
+    item.dataset.status = entry.status;
+    item.textContent = `${entry.title} · ${entry.status}`;
+    return item;
   };
-  const addCompleted = (event) => {
-    if (event.status === "succeeded" && !event.failure && event.task) {
-      const key = event.task.source_sha256 || event.task.check_name;
-      completedKeys.add(`${key}\u0000${event.task.check_name}`);
-      renderCompleted();
-    }
+  const renderPlan = (plan) => {
+    const items = (plan && plan.items) || [];
+    const active = items.find((entry) => entry.id === (plan && plan.current_id));
+    setText("plan-active", active && active.title, "等待模型创建计划");
+    setText("plan-current", plan && plan.current_id);
+    setText("plan-next", plan && plan.next_focus);
+    const rows = items
+      .filter((entry) => !active || entry.id !== active.id)
+      .map(renderPlanItem);
+    node("model-plan").replaceChildren(...rows);
   };
-  const renderEvent = (event) => {
-    if (!event) return;
-    setText("current-stage", stageLabel(event.stage));
-    renderStages(event.stage);
-    if (event.task) renderTask(event.task);
-    setText("current-tool-name", event.tool_name, "等待 Agent 操作");
-    setText("current-tool-arguments", safeObjectText(event.arguments));
-    showStatus(event.failure ? "failed" : event.status);
-    if (event.failure) {
-      setText("latest-result-summary", "Action failed; successful output was not recorded.");
-    } else {
-      setText("latest-result-summary", safeObjectText(event.result), "执行状态已更新");
+  const renderModelOutput = (action, publicOutput) => {
+    const kinds = [];
+    if (action) kinds.push("tool_call");
+    if (publicOutput) kinds.push(`${publicOutput.kind}/${publicOutput.outcome}`);
+    setText("model-output-kind", kinds.join(" · "), "等待模型输出");
+    setText("model-output-tool", action && action.tool_name, "等待模型选择工具");
+    setText("model-output-tool-label", action && action.tool_label_zh);
+    setText("model-output-tool-kind", action && action.tool_kind);
+    setText("model-output-arguments", safeObjectText(action && action.arguments));
+    setText("public-model-reply", publicOutput && publicOutput.text);
+  };
+  const renderEnvironmentResult = (result) => {
+    if (!result) {
+      showStatus("running", "等待结果");
+      setText("environment-result-summary", "尚无执行结果");
+      setText("environment-result-failure", "—");
+      return;
     }
-    setText("latest-result-evidence", (event.evidence_refs || []).join(" · "));
-    addCompleted(event);
+    showStatus(result.status);
+    setText("environment-result-summary", safeObjectText(result.result), "执行状态已更新");
+    setText("environment-result-failure", result.failure_code);
+  };
+  const renderSummaryTerm = (term) => {
+    if (!term) return "—";
+    const values = safeObjectText(term.values);
+    return values === "—" ? term.label_zh : `${term.label_zh} · ${values}`;
+  };
+  const renderDecisionSummary = (summary) => {
+    setText("decision-fact", renderSummaryTerm(summary && summary.fact));
+    setText("decision-judgment", renderSummaryTerm(summary && summary.judgment));
+    setText("decision-next", renderSummaryTerm(summary && summary.next_action));
+  };
+  const renderResolvedIncident = (entry) => {
+    const item = document.createElement("li");
+    item.dataset.status = "resolved";
+    item.textContent = `${entry.label_zh} · ${entry.recovery.tool_name}`;
+    return item;
+  };
+  const renderHistoryEntry = (entry) => {
+    const item = document.createElement("li");
+    item.dataset.kind = entry.kind;
+    item.textContent = `${entry.label_zh} · ${entry.status}`;
+    return item;
+  };
+  const renderIncidents = (incidents) => {
+    const all = incidents || [];
+    const open = [...all].reverse().find((entry) => entry.status === "open");
+    const target = node("open-incident");
+    target.dataset.status = open ? "open" : "clear";
+    target.textContent = open
+      ? `${open.failure_code} · ${open.label_zh} · ${open.failed_tool} · ${safeObjectText(open.target)}`
+      : "当前无未恢复异常";
+    const resolved = all.filter((entry) => entry.status === "resolved").slice(-2);
+    node("resolved-incidents").replaceChildren(...resolved.map(renderResolvedIncident));
+  };
+  const renderCriticalHistory = (history) => {
+    const latest = (history || []).slice(-4);
+    node("critical-history").replaceChildren(...latest.map(renderHistoryEntry));
   };
   const clearDynamicState = () => {
-    completedKeys.clear();
-    renderCompleted();
     setText("current-stage", "等待开始");
     renderStages("");
     renderTask(null);
-    setText("current-tool-name", "等待 Agent 操作");
-    setText("current-tool-arguments", "—");
-    showStatus("running", "等待结果");
-    setText("latest-result-summary", "尚无执行结果");
-    setText("latest-result-evidence", "—");
-    setText("next-step", "等待 Agent 读取变更单");
-    setText("run-outcome", "IN PROGRESS");
-    setText("score-summary", "PENDING EVALUATION");
+    renderPlan(null);
+    renderModelOutput(null, null);
+    renderEnvironmentResult(null);
+    renderDecisionSummary(null);
+    renderIncidents([]);
+    renderCriticalHistory([]);
+    setText("run-outcome", "进行中");
+    setText("score-summary", "等待评估");
   };
   const applySnapshot = (snapshot) => {
     const generation = Number(snapshot.presentation_generation || 0);
@@ -129,36 +168,34 @@
     }
     presentationGeneration = generation;
     lastSequence = snapshotSequence;
-    completedKeys.clear();
-    (snapshot.completed_steps || []).forEach((task) => {
-      const key = task.source_sha256 || task.check_name;
-      completedKeys.add(`${key}\u0000${task.check_name}`);
-    });
-    renderCompleted();
     renderTask(snapshot.current_task);
-    if (snapshot.last_event) renderEvent(snapshot.last_event);
+    renderPlan(snapshot.plan);
+    renderModelOutput(snapshot.current_action, snapshot.public_model_output);
+    renderEnvironmentResult(snapshot.last_result);
+    renderDecisionSummary(snapshot.decision_summary);
+    renderIncidents(snapshot.incidents);
+    renderCriticalHistory(snapshot.critical_history);
     setText("current-stage", stageLabel(snapshot.stage));
     renderStages(snapshot.stage);
-    setText("next-step", snapshot.next_step, "等待 Agent 读取变更单");
-    setText("run-outcome", snapshot.terminal_outcome, "IN PROGRESS");
-    const score = snapshot.last_event && snapshot.last_event.result
-      ? snapshot.last_event.result.score_summary
-      : null;
-    setText("score-summary", safeObjectText(score), "PENDING EVALUATION");
+    setText("run-outcome", snapshot.terminal_outcome, "进行中");
     return true;
   };
   const applyEvent = (event) => {
     if (!Number.isFinite(event.sequence) || event.sequence <= lastSequence) return false;
     lastSequence = event.sequence;
-    renderEvent(event);
+    if (event.event_type === "tool.call_started") renderModelOutput(event, null);
+    if (["accepted", "succeeded", "failed", "rejected"].includes(event.status)) {
+      renderEnvironmentResult(event);
+    }
+    if (event.decision_summary) renderDecisionSummary(event.decision_summary);
     return true;
   };
   const parseData = (message, apply) => {
     try {
       apply(JSON.parse(message.data));
     } catch (_error) {
-      showStatus("anomaly", "STREAM DATA UNAVAILABLE");
-      setText("latest-result-summary", "Waiting for the next safe presentation update.");
+      showStatus("anomaly", "数据不可用");
+      setText("environment-result-summary", "等待下一条安全展示事件");
     }
   };
   const refreshSnapshot = () => fetch(`/api/runs/${runId}/presentation`)
@@ -200,8 +237,8 @@
       });
     });
     stream.onerror = () => {
-      showStatus("anomaly", "RECONNECTING");
-      setText("latest-result-summary", "Live presentation stream reconnecting…");
+      showStatus("anomaly", "正在重连");
+      setText("environment-result-summary", "实时展示流正在重连");
     };
   };
   refreshSnapshot().finally(() => {

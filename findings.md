@@ -1,4 +1,24 @@
-# ALFWorld Harness Findings
+# Current Coworker Demo Findings
+
+## 2026-07-20 Recording Stop Root Cause
+
+- Failed real normal attempt: `var/coworker-demo/coworker-20260720-022516-8c773877/`.
+- Model/provider path was real Mimo `mimo-v2.5`; business state reached 24/24 trajectory nodes, 14/14 result checkpoints, overall 100, and terminal complete.
+- `video/video_manifest.json` proves FFmpeg return code 0, H.264 1920x1080/yuv420p, 362.066667 seconds, 5431 frames, verified named frames, and SHA-256 `b545af36773eeae1a9629c2e582a5859453e91151bd7ddd94dbc6ec6da377f87`.
+- `environment/process/service.stdout.log` records the first `POST .../recording/stop` as 200 OK and the cleanup retry as 500 Internal Server Error.
+- `environment/process/service.stderr.log` locates the retry failure at `DemoRecorder.stop -> self.process.stdin.flush -> BrokenPipeError`.
+- Root cause: the client inherited a 20-second generic request timeout for a long video verification operation; the caller marked recording stopped only after response receipt; the non-idempotent cleanup retry touched an already-closed FFmpeg process.
+- Fix contract: 180-second dedicated stop timeout plus lock-protected cached stop result at the service session boundary.
+- Orthogonal black-box gate `recording-stop-gate-20260720-024549` started the real service, TigerVNC, and FFmpeg, then issued two HTTP stop requests. Both returned 200 with FFmpeg code 0 and SHA-256 `d9f4c807743cff81596ea0f9a9cae4775b2af1aa1bf950293c27bc53a9186835`, matching the 340606-byte MP4 on disk.
+
+## 2026-07-20 Final Real Acceptance
+
+- Accepted normal: `coworker-20260720-024949-b7004546`, Mimo `mimo-v2.5`, 42 provider calls, 43 tool calls, 2 rejected calls, 24/24 nodes, 14/14 checkpoints, complete, video SHA-256 `9e4ae3e59e63eecbc586367a6224b7955d1a2571ce9d4f45e1c1c200ea3ac37c`, independent verifier PASS.
+- Accepted anomaly: `coworker-20260720-025635-a46d87ca`, Mimo `mimo-v2.5`, 44 provider calls, 44 tool calls, 6 rejected calls, 22/22 nodes, 11/11 checkpoints, rolled_back, video SHA-256 `5308921986a4997413de0ee68d5f99e8c37093920048c96274cd0d2650fe3715`, independent verifier PASS.
+- Normal external state retains the exact four-field config record and both add/business jobs returned 0. Anomaly state binds the causal alarm to the exact add job, add/remove returned 0, grep changed from 0 to 1 with empty rollback stdout, and final config is `{}`.
+- Every named frame was inspected. The anomaly first-action frame catches Chrome during navigation, but the right observer identifies `browser_navigate`; an independent frame from the same MP4 at 10 seconds shows the ticket loaded and success result.
+
+# Historical ALFWorld Harness Findings
 
 ## 2026-07-12 Initial State
 

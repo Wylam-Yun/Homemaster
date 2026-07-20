@@ -145,9 +145,7 @@ def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> Non
     assert requests == [
         {
             "model": "mimo-v2-pro",
-            "messages": [
-                {"role": "user", "content": [{"type": "text", "text": "prompt body"}]}
-            ],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "prompt body"}]}],
             "max_tokens": 4096,
             "temperature": 0.0,
         }
@@ -158,6 +156,40 @@ def test_extract_json_payload_accepts_plain_json() -> None:
     payload = extract_json_payload('{"task_type": "check_presence", "target": "药盒"}')
 
     assert payload == {"task_type": "check_presence", "target": "药盒"}
+
+
+def test_successful_stream_emits_external_response_completed_event() -> None:
+    requests: list[dict[str, Any]] = []
+    constructions: list[dict[str, Any]] = []
+    events = [
+        {"type": "message_start", "message": {}},
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "ok"},
+        },
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+    ]
+    emitted: list[Any] = []
+
+    class Sink:
+        def emit(self, event: Any) -> None:
+            emitted.append(event)
+
+    client = LLMClient(
+        _provider(),
+        event_sink=Sink(),
+        run_id="run-a",
+        anthropic_client_factory=_anthropic_factory(events, requests, constructions),
+    )
+    client.complete([], session_id="session-a", turn_index=0, iteration=1)
+
+    assert [event.type for event in emitted] == [
+        "transport.request_started",
+        "transport.response_completed",
+    ]
+    assert emitted[-1].payload["model"] == "mimo-v2-pro"
+    assert emitted[-1].payload["status"] == "ok"
 
 
 def test_llm_client_rejects_anthropic_thinking_without_text_for_json_parsing() -> None:
@@ -286,14 +318,16 @@ def test_llm_client_exposes_multimodal_corruption_without_stripping_images(tmp_p
     )
 
     with pytest.raises(LLMProviderError) as exc_info:
-        client.complete([
-            UserMessage(
-                content=[
-                    ContentBlock(text="Look"),
-                    ContentBlock.from_image_path(image_path),
-                ]
-            )
-        ])
+        client.complete(
+            [
+                UserMessage(
+                    content=[
+                        ContentBlock(text="Look"),
+                        ContentBlock.from_image_path(image_path),
+                    ]
+                )
+            ]
+        )
 
     assert exc_info.value.error_type == "provider_error"
     assert "Multimodal data is corrupted" in exc_info.value.message
@@ -353,20 +387,23 @@ def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_p
     assert record.response_completed is True
     assert record.stripped_images is False
     assert record.error_type is None
-    assert record.request_sha256 == hashlib.sha256(
-        json.dumps(
-            requests[0],
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    assert (
+        record.request_sha256
+        == hashlib.sha256(
+            json.dumps(
+                requests[0],
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
     assert len(record.outbound_images) == 1
     assert record.outbound_images[0].frame_binding_id == "frame-bound-exact"
-    assert record.outbound_images[0].content_sha256 == hashlib.sha256(
-        b"exact-image-bytes"
-    ).hexdigest()
+    assert (
+        record.outbound_images[0].content_sha256 == hashlib.sha256(b"exact-image-bytes").hexdigest()
+    )
     assert "frame-bound-exact" not in json.dumps(requests[0], ensure_ascii=False)
 
 

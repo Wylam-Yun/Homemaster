@@ -66,9 +66,7 @@ class EnvironmentClient:
     def audit(self, run_id: str) -> list[dict[str, Any]]:
         return self._request("GET", f"/api/runs/{run_id}/audit")["events"]
 
-    def presentation_event(
-        self, run_id: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    def presentation_event(self, run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/api/runs/{run_id}/presentation-events",
@@ -148,15 +146,18 @@ class EnvironmentClient:
         return self._request("POST", f"/api/runs/{run_id}/finalize", check_budget=False)
 
     def start_recording(self, run_id: str) -> dict[str, Any]:
-        return self._request(
-            "POST", f"/api/runs/{run_id}/recording/start", timeout_s=45.0
-        )
+        return self._request("POST", f"/api/runs/{run_id}/recording/start", timeout_s=45.0)
 
     def recording_status(self, run_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/runs/{run_id}/recording", check_budget=False)
 
     def stop_recording(self, run_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/api/runs/{run_id}/recording/stop", check_budget=False)
+        return self._request(
+            "POST",
+            f"/api/runs/{run_id}/recording/stop",
+            check_budget=False,
+            timeout_s=180.0,
+        )
 
     def scores(self, run_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/runs/{run_id}/scores", check_budget=False)

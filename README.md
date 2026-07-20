@@ -90,6 +90,12 @@ run 中自主完成真实网页操作、自动化 job、tmux/Bash 验证、SOP �
 H.264 录屏。普通对话仍使用原有 HomeMaster runtime；coworker 的十一项工具、两份
 skill、任务状态和证据不会进入默认 home 或 ALFWorld registry。
 
+正常 shell 路径读取 `config/homemaster.yaml` 中配置的真实 provider；当前正式验收模型是
+Mimo `mimo-v2.5`。录屏右侧五区分别展示锁定 SOP、模型 Planner、模型选择的工具/公开
+回复、环境返回/确定性决策摘要、异常与关键历史。Planner 是模型状态，工具结果属于环境，
+决策摘要由确定性 reducer 生成；三者不能互相冒充。`assistant.thinking`、prompt 和
+chain-of-thought 永不进入 presentation v2 或页面。
+
 ```bash
 uv pip install --python .venv/bin/python ".[dev,coworker]"
 uv venv --python 3.11 apps/case02_openenv/.venv
@@ -104,6 +110,19 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli shell
 # post-change anomaly and verified rollback
 post_change_anomaly <TICKET_PATH 的绝对路径输出>
 ```
+
+最终真实模型 bundle 必须额外通过模型身份门：
+
+```bash
+.venv/bin/python scripts/coworker_demo/verify_run_bundle.py \
+  var/coworker-demo/{run_id} \
+  --data-root data/coworker_demo/case_02 \
+  --expected-model mimo-v2.5
+```
+
+2026-07-18 的两条历史录屏和 `scripted_shell_gate.py` 只属于 scripted presentation
+展示门，不能证明实时 LLM 做过决策，也不能作为最终 demo acceptance。失败的真实尝试
+同样保留 `attempt_manifest.json`、run root 和错误类型，不得从报告中删除。
 
 运行前先执行 `scripts/coworker_demo/preflight.py`。完整配置、操作、评分和产物说明见
 [Change Coworker 用户指南](docs/coworker-demo-user-guide.md)，边界与证据流见

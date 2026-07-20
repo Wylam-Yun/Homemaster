@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,7 @@ class DemoRecorder:
         ffmpeg: str = "/usr/bin/ffmpeg",
         verifier: VideoVerifier | None = None,
         first_packet_timeout_s: float = 15.0,
+        ui_settle_margin_s: float = 0.35,
     ) -> None:
         self.run_id = run_id
         self.run_root = run_root
@@ -29,6 +32,7 @@ class DemoRecorder:
         self.ffmpeg = ffmpeg
         self.verifier = verifier or VideoVerifier(ffmpeg=ffmpeg)
         self.first_packet_timeout_s = first_packet_timeout_s
+        self.ui_settle_margin_s = ui_settle_margin_s
         self.video_dir = run_root / "video"
         self.part = self.video_dir / "demo.mp4.part"
         self.video = self.video_dir / "demo.mp4"
@@ -37,9 +41,14 @@ class DemoRecorder:
         self.process: subprocess.Popen[str] | None = None
         self.stderr_handle: Any = None
         self.first_packet: dict[str, Any] | None = None
+        self.timebase: dict[str, Any] | None = None
 
     def start(self) -> dict[str, Any]:
         self.video_dir.mkdir(parents=True, exist_ok=True)
+        self.timebase = {
+            "recording_started_utc": datetime.now(UTC).isoformat(),
+            "recording_started_monotonic_s": time.monotonic(),
+        }
         self.stderr_handle = self.stderr_path.open("w", encoding="utf-8")
         command = [
             self.ffmpeg,
@@ -101,7 +110,21 @@ class DemoRecorder:
                         "progress": progress,
                         "size_samples": samples,
                         "command": command,
+                        "ready_utc": datetime.now(UTC).isoformat(),
+                        "ready_monotonic_s": time.monotonic(),
+                        "ffmpeg_out_time_s": progress["out_time_ms"] / 1_000_000,
                     }
+                    self.timebase.update(
+                        {
+                            "first_packet_ready_utc": self.first_packet["ready_utc"],
+                            "first_packet_ready_monotonic_s": self.first_packet[
+                                "ready_monotonic_s"
+                            ],
+                            "first_packet_ffmpeg_out_time_s": self.first_packet[
+                                "ffmpeg_out_time_s"
+                            ],
+                        }
+                    )
                     return {
                         "success": True,
                         "status": "recording",
@@ -129,11 +152,81 @@ class DemoRecorder:
         if return_code != 0:
             raise RuntimeError(f"FFmpeg shutdown returned {return_code}")
         os.replace(self.part, self.video)
-        manifest = self.verifier.verify(self.video, self.run_id)
+        manifest = self.verifier.verify(
+            self.video,
+            self.run_id,
+            named_frames=self._named_frame_requests(),
+        )
         manifest["ffmpeg_return_code"] = return_code
         manifest["first_packet"] = self.first_packet
+        manifest["recording_timebase"] = self.timebase
         atomic_write_json(self.video_dir / "video_manifest.json", manifest)
         return {"success": True, "status": "verified", "manifest": manifest}
+
+    def _named_frame_requests(self) -> list[dict[str, Any]]:
+        events_path = self.run_root / "presentation/events.jsonl"
+        if not events_path.is_file():
+            return []
+        events = [
+            json.loads(line)
+            for line in events_path.read_text(encoding="utf-8").splitlines()
+            if line
+        ]
+        selected: list[tuple[str, dict[str, Any]]] = []
+        first_action = next(
+            (event for event in events if event.get("event_type") == "tool.call_started"),
+            None,
+        )
+        if first_action is not None:
+            selected.append(("first_model_action", first_action))
+        for event in events:
+            incident = event.get("incident_delta") or {}
+            if incident.get("status") == "open":
+                selected.append((f"incident_open_{event.get('sequence')}", event))
+            elif incident.get("status") == "resolved":
+                selected.append((f"incident_resolved_{event.get('sequence')}", event))
+            if (event.get("result") or {}).get("caused_by_current_change") is True:
+                selected.append((f"causal_alarm_{event.get('sequence')}", event))
+        terminal = next(
+            (event for event in reversed(events) if event.get("stage") == "terminal"),
+            None,
+        )
+        if terminal is not None:
+            selected.append(("terminal_outcome", terminal))
+
+        requests: list[dict[str, Any]] = []
+        used_names: set[str] = set()
+        for name, event in selected:
+            offset = event.get("monotonic_offset_s")
+            if name in used_names or not isinstance(offset, int | float):
+                continue
+            next_offset = next(
+                (
+                    candidate.get("monotonic_offset_s")
+                    for candidate in events
+                    if candidate.get("sequence", 0) > event.get("sequence", 0)
+                    and isinstance(candidate.get("monotonic_offset_s"), int | float)
+                ),
+                None,
+            )
+            settle_margin = self.ui_settle_margin_s
+            if isinstance(next_offset, int | float) and next_offset > offset:
+                settle_margin = min(settle_margin, (float(next_offset) - float(offset)) / 2)
+            used_names.add(name)
+            requests.append(
+                {
+                    "name": name,
+                    "source_event_id": event.get("event_id"),
+                    "source_sequence": event.get("sequence"),
+                    "source_timestamp_utc": event.get("timestamp"),
+                    "source_monotonic_offset_s": float(offset),
+                    "ui_settle_margin_s": settle_margin,
+                    "calculated_offset_s": float(offset) + settle_margin,
+                    "ffmpeg_basis": "recording_monotonic_origin",
+                    "timestamp_s": float(offset) + settle_margin,
+                }
+            )
+        return requests
 
     def abort(self) -> int | None:
         if self.process is None:

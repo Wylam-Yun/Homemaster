@@ -1,4 +1,24 @@
-# ALFWorld Harness Progress
+# Current Coworker Demo Progress
+
+## 2026-07-20
+
+- Presentation v2、五区观察面板、Planner/公开回复/工具/结果/异常恢复展示已实现并提交。
+- Controlled normal/anomaly failure gates 已通过，12 张 incident 帧已逐张人工核对。
+- 全量内部验证已通过：791 passed、1 skipped；preflight 确认 Mimo `mimo-v2.5` 配置可用。
+- 第一条真实 normal attempt `coworker-20260720-022516-8c773877` 已由 Mimo 完成 24/24、14/14 和 100 分，并产出通过视频验证的 362 秒 MP4。
+- 该 attempt 因 20 秒录屏停止客户端超时及清理路径重复停止被标记失败；stdout 证明第一次 stop 为 200，第二次为 500，stderr 为已关闭 FFmpeg stdin 的 `BrokenPipeError`。
+- 已用 RED 测试锁定专用停止超时与会话幂等约束；实现后聚焦测试 21 passed，lint/format/diff check 通过。
+- 真实服务黑盒门 `recording-stop-gate-20260720-024549` 录制外部 MP4 后连续停止两次，两个 HTTP 返回码均为 200、FFmpeg 返回码 0、响应和磁盘视频哈希一致。
+- 接受 normal `coworker-20260720-024949-b7004546`：Mimo 42 次调用，24/24、14/14、100 分、终态 complete、独立 verifier PASS，7 张关键帧人工通过。
+- 接受 anomaly `coworker-20260720-025635-a46d87ca`：Mimo 44 次调用，22/22、11/11、100 分、终态 rolled_back、add/remove/grep/config 外部终态与独立 verifier PASS，12 张命名帧人工通过。
+- 验收报告已写入 `docs/reports/2026-07-19-realtime-llm-coworker-acceptance.md`，保留并拒绝生命周期失败的首个真实 normal attempt。
+- 最终内部审计通过：793 passed、1 skipped；ruff lint、compileall、cleanup guard、本次文件 format-check、preflight、双 bundle verifier、协议 v2、文档/secret 和 clean-worktree 审计全部通过。全库 format-check 仅保留 40 个未触及历史文件。
+- 唯一一次最终 reviewer 提出两个 P2：Planner 投影失败可静默成功、provider 只验至少一个响应；两项均采纳，10 个 RED 回归覆盖根因。
+- 修复后 128 项聚焦测试通过，两条 accepted bundle 在逐 Planner plan 与逐 iteration provider 配对的更强 verifier 下仍 PASS。
+- 评审修复后最终全量回归 798 passed、1 skipped，compileall 与双 bundle verifier PASS。
+- 下一步：提交评审修复并完成交付；不追加 reviewer。
+
+# Historical ALFWorld Harness Progress
 
 ## 2026-07-12
 

@@ -9,21 +9,29 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import yaml
-from verify_run_bundle import verify
+
+try:
+    from scripts.coworker_demo.verify_run_bundle import verify
+except ModuleNotFoundError:  # pragma: no cover - direct script execution
+    from verify_run_bundle import verify
 
 
 class ScriptedConversation:
-    def __init__(self, scenario_id: str) -> None:
+    def __init__(self, scenario_id: str, profile: str = "clean") -> None:
         self.scenario_id = scenario_id
+        self.profile = profile
         self.index = 0
-        self.steps = self._steps(scenario_id)
+        self.steps = self._steps(scenario_id, profile)
 
     def next_response(self, request: dict[str, Any]) -> tuple[str, dict[str, Any]] | str:
+        if self.profile == "observable_failures":
+            time.sleep(0.55)
         if self.index >= len(self.steps):
             return "Scripted run finished."
         name, arguments = self.steps[self.index]
@@ -93,8 +101,120 @@ class ScriptedConversation:
 
         return replace(arguments)
 
+    @classmethod
+    def _steps(cls, scenario_id: str, profile: str) -> list[tuple[str, dict[str, Any]]]:
+        clean = cls._clean_steps(scenario_id)
+        if profile == "clean":
+            return clean
+        if profile != "observable_failures":
+            raise ValueError(f"unknown scripted profile: {profile}")
+
+        def first_index(name: str, predicate) -> int:
+            for index, step in enumerate(clean):
+                if step[0] == name and predicate(step[1]):
+                    return index
+            raise RuntimeError(f"clean scripted sequence missing {name}")
+
+        config_end = first_index(
+            "browser_navigate", lambda arguments: arguments.get("route") == "monitor"
+        )
+        precheck_progress = (
+            "task_progress_check",
+            {
+                "updates": [{"subtask_id": "precheck", "status": "completed"}],
+                "current_subtask": "implement",
+                "next_focus": "implement",
+            },
+        )
+        rejected_precheck = (
+            "sop_decide",
+            {
+                "stage": "check_before_change",
+                "decision": "proceed",
+                "evidence_refs": "$evidence",
+                "reason": "Attempted before all checks were observed",
+            },
+        )
+        if scenario_id == "normal":
+            steps = [*clean[:config_end]]
+            steps.extend([precheck_progress, rejected_precheck])
+            steps.extend(clean[config_end:])
+            successful_precheck = next(
+                index
+                for index, step in enumerate(steps)
+                if step[0] == "sop_decide"
+                and step[1].get("reason") == "All visible prechecks passed"
+            )
+            progress_index = next(
+                index
+                for index in range(successful_precheck + 1, len(steps))
+                if steps[index][0] == "task_progress_check"
+            )
+            steps.insert(
+                progress_index,
+                ("browser_navigate", {"route": "automation"}),
+            )
+            return steps
+
+        steps = [*clean[:config_end]]
+        steps.append(rejected_precheck)
+        steps.extend(clean[config_end:])
+        successful_precheck = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "sop_decide"
+            and step[1].get("stage") == "check_before_change"
+            and step[1].get("reason") == "All visible prechecks passed"
+        )
+        add_wait = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "browser_wait" and step[1].get("job_id") == "$job_add"
+        )
+        steps.insert(
+            add_wait,
+            ("terminal_execute", {"command": "$command"}),
+        )
+        alarm_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "browser_click"
+            and step[1].get("bid") == "monitor-query-alarm"
+            and index > successful_precheck
+        )
+        steps[alarm_index + 1 : alarm_index + 1] = [
+            ("browser_click", {"bid": "monitor-query-probe"}),
+            ("browser_click", {"bid": "monitor-query-capacity"}),
+            ("browser_click", {"bid": "monitor-query-runtime-metrics"}),
+            ("browser_click", {"bid": "monitor-query-traffic"}),
+        ]
+        rollback_index = next(
+            index
+            for index, step in enumerate(steps)
+            if step[0] == "sop_decide" and step[1].get("decision") == "rollback"
+        )
+        rejected_remove = [
+            ("browser_navigate", {"route": "automation"}),
+            ("browser_select", {"bid": "automation-script", "value": "svc_cfg_cli_runner"}),
+            ("browser_select", {"bid": "automation-operation", "value": "remove"}),
+            ("browser_fill", {"bid": "automation-tenant-id", "value": "$tenant"}),
+            ("browser_fill", {"bid": "automation-item-code", "value": "$item"}),
+            ("browser_click", {"bid": "automation-submit"}),
+            (
+                "sop_decide",
+                {
+                    "stage": "change_rollback",
+                    "decision": "rolled_back",
+                    "evidence_refs": "$evidence",
+                    "reason": "Attempted rollback before authorization",
+                },
+            ),
+        ]
+        steps[rollback_index:rollback_index] = rejected_remove
+        return steps
+
     @staticmethod
-    def _steps(scenario_id: str) -> list[tuple[str, dict[str, Any]]]:
+    def _clean_steps(scenario_id: str) -> list[tuple[str, dict[str, Any]]]:
         plan = [
             {"id": "precheck", "description": "Complete every required pre-change check"},
             {"id": "implement", "description": "Submit the change and verify its terminal state"},
@@ -413,8 +533,51 @@ def _handler(conversation: ScriptedConversation):
     return Handler
 
 
-def run_gate(scenario_id: str, ticket: Path, output_root: Path) -> dict[str, Any]:
-    conversation = ScriptedConversation(scenario_id)
+def _verify_observable_failure_profile(run_root: Path, scenario_id: str) -> list[str]:
+    snapshot = json.loads((run_root / "presentation/snapshot.json").read_text(encoding="utf-8"))
+    video_manifest = json.loads(
+        (run_root / "video/video_manifest.json").read_text(encoding="utf-8")
+    )
+    expected_codes = {
+        "normal": ["missing_precheck_evidence", "progress_required"],
+        "post_change_anomaly": [
+            "missing_precheck_evidence",
+            "wait_required",
+            "rollback_decision_required",
+            "progress_required",
+        ],
+    }[scenario_id]
+    incidents = snapshot.get("incidents") or []
+    failures: list[str] = []
+    observed_codes = [incident.get("failure_code") for incident in incidents]
+    if observed_codes != expected_codes:
+        failures.append(f"profile_incident_codes:{observed_codes}")
+    for incident in incidents:
+        incident_id = incident.get("incident_id")
+        if incident.get("status") != "resolved" or not incident.get("recovery"):
+            failures.append(f"profile_incident_not_resolved:{incident_id}")
+    if any(incident.get("status") == "open" for incident in incidents):
+        failures.append("profile_open_incident")
+    event_frames = video_manifest.get("event_frames") or {}
+    for incident in incidents:
+        open_name = f"incident_open_{incident.get('opened_sequence')}"
+        if open_name not in event_frames:
+            failures.append(f"profile_missing_frame:{open_name}")
+        recovery = incident.get("recovery") or {}
+        resolved_name = f"incident_resolved_{recovery.get('resolved_sequence')}"
+        if resolved_name not in event_frames:
+            failures.append(f"profile_missing_frame:{resolved_name}")
+    return failures
+
+
+def run_gate(
+    scenario_id: str,
+    ticket: Path,
+    output_root: Path,
+    *,
+    profile: str = "clean",
+) -> dict[str, Any]:
+    conversation = ScriptedConversation(scenario_id, profile)
     server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(conversation))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -433,7 +596,7 @@ def run_gate(scenario_id: str, ticket: Path, output_root: Path) -> dict[str, Any
                     "api_keys": ["scripted-local-key"],
                 }
             )
-    provider_config = output_root / f"provider-{scenario_id}.yaml"
+    provider_config = output_root / f"provider-{scenario_id}-{profile}.yaml"
     provider_config.write_text(yaml.safe_dump(real_config, sort_keys=False), encoding="utf-8")
     message = f"{ticket}\n" if scenario_id == "normal" else f"post_change_anomaly {ticket}\n"
     process = subprocess.run(
@@ -447,23 +610,31 @@ def run_gate(scenario_id: str, ticket: Path, output_root: Path) -> dict[str, Any
     )
     server.shutdown()
     server.server_close()
-    (output_root / f"shell-{scenario_id}.stdout.log").write_text(process.stdout, encoding="utf-8")
-    (output_root / f"shell-{scenario_id}.stderr.log").write_text(process.stderr, encoding="utf-8")
+    prefix = f"{scenario_id}-{profile}"
+    (output_root / f"shell-{prefix}.stdout.log").write_text(process.stdout, encoding="utf-8")
+    (output_root / f"shell-{prefix}.stderr.log").write_text(process.stderr, encoding="utf-8")
     matches = re.findall(r"运行产物：(.+)", process.stdout)
     if not matches:
         raise RuntimeError(f"shell did not publish a run path; return={process.returncode}")
     run_root = Path(matches[-1].strip()).resolve()
     verification = verify(run_root, Path("data/coworker_demo/case_02").resolve())
+    profile_failures = (
+        _verify_observable_failure_profile(run_root, scenario_id)
+        if profile == "observable_failures"
+        else []
+    )
     result = {
         "schema_version": 1,
         "scenario_id": scenario_id,
+        "profile": profile,
         "shell_return_code": process.returncode,
         "provider_calls": conversation.index,
         "run_root": str(run_root),
         "verification": verification,
-        "pass": process.returncode == 0 and verification["pass"],
+        "profile_failures": profile_failures,
+        "pass": process.returncode == 0 and verification["pass"] and not profile_failures,
     }
-    (output_root / f"result-{scenario_id}.json").write_text(
+    (output_root / f"result-{prefix}.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     return result
@@ -472,10 +643,16 @@ def run_gate(scenario_id: str, ticket: Path, output_root: Path) -> dict[str, Any
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", choices=("normal", "post_change_anomaly"), required=True)
+    parser.add_argument("--profile", choices=("clean", "observable_failures"), default="clean")
     parser.add_argument("--ticket", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, default=Path("var/coworker-demo/scripted"))
     args = parser.parse_args()
-    result = run_gate(args.scenario, args.ticket.resolve(), args.output_root.resolve())
+    result = run_gate(
+        args.scenario,
+        args.ticket.resolve(),
+        args.output_root.resolve(),
+        profile=args.profile,
+    )
     print(json.dumps(result, sort_keys=True))
     return 0 if result["pass"] else 1
 

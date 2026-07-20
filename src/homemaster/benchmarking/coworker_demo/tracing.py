@@ -13,12 +13,15 @@ from homemaster.benchmarking.coworker_demo.environment_client import Environment
 from homemaster.benchmarking.coworker_demo.presentation import (
     ProjectionError,
     project_runtime_event,
+    reject_secret_text,
 )
+from homemaster.events.trace import sanitize_for_log
 
 _PROJECTED_EVENTS = {
     "tool.call_started",
     "tool.call_completed",
     "tool.call_failed",
+    "assistant.reply",
     "runtime.turn_completed",
     "runtime.turn_failed",
 }
@@ -35,11 +38,13 @@ class CoworkerTraceSink:
         run_id: str,
         *,
         transcript_path: Path | None = None,
+        sensitive_values: tuple[str, ...] = (),
     ) -> None:
         self.path = path
         self.client = client
         self.run_id = run_id
         self.transcript_path = transcript_path
+        self.sensitive_values = sensitive_values
         self.mirror_failures: deque[str] = deque(maxlen=_MAX_MIRROR_FAILURES)
         self.mirror_failure_total = 0
         self._emit_lock = threading.RLock()
@@ -52,7 +57,7 @@ class CoworkerTraceSink:
         projected: dict[str, Any] | None = None
         mirror_ticket: int | None = None
         with self._emit_lock:
-            payload = asdict(event)
+            payload = self._sanitize_trace_value(sanitize_for_log(asdict(event)))
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
                 handle.flush()
@@ -64,7 +69,9 @@ class CoworkerTraceSink:
             try:
                 if event.type in _PROJECTED_EVENTS and event.run_id != self.run_id:
                     raise ProjectionError("trace sink run identity mismatch")
-                projected = project_runtime_event(event)
+                projected = project_runtime_event(event, sensitive_values=self.sensitive_values)
+                if event.type == "assistant.reply" and projected is None:
+                    raise ProjectionError("unsafe public reply rejected")
             except Exception as exc:
                 self._record_mirror_failure(exc)
             else:
@@ -93,9 +100,18 @@ class CoworkerTraceSink:
             failure_type = type(exc).__name__
             if not failure_type.isascii() or not failure_type.isidentifier():
                 failure_type = "MirrorError"
-            self.mirror_failures.append(
-                f"{failure_type[:48]}: presentation mirror failed"
-            )
+            self.mirror_failures.append(f"{failure_type[:48]}: presentation mirror failed")
+
+    def _sanitize_trace_value(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: self._sanitize_trace_value(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._sanitize_trace_value(item) for item in value]
+        if isinstance(value, str) and reject_secret_text(
+            value, sensitive_values=self.sensitive_values
+        ):
+            return "[REDACTED]"
+        return value
 
     @staticmethod
     def _transcript_line(payload: dict[str, Any]) -> str:

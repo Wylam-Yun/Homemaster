@@ -189,6 +189,22 @@ class LLMClient:
                 },
             )
             yield from self._stream_once(api_key=api_key, kwargs=kwargs)
+            _emit(
+                sink,
+                "transport.response_completed",
+                session_id=session_id,
+                run_id=effective_run_id,
+                turn_index=turn_index,
+                payload={
+                    "model": self._provider.model,
+                    "api_format": self._provider.api_format,
+                    "transport": self._provider.transport,
+                    "iteration": iteration,
+                    "key_index": key_index,
+                    "status": "ok",
+                    "stripped_images": False,
+                },
+            )
             if attempt_sink is not None:
                 attempt_sink.record_attempt(
                     _attempt_record(
@@ -367,9 +383,7 @@ def _map_sdk_error(exc: Exception) -> LLMClientError:
             error_type="auth_error", message=message, cause_code="authentication_rejected"
         )
     if "ratelimit" in name or "rate_limit" in name:
-        return LLMRateLimitError(
-            error_type="rate_limit", message=message, cause_code="rate_limit"
-        )
+        return LLMRateLimitError(error_type="rate_limit", message=message, cause_code="rate_limit")
     if "timeout" in name or "network" in name or "connection" in name:
         return LLMNetworkError(
             error_type="network_error", message=message, cause_code="transient_network"
@@ -449,17 +463,14 @@ def _attempt_record(
                         message_index=message_index,
                         block_index=block_index,
                         frame_binding_id=(
-                            frame_binding_id
-                            if isinstance(frame_binding_id, str)
-                            else None
+                            frame_binding_id if isinstance(frame_binding_id, str) else None
                         ),
                         content_sha256=hashlib.sha256(content).hexdigest(),
                     ),
                 )
             )
     serialized_counts = Counter(
-        hashlib.sha256(content).hexdigest()
-        for content in _serialized_image_contents(request_body)
+        hashlib.sha256(content).hexdigest() for content in _serialized_image_contents(request_body)
     )
     bindings: list[OutboundImageBinding] = []
     for content_sha256, binding in reversed(candidates):

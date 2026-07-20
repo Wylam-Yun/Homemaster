@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import threading
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -101,9 +103,7 @@ def create_app(
         }
 
     @app.post("/api/runs/{run_id}/presentation-events")
-    async def post_presentation_event(
-        run_id: str, payload: PresentationInput
-    ) -> dict[str, Any]:
+    async def post_presentation_event(run_id: str, payload: PresentationInput) -> dict[str, Any]:
         event = store.record_presentation(run_id, payload)
         return {"success": True, "event": event.model_dump(mode="json")}
 
@@ -119,8 +119,8 @@ def create_app(
         run_id: str,
         last_event_id: str | None = Header(default=None),
     ) -> StreamingResponse:
-        initial_generation, initial_events, initial_snapshot = (
-            store.presentation_stream_state(run_id)
+        initial_generation, initial_events, initial_snapshot = store.presentation_stream_state(
+            run_id
         )
         initial_snapshot["presentation_generation"] = initial_generation
 
@@ -131,9 +131,7 @@ def create_app(
                     if event.event_id == last_event_id:
                         start = index + 1
                         break
-            snapshot_json = json.dumps(
-                initial_snapshot, ensure_ascii=False, separators=(",", ":")
-            )
+            snapshot_json = json.dumps(initial_snapshot, ensure_ascii=False, separators=(",", ":"))
             yield f"event: presentation.snapshot\ndata: {snapshot_json}\n\n"
             generation = initial_generation
             cursor = start
@@ -141,8 +139,8 @@ def create_app(
             while idle < app.state.sse_idle_iterations:
                 if await request.is_disconnected():
                     break
-                current_generation, current, current_snapshot = (
-                    store.presentation_stream_state(run_id)
+                current_generation, current, current_snapshot = store.presentation_stream_state(
+                    run_id
                 )
                 current_snapshot["presentation_generation"] = current_generation
                 emitted = False
@@ -328,7 +326,11 @@ def create_app(
                 observer_url=f"http://127.0.0.1:{config.port}/observer/{run_id}",
             )
             app.state.recorders[run_id] = manager
-        return manager.start()
+        result = manager.start()
+        if manager.recorder is None or manager.recorder.timebase is None:
+            raise RuntimeError("recorder did not publish a monotonic timebase")
+        store.set_recording_timebase(run_id, manager.recorder.timebase)
+        return result
 
     @app.get("/api/runs/{run_id}/recording")
     async def get_recording(run_id: str) -> dict[str, Any]:
@@ -470,6 +472,8 @@ class _ServiceRecordingSession:
         self.display = DisplayManager(run_root)
         self.recorder: DemoRecorder | None = None
         self.display_info: dict[str, Any] | None = None
+        self._stop_lock = threading.Lock()
+        self._stop_result: dict[str, Any] | None = None
 
     def start(self) -> dict[str, Any]:
         if self.recorder is not None:
@@ -504,14 +508,18 @@ class _ServiceRecordingSession:
         }
 
     def stop(self) -> dict[str, Any]:
-        if self.recorder is None:
-            raise RuntimeError("recording session has not started")
-        try:
-            result = self.recorder.stop()
-        finally:
-            display_result = self.display.stop()
-        return {
-            **result,
-            "observer_was_alive": display_result["observer_was_alive"],
-            "display_return_codes": display_result["return_codes"],
-        }
+        with self._stop_lock:
+            if self._stop_result is not None:
+                return copy.deepcopy(self._stop_result)
+            if self.recorder is None:
+                raise RuntimeError("recording session has not started")
+            try:
+                result = self.recorder.stop()
+            finally:
+                display_result = self.display.stop()
+            self._stop_result = {
+                **result,
+                "observer_was_alive": display_result["observer_was_alive"],
+                "display_return_codes": display_result["return_codes"],
+            }
+            return copy.deepcopy(self._stop_result)

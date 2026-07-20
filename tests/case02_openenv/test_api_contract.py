@@ -6,6 +6,12 @@ from pathlib import Path
 
 from case02_openenv.api import create_app
 from case02_openenv.config import ServiceConfig
+from case02_openenv.presentation_models import (
+    ObservablePresentationState,
+    PresentationEvent,
+    PresentationInput,
+    PresentationSnapshot,
+)
 from fastapi.testclient import TestClient
 
 
@@ -177,6 +183,63 @@ def test_openapi_snapshot_matches_runtime_schema(tmp_path: Path) -> None:
     }
 
 
+def test_presentation_v2_public_model_fields_are_explicitly_audited() -> None:
+    assert set(PresentationInput.model_fields) == {
+        "schema_version",
+        "runtime_event_type",
+        "tool_call_id",
+        "action_id",
+        "tool_name",
+        "tool_label_zh",
+        "tool_kind",
+        "status",
+        "arguments",
+        "result",
+        "evidence_refs",
+        "failure_code",
+        "plan",
+        "public_model_output",
+        "timestamp",
+    }
+    assert set(PresentationEvent.model_fields) == {
+        "schema_version",
+        "event_id",
+        "sequence",
+        "run_id",
+        "event_type",
+        "timestamp",
+        "monotonic_offset_s",
+        "tool_call_id",
+        "action_id",
+        "stage",
+        "task",
+        "tool_name",
+        "tool_label_zh",
+        "tool_kind",
+        "status",
+        "arguments",
+        "result",
+        "evidence_refs",
+        "failure",
+        "failure_code",
+        "plan",
+        "public_model_output",
+        "decision_summary",
+        "incident_delta",
+    }
+    observable_fields = {
+        "plan",
+        "current_action",
+        "last_result",
+        "public_model_output",
+        "decision_summary",
+        "incidents",
+        "critical_history",
+    }
+    assert set(ObservablePresentationState.model_fields) == observable_fields
+    assert observable_fields <= set(PresentationSnapshot.model_fields)
+
+
 def test_sse_emits_snapshot_and_replays_only_after_last_event_id(tmp_path: Path) -> None:
     api = client(tmp_path)
     create_run(api, "sse-run")
@@ -232,8 +295,8 @@ def test_presentation_api_appends_snapshots_and_resumes_sse(tmp_path: Path) -> N
     assert response.headers["cache-control"] == "no-cache, no-transform"
     assert response.headers["x-accel-buffering"] == "no"
     assert "event: presentation.snapshot" in response.text
-    assert f'id: {first.json()["event"]["event_id"]}' not in response.text
-    assert f'id: {second.json()["event"]["event_id"]}' in response.text
+    assert f"id: {first.json()['event']['event_id']}" not in response.text
+    assert f"id: {second.json()['event']['event_id']}" in response.text
     assert "event: presentation.event" in response.text
     assert '"status":"succeeded"' in response.text
     assert ": heartbeat" in response.text
@@ -248,6 +311,7 @@ def test_presentation_rejects_embedded_cross_run_identity(tmp_path: Path) -> Non
             "runtime_event_type": "tool.call_started",
             "tool_call_id": "call-cross-run",
             "action_id": "action-cross-run",
+            "tool_name": "browser_click",
             "status": "running",
             "arguments": {"run_id": "run-b", "bid": "ticket-query-extension-config"},
         },
@@ -276,9 +340,7 @@ def test_presentation_api_rejects_incoherent_lifecycle_payloads(tmp_path: Path) 
     assert missing_identity.status_code == 422
 
 
-def test_presentation_sse_restarts_cursor_after_reset(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_presentation_sse_restarts_cursor_after_reset(tmp_path: Path, monkeypatch) -> None:
     import case02_openenv.api as api_module
 
     api = client(tmp_path)
@@ -291,6 +353,7 @@ def test_presentation_sse_restarts_cursor_after_reset(
             runtime_event_type="tool.call_started",
             tool_call_id="old-call",
             action_id="old-action",
+            tool_name="browser_observe",
             status="running",
         ),
     )
@@ -306,6 +369,7 @@ def test_presentation_sse_restarts_cursor_after_reset(
                 runtime_event_type="tool.call_started",
                 tool_call_id="new-call",
                 action_id="new-action",
+                tool_name="browser_observe",
                 status="running",
             ),
         )
@@ -319,7 +383,7 @@ def test_presentation_sse_restarts_cursor_after_reset(
     assert response.status_code == 200
     assert f"id: {old.event_id}" in response.text
     assert response.text.count("event: presentation.snapshot") >= 2
-    assert f'id: {new_event["event"].event_id}' in response.text
+    assert f"id: {new_event['event'].event_id}" in response.text
 
 
 def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -> None:
@@ -328,6 +392,11 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
     class FakeRecordingSession:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            self.recorder = type(
+                "Recorder",
+                (),
+                {"timebase": {"recording_started_monotonic_s": 123.0}},
+            )()
 
         def start(self):
             return {"success": True, "status": "recording", "display": ":144"}
@@ -339,6 +408,7 @@ def test_recording_start_constructs_a_run_session(tmp_path: Path, monkeypatch) -
     assert response.status_code == 200
     assert response.json()["display"] == ":144"
     assert "recording-api" in api.app.state.recorders
+    assert api.app.state.store.episode("recording-api").recording_monotonic_start_s == 123.0
 
 
 def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypatch) -> None:
@@ -378,3 +448,41 @@ def test_recording_stop_publishes_real_observer_health(tmp_path: Path, monkeypat
         "manifest": {"sha256": "video-sha"},
         "observer_was_alive": False,
     }
+
+
+def test_recording_session_stop_is_idempotent(tmp_path: Path) -> None:
+    import case02_openenv.api as api_module
+
+    calls = {"recorder": 0, "display": 0}
+
+    class FakeRecorder:
+        def stop(self):
+            calls["recorder"] += 1
+            return {
+                "success": True,
+                "status": "verified",
+                "manifest": {"sha256": "video-sha"},
+            }
+
+    class FakeDisplay:
+        def stop(self):
+            calls["display"] += 1
+            return {
+                "observer_was_alive": True,
+                "return_codes": {"observer": -15, "tigervnc": -15},
+            }
+
+    session = api_module._ServiceRecordingSession(
+        run_id="recording-idempotent",
+        run_root=tmp_path,
+        observer_url="http://127.0.0.1:8765/observer/recording-idempotent",
+    )
+    session.recorder = FakeRecorder()
+    session.display = FakeDisplay()
+
+    first = session.stop()
+    second = session.stop()
+
+    assert second == first
+    assert second is not first
+    assert calls == {"recorder": 1, "display": 1}
