@@ -1,0 +1,70 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "M0",
+  "change_list": "M0-runtime-qualification",
+  "status": "IMPLEMENTING",
+  "source_commits": {
+    "homemaster": "08de73137ffaeb6abae6549425fe9f4c71d1c9ee",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+    "alfworld": "aaba6870f86c5be6a08a491f32a50b906227bc3e"
+  },
+  "review_policy": {
+    "phase_review_rounds": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "m0-manifest-dataset",
+      "goal": "Fail-fast validate the locked upstream port manifest and four-trial release manifest against the real HPC2 ALFWorld dataset bytes before any canary result is observed."
+    },
+    {
+      "id": "m0-environment-identity",
+      "goal": "Capture sanitized HPC2 candidate, Python/import, ALFWorld/ai2thor/Unity, dataset/config, provider/model, display/GPU, and dependency identities with resolved-origin guards."
+    },
+    {
+      "id": "m0-runtime-canary",
+      "goal": "Run one fresh locked valid_unseen AlfredThorEnv visual_eval canary proving start/reset/scan/restore and explicit frame capture with complete reset fingerprint and raw evidence references."
+    },
+    {
+      "id": "m0-provider-scorer",
+      "goal": "Prove a real non-mock provider produced at least one recorded attempt and that the formal ALFWorld scorer is available, without requiring task success or treating M0 as the final 4/4 gate."
+    },
+    {
+      "id": "m0-qualification-report",
+      "goal": "Emit and independently validate one sanitized machine-readable runtime qualification report whose hashes bind the immutable candidate, environment identity, release manifest, and fresh canary artifacts."
+    }
+  ],
+  "allowed_deltas": [
+    "plan/V1.9/execution/m0/state.json phase state and sanitized evidence hashes",
+    "scripts/v19_release/** M0 qualification runner/verifier and shared release tooling",
+    "tests/homemaster/** focused M0 qualification and negative contract tests",
+    "var/v19-release/08de73137ffaeb6abae6549425fe9f4c71d1c9ee/** ignored live artifacts",
+    "no src/homemaster or apps/case02_openenv/src production changes unless a reproduced infrastructure blocker requires returning to CONTEXT_LOADED"
+  ],
+  "test_commands": [
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/v19_release/verify_alfworld_trials.py --manifest config/alfworld_v19_release_trials.json --source config/alfworld_v18_regression_trials.json --trial-root /hpc2hdd/home/wyuan140/.cache/alfworld/json_2.1.1",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "git diff --exit-code 08de73137ffaeb6abae6549425fe9f4c71d1c9ee -- src/homemaster apps/case02_openenv/src"
+  ],
+  "rollback_point": "08de73137ffaeb6abae6549425fe9f4c71d1c9ee",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Re-read M0 and shared phase/release sections in the comparison spec and implementation plan, CLAUDE.md ALFWorld rules, CL-01 port manifest, current ALFWorld environment/reset/runner/runtime/scorer owners and their tests."
+    },
+    {
+      "kind": "hpc2_discovery",
+      "status": "captured",
+      "details": "Found ALFWorld source at aaba687, legacy Python 3.9 environment with alfworld 0.5.0 and ai2thor 2.1.0, 3.1 GB json_2.1.1 dataset with 255 valid_unseen trials, and no current DISPLAY/GPU/Conda identity; root uv Python 3.11 has no alfworld or ai2thor import."
+    },
+    {
+      "kind": "implementation_checkpoint",
+      "status": "non_live_verified",
+      "details": "Added the fresh one-trial M0 qualification runner, stdlib-only independent verifier, raw reset/frame/provider/scorer artifact binding, and strict HPC2/hkust4 identity branches. Per user direction, Xorg/THOR/provider live checks are deferred for one concentrated hkust4 batch using conda run -n hm_alfworld; no phase review or gate claim is made before that batch passes."
+    }
+  ],
+  "reviews": []
+}
