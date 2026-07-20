@@ -78,7 +78,7 @@ def make_browser_observe() -> ToolSpec:
         )
 
     return ToolSpec(
-        name="browser_observe",
+        name="observe",
         description="Read visible text, controls, values and results on the current Agent page.",
         input_schema={"type": "object", "properties": {}},
         executor_mode="programmatic",

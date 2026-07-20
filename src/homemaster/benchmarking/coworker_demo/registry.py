@@ -20,7 +20,7 @@ EXPECTED_COWORKER_TOOLS = (
     "task_progress_check",
     "skill_view",
     "browser_navigate",
-    "browser_observe",
+    "observe",
     "browser_click",
     "browser_fill",
     "browser_select",

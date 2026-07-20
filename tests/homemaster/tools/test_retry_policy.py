@@ -94,7 +94,15 @@ class Events:
         self.attempts.append((attempt_index, result.status))
 
 
-def make(*, state_effects=("none",), deadline=None, cancellation=None, executor=None):
+def make(
+    *,
+    state_effects=("none",),
+    deadline=None,
+    cancellation=None,
+    executor=None,
+    concurrency_policy=ConcurrencyPolicy.PARALLEL,
+    resource_key=None,
+):
     definition = ToolDefinition(
         internal_id="test.retry.v1",
         model_alias="retry",
@@ -104,7 +112,8 @@ def make(*, state_effects=("none",), deadline=None, cancellation=None, executor=
         verification_policy=VerificationPolicy(),
         provenance=ToolProvenance(source="test", reference="retry"),
         version="1.0.0",
-        concurrency_policy=ConcurrencyPolicy.PARALLEL,
+        concurrency_policy=concurrency_policy,
+        resource_key=resource_key,
         state_effects=state_effects,
     )
     executor = executor or Executor()
@@ -174,6 +183,44 @@ async def test_retryable_read_failure_records_each_attempt_and_event() -> None:
         (2, ToolExecutionStatus.SUCCESS),
     ]
     assert events.attempts == ledger.attempts
+    assert pipeline.permission_policy.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_same_resource_key_siblings_are_serialized() -> None:
+    executor = Executor(
+        [
+            ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                data={"ok": True},
+                backend_attempted=True,
+            ),
+            ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                data={"ok": True},
+                backend_attempted=True,
+            ),
+        ],
+        wait_s=0.01,
+    )
+    pipeline, context, _executor, _ledger, _events, resource = make(
+        executor=executor,
+        concurrency_policy=ConcurrencyPolicy.RESOURCE_KEY,
+        resource_key="shared:test",
+    )
+    calls = [
+        (ToolCall(id="call-a", name="retry", arguments={}), context),
+        (
+            ToolCall(id="call-b", name="retry", arguments={}),
+            context,
+        ),
+    ]
+    results = await pipeline.execute_many(calls)
+    assert [result.status for result in results] == [
+        ToolExecutionStatus.SUCCESS,
+        ToolExecutionStatus.SUCCESS,
+    ]
+    assert resource.max_active == 1
 
 
 @pytest.mark.asyncio

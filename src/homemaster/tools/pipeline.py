@@ -277,79 +277,109 @@ class ToolExecutionPipeline:
         assert registered is not None
         definition = registered.definition
 
-        terminal = await self._terminal_result(tool_call, context)
-        if terminal is not None:
-            return terminal
+        attempt = 1
+        while True:
+            terminal = await self._terminal_result(tool_call, context)
+            if terminal is not None:
+                if attempt > 1:
+                    await self._record_and_publish(tool_call, terminal, context, attempt)
+                return terminal
 
-        validation_error = self._validator.validate_input(definition, tool_call.arguments)
-        if validation_error is not None:
-            return _result(
-                ToolExecutionStatus.INVALID,
-                "invalid_tool_arguments",
-                validation_error,
+            validation_error = self._validator.validate_input(
+                definition,
+                tool_call.arguments,
             )
+            if validation_error is not None:
+                invalid = _result(
+                    ToolExecutionStatus.INVALID,
+                    "invalid_tool_arguments",
+                    validation_error,
+                )
+                if attempt > 1:
+                    await self._record_and_publish(tool_call, invalid, context, attempt)
+                return invalid
 
-        try:
-            decision = await _maybe_await(
-                self.permission_policy.evaluate(definition, tool_call.arguments, context)
-            )
-        except Exception as exc:
-            denied = _result(
-                ToolExecutionStatus.DENIED,
-                "permission_policy_error",
-                f"{type(exc).__name__}: {exc}",
-            )
-            await self._record_and_publish(tool_call, denied, context, 1)
-            return denied
-        if not isinstance(decision, PermissionDecision):
-            raise TypeError("permission policy must return PermissionDecision")
-        if decision.requires_confirmation:
-            approved = False
-            if self.confirmation_handler is not None:
-                approved = bool(
-                    await _call(
-                        self.confirmation_handler,
-                        "confirm",
+            try:
+                decision = await _maybe_await(
+                    self.permission_policy.evaluate(
                         definition,
                         tool_call.arguments,
                         context,
-                        decision,
-                        default=False,
                     )
                 )
-            decision = replace(
-                decision,
-                allowed=approved,
-                requires_confirmation=False,
+            except Exception as exc:
+                denied = _result(
+                    ToolExecutionStatus.DENIED,
+                    "permission_policy_error",
+                    f"{type(exc).__name__}: {exc}",
+                )
+                await self._record_and_publish(tool_call, denied, context, attempt)
+                return denied
+            if not isinstance(decision, PermissionDecision):
+                raise TypeError("permission policy must return PermissionDecision")
+            if decision.requires_confirmation:
+                approved = False
+                if self.confirmation_handler is not None:
+                    approved = bool(
+                        await _call(
+                            self.confirmation_handler,
+                            "confirm",
+                            definition,
+                            tool_call.arguments,
+                            context,
+                            decision,
+                            default=False,
+                        )
+                    )
+                decision = replace(
+                    decision,
+                    allowed=approved,
+                    requires_confirmation=False,
+                )
+            if not decision.allowed:
+                denied = _result(
+                    ToolExecutionStatus.DENIED,
+                    "permission_denied",
+                    decision.reason or "tool execution was denied",
+                )
+                await self._record_and_publish(
+                    tool_call,
+                    denied,
+                    context,
+                    attempt,
+                    decision,
+                )
+                return denied
+
+            early = self._check_cancel_deadline(context)
+            if early is not None:
+                await self._record_and_publish(
+                    tool_call,
+                    early,
+                    context,
+                    attempt,
+                    decision,
+                )
+                return early
+
+            gate = await _call(
+                self.observation_service,
+                "before_action",
+                definition,
+                context,
+                default=True,
             )
-        if not decision.allowed:
-            denied = _result(
-                ToolExecutionStatus.DENIED,
-                "permission_denied",
-                decision.reason or "tool execution was denied",
-            )
-            await self._record_and_publish(tool_call, denied, context, 1, decision)
-            return denied
+            blocked = _observation_block(gate)
+            if blocked is not None:
+                await self._record_and_publish(
+                    tool_call,
+                    blocked,
+                    context,
+                    attempt,
+                    decision,
+                )
+                return blocked
 
-        early = self._check_cancel_deadline(context)
-        if early is not None:
-            await self._record_and_publish(tool_call, early, context, 1, decision)
-            return early
-
-        gate = await _call(
-            self.observation_service,
-            "before_action",
-            definition,
-            context,
-            default=True,
-        )
-        blocked = _observation_block(gate)
-        if blocked is not None:
-            await self._record_and_publish(tool_call, blocked, context, 1, decision)
-            return blocked
-
-        attempt = 1
-        while True:
             result = await self._execute_once(registered, tool_call, context)
             output_error = self._validator.validate_output(definition, result)
             if output_error is not None:
@@ -377,31 +407,50 @@ class ToolExecutionPipeline:
         self,
         calls: Sequence[tuple[ToolCall, ToolExecutionContext]],
     ) -> list[ToolExecutionResult]:
-        """Execute siblings concurrently while isolating each exception.
+        """Execute non-conflicting siblings while isolating each exception.
 
         This preserves the locked OpenHarness ``gather(return_exceptions=True)``
-        pairing rule: a failing sibling cannot cancel or orphan its peers.
+        pairing rule while serializing calls with the same typed conflict key.
         """
 
-        async def run(pair: tuple[ToolCall, ToolExecutionContext]) -> ToolExecutionResult:
-            tool_call, context = pair
-            return await self.execute(tool_call, context)
+        grouped: dict[tuple[str, str | int], list[tuple[int, ToolCall, ToolExecutionContext]]] = {}
+        for index, (tool_call, context) in enumerate(calls):
+            key = self._execution_conflict_key(context, index)
+            grouped.setdefault(key, []).append((index, tool_call, context))
 
-        raw = await asyncio.gather(*(run(pair) for pair in calls), return_exceptions=True)
-        results: list[ToolExecutionResult] = []
-        for (tool_call, _context), value in zip(calls, raw, strict=True):
-            if isinstance(value, BaseException):
-                results.append(
-                    _result(
+        async def run_group(
+            items: list[tuple[int, ToolCall, ToolExecutionContext]],
+        ) -> list[tuple[int, ToolExecutionResult | BaseException]]:
+            values: list[tuple[int, ToolExecutionResult | BaseException]] = []
+            for index, tool_call, context in items:
+                try:
+                    value: ToolExecutionResult | BaseException = await self.execute(
+                        tool_call,
+                        context,
+                    )
+                except BaseException as exc:  # preserve sibling result pairing
+                    value = exc
+                values.append((index, value))
+            return values
+
+        batches = await asyncio.gather(
+            *(run_group(items) for items in grouped.values()),
+            return_exceptions=False,
+        )
+        ordered: list[ToolExecutionResult | None] = [None] * len(calls)
+        for batch in batches:
+            for index, value in batch:
+                tool_call = calls[index][0]
+                if isinstance(value, BaseException):
+                    value = _result(
                         ToolExecutionStatus.FAILURE,
                         "executor_exception",
                         f"Tool {tool_call.name} failed: {type(value).__name__}: {value}",
                         backend_attempted=True,
                     )
-                )
-            else:
-                results.append(value)
-        return results
+                ordered[index] = value
+        assert all(result is not None for result in ordered)
+        return [result for result in ordered if result is not None]
 
     def execute_sync(
         self,
@@ -421,7 +470,7 @@ class ToolExecutionPipeline:
         tool_call: ToolCall,
         context: ToolExecutionContext,
     ) -> tuple[RegisteredTool | None, ToolExecutionResult | None]:
-        registered = self.catalog.get(context.internal_tool_id)
+        registered: RegisteredTool | None = None
         lookup = getattr(context.tool_view, "lookup", None)
         if callable(lookup):
             lookup_result = lookup(context.internal_tool_id)
@@ -433,8 +482,12 @@ class ToolExecutionPipeline:
                     "tool_disabled",
                     "tool is disabled",
                 )
+            if getattr(lookup_result, "status", None) is ToolLookupStatus.ENABLED:
+                registered = getattr(lookup_result, "tool", None)
         elif not context.tool_view.is_enabled(context.internal_tool_id):
             return None, _result(ToolExecutionStatus.DENIED, "tool_disabled", "tool is disabled")
+        else:
+            registered = self.catalog.get(context.internal_tool_id)
         if registered is None:
             return None, _result(ToolExecutionStatus.INVALID, "unknown_tool", "tool is unknown")
         if tool_call.name not in {
@@ -448,6 +501,28 @@ class ToolExecutionPipeline:
             )
         return registered, None
 
+    def _execution_conflict_key(
+        self,
+        context: ToolExecutionContext,
+        index: int,
+    ) -> tuple[str, str | int]:
+        registered, result = self._resolve(
+            ToolCall(
+                id=context.tool_call_id,
+                name=context.internal_tool_id,
+                arguments={},
+            ),
+            context,
+        )
+        if result is not None or registered is None:
+            return ("parallel", index)
+        definition = registered.definition
+        if definition.concurrency_policy.value == "resource_key":
+            return ("resource", definition.resource_key or definition.internal_id)
+        if definition.concurrency_policy.value == "serialized":
+            return ("serialized", definition.internal_id)
+        return ("parallel", index)
+
     async def _terminal_result(
         self,
         tool_call: ToolCall,
@@ -456,7 +531,12 @@ class ToolExecutionPipeline:
         policy = self.terminal_policy
         if policy is None:
             return None
-        value = await _call(policy, "check", tool_call, context, default=None)
+        method = (
+            "before_execute"
+            if callable(getattr(policy, "before_execute", None))
+            else "check"
+        )
+        value = await _call(policy, method, tool_call, context, default=None)
         if value is None:
             return None
         if not isinstance(value, ToolExecutionResult):
@@ -575,14 +655,15 @@ class ToolExecutionPipeline:
                 verification=verification,
             )
         if verification.status is VerificationStatus.PENDING:
-            return ToolExecutionResult(
+            return replace(
+                result,
                 status=ToolExecutionStatus.VERIFICATION_PENDING,
                 error=ToolExecutionError(
                     "verification_pending",
                     verification.detail or "verification pending",
                 ),
                 verification=verification,
-                backend_attempted=False,
+                retryable=False,
             )
         return replace(result, verification=verification)
 

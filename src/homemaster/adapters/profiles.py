@@ -7,7 +7,7 @@ explicit ``observe`` capability shared by all three environments.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -15,7 +15,7 @@ from typing import Any
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
 from homemaster.domain.tool_registry import build_home_tool_registry
-from homemaster.observations import ObservationService
+from homemaster.observations import ObservationCapture, ObservationService
 from homemaster.tools.catalog import ToolCatalog, ToolView
 from homemaster.tools.contracts import (
     ExecutionProof,
@@ -25,6 +25,7 @@ from homemaster.tools.contracts import (
     ResultImage,
     ToolDefinition,
     ToolExecutionContext,
+    ToolExecutionError,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolProvenance,
@@ -89,9 +90,121 @@ class EnvironmentToolProfile:
         return self.view.manifests()
 
 
+@dataclass
+class HomeObservationBackend:
+    """Structured Home state capture with explicit run and sequence identity."""
+
+    run_id: str
+    backend_id: str
+    generation: int
+    capture_state: Callable[[], Mapping[str, object]]
+    state_sequence: int = 0
+    event_sequence: int = 0
+
+    def capture(self) -> ObservationCapture:
+        self.event_sequence += 1
+        return ObservationCapture(
+            backend_id=self.backend_id,
+            run_id=self.run_id,
+            generation=self.generation,
+            state_sequence=self.state_sequence,
+            capture_event_sequence=self.event_sequence,
+            media_type="application/json",
+            content=dict(self.capture_state()),
+            evidence_ref=f"home/{self.run_id}/observation/{self.event_sequence}",
+        )
+
+
+@dataclass
+class AlfworldObservationBackend:
+    """Raster capture adapter over the runner-owned ALFWorld environment."""
+
+    adapter: Any
+    run_id: str
+
+    @property
+    def backend_id(self) -> str:
+        return str(self.adapter.backend_id)
+
+    @property
+    def generation(self) -> int:
+        return int(self.adapter.generation)
+
+    @property
+    def state_sequence(self) -> int:
+        return int(self.adapter.state_sequence)
+
+    @property
+    def event_sequence(self) -> int:
+        return int(self.adapter.event_sequence)
+
+    def capture(self) -> ObservationCapture:
+        state = self.adapter.current_state
+        if not state.frame_path:
+            raise RuntimeError("ALFWorld raster observation has no current frame")
+        path = Path(state.frame_path)
+        return ObservationCapture(
+            backend_id=self.backend_id,
+            run_id=self.run_id,
+            generation=self.generation,
+            state_sequence=self.state_sequence,
+            capture_event_sequence=self.event_sequence,
+            media_type="image/png",
+            content=path.read_bytes(),
+            evidence_ref=f"alfworld/{state.episode_id}/frame/{self.event_sequence}",
+        )
+
+
+@dataclass
+class CoworkerObservationBackend:
+    """Structured DOM capture adapter over a runner-owned browser/client pair."""
+
+    driver: Any
+    client: Any
+    run_id: str
+    generation: int = 0
+    capture_sequence: int = 0
+
+    @property
+    def backend_id(self) -> str:
+        return f"coworker:{self.run_id}"
+
+    @property
+    def state_sequence(self) -> int:
+        return int(self.client.state(self.run_id)["state_version"])
+
+    @property
+    def event_sequence(self) -> int:
+        return self.capture_sequence
+
+    def capture(self) -> ObservationCapture:
+        self.capture_sequence += 1
+        observation = self.driver.observe(f"observe-{self.capture_sequence:04d}")
+        refs = observation.get("evidence_refs") or ()
+        evidence_ref = str(refs[0]) if refs else f"coworker/{self.run_id}/dom"
+        return ObservationCapture(
+            backend_id=self.backend_id,
+            run_id=self.run_id,
+            generation=self.generation,
+            state_sequence=self.state_sequence,
+            capture_event_sequence=self.capture_sequence,
+            media_type="application/json",
+            content=observation,
+            evidence_ref=evidence_ref,
+        )
+
+
 class _ObservationExecutor:
-    def __init__(self, service: ObservationService) -> None:
+    def __init__(
+        self,
+        service: ObservationService,
+        *,
+        environment: str,
+        raster: bool | None,
+    ) -> None:
         self._service = service
+        self._environment = environment
+        self._raster = raster
 
     async def execute(
         self,
@@ -100,6 +213,18 @@ class _ObservationExecutor:
     ) -> ToolExecutionResult:
         del arguments
         record = await self._service.capture_for_model(context)
+        if self._raster is not None and record.is_raster is not self._raster:
+            ledger = getattr(context, "observation", None)
+            if hasattr(ledger, "invalidate"):
+                ledger.invalidate("observation media variant mismatch")
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                error=ToolExecutionError(
+                    "observation_media_mismatch",
+                    f"{self._environment} observation has an unexpected media type",
+                ),
+                backend_attempted=False,
+            )
         reference = ObservationReference(
             observation_id=record.observation_id,
             evidence_ref=record.evidence_ref,
@@ -130,13 +255,116 @@ class _ObservationExecutor:
         )
 
 
-class _ReceiptVerifier:
+class _HomeObservationExecutor(_ObservationExecutor):
+    def __init__(self, service: ObservationService) -> None:
+        super().__init__(service, environment="home", raster=False)
+
+
+class _AlfworldObservationExecutor(_ObservationExecutor):
+    def __init__(self, service: ObservationService) -> None:
+        super().__init__(service, environment="alfworld", raster=True)
+
+
+class _CoworkerObservationExecutor(_ObservationExecutor):
+    def __init__(self, service: ObservationService) -> None:
+        super().__init__(service, environment="coworker", raster=False)
+
+
+class _ObservationVerifier:
+    def __init__(self, *, environment: str, raster: bool) -> None:
+        self._environment = environment
+        self._raster = raster
+
     async def verify(
         self,
         result: ToolExecutionResult,
         context: ToolExecutionContext,
     ) -> VerificationRecord:
-        refs = result.evidence_refs or (f"verification/{context.tool_call_id}",)
+        del context
+        refs = result.evidence_refs
+        if result.status is not ToolExecutionStatus.SUCCESS:
+            if refs:
+                return VerificationRecord(
+                    status=VerificationStatus.FAILED,
+                    detail=f"{self._environment} observation capture failed",
+                    evidence_refs=refs,
+                )
+            return VerificationRecord(
+                status=VerificationStatus.PENDING,
+                detail=f"{self._environment} observation has no failure evidence",
+            )
+        media_type = result.data.get("media_type")
+        pixel_sha256 = result.data.get("pixel_sha256")
+        shape_valid = (
+            len(result.observations) == 1
+            and bool(refs)
+            and (isinstance(media_type, str) and media_type.startswith("image/"))
+            is self._raster
+            and (pixel_sha256 is not None) is self._raster
+            and (len(result.images) == 1) is self._raster
+        )
+        if not shape_valid:
+            if not refs:
+                return VerificationRecord(
+                    status=VerificationStatus.PENDING,
+                    detail=f"{self._environment} observation lacks authoritative evidence",
+                )
+            return VerificationRecord(
+                status=VerificationStatus.FAILED,
+                detail=f"{self._environment} observation shape is invalid",
+                evidence_refs=refs,
+            )
+        return VerificationRecord(
+            status=VerificationStatus.PASSED,
+            detail=f"{self._environment} observation record verified",
+            evidence_refs=refs,
+        )
+
+
+class _HomeObservationVerifier(_ObservationVerifier):
+    def __init__(self) -> None:
+        super().__init__(environment="home", raster=False)
+
+
+class _AlfworldObservationVerifier(_ObservationVerifier):
+    def __init__(self) -> None:
+        super().__init__(environment="alfworld", raster=True)
+
+
+class _CoworkerObservationVerifier(_ObservationVerifier):
+    def __init__(self) -> None:
+        super().__init__(environment="coworker", raster=False)
+
+
+class _ReceiptVerifier:
+    def __init__(self, *, external_state: bool = False) -> None:
+        self._external_state = external_state
+
+    async def verify(
+        self,
+        result: ToolExecutionResult,
+        context: ToolExecutionContext,
+    ) -> VerificationRecord:
+        refs = result.evidence_refs
+        if not refs:
+            return VerificationRecord(
+                status=VerificationStatus.PENDING,
+                detail="backend supplied no verifiable evidence reference",
+            )
+        if result.status is not ToolExecutionStatus.SUCCESS:
+            return VerificationRecord(
+                status=VerificationStatus.FAILED,
+                detail="backend receipt reports failure",
+                evidence_refs=refs,
+            )
+        if self._external_state:
+            state = getattr(context.backend, "current_state", None)
+            if state is not None and getattr(state, "won", None) is False:
+                return VerificationRecord(
+                    status=VerificationStatus.FAILED,
+                    detail="external terminal state is not won",
+                    evidence_refs=refs,
+                )
         return VerificationRecord(
             status=VerificationStatus.PASSED,
             detail="typed backend receipt accepted",
@@ -228,8 +456,13 @@ def build_alfworld_profile(
         memory_path=memory_path,
         runtime_memory_root=runtime_memory_root,
     )
-    ordered: list[str] = ["observe", *legacy.all_names()]
+    ordered: list[str] = [
+        "observe",
+        *(name for name in legacy.all_names() if name != "observe"),
+    ]
     for name in legacy.all_names():
+        if name == "observe":
+            continue
         spec = legacy.get(name)
         assert spec is not None
         _register_adapted(
@@ -321,12 +554,49 @@ def _register_observation(
         model_alias="observe",
         description=f"Capture the current {environment} state explicitly for model inspection.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-        output_schema=_OBSERVATION_SCHEMA,
+        output_schema=_observation_schema(environment),
         verification_policy=VerificationPolicy(execution_proof=ExecutionProof.STRUCTURED_RECEIPT),
         provenance=ToolProvenance(source=environment, reference=f"{environment}.observe"),
         version="1.9.0",
     )
-    catalog.register(RegisteredTool(definition=definition, executor=_ObservationExecutor(service)))
+    executor_types = {
+        "home": _HomeObservationExecutor,
+        "alfworld": _AlfworldObservationExecutor,
+        "coworker": _CoworkerObservationExecutor,
+    }
+    verifier_types = {
+        "home": _HomeObservationVerifier,
+        "alfworld": _AlfworldObservationVerifier,
+        "coworker": _CoworkerObservationVerifier,
+    }
+    catalog.register(
+        RegisteredTool(
+            definition=definition,
+            executor=executor_types[environment](service),
+            verifier=verifier_types[environment](),
+        )
+    )
+
+
+def _observation_schema(environment: str) -> dict[str, object]:
+    properties = dict(_OBSERVATION_SCHEMA["properties"])  # type: ignore[arg-type]
+    if environment == "alfworld":
+        properties["media_type"] = {"type": "string", "pattern": "^image/"}
+        properties["pixel_sha256"] = {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+        }
+    else:
+        properties["media_type"] = {
+            "type": "string",
+            "enum": ["application/json"],
+        }
+        properties["pixel_sha256"] = {"type": "null"}
+    return {
+        **_OBSERVATION_SCHEMA,
+        "properties": properties,
+        "title": f"{environment.title()}ObservationRecord",
+    }
 
 
 def _register_adapted(
@@ -358,7 +628,9 @@ def _register_adapted(
         RegisteredTool(
             definition=definition,
             executor=adapted.registered_tool.executor,
-            verifier=_ReceiptVerifier()
+            verifier=_ReceiptVerifier(
+                external_state=policy.execution_proof is ExecutionProof.EXTERNAL_STATE
+            )
             if policy.execution_proof is not ExecutionProof.NONE
             else None,
         )
@@ -409,7 +681,10 @@ def _profile(catalog: ToolCatalog, environment: str, ids: list[str]) -> Environm
 
 
 __all__ = [
+    "AlfworldObservationBackend",
+    "CoworkerObservationBackend",
     "EnvironmentToolProfile",
+    "HomeObservationBackend",
     "build_alfworld_profile",
     "build_coworker_profile",
     "build_environment_profiles",

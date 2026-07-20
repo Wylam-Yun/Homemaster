@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 
 import pytest
 
 from homemaster.adapters import build_alfworld_profile
-from homemaster.agent.messages import ContentBlock
+from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.observations import (
     ObservationCapture,
     ObservationLedger,
     ObservationService,
     ObservationState,
 )
+from homemaster.providers.llm_client import _attempt_record
 from homemaster.tools.contracts import (
     PermissionSubject,
     ToolExecutionContext,
@@ -88,7 +90,33 @@ async def test_explicit_observation_binding_and_action_debt_transcript() -> None
     # successful frozen provider request binds the exact observation bytes.
     assert await service.before_action(action.definition, action_context) is False
     request_hash = hashlib.sha256(b"request-with-obs-1").hexdigest()
-    binding = ledger.bind_provider_request(ledger.current_record, request_hash)  # type: ignore[arg-type]
+    record = ledger.current_record
+    assert record is not None
+    block = record.to_content_block()
+    attempt = _attempt_record(
+        messages=[UserMessage(content=[block])],
+        request_body={
+            "messages": [
+                {
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "data": base64.b64encode(record.content_bytes).decode("ascii"),
+                            },
+                        }
+                    ]
+                }
+            ]
+        },
+        model_attempt_id="attempt-bind",
+        request_sha256=request_hash,
+        stripped_images=False,
+        response_completed=True,
+        error=None,
+    )
+    binding = ledger.bind_provider_request(record, attempt)
     assert binding.request_sha256 == request_hash
     assert await service.before_action(action.definition, action_context) is True
 

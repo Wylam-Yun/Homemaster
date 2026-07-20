@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from types import SimpleNamespace
 
 import pytest
 
+from homemaster.agent.messages import UserMessage
 from homemaster.observations import (
     AuditCaptureRecord,
     ObservationCapture,
@@ -13,6 +15,7 @@ from homemaster.observations import (
     ObservationService,
     ObservationState,
 )
+from homemaster.providers.llm_client import _attempt_record
 
 
 class Backend:
@@ -48,6 +51,25 @@ def _service_and_context(backend: Backend):
     return service, context, ledger
 
 
+def _attempt_for(record, request_sha256: str):
+    block = record.to_content_block()
+    encoded = block.source["data"] if block.type == "image" else None
+    body_block = (
+        {"type": "image", "source": {"type": "base64", "data": encoded}}
+        if encoded is not None
+        else {"type": "text", "text": block.text}
+    )
+    return _attempt_record(
+        messages=[UserMessage(content=[block])],
+        request_body={"messages": [{"content": [body_block]}]},
+        model_attempt_id="attempt-1",
+        request_sha256=request_sha256,
+        stripped_images=False,
+        response_completed=True,
+        error=None,
+    )
+
+
 @pytest.mark.asyncio
 async def test_raster_capture_serialization_and_binding_are_frozen() -> None:
     backend = Backend()
@@ -61,7 +83,7 @@ async def test_raster_capture_serialization_and_binding_are_frozen() -> None:
     assert backend.captures == 1
 
     request_hash = hashlib.sha256(b"frozen-request").hexdigest()
-    binding = service.bind_provider_request(ledger, record, request_hash)
+    binding = service.bind_provider_request(ledger, record, _attempt_for(record, request_hash))
     assert binding.content_bytes == b"encoded-image"
     assert binding.to_metadata()["observation_id"] == "obs-1"
     assert ledger.state is ObservationState.BOUND_READY
@@ -125,7 +147,8 @@ async def test_stale_capture_order_and_post_action_freshness_are_rejected() -> N
     backend = Backend()
     service, context, ledger = _service_and_context(backend)
     first = await service.capture_for_model(context)
-    service.bind_provider_request(ledger, first, hashlib.sha256(b"req").hexdigest())
+    request_hash = hashlib.sha256(b"req").hexdigest()
+    service.bind_provider_request(ledger, first, _attempt_for(first, request_hash))
 
     ledger.mark_observation_debt(action_completion_event_sequence=20, post_state_sequence=8)
     backend.next_capture = ObservationCapture(
@@ -154,3 +177,19 @@ async def test_stale_capture_order_and_post_action_freshness_are_rejected() -> N
     record = await service.capture_for_model(context)
     assert record.state_sequence == 8
     assert ledger.observation_debt is False
+
+
+@pytest.mark.asyncio
+async def test_lower_backend_sequence_invalidates_previous_binding() -> None:
+    backend = Backend()
+    service, context, ledger = _service_and_context(backend)
+    record = await service.capture_for_model(context)
+    request_hash = hashlib.sha256(b"req-lower").hexdigest()
+    service.bind_provider_request(ledger, record, _attempt_for(record, request_hash))
+    backend.state_sequence = record.state_sequence - 1
+    assert await service.before_action(
+        SimpleNamespace(
+            verification_policy=SimpleNamespace(requires_pre_observation="current_bound")
+        ),
+        SimpleNamespace(observation=ledger, run_id="run-1", backend=backend),
+    ) is False

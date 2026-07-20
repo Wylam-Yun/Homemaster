@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
+from homemaster.providers.attempts import ProviderAttemptRecord
 from homemaster.tools.contracts import (
     PostActionObservation,
     ToolDefinition,
@@ -361,14 +362,14 @@ class ObservationLedger:
     def bind_provider_request(
         self,
         record: ObservationRecord,
-        request_sha256: str,
+        attempt: ProviderAttemptRecord,
     ) -> ObservationRequestBinding:
         if self.state is not ObservationState.OBSERVED_UNBOUND or self.current_record != record:
             raise ObservationFreshnessError("observation is not the current unbound record")
-        _require_sha256(request_sha256, "request_sha256")
+        _validate_provider_attempt(record, attempt)
         binding = ObservationRequestBinding(
             observation_id=record.observation_id,
-            request_sha256=request_sha256,
+            request_sha256=attempt.request_sha256,
             content_sha256=record.content_sha256,
             pixel_sha256=record.pixel_sha256,
             content_bytes=record.content_bytes,
@@ -389,8 +390,17 @@ class ObservationLedger:
         if self.state is not ObservationState.BOUND_READY or self.current_binding is None:
             return False
         backend_state = _backend_sequence(context.backend, "state_sequence")
-        if backend_state is not None and backend_state > self.current_binding.state_sequence:
-            self.invalidate("backend state advanced after observation binding")
+        if backend_state is not None and backend_state != self.current_binding.state_sequence:
+            self.invalidate("backend state differs from observation binding")
+            return False
+        backend_event = _backend_sequence(context.backend, "event_sequence")
+        if backend_event is None:
+            backend_event = _backend_sequence(context.backend, "capture_event_sequence")
+        if (
+            backend_event is not None
+            and backend_event != self.current_binding.capture_event_sequence
+        ):
+            self.invalidate("backend event differs from observation binding")
             return False
         return True
 
@@ -520,9 +530,23 @@ class ObservationService:
         self,
         ledger: ObservationLedger,
         record: ObservationRecord,
-        request_sha256: str,
+        attempt: ProviderAttemptRecord,
     ) -> ObservationRequestBinding:
-        return ledger.bind_provider_request(record, request_sha256)
+        return ledger.bind_provider_request(record, attempt)
+
+    def commit_provider_attempt(
+        self,
+        ledger: ObservationLedger,
+        attempt: ProviderAttemptRecord,
+    ) -> ObservationRequestBinding | None:
+        """Bind the current observation only at a successful provider boundary."""
+
+        if ledger.state is ObservationState.BOUND_READY:
+            return ledger.current_binding
+        record = ledger.current_record
+        if ledger.state is not ObservationState.OBSERVED_UNBOUND or record is None:
+            return None
+        return ledger.bind_provider_request(record, attempt)
 
     async def before_action(
         self,
@@ -550,6 +574,62 @@ class ObservationService:
         ledger = context.observation
         if isinstance(ledger, ObservationLedger):
             ledger.after_action(definition, result, context)
+
+
+@dataclass
+class ObservationProviderCommitter:
+    """Run-scoped bridge from GenericAgentRuntime provider commits to a ledger."""
+
+    service: ObservationService
+    ledger: ObservationLedger
+
+    def commit_successful_response(
+        self,
+        *,
+        attempt: ProviderAttemptRecord,
+    ) -> ObservationRequestBinding | None:
+        return self.service.commit_provider_attempt(self.ledger, attempt)
+
+    def invalidate(self, reason: str) -> None:
+        self.ledger.invalidate(reason)
+
+
+def _validate_provider_attempt(
+    record: ObservationRecord,
+    attempt: ProviderAttemptRecord,
+) -> None:
+    if not isinstance(attempt, ProviderAttemptRecord):
+        raise TypeError("attempt must be ProviderAttemptRecord")
+    if (
+        not attempt.response_completed
+        or attempt.stripped_images
+        or attempt.error_type is not None
+        or attempt.cause_code is not None
+    ):
+        raise ObservationFreshnessError(
+            "only a complete unmodified provider attempt can bind an observation"
+        )
+    _require_sha256(attempt.request_sha256, "request_sha256")
+    matching = [
+        binding
+        for binding in attempt.outbound_observations
+        if (
+            binding.observation_id == record.observation_id
+            and binding.content_sha256 == record.content_sha256
+            and binding.observation_content_sha256 == record.content_sha256
+            and binding.observation_pixel_sha256 == record.pixel_sha256
+            and binding.observation_backend_id == record.backend_id
+            and binding.observation_run_id == record.run_id
+            and binding.observation_generation == record.generation
+            and binding.observation_state_sequence == record.state_sequence
+            and binding.observation_capture_event_sequence
+            == record.capture_event_sequence
+        )
+    ]
+    if not matching:
+        raise ObservationFreshnessError(
+            "provider attempt does not contain the exact current observation"
+        )
 
 
 def _capture_context(

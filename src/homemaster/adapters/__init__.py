@@ -1,7 +1,10 @@
 """Canonical environment adapters and model-facing tool profiles."""
 
 from homemaster.adapters.profiles import (
+    AlfworldObservationBackend,
+    CoworkerObservationBackend,
     EnvironmentToolProfile,
+    HomeObservationBackend,
     build_alfworld_profile,
     build_coworker_profile,
     build_environment_profiles,
@@ -9,7 +12,10 @@ from homemaster.adapters.profiles import (
 )
 
 __all__ = [
+    "AlfworldObservationBackend",
+    "CoworkerObservationBackend",
     "EnvironmentToolProfile",
+    "HomeObservationBackend",
     "build_alfworld_profile",
     "build_coworker_profile",
     "build_environment_profiles",

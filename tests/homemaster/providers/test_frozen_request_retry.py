@@ -48,7 +48,31 @@ async def test_provider_retry_reuses_frozen_observation_bytes_and_hashes() -> No
 
     record = await service.capture_for_model(context)
     request_sha256 = hashlib.sha256(b"canonical-request").hexdigest()
-    binding = service.bind_provider_request(ledger, record, request_sha256)
+    block = record.to_content_block()
+    binding_attempt = _attempt_record(
+        messages=[UserMessage(content=[block])],
+        request_body={
+            "messages": [
+                {
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "data": base64.b64encode(record.content_bytes).decode("ascii"),
+                            },
+                        }
+                    ]
+                }
+            ]
+        },
+        model_attempt_id="attempt-bind",
+        request_sha256=request_sha256,
+        stripped_images=False,
+        response_completed=True,
+        error=None,
+    )
+    binding = service.bind_provider_request(ledger, record, binding_attempt)
     first_payload = (binding.content_bytes, binding.content_sha256, binding.pixel_sha256)
 
     retry_payload = (binding.content_bytes, binding.content_sha256, binding.pixel_sha256)

@@ -30,9 +30,12 @@ class OpenAIChatTransport(ProviderTransport):
         for msg in messages:
             role = getattr(msg, "role", "")
             if role == "user":
-                api_messages.append({"role": "user", "content": _text_content(msg.content)})
+                api_messages.append({"role": "user", "content": _content_value(msg.content)})
             elif role == "assistant":
-                entry: dict[str, Any] = {"role": "assistant", "content": _text_content(msg.content)}
+                entry: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": _content_value(msg.content),
+                }
                 if msg.tool_calls:
                     entry["tool_calls"] = [
                         {
@@ -51,7 +54,7 @@ class OpenAIChatTransport(ProviderTransport):
                     {
                         "role": "tool",
                         "tool_call_id": msg.tool_call_id,
-                        "content": _text_content(msg.content),
+                        "content": _content_value(msg.content),
                     }
                 )
         kwargs: dict[str, Any] = {"model": model, "messages": api_messages}
@@ -133,6 +136,30 @@ class OpenAIChatTransport(ProviderTransport):
 
 def _text_content(blocks: list[ContentBlock]) -> str:
     return "\n".join(block.text for block in blocks if block.text)
+
+
+def _content_value(blocks: list[ContentBlock]) -> str | list[dict[str, Any]]:
+    """Keep image observations in the OpenAI request instead of dropping them."""
+
+    if not any(block.type == "image" for block in blocks):
+        return _text_content(blocks)
+    content: list[dict[str, Any]] = []
+    for block in blocks:
+        if block.type == "text":
+            content.append({"type": "text", "text": block.text})
+            continue
+        if not isinstance(block.source, dict):
+            continue
+        media_type = str(block.source.get("media_type") or "image/png")
+        data = block.source.get("data")
+        if isinstance(data, str):
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{media_type};base64,{data}"},
+                }
+            )
+    return content
 
 
 def _openai_tool_call_to_normalized(item: Any, index: int) -> ToolCall:

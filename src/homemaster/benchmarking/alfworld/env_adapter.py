@@ -279,6 +279,23 @@ class AlfworldEnvAdapter:
         return self._state
 
     @property
+    def backend_id(self) -> str:
+        episode = self._state.episode_id if self._state is not None else self._episode_prefix
+        return f"alfworld:{episode}"
+
+    @property
+    def generation(self) -> int:
+        return self._scene_generation * 1_000_000 + self._goal_generation
+
+    @property
+    def state_sequence(self) -> int:
+        return self.current_state.step_index
+
+    @property
+    def event_sequence(self) -> int:
+        return self._event_sequence
+
+    @property
     def current_pose_context(self) -> PoseContext | OracleExecutionContext | None:
         return self._pose_context
 

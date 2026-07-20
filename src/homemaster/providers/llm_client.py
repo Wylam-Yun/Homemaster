@@ -23,6 +23,7 @@ from homemaster.agent.messages import (
 from homemaster.config import ProviderProfileConfig
 from homemaster.providers.attempts import (
     OutboundImageBinding,
+    OutboundObservationBinding,
     ProviderAttemptRecord,
     ProviderAttemptSink,
 )
@@ -444,6 +445,7 @@ def _attempt_record(
     error: LLMClientError | None,
 ) -> ProviderAttemptRecord:
     candidates: list[tuple[str, OutboundImageBinding]] = []
+    observation_candidates: list[tuple[str, OutboundObservationBinding]] = []
     for message_index, message in enumerate(messages):
         for block_index, block in enumerate(message.content):
             if block.type != "image" or not isinstance(block.source, dict):
@@ -510,6 +512,32 @@ def _attempt_record(
                     ),
                 )
             )
+            _append_observation_binding(
+                observation_candidates,
+                message_index=message_index,
+                block_index=block_index,
+                block=block,
+                content_sha256=content_sha256,
+                media_type=_optional_str(
+                    block.source.get("media_type")
+                    if isinstance(block.source, dict)
+                    else None
+                )
+                or "image/unknown",
+            )
+        for block_index, block in enumerate(message.content):
+            if block.type != "text" or not block.metadata.get("observation_id"):
+                continue
+            content = block.text.encode("utf-8")
+            _append_observation_binding(
+                observation_candidates,
+                message_index=message_index,
+                block_index=block_index,
+                block=block,
+                content_sha256=hashlib.sha256(content).hexdigest(),
+                media_type=_optional_str(block.metadata.get("media_type"))
+                or "text/plain",
+            )
     serialized_counts = Counter(
         hashlib.sha256(content).hexdigest() for content in _serialized_image_contents(request_body)
     )
@@ -520,6 +548,17 @@ def _attempt_record(
         serialized_counts[content_sha256] -= 1
         bindings.append(binding)
     bindings.reverse()
+    serialized_observation_counts = Counter(
+        digest
+        for digest in _serialized_observation_contents(request_body)
+    )
+    observation_bindings: list[OutboundObservationBinding] = []
+    for content_sha256, binding in reversed(observation_candidates):
+        if serialized_observation_counts[content_sha256] <= 0:
+            continue
+        serialized_observation_counts[content_sha256] -= 1
+        observation_bindings.append(binding)
+    observation_bindings.reverse()
     return ProviderAttemptRecord(
         model_attempt_id=model_attempt_id,
         request_sha256=request_sha256,
@@ -528,6 +567,79 @@ def _attempt_record(
         response_completed=response_completed,
         error_type=error.error_type if error is not None else None,
         cause_code=error.cause_code if error is not None else None,
+        outbound_observations=tuple(observation_bindings),
+    )
+
+
+def _append_observation_binding(
+    candidates: list[tuple[str, OutboundObservationBinding]],
+    *,
+    message_index: int,
+    block_index: int,
+    block: Any,
+    content_sha256: str,
+    media_type: str,
+) -> None:
+    metadata = getattr(block, "metadata", {})
+    observation_id = _optional_str(metadata.get("observation_id"))
+    observation_content_sha256 = _optional_str(
+        metadata.get("observation_content_sha256") or metadata.get("content_sha256")
+    )
+    backend_id = _optional_str(
+        metadata.get("observation_backend_id") or metadata.get("backend_id")
+    )
+    run_id = _optional_str(metadata.get("observation_run_id") or metadata.get("run_id"))
+    generation = _optional_int(
+        metadata.get("observation_generation")
+        if "observation_generation" in metadata
+        else metadata.get("generation")
+    )
+    state_sequence = _optional_int(
+        metadata.get("observation_state_sequence")
+        if "observation_state_sequence" in metadata
+        else metadata.get("state_sequence")
+    )
+    event_sequence = _optional_int(
+        metadata.get("observation_capture_event_sequence")
+        if "observation_capture_event_sequence" in metadata
+        else metadata.get("capture_event_sequence")
+    )
+    pixel_sha256 = _optional_str(
+        metadata.get("observation_pixel_sha256") or metadata.get("pixel_sha256")
+    )
+    if not all(
+        value is not None
+        for value in (
+            observation_id,
+            observation_content_sha256,
+            backend_id,
+            run_id,
+            generation,
+            state_sequence,
+            event_sequence,
+        )
+    ):
+        return
+    if observation_content_sha256 != content_sha256:
+        raise ValueError("outbound observation bytes do not match observation content hash")
+    candidates.append(
+        (
+            content_sha256,
+            OutboundObservationBinding(
+                message_index=message_index,
+                block_index=block_index,
+                content_sha256=content_sha256,
+                media_type=media_type,
+                observation_id=observation_id,
+                observation_content_sha256=observation_content_sha256,
+                observation_pixel_sha256=pixel_sha256,
+                observation_backend_id=backend_id,
+                observation_run_id=run_id,
+                observation_generation=generation,
+                observation_state_sequence=state_sequence,
+                observation_capture_event_sequence=event_sequence,
+            ),
+        )
     )
 
 
@@ -556,6 +668,44 @@ def _serialized_image_contents(value: Any) -> list[bytes]:
     elif isinstance(value, list | tuple):
         for item in value:
             contents.extend(_serialized_image_contents(item))
+    return contents
+
+
+def _serialized_observation_contents(value: Any) -> list[str]:
+    """Return hashes for text/image payloads present in a frozen request body."""
+
+    contents: list[str] = []
+    if isinstance(value, dict):
+        if value.get("type") == "image_url":
+            image_url = value.get("image_url")
+            url = image_url.get("url") if isinstance(image_url, dict) else None
+            if isinstance(url, str) and ";base64," in url:
+                data = url.split(";base64,", 1)[1]
+                try:
+                    contents.append(
+                        hashlib.sha256(base64.b64decode(data, validate=True)).hexdigest()
+                    )
+                except ValueError:
+                    pass
+        if value.get("type") == "text" and isinstance(value.get("text"), str):
+            contents.append(hashlib.sha256(value["text"].encode("utf-8")).hexdigest())
+        source = value.get("source")
+        if value.get("type") == "image" and isinstance(source, dict):
+            data = source.get("data")
+            if isinstance(data, str):
+                try:
+                    contents.append(
+                        hashlib.sha256(base64.b64decode(data, validate=True)).hexdigest()
+                    )
+                except ValueError:
+                    pass
+        for child in value.values():
+            contents.extend(_serialized_observation_contents(child))
+    elif isinstance(value, list):
+        for child in value:
+            contents.extend(_serialized_observation_contents(child))
+    elif isinstance(value, str):
+        contents.append(hashlib.sha256(value.encode("utf-8")).hexdigest())
     return contents
 
 

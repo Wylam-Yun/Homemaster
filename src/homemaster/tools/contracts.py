@@ -527,7 +527,6 @@ class ToolExecutionResult:
             ToolExecutionStatus.DENIED,
             ToolExecutionStatus.CANCELLED,
             ToolExecutionStatus.OBSERVATION_REQUIRED,
-            ToolExecutionStatus.VERIFICATION_PENDING,
         }
         if self.status in pre_backend_statuses and self.backend_attempted:
             raise ValueError(f"{self.status.value} cannot claim a backend attempt")

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import replace
 
 import pytest
 
 from homemaster.agent.messages import ToolCall
-from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.catalog import CatalogOverrideAuthorization, ToolCatalog
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
@@ -362,6 +363,95 @@ async def test_policy_none_does_not_call_optional_verifier() -> None:
     assert result.status is ToolExecutionStatus.SUCCESS
     assert verifier.calls == 0
     assert resources.active == 0
+
+
+@pytest.mark.asyncio
+async def test_pending_verification_preserves_backend_attempt_and_receipt() -> None:
+    order: list[str] = []
+
+    class PendingVerifier:
+        async def verify(self, result, context):
+            del result, context
+            return VerificationRecord(
+                status=VerificationStatus.PENDING,
+                detail="external evidence is delayed",
+            )
+
+    executor = Executor(
+        order,
+        result=ToolExecutionResult(
+            status=ToolExecutionStatus.FAILURE,
+            error=ToolExecutionError("backend_failed", "backend failed after attempt"),
+            data={"receipt": "r1"},
+            evidence_refs=("receipt/r1",),
+            backend_attempted=True,
+        ),
+    )
+    pipeline, context, _executor, _verifier, _resources, _ledger = build_pipeline(
+        order,
+        executor=executor,
+        verifier=PendingVerifier(),
+    )
+    result = await pipeline.execute(
+        ToolCall(id="call-1", name="action", arguments={"value": 1}),
+        context,
+    )
+    assert result.status is ToolExecutionStatus.VERIFICATION_PENDING
+    assert result.backend_attempted is True
+    assert result.data["receipt"] == "r1"
+    assert result.evidence_refs == ("receipt/r1",)
+
+
+@pytest.mark.asyncio
+async def test_frozen_view_keeps_original_executor_after_catalog_override() -> None:
+    old_order: list[str] = []
+    new_order: list[str] = []
+    old_definition = definition(verification_policy=VerificationPolicy())
+    old_tool = RegisteredTool(old_definition, Executor(old_order))
+    catalog = ToolCatalog()
+    catalog.register(old_tool)
+    frozen_view = catalog.freeze([old_definition.internal_id])
+
+    replacement_definition = replace(
+        old_definition,
+        description="Replacement executor.",
+        provenance=ToolProvenance(source="test", reference="replacement"),
+    )
+    replacement = RegisteredTool(replacement_definition, Executor(new_order))
+    catalog.register(
+        replacement,
+        override=CatalogOverrideAuthorization(
+            internal_id=old_definition.internal_id,
+            existing_snapshot_sha256=old_definition.snapshot_sha256,
+            replacement_snapshot_sha256=replacement_definition.snapshot_sha256,
+            existing_provenance=old_definition.provenance,
+            replacement_provenance=replacement_definition.provenance,
+            authorized_by="test-suite",
+            reason="verify frozen run isolation",
+        ),
+    )
+    pipeline = ToolExecutionPipeline(catalog)
+    context = ToolExecutionContext(
+        session_id="session",
+        run_id="run",
+        turn_index=0,
+        tool_call_id="call-old",
+        internal_tool_id=old_definition.internal_id,
+        tool_view=frozen_view,
+        permission_subject=PermissionSubject(subject_id="user", channel="test"),
+        backend=None,
+        deadline=None,
+        cancellation=None,
+        observation=None,
+        domain_observer=None,
+    )
+    result = await pipeline.execute(
+        ToolCall(id="call-old", name="action", arguments={"value": 1}),
+        context,
+    )
+    assert result.status is ToolExecutionStatus.SUCCESS
+    assert old_order == ["execute"]
+    assert new_order == []
 
 
 @pytest.mark.asyncio

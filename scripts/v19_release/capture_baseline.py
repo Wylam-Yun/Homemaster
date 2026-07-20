@@ -22,6 +22,7 @@ from homemaster.config import load_config
 from homemaster.providers.attempts import (
     AttemptCommitState,
     OutboundImageBinding,
+    OutboundObservationBinding,
     ProviderAttemptRecord,
 )
 from scripts.v19_release._common import (
@@ -251,7 +252,12 @@ def _tool_surfaces() -> dict[str, Any]:
 
 def _provider_attempt_contract() -> dict[str, Any]:
     contracts = {}
-    for model in (OutboundImageBinding, ProviderAttemptRecord, AttemptCommitState):
+    for model in (
+        OutboundImageBinding,
+        OutboundObservationBinding,
+        ProviderAttemptRecord,
+        AttemptCommitState,
+    ):
         contracts[model.__name__] = [
             {"name": field.name, "type": str(field.type)} for field in dataclasses.fields(model)
         ]

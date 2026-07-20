@@ -28,7 +28,7 @@ def build_home_tool_registry(
 ) -> ToolRegistry:
     """Build a ToolRegistry with all home domain tools + task-state tools."""
     registry = ToolRegistry()
-    for spec in (
+    specs = (
         make_task_interpreter(),
         make_memory_retriever(memory_path=memory_path),
         make_target_grounder(world_path=world_path),
@@ -41,6 +41,16 @@ def build_home_tool_registry(
         make_task_summarizer(),
         make_task_planner_tool(),
         make_task_progress_check_tool(),
-    ):
-        registry.register(spec)
+    )
+    for spec in specs:
+        if spec.name == "robot_navigate":
+            # Keep the historical name for execution-only traces while the
+            # provider-facing surface uses the canonical CL-07 alias.
+            registry.register(spec.model_copy(update={"selectable_by_model": False}))
+            registry.register(spec.model_copy(update={"name": "robot_go_to"}))
+        elif spec.name == "robot_observe":
+            registry.register(spec.model_copy(update={"selectable_by_model": False}))
+            registry.register(spec.model_copy(update={"name": "observe"}))
+        else:
+            registry.register(spec)
     return registry

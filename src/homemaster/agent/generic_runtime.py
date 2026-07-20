@@ -117,6 +117,7 @@ class GenericAgentRuntime:
         context_assembler: ContextAssembler | None = None,
         system_prompt: str = "",
         model_view_observer: Any = None,
+        provider_commit_observer: Any = None,
         provider_attempt_sink_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._transport = transport
@@ -126,6 +127,7 @@ class GenericAgentRuntime:
         self._context_assembler = context_assembler
         self._system_prompt = system_prompt
         self._model_view_observer = model_view_observer
+        self._provider_commit_observer = provider_commit_observer
         self._provider_attempt_sink_factory = provider_attempt_sink_factory
 
     def run(
@@ -463,17 +465,28 @@ class GenericAgentRuntime:
                     tool_dispatch_committed=False,
                     external_action_committed=False,
                 )
-                if self._model_view_observer is not None and assistant_msg.tool_calls:
-                    try:
-                        if successful_attempt is None:
-                            raise ValueError("provider attempt record is unavailable")
-                        self._model_view_observer.commit_successful_response(
-                            attempt=successful_attempt,
-                        )
-                    except Exception as exc:
-                        invalidate = getattr(self._model_view_observer, "invalidate", None)
-                        if callable(invalidate):
-                            invalidate(f"{type(exc).__name__}: {exc}")
+                if assistant_msg.tool_calls:
+                    run_context = getattr(self._tool_executor, "_run_context", None)
+                    dependency_observer = (
+                        run_context.deps.get("provider_commit_observer")
+                        if run_context is not None
+                        else None
+                    )
+                    for observer in (
+                        self._model_view_observer,
+                        self._provider_commit_observer,
+                        dependency_observer,
+                    ):
+                        if observer is None:
+                            continue
+                        try:
+                            if successful_attempt is None:
+                                raise ValueError("provider attempt record is unavailable")
+                            observer.commit_successful_response(attempt=successful_attempt)
+                        except Exception as exc:
+                            invalidate = getattr(observer, "invalidate", None)
+                            if callable(invalidate):
+                                invalidate(f"{type(exc).__name__}: {exc}")
                 if assistant_msg.reasoning_content:
                     emit(
                         "assistant.thinking",

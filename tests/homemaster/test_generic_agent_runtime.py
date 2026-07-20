@@ -686,6 +686,7 @@ def test_runtime_rejects_retry_request_hash_drift() -> None:
 def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
     order: list[str] = []
     committed_attempts: list[ProviderAttemptRecord] = []
+    provider_commits: list[ProviderAttemptRecord] = []
 
     class ToolTransport:
         def stream(
@@ -726,17 +727,24 @@ def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
             order.append("tool_dispatch")
             return super().dispatch(name, arguments)
 
+    class ProviderObserver:
+        def commit_successful_response(self, *, attempt: ProviderAttemptRecord) -> None:
+            order.append("provider_commit")
+            provider_commits.append(attempt)
+
     runtime = GenericAgentRuntime(
         transport=ToolTransport(),
         tool_executor=Executor(),
         max_tool_iterations=1,
         model_view_observer=Observer(),
+        provider_commit_observer=ProviderObserver(),
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
     result = runtime.run(AgentSession(session_id="commit-order"), "hello", tools=[])
 
     assert result.error_code == "max_tool_iterations_exceeded"
-    assert order == ["model_view_commit", "tool_dispatch"]
+    assert order == ["model_view_commit", "provider_commit", "tool_dispatch"]
     assert len(committed_attempts) == 1
     assert committed_attempts[0].request_sha256 == "d" * 64
+    assert len(provider_commits) == 1
