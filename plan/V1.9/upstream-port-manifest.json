@@ -1,0 +1,8 @@
+{
+  "schema_version": "homemaster-v1.9-upstream-port-manifest-v1",
+  "upstream": {
+    "repo": "../OpenHarness",
+    "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "ports": []
+}

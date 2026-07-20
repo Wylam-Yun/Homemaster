@@ -385,6 +385,16 @@ def test_assistant_reply_projects_bounded_public_text_but_thinking_does_not() ->
         "sk-abcdefghijklmnopqrstuvwxyz123456",
         "aZ8Pq3Lw9Xk2Vm7Nc4Rt6Ys1Hd5Jf0Bu",
     ],
+    ids=[
+        "configured-value",
+        "bearer-header",
+        "api-key-assignment",
+        "jwt",
+        "private-key",
+        "signed-url",
+        "openai-key",
+        "high-entropy-value",
+    ],
 )
 def test_free_text_secret_patterns_are_rejected_without_logging_source(secret: str) -> None:
     configured = ("actual-configured-provider-secret",)

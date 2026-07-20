@@ -1,0 +1,136 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "-1",
+  "change_list": "CL-01",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster": "5b150a9671bb087b32ed57971a39fa472e8ff1e1",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "cl01-environment",
+      "goal": "Synchronize frozen root and Coworker dependency environments, register external/stress pytest markers, and prove full non-live collection."
+    },
+    {
+      "id": "cl01-upstream-manifest",
+      "goal": "Define and test the strict upstream port manifest validator while keeping the bootstrap ports list empty because CL-01 ports no production runtime code."
+    },
+    {
+      "id": "cl01-release-inventory",
+      "goal": "Implement and test deterministic four-of-ten ALFWorld release inventory building and verification with source/rank/dataset identity guards."
+    },
+    {
+      "id": "cl01-baseline",
+      "goal": "Capture the eight sanitized section 24.2 baseline artifacts and characterize Home CLI/Interactive, ALFWorld V1.8, and Coworker contracts without changing production behavior."
+    },
+    {
+      "id": "cl01-identity",
+      "goal": "Implement and test sanitized environment identity capture, including strict hkust4 ALFWorld Conda evidence requirements."
+    }
+  ],
+  "allowed_deltas": [
+    "pyproject.toml pytest marker registration only",
+    "scripts/v19_release/** release and baseline tooling",
+    "tests/homemaster/benchmarking/test_alfworld_v19_release_manifest.py and focused V1.9 tooling tests",
+    "existing non-live tests may isolate inherited provider environment, use the committed example config, classify real browser/tmux/bubblewrap tests as live_coworker, and ignore source-less stale bytecode directories",
+    "config/alfworld_v19_release_trials.json deterministic generated inventory",
+    "plan/V1.9/baseline/** sanitized contract artifacts",
+    "plan/V1.9/upstream-port-manifest.json schema-valid empty bootstrap manifest",
+    "plan/V1.9/execution/phase-minus-1/state.json evidence and review state",
+    "uv.lock or apps/case02_openenv/uv.lock only if frozen synchronization proves the checked-in lock is inconsistent"
+  ],
+  "test_commands": [
+    "uv sync --frozen --all-extras",
+    "uv sync --directory apps/case02_openenv --frozen",
+    "uv run python -m homemaster.cli --help",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/v19_release/verify_alfworld_trials.py --manifest config/alfworld_v19_release_trials.json --source config/alfworld_v18_regression_trials.json",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "git diff --exit-code 5b150a9 -- src/homemaster apps/case02_openenv/src",
+    "test -z \"$(git ls-files --others --exclude-standard -- src/homemaster apps/case02_openenv/src)\"",
+    "test -z \"$(git ls-files --others --ignored --exclude-standard -- src/homemaster apps/case02_openenv/src | rg -v '/__pycache__/|\\.egg-info/')\""
+  ],
+  "rollback_point": "5b150a9671bb087b32ed57971a39fa472e8ff1e1",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Re-read comparison spec sections 1-5 and 24.1-24.4, implementation plan sections 1-7 and 9-10, current git diff, phase state, upstream port manifest, locked OpenHarness source tree, and CL-01 owner files/tests."
+    },
+    {
+      "kind": "context_reload",
+      "status": "loaded",
+      "details": "Full non-live run exposed local-config, inherited-provider-environment, external Chrome/tmux/bubblewrap, and stale bytecode directory coupling; re-read the failing tests and their config/doctor/turn/import-boundary owners before expanding test-environment deltas."
+    },
+    {
+      "kind": "pytest_nonlive",
+      "status": "passed",
+      "exit_code": 0,
+      "summary": "878 passed, 7 deselected, 1 warning",
+      "sha256": "879d02a745cf06caac64a3511f685cd653ced7f486bc02102e9b5eed1ccb2db0",
+      "handle": "plan/V1.9/baseline/pytest-nonlive.txt"
+    },
+    {
+      "kind": "test_inventory",
+      "status": "captured",
+      "node_count": 878,
+      "sha256": "cfebee2551bbbb6bd104f806c555bc9023d7b21d08f93c070a18a299679bbebc",
+      "handle": "plan/V1.9/baseline/test-inventory.txt"
+    },
+    {
+      "kind": "alfworld_release_inventory",
+      "status": "passed_without_dataset_root",
+      "selected": 4,
+      "source_entries": 10,
+      "sha256": "64bb982a755a86d4c997cdaf7ff6898f17b2add1f6af1f095d7694845cf7c1ab",
+      "handle": "config/alfworld_v19_release_trials.json"
+    },
+    {
+      "kind": "production_source_diff",
+      "status": "clean",
+      "comparison": "tracked diff plus ordinary and ignored non-generated file gates are clean for src/homemaster and apps/case02_openenv/src"
+    },
+    {
+      "kind": "baseline_reproducibility",
+      "status": "passed",
+      "details": "Two consecutive post-remediation full captures produced byte-identical eight-file baseline directories."
+    }
+  ],
+  "reviews": [
+    {
+      "reviewer": "independent-subagent:phase_minus_1_review",
+      "round": 1,
+      "status": "findings",
+      "findings": [
+        {"id": "R1-H1", "severity": "HIGH", "location": "scripts/v19_release/capture_environment_identity.py:52", "summary": "Import origins are recorded but not constrained to the candidate worktree/Conda environment.", "disposition": "REMEDIATED", "reverification": "candidate/Conda origin and unresolved interpreter-path tests pass"},
+        {"id": "R1-H2", "severity": "HIGH", "location": "scripts/v19_release/capture_environment_identity.py:83", "summary": "ALF identity can pass with missing root/config/trial/provider/model identity.", "disposition": "REMEDIATED", "reverification": "missing ALF identity inputs fail closed; profile CLI supports the normative flags"},
+        {"id": "R1-M3", "severity": "MEDIUM", "location": "scripts/v19_release/capture_baseline.py:136", "summary": "Pytest elapsed time prevents byte-reproducible baseline evidence.", "disposition": "REMEDIATED", "reverification": "two consecutive full captures produced identical eight-artifact hashes"},
+        {"id": "R1-M4", "severity": "MEDIUM", "location": "scripts/v19_release/alfworld_release_manifest.py:107", "summary": "Safe but incorrect source display path is accepted.", "disposition": "REMEDIATED", "reverification": "safe wrong source path negative test passes"},
+        {"id": "R1-M5", "severity": "MEDIUM", "location": "scripts/v19_release/capture_baseline.py:81", "summary": "Baseline capture does not reject locked HomeMaster/OpenHarness commit drift.", "disposition": "REMEDIATED", "reverification": "locked commit/source-root and upstream HEAD drift tests pass"},
+        {"id": "R1-L6", "severity": "LOW", "location": "plan/V1.9/execution/phase-minus-1/state.json:51", "summary": "Production zero-delta gate omitted apps/case02_openenv/src.", "disposition": "REMEDIATED"}
+      ]
+    },
+    {
+      "reviewer": "independent-subagent:phase_minus_1_rereview",
+      "round": 2,
+      "status": "findings",
+      "findings": [
+        {"id": "R2-H1", "severity": "HIGH", "location": "scripts/v19_release/capture_environment_identity.py:161", "summary": "Lexical module-origin containment permits symlink escapes from the candidate worktree or Conda prefix.", "disposition": "REMEDIATED", "reverification": "resolved-origin symlink escape regression passes for candidate and Conda roots"},
+        {"id": "R2-H2", "severity": "HIGH", "location": "scripts/v19_release/capture_baseline.py:235", "summary": "Tracked pytest baseline output does not sanitize generic secret-bearing output.", "disposition": "REMEDIATED", "reverification": "Authorization/Bearer, x-api-key, OpenAI-style, and known environment secret regression passes"},
+        {"id": "R2-M3", "severity": "MEDIUM", "location": "scripts/v19_release/validate_upstream_port_manifest.py:105", "summary": "Manifest validation does not prove source.symbol or exact parameterized pytest nodes exist.", "disposition": "REMEDIATED", "reverification": "missing source symbol and invented parameter-id regressions pass"}
+      ]
+    },
+    {
+      "reviewer": "independent-subagent:phase_minus_1_review_round3",
+      "round": 3,
+      "status": "findings",
+      "findings": [
+        {"id": "R3-H1", "severity": "HIGH", "location": "scripts/v19_release/capture_baseline.py:153", "summary": "Secret-shaped parameter values remain in exact test inventory and common credential classes escape sanitizer/source discovery.", "disposition": "REMEDIATED", "reverification": "security fixtures use stable safe ids; configured/environment and common credential-class regressions pass"},
+        {"id": "R3-M2", "severity": "MEDIUM", "location": "scripts/v19_release/validate_upstream_port_manifest.py:213", "summary": "Static node validation accepts non-pytest names and mismatched parametrize ids; annotation-only symbols are treated as runtime definitions.", "disposition": "REMEDIATED", "reverification": "helper/class/disabled/mismatched-ids/annotation-only adversarial regressions pass"},
+        {"id": "R3-M3", "severity": "MEDIUM", "location": "scripts/v19_release/capture_baseline.py:301", "summary": "Production zero-delta verification ignores untracked source files.", "disposition": "REMEDIATED", "reverification": "capture and explicit gate reject untracked files in both production roots"}
+      ]
+    }
+  ]
+}

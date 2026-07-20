@@ -7,7 +7,13 @@ from pathlib import Path
 from homemaster.config import load_config
 
 
-def test_resolve_provider_profile_prefers_typed_homemaster_config(tmp_path: Path) -> None:
+def test_resolve_provider_profile_prefers_typed_homemaster_config(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
     path = tmp_path / "homemaster.yaml"
     path.write_text(
         """

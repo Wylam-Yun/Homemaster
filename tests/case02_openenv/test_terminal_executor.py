@@ -14,6 +14,7 @@ from tests.case02_openenv.test_episode_store import (
 )
 
 
+@pytest.mark.live_coworker
 def test_real_tmux_bash_bubblewrap_executor_proves_add_state(store: EpisodeStore) -> None:
     run_id = "terminal-product"
     store.create(run_id, "normal")

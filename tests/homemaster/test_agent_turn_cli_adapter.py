@@ -33,6 +33,7 @@ EXPECTED_HOME_TOOLS = [
     "task_planner",
     "task_progress_check",
 ]
+EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "config/homemaster.example.yaml"
 
 
 class FakeTransport:
@@ -95,6 +96,7 @@ def test_run_agent_turn_writes_trace_and_uses_transport_stream(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
+    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
     run_id = f"test-trace-{uuid.uuid4().hex}"
     result = run_agent_turn(
         AgentSession(session_id="s1"),
@@ -123,6 +125,7 @@ def test_run_agent_turn_force_compact_writes_manual_compaction_event(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
+    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
     session = AgentSession(session_id="s1")
     for index in range(4):
         session.append(UserMessage.from_text(f"old user turn {index} " + "x" * 400))
@@ -158,6 +161,7 @@ def test_compact_agent_context_immediately_writes_manual_compaction_event(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
+    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
     session = AgentSession(session_id="s1")
     for index in range(4):
         session.append(UserMessage.from_text(f"old user turn {index} " + "x" * 400))

@@ -259,6 +259,7 @@ def test_executive_observer_css_has_fixed_recording_geometry(tmp_path: Path) -> 
         assert contract in css
 
 
+@pytest.mark.live_coworker
 def test_long_plan_keeps_active_item_and_next_focus_visible_without_overlap(
     tmp_path: Path,
 ) -> None:
@@ -377,6 +378,7 @@ def test_long_plan_keeps_active_item_and_next_focus_visible_without_overlap(
     assert max(ImageStat.Stat(observer_region).var) > 100
 
 
+@pytest.mark.live_coworker
 def test_every_safe_failure_code_renders_expanded_then_one_line_resolved(
     tmp_path: Path,
 ) -> None:

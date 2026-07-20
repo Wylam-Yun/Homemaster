@@ -58,6 +58,9 @@ testpaths = ["tests"]
 markers = [
   "live_api: runs tests that call real external APIs",
   "live_alfworld: runs tests that require an installed ALFWorld dataset/environment",
+  "live_mcp: runs tests that require live MCP servers or transports",
+  "live_coworker: runs tests that require the live Coworker browser environment",
+  "stress: runs extended concurrency, backpressure, and leak tests",
 ]
 
 [tool.ruff]

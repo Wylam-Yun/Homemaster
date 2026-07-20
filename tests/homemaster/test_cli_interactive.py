@@ -36,7 +36,11 @@ class FakeCompact:
     agent_state: object | None = None
 
 
-def test_shell_exits_without_running_task() -> None:
+def test_shell_exits_without_running_task(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "homemaster.cli.interactive_shell.run_doctor",
+        lambda live=False: SimpleNamespace(has_failures=False),
+    )
     result = CliRunner().invoke(app, ["shell"], input="/exit\n")
     assert result.exit_code == 0
     assert "HomeMaster V1.6" in result.stdout

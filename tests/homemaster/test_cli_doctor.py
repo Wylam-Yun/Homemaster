@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
 from homemaster.cli.doctor import run_doctor
 
 SECRET_MARKERS = ("Authorization", "Bearer", "x-api-key", "api_keys", "sk-")
+
+
+@pytest.fixture(autouse=True)
+def _use_committed_example_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    config_path = repo_root / "config/homemaster.example.yaml"
+    monkeypatch.setattr("homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path)
+    monkeypatch.setattr("homemaster.cli.doctor._config_source", lambda: "config/homemaster.yaml")
 
 
 def test_doctor_local_report_runs_without_live_api() -> None:

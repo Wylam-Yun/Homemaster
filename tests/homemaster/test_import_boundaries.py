@@ -65,7 +65,8 @@ def test_domain_tools_do_not_import_cli_or_runtime_loop() -> None:
         text = path.read_text(encoding="utf-8")
         assert "homemaster.cli" not in text
         assert "homemaster.agent.runtime" not in text
-    assert not (ROOT / "src/homemaster/domain/home").exists()
+    legacy_home = ROOT / "src/homemaster/domain/home"
+    assert not any(path.suffix in {".py", ".pyi"} for path in legacy_home.rglob("*"))
 
 
 def test_deleted_legacy_packages_are_absent() -> None:
