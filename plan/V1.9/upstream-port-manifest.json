@@ -38,6 +38,41 @@
         "tests/homemaster/tools/test_definition.py::test_definition_is_deeply_immutable_serializable_and_manifest_is_derived"
       ],
       "sync_policy": "Manually compare locked OpenHarness BaseTool execute/is_read_only/to_api_schema before adapting future upstream changes; preserve HomeMaster typed contract deltas."
+    },
+    {
+      "id": "cl03-openharness-tool-registry-seed",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/tools/base.py",
+        "symbol": "ToolRegistry",
+        "sha256": "30402d4c8f4530455c621bcdd7b5a243c1f8aaa039f1daf4af9749481e7bb7a7"
+      },
+      "destination": "src/homemaster/tools/catalog.py",
+      "copied_test_ids": [],
+      "mechanical_deltas": [
+        "retain insertion-ordered register, get, list, and provider schema projection as the catalog seed",
+        "replace BaseTool storage with canonical RegisteredTool values"
+      ],
+      "homemaster_deltas": [
+        "key catalog entries by stable internal id and reject silent replacement",
+        "allow cross-domain model alias variants and reject collisions only when freezing one run view",
+        "freeze ordered immutable view identity and distinguish enabled, unknown_tool, and tool_disabled lookup",
+        "require snapshot- and provenance-bound authorization for explicit replacement"
+      ],
+      "upstream_test_gap": {
+        "reason": "The locked OpenHarness commit has no direct ToolRegistry order/get/collision/schema unit tests; observed registry uses in integration fixtures do not assert its contract.",
+        "search_evidence": [
+          "git grep -n 'ToolRegistry' 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 -- tests found fixture construction but no direct registry contract assertion",
+          "git grep for list_tools or to_api_schema at 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 under tests returned no direct ToolRegistry assertions"
+        ]
+      },
+      "characterization_test_ids": [
+        "tests/homemaster/tools/test_catalog.py::test_catalog_preserves_registration_order_and_queries_provenance",
+        "tests/homemaster/tools/test_view.py::test_view_freezes_ordered_manifests_and_execution_lookup"
+      ],
+      "sync_policy": "Manually compare locked OpenHarness ToolRegistry order/get/list/schema behavior before adapting future upstream changes; never restore silent id or alias replacement."
     }
   ]
 }

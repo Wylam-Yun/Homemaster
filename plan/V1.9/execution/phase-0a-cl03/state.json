@@ -1,0 +1,75 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0A-CL03",
+  "change_list": "CL-03-tool-catalog-view",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "b540666fccc04f6f9284f9436d3dc6c0973c4c58",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "m0": "IMPLEMENTING",
+    "cl02": "VERIFYING",
+    "exception": "User directed implementation-first stacking and deferred the concentrated live test batch to hkust4; this phase cannot claim GATE_PASSED until deferred dependencies and its single review are resolved."
+  },
+  "review_policy": {
+    "phase_review_rounds": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "dynamic_subgoals": [
+    {
+      "id": "cl03-catalog",
+      "goal": "Register canonical tools by stable internal id in insertion order, allow cross-domain alias variants, reject duplicate ids, and require exact provenance-bound authorization for replacement."
+    },
+    {
+      "id": "cl03-view",
+      "goal": "Freeze per-run ordered immutable ToolView values, reject enabled-id duplication/unknown ids/model-alias conflicts, and derive stable provider manifests from definitions."
+    },
+    {
+      "id": "cl03-lookup",
+      "goal": "Make execution lookup return typed enabled, unknown_tool, or tool_disabled outcomes for both aliases and stable internal ids without exposing disabled tools to the model."
+    },
+    {
+      "id": "cl03-upstream-port",
+      "goal": "Record the adapted OpenHarness ToolRegistry seed with locked source hash, honest test gap, and real HomeMaster catalog/view characterization nodes."
+    },
+    {
+      "id": "cl03-zero-drift",
+      "goal": "Keep legacy ToolRegistry/ToolDispatcher/runtime/domain entry behavior unchanged; canonical adoption remains CL-04 work."
+    }
+  ],
+  "allowed_deltas": [
+    "src/homemaster/tools/catalog.py additive catalog/view contracts",
+    "tests/homemaster/tools/test_catalog.py and test_view.py",
+    "plan/V1.9/upstream-port-manifest.json one CL-03 port record",
+    "plan/V1.9/execution/phase-0a-cl03/state.json",
+    "tests/homemaster/test_v19_release_tools.py manifest count evolution only",
+    "no legacy registry/dispatcher/runtime/benchmark/app behavior changes"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/tools/test_catalog.py tests/homemaster/tools/test_view.py",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release"
+  ],
+  "rollback_point": "b540666fccc04f6f9284f9436d3dc6c0973c4c58",
+  "evidence": [
+    {
+      "kind": "context",
+      "status": "loaded",
+      "details": "Read CL-03, Phase 0A conflict rules and test matrix; current legacy registry/spec tests; canonical CL-02 contracts; locked OpenHarness ToolRegistry insertion/get/list/schema behavior and upstream test-gap evidence."
+    },
+    {
+      "kind": "implementation",
+      "status": "verified",
+      "details": "Added stable-id ToolCatalog, exact provenance/snapshot-bound override authorization, immutable ordered ToolView, alias conflict diagnostics, stable view identity, provider manifest projection, and typed enabled/unknown_tool/tool_disabled lookup. Focused CL-03 plus manifest tooling: 20 passed. Full non-live: 931 passed, 7 deselected, 1 pre-existing warning. Ruff, compileall, legacy-term guard, upstream manifest validator, diff-check, and legacy owner zero-delta checks passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The single allowed independent phase review has not been consumed; no GATE_PASSED claim is made while stacked dependencies and concentrated live testing remain deferred by user direction."
+    }
+  ],
+  "reviews": []
+}
