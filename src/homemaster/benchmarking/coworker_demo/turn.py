@@ -17,6 +17,10 @@ from homemaster.adapters.coworker_entry import (
     build_coworker_transport_factory,
 )
 from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.adapters.thread_owned_sync import (
+    ThreadOwnedObservationBackend,
+    ThreadOwnedSyncBackendAdapter,
+)
 from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
@@ -157,6 +161,7 @@ def run_coworker_turn(
     )
     service = EnvironmentProcess(config, log_dir=run_root / "environment/process")
     driver: PlaywrightBrowserDriver | None = None
+    sync_backend: ThreadOwnedSyncBackendAdapter | None = None
     recording_started = False
     recording_stopped = False
     process_returns: dict[str, int | None] = {}
@@ -176,7 +181,9 @@ def run_coworker_turn(
         recording_started = True
         _update_attempt_manifest(run_root, status="recording_started")
         display = str(recording["display"])
-        driver = PlaywrightBrowserDriver(
+        sync_backend = ThreadOwnedSyncBackendAdapter(name=run_id)
+        driver = sync_backend.call(
+            PlaywrightBrowserDriver,
             run_id=run_id,
             base_url=config.service.public_base_url,
             display=display,
@@ -195,6 +202,7 @@ def run_coworker_turn(
             run_root=run_root,
             client=client,
             driver=driver,
+            sync_backend=sync_backend,
             budget=budget,
             outcome=outcome,
             provider_config_path=provider_config_path,
@@ -215,7 +223,7 @@ def run_coworker_turn(
             "video_verification=pending formal_success=pending",
         )
         time.sleep(config.recording.final_score_hold_s)
-        driver.close()
+        sync_backend.call(driver.close)
         driver = None
         stopped = client.stop_recording(run_id)
         recording_stopped = True
@@ -239,7 +247,8 @@ def run_coworker_turn(
     finally:
         if driver is not None:
             try:
-                driver.close()
+                assert sync_backend is not None
+                sync_backend.call(driver.close)
             except Exception:
                 pass
         if recording_started and not recording_stopped:
@@ -249,6 +258,11 @@ def run_coworker_turn(
             except Exception:
                 pass
         process_returns["service"] = service.stop()
+        if sync_backend is not None:
+            try:
+                sync_backend.close()
+            except Exception:
+                pass
         client.close()
         _write_process_returns(run_root, process_returns)
     status = "completed" if summary.get("formal_success") else "failed"
@@ -285,6 +299,7 @@ def _run_runtime(
     run_root: Path,
     client: EnvironmentClient,
     driver: PlaywrightBrowserDriver,
+    sync_backend: ThreadOwnedSyncBackendAdapter,
     budget: CoworkerBudget,
     outcome: CoworkerOutcome,
     provider_config_path: Path | None,
@@ -323,7 +338,10 @@ def _run_runtime(
     )
     event_sink = FanoutEventSink([trace_sink, ConsoleEventSink(show_replies=False)])
     skill_registry = load_coworker_skills()
-    backend = CoworkerObservationBackend(driver=driver, client=client, domain_run_id=run_id)
+    backend = ThreadOwnedObservationBackend(
+        CoworkerObservationBackend(driver=driver, client=client, domain_run_id=run_id),
+        sync_backend,
+    )
 
     def stop_condition(_context: Any):
         if not outcome.terminal:
@@ -346,6 +364,7 @@ def _run_runtime(
             timeout_s=budget.timeout(home_config.provider_client.timeout_s),
         ),
         event_sink=event_sink,
+        sync_backend_adapter=sync_backend,
     )
     try:
         return entry.run(
@@ -366,6 +385,7 @@ def _run_runtime(
                     "coworker_browser": driver,
                     "coworker_budget": budget,
                     "coworker_outcome": outcome,
+                    "sync_backend_adapter": sync_backend,
                     "external_terminal_owner": _CoworkerTerminalOwner(outcome),
                     "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
                         run_root / "agent/provider_attempts.jsonl"

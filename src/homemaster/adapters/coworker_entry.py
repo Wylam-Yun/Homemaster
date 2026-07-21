@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
@@ -133,6 +134,7 @@ class CoworkerApplicationEntry:
         run_root: Path,
         transport_factory: Callable[[str], Any],
         event_sink: Any,
+        sync_backend_adapter: Any,
     ) -> None:
         observation = ObservationService()
         profile = build_coworker_profile(observation_service=observation)
@@ -143,7 +145,14 @@ class CoworkerApplicationEntry:
             )
         )
         scope = RunResourceScope()
-        unsubscribe = bus.subscribe(event_sink.emit)
+        if not callable(getattr(sync_backend_adapter, "submit", None)):
+            raise TypeError("Coworker entry requires a thread-owned sync backend adapter")
+        self._event_futures: list[Future[Any]] = []
+
+        def submit_event(event: Any) -> None:
+            self._event_futures.append(sync_backend_adapter.submit(event_sink.emit, event))
+
+        unsubscribe = bus.subscribe(submit_event)
         scope.bind(
             ResourceBinding.owned(
                 "coworker-event-subscription",
@@ -189,11 +198,17 @@ class CoworkerApplicationEntry:
             config.runtime_defaults.default_embedding_provider_name
         )
         self._runner = asyncio.Runner()
+        self._sync_backend_adapter = sync_backend_adapter
         self._closed = False
 
     def run(self, request: RunRequest) -> RunResult:
         if self._closed:
             raise RuntimeError("Coworker application entry is closed")
+        thread_adapter = request.dependencies.get("sync_backend_adapter")
+        if thread_adapter is None or not callable(getattr(thread_adapter, "run", None)):
+            raise ValueError(
+                "Coworker runs require a borrowed thread-owned sync_backend_adapter"
+            )
         return self._runner.run(self.application.run(request))
 
     def close(self) -> None:
@@ -201,6 +216,10 @@ class CoworkerApplicationEntry:
             return
         try:
             self._runner.run(self.application.aclose())
+            for future in self._event_futures:
+                future.result()
+            self._event_futures.clear()
+            self._sync_backend_adapter.call(lambda: None)
         finally:
             self._runner.close()
             self._closed = True

@@ -3,12 +3,14 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import threading
 from pathlib import Path
 
 import pytest
 
 from homemaster.adapters.coworker_entry import CoworkerApplicationEntry, DeadlineAwareTransport
 from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
 from homemaster.application import RunPolicy, RunRequest
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
@@ -24,7 +26,6 @@ from homemaster.benchmarking.coworker_demo.types import (
 )
 from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.config import HomeMasterConfig, ProviderProfileConfig
-from homemaster.events.sinks import NullEventSink
 from homemaster.providers.attempts import JsonlProviderAttemptSink, ProviderAttemptRecord
 from homemaster.providers.errors import LLMNetworkError
 from homemaster.providers.transports import TransportDelta
@@ -153,6 +154,7 @@ async def test_deadline_transport_checks_shared_budget() -> None:
 def test_navigate_returns_receipt_only_without_dom() -> None:
     client = FakeBrowserClient()
     driver = object.__new__(PlaywrightBrowserDriver)
+    driver._owner_thread_id = threading.get_ident()
     driver.run_id = "domain-run"
     driver.base_url = "http://case02.test"
     driver.timeout_ms = 1000
@@ -168,6 +170,26 @@ def test_navigate_returns_receipt_only_without_dom() -> None:
         "evidence_refs": ["ev-navigate"],
     }
     assert "dom" not in receipt and "html" not in receipt
+
+
+def test_playwright_driver_rejects_cross_thread_calls() -> None:
+    driver = object.__new__(PlaywrightBrowserDriver)
+    driver._owner_thread_id = threading.get_ident()
+    failures: list[BaseException] = []
+
+    def call() -> None:
+        try:
+            driver.navigate("ticket", "cross-thread")
+        except BaseException as exc:
+            failures.append(exc)
+
+    thread = threading.Thread(target=call)
+    thread.start()
+    thread.join(timeout=1)
+
+    assert len(failures) == 1
+    assert isinstance(failures[0], RuntimeError)
+    assert "owner thread" in str(failures[0])
 
 
 def test_observe_records_ticket_read_with_canonical_content_hash() -> None:
@@ -218,7 +240,19 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
     client = RetryClient()
     outcome = CoworkerOutcome()
     backend = BorrowedBackend()
+    sync_backend = ThreadOwnedSyncBackendAdapter(name="coworker-test")
     transport_run_ids: list[str] = []
+
+    class RecordingSink:
+        def __init__(self) -> None:
+            self.thread_ids: list[int] = []
+            self.event_types: list[str] = []
+
+        def emit(self, event) -> None:
+            self.thread_ids.append(threading.get_ident())
+            self.event_types.append(event.type)
+
+    sink = RecordingSink()
 
     def transport_factory(run_id: str):
         transport_run_ids.append(run_id)
@@ -235,7 +269,8 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
         system_prompt="test",
         run_root=tmp_path,
         transport_factory=transport_factory,
-        event_sink=NullEventSink(),
+        event_sink=sink,
+        sync_backend_adapter=sync_backend,
     )
     try:
         result = entry.run(
@@ -246,6 +281,7 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
                 environment=backend,
                 run_policy=RunPolicy(max_tool_iterations=1),
                 dependencies={
+                    "sync_backend_adapter": sync_backend,
                     "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
                         tmp_path / "agent/provider_attempts.jsonl"
                     )
@@ -254,6 +290,7 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
         )
     finally:
         entry.close()
+        sync_backend.close()
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -261,6 +298,9 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
     assert transport_run_ids == [result.run_id]
     assert backend.bound_run_id == result.run_id
     assert backend.bound_generation == 1
+    assert sink.event_types[0] == "runtime.turn_started"
+    assert "runtime.turn_completed" in sink.event_types
+    assert set(sink.thread_ids) == {sync_backend.owner_thread_id}
     assert backend.closed is False
     assert client.closed is True
     attempts = [

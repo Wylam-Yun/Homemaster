@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -45,6 +46,7 @@ class PlaywrightBrowserDriver:
     ) -> None:
         from playwright.sync_api import sync_playwright
 
+        self._owner_thread_id = threading.get_ident()
         self.run_id = run_id
         self.base_url = base_url.rstrip("/")
         self.client = client
@@ -70,6 +72,7 @@ class PlaywrightBrowserDriver:
         self.page = self._context.pages[0] if self._context.pages else self._context.new_page()
 
     def navigate(self, route: str, action_id: str) -> dict[str, Any]:
+        self._assert_owner_thread()
         if route not in self.allowed_routes:
             raise ValueError("navigation is restricted to ticket, monitor and automation")
         version = self.client.state(self.run_id)["state_version"]
@@ -91,6 +94,7 @@ class PlaywrightBrowserDriver:
         }
 
     def observe(self, action_id: str) -> dict[str, Any]:
+        self._assert_owner_thread()
         self._require_agent_page()
         version = self.client.state(self.run_id)["state_version"]
         self.client.reserve(self.run_id, action_id, "browser_observe", version)
@@ -108,6 +112,7 @@ class PlaywrightBrowserDriver:
         return observation
 
     def click(self, bid: str, action_id: str) -> dict[str, Any]:
+        self._assert_owner_thread()
         self._require_agent_page()
         locator = self.page.locator(f'[data-bid="{bid}"]')
         self._unique_actionable(locator, bid)
@@ -132,6 +137,7 @@ class PlaywrightBrowserDriver:
         }
 
     def fill(self, bid: str, value: str, action_id: str) -> dict[str, Any]:
+        self._assert_owner_thread()
         self._require_agent_page()
         locator = self.page.locator(f'[data-bid="{bid}"]')
         self._unique_actionable(locator, bid)
@@ -144,6 +150,7 @@ class PlaywrightBrowserDriver:
         return self._record_readback("browser_fill", bid, value, action_id)
 
     def select(self, bid: str, value: str, action_id: str) -> dict[str, Any]:
+        self._assert_owner_thread()
         self._require_agent_page()
         locator = self.page.locator(f'[data-bid="{bid}"]')
         self._unique_actionable(locator, bid)
@@ -156,6 +163,7 @@ class PlaywrightBrowserDriver:
         return self._record_readback("browser_select", bid, value, action_id)
 
     def wait_for_job(self, job_id: str, action_id: str, timeout_s: float) -> dict[str, Any]:
+        self._assert_owner_thread()
         self._require_agent_page()
         locator = self.page.locator(f'tr[data-job-id="{job_id}"]')
         if locator.count() != 1:
@@ -201,11 +209,20 @@ class PlaywrightBrowserDriver:
         }
 
     def close(self) -> None:
+        self._assert_owner_thread()
         try:
             self._context.tracing.stop(path=str(self.trace_path))
         finally:
             self._context.close()
             self._playwright.stop()
+
+    @property
+    def owner_thread_id(self) -> int:
+        return self._owner_thread_id
+
+    def _assert_owner_thread(self) -> None:
+        if threading.get_ident() != self._owner_thread_id:
+            raise RuntimeError("PlaywrightBrowserDriver used outside its owner thread")
 
     def _record_readback(
         self, tool_name: str, bid: str, value: str, action_id: str

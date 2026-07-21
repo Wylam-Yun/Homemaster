@@ -4,9 +4,11 @@ import asyncio
 import base64
 import hashlib
 import json
+import threading
 from types import SimpleNamespace
 from typing import Any
 
+from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
 from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.contracts import (
@@ -141,6 +143,35 @@ def test_sync_legacy_executor_is_awaitable_and_receives_explicit_run_context() -
     assert result.status is ToolExecutionStatus.SUCCESS
     assert result.data == {"echo": "hello"}
     assert calls == [({"text": "hello"}, run_context)]
+
+
+def test_legacy_executor_uses_injected_thread_owned_adapter() -> None:
+    adapter = ThreadOwnedSyncBackendAdapter(name="legacy")
+    run_context = _run_context(sync_backend_adapter=adapter)
+    thread_ids: list[int] = []
+
+    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
+        del arguments, run_context
+        thread_ids.append(threading.get_ident())
+        return ToolResult(success=True, tool_name="owned")
+
+    adapted = adapt_legacy_tool_spec(
+        ToolSpec(
+            name="owned",
+            description="Owned thread.",
+            executor_mode="programmatic",
+            executor=executor,
+        )
+    )
+    try:
+        result = asyncio.run(
+            adapted.executor.execute({}, _canonical_context(run_context))
+        )
+    finally:
+        adapter.close()
+
+    assert result.status is ToolExecutionStatus.SUCCESS
+    assert thread_ids == [adapter.owner_thread_id]
 
 
 def test_legacy_tool_result_success_and_failure_normalize_to_typed_results() -> None:

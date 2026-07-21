@@ -130,11 +130,22 @@ class LegacyExecutorAdapter:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         legacy_context = LegacyToolExecutionContext.from_canonical(context)
-        result = await asyncio.to_thread(
-            self._executor,
-            arguments=dict(arguments),
-            run_context=legacy_context.run_context,
-        )
+        thread_adapter = legacy_context.run_context.deps.get("sync_backend_adapter")
+        if thread_adapter is None:
+            result = await asyncio.to_thread(
+                self._executor,
+                arguments=dict(arguments),
+                run_context=legacy_context.run_context,
+            )
+        else:
+            run = getattr(thread_adapter, "run", None)
+            if not callable(run):
+                raise TypeError("sync_backend_adapter must provide async run()")
+            result = await run(
+                self._executor,
+                arguments=dict(arguments),
+                run_context=legacy_context.run_context,
+            )
         if inspect.isawaitable(result):
             result = await result
         if isinstance(result, ToolExecutionResult):

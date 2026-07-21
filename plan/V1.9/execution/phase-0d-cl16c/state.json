@@ -1,0 +1,73 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0D3-CL16c",
+  "change_list": "CL-16c-coworker-thread-owned-playwright-adapter",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster_parent": "1e914c93f60ab87053fffdab0f24c45687475364",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl16b": "GATE_PASSED",
+    "xorg_live_gate": "Deferred by user instruction to the concentrated hkust4 final gate after CL-16d."
+  },
+  "implementation_choice": {
+    "selected": "thread_owned_sync_backend_adapter",
+    "rejected": "full_playwright_async_api_migration",
+    "reason": "The existing headed Playwright, VNC, recording and formal artifact stack is synchronous; one owner thread preserves the locked browser lifecycle without a cross-protocol rewrite."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds_completed": 0,
+    "group": ["CL-16b", "CL-16c", "CL-16d"],
+    "status": "pending_until_cl16d",
+    "independent_review_rounds_allowed": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "ThreadOwnedSyncBackendAdapter owns one FIFO daemon worker with explicit submit/run/call/close lifecycle and observable pending/active/thread state",
+    "PlaywrightBrowserDriver records its construction thread and rejects every public browser action or close from another thread",
+    "Coworker constructs Playwright, runs all legacy tool calls and observation captures, and closes tracing/context/playwright on the same owner thread",
+    "Coworker trace, transcript, console and FastAPI presentation mirroring are ordered on the owner thread and drained before finalize",
+    "the adapter is borrowed by ApplicationRuntime; the outer Coworker turn retains browser, recording, environment process and adapter cleanup ownership",
+    "generic non-Coworker legacy tools retain the CL-16b controlled worker fallback"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/application/test_thread_owned_sync.py tests/homemaster/tools/test_legacy_adapter.py tests/homemaster/benchmarking/coworker_demo",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/guard_no_legacy_terms.py",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "1e914c93f60ab87053fffdab0f24c45687475364",
+  "evidence": [
+    {
+      "kind": "thread_affinity",
+      "status": "pass",
+      "details": "Construction, 16 ordered calls, observation bind/capture, event mirroring and cleanup use one owner thread; direct cross-thread Playwright calls fail before touching the page."
+    },
+    {
+      "kind": "cancel_timeout_and_failure",
+      "status": "pass",
+      "details": "A cancelled queued call never reaches the backend, mutating in-flight timeout/cancel remains outcome_unknown through the canonical pipeline, backend exceptions do not kill the worker, and close drains queued work."
+    },
+    {
+      "kind": "lifecycle_and_ownership",
+      "status": "pass",
+      "details": "Coworker entry drains event futures and active backend work before closing its event loop or finalizing, closes its owned provider and application resources, leaves the borrowed environment open, and the outer turn closes Playwright and the adapter before environment client/process teardown."
+    },
+    {
+      "kind": "scenario_and_artifact_parity",
+      "status": "pass",
+      "details": "Existing normal/anomaly/rollback, 24-node ground truth, presentation projection, trace order, provider retry identity and formal artifact regressions remain green."
+    },
+    {
+      "kind": "full_nonlive",
+      "status": "pass",
+      "details": "1108 passed, 7 deselected, with one existing Starlette/httpx warning."
+    }
+  ],
+  "reviews": []
+}
