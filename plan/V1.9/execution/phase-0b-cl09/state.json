@@ -5,11 +5,12 @@
   "status": "VERIFYING",
   "source_commits": {
     "homemaster": "76f786a",
+    "review_remediation": "675a06b",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
     "cl08": "VERIFYING",
-    "exception": "Implementation-first stacking; grouped review follows CL-10."
+    "exception": "The single grouped review is complete and remediated; deferred hkust4/live gates remain pending."
   },
   "review_policy": {
     "grouped_review_after_phases": 3,
@@ -72,7 +73,7 @@
     {
       "kind": "non_live_suite",
       "status": "pass",
-      "details": "Full non-live suite: 1020 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+      "details": "Post-review full non-live suite: 1047 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
     },
     {
       "kind": "static_gates",
@@ -81,9 +82,19 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "Grouped CL-08/09/10 review is reserved for the single review after CL-10."
+      "status": "pass",
+      "details": "The one allowed independent CL-08/09/10 grouped review completed. Session rebind, save linearization, and cancellation fencing findings were remediated in 675a06b."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl08-cl10-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": 6,
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "675a06b"
+    }
+  ]
 }

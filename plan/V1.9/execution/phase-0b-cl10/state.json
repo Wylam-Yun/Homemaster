@@ -5,12 +5,13 @@
   "status": "VERIFYING",
   "source_commits": {
     "homemaster": "bb36703",
+    "review_remediation": "675a06b",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
     "cl08": "VERIFYING",
     "cl09": "VERIFYING",
-    "exception": "Implementation-first stacking; the single grouped review follows this change list."
+    "exception": "The single grouped review is complete and remediated; deferred hkust4/live gates remain pending."
   },
   "review_policy": {
     "grouped_review_after_phases": 3,
@@ -27,6 +28,7 @@
     "src/homemaster/application/factory.py",
     "src/homemaster/application/runtime.py",
     "src/homemaster/application/session.py",
+    "scripts/guard_no_legacy_terms.py canonical pipeline whitelist",
     "src/homemaster/events/__init__.py",
     "src/homemaster/events/bus.py",
     "src/homemaster/task_state/tools.py",
@@ -51,7 +53,7 @@
     {
       "kind": "composition_root",
       "status": "pass",
-      "details": "create_application builds the shared Catalog, canonical pipeline, ObservationService, EventBus, SessionManager, provider factory, and all three environment profiles without opening external connections. Injected services retain exact identity and mismatched catalogs are rejected."
+      "details": "create_application builds the shared canonical services without opening external connections and requires environment profiles to be injected by the outer composition root. Application imports no benchmark registries; injected services retain exact identity and mismatched catalogs are rejected."
     },
     {
       "kind": "application_controls",
@@ -71,7 +73,7 @@
     {
       "kind": "concurrency_and_ownership",
       "status": "pass",
-      "details": "Different sessions enter providers concurrently while isolating backend, ToolView, ledger, TaskState, and cancellation; the same session is serialized. Late cancelled workers cannot append. Borrowed environments/providers are never closed and owned run providers close exactly once."
+      "details": "Different sessions enter providers concurrently while isolating backend, ToolView, ledger, run-local TaskState/evidence, and cancellation; same-session environment rebind occurs only after acquiring its turn lock. Blocking tools do not prevent cancel, and stale workers cannot publish task state or final results. Borrowed environments/providers are never closed and owned run providers close exactly once."
     },
     {
       "kind": "compatibility",
@@ -86,7 +88,7 @@
     {
       "kind": "non_live_suite",
       "status": "pass",
-      "details": "Full non-live suite: 1040 passed, 7 deselected, with one existing Starlette/httpx deprecation warning."
+      "details": "Post-review full non-live suite: 1047 passed, 7 deselected, with one existing Starlette/httpx deprecation warning. Associated application/tools/providers/integration/benchmarking set: 475 passed."
     },
     {
       "kind": "static_gates",
@@ -95,9 +97,26 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "The one allowed independent review for grouped CL-08/09/10 begins only after this evidence commit."
+      "status": "pass",
+      "details": "The one allowed independent CL-08/09/10 grouped review completed once. All six findings were remediated in 675a06b and covered by focused race, cleanup, import-boundary, and retention regressions."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl08-cl10-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": [
+        {"id": "CL10-R1", "severity": "P1", "summary": "Queued same-session requests rebound the environment before acquiring the turn lock.", "disposition": "REMEDIATED", "reverification": "queued-turn rebind barrier regression passes"},
+        {"id": "CL10-R2", "severity": "P1", "summary": "Cancellation during backend save could split durable and in-memory revisions.", "disposition": "REMEDIATED", "reverification": "save/cancel re-entrancy and revision linearization regression passes"},
+        {"id": "CL10-R3", "severity": "P1", "summary": "Tool dispatch held the generation lock across long pipeline execution and blocked cancel.", "disposition": "REMEDIATED", "reverification": "blocking-tool immediate-cancel and stale run-local state regression passes"},
+        {"id": "CL10-R4", "severity": "P2", "summary": "Provider cleanup errors could replace the primary run or compact failure.", "disposition": "REMEDIATED", "reverification": "context/save primary-error preservation regressions pass"},
+        {"id": "CL10-R5", "severity": "P2", "summary": "Application factory transitively imported benchmark registries through adapter profiles.", "disposition": "REMEDIATED", "reverification": "fresh-interpreter import graph regression loads no homemaster.benchmarking module"},
+        {"id": "CL10-R6", "severity": "P2", "summary": "ApplicationRuntime retained complete RunRequest objects and their live borrowed dependencies.", "disposition": "REMEDIATED", "reverification": "minimal session control plus weakref/GC regression proves borrowed objects are collectible"}
+      ],
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "675a06b"
+    }
+  ]
 }
