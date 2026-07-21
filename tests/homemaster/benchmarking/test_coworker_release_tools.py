@@ -12,7 +12,7 @@ from scripts.v19_release._common import (
     sha256_file,
     write_canonical_json,
 )
-from scripts.v19_release.run_coworker import append_attempt_record
+from scripts.v19_release.run_coworker import append_attempt_record, run_coworker_release
 from scripts.v19_release.verify_coworker_release import (
     INDEX_SCHEMA_VERSION,
     LEDGER_SCHEMA_VERSION,
@@ -22,6 +22,37 @@ from scripts.v19_release.verify_coworker_release import (
 )
 
 CANDIDATE = "a" * 40
+
+
+def test_runner_rejects_nested_pointer_before_preflight_or_attempt_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence = tmp_path / "evidence"
+    preflight_called = False
+
+    def preflight(*_args, **_kwargs):
+        nonlocal preflight_called
+        preflight_called = True
+        return {"pass": True}
+
+    monkeypatch.setattr("scripts.v19_release.run_coworker.run_preflight", preflight)
+    monkeypatch.setattr(
+        "scripts.v19_release.run_coworker._candidate_sha",
+        lambda _root: CANDIDATE,
+    )
+
+    with pytest.raises(ValueError, match="directly inside evidence root"):
+        run_coworker_release(
+            repo_root=Path(__file__).resolve().parents[3],
+            coworker_config=tmp_path / "coworker.yaml",
+            provider_config=tmp_path / "provider.yaml",
+            evidence_root=evidence,
+            pointer_path=evidence / "nested/accepted.json",
+        )
+
+    assert preflight_called is False
+    assert not (evidence / "coworker-attempts.jsonl").exists()
 
 
 def test_verifier_reports_all_failed_and_accepted_attempts(

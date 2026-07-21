@@ -51,8 +51,8 @@ def run_coworker_release(
     pointer_path = pointer_path.resolve()
     if pointer_path.exists():
         raise ValueError("fresh Coworker release pointer already exists")
-    if not pointer_path.parent.resolve().is_relative_to(evidence_root):
-        raise ValueError("release pointer must be contained by evidence root")
+    if pointer_path.parent.resolve() != evidence_root:
+        raise ValueError("release pointer must be directly inside evidence root")
 
     preflight = run_preflight(coworker_config.resolve(), provider_config.resolve())
     if preflight.get("pass") is not True:

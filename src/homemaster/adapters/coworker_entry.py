@@ -9,6 +9,7 @@ from typing import Any
 
 from homemaster.adapters.profiles import build_coworker_profile
 from homemaster.agent.context import ContextAssembler
+from homemaster.agent.messages import AssistantMessage
 from homemaster.application import (
     ResourceBinding,
     ResourceLifetime,
@@ -18,8 +19,16 @@ from homemaster.application import (
     SessionManager,
 )
 from homemaster.application.factory import create_application
+from homemaster.benchmarking.coworker_demo.presentation import project_runtime_event
 from homemaster.config import HomeMasterConfig
 from homemaster.events.bus import EventBus
+from homemaster.events.stream_events import (
+    AssistantTextDelta,
+    AssistantTurnComplete,
+    ErrorEvent,
+    ToolExecutionCompleted,
+    ToolExecutionStarted,
+)
 from homemaster.observations import ObservationService
 from homemaster.providers.llm_client import LLMClient
 from homemaster.providers.sync_adapter import SyncProviderAdapter
@@ -80,6 +89,41 @@ def build_coworker_transport_factory(
     return build
 
 
+def build_coworker_stream_projector(*, sensitive_values: tuple[str, ...] = ()):
+    """Adapt the Coworker trust-boundary projection to public stream DTOs."""
+
+    def project(event):
+        safe = project_runtime_event(event, sensitive_values=sensitive_values)
+        if safe is None:
+            return None
+        event_type = safe.get("runtime_event_type")
+        if event_type == "model.public_reply":
+            output = safe.get("public_model_output")
+            text = output.get("text") if isinstance(output, dict) else ""
+            return AssistantTextDelta(text=str(text or ""))
+        if event_type == "tool.call_started":
+            arguments = safe.get("arguments")
+            return ToolExecutionStarted(
+                tool_name=str(safe.get("tool_name") or "unknown"),
+                tool_input=dict(arguments) if isinstance(arguments, dict) else {},
+            )
+        if event_type in {"tool.call_completed", "tool.call_failed"}:
+            result = safe.get("result")
+            return ToolExecutionCompleted(
+                tool_name=str(safe.get("tool_name") or "unknown"),
+                output="",
+                is_error=event_type == "tool.call_failed",
+                metadata=dict(result) if isinstance(result, dict) else {},
+            )
+        if event_type == "runtime.turn_completed":
+            return AssistantTurnComplete(message=AssistantMessage(), usage={})
+        if isinstance(event_type, str) and event_type.startswith("runtime."):
+            return ErrorEvent(message=event_type, recoverable=False)
+        return None
+
+    return project
+
+
 class CoworkerApplicationEntry:
     """Synchronous Coworker facade backed by one application runtime."""
 
@@ -95,7 +139,12 @@ class CoworkerApplicationEntry:
     ) -> None:
         observation = ObservationService()
         profile = build_coworker_profile(observation_service=observation)
-        bus = EventBus()
+        sensitive_values = tuple(getattr(event_sink, "sensitive_values", ()))
+        bus = EventBus(
+            public_projector=build_coworker_stream_projector(
+                sensitive_values=sensitive_values,
+            )
+        )
         scope = RunResourceScope()
         unsubscribe = bus.subscribe(event_sink.emit)
         scope.bind(
@@ -163,5 +212,6 @@ class CoworkerApplicationEntry:
 __all__ = [
     "CoworkerApplicationEntry",
     "DeadlineAwareTransport",
+    "build_coworker_stream_projector",
     "build_coworker_transport_factory",
 ]

@@ -15,7 +15,7 @@
     "grouped_review_after_phases": 3,
     "review_rounds": 1,
     "group": ["CL-14", "CL-15", "CL-16a"],
-    "status": "pending_unique_group_review",
+    "status": "completed_unique_group_review",
     "final_release_review_rounds_max": 2
   },
   "allowed_deltas": [
@@ -51,12 +51,12 @@
     {
       "kind": "bounded_event_lifecycle",
       "status": "pass",
-      "details": "Capacity-one stream proves producer backpressure, ordered delivery, explicit close and zero remaining subscribers without EventBus-owned producer/consumer tasks."
+      "details": "Capacity-one streams prove awaited owner-loop and worker-thread backpressure, ordered delivery, bus/consumer close wakeup, zero pending producers and zero remaining subscribers without EventBus-owned consumer tasks."
     },
     {
       "kind": "public_private_projection",
       "status": "pass",
-      "details": "OpenHarness-style assistant/tool/final/error/status consumer branches map from sanitized allowlisted RuntimeEvents; assistant reasoning and unknown private events are not projected. Existing pipeline order still persists the authoritative ledger before public publication."
+      "details": "OpenHarness-style assistant/tool/final/error/status consumer branches map only through an explicitly injected projector. Coworker uses its domain trust boundary; configured secrets, signed URLs, terminal output, failure text, assistant reasoning and unknown private events are not exposed. Existing pipeline order still persists the authoritative ledger before public publication."
     },
     {
       "kind": "upstream_port",
@@ -66,8 +66,21 @@
     {
       "kind": "full_nonlive",
       "status": "pass",
-      "details": "1091 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, cleanup guard, manifest validation and diff check pass."
+      "details": "1096 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, cleanup guard, manifest validation and diff check pass."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl14-cl16a-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": [
+        {"id": "CL16A-R1", "severity": "HIGH", "summary": "EventBus close did not reliably wake blocked producers and owner-loop publication used put_nowait.", "disposition": "REMEDIATED", "reverification": "owner-loop, worker-thread, bus-close and consumer-close backpressure regressions pass with zero pending producers"},
+        {"id": "CL14-R2", "severity": "HIGH", "summary": "Generic public_stream bypassed the Coworker presentation trust boundary for free text.", "disposition": "REMEDIATED", "reverification": "public streams require an explicit projector; Coworker configured-secret, signed-URL, terminal-output and failure-text regressions pass"},
+        {"id": "CL14-R3", "severity": "MEDIUM", "summary": "Nested release pointer paths used inconsistent runner and verifier reference roots.", "disposition": "REMEDIATED", "reverification": "runner rejects nested pointers before preflight or attempt persistence"}
+      ],
+      "disposition": "all findings remediated and verified in the same review round; no second grouped review permitted"
+    }
+  ]
 }
