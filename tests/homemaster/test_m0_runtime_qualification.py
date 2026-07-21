@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from scripts.v19_release.run_m0_runtime_qualification import (
+    _provider_identity,
+)
 from scripts.v19_release.verify_m0_runtime_qualification import (
     SCHEMA_VERSION,
     verify_qualification,
@@ -16,6 +19,41 @@ from scripts.v19_release.verify_m0_runtime_qualification import (
 
 SHA = "a" * 64
 COMMIT = "b" * 40
+
+
+def test_m0_runner_resolves_provider_from_unified_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in (
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "HOMEMASTER_MIMO_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    config = tmp_path / "homemaster.yaml"
+    config.write_text(
+        """
+providers:
+  default: Mimo
+  items:
+    - name: Mimo
+      api_format: openai
+      transport: raw_http
+      base_url: https://provider.example/v1
+      model: mimo-v2.5
+      api_keys: [test-secret]
+      kind: chat
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    assert _provider_identity(config, "mimo") == {
+        "name": "Mimo",
+        "model": "mimo-v2.5",
+        "non_mock": True,
+    }
 
 
 def _write_json(path: Path, value: object) -> None:

@@ -277,7 +277,7 @@ def _read_jsonl(path: Path, *, label: str) -> list[dict[str, Any]]:
 
 
 def _provider_identity(config_path: Path, provider_name: str) -> dict[str, str]:
-    profile = load_config(config_path).resolve_provider(provider_name, kind="chat")
+    profile = load_config(config_path).get_provider(provider_name, kind="chat")
     if not profile.api_keys:
         raise ValueError("real provider credentials are unavailable")
     if not profile.base_url.startswith("https://"):

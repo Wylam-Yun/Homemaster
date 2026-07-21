@@ -280,7 +280,7 @@ def _link_directory(link: Path, target: Path) -> None:
 
 def _provider_identity(config_path: Path, provider_name: str) -> dict[str, Any]:
     config = load_config(config_path)
-    profile = config.resolve_provider(provider_name, kind="chat")
+    profile = config.get_provider(provider_name, kind="chat")
     api_keys = tuple(profile.api_keys)
     if not api_keys or any(not key or (key.startswith("<") and key.endswith(">")) for key in api_keys):
         raise ValueError("real provider credentials are unavailable")

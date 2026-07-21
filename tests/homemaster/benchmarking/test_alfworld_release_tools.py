@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from scripts.v19_release._common import sha256_file, write_canonical_json
+from scripts.v19_release.run_alfworld import _provider_identity
 from scripts.v19_release.verify_alfworld_release import (
     MANIFEST_ENTRY_KEYS,
     PROFILE,
@@ -18,6 +19,42 @@ from scripts.v19_release.verify_alfworld_release import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOCKED_MANIFEST = REPO_ROOT / "config/alfworld_v19_release_trials.json"
 CANDIDATE = "a" * 40
+
+
+def test_release_runner_resolves_provider_from_unified_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    for name in (
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_MODEL",
+        "HOMEMASTER_MIMO_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    config = tmp_path / "homemaster.yaml"
+    config.write_text(
+        """
+providers:
+  default: Mimo
+  items:
+    - name: Mimo
+      api_format: openai
+      transport: raw_http
+      base_url: https://provider.example/v1
+      model: mimo-v2.5
+      api_keys: [test-secret]
+      kind: chat
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    assert _provider_identity(config, "mimo") == {
+        "name": "Mimo",
+        "model": "mimo-v2.5",
+        "api_format": "openai",
+        "transport": "raw_http",
+    }
 
 
 def test_migration_reports_task_failures_but_release_requires_four_successes(
