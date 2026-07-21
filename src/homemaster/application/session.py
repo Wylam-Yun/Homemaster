@@ -20,6 +20,8 @@ from homemaster.agent.state import AgentState
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 
+_ENVIRONMENT_UNSET = object()
+
 
 class SessionError(RuntimeError):
     """Base error for session ownership and persistence failures."""
@@ -86,6 +88,7 @@ class SessionRuntime:
     canonical_evidence_refs: tuple[str, ...] = ()
     generation: int = 0
     revision: int = 0
+    application_control: object | None = None
 
     def __post_init__(self) -> None:
         if self.session.session_id != self.agent_state.session_id and self.agent_state.session_id:
@@ -103,6 +106,8 @@ class SessionRuntime:
         self._compaction_request: CompactionRequest | None = None
         self._observation_reset: Callable[[str], Any] | None = None
         self._needs_observe = True
+        self._save_in_progress = False
+        self._cancel_after_save = False
 
     def set_observation_reset(self, callback: Callable[[str], Any] | None) -> None:
         self._observation_reset = callback
@@ -153,16 +158,45 @@ class SessionRuntime:
             if self.cancellation is None:
                 return False
             self.cancellation.cancel()
-            task = self.active_task
-            snapshot = self.task_state_store.snapshot
-            if snapshot is not None and snapshot.status is TaskStatus.ACTIVE:
-                self.task_state_store.update_status(TaskStatus.PAUSED)
-            self.agent_state.status = "cancelled"
-            self.generation += 1
-            self._compaction_request = None
+            if self._save_in_progress:
+                # A backend may synchronously request cancellation while save()
+                # owns this re-entrant lock. Linearize that cancellation after
+                # the durable revision and in-memory revision commit together.
+                self._cancel_after_save = True
+                return True
+            task = self._cancel_locked()
         if task is not None and not task.done():
             task.cancel()
         return True
+
+    def _cancel_locked(self) -> asyncio.Task[Any] | None:
+        task = self.active_task
+        snapshot = self.task_state_store.snapshot
+        if snapshot is not None and snapshot.status is TaskStatus.ACTIVE:
+            self.task_state_store.update_status(TaskStatus.PAUSED)
+        self.agent_state.status = "cancelled"
+        self.generation += 1
+        self._compaction_request = None
+        return task
+
+    @contextlib.contextmanager
+    def revision_commit_guard(self, generation: int) -> Iterator[None]:
+        task: asyncio.Task[Any] | None = None
+        with self.state_lock:
+            self.assert_generation(generation)
+            if self._save_in_progress:
+                raise RuntimeError("session save is already in progress")
+            self._save_in_progress = True
+            try:
+                yield
+                self.assert_generation(generation)
+            finally:
+                self._save_in_progress = False
+                if self._cancel_after_save:
+                    self._cancel_after_save = False
+                    task = self._cancel_locked()
+        if task is not None and not task.done():
+            task.cancel()
 
 
 class SessionFileBackend:
@@ -414,12 +448,19 @@ class SessionManager:
             return runtime
 
     @asynccontextmanager
-    async def turn(self, session_id: str) -> Any:
+    async def turn(
+        self,
+        session_id: str,
+        *,
+        environment_ref: str | None | object = _ENVIRONMENT_UNSET,
+    ) -> Any:
         runtime = self._sessions.get(session_id)
         if runtime is None:
             raise KeyError(session_id)
         async with runtime.turn_lock:
             with runtime.state_lock:
+                if environment_ref is not _ENVIRONMENT_UNSET:
+                    runtime.rebind_environment(environment_ref)  # type: ignore[arg-type]
                 runtime.generation += 1
                 generation = runtime.generation
                 runtime.agent_state.turn_index += 1
@@ -487,15 +528,16 @@ class SessionManager:
             raise ValueError("session backend is not configured")
         runtime = self._sessions[session_id]
         write_generation = runtime.generation if generation is None else generation
-        runtime.assert_generation(write_generation)
-        payload = _snapshot_payload(runtime, model=model, system_prompt=system_prompt)
-        revision = self._backend.save(
-            session_id,
-            payload,
-            expected_revision=runtime.revision if expected_revision is None else expected_revision,
-        )
-        runtime.assert_generation(write_generation)
-        runtime.revision = revision
+        with runtime.revision_commit_guard(write_generation):
+            payload = _snapshot_payload(runtime, model=model, system_prompt=system_prompt)
+            revision = self._backend.save(
+                session_id,
+                payload,
+                expected_revision=(
+                    runtime.revision if expected_revision is None else expected_revision
+                ),
+            )
+            runtime.revision = revision
         return revision
 
     async def resume(

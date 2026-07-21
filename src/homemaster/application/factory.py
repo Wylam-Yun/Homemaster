@@ -7,10 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from homemaster.adapters.profiles import (
-    EnvironmentToolProfile,
-    build_environment_profiles,
-)
 from homemaster.agent.context import ContextAssembler
 from homemaster.application.contracts import ResourceBinding, ResourceLifetime, RunRequest
 from homemaster.application.resources import RunResourceScope
@@ -18,6 +14,7 @@ from homemaster.application.runtime import (
     ApplicationRuntime,
     ContextAssemblerFactory,
     ProviderFactory,
+    ToolProfile,
 )
 from homemaster.application.session import SessionManager
 from homemaster.config import HomeMasterConfig, load_config
@@ -33,7 +30,7 @@ def create_application(
     *,
     config: HomeMasterConfig | None = None,
     config_path: str | Path | None = None,
-    profiles: Mapping[str, EnvironmentToolProfile] | None = None,
+    profiles: Mapping[str, ToolProfile] | None = None,
     catalog: ToolCatalog | None = None,
     pipeline: ToolExecutionPipeline | None = None,
     observation_service: ObservationService | None = None,
@@ -47,11 +44,11 @@ def create_application(
 
     resolved_config = config or load_config(config_path)
     service = observation_service or ObservationService()
-    resolved_profiles = dict(
-        profiles
-        if profiles is not None
-        else build_environment_profiles(observation_service=service)
-    )
+    if profiles is None:
+        raise ValueError(
+            "application tool profiles must be composed and supplied by the outer entry point"
+        )
+    resolved_profiles = dict(profiles)
     if not resolved_profiles:
         raise ValueError("application requires at least one tool profile")
     profile_catalogs = {

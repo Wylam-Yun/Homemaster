@@ -5,7 +5,11 @@ import asyncio
 import pytest
 
 from homemaster.agent.messages import UserMessage
-from homemaster.application.session import SessionGenerationError, SessionManager
+from homemaster.application.session import (
+    CancellationSource,
+    SessionGenerationError,
+    SessionManager,
+)
 from homemaster.observations.service import ObservationLedger, ObservationState
 
 
@@ -93,3 +97,38 @@ async def test_rebind_and_resume_force_observation_ledger_to_needs_observe(tmp_p
     resumed.set_observation_reset(resumed_ledger.invalidate)
 
     assert resumed_ledger.state is ObservationState.NEEDS_OBSERVE
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_backend_save_cannot_split_durable_and_memory_revision() -> None:
+    class CancelDuringSaveBackend:
+        manager: SessionManager
+        published_revision = 0
+
+        def save(self, session_id, payload, *, expected_revision):
+            del session_id, payload
+            assert expected_revision == self.published_revision
+            self.published_revision += 1
+            assert self.manager.cancel("save-race") is True
+            return self.published_revision
+
+        def load(self, session_id):
+            raise FileNotFoundError(session_id)
+
+        def list_session_ids(self):
+            return ()
+
+        def export_markdown(self, session_id):
+            raise FileNotFoundError(session_id)
+
+    backend = CancelDuringSaveBackend()
+    manager = SessionManager(backend=backend)
+    backend.manager = manager
+    runtime = await manager.open_or_resume("save-race")
+    runtime.cancellation = CancellationSource()
+
+    revision = await manager.save("save-race", generation=runtime.generation)
+
+    assert revision == backend.published_revision == runtime.revision == 1
+    assert runtime.generation == 1
+    assert runtime.agent_state.status == "cancelled"

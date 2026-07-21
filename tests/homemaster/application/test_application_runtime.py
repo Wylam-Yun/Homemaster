@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import hashlib
 import threading
+import time
+import weakref
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -13,6 +16,7 @@ from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
 from homemaster.application.contracts import ResourceBinding, RunRequest, RunStatus
+from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import ApplicationRuntime
 from homemaster.application.session import SessionManager
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
@@ -99,6 +103,26 @@ class _ClosableTransport(_FakeTransport):
         self.close_count += 1
 
 
+class _FailingCloseTransport(_FakeTransport):
+    def close(self) -> None:
+        raise RuntimeError("provider close failed")
+
+
+class _FailingSaveBackend:
+    def save(self, session_id, payload, *, expected_revision):
+        del session_id, payload, expected_revision
+        raise RuntimeError("snapshot save failed")
+
+    def load(self, session_id):
+        raise FileNotFoundError(session_id)
+
+    def list_session_ids(self):
+        return ()
+
+    def export_markdown(self, session_id):
+        raise FileNotFoundError(session_id)
+
+
 class _ObservationAwareTransport(_FakeTransport):
     def stream(
         self,
@@ -183,6 +207,24 @@ class _EchoExecutor:
             data={"value": str(arguments["value"])},
             backend_attempted=False,
         )
+
+
+class _BlockingTaskStateExecutor:
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    async def __call__(self, *, arguments, run_context) -> ToolExecutionResult:
+        del arguments
+        store = run_context.deps["task_state_store"]
+        store.create_or_replace_plan(
+            goal="run-local",
+            subtasks=[{"id": "a", "description": "A"}],
+        )
+        self.entered.set()
+        await asyncio.to_thread(self.release.wait, 5)
+        store.mark_completed(final_summary="late")
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
 
 
 class _ActionExecutor:
@@ -408,6 +450,8 @@ def _application(
         backend = request.borrowed_environment
         if isinstance(backend, _ObservationBackend):
             backend.run_id = run_id
+        if request.text == "internal compact control":
+            return next(iter(transports.values()))
         return transports[request.text]
 
     return ApplicationRuntime(
@@ -607,6 +651,45 @@ async def test_cancel_fences_late_return_and_control_adds_no_message(tmp_path) -
     message_count = len(runtime.session.messages)
     await app.compact("cancelled")
     assert len(runtime.session.messages) == message_count
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_state(
+    tmp_path,
+) -> None:
+    blocking = _BlockingTaskStateExecutor()
+    adapted = adapt_legacy_tool_spec(
+        make_task_progress_check_tool(),
+        internal_id="test.blocking_state.v1",
+        version="1.9.0",
+        executor=blocking,
+        output_schema={"type": "object"},
+    ).registered_tool
+    tool = adapted
+    transport = _FakeTransport(
+        [
+            _tool("call-block", tool.definition.model_alias, {"updates": []}),
+            _text("late"),
+        ]
+    )
+    app = _application(tmp_path, [tool], {"block": transport})
+    run_task = asyncio.create_task(
+        app.run(RunRequest(text="block", session_id="tool-cancel", profile="test"))
+    )
+    assert await asyncio.to_thread(blocking.entered.wait, 2)
+
+    started = time.monotonic()
+    assert app.cancel("tool-cancel") is True
+    assert time.monotonic() - started < 0.2
+    blocking.release.set()
+    result = await run_task
+
+    runtime = app.session_manager.get("tool-cancel")
+    assert result.status is RunStatus.CANCELLED
+    assert runtime.task_state_store.snapshot is None
+    assert runtime.last_result is None
+    async with app.session_manager.turn("tool-cancel"):
+        pass
 
 
 @pytest.mark.asyncio
@@ -909,3 +992,57 @@ async def test_owned_provider_closes_once_and_borrowed_provider_stays_open(tmp_p
     assert borrowed_result.status is RunStatus.REPLIED
     assert owned.close_count == 1
     assert borrowed.close_count == 0
+
+
+@pytest.mark.asyncio
+async def test_context_error_remains_primary_when_provider_cleanup_fails(tmp_path) -> None:
+    provider = _FailingCloseTransport([_text("unused")])
+    app = _application(tmp_path, [_echo_tool()], {"context": provider})
+
+    def fail_context(request, value):
+        del request, value
+        raise ValueError("context construction failed")
+
+    app.context_assembler_factory = fail_context
+    with pytest.raises(ValueError, match="context construction failed") as error:
+        await app.run(RunRequest(text="context", profile="test"))
+
+    assert isinstance(getattr(error.value, "cleanup_error", None), ResourceCleanupError)
+
+
+@pytest.mark.asyncio
+async def test_save_error_remains_primary_when_provider_cleanup_fails(tmp_path) -> None:
+    provider = _FailingCloseTransport([_text("reply")])
+    app = _application(tmp_path, [_echo_tool()], {"save": provider})
+    app.session_manager = SessionManager(backend=_FailingSaveBackend())
+
+    with pytest.raises(RuntimeError, match="snapshot save failed") as error:
+        await app.run(RunRequest(text="save", profile="test"))
+
+    assert isinstance(getattr(error.value, "cleanup_error", None), ResourceCleanupError)
+
+
+@pytest.mark.asyncio
+async def test_completed_run_does_not_retain_borrowed_request_objects(tmp_path) -> None:
+    transport = _FakeTransport([_text("reply")])
+    app = _application(tmp_path, [_echo_tool()], {"gc": transport})
+    backend = _Backend()
+
+    class Observer:
+        pass
+
+    observer = Observer()
+    backend_ref = weakref.ref(backend)
+    observer_ref = weakref.ref(observer)
+    request = RunRequest(
+        text="gc",
+        profile="test",
+        environment=backend,
+        dependencies={"domain_observer": observer},
+    )
+    await app.run(request)
+
+    del request, backend, observer
+    gc.collect()
+    assert backend_ref() is None
+    assert observer_ref() is None

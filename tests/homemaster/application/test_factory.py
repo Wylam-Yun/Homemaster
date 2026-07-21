@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
+import json
+import subprocess
+import sys
 
 import pytest
 
@@ -119,17 +121,22 @@ def test_factory_rejects_profile_catalog_mismatch() -> None:
         raise AssertionError("profile/catalog mismatch must be rejected")
 
 
-@pytest.mark.asyncio
-async def test_default_factory_builds_all_profiles_without_external_connections(
-    tmp_path,
-) -> None:
-    config_path = Path(__file__).parents[3] / "config" / "homemaster.example.yaml"
+def test_factory_requires_profiles_from_outer_composition_root() -> None:
+    with pytest.raises(ValueError, match="profiles must be composed and supplied"):
+        create_application(config=HomeMasterConfig())
 
-    application = create_application(
-        config_path=config_path,
-        session_manager=SessionManager(session_root=tmp_path),
+
+def test_importing_application_factory_does_not_load_benchmark_modules() -> None:
+    command = (
+        "import json, sys; import homemaster.application.factory; "
+        "print(json.dumps(sorted(name for name in sys.modules "
+        "if name.startswith('homemaster.benchmarking'))))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
-    assert tuple(application.profiles) == ("home", "alfworld", "coworker")
-    assert len(application.catalog.list_tools()) > 0
-    await application.aclose()
+    assert json.loads(completed.stdout) == []

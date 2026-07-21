@@ -70,3 +70,31 @@ async def test_compaction_request_is_bound_to_exact_session_generation() -> None
         assert runtime.consume_compaction(generation) == "manual"
         assert runtime.consume_compaction(generation) is None
 
+
+@pytest.mark.asyncio
+async def test_queued_turn_rebinds_only_after_it_acquires_the_turn_lock() -> None:
+    manager = SessionManager()
+    runtime = await manager.open_or_resume("shared")
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    second_entered = asyncio.Event()
+
+    async def first() -> None:
+        async with manager.turn("shared", environment_ref="backend-a"):
+            first_entered.set()
+            await release_first.wait()
+
+    async def second() -> None:
+        async with manager.turn("shared", environment_ref="backend-b"):
+            second_entered.set()
+
+    first_task = asyncio.create_task(first())
+    await first_entered.wait()
+    second_task = asyncio.create_task(second())
+    await asyncio.sleep(0.05)
+
+    assert runtime.environment_ref == "backend-a"
+    assert second_entered.is_set() is False
+    release_first.set()
+    await asyncio.gather(first_task, second_task)
+    assert runtime.environment_ref == "backend-b"

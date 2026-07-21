@@ -12,7 +12,6 @@ from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Any, Protocol
 
-from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ComposedContext, ContextAssembler
 from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult, RuntimeStopDecision
 from homemaster.agent.messages import Message, ToolCall, ToolResultMessage
@@ -39,6 +38,7 @@ from homemaster.observations import (
 )
 from homemaster.providers.attempts import ListProviderAttemptSink
 from homemaster.task_state.models import TaskStatus
+from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.catalog import ToolCatalog, ToolLookupStatus, ToolView
 from homemaster.tools.contracts import (
     ExecutionProof,
@@ -59,6 +59,14 @@ class ProviderFactory(Protocol):
 
 class ContextAssemblerFactory(Protocol):
     def __call__(self, request: RunRequest, provider: Any) -> ContextAssembler: ...
+
+
+class ToolProfile(Protocol):
+    @property
+    def catalog(self) -> ToolCatalog: ...
+
+    @property
+    def enabled_tool_ids(self) -> tuple[str, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -213,25 +221,26 @@ class _CanonicalToolExecutor:
         *,
         pipeline: ToolExecutionPipeline,
         view: ToolView,
-        manager: SessionManager,
         runtime: SessionRuntime,
-        generation: int,
         run_id: str,
         backend: object | None,
         request: RunRequest,
+        agent_state: AgentState,
+        task_state_store: TaskStateStore,
         ledger: ObservationLedger,
         settings: Any,
         event_sink: EventBus,
     ) -> None:
         self._pipeline = pipeline
         self._view = view
-        self._manager = manager
         self._runtime = runtime
-        self._generation = generation
         self._run_id = run_id
         self._backend = backend
         self._request = request
+        self._agent_state = agent_state
+        self._task_state_store = task_state_store
         self._ledger = ledger
+        self.evidence_refs = runtime.canonical_evidence_refs
         self._settings = settings
         self._event_sink = event_sink
         self._deadline = Deadline(request.run_policy.deadline_s)
@@ -250,22 +259,21 @@ class _CanonicalToolExecutor:
         del run_context
         self._completion.begin_batch(tool_calls, self._view)
         contexts = [self._context_for(call) for call in tool_calls]
-        with self._runtime.generation_guard(self._generation):
-            results = asyncio.run(
-                self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
-            )
-            for _call, context, result in zip(tool_calls, contexts, results, strict=True):
-                lookup = self._view.lookup(context.internal_tool_id)
-                tool = lookup.tool if lookup.status is ToolLookupStatus.ENABLED else None
-                if tool is not None:
-                    policy = tool.definition.verification_policy
-                    if policy.execution_proof is not ExecutionProof.NONE:
-                        self._completion.record(
-                            tool.definition.internal_id,
-                            result,
-                            policy.terminal_rule,
-                        )
-                self._record_evidence(result)
+        results = asyncio.run(
+            self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
+        )
+        for _call, context, result in zip(tool_calls, contexts, results, strict=True):
+            lookup = self._view.lookup(context.internal_tool_id)
+            tool = lookup.tool if lookup.status is ToolLookupStatus.ENABLED else None
+            if tool is not None:
+                policy = tool.definition.verification_policy
+                if policy.execution_proof is not ExecutionProof.NONE:
+                    self._completion.record(
+                        tool.definition.internal_id,
+                        result,
+                        policy.terminal_rule,
+                    )
+            self._record_evidence(result)
         return [
             result.to_message(tool_call_id=call.id, name=call.name)
             for call, result in zip(tool_calls, results, strict=True)
@@ -280,7 +288,7 @@ class _CanonicalToolExecutor:
             registered = None
             internal_id = call.name if "." in call.name else "runtime.unknown.v1"
         deps = dict(self._request.dependencies)
-        deps["task_state_store"] = self._runtime.task_state_store
+        deps["task_state_store"] = self._task_state_store
         deps["task_completion_guard"] = self._completion
         deps["observation_ledger"] = self._ledger
         deps["current_tool_call_id"] = call.id
@@ -288,7 +296,7 @@ class _CanonicalToolExecutor:
         legacy_run_context = RunContext(
             session_id=self._runtime.session.session_id,
             run_id=self._run_id,
-            turn_index=self._runtime.agent_state.turn_index,
+            turn_index=self._agent_state.turn_index,
             settings=self._settings,
             event_sink=self._event_sink,
             deps=deps,
@@ -305,7 +313,7 @@ class _CanonicalToolExecutor:
         return ToolExecutionContext(
             session_id=self._runtime.session.session_id,
             run_id=self._run_id,
-            turn_index=self._runtime.agent_state.turn_index,
+            turn_index=self._agent_state.turn_index,
             tool_call_id=call.id,
             internal_tool_id=internal_id,
             tool_view=self._view,
@@ -325,15 +333,8 @@ class _CanonicalToolExecutor:
         if not refs:
             return
 
-        def update(runtime: SessionRuntime) -> None:
-            runtime.canonical_evidence_refs = tuple(
-                dict.fromkeys((*runtime.canonical_evidence_refs, *refs))
-            )
-
-        self._manager.apply(
-            self._runtime.session.session_id,
-            self._generation,
-            update,
+        self.evidence_refs = tuple(
+            dict.fromkeys((*self.evidence_refs, *refs))
         )
 
 
@@ -342,7 +343,7 @@ class ApplicationRuntime:
         self,
         *,
         catalog: ToolCatalog,
-        profiles: Mapping[str, EnvironmentToolProfile],
+        profiles: Mapping[str, ToolProfile],
         pipeline: ToolExecutionPipeline,
         observation_service: ObservationService,
         event_bus: EventBus,
@@ -362,7 +363,6 @@ class ApplicationRuntime:
         self.context_assembler_factory = context_assembler_factory
         self.settings = settings or SimpleNamespace()
         self.resource_scope = resource_scope or RunResourceScope()
-        self._session_requests: dict[str, RunRequest] = {}
 
     async def run(self, request: RunRequest) -> RunResult:
         if not isinstance(request, RunRequest):
@@ -372,15 +372,17 @@ class ApplicationRuntime:
         environment_ref = _backend_id(backend, request.profile)
         session = await self.session_manager.open_or_resume(
             request.session_id,
-            environment_ref=environment_ref,
             resume=request.resume,
             continuous_taskset=request.continuous_taskset,
         )
         session_id = session.session.session_id
-        self._session_requests[session_id] = request
         run_id = f"run-{uuid.uuid4().hex[:12]}"
 
-        async with self.session_manager.turn(session_id) as (runtime, generation, _):
+        async with self.session_manager.turn(
+            session_id,
+            environment_ref=environment_ref,
+        ) as (runtime, generation, _):
+            runtime.application_control = _control_request(request, session_id)
             view = self._view(request, profile)
             ledger = ObservationLedger(
                 run_id=run_id,
@@ -390,28 +392,31 @@ class ApplicationRuntime:
             runtime.set_observation_reset(ledger.invalidate)
             provider_value = await _maybe_await(self.provider_factory(request, run_id))
             provider_scope = RunResourceScope()
-            provider = provider_scope.bind(
-                _provider_binding(provider_value, run_id=run_id)
-            ).resource
-            try:
+            async with provider_scope:
+                provider = provider_scope.bind(
+                    _provider_binding(provider_value, run_id=run_id)
+                ).resource
                 assembler = self.context_assembler_factory(request, provider)
                 run_pipeline = replace(self.pipeline, terminal_policy=request.terminal_policy)
+                agent_state = runtime.agent_state.model_copy(deep=True)
+                agent_state.run_id = run_id
+                task_state_store = TaskStateStore.from_snapshot_dict(
+                    runtime.task_state_store.to_snapshot_dict()
+                )
                 executor = _CanonicalToolExecutor(
                     pipeline=run_pipeline,
                     view=view,
-                    manager=self.session_manager,
                     runtime=runtime,
-                    generation=generation,
                     run_id=run_id,
                     backend=backend,
                     request=request,
+                    agent_state=agent_state,
+                    task_state_store=task_state_store,
                     ledger=ledger,
                     settings=self.settings,
                     event_sink=self.event_bus,
                 )
                 committer = ObservationProviderCommitter(self.observation_service, ledger)
-                agent_state = runtime.agent_state.model_copy(deep=True)
-                agent_state.run_id = run_id
                 fenced_session = _FencedAgentSession(
                     self.session_manager,
                     runtime,
@@ -438,7 +443,7 @@ class ApplicationRuntime:
                         run_id=run_id,
                         settings=self.settings,
                         agent_state=agent_state,
-                        task_state_store=runtime.task_state_store,
+                        task_state_store=task_state_store,
                         force_compact=runtime.consume_compaction(generation),
                         tool_view=view,
                     )
@@ -461,14 +466,20 @@ class ApplicationRuntime:
                         status=RunStatus.CANCELLED,
                         error_code="stale_generation",
                     )
-                result = self._commit_result(runtime, generation, agent_state, generic)
+                result = self._commit_result(
+                    runtime,
+                    generation,
+                    agent_state,
+                    task_state_store,
+                    executor.evidence_refs,
+                    generic,
+                )
                 await self._save_if_configured(session_id, generation)
                 return result
-            finally:
-                await provider_scope.aclose()
 
     async def compact(self, session_id: str) -> CompactionResult:
-        request = self._session_requests.get(session_id)
+        control = self.session_manager.get(session_id).application_control
+        request = control if isinstance(control, RunRequest) else None
         if request is None:
             request = RunRequest(
                 text="internal compact control",
@@ -482,10 +493,10 @@ class ApplicationRuntime:
                 self.provider_factory(request, f"compact-{generation}")
             )
             provider_scope = RunResourceScope()
-            provider = provider_scope.bind(
-                _provider_binding(provider_value, run_id=f"compact-{generation}")
-            ).resource
-            try:
+            async with provider_scope:
+                provider = provider_scope.bind(
+                    _provider_binding(provider_value, run_id=f"compact-{generation}")
+                ).resource
                 assembler = self.context_assembler_factory(request, provider)
                 composed: ComposedContext = assembler.prepare(
                     session=runtime.session,
@@ -502,8 +513,6 @@ class ApplicationRuntime:
                     triggered=composed.metrics.compaction_triggered,
                     kind=composed.metrics.compaction_kind,
                 )
-            finally:
-                await provider_scope.aclose()
 
     def cancel(self, session_id: str) -> bool:
         return self.session_manager.cancel(session_id)
@@ -524,15 +533,19 @@ class ApplicationRuntime:
         )
 
     async def aclose(self) -> None:
-        await self.resource_scope.aclose()
+        try:
+            await self.resource_scope.aclose()
+        finally:
+            for runtime in self.session_manager.sessions:
+                runtime.application_control = None
 
-    def _profile(self, name: str) -> EnvironmentToolProfile:
+    def _profile(self, name: str) -> ToolProfile:
         try:
             return self.profiles[name]
         except KeyError as exc:
             raise ValueError(f"unknown application profile: {name}") from exc
 
-    def _view(self, request: RunRequest, profile: EnvironmentToolProfile) -> ToolView:
+    def _view(self, request: RunRequest, profile: ToolProfile) -> ToolView:
         enabled = request.enabled_tool_ids or profile.enabled_tool_ids
         return self.catalog.freeze(enabled)
 
@@ -541,10 +554,12 @@ class ApplicationRuntime:
         runtime: SessionRuntime,
         generation: int,
         agent_state: AgentState,
+        task_state_store: TaskStateStore,
+        evidence_refs: tuple[str, ...],
         generic: GenericRunResult,
     ) -> RunResult:
         status = _run_status(generic.status)
-        snapshot = runtime.task_state_store.snapshot
+        snapshot = task_state_store.snapshot
         if snapshot is not None and snapshot.status is TaskStatus.COMPLETED:
             status = RunStatus.COMPLETED
         result = RunResult(
@@ -558,6 +573,8 @@ class ApplicationRuntime:
 
         def commit(current: SessionRuntime) -> None:
             current.agent_state = agent_state
+            current.task_state_store = task_state_store
+            current.canonical_evidence_refs = evidence_refs
             current.agent_state.status = status.value
             current.last_result = result
 
@@ -658,6 +675,20 @@ def _provider_binding(value: Any, *, run_id: str) -> ResourceBinding:
     )
 
 
+def _control_request(request: RunRequest, session_id: str) -> RunRequest:
+    """Keep only immutable scalar control data needed by a later compact()."""
+
+    return RunRequest(
+        text="internal compact control",
+        session_id=session_id,
+        profile=request.profile,
+        provider_name=request.provider_name,
+        resume=True,
+        enabled_tool_ids=request.enabled_tool_ids,
+        permission_subject=request.permission_subject,
+    )
+
+
 __all__ = [
     "ApplicationRuntime",
     "CompactionResult",
@@ -665,4 +696,5 @@ __all__ = [
     "Deadline",
     "ProviderFactory",
     "SessionStatus",
+    "ToolProfile",
 ]
