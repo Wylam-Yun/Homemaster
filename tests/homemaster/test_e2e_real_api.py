@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from homemaster.agent.context import ContextAssembler
-from homemaster.agent.generic_runtime import GenericAgentRuntime
+from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
@@ -132,7 +132,9 @@ def test_context_assembler_with_task_snapshot(transport, provider_profile) -> No
 @pytest.mark.live_api
 def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_settings) -> None:
     """Full agent loop: user message -> model -> tool -> model -> reply."""
+    from homemaster.tools.catalog import ToolCatalog
     from homemaster.tools.dispatcher import ToolDispatcher
+    from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
     from homemaster.tools.results import ToolResult
     from homemaster.tools.spec import ToolSpec
 
@@ -157,6 +159,10 @@ def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_sett
 
     dispatcher = ToolDispatcher()
     dispatcher.register(spec)
+    catalog = ToolCatalog()
+    adapted = adapt_legacy_tool_spec(spec, internal_id="test.echo.v1", version="1.9.0")
+    catalog.register(adapted.registered_tool)
+    tool_view = catalog.freeze((adapted.definition.internal_id,))
 
     system_prompt = (
         "You are a helpful assistant. When the user says hello, "
@@ -169,7 +175,7 @@ def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_sett
         system_prompt=system_prompt,
     )
 
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=dispatcher,
         max_tool_iterations=5,
@@ -178,7 +184,12 @@ def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_sett
     )
 
     session = AgentSession(session_id="e2e-loop")
-    result = runtime.run(session, "hello", tools=[spec], settings=runtime_settings)
+    result = runtime.run(
+        session,
+        "hello",
+        settings=runtime_settings,
+        tool_view=tool_view,
+    )
 
     assert result.status == "replied"
     assert result.final_reply

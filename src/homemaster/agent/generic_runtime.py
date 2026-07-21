@@ -1,4 +1,4 @@
-"""AgentRuntime model loop with a temporary GenericAgentRuntime alias."""
+"""Canonical AgentRuntime model loop."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 import uuid
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +20,8 @@ from homemaster.agent.messages import (
     UserMessage,
     normalize_content,
 )
+from homemaster.agent.normalized import RunContext
+from homemaster.agent.runtime_contracts import RuntimeStopDecision
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
 from homemaster.agent.state import AgentState, ProviderUsage
@@ -58,28 +60,8 @@ def _is_context_length_error(error_msg: str) -> bool:
 
 
 @dataclass
-class ToolSpec:
-    """Minimal tool spec for the generic runtime."""
-
-    name: str
-    description: str = ""
-    input_schema: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ToolDispatcherResult:
-    """Result from dispatching a single tool call."""
-
-    tool_call_id: str
-    name: str
-    content: list[ContentBlock]
-    is_error: bool = False
-    data: dict[str, Any] | None = None
-
-
-@dataclass
 class GenericRunResult:
-    """Result of a GenericAgentRuntime.run() execution."""
+    """Result of an AgentRuntime.run() execution."""
 
     run_id: str
     status: str
@@ -87,16 +69,6 @@ class GenericRunResult:
     events: list[RuntimeEvent]
     final_reply: str = ""
     error_code: str | None = None
-
-
-@dataclass(frozen=True)
-class RuntimeStopDecision:
-    """Optional generic decision to stop a run after tool results are appended."""
-
-    status: str
-    final_reply: str = ""
-    error_code: str | None = None
-    payload: dict[str, Any] = field(default_factory=dict)
 
 
 StopCondition = Callable[
@@ -135,7 +107,7 @@ class AgentRuntime:
         self,
         session: AgentSession,
         user_text: str,
-        tools: list[ToolSpec] | None = None,
+        run_context: RunContext | None = None,
         *,
         user_content: list[ContentBlock] | None = None,
         event_sink: Any = None,
@@ -192,7 +164,6 @@ class AgentRuntime:
             agent_state.run_id = run_id
             agent_state.session_id = session.session_id
             agent_state.max_tool_iterations = self._max_tool_iterations
-        run_context = getattr(self._tool_executor, "_run_context", None)
         if task_state_store is None and run_context is not None:
             task_state_store = run_context.deps.get("task_state_store")
         if task_state_store is None:
@@ -233,10 +204,7 @@ class AgentRuntime:
         if tool_view is not None:
             tool_schemas = [dict(manifest) for manifest in tool_view.manifests()]
         else:
-            tool_schemas = [
-                {"name": t.name, "description": t.description, "input_schema": t.input_schema}
-                for t in (tools or [])
-            ]
+            tool_schemas = []
 
         iteration = 0
         reactive_compact_retries = 0
@@ -261,10 +229,6 @@ class AgentRuntime:
                 context_system_prompt = self._system_prompt
                 context_tools = tool_schemas if tool_schemas else None
                 if self._context_assembler is not None:
-                    task_state_store = None
-                    run_context = getattr(self._tool_executor, "_run_context", None)
-                    if run_context is not None:
-                        task_state_store = run_context.deps.get("task_state_store")
                     composed = self._context_assembler.prepare(
                         session=session,
                         agent_state=agent_state,
@@ -475,7 +439,6 @@ class AgentRuntime:
                     external_action_committed=False,
                 )
                 if assistant_msg.tool_calls:
-                    run_context = getattr(self._tool_executor, "_run_context", None)
                     dependency_observer = (
                         run_context.deps.get("provider_commit_observer")
                         if run_context is not None
@@ -563,6 +526,7 @@ class AgentRuntime:
                     event_sink,
                     settings,
                     events,
+                    run_context=run_context,
                     cancellation_token=interrupt,
                 )
                 dispatch_ms = round((time.perf_counter() - dispatch_started) * 1000, 1)
@@ -757,10 +721,6 @@ class AgentRuntime:
         persistence: SessionPersistenceManager | None = None,
     ) -> GenericRunResult:
         emit("runtime.cancelled", payload={"phase": phase})
-        if task_state_store is None:
-            run_context = getattr(self._tool_executor, "_run_context", None)
-            if run_context is not None:
-                task_state_store = run_context.deps.get("task_state_store")
         snapshot = getattr(task_state_store, "snapshot", None)
         if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
             task_state_store.update_status(TaskStatus.PAUSED)
@@ -814,96 +774,26 @@ class AgentRuntime:
         settings: Any,
         events: list[RuntimeEvent],
         *,
+        run_context: RunContext | None = None,
         cancellation_token: Any = None,
     ) -> list[ToolResultMessage]:
         """Dispatch tool calls and return ToolResultMessages."""
 
-        if hasattr(self._tool_executor, "dispatch"):
-            try:
-                from homemaster.agent.normalized import RunContext
-
-                run_context = getattr(self._tool_executor, "_run_context", None)
-                if run_context is None and settings is not None:
-                    run_context = RunContext(
-                        session_id=session.session_id,
-                        run_id=run_id,
-                        turn_index=0,
-                        settings=settings,
-                        event_sink=event_sink,
-                    )
-                if run_context is not None:
-                    run_context.cancellation_token = cancellation_token
-                    return self._tool_executor.dispatch(
-                        tool_calls=tool_calls,
-                        run_context=run_context,
-                    )
-            except TypeError:
-                pass
-
-        results: list[ToolResultMessage] = []
-        for index, tool_call in enumerate(tool_calls):
-            if getattr(cancellation_token, "cancelled", False):
-                results.extend(
-                    ToolResultMessage(
-                        tool_call_id=pending.id,
-                        name=pending.name,
-                        content=[ContentBlock(text='{"error": "cancelled before tool execution"}')],
-                        is_error=True,
-                        data={
-                            "success": False,
-                            "error": "cancelled before tool execution",
-                            "cancelled": True,
-                        },
-                    )
-                    for pending in tool_calls[index:]
-                )
-                break
-            try:
-                if hasattr(cancellation_token, "enter_tool"):
-                    cancellation_token.enter_tool()
-                if callable(self._tool_executor):
-                    raw_result = self._tool_executor(tool_call.name, tool_call.arguments)
-                else:
-                    raw_result = self._tool_executor.dispatch(tool_call.name, tool_call.arguments)
-            except Exception as exc:
-                results.append(
-                    ToolResultMessage(
-                        tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=[ContentBlock(text=f'{{"error": "{exc}"}}')],
-                        is_error=True,
-                    )
-                )
-                continue
-            finally:
-                if hasattr(cancellation_token, "exit_tool"):
-                    cancellation_token.exit_tool()
-
-            if isinstance(raw_result, ToolResultMessage):
-                if not raw_result.tool_call_id:
-                    raw_result = raw_result.model_copy(update={"tool_call_id": tool_call.id})
-                results.append(raw_result)
-            elif isinstance(raw_result, ToolDispatcherResult):
-                results.append(
-                    ToolResultMessage(
-                        tool_call_id=raw_result.tool_call_id or tool_call.id,
-                        name=raw_result.name or tool_call.name,
-                        content=raw_result.content,
-                        is_error=raw_result.is_error,
-                        data=raw_result.data,
-                    )
-                )
-            else:
-                data = raw_result if isinstance(raw_result, dict) else {"result": str(raw_result)}
-                results.append(
-                    ToolResultMessage(
-                        tool_call_id=tool_call.id,
-                        name=tool_call.name,
-                        content=[ContentBlock(text=str(data))],
-                        data=data,
-                    )
-                )
-        return results
+        if not hasattr(self._tool_executor, "dispatch"):
+            raise TypeError("tool executor must provide explicit batch dispatch")
+        if run_context is None:
+            run_context = RunContext(
+                session_id=session.session_id,
+                run_id=run_id,
+                turn_index=0,
+                settings=settings,
+                event_sink=event_sink,
+            )
+        run_context.cancellation_token = cancellation_token
+        return self._tool_executor.dispatch(
+            tool_calls=tool_calls,
+            run_context=run_context,
+        )
 
 
 def _accepts_attempt_sink(stream: Any) -> bool:
@@ -951,7 +841,3 @@ def _provider_retry_allowed(
         failure in _RETRYABLE_PROVIDER_FAILURES
         and (attempt.error_type, attempt.cause_code) == failure
     )
-
-
-# Compatibility alias retained until all legacy entry points migrate in CL-15.
-GenericAgentRuntime = AgentRuntime

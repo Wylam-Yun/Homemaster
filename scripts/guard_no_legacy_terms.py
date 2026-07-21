@@ -73,6 +73,7 @@ SKIP_FILES = frozenset(
         "src/homemaster/application/runtime.py",
         "src/homemaster/tools/legacy_adapter.py",
         "src/homemaster/tools/pipeline.py",
+        "scripts/v19_release/run_coworker.py",
         "task_plan.md",
         "tests/homemaster/permissions/test_policy.py",
         "tests/homemaster/application/test_application_runtime.py",

@@ -1,6 +1,6 @@
 """Agent — generic message/tool-call/tool-result runtime.
 
-Contains AgentRuntime, its temporary GenericAgentRuntime alias, AgentSession,
+Contains AgentRuntime, AgentSession,
 normalized message types, context composition, and the turn loop.
 No home-domain schemas or domain logic.
 """
@@ -26,7 +26,7 @@ from homemaster.agent.context import (
     estimate_text_tokens,
     estimate_tools_tokens,
 )
-from homemaster.agent.generic_runtime import AgentRuntime, GenericAgentRuntime
+from homemaster.agent.generic_runtime import AgentRuntime
 
 __all__ = [
     "AgentRuntime",
@@ -42,7 +42,6 @@ __all__ = [
     "ContextProvider",
     "ConversationProvider",
     "FailureSummaryProvider",
-    "GenericAgentRuntime",
     "RenderMode",
     "RuntimeBudgetStatusProvider",
     "TaskStateSnapshotProvider",

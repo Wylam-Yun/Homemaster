@@ -1,4 +1,4 @@
-"""Tests for GenericAgentRuntime — the new message/tool-call/tool-result loop.
+"""Tests for AgentRuntime — the new message/tool-call/tool-result loop.
 
 Uses fake transport and tool executor to verify runtime behavior without
 importing home domain modules.
@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from homemaster.agent.generic_runtime import GenericAgentRuntime, GenericRunResult
+from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -232,16 +232,19 @@ class FakeToolExecutor:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def dispatch(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        self.calls.append((name, arguments))
-        return ToolResultMessage(
-            tool_call_id="",  # Will be filled by runtime
-            name=name,
-            content=[ContentBlock(text='{"success": true}')],
-        )
-
-    def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        return self.dispatch(name, arguments)
+    def dispatch(self, *, tool_calls, run_context) -> list[ToolResultMessage]:
+        del run_context
+        results = []
+        for call in tool_calls:
+            self.calls.append((call.name, call.arguments))
+            results.append(
+                ToolResultMessage(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    content=[ContentBlock(text='{"success": true}')],
+                )
+            )
+        return results
 
 
 class FailingToolExecutor:
@@ -250,17 +253,18 @@ class FailingToolExecutor:
     def __init__(self) -> None:
         self.call_count = 0
 
-    def dispatch(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        self.call_count += 1
-        return ToolResultMessage(
-            tool_call_id="",
-            name=name,
-            content=[ContentBlock(text='{"error": "tool failed"}')],
-            is_error=True,
-        )
-
-    def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        return self.dispatch(name, arguments)
+    def dispatch(self, *, tool_calls, run_context) -> list[ToolResultMessage]:
+        del run_context
+        self.call_count += len(tool_calls)
+        return [
+            ToolResultMessage(
+                tool_call_id=call.id,
+                name=call.name,
+                content=[ContentBlock(text='{"error": "tool failed"}')],
+                is_error=True,
+            )
+            for call in tool_calls
+        ]
 
 
 class MismatchedToolExecutor:
@@ -273,18 +277,16 @@ class MismatchedToolExecutor:
             content=[ContentBlock(text='{"ok": true}')],
         )
 
-    def dispatch(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        return self._result
-
-    def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        return self.dispatch(name, arguments)
+    def dispatch(self, *, tool_calls, run_context) -> list[ToolResultMessage]:
+        del tool_calls, run_context
+        return [self._result]
 
 
 def _run(utterance: str, **kwargs: Any) -> GenericRunResult:
     transport = kwargs.pop("transport", FakeTransport())
     executor = kwargs.pop("dispatcher", FakeToolExecutor())
     max_iter = kwargs.pop("max_tool_iterations", 12)
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=executor,
         max_tool_iterations=max_iter,
@@ -409,7 +411,7 @@ def test_stop_condition_can_end_run_after_tool_results() -> None:
     def stop_condition(session: AgentSession, tool_results: list[ToolResultMessage]):
         assert session.messages[-1].role == "tool"
         assert tool_results[0].name == "robot_verify"
-        from homemaster.agent.generic_runtime import RuntimeStopDecision
+        from homemaster.application import RuntimeStopDecision
 
         return RuntimeStopDecision(
             status="failed",
@@ -418,7 +420,7 @@ def test_stop_condition_can_end_run_after_tool_results() -> None:
             payload={"reason": "invalid action limit reached"},
         )
 
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=12,
@@ -435,7 +437,7 @@ def test_stop_condition_can_end_run_after_tool_results() -> None:
 def test_runtime_passes_system_prompt_to_transport() -> None:
     transport = FakeTransport()
     transport.queue_text("done")
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
@@ -443,7 +445,7 @@ def test_runtime_passes_system_prompt_to_transport() -> None:
     )
     session = AgentSession(session_id="test-sp")
 
-    runtime.run(session, "hello", tools=[])
+    runtime.run(session, "hello")
 
     assert transport.last_system_prompt == "You are HomeMaster."
 
@@ -460,7 +462,7 @@ def test_runtime_writes_session_persistence_artifacts(tmp_path: Path) -> None:
         provider_name="Mimo",
         observability=ObservabilityConfig(session_dir=str(tmp_path / "sessions")),
     )
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=3,
@@ -511,7 +513,7 @@ def test_runtime_supports_unbounded_iterations() -> None:
     def stop_after_3(session, tool_results):
         call_count["n"] += 1
         if call_count["n"] >= 3:
-            from homemaster.agent.generic_runtime import RuntimeStopDecision
+            from homemaster.application import RuntimeStopDecision
             return RuntimeStopDecision(status="replied", final_reply="done")
         return None
 
@@ -519,14 +521,14 @@ def test_runtime_supports_unbounded_iterations() -> None:
     transport.queue_tool_call("t", {}, call_id="c1")
     transport.queue_tool_call("t", {}, call_id="c2")
     transport.queue_tool_call("t", {}, call_id="c3")
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=None,
         stop_condition=stop_after_3,
     )
     session = AgentSession(session_id="test-unbounded")
-    result = runtime.run(session, "go", tools=[])
+    result = runtime.run(session, "go")
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -550,14 +552,14 @@ def test_reactive_compact_retries_context_length_error_twice_by_default() -> Non
         policy=ContextPolicyConfig(),
         system_prompt="system",
     )
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
         context_assembler=assembler,
     )
 
-    result = runtime.run(AgentSession(session_id="reactive"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="reactive"), "hello")
 
     assert transport.call_count == 3
     assert result.status == "failed"
@@ -579,14 +581,14 @@ def test_runtime_retries_one_frozen_retryable_provider_attempt() -> None:
         sinks.append(sink)
         return sink
 
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
         provider_attempt_sink_factory=sink_factory,
     )
 
-    result = runtime.run(AgentSession(session_id="retry"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="retry"), "hello")
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -620,14 +622,14 @@ def test_runtime_does_not_retry_closed_nonretryable_provider_errors(
     error: Exception,
 ) -> None:
     transport = AuditedRetryTransport(first_error=error)
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="no-retry"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="no-retry"), "hello")
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -643,14 +645,14 @@ def test_runtime_does_not_retry_after_partial_provider_delta() -> None:
         ),
         partial_delta=True,
     )
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="partial"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="partial"), "hello")
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -667,14 +669,14 @@ def test_runtime_rejects_retry_request_hash_drift() -> None:
         ),
         change_retry_hash=True,
     )
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=FakeToolExecutor(),
         max_tool_iterations=1,
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="hash-drift"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="hash-drift"), "hello")
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -723,16 +725,16 @@ def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
             committed_attempts.append(attempt)
 
     class Executor(FakeToolExecutor):
-        def dispatch(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
+        def dispatch(self, *, tool_calls, run_context) -> list[ToolResultMessage]:
             order.append("tool_dispatch")
-            return super().dispatch(name, arguments)
+            return super().dispatch(tool_calls=tool_calls, run_context=run_context)
 
     class ProviderObserver:
         def commit_successful_response(self, *, attempt: ProviderAttemptRecord) -> None:
             order.append("provider_commit")
             provider_commits.append(attempt)
 
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=ToolTransport(),
         tool_executor=Executor(),
         max_tool_iterations=1,
@@ -741,7 +743,7 @@ def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="commit-order"), "hello", tools=[])
+    result = runtime.run(AgentSession(session_id="commit-order"), "hello")
 
     assert result.error_code == "max_tool_iterations_exceeded"
     assert order == ["model_view_commit", "provider_commit", "tool_dispatch"]

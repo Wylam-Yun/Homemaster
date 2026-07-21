@@ -17,8 +17,7 @@ from homemaster.adapters.coworker_entry import (
     build_coworker_transport_factory,
 )
 from homemaster.adapters.profiles import CoworkerObservationBackend
-from homemaster.agent.generic_runtime import RuntimeStopDecision
-from homemaster.application import RunPolicy, RunRequest
+from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.config import load_coworker_config

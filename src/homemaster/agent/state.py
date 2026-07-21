@@ -29,7 +29,7 @@ class CompactionRecord(BaseModel):
 
 
 class AgentState(BaseModel):
-    """Mutable runtime state for a GenericAgentRuntime execution."""
+    """Mutable runtime state for an AgentRuntime execution."""
 
     run_id: str = ""
     session_id: str = ""

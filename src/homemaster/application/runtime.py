@@ -14,7 +14,7 @@ from typing import Any, Protocol
 
 from homemaster.agent.compact import strip_old_images
 from homemaster.agent.context import ComposedContext, ContextAssembler
-from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult, RuntimeStopDecision
+from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult
 from homemaster.agent.messages import Message, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.state import AgentState
@@ -24,6 +24,7 @@ from homemaster.application.contracts import (
     RunRequest,
     RunResult,
     RunStatus,
+    RuntimeStopDecision,
 )
 from homemaster.application.resources import RunResourceScope
 from homemaster.application.session import (

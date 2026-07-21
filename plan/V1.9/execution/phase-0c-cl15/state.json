@@ -1,0 +1,65 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0C-CL15",
+  "change_list": "CL-15-adapter-ownership",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster_parent": "4662103",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl14": "VERIFYING",
+    "exception": "CL-14 implementation and non-live gates pass; its headed real-provider gate remains deferred to the concentrated hkust4 batch. CL-15 has no additional live dependency."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "next_group": ["CL-14", "CL-15", "CL-16a"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "AgentRuntime accepts frozen ToolView plus an explicit optional RunContext and no longer defines runtime-local ToolSpec",
+    "GenericAgentRuntime compatibility alias is removed after all imports migrate to AgentRuntime",
+    "ToolDispatcher removes set_run_context, private _run_context and callable single-tool dispatch",
+    "AgentRuntime removes callable and positional legacy dispatch fallbacks and uses one explicit batch dispatch protocol",
+    "Home, ALFWorld and Coworker canonical profiles select domain executor factories directly without legacy registry builders",
+    "RuntimeStopDecision moves to a dependency-free shared contract and remains publicly exported by homemaster.application",
+    "legacy adapter now rejects missing executors instead of fabricating a lossy runtime-local fallback"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/integration/test_adapter_ownership.py tests/homemaster/integration/test_observation_profiles.py tests/homemaster/tools/test_legacy_adapter.py tests/homemaster/test_generic_agent_runtime.py tests/homemaster/test_agent_loop_acceptance.py tests/homemaster/test_tool_dispatcher.py tests/homemaster/application",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "4662103",
+  "evidence": [
+    {
+      "kind": "entry_boundaries",
+      "status": "pass",
+      "details": "Home CLI/Interactive, ALFWorld and Coworker AST guards contain no legacy provider, registry, dispatcher or agent-runtime assembly. Profiles do not import or call legacy registry builders."
+    },
+    {
+      "kind": "canonical_contract",
+      "status": "pass",
+      "details": "Runtime-local ToolSpec and GenericAgentRuntime are absent. ToolExecutionPipeline is constructed only by application/factory.py and AgentRuntime has one explicit batch-dispatch path over the frozen ToolView."
+    },
+    {
+      "kind": "explicit_state",
+      "status": "pass",
+      "details": "TaskStateStore remains explicitly supplied by SessionRuntime to AgentRuntime, ContextAssembler, legacy execution context and persistence; completion, cancellation and resume regressions retain active/terminal state without executor-private context access."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "Profile/registry domain parity: 26 passed. Runtime/application/ownership sets: 99 passed and 75 passed with 3 live deselected."
+    },
+    {
+      "kind": "full_nonlive",
+      "status": "pass",
+      "details": "Full non-live suite: 1085 passed, 7 deselected, with one existing Starlette/httpx warning. The exact code-level cleanup-guard allowlist for the CL-14 release runner is covered. Ruff, compileall and diff check pass."
+    }
+  ],
+  "reviews": []
+}

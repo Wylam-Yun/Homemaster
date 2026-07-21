@@ -189,12 +189,7 @@ def adapt_legacy_tool_spec(
     executor: Callable[..., Any] | None = None,
     output_schema: Mapping[str, object] | None = None,
 ) -> AdaptedLegacyTool:
-    """Convert either legacy ``tools.ToolSpec`` shape to canonical values.
-
-    ``agent.generic_runtime.ToolSpec`` intentionally has no executor.  For
-    that shape callers must provide one explicitly; the adapter never reaches
-    into a runtime or captures a mutable session to find it.
-    """
+    """Convert an execution-capable legacy ``tools.ToolSpec`` to canonical values."""
 
     name = _required_text(getattr(spec, "name", None), "legacy tool name")
     description = _required_text(getattr(spec, "description", "") or name, "description")
@@ -221,9 +216,7 @@ def adapt_legacy_tool_spec(
 
     executor_value = executor if executor is not None else getattr(spec, "executor", None)
     if executor_value is None:
-        debt_fields.append("missing_executor")
-        debt_details["missing_executor"] = "runtime-local ToolSpec carries metadata only"
-        executor_value = _missing_executor(name)
+        raise ValueError("legacy tool adaptation requires an explicit executor")
 
     state_effects, state_debt = _state_effects(getattr(spec, "state_effects", ()))
     debt_fields.extend(state_debt)
@@ -233,10 +226,7 @@ def adapt_legacy_tool_spec(
         debt_details["legacy_requires_verification"] = (
             "legacy boolean retained as migration debt; no verifier is inferred"
         )
-    if not hasattr(spec, "executor_mode"):
-        debt_fields.append("runtime_local_tool_spec")
-        debt_details["runtime_local_tool_spec"] = "runtime-local metadata shape was adapted"
-    elif getattr(spec, "executor_mode", ""):
+    if getattr(spec, "executor_mode", ""):
         debt_fields.append("executor_mode")
         debt_details["executor_mode"] = str(spec.executor_mode)
     selectable = bool(getattr(spec, "selectable_by_model", True))
@@ -679,18 +669,6 @@ def _required_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{label} is required")
     return value
-
-
-def _missing_executor(name: str) -> Callable[..., Any]:
-    def missing_executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
-        del arguments, run_context
-        return ToolResult(
-            success=False,
-            tool_name=name,
-            failure_reason="legacy tool has no executor",
-        )
-
-    return missing_executor
 
 
 __all__ = [

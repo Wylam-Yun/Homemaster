@@ -578,7 +578,7 @@ class ObservationService:
 
 @dataclass
 class ObservationProviderCommitter:
-    """Run-scoped bridge from GenericAgentRuntime provider commits to a ledger."""
+    """Run-scoped bridge from AgentRuntime provider commits to a ledger."""
 
     service: ObservationService
     ledger: ObservationLedger

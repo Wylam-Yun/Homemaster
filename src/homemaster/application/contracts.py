@@ -16,6 +16,7 @@ from types import MappingProxyType
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from homemaster.agent.messages import ToolCall
+from homemaster.agent.runtime_contracts import RuntimeStopDecision
 from homemaster.tools.contracts import PermissionSubject, ToolExecutionResult
 
 
@@ -305,6 +306,7 @@ __all__ = [
     "ResourceLifetime",
     "ResourceOwnership",
     "RunPolicy",
+    "RuntimeStopDecision",
     "RunRequest",
     "RunResult",
     "RunStatus",

@@ -1,4 +1,4 @@
-"""RuntimeEvent — structured event for GenericAgentRuntime tracing."""
+"""RuntimeEvent - structured event for AgentRuntime tracing."""
 
 from __future__ import annotations
 

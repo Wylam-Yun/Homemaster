@@ -27,26 +27,10 @@ class ToolDispatcher:
     def __init__(self, event_sink: Any = None) -> None:
         self._event_sink = event_sink
         self._specs: dict[str, ToolSpec] = {}
-        self._run_context: RunContext | None = None
 
     def register(self, spec: ToolSpec) -> None:
         """Register a tool spec for dispatch_many lookups."""
         self._specs[spec.name] = spec
-
-    def set_run_context(self, run_context: RunContext) -> None:
-        """Set the RunContext for __call__-based dispatch."""
-        self._run_context = run_context
-
-    def __call__(self, name: str, arguments: dict[str, Any]) -> ToolResultMessage:
-        """Dispatch a single tool call by name.
-
-        Uses the RunContext set via set_run_context().
-        """
-        if self._run_context is None:
-            raise RuntimeError("ToolDispatcher.set_run_context() must be called before __call__")
-        tc = ToolCall(id=f"call_{name}", name=name, arguments=arguments)
-        results = self.dispatch(tool_calls=[tc], run_context=self._run_context)
-        return results[0]
 
     def dispatch(
         self,

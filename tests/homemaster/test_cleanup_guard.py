@@ -23,6 +23,7 @@ from scripts.guard_no_legacy_terms import _has_blocked_text, _should_skip_path
         "docs/superpowers/plans/2026-07-17-coworker-executive-demo.md",
         "docs/superpowers/specs/2026-07-17-coworker-executive-demo-design.md",
         "scripts/coworker_demo/preflight.py",
+        "scripts/v19_release/run_coworker.py",
         "src/homemaster/benchmarking/coworker_demo/types.py",
         "src/homemaster/cli/coworker_router.py",
         "tests/case02_openenv/test_episode_store.py",

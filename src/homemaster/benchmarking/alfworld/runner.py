@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from homemaster.adapters.alfworld_entry import AlfworldApplicationEntry
-from homemaster.agent.generic_runtime import RuntimeStopDecision
 from homemaster.agent.messages import ToolResultMessage
 from homemaster.agent.session import AgentSession
-from homemaster.application import RunPolicy, RunRequest
+from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
 from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     build_alfworld_batch_env,

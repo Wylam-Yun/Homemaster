@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from homemaster.agent.generic_runtime import AgentRuntime, GenericAgentRuntime
+from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.tools.catalog import ToolCatalog
@@ -53,13 +53,8 @@ def test_agent_runtime_uses_explicit_frozen_tool_view() -> None:
     result = runtime.run(
         AgentSession("tool-view"),
         "hello",
-        tools=[],
         tool_view=view,
     )
 
     assert result.final_reply == "done"
     assert transport.tools == list(view.manifests())
-
-
-def test_generic_runtime_name_is_a_compatibility_alias() -> None:
-    assert GenericAgentRuntime is AgentRuntime

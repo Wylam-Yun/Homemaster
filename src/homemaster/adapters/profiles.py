@@ -14,10 +14,30 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
-from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
-from homemaster.domain.tool_registry import build_home_tool_registry
+from homemaster.agent.normalized import RunContext
+from homemaster.benchmarking.alfworld.tools import (
+    make_alfworld_robot_go_to,
+    make_alfworld_robot_manipulate,
+    make_alfworld_robot_verify,
+)
+from homemaster.benchmarking.coworker_demo.browser_tools import browser_tool_specs
+from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
+from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
+from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
+from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
+from homemaster.domain.tools import (
+    make_memory_retriever,
+    make_memory_writer,
+    make_robot_manipulate,
+    make_robot_navigate,
+    make_robot_verify,
+    make_skill_view,
+    make_target_grounder,
+    make_task_interpreter,
+    make_task_summarizer,
+)
 from homemaster.observations import ObservationCapture, ObservationService
+from homemaster.task_state.tools import make_task_planner_tool, make_task_progress_check_tool
 from homemaster.tools.catalog import ToolCatalog, ToolView
 from homemaster.tools.contracts import (
     ExecutionProof,
@@ -412,15 +432,21 @@ def build_home_profile(
 ) -> EnvironmentToolProfile:
     catalog = catalog or ToolCatalog()
     service = observation_service or ObservationService()
-    legacy = build_home_tool_registry(
-        world_path=world_path,
-        memory_path=memory_path,
-        runtime_memory_root=runtime_memory_root,
-    )
     specs = {
-        name: legacy.get(name)
-        for name in legacy.all_names()
-        if name not in {"robot_navigate", "robot_observe"}
+        spec.name: spec
+        for spec in (
+            make_task_interpreter(),
+            make_memory_retriever(memory_path=memory_path),
+            make_target_grounder(world_path=world_path),
+            make_skill_view(),
+            make_robot_navigate(),
+            make_robot_manipulate(),
+            make_robot_verify(),
+            make_memory_writer(runtime_memory_root=runtime_memory_root),
+            make_task_summarizer(),
+            make_task_planner_tool(),
+            make_task_progress_check_tool(),
+        )
     }
     ordered = [
         "task_interpreter",
@@ -438,7 +464,7 @@ def build_home_profile(
     ]
     for name in ordered:
         if name == "robot_go_to":
-            spec = legacy.get("robot_navigate")
+            spec = specs.get("robot_navigate")
             assert spec is not None
             _register_adapted(
                 catalog,
@@ -481,19 +507,29 @@ def build_alfworld_profile(
 ) -> EnvironmentToolProfile:
     catalog = catalog or ToolCatalog()
     service = observation_service or ObservationService()
-    legacy = build_alfworld_tool_registry(
-        memory_mode=memory_mode,
-        memory_path=memory_path,
-        runtime_memory_root=runtime_memory_root,
+    if memory_mode not in {"disabled", "readonly", "full"}:
+        raise ValueError(f"unsupported memory_mode: {memory_mode}")
+    legacy_specs = []
+    if memory_mode in {"readonly", "full"}:
+        legacy_specs.append(make_memory_retriever(memory_path=memory_path))
+    if memory_mode == "full":
+        legacy_specs.append(make_memory_writer(runtime_memory_root=runtime_memory_root))
+    legacy_specs.extend(
+        [
+            make_alfworld_robot_go_to(),
+            make_alfworld_robot_manipulate(),
+            make_alfworld_robot_verify(),
+            make_task_planner_tool(),
+            make_task_progress_check_tool(),
+        ]
     )
+    specs = {spec.name: spec for spec in legacy_specs}
     ordered: list[str] = [
         "observe",
-        *(name for name in legacy.all_names() if name != "observe"),
+        *(spec.name for spec in legacy_specs),
     ]
-    for name in legacy.all_names():
-        if name == "observe":
-            continue
-        spec = legacy.get(name)
+    for name in ordered[1:]:
+        spec = specs.get(name)
         assert spec is not None
         _register_adapted(
             catalog,
@@ -519,7 +555,20 @@ def build_coworker_profile(
 ) -> EnvironmentToolProfile:
     catalog = catalog or ToolCatalog()
     service = observation_service or ObservationService()
-    legacy = build_coworker_tool_registry()
+    task_planner = _coworker_task_tool(make_task_planner_tool(), planner=True)
+    task_progress = _coworker_task_tool(make_task_progress_check_tool(), planner=False)
+    skill_view = _coworker_skill_view(make_skill_view())
+    legacy_specs = {
+        spec.name: spec
+        for spec in (
+            task_planner,
+            task_progress,
+            skill_view,
+            *browser_tool_specs(),
+            make_terminal_execute(),
+            make_sop_decide(),
+        )
+    }
     ordered = [
         "task_planner",
         "task_progress_check",
@@ -537,7 +586,7 @@ def build_coworker_profile(
         if name == "observe":
             _register_observation(catalog, "coworker", service)
             continue
-        spec = legacy.get(name)
+        spec = legacy_specs.get(name)
         assert spec is not None
         _register_adapted(
             catalog,
@@ -551,6 +600,67 @@ def build_coworker_profile(
             else (),
         )
     return _profile(catalog, "coworker", [f"coworker.{name}.v1" for name in ordered])
+
+
+def _coworker_skill_view(spec: Any) -> Any:
+    original = spec.executor
+    schema = {
+        "type": "object",
+        "properties": {
+            "skill_name": {
+                "type": "string",
+                "enum": ["change_execution", "evidence_discipline"],
+                "description": "Name of one available coworker skill to view.",
+            }
+        },
+        "required": ["skill_name"],
+    }
+
+    def executor(*, arguments: dict[str, Any], run_context: RunContext):
+        if original is None:
+            raise RuntimeError(f"{spec.name} has no executor")
+        run_context.deps["coworker_budget"].before_external(
+            run_context.deps["coworker_outcome"]
+        )
+        return original(arguments=arguments, run_context=run_context)
+
+    return spec.model_copy(update={"input_schema": schema, "executor": executor})
+
+
+def _coworker_task_tool(spec: Any, *, planner: bool) -> Any:
+    original = spec.executor
+
+    def executor(*, arguments: dict[str, Any], run_context: RunContext):
+        if original is None:
+            raise RuntimeError(f"{spec.name} has no executor")
+        run_context.deps["coworker_budget"].before_external(
+            run_context.deps["coworker_outcome"]
+        )
+        result = original(arguments=arguments, run_context=run_context)
+        client: EnvironmentClient = run_context.deps["coworker_environment"]
+        state = client.state(run_context.run_id)
+        if planner:
+            node_id = "PLAN_CREATED"
+        elif state["phase"] == "ready_to_change":
+            node_id = "PRE_PROGRESS"
+        elif state["phase"] == "change_applied":
+            node_id = "NORMAL_PROGRESS" if state.get("business_verified") else "IMPLEMENT_PROGRESS"
+        elif state["phase"] == "rollback_submitted":
+            node_id = "ROLLBACK_PROGRESS"
+        else:
+            node_id = None
+        mirrored = client.runtime_event(
+            run_context.run_id,
+            action_id=correlated_action_id(run_context),
+            tool_name=spec.name,
+            arguments=arguments,
+            node_id=node_id,
+        )
+        if isinstance(result.data, dict):
+            result.data["coworker_evidence_refs"] = [mirrored["event"]["event_id"]]
+        return result
+
+    return spec.model_copy(update={"executor": executor})
 
 
 def build_environment_profiles(

@@ -186,8 +186,7 @@ def test_dispatch_validates_required_arguments() -> None:
     assert result[0].data["error"] == "invalid_tool_arguments"
 
 
-def test_dispatcher_callable_adapter(tmp_path: Any) -> None:
-    """ToolDispatcher.__call__(name, args) works as a callable adapter."""
+def test_dispatcher_single_call_uses_explicit_context(tmp_path: Any) -> None:
     def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
         return ToolResult(success=True, tool_name="echo", data=arguments)
 
@@ -206,14 +205,17 @@ def test_dispatcher_callable_adapter(tmp_path: Any) -> None:
     )
     dispatcher = ToolDispatcher()
     dispatcher.register(spec)
-    dispatcher.set_run_context(RunContext(
+    run_context = RunContext(
         session_id="s1",
         run_id="r1",
         turn_index=0,
         settings=settings,
         event_sink=None,
-    ))
-    result = dispatcher("echo", {"text": "hi"})
+    )
+    result = dispatcher.dispatch(
+        tool_calls=[ToolCall(id="call-echo", name="echo", arguments={"text": "hi"})],
+        run_context=run_context,
+    )[0]
     assert isinstance(result, ToolResultMessage)
     assert result.is_error is False
 

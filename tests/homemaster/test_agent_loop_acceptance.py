@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from homemaster.agent.generic_runtime import GenericAgentRuntime
+from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.messages import Message, ToolCall
 from homemaster.agent.session import AgentSession
 from homemaster.providers.transports import TransportDelta
@@ -66,7 +66,7 @@ def test_chat_turn_uses_zero_tools() -> None:
         {"content": "你好！有什么可以帮你的吗？", "stop_reason": "end_turn"},
     ])
     dispatcher = ToolDispatcher()
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=dispatcher,
     )
@@ -102,10 +102,10 @@ def test_task_turn_calls_tools() -> None:
         ]},
         {"content": "Done!", "stop_reason": "end_turn"},
     ])
-    runtime = GenericAgentRuntime(
+    runtime = AgentRuntime(
         transport=transport,
         tool_executor=dispatcher,
     )
     session = AgentSession(session_id="test-tools")
-    result = runtime.run(session, "do something", tools=[spec])
+    result = runtime.run(session, "do something")
     assert result.final_reply

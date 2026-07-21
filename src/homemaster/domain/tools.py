@@ -1,4 +1,4 @@
-"""Home domain tool executors for GenericAgentRuntime.
+"""Home domain tool executors adapted into the canonical runtime.
 
 Each factory returns a ToolSpec with an executor matching the protocol:
     def executor(*, arguments: dict, run_context: RunContext) -> ToolResult

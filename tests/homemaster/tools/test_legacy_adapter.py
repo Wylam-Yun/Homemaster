@@ -7,7 +7,6 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
-from homemaster.agent.generic_runtime import ToolSpec as RuntimeToolSpec
 from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.contracts import (
@@ -98,25 +97,6 @@ def test_legacy_tool_spec_adapts_definition_registration_and_selectability() -> 
     assert adapted.debt.has("executor_mode")
     assert adapted.debt.has("not_selectable_by_model")
     assert not adapted.debt.has("empty_output_schema")
-
-
-def test_runtime_local_tool_spec_requires_explicit_executor_and_records_debt() -> None:
-    spec = RuntimeToolSpec(
-        name="runtime_echo",
-        description="Runtime metadata.",
-        input_schema={"type": "object"},
-    )
-
-    adapted = adapt_legacy_tool_spec(spec)
-
-    assert adapted.definition.internal_id == "legacy.runtime_echo.v1"
-    assert adapted.definition.output_schema == {}
-    assert adapted.selectable_by_model is True
-    assert adapted.debt.fields == (
-        "empty_output_schema",
-        "missing_executor",
-        "runtime_local_tool_spec",
-    )
 
 
 def test_empty_output_schema_is_debt_and_is_not_fabricated() -> None:
