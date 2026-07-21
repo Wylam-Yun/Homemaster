@@ -40,6 +40,7 @@ from homemaster.observations import ObservationCapture, ObservationService
 from homemaster.task_state.tools import make_task_planner_tool, make_task_progress_check_tool
 from homemaster.tools.catalog import ToolCatalog, ToolView
 from homemaster.tools.contracts import (
+    ConcurrencyPolicy,
     ExecutionProof,
     ObservationReference,
     PostActionObservation,
@@ -763,6 +764,12 @@ def _register_adapted(
         model_alias=alias,
         verification_policy=policy,
         state_effects=state_effects,
+        concurrency_policy=(
+            ConcurrencyPolicy.RESOURCE_KEY
+            if state_effects
+            else ConcurrencyPolicy.PARALLEL
+        ),
+        resource_key=f"{environment}:backend" if state_effects else None,
     )
     catalog.register(
         RegisteredTool(

@@ -53,6 +53,7 @@ _RETRYABLE_PROVIDER_FAILURES = {
     ("rate_limit", "rate_limit"),
     ("stream_protocol_error", "message_delta_before_message_start"),
 }
+_CANCEL_JOIN_GRACE_S = 1.0
 
 
 def _is_context_length_error(error_msg: str) -> bool:
@@ -240,12 +241,16 @@ class AgentRuntime:
                 if self._context_assembler is not None:
                     aprepare = getattr(self._context_assembler, "aprepare", None)
                     if callable(aprepare):
-                        composed = await aprepare(
-                            session=session,
-                            agent_state=agent_state,
-                            task_state_store=task_state_store,
-                            tools=context_tools,
-                            force_compact=pending_compaction,
+                        composed = await _await_with_deadline(
+                            aprepare(
+                                session=session,
+                                agent_state=agent_state,
+                                task_state_store=task_state_store,
+                                tools=context_tools,
+                                force_compact=pending_compaction,
+                            ),
+                            deadline=deadline,
+                            operation="context preparation",
                         )
                     else:
                         composed = self._context_assembler.prepare(
@@ -362,7 +367,7 @@ class AgentRuntime:
                                 )
                             finally:
                                 interrupt.clear_stream()
-                                await _close_stream(stream)
+                                await _close_stream(stream, deadline=deadline)
                         except Exception as exc:
                             failed_attempt = _last_provider_attempt(attempt_sink)
                             if (
@@ -867,16 +872,71 @@ async def _consume_stream(
         raise TimeoutError("provider deadline expired") from exc
 
 
-async def _close_stream(stream: Any) -> None:
+async def _close_stream(stream: Any, *, deadline: Any = None) -> None:
     aclose = getattr(stream, "aclose", None)
     if callable(aclose):
-        await aclose()
+        await _await_with_deadline(
+            aclose(),
+            deadline=deadline,
+            operation="provider stream close",
+        )
         return
     close = getattr(stream, "close", None)
     if callable(close):
         value = close()
         if inspect.isawaitable(value):
-            await value
+            await _await_with_deadline(
+                value,
+                deadline=deadline,
+                operation="provider stream close",
+            )
+
+
+async def _await_with_deadline(
+    awaitable: Any,
+    *,
+    deadline: Any,
+    operation: str,
+) -> Any:
+    if not inspect.isawaitable(awaitable):
+        return awaitable
+    remaining = deadline.remaining_s() if deadline is not None else None
+    if remaining is None:
+        return await awaitable
+    task = asyncio.ensure_future(awaitable)
+    if remaining > 0:
+        try:
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+        except asyncio.CancelledError:
+            await _cancel_and_join(task, require_stopped=False)
+            raise
+        if task in done:
+            return task.result()
+    await _cancel_and_join(task, require_stopped=True)
+    raise TimeoutError(f"{operation} exceeded the run deadline")
+
+
+async def _cancel_and_join(
+    task: asyncio.Future[Any],
+    *,
+    require_stopped: bool,
+) -> None:
+    if task.done():
+        return
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=_CANCEL_JOIN_GRACE_S)
+    if task not in done:
+        task.add_done_callback(_consume_future_exception)
+        if require_stopped:
+            raise TimeoutError("cancelled async operation did not stop")
+        return
+    await asyncio.gather(task, return_exceptions=True)
+
+
+def _consume_future_exception(task: asyncio.Future[Any]) -> None:
+    if task.cancelled():
+        return
+    task.exception()
 
 
 def _accepts_attempt_sink(stream: Any) -> bool:

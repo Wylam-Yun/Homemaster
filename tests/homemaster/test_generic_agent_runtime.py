@@ -25,6 +25,7 @@ from homemaster.agent.messages import (
     ToolResultMessage,
 )
 from homemaster.agent.session import AgentSession
+from homemaster.application.runtime import Deadline
 from homemaster.config.observability import ObservabilityConfig
 from homemaster.providers.attempts import (
     ListProviderAttemptSink,
@@ -246,6 +247,134 @@ class FakeToolExecutor:
                 )
             )
         return results
+
+
+@pytest.mark.asyncio
+async def test_context_preparation_is_cancelled_at_shared_run_deadline() -> None:
+    class BlockingAssembler:
+        def __init__(self) -> None:
+            self.entered = asyncio.Event()
+            self.cancelled = False
+
+        async def aprepare(self, **_kwargs):
+            self.entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    assembler = BlockingAssembler()
+    runtime = AgentRuntime(
+        transport=FakeTransport(),
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        context_assembler=assembler,
+    )
+
+    with pytest.raises(TimeoutError, match="context preparation"):
+        await runtime.run(
+            AgentSession(session_id="summary-deadline"),
+            "compact",
+            deadline=Deadline(0.01),
+        )
+    assert assembler.entered.is_set()
+    assert assembler.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_provider_stream_close_is_cancelled_at_shared_run_deadline() -> None:
+    class BlockingCloseStream:
+        def __init__(self) -> None:
+            self.index = 0
+            self.close_entered = asyncio.Event()
+            self.close_cancelled = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            values = (
+                TransportDelta(type="transport.delta", text_delta="done"),
+                TransportDelta(type="transport.delta", finish_reason="stop"),
+            )
+            if self.index == len(values):
+                raise StopAsyncIteration
+            value = values[self.index]
+            self.index += 1
+            return value
+
+        async def aclose(self) -> None:
+            self.close_entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.close_cancelled = True
+                raise
+
+    stream = BlockingCloseStream()
+
+    class Transport:
+        def stream(self, *_args, **_kwargs):
+            return stream
+
+    runtime = AgentRuntime(
+        transport=Transport(),
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+    )
+    result = await runtime.run(
+        AgentSession(session_id="close-deadline"),
+        "close",
+        deadline=Deadline(0.01),
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "deadline_exceeded"
+    assert stream.close_entered.is_set()
+    assert stream.close_cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_parent_cancellation_is_not_rewritten_when_context_ignores_cancel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    child_finished = asyncio.Event()
+
+    class StubbornAssembler:
+        async def aprepare(self, **_kwargs):
+            entered.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            finally:
+                child_finished.set()
+
+    monkeypatch.setattr("homemaster.agent.generic_runtime._CANCEL_JOIN_GRACE_S", 0.01)
+    runtime = AgentRuntime(
+        transport=FakeTransport(),
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        context_assembler=StubbornAssembler(),
+    )
+    task = asyncio.create_task(
+        runtime.run(
+            AgentSession(session_id="parent-cancel"),
+            "cancel",
+            deadline=Deadline(30.0),
+        )
+    )
+    await entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    release.set()
+    await asyncio.wait_for(child_finished.wait(), timeout=1.0)
 
 
 class FailingToolExecutor:

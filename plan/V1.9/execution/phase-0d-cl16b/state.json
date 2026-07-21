@@ -13,9 +13,9 @@
   },
   "review_policy": {
     "grouped_review_after_phases": 3,
-    "review_rounds_completed": 0,
+    "review_rounds_completed": 1,
     "group": ["CL-16b", "CL-16c", "CL-16d"],
-    "status": "pending_until_cl16d",
+    "status": "completed_unique_group_review",
     "independent_review_rounds_allowed": 1,
     "final_release_review_rounds_max": 2
   },
@@ -24,6 +24,8 @@
     "application provider and AgentRuntime contracts require async provider streams; no provider worker-thread bridge remains",
     "ContextAssembler.aprepare awaits LLM compaction while prepare remains only for synchronous unit compatibility",
     "provider wait, resource acquisition, backend execution and verification share one monotonic run deadline",
+    "context preparation and provider stream cleanup share that deadline and use bounded cancellation join",
+    "the factory injects one application-wide keyed backend resource scheduler into the canonical pipeline",
     "deadline before lease acquisition never marks a backend attempt; mutating execution timeout is outcome_unknown; verification timeout is verification_pending",
     "LegacyExecutorAdapter is the controlled synchronous tool-backend adapter and executes off the owner loop; Coworker thread affinity is owned by CL-16c",
     "SyncProviderAdapter and ToolExecutionPipeline.execute_sync are deleted"
@@ -47,12 +49,12 @@
     {
       "kind": "deadline_and_cancellation",
       "status": "pass",
-      "details": "Provider timeout cancels the async stream; resource-wait deadline and cancellation start no backend and leave no active lease; mutating execution timeout or cancellation after backend start is outcome_unknown; verification deadline cancels the verifier and returns verification_pending."
+      "details": "Provider timeout, context preparation and stream cleanup share one deadline and cancel/join their async work; resource-wait deadline and cancellation start no backend and leave no active lease; mutating execution timeout or logical cancellation after backend start is outcome_unknown; parent task cancellation propagates unchanged."
     },
     {
       "kind": "session_isolation",
       "status": "pass",
-      "details": "A blocked native provider does not block a fast session, same-session turns remain serialized, cancellation fences stale generation commits, and resource leases are released."
+      "details": "A blocked native provider does not block a fast session, same-session turns remain serialized, the application scheduler serializes only matching typed physical-backend keys, cancellation fences stale generation commits, and every resource counter returns to zero."
     },
     {
       "kind": "ordering_and_parity",
@@ -62,8 +64,24 @@
     {
       "kind": "full_nonlive",
       "status": "pass",
-      "details": "1101 passed, 7 deselected, with one existing Starlette/httpx warning; Ruff, compileall, cleanup guard, upstream manifest and diff checks pass."
+      "details": "1122 passed, 11 deselected, with one existing Starlette/httpx warning; application/tools 164 passed; Ruff, compileall, cleanup guard, upstream manifest and diff checks pass."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl16b-cl16d-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": [
+        {"id": "CL16B-R1", "severity": "HIGH", "summary": "The default application pipeline had no application-wide keyed physical-resource scheduler.", "disposition": "REMEDIATED", "reverification": "factory injection, same/distinct backend partitioning and production-wired 32-session stress pass with all counters zero"},
+        {"id": "CL16B-R2", "severity": "HIGH", "summary": "Batch exception isolation swallowed task-level CancelledError and could continue later calls.", "disposition": "REMEDIATED", "reverification": "batch cancellation during execution and lease wait propagates and starts no later sibling call"},
+        {"id": "CL16B-R3", "severity": "HIGH", "summary": "The shared deadline did not cover context summary preparation or provider stream close.", "disposition": "REMEDIATED", "reverification": "both operations use bounded deadline cancellation/join and parent cancellation remains CancelledError"},
+        {"id": "CL16C-R4", "severity": "MEDIUM", "summary": "Coworker cleanup could skip event futures or the owner-thread fence, and adapter close timeout could not be retried safely.", "disposition": "REMEDIATED", "reverification": "cleanup aggregates every failure, always fences, preserves dependency ordering and retry-close regression passes"},
+        {"id": "CL16C-R5", "severity": "MEDIUM", "summary": "Coworker event mirroring retained an unbounded owner-thread queue and completed futures.", "disposition": "REMEDIATED", "reverification": "adapter queue capacity is bounded, completed futures are pruned, and all failed mirrors are drained"},
+        {"id": "CL16D-R6", "severity": "MEDIUM", "summary": "Stress fixtures did not exercise the production scheduler or true stale/fresh resource overlap.", "disposition": "REMEDIATED", "reverification": "32 sessions use the canonical pipeline and 100 races overlap late stale completion with a waiting fresh generation"}
+      ],
+      "disposition": "all six findings remediated and verified in the same review round; no second grouped review permitted"
+    }
+  ]
 }

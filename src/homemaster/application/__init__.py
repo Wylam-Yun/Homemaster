@@ -14,6 +14,7 @@ from homemaster.application.contracts import (
 )
 from homemaster.application.factory import create_application
 from homemaster.application.resources import (
+    ApplicationResourceManager,
     ResourceCleanupError,
     ResourceHandle,
     ResourceScopeError,
@@ -38,6 +39,7 @@ from homemaster.application.session import (
 )
 
 __all__ = [
+    "ApplicationResourceManager",
     "ApplicationRuntime",
     "EnvironmentBackend",
     "CancellationSource",

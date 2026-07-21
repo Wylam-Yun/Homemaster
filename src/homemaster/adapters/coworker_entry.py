@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import Future
 from pathlib import Path
@@ -13,6 +14,7 @@ from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import AssistantMessage
 from homemaster.application import (
     ResourceBinding,
+    ResourceCleanupError,
     ResourceLifetime,
     RunRequest,
     RunResourceScope,
@@ -147,9 +149,11 @@ class CoworkerApplicationEntry:
         scope = RunResourceScope()
         if not callable(getattr(sync_backend_adapter, "submit", None)):
             raise TypeError("Coworker entry requires a thread-owned sync backend adapter")
-        self._event_futures: list[Future[Any]] = []
+        self._event_futures: deque[Future[Any]] = deque()
+        self._event_errors: list[BaseException] = []
 
         def submit_event(event: Any) -> None:
+            self._drain_completed_event_futures()
             self._event_futures.append(sync_backend_adapter.submit(event_sink.emit, event))
 
         unsubscribe = bus.subscribe(submit_event)
@@ -214,15 +218,41 @@ class CoworkerApplicationEntry:
     def close(self) -> None:
         if self._closed:
             return
+        errors: list[BaseException] = []
         try:
-            self._runner.run(self.application.aclose())
-            for future in self._event_futures:
-                future.result()
-            self._event_futures.clear()
-            self._sync_backend_adapter.call(lambda: None)
+            try:
+                self._runner.run(self.application.aclose())
+            except BaseException as exc:
+                errors.append(exc)
+            errors.extend(self._event_errors)
+            self._event_errors.clear()
+            while self._event_futures:
+                try:
+                    self._event_futures.popleft().result()
+                except BaseException as exc:
+                    errors.append(exc)
+            try:
+                self._sync_backend_adapter.call(lambda: None)
+            except BaseException as exc:
+                errors.append(exc)
         finally:
             self._runner.close()
             self._closed = True
+        if errors:
+            raise ResourceCleanupError(tuple(errors))
+
+    def _drain_completed_event_futures(self) -> None:
+        pending: deque[Future[Any]] = deque()
+        while self._event_futures:
+            future = self._event_futures.popleft()
+            if not future.done():
+                pending.append(future)
+                continue
+            try:
+                future.result()
+            except BaseException as exc:
+                self._event_errors.append(exc)
+        self._event_futures = pending
 
 
 __all__ = [

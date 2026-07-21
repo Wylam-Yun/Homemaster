@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 
 from homemaster.application import (
+    ApplicationResourceManager,
     ResourceBinding,
     ResourceCleanupError,
     ResourceLifetime,
@@ -115,3 +119,59 @@ def test_run_request_rejects_owned_environment_and_freezes_metadata() -> None:
     with pytest.raises(TypeError):
         request.metadata["new"] = "value"  # type: ignore[index]
     assert request.metadata_dict() == {"nested": {"items": [1, 2]}}
+
+
+@pytest.mark.asyncio
+async def test_application_resource_manager_serializes_same_backend_identity() -> None:
+    manager = ApplicationResourceManager()
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    order: list[str] = []
+
+    async def use(label: str) -> None:
+        context = SimpleNamespace(
+            backend=SimpleNamespace(backend_id="physical-a"),
+            session_id=label,
+        )
+        async with manager.acquire("home:backend", context):
+            order.append(label)
+            if label == "first":
+                first_entered.set()
+                await release_first.wait()
+
+    first = asyncio.create_task(use("first"))
+    await first_entered.wait()
+    second = asyncio.create_task(use("second"))
+    while manager.waiting_count != 1:
+        await asyncio.sleep(0)
+
+    assert manager.active_lease_count == 1
+    assert order == ["first"]
+    release_first.set()
+    await asyncio.gather(first, second)
+    assert order == ["first", "second"]
+    assert manager.active_lease_count == manager.waiting_count == manager.resource_count == 0
+
+
+@pytest.mark.asyncio
+async def test_application_resource_manager_allows_distinct_backends() -> None:
+    manager = ApplicationResourceManager()
+    barrier = asyncio.Barrier(2)
+    active = 0
+    max_active = 0
+
+    async def use(backend_id: str) -> None:
+        nonlocal active, max_active
+        context = SimpleNamespace(
+            backend=SimpleNamespace(backend_id=backend_id),
+            session_id=backend_id,
+        )
+        async with manager.acquire("home:backend", context):
+            active += 1
+            max_active = max(max_active, active)
+            await barrier.wait()
+            active -= 1
+
+    await asyncio.gather(use("physical-a"), use("physical-b"))
+    assert max_active == 2
+    assert manager.active_lease_count == manager.waiting_count == manager.resource_count == 0

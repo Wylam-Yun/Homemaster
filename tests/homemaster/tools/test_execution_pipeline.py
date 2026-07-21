@@ -636,6 +636,68 @@ class _BlockedVerifier(Verifier):
             raise
 
 
+class _TaskCancelledExecutor:
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.calls = 0
+
+    async def execute(self, arguments, context):
+        del arguments, context
+        self.calls += 1
+        self.entered.set()
+        await asyncio.Event().wait()
+
+
+@pytest.mark.asyncio
+async def test_batch_task_cancellation_stops_later_same_group_calls() -> None:
+    order = []
+    executor = _TaskCancelledExecutor()
+    pipeline, context, _executor, _verifier, resources, _ledger = build_pipeline(
+        order,
+        executor=executor,
+    )
+    calls = [
+        (ToolCall(id="call-1", name="action", arguments={"value": 1}), context),
+        (
+            ToolCall(id="call-2", name="action", arguments={"value": 2}),
+            replace(context, tool_call_id="call-2"),
+        ),
+    ]
+    task = asyncio.create_task(pipeline.execute_many(calls))
+    await executor.entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert executor.calls == 1
+    assert resources.active == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_cancellation_during_lease_wait_stops_all_calls() -> None:
+    order = []
+    pipeline, context, executor, _verifier, _resources, _ledger = build_pipeline(order)
+    blocked = _BlockedResource()
+    pipeline.resource_manager = blocked
+    calls = [
+        (ToolCall(id="call-1", name="action", arguments={"value": 1}), context),
+        (
+            ToolCall(id="call-2", name="action", arguments={"value": 2}),
+            replace(context, tool_call_id="call-2"),
+        ),
+    ]
+    task = asyncio.create_task(pipeline.execute_many(calls))
+    await blocked.entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert executor.calls == 0
+    assert blocked.active == 0
+
+
 @pytest.mark.asyncio
 async def test_deadline_while_waiting_for_resource_never_starts_backend() -> None:
     order = []

@@ -9,7 +9,7 @@ from typing import Any
 
 from homemaster.agent.context import ContextAssembler
 from homemaster.application.contracts import ResourceBinding, ResourceLifetime, RunRequest
-from homemaster.application.resources import RunResourceScope
+from homemaster.application.resources import ApplicationResourceManager, RunResourceScope
 from homemaster.application.runtime import (
     ApplicationRuntime,
     ContextAssemblerFactory,
@@ -63,6 +63,7 @@ def create_application(
     bus = event_bus or EventBus()
     execution_pipeline = pipeline or ToolExecutionPipeline(
         catalog,
+        resource_manager=ApplicationResourceManager(),
         observation_service=service,
         public_event_sink=bus,
     )

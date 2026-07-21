@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import time
 import uuid
 from datetime import UTC, datetime
@@ -21,7 +22,12 @@ from homemaster.adapters.thread_owned_sync import (
     ThreadOwnedObservationBackend,
     ThreadOwnedSyncBackendAdapter,
 )
-from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
+from homemaster.application import (
+    ResourceCleanupError,
+    RunPolicy,
+    RunRequest,
+    RuntimeStopDecision,
+)
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.config import load_coworker_config
@@ -245,26 +251,44 @@ def run_coworker_turn(
             error_type=type(exc).__name__,
         ) from exc
     finally:
+        cleanup_errors: list[BaseException] = []
+        active_error = sys.exception()
         if driver is not None:
             try:
                 assert sync_backend is not None
                 sync_backend.call(driver.close)
-            except Exception:
-                pass
-        if recording_started and not recording_stopped:
-            try:
-                client.finalize(run_id)
-                client.stop_recording(run_id)
-            except Exception:
-                pass
-        process_returns["service"] = service.stop()
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        worker_stopped = sync_backend is None
         if sync_backend is not None:
             try:
                 sync_backend.close()
-            except Exception:
-                pass
-        client.close()
-        _write_process_returns(run_root, process_returns)
+                worker_stopped = not sync_backend.alive
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        if worker_stopped:
+            if recording_started and not recording_stopped:
+                try:
+                    client.finalize(run_id)
+                    client.stop_recording(run_id)
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+            try:
+                process_returns["service"] = service.stop()
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+            try:
+                client.close()
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+            _write_process_returns(run_root, process_returns)
+        if cleanup_errors:
+            cleanup = ResourceCleanupError(tuple(cleanup_errors))
+            if active_error is not None:
+                active_error.add_note(str(cleanup))
+                active_error.cleanup_error = cleanup  # type: ignore[attr-defined]
+            else:
+                raise cleanup
     status = "completed" if summary.get("formal_success") else "failed"
     _update_attempt_manifest(
         run_root,

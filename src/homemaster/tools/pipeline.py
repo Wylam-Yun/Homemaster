@@ -428,7 +428,9 @@ class ToolExecutionPipeline:
                         tool_call,
                         context,
                     )
-                except BaseException as exc:  # preserve sibling result pairing
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:  # preserve ordinary sibling failures
                     value = exc
                 values.append((index, value))
             return values
@@ -441,7 +443,7 @@ class ToolExecutionPipeline:
         for batch in batches:
             for index, value in batch:
                 tool_call = calls[index][0]
-                if isinstance(value, BaseException):
+                if isinstance(value, Exception):
                     value = _result(
                         ToolExecutionStatus.FAILURE,
                         "executor_exception",
@@ -583,7 +585,11 @@ class ToolExecutionPipeline:
                 "tool execution deadline expired while waiting for a resource",
             )
         except asyncio.CancelledError:
-            if acquired:
+            if (
+                acquired
+                and context.cancellation is not None
+                and context.cancellation.cancelled
+            ):
                 return _cancelled_after_attempt_result(definition)
             raise
         except Exception as exc:

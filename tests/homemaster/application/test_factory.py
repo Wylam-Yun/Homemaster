@@ -8,6 +8,7 @@ import pytest
 
 from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.application.factory import create_application
+from homemaster.application.resources import ApplicationResourceManager
 from homemaster.application.session import SessionManager
 from homemaster.config import HomeMasterConfig
 from homemaster.events.bus import EventBus
@@ -103,6 +104,18 @@ def test_factory_rejects_empty_profiles() -> None:
         assert str(exc) == "application requires at least one tool profile"
     else:
         raise AssertionError("empty profile mapping must be rejected")
+
+
+def test_factory_default_pipeline_uses_application_resource_manager() -> None:
+    catalog, profile = _catalog_and_profile()
+
+    application = create_application(
+        config=HomeMasterConfig(),
+        profiles={"test": profile},
+        catalog=catalog,
+    )
+
+    assert isinstance(application.pipeline.resource_manager, ApplicationResourceManager)
 
 
 def test_factory_rejects_profile_catalog_mismatch() -> None:

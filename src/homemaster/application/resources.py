@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
@@ -29,6 +32,55 @@ class ResourceCleanupError(ResourceScopeError):
         self.errors = errors
         summary = "; ".join(f"{type(error).__name__}: {error}" for error in errors)
         super().__init__(f"resource cleanup failed ({len(errors)}): {summary}")
+
+
+class ApplicationResourceManager:
+    """Application-wide keyed leases for shared physical backends."""
+
+    def __init__(self) -> None:
+        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._users: defaultdict[tuple[str, str], int] = defaultdict(int)
+        self._registry_lock = asyncio.Lock()
+        self._active_lease_count = 0
+        self._waiting_count = 0
+
+    @property
+    def active_lease_count(self) -> int:
+        return self._active_lease_count
+
+    @property
+    def waiting_count(self) -> int:
+        return self._waiting_count
+
+    @property
+    def resource_count(self) -> int:
+        return len(self._locks)
+
+    @asynccontextmanager
+    async def acquire(self, resource_key: str, context: Any):
+        key = (resource_key, _backend_resource_identity(context.backend, context.session_id))
+        async with self._registry_lock:
+            lock = self._locks.setdefault(key, asyncio.Lock())
+            self._users[key] += 1
+            self._waiting_count += 1
+        acquired = False
+        try:
+            await lock.acquire()
+            acquired = True
+            self._waiting_count -= 1
+            self._active_lease_count += 1
+            yield
+        finally:
+            if acquired:
+                self._active_lease_count -= 1
+                lock.release()
+            else:
+                self._waiting_count -= 1
+            async with self._registry_lock:
+                self._users[key] -= 1
+                if self._users[key] == 0:
+                    del self._users[key]
+                    self._locks.pop(key, None)
 
 
 @dataclass
@@ -229,7 +281,18 @@ def _attach_cleanup_errors(primary: BaseException, cleanup: ResourceCleanupError
     primary.cleanup_error = cleanup  # type: ignore[attr-defined]
 
 
+def _backend_resource_identity(backend: object | None, session_id: str) -> str:
+    actual = getattr(backend, "actual_backend", backend)
+    identity = getattr(actual, "backend_id", None)
+    if isinstance(identity, str) and identity.strip():
+        return identity
+    if actual is not None:
+        return f"object:{id(actual)}"
+    return f"session:{session_id}"
+
+
 __all__ = [
+    "ApplicationResourceManager",
     "ResourceCleanupError",
     "ResourceHandle",
     "ResourceScopeError",

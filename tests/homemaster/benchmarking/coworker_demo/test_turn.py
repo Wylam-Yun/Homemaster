@@ -11,7 +11,7 @@ import pytest
 from homemaster.adapters.coworker_entry import CoworkerApplicationEntry, DeadlineAwareTransport
 from homemaster.adapters.profiles import CoworkerObservationBackend
 from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
-from homemaster.application import RunPolicy, RunRequest
+from homemaster.application import ResourceCleanupError, RunPolicy, RunRequest
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.turn import (
@@ -310,6 +310,71 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
         .splitlines()
     ]
     assert [attempt["response_completed"] for attempt in attempts] == [False, True]
+
+
+def test_coworker_entry_drains_all_mirrors_and_fences_after_one_failure(
+    tmp_path: Path,
+) -> None:
+    client = RetryClient()
+    outcome = CoworkerOutcome()
+    backend = BorrowedBackend()
+    sync_backend = ThreadOwnedSyncBackendAdapter(name="coworker-event-failure")
+
+    class FailingFirstSink:
+        sensitive_values: tuple[str, ...] = ()
+
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def emit(self, event) -> None:
+            self.calls.append(event.type)
+            if len(self.calls) == 1:
+                raise RuntimeError("first mirror failed")
+
+    sink = FailingFirstSink()
+    entry = CoworkerApplicationEntry(
+        config=HomeMasterConfig(),
+        provider_profile=ProviderProfileConfig(
+            name="test",
+            model="test-model",
+            api_format="openai",
+            base_url="https://example.invalid/v1",
+        ),
+        system_prompt="test",
+        run_root=tmp_path,
+        transport_factory=lambda _run_id: DeadlineAwareTransport(
+            client,
+            CoworkerBudget(),
+            outcome,
+        ),
+        event_sink=sink,
+        sync_backend_adapter=sync_backend,
+    )
+    result = entry.run(
+        RunRequest(
+            text="hello",
+            session_id="mirror-failure",
+            profile="coworker",
+            environment=backend,
+            run_policy=RunPolicy(max_tool_iterations=1),
+            dependencies={
+                "sync_backend_adapter": sync_backend,
+                "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
+                    tmp_path / "agent/provider_attempts.jsonl"
+                ),
+            },
+        )
+    )
+
+    with pytest.raises(ResourceCleanupError, match="first mirror failed"):
+        entry.close()
+    sync_backend.close()
+
+    assert result.status == "replied"
+    assert "runtime.turn_completed" in sink.calls
+    assert sync_backend.pending_count == 0
+    assert sync_backend.active_count == 0
+    assert sync_backend.alive is False
 
 
 def test_playwright_wait_arguments_are_keyword_only() -> None:

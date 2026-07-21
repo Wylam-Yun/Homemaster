@@ -3,17 +3,31 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
-from contextlib import asynccontextmanager
+from contextlib import suppress
+from types import SimpleNamespace
 
 import pytest
 
 from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
-from homemaster.agent.messages import UserMessage
-from homemaster.application.resources import RunResourceScope
+from homemaster.agent.messages import ToolCall, UserMessage
+from homemaster.application.resources import ApplicationResourceManager, RunResourceScope
 from homemaster.application.runtime import _GenerationFencedEventSink
 from homemaster.application.session import SessionGenerationError, SessionManager
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.contracts import (
+    ConcurrencyPolicy,
+    PermissionSubject,
+    RegisteredTool,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    ToolProvenance,
+    VerificationPolicy,
+)
+from homemaster.tools.pipeline import ToolExecutionPipeline
 
 
 def _event(index: int, *, session_id: str = "stress") -> RuntimeEvent:
@@ -64,21 +78,6 @@ async def _assert_no_leaks(
     assert _backend_threads() == baseline_threads
 
 
-class _LeaseCounter:
-    def __init__(self) -> None:
-        self.active = 0
-        self.max_active = 0
-
-    @asynccontextmanager
-    async def acquire(self):
-        self.active += 1
-        self.max_active = max(self.max_active, self.active)
-        try:
-            yield
-        finally:
-            self.active -= 1
-
-
 @pytest.mark.stress
 @pytest.mark.asyncio
 async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
@@ -87,10 +86,54 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
     manager = SessionManager()
     bus = EventBus(capacity=32)
     await bus.start()
-    leases = _LeaseCounter()
+    resources = ApplicationResourceManager()
     barrier = asyncio.Barrier(32)
     entered = 0
-    all_entered = asyncio.Event()
+    backend = SimpleNamespace(backend_id="shared-physical-backend")
+
+    class Executor:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.active = 0
+            self.max_active = 0
+            self.first_entered = asyncio.Event()
+            self.release_first = asyncio.Event()
+
+        async def execute(self, arguments, context):
+            del arguments, context
+            self.calls += 1
+            call_index = self.calls
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            try:
+                if call_index == 1:
+                    self.first_entered.set()
+                    await self.release_first.wait()
+                return ToolExecutionResult(
+                    status=ToolExecutionStatus.SUCCESS,
+                    backend_attempted=True,
+                )
+            finally:
+                self.active -= 1
+
+    executor = Executor()
+    definition = ToolDefinition(
+        internal_id="stress.mutate.v1",
+        model_alias="mutate",
+        description="Mutate one shared stress backend.",
+        input_schema={"type": "object"},
+        output_schema={"type": "object"},
+        verification_policy=VerificationPolicy(),
+        provenance=ToolProvenance(source="test", reference="stress"),
+        version="1.9.0",
+        concurrency_policy=ConcurrencyPolicy.RESOURCE_KEY,
+        resource_key="stress:backend",
+        state_effects=("backend.advance",),
+    )
+    catalog = ToolCatalog()
+    catalog.register(RegisteredTool(definition=definition, executor=executor))
+    view = catalog.freeze((definition.internal_id,))
+    pipeline = ToolExecutionPipeline(catalog, resource_manager=resources)
 
     for index in range(32):
         await manager.open_or_resume(f"session-{index}")
@@ -98,33 +141,55 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
     async def run_session(index: int) -> None:
         nonlocal entered
         session_id = f"session-{index}"
-        async with manager.turn(session_id) as (runtime, generation, _):
-            async with leases.acquire():
-                await barrier.wait()
-                entered += 1
-                if entered == 32:
-                    all_entered.set()
-                await all_entered.wait()
-                manager.append_message(
-                    session_id,
-                    generation,
-                    UserMessage.from_text(f"message-{index}"),
-                )
-                sink = _GenerationFencedEventSink(runtime, generation, bus)
-                await sink.aemit(_event(index, session_id=session_id))
+        async with manager.turn(session_id) as (runtime, generation, cancellation):
+            await barrier.wait()
+            entered += 1
+            context = ToolExecutionContext(
+                session_id=session_id,
+                run_id=f"run-{index}",
+                turn_index=0,
+                tool_call_id=f"call-{index}",
+                internal_tool_id=definition.internal_id,
+                tool_view=view,
+                permission_subject=PermissionSubject(subject_id="stress", channel="test"),
+                backend=backend,
+                deadline=None,
+                cancellation=cancellation,
+                observation=None,
+                domain_observer=None,
+            )
+            result = await pipeline.execute(
+                ToolCall(id=f"call-{index}", name="mutate", arguments={}),
+                context,
+            )
+            assert result.status is ToolExecutionStatus.SUCCESS
+            manager.append_message(
+                session_id,
+                generation,
+                UserMessage.from_text(f"message-{index}"),
+            )
+            sink = _GenerationFencedEventSink(runtime, generation, bus)
+            await sink.aemit(_event(index, session_id=session_id))
 
-    await asyncio.gather(*(run_session(index) for index in range(32)))
+    tasks = [asyncio.create_task(run_session(index)) for index in range(32)]
+    await executor.first_entered.wait()
+    await _spin_until(lambda: resources.waiting_count == 31)
+    assert resources.active_lease_count == 1
+    executor.release_first.set()
+    await asyncio.gather(*tasks)
     await bus.aclose()
 
     assert entered == 32
-    assert leases.max_active == 32
+    assert executor.calls == 32
+    assert executor.max_active == 1
+    assert resources.resource_count == 0
     assert len(bus.events) == 32
     assert all(len(runtime.session.messages) == 1 for runtime in manager.sessions)
     await _assert_no_leaks(
         baseline_tasks,
         baseline_threads,
         bus=bus,
-        active_leases=leases.active,
+        active_leases=resources.active_lease_count,
     )
 
 
@@ -260,6 +325,8 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
     await bus.start()
     stale_attempts = 0
     stale_rejections = 0
+    resources = ApplicationResourceManager()
+    backend = SimpleNamespace(backend_id="generation-backend")
 
     async def reject_stale(operation) -> None:
         nonlocal stale_attempts, stale_rejections
@@ -275,20 +342,24 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
 
     for index in range(100):
         entered = asyncio.Event()
-        release = asyncio.Event()
+        late_release = asyncio.Event()
+        late_started = asyncio.Event()
+        late_workers: list[asyncio.Task[None]] = []
 
-        async def stale_run(
+        async def late_backend_completion(
             race_index: int,
-            race_entered: asyncio.Event,
-            race_release: asyncio.Event,
+            generation: int,
+            sink: _GenerationFencedEventSink,
+            backend_started: asyncio.Event,
+            backend_release: asyncio.Event,
         ) -> None:
-            async with manager.turn("generation-race") as (current, generation, _):
-                sink = _GenerationFencedEventSink(current, generation, bus)
-                race_entered.set()
-                try:
-                    await race_release.wait()
-                except asyncio.CancelledError:
-                    pass
+            context = SimpleNamespace(
+                backend=backend,
+                session_id="generation-race",
+            )
+            async with resources.acquire("stress:backend", context):
+                backend_started.set()
+                await backend_release.wait()
                 await reject_stale(
                     lambda: manager.append_message(
                         "generation-race",
@@ -324,33 +395,81 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
                 )
                 await reject_stale(lambda: sink.aemit(_event(race_index)))
 
-        task = asyncio.create_task(stale_run(index, entered, release))
+        async def stale_run(
+            race_index: int,
+            race_entered: asyncio.Event,
+            backend_started: asyncio.Event,
+            backend_release: asyncio.Event,
+            workers: list[asyncio.Task[None]],
+        ) -> None:
+            async with manager.turn("generation-race") as (current, generation, _):
+                sink = _GenerationFencedEventSink(current, generation, bus)
+                workers.append(
+                    asyncio.create_task(
+                        late_backend_completion(
+                            race_index,
+                            generation,
+                            sink,
+                            backend_started,
+                            backend_release,
+                        )
+                    )
+                )
+                await backend_started.wait()
+                race_entered.set()
+                await asyncio.Event().wait()
+
+        task = asyncio.create_task(
+            stale_run(index, entered, late_started, late_release, late_workers)
+        )
         await entered.wait()
         assert manager.cancel("generation-race") is True
-        release.set()
-        await task
+        with suppress(asyncio.CancelledError):
+            await task
 
         async with manager.turn("generation-race") as (current, generation, _):
-            manager.append_message(
-                "generation-race",
-                generation,
-                UserMessage.from_text(f"current-{index}"),
+            context = SimpleNamespace(
+                backend=backend,
+                session_id="generation-race",
             )
-            manager.apply(
-                "generation-race",
-                generation,
-                lambda value, index=index: value.agent_state.metadata.update(
-                    {"domain": index}
-                ),
+
+            async def current_generation_commit(
+                race_index: int,
+                race_generation: int,
+                race_context: SimpleNamespace,
+            ) -> None:
+                async with resources.acquire("stress:backend", race_context):
+                    manager.append_message(
+                        "generation-race",
+                        race_generation,
+                        UserMessage.from_text(f"current-{race_index}"),
+                    )
+                    manager.apply(
+                        "generation-race",
+                        race_generation,
+                        lambda value: value.agent_state.metadata.update(
+                            {"domain": race_index}
+                        ),
+                    )
+                    manager.commit_final_result(
+                        "generation-race",
+                        race_generation,
+                        f"current-{race_index}",
+                    )
+                    await manager.save(
+                        "generation-race",
+                        generation=race_generation,
+                    )
+                    sink = _GenerationFencedEventSink(current, race_generation, bus)
+                    await sink.aemit(_event(race_index))
+
+            current_commit = asyncio.create_task(
+                current_generation_commit(index, generation, context)
             )
-            manager.commit_final_result(
-                "generation-race",
-                generation,
-                f"current-{index}",
-            )
-            await manager.save("generation-race", generation=generation)
-            sink = _GenerationFencedEventSink(current, generation, bus)
-            await sink.aemit(_event(index))
+            await _spin_until(lambda: resources.waiting_count == 1)
+            late_release.set()
+            await late_workers[0]
+            await current_commit
 
     await bus.aclose()
 
@@ -362,9 +481,10 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
     assert runtime.last_result == "current-99"
     assert runtime.revision == 100
     assert [event.payload["index"] for event in bus.events] == list(range(100))
+    assert resources.waiting_count == resources.resource_count == 0
     await _assert_no_leaks(
         baseline_tasks,
         baseline_threads,
         bus=bus,
-        active_leases=0,
+        active_leases=resources.active_lease_count,
     )

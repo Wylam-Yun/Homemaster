@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from homemaster.adapters import build_environment_profiles
-from homemaster.tools.contracts import PostActionObservation
+from homemaster.tools.contracts import ConcurrencyPolicy, PostActionObservation
 
 
 def test_each_environment_profile_exposes_exactly_one_observe_variant() -> None:
@@ -78,3 +78,18 @@ def test_coworker_planner_mutations_and_sop_require_current_observation() -> Non
         tool = view.lookup(name).tool
         assert tool is not None
         assert tool.definition.verification_policy.requires_pre_observation == "current_bound"
+
+
+def test_physical_mutations_use_typed_backend_resource_keys() -> None:
+    profiles = build_environment_profiles()
+
+    for environment, aliases in {
+        "home": ("robot_go_to", "robot_manipulate"),
+        "alfworld": ("robot_go_to", "robot_manipulate"),
+        "coworker": ("browser_navigate", "browser_click", "browser_fill", "browser_select"),
+    }.items():
+        for alias in aliases:
+            tool = profiles[environment].view.lookup(alias).tool
+            assert tool is not None
+            assert tool.definition.concurrency_policy is ConcurrencyPolicy.RESOURCE_KEY
+            assert tool.definition.resource_key == f"{environment}:backend"

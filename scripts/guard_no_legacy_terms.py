@@ -78,6 +78,7 @@ SKIP_FILES = frozenset(
         "tests/homemaster/permissions/test_policy.py",
         "tests/homemaster/application/test_application_runtime.py",
         "tests/homemaster/application/test_factory.py",
+        "tests/homemaster/application/test_runtime_stress.py",
         "tests/homemaster/benchmarking/test_alfworld_execution.py",
         "tests/homemaster/test_cleanup_guard.py",
         "tests/homemaster/test_coworker_router.py",

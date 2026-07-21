@@ -143,3 +143,61 @@ async def test_observation_facade_binds_and_captures_on_owner_thread() -> None:
 
     assert capture == {"run_id": "run-1", "generation": 3}
     assert backend.thread_ids == [adapter.owner_thread_id, adapter.owner_thread_id]
+
+
+@pytest.mark.asyncio
+async def test_close_timeout_can_be_retried_until_worker_is_fully_stopped() -> None:
+    adapter = ThreadOwnedSyncBackendAdapter(name="retry-close", close_timeout_s=0.01)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block() -> None:
+        entered.set()
+        release.wait()
+
+    work = asyncio.create_task(adapter.run(block))
+    assert await asyncio.to_thread(entered.wait, 1)
+    with pytest.raises(TimeoutError, match="did not stop"):
+        await asyncio.to_thread(adapter.close)
+    assert adapter.closing is True
+    assert adapter.closed is False
+    assert adapter.alive is True
+
+    release.set()
+    await work
+    await asyncio.to_thread(adapter.close)
+    assert adapter.closed is True
+    assert adapter.alive is False
+
+
+@pytest.mark.asyncio
+async def test_bounded_queue_backpressures_submitter() -> None:
+    adapter = ThreadOwnedSyncBackendAdapter(name="bounded", capacity=1)
+    entered = threading.Event()
+    release = threading.Event()
+    third_started = threading.Event()
+
+    def block() -> str:
+        entered.set()
+        release.wait()
+        return "first"
+
+    first = adapter.submit(block)
+    assert await asyncio.to_thread(entered.wait, 1)
+    second = adapter.submit(lambda: "second")
+
+    def submit_third():
+        third_started.set()
+        return adapter.submit(lambda: "third")
+
+    third_submission = asyncio.create_task(asyncio.to_thread(submit_third))
+    assert await asyncio.to_thread(third_started.wait, 1)
+    await asyncio.sleep(0)
+    assert third_submission.done() is False
+
+    release.set()
+    third = await third_submission
+    assert await asyncio.wrap_future(first) == "first"
+    assert await asyncio.wrap_future(second) == "second"
+    assert await asyncio.wrap_future(third) == "third"
+    adapter.close()
