@@ -23,6 +23,7 @@ from homemaster.tools.contracts import (
     PostActionObservation,
     RegisteredTool,
     ResultImage,
+    TerminalRule,
     ToolDefinition,
     ToolExecutionContext,
     ToolExecutionError,
@@ -638,6 +639,11 @@ def _register_adapted(
 
 
 def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
+    if name == "task_progress_check" and environment in {"alfworld", "coworker"}:
+        return VerificationPolicy(
+            execution_proof=ExecutionProof.NONE,
+            terminal_rule=TerminalRule.EXTERNAL_TERMINAL_OWNER,
+        )
     if name in {"robot_manipulate", "robot_go_to"}:
         return VerificationPolicy(
             execution_proof=ExecutionProof.STRUCTURED_RECEIPT,

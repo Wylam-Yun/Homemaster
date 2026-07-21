@@ -1,0 +1,911 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import threading
+from dataclasses import replace
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from homemaster.adapters.profiles import EnvironmentToolProfile
+from homemaster.agent.context import ContextAssembler
+from homemaster.agent.messages import ToolCall
+from homemaster.application.contracts import ResourceBinding, RunRequest, RunStatus
+from homemaster.application.runtime import ApplicationRuntime
+from homemaster.application.session import SessionManager
+from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.events.bus import EventBus
+from homemaster.observations import ObservationCapture, ObservationService, ObservationState
+from homemaster.providers.attempts import (
+    OutboundObservationBinding,
+    ProviderAttemptRecord,
+)
+from homemaster.providers.transports.types import TransportDelta
+from homemaster.task_state.models import TaskStatus
+from homemaster.task_state.tools import make_task_progress_check_tool
+from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.contracts import (
+    ExecutionProof,
+    ObservationReference,
+    PostActionObservation,
+    RegisteredTool,
+    TerminalRule,
+    ToolDefinition,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    ToolProvenance,
+    VerificationPolicy,
+    VerificationRecord,
+    VerificationStatus,
+)
+from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
+from homemaster.tools.pipeline import ToolExecutionPipeline
+
+
+class _FakeTransport:
+    def __init__(self, responses: list[list[TransportDelta]]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+
+    def stream(
+        self,
+        messages,
+        *,
+        tools=None,
+        attempt_sink=None,
+        model_attempt_id="attempt",
+        **kwargs,
+    ):
+        del kwargs
+        with self._lock:
+            response = self._responses.pop(0)
+            self.calls.append({"messages": messages, "tools": tools})
+        if attempt_sink is not None:
+            attempt_sink.record_attempt(
+                ProviderAttemptRecord(
+                    model_attempt_id=model_attempt_id,
+                    request_sha256=hashlib.sha256(repr((messages, tools)).encode()).hexdigest(),
+                    outbound_images=(),
+                    stripped_images=False,
+                    response_completed=True,
+                    error_type=None,
+                    cause_code=None,
+                )
+            )
+        yield from response
+
+
+class _BlockingTransport(_FakeTransport):
+    def __init__(self) -> None:
+        super().__init__([_text("late response")])
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def stream(self, *args, **kwargs):
+        self.entered.set()
+        self.release.wait(timeout=5)
+        yield from super().stream(*args, **kwargs)
+
+
+class _ClosableTransport(_FakeTransport):
+    def __init__(self, responses: list[list[TransportDelta]]) -> None:
+        super().__init__(responses)
+        self.close_count = 0
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class _ObservationAwareTransport(_FakeTransport):
+    def stream(
+        self,
+        messages,
+        *,
+        tools=None,
+        attempt_sink=None,
+        model_attempt_id="attempt",
+        **kwargs,
+    ):
+        del kwargs
+        with self._lock:
+            response = self._responses.pop(0)
+            self.calls.append({"messages": messages, "tools": tools})
+        observations: list[OutboundObservationBinding] = []
+        for message_index, message in enumerate(messages):
+            for block_index, block in enumerate(message.content):
+                metadata = block.metadata
+                if "observation_id" not in metadata:
+                    continue
+                content = block.text.encode()
+                observations.append(
+                    OutboundObservationBinding(
+                        message_index=message_index,
+                        block_index=block_index,
+                        content_sha256=hashlib.sha256(content).hexdigest(),
+                        media_type=str(metadata["media_type"]),
+                        observation_id=str(metadata["observation_id"]),
+                        observation_content_sha256=str(
+                            metadata["observation_content_sha256"]
+                        ),
+                        observation_pixel_sha256=None,
+                        observation_backend_id=str(metadata["observation_backend_id"]),
+                        observation_run_id=str(metadata["observation_run_id"]),
+                        observation_generation=int(metadata["observation_generation"]),
+                        observation_state_sequence=int(
+                            metadata["observation_state_sequence"]
+                        ),
+                        observation_capture_event_sequence=int(
+                            metadata["observation_capture_event_sequence"]
+                        ),
+                    )
+                )
+        if attempt_sink is not None:
+            attempt_sink.record_attempt(
+                ProviderAttemptRecord(
+                    model_attempt_id=model_attempt_id,
+                    request_sha256=hashlib.sha256(repr((messages, tools)).encode()).hexdigest(),
+                    outbound_images=(),
+                    stripped_images=False,
+                    response_completed=True,
+                    error_type=None,
+                    cause_code=None,
+                    outbound_observations=tuple(observations),
+                )
+            )
+        yield from response
+
+
+class _Backend:
+    backend_id = "backend-test"
+    generation = 1
+    state_sequence = 0
+    event_sequence = 0
+
+    def __init__(self) -> None:
+        self.close_count = 0
+
+    def advance(self) -> None:
+        self.state_sequence += 1
+        self.event_sequence += 1
+
+    def close(self) -> None:
+        self.close_count += 1
+
+
+class _EchoExecutor:
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        del context
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            data={"value": str(arguments["value"])},
+            backend_attempted=False,
+        )
+
+
+class _ActionExecutor:
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        del arguments
+        context.backend.advance()
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            data={"ok": True},
+            backend_attempted=True,
+        )
+
+
+class _OrderedActionExecutor:
+    def __init__(self, order: list[str]) -> None:
+        self.order = order
+
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        del arguments
+        assert context.observation.state is ObservationState.BOUND_READY
+        self.order.append("action")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            data={"ok": True},
+            backend_attempted=True,
+        )
+
+
+class _ObservationExecutor:
+    def __init__(self, service: ObservationService) -> None:
+        self.service = service
+
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        del arguments
+        record = await self.service.capture_for_model(context)
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text=record.content_bytes.decode(),
+            data=record.to_dict(),
+            observations=(
+                ObservationReference(
+                    observation_id=record.observation_id,
+                    evidence_ref=record.evidence_ref,
+                    content_sha256=record.content_sha256,
+                ),
+            ),
+            evidence_refs=(record.evidence_ref,),
+            backend_attempted=False,
+        )
+
+
+class _ObservationBackend(_Backend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.run_id = ""
+
+    def capture(self) -> ObservationCapture:
+        self.event_sequence += 1
+        return ObservationCapture(
+            backend_id=self.backend_id,
+            run_id=self.run_id,
+            generation=self.generation,
+            state_sequence=self.state_sequence,
+            capture_event_sequence=self.event_sequence,
+            media_type="application/json",
+            content={"state": self.state_sequence},
+            evidence_ref=f"observation/{self.event_sequence}",
+        )
+
+
+class _TrackingObservationService(ObservationService):
+    def __init__(self, order: list[str]) -> None:
+        super().__init__()
+        self.order = order
+
+    def commit_provider_attempt(self, ledger, attempt):
+        binding = super().commit_provider_attempt(ledger, attempt)
+        if binding is not None:
+            self.order.append("provider_commit")
+        return binding
+
+
+class _StatusVerifier:
+    def __init__(self, status: VerificationStatus) -> None:
+        self.status = status
+
+    async def verify(self, result, context) -> VerificationRecord:
+        del result, context
+        return VerificationRecord(
+            status=self.status,
+            detail="verification is not complete",
+            evidence_refs=("verification/failed",)
+            if self.status is VerificationStatus.FAILED
+            else (),
+        )
+
+
+def _definition(
+    internal_id: str,
+    alias: str,
+    *,
+    policy: VerificationPolicy | None = None,
+    state_effects: tuple[str, ...] = (),
+    input_schema: dict[str, object] | None = None,
+    output_schema: dict[str, object] | None = None,
+) -> ToolDefinition:
+    return ToolDefinition(
+        internal_id=internal_id,
+        model_alias=alias,
+        description=f"Test {alias}.",
+        input_schema=input_schema or {"type": "object"},
+        output_schema=output_schema or {"type": "object"},
+        verification_policy=policy or VerificationPolicy(),
+        provenance=ToolProvenance(source="test", reference=internal_id),
+        version="1.9.0",
+        state_effects=state_effects,
+    )
+
+
+def _echo_tool(internal_id: str = "test.echo.v1", alias: str = "echo") -> RegisteredTool:
+    return RegisteredTool(
+        definition=_definition(
+            internal_id,
+            alias,
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+            output_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        ),
+        executor=_EchoExecutor(),
+    )
+
+
+def _progress_tool(*, external: bool = False) -> RegisteredTool:
+    adapted = adapt_legacy_tool_spec(
+        make_task_progress_check_tool(),
+        internal_id="test.task_progress_check.v1",
+        version="1.9.0",
+        output_schema={"type": "object"},
+    ).registered_tool
+    if not external:
+        return adapted
+    return RegisteredTool(
+        definition=replace(
+            adapted.definition,
+            verification_policy=VerificationPolicy(
+                terminal_rule=TerminalRule.EXTERNAL_TERMINAL_OWNER
+            ),
+        ),
+        executor=adapted.executor,
+    )
+
+
+def _text(value: str) -> list[TransportDelta]:
+    return [TransportDelta(type="text", text_delta=value, finish_reason="stop")]
+
+
+def _tool(call_id: str, name: str, arguments: dict[str, Any]) -> list[TransportDelta]:
+    return [
+        TransportDelta(
+            type="tool_call",
+            tool_call_delta=ToolCall(id=call_id, name=name, arguments=arguments),
+            finish_reason="tool_calls",
+        )
+    ]
+
+
+def _application(
+    tmp_path,
+    tools: list[RegisteredTool],
+    transports: dict[str, Any],
+    *,
+    profile_name: str = "test",
+    observation_service: ObservationService | None = None,
+) -> ApplicationRuntime:
+    catalog = ToolCatalog()
+    for tool in tools:
+        catalog.register(tool)
+    profile = EnvironmentToolProfile(
+        profile_name,
+        catalog,
+        catalog.freeze([tool.definition.internal_id for tool in tools]),
+    )
+    observation = observation_service or ObservationService()
+    bus = EventBus()
+    provider_profile = ProviderProfileConfig(
+        name="fake",
+        protocol="anthropic",
+        base_url="https://example.invalid",
+        model="fake",
+        api_keys=["not-a-real-key"],
+        context_window_tokens=100_000,
+        max_output_tokens=None,
+    )
+
+    def context_factory(request, provider):
+        del request
+        return ContextAssembler(
+            provider=provider_profile,
+            policy=ContextPolicyConfig(),
+            system_prompt="system",
+            summary_client=provider,
+        )
+
+    settings = SimpleNamespace(
+        runtime_guards=SimpleNamespace(
+            max_consecutive_tool_errors=5,
+            max_no_progress_iterations=20,
+            reactive_compact_max_retries=2,
+        ),
+        context=ContextPolicyConfig(),
+        provider_name="fake",
+    )
+    def provider_factory(request, run_id):
+        backend = request.borrowed_environment
+        if isinstance(backend, _ObservationBackend):
+            backend.run_id = run_id
+        return transports[request.text]
+
+    return ApplicationRuntime(
+        catalog=catalog,
+        profiles={profile_name: profile},
+        pipeline=ToolExecutionPipeline(
+            catalog,
+            observation_service=observation,
+            public_event_sink=bus,
+        ),
+        observation_service=observation,
+        event_bus=bus,
+        session_manager=SessionManager(session_root=tmp_path),
+        provider_factory=provider_factory,
+        context_assembler_factory=context_factory,
+        settings=settings,
+    )
+
+
+@pytest.mark.asyncio
+async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_path) -> None:
+    transport = _FakeTransport([
+        _tool("call-1", "echo", {"value": "ok"}),
+        _text("done"),
+    ])
+    app = _application(tmp_path, [_echo_tool()], {"request": transport})
+    backend = _Backend()
+
+    result = await app.run(RunRequest(text="request", profile="test", environment=backend))
+
+    assert result.status is RunStatus.REPLIED
+    assert result.final_reply == "done"
+    assert backend.close_count == 0
+    assert transport.calls[0]["tools"][0]["name"] == "echo"
+    status = app.status(result.session_id)
+    assert status.active is False
+    assert status.revision == 1
+    roles = [
+        message.role
+        for message in app.session_manager.get(result.session_id).session.messages
+    ]
+    assert roles == [
+        "user",
+        "assistant",
+        "tool",
+        "assistant",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_disabled_tool_call_is_rejected_by_frozen_view(tmp_path) -> None:
+    enabled = _echo_tool()
+    disabled = _echo_tool("test.disabled.v1", "disabled")
+    transport = _FakeTransport([
+        _tool("call-disabled", "test.disabled.v1", {}),
+        _text("stopped"),
+    ])
+    app = _application(tmp_path, [enabled, disabled], {"request": transport})
+
+    result = await app.run(
+        RunRequest(
+            text="request",
+            profile="test",
+            enabled_tool_ids=(enabled.definition.internal_id,),
+        )
+    )
+
+    messages = app.session_manager.get(result.session_id).session.messages
+    tool_result = next(message for message in messages if message.role == "tool")
+    assert tool_result.is_error is True
+    assert tool_result.data is not None
+    assert tool_result.data["error"]["code"] == "tool_disabled"
+
+
+@pytest.mark.asyncio
+async def test_action_debt_rejects_task_completion_without_writing_completed(tmp_path) -> None:
+    action = RegisteredTool(
+        definition=_definition(
+            "test.action.v1",
+            "action",
+            policy=VerificationPolicy(
+                post_action_observation=PostActionObservation.FRESH_AFTER_BACKEND_ADVANCE
+            ),
+            state_effects=("backend.advance",),
+            output_schema={
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+            },
+        ),
+        executor=_ActionExecutor(),
+    )
+    progress = adapt_legacy_tool_spec(
+        make_task_progress_check_tool(),
+        internal_id="test.task_progress_check.v1",
+        version="1.9.0",
+        output_schema={"type": "object"},
+    ).registered_tool
+    transport = _FakeTransport([
+        _tool("call-action", "action", {}),
+        _tool(
+            "call-complete",
+            "task_progress_check",
+            {"updates": [], "task_status": "completed", "completion_summary": "done"},
+        ),
+        _text("cannot complete yet"),
+    ])
+    app = _application(tmp_path, [action, progress], {"request": transport})
+    runtime = await app.session_manager.open_or_resume("completion")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    result = await app.run(
+        RunRequest(
+            text="request",
+            session_id="completion",
+            profile="test",
+            resume=True,
+            environment=_Backend(),
+        )
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert runtime.task_state_store.snapshot is not None
+    assert runtime.task_state_store.snapshot.status is TaskStatus.ACTIVE
+    completion_result = next(
+        message
+        for message in runtime.session.messages
+        if message.role == "tool" and message.name == "task_progress_check"
+    )
+    assert completion_result.data is not None
+    assert completion_result.data["status"] == "observation_required"
+
+
+@pytest.mark.asyncio
+async def test_external_terminal_rule_blocks_model_completion_claim(tmp_path) -> None:
+    adapted = adapt_legacy_tool_spec(
+        make_task_progress_check_tool(),
+        internal_id="test.task_progress_check.v1",
+        version="1.9.0",
+        output_schema={"type": "object"},
+    ).registered_tool
+    progress = RegisteredTool(
+        definition=replace(
+            adapted.definition,
+            verification_policy=VerificationPolicy(
+                terminal_rule=TerminalRule.EXTERNAL_TERMINAL_OWNER
+            ),
+        ),
+        executor=adapted.executor,
+    )
+    transport = _FakeTransport([
+        _tool(
+            "call-complete",
+            "task_progress_check",
+            {"updates": [], "task_status": "completed"},
+        ),
+        _text("pending"),
+    ])
+    app = _application(tmp_path, [progress], {"request": transport})
+    runtime = await app.session_manager.open_or_resume("external")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    await app.run(
+        RunRequest(text="request", session_id="external", profile="test", resume=True)
+    )
+
+    assert runtime.task_state_store.snapshot is not None
+    assert runtime.task_state_store.snapshot.status is TaskStatus.ACTIVE
+    blocked = next(message for message in runtime.session.messages if message.role == "tool")
+    assert blocked.data is not None
+    assert blocked.data["status"] == "verification_pending"
+    assert blocked.data["error"]["code"] == "external_terminal_pending"
+
+
+@pytest.mark.asyncio
+async def test_cancel_fences_late_return_and_control_adds_no_message(tmp_path) -> None:
+    transport = _BlockingTransport()
+    app = _application(tmp_path, [_echo_tool()], {"blocking": transport})
+    run_task = asyncio.create_task(
+        app.run(RunRequest(text="blocking", session_id="cancelled", profile="test"))
+    )
+    await asyncio.to_thread(transport.entered.wait, 2)
+
+    assert app.cancel("cancelled") is True
+    transport.release.set()
+    result = await run_task
+
+    assert result.status is RunStatus.CANCELLED
+    runtime = app.session_manager.get("cancelled")
+    assert [message.role for message in runtime.session.messages] == ["user"]
+    message_count = len(runtime.session.messages)
+    await app.compact("cancelled")
+    assert len(runtime.session.messages) == message_count
+
+
+@pytest.mark.asyncio
+async def test_successful_observation_attempt_commits_before_action(tmp_path) -> None:
+    order: list[str] = []
+    service = _TrackingObservationService(order)
+    observe = RegisteredTool(
+        definition=_definition("test.observe.v1", "observe"),
+        executor=_ObservationExecutor(service),
+    )
+    action = RegisteredTool(
+        definition=_definition(
+            "test.bound_action.v1",
+            "bound_action",
+            policy=VerificationPolicy(requires_pre_observation="current_bound"),
+        ),
+        executor=_OrderedActionExecutor(order),
+    )
+    transport = _ObservationAwareTransport(
+        [
+            _tool("call-observe", "observe", {}),
+            _tool("call-action", "bound_action", {}),
+            _text("done"),
+        ]
+    )
+    backend = _ObservationBackend()
+    app = _application(
+        tmp_path,
+        [observe, action],
+        {"observe then act": transport},
+        observation_service=service,
+    )
+
+    result = await app.run(
+        RunRequest(text="observe then act", profile="test", environment=backend)
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert order == ["provider_commit", "action"]
+    action_result = next(
+        message
+        for message in app.session_manager.get(result.session_id).session.messages
+        if message.role == "tool" and message.name == "bound_action"
+    )
+    assert action_result.is_error is False
+
+
+@pytest.mark.asyncio
+async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path) -> None:
+    first_transport = _BlockingTransport()
+    second_transport = _BlockingTransport()
+    first_tool = _echo_tool()
+    second_tool = _echo_tool("test.second.v1", "second")
+    app = _application(
+        tmp_path,
+        [first_tool, second_tool],
+        {"first": first_transport, "second": second_transport},
+    )
+    first_backend = _Backend()
+    second_backend = _Backend()
+    first_run = asyncio.create_task(
+        app.run(
+            RunRequest(
+                text="first",
+                session_id="session-first",
+                profile="test",
+                environment=first_backend,
+                enabled_tool_ids=(first_tool.definition.internal_id,),
+            )
+        )
+    )
+    second_run = asyncio.create_task(
+        app.run(
+            RunRequest(
+                text="second",
+                session_id="session-second",
+                profile="test",
+                environment=second_backend,
+                enabled_tool_ids=(second_tool.definition.internal_id,),
+            )
+        )
+    )
+    entered = await asyncio.gather(
+        asyncio.to_thread(first_transport.entered.wait, 2),
+        asyncio.to_thread(second_transport.entered.wait, 2),
+    )
+    assert entered == [True, True]
+
+    assert app.cancel("session-first") is True
+    first_transport.release.set()
+    second_transport.release.set()
+    first_result, second_result = await asyncio.gather(first_run, second_run)
+
+    assert first_result.status is RunStatus.CANCELLED
+    assert second_result.status is RunStatus.REPLIED
+    assert [tool["name"] for tool in first_transport.calls[0]["tools"]] == ["echo"]
+    assert [tool["name"] for tool in second_transport.calls[0]["tools"]] == ["second"]
+    assert first_backend.close_count == second_backend.close_count == 0
+    assert [
+        message.role
+        for message in app.session_manager.get("session-first").session.messages
+    ] == ["user"]
+    assert [
+        message.role
+        for message in app.session_manager.get("session-second").session.messages
+    ] == ["user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_same_session_turns_are_serialized(tmp_path) -> None:
+    first_transport = _BlockingTransport()
+    second_transport = _BlockingTransport()
+    app = _application(
+        tmp_path,
+        [_echo_tool()],
+        {"first": first_transport, "second": second_transport},
+    )
+    first_run = asyncio.create_task(
+        app.run(RunRequest(text="first", session_id="shared", profile="test"))
+    )
+    assert await asyncio.to_thread(first_transport.entered.wait, 2)
+    second_run = asyncio.create_task(
+        app.run(
+            RunRequest(
+                text="second",
+                session_id="shared",
+                profile="test",
+                resume=True,
+            )
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert second_transport.entered.is_set() is False
+
+    first_transport.release.set()
+    assert (await first_run).status is RunStatus.REPLIED
+    assert await asyncio.to_thread(second_transport.entered.wait, 2)
+    second_transport.release.set()
+    assert (await second_run).status is RunStatus.REPLIED
+
+    runtime = app.session_manager.get("shared")
+    assert runtime.revision == 2
+    assert [message.role for message in runtime.session.messages] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_normal_completion_is_not_blocked_by_external_gate(tmp_path) -> None:
+    progress = _progress_tool()
+    transport = _FakeTransport(
+        [
+            _tool(
+                "call-complete",
+                "task_progress_check",
+                {"updates": [], "task_status": "completed"},
+            ),
+            _text("complete"),
+        ]
+    )
+    app = _application(tmp_path, [progress], {"complete": transport})
+    runtime = await app.session_manager.open_or_resume("normal-completion")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    result = await app.run(
+        RunRequest(
+            text="complete",
+            session_id="normal-completion",
+            profile="test",
+            resume=True,
+        )
+    )
+
+    assert result.status is RunStatus.COMPLETED
+    assert runtime.task_state_store.snapshot is not None
+    assert runtime.task_state_store.snapshot.status is TaskStatus.COMPLETED
+
+
+@pytest.mark.parametrize(
+    "verification_status",
+    [VerificationStatus.PENDING, VerificationStatus.FAILED],
+)
+@pytest.mark.asyncio
+async def test_incomplete_verification_blocks_completion(
+    tmp_path,
+    verification_status: VerificationStatus,
+) -> None:
+    verified = RegisteredTool(
+        definition=_definition(
+            "test.verified.v1",
+            "verified",
+            policy=VerificationPolicy(execution_proof=ExecutionProof.EXTERNAL_STATE),
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+            },
+        ),
+        executor=_EchoExecutor(),
+        verifier=_StatusVerifier(verification_status),
+    )
+    progress = _progress_tool()
+    transport = _FakeTransport(
+        [
+            _tool("call-verified", "verified", {"value": "x"}),
+            _tool(
+                "call-complete",
+                "task_progress_check",
+                {"updates": [], "task_status": "completed"},
+            ),
+            _text("pending"),
+        ]
+    )
+    app = _application(tmp_path, [verified, progress], {"verify": transport})
+    runtime = await app.session_manager.open_or_resume("verification")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    await app.run(
+        RunRequest(
+            text="verify",
+            session_id="verification",
+            profile="test",
+            resume=True,
+        )
+    )
+
+    assert runtime.task_state_store.snapshot is not None
+    assert runtime.task_state_store.snapshot.status is TaskStatus.ACTIVE
+    completion = next(
+        message
+        for message in runtime.session.messages
+        if message.role == "tool" and message.name == "task_progress_check"
+    )
+    assert completion.data is not None
+    assert completion.data["error"]["code"] == "verification_pending"
+
+
+@pytest.mark.asyncio
+async def test_external_owner_success_allows_completion(tmp_path) -> None:
+    progress = _progress_tool(external=True)
+    transport = _FakeTransport(
+        [
+            _tool(
+                "call-complete",
+                "task_progress_check",
+                {"updates": [], "task_status": "completed"},
+            ),
+            _text("complete"),
+        ]
+    )
+    app = _application(tmp_path, [progress], {"complete": transport})
+    runtime = await app.session_manager.open_or_resume("external-success")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="goal",
+        subtasks=[{"id": "a", "description": "A"}],
+    )
+
+    result = await app.run(
+        RunRequest(
+            text="complete",
+            session_id="external-success",
+            profile="test",
+            resume=True,
+            dependencies={"external_terminal_owner": SimpleNamespace(succeeded=True)},
+        )
+    )
+
+    assert result.status is RunStatus.COMPLETED
+    assert runtime.task_state_store.snapshot is not None
+    assert runtime.task_state_store.snapshot.status is TaskStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_owned_provider_closes_once_and_borrowed_provider_stays_open(tmp_path) -> None:
+    owned = _ClosableTransport([_text("owned")])
+    borrowed = _ClosableTransport([_text("borrowed")])
+    app = _application(
+        tmp_path,
+        [_echo_tool()],
+        {
+            "owned": owned,
+            "borrowed": ResourceBinding.borrowed("shared-provider", borrowed),
+        },
+    )
+
+    owned_result = await app.run(RunRequest(text="owned", profile="test"))
+    borrowed_result = await app.run(RunRequest(text="borrowed", profile="test"))
+    await app.aclose()
+
+    assert owned_result.status is RunStatus.REPLIED
+    assert borrowed_result.status is RunStatus.REPLIED
+    assert owned.close_count == 1
+    assert borrowed.close_count == 0

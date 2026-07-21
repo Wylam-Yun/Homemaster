@@ -12,6 +12,7 @@ from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.task_state.models import SubtaskStatus, TaskProgressUpdate, TaskStatus
 from homemaster.task_state.store import TaskStateStore, TaskStateStoreError
+from homemaster.tools.contracts import ToolExecutionResult
 from homemaster.tools.spec import ToolSpec
 
 
@@ -55,7 +56,7 @@ def _evidence_list(value: Any) -> list[str]:
 
 def task_progress_check_executor(
     *, arguments: dict[str, Any], run_context: RunContext,
-) -> ToolResultMessage:
+) -> ToolResultMessage | ToolExecutionResult:
     store = _store(run_context)
     raw_task_status = arguments.get("task_status")
     task_status = (
@@ -80,6 +81,17 @@ def task_progress_check_executor(
     )
     if task_status is not None:
         if task_status is TaskStatus.COMPLETED:
+            completion_guard = run_context.deps.get("task_completion_guard")
+            if completion_guard is not None:
+                if not callable(completion_guard):
+                    raise TaskStateStoreError("task_completion_guard must be callable")
+                blocked = completion_guard()
+                if blocked is not None:
+                    if not isinstance(blocked, ToolExecutionResult):
+                        raise TaskStateStoreError(
+                            "task_completion_guard must return ToolExecutionResult or None"
+                        )
+                    return blocked
             snapshot = store.mark_completed(
                 final_summary=arguments.get("completion_summary") or "Task completed.",
                 updated_at_iteration=run_context.turn_index,

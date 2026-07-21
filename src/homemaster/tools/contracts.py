@@ -574,7 +574,29 @@ class ToolExecutionResult:
                 text=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
             )
         ]
+        if self.text and self.observations:
+            metadata = _observation_content_metadata(self.observations[0], self.data)
+            if _has_complete_observation_identity(metadata):
+                content.append(
+                    ContentBlock(
+                        text=self.text,
+                        metadata={**metadata, "media_type": self.data.get("media_type")},
+                    )
+                )
         for image in self.images:
+            reference = next(
+                (
+                    observation
+                    for observation in self.observations
+                    if observation.observation_id == image.observation_id
+                ),
+                None,
+            )
+            metadata = (
+                _observation_content_metadata(reference, self.data)
+                if reference is not None
+                else {}
+            )
             content.append(
                 ContentBlock(
                     type="image",
@@ -587,6 +609,7 @@ class ToolExecutionResult:
                         "content_sha256": image.content_sha256,
                         "pixel_sha256": image.pixel_sha256,
                         "observation_id": image.observation_id,
+                        **metadata,
                     },
                 )
             )
@@ -597,6 +620,46 @@ class ToolExecutionResult:
             is_error=self.is_error,
             data=payload,
         )
+
+
+def _observation_content_metadata(
+    reference: ObservationReference,
+    data: Mapping[str, object],
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "observation_id": reference.observation_id,
+        "observation_content_sha256": reference.content_sha256,
+    }
+    if data.get("observation_id") != reference.observation_id:
+        return metadata
+    names = {
+        "backend_id": "observation_backend_id",
+        "run_id": "observation_run_id",
+        "generation": "observation_generation",
+        "state_sequence": "observation_state_sequence",
+        "capture_event_sequence": "observation_capture_event_sequence",
+        "pixel_sha256": "observation_pixel_sha256",
+    }
+    for source, target in names.items():
+        value = data.get(source)
+        if value is not None:
+            metadata[target] = value
+    return metadata
+
+
+def _has_complete_observation_identity(metadata: Mapping[str, object]) -> bool:
+    return all(
+        name in metadata
+        for name in (
+            "observation_id",
+            "observation_content_sha256",
+            "observation_backend_id",
+            "observation_run_id",
+            "observation_generation",
+            "observation_state_sequence",
+            "observation_capture_event_sequence",
+        )
+    )
 
 
 class ToolExecutor(Protocol):

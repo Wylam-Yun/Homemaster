@@ -1,4 +1,4 @@
-"""GenericAgentRuntime — message/tool-call/tool-result agent loop."""
+"""AgentRuntime model loop with a temporary GenericAgentRuntime alias."""
 
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from homemaster.task_state.store import TaskStateStore
 
 if TYPE_CHECKING:
     from homemaster.agent.context import ContextAssembler
+    from homemaster.tools.catalog import ToolView
 
 _CONTEXT_LENGTH_KEYWORDS = (
     "context_length_exceeded",
@@ -104,7 +105,7 @@ StopCondition = Callable[
 ]
 
 
-class GenericAgentRuntime:
+class AgentRuntime:
     """Generic message/tool-call/tool-result agent loop."""
 
     def __init__(
@@ -143,6 +144,7 @@ class GenericAgentRuntime:
         agent_state: AgentState | None = None,
         task_state_store: TaskStateStore | None = None,
         force_compact: str | bool | None = None,
+        tool_view: ToolView | None = None,
     ) -> GenericRunResult:
         """Execute one agent run: user input -> model -> tool loop -> final reply."""
 
@@ -228,10 +230,13 @@ class GenericAgentRuntime:
             },
         )
 
-        tool_schemas = [
-            {"name": t.name, "description": t.description, "input_schema": t.input_schema}
-            for t in (tools or [])
-        ]
+        if tool_view is not None:
+            tool_schemas = [dict(manifest) for manifest in tool_view.manifests()]
+        else:
+            tool_schemas = [
+                {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+                for t in (tools or [])
+            ]
 
         iteration = 0
         reactive_compact_retries = 0
@@ -946,3 +951,7 @@ def _provider_retry_allowed(
         failure in _RETRYABLE_PROVIDER_FAILURES
         and (attempt.error_type, attempt.cause_code) == failure
     )
+
+
+# Compatibility alias retained until all legacy entry points migrate in CL-15.
+GenericAgentRuntime = AgentRuntime

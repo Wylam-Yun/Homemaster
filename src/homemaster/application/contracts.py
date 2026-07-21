@@ -16,7 +16,7 @@ from types import MappingProxyType
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from homemaster.agent.messages import ToolCall
-from homemaster.tools.contracts import ToolExecutionResult
+from homemaster.tools.contracts import PermissionSubject, ToolExecutionResult
 
 
 class RunStatus(StrEnum):
@@ -145,10 +145,18 @@ class RunRequest:
 
     text: str
     session_id: str | None = None
+    profile: str = "home"
+    provider_name: str | None = None
+    resume: bool = False
+    continuous_taskset: bool = False
     environment: EnvironmentBackend | ResourceBinding | None = None
     enabled_tool_ids: tuple[str, ...] = ()
     run_policy: RunPolicy = field(default_factory=RunPolicy)
     terminal_policy: TerminalPolicy | None = None
+    permission_subject: PermissionSubject = field(
+        default_factory=lambda: PermissionSubject(subject_id="local-user", channel="application")
+    )
+    dependencies: Mapping[str, object] = field(default_factory=dict)
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -158,6 +166,18 @@ class RunRequest:
             not isinstance(self.session_id, str) or not self.session_id.strip()
         ):
             raise ValueError("session_id must be a non-empty string or None")
+        if not isinstance(self.profile, str) or not self.profile.strip():
+            raise ValueError("profile must be a non-empty string")
+        if self.provider_name is not None and (
+            not isinstance(self.provider_name, str) or not self.provider_name.strip()
+        ):
+            raise ValueError("provider_name must be a non-empty string or None")
+        if not isinstance(self.resume, bool) or not isinstance(self.continuous_taskset, bool):
+            raise TypeError("resume and continuous_taskset must be booleans")
+        if self.resume and self.session_id is None:
+            raise ValueError("resume requires an explicit session_id")
+        if self.continuous_taskset and self.session_id is None:
+            raise ValueError("continuous_taskset requires an explicit session_id")
         if not isinstance(self.run_policy, RunPolicy):
             raise TypeError("run_policy must be RunPolicy")
         if self.terminal_policy is not None and not (
@@ -165,8 +185,11 @@ class RunRequest:
             or callable(getattr(self.terminal_policy, "check", None))
         ):
             raise TypeError("terminal_policy must provide before_execute() or check()")
+        if not isinstance(self.permission_subject, PermissionSubject):
+            raise TypeError("permission_subject must be PermissionSubject")
         ids = _freeze_tool_ids(self.enabled_tool_ids)
         object.__setattr__(self, "enabled_tool_ids", ids)
+        object.__setattr__(self, "dependencies", _freeze_dependency_mapping(self.dependencies))
         metadata = _freeze_json_mapping(self.metadata)
         object.__setattr__(self, "metadata", metadata)
         if isinstance(self.environment, ResourceBinding):
@@ -237,6 +260,15 @@ def _freeze_tool_ids(value: Sequence[str]) -> tuple[str, ...]:
     if len(ids) != len(set(ids)):
         raise ValueError("enabled_tool_ids must be unique")
     return ids
+
+
+def _freeze_dependency_mapping(value: Mapping[str, object]) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise TypeError("dependencies must be a mapping")
+    dependencies = dict(value)
+    if any(not isinstance(key, str) or not key.strip() for key in dependencies):
+        raise ValueError("dependency keys must be non-empty strings")
+    return MappingProxyType(dependencies)
 
 
 def _freeze_json_mapping(value: Mapping[str, object]) -> Mapping[str, object]:

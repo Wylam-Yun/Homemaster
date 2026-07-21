@@ -96,6 +96,7 @@ class SessionRuntime:
             self.canonical_evidence_refs
         )
         self.turn_lock = asyncio.Lock()
+        self.state_lock = threading.RLock()
         self.active_task: asyncio.Task[Any] | None = None
         self.cancellation: CancellationSource | None = None
         self.last_result: Any = None
@@ -119,10 +120,18 @@ class SessionRuntime:
             self._observation_reset("session environment rebind requires a fresh observe")
 
     def assert_generation(self, generation: int) -> None:
-        if generation != self.generation:
-            raise SessionGenerationError(
-                f"stale session generation {generation}; current={self.generation}"
-            )
+        with self.state_lock:
+            if generation != self.generation:
+                raise SessionGenerationError(
+                    f"stale session generation {generation}; current={self.generation}"
+                )
+
+    @contextlib.contextmanager
+    def generation_guard(self, generation: int) -> Iterator[None]:
+        with self.state_lock:
+            self.assert_generation(generation)
+            yield
+            self.assert_generation(generation)
 
     def request_compaction(self, generation: int, kind: str = "manual") -> None:
         self.assert_generation(generation)
@@ -139,13 +148,18 @@ class SessionRuntime:
         return request.kind
 
     def cancel(self, generation: int) -> bool:
-        self.assert_generation(generation)
-        if self.cancellation is None:
-            return False
-        self.cancellation.cancel()
-        task = self.active_task
-        self.generation += 1
-        self._compaction_request = None
+        with self.state_lock:
+            self.assert_generation(generation)
+            if self.cancellation is None:
+                return False
+            self.cancellation.cancel()
+            task = self.active_task
+            snapshot = self.task_state_store.snapshot
+            if snapshot is not None and snapshot.status is TaskStatus.ACTIVE:
+                self.task_state_store.update_status(TaskStatus.PAUSED)
+            self.agent_state.status = "cancelled"
+            self.generation += 1
+            self._compaction_request = None
         if task is not None and not task.done():
             task.cancel()
         return True
@@ -405,18 +419,20 @@ class SessionManager:
         if runtime is None:
             raise KeyError(session_id)
         async with runtime.turn_lock:
-            runtime.generation += 1
-            generation = runtime.generation
-            runtime.agent_state.turn_index += 1
-            runtime.cancellation = CancellationSource()
-            active_task = asyncio.current_task()
-            runtime.active_task = active_task
+            with runtime.state_lock:
+                runtime.generation += 1
+                generation = runtime.generation
+                runtime.agent_state.turn_index += 1
+                runtime.cancellation = CancellationSource()
+                active_task = asyncio.current_task()
+                runtime.active_task = active_task
             try:
                 yield runtime, generation, runtime.cancellation
             finally:
-                if runtime.active_task is active_task:
-                    runtime.active_task = None
-                    runtime.cancellation = None
+                with runtime.state_lock:
+                    if runtime.active_task is active_task:
+                        runtime.active_task = None
+                        runtime.cancellation = None
 
     def apply(
         self,
@@ -425,10 +441,8 @@ class SessionManager:
         mutation: Callable[[SessionRuntime], Any],
     ) -> Any:
         runtime = self.get(session_id)
-        runtime.assert_generation(generation)
-        result = mutation(runtime)
-        runtime.assert_generation(generation)
-        return result
+        with runtime.generation_guard(generation):
+            return mutation(runtime)
 
     def append_message(self, session_id: str, generation: int, message: Message) -> None:
         self.apply(session_id, generation, lambda runtime: runtime.session.append(message))

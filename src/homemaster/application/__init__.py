@@ -11,11 +11,17 @@ from homemaster.application.contracts import (
     RunStatus,
     TerminalPolicy,
 )
+from homemaster.application.factory import create_application
 from homemaster.application.resources import (
     ResourceCleanupError,
     ResourceHandle,
     ResourceScopeError,
     RunResourceScope,
+)
+from homemaster.application.runtime import (
+    ApplicationRuntime,
+    CompactionResult,
+    SessionStatus,
 )
 from homemaster.application.session import (
     CancellationSource,
@@ -31,9 +37,12 @@ from homemaster.application.session import (
 )
 
 __all__ = [
+    "ApplicationRuntime",
     "EnvironmentBackend",
     "CancellationSource",
     "CompactionRequest",
+    "CompactionResult",
+    "create_application",
     "ResourceBinding",
     "ResourceCleanupError",
     "ResourceHandle",
@@ -53,5 +62,6 @@ __all__ = [
     "SessionManager",
     "SessionRuntime",
     "SessionSnapshot",
+    "SessionStatus",
     "TerminalPolicy",
 ]

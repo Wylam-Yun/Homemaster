@@ -87,6 +87,50 @@ def test_full_result_projects_losslessly_to_tool_result_message() -> None:
     assert message.data["terminal"]["classification"] == "agent_success"
 
 
+def test_structured_observation_projects_exact_bindable_content() -> None:
+    observation_text = '{"room":"kitchen"}'
+    content_sha256 = hashlib.sha256(observation_text.encode()).hexdigest()
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text=observation_text,
+        data={
+            "observation_id": "obs-structured",
+            "backend_id": "backend-home",
+            "run_id": "run-home",
+            "generation": 3,
+            "state_sequence": 7,
+            "capture_event_sequence": 9,
+            "media_type": "application/json",
+            "content_sha256": content_sha256,
+            "pixel_sha256": None,
+            "evidence_ref": "observations/structured.json",
+        },
+        observations=(
+            ObservationReference(
+                observation_id="obs-structured",
+                evidence_ref="observations/structured.json",
+                content_sha256=content_sha256,
+            ),
+        ),
+        backend_attempted=False,
+    )
+
+    message = result.to_message(tool_call_id="call-observe", name="observe")
+
+    observation = message.content[1]
+    assert observation.text == observation_text
+    assert observation.metadata == {
+        "observation_id": "obs-structured",
+        "observation_content_sha256": content_sha256,
+        "observation_backend_id": "backend-home",
+        "observation_run_id": "run-home",
+        "observation_generation": 3,
+        "observation_state_sequence": 7,
+        "observation_capture_event_sequence": 9,
+        "media_type": "application/json",
+    }
+
+
 def test_result_data_is_deeply_immutable_and_serializable() -> None:
     source = {"nested": {"items": [1, 2]}}
     result = ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, data=source)

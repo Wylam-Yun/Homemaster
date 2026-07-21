@@ -71,6 +71,7 @@ class LegacyToolExecutionContext:
     tool_call_id: str
     internal_tool_id: str
     canonical_context: ToolExecutionContext | None = None
+    actual_backend: object | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_context, RunContext):
@@ -93,6 +94,7 @@ class LegacyToolExecutionContext:
                 tool_call_id=context.tool_call_id,
                 internal_tool_id=context.internal_tool_id,
                 canonical_context=context,
+                actual_backend=backend.actual_backend,
             )
         if isinstance(backend, RunContext):
             return cls(
@@ -104,6 +106,12 @@ class LegacyToolExecutionContext:
         raise TypeError(
             "canonical context backend must carry a LegacyToolExecutionContext or RunContext"
         )
+
+    def __getattr__(self, name: str) -> Any:
+        backend = self.actual_backend
+        if backend is None:
+            raise AttributeError(name)
+        return getattr(backend, name)
 
 
 class LegacyExecutorAdapter:
@@ -127,6 +135,8 @@ class LegacyExecutorAdapter:
         )
         if inspect.isawaitable(result):
             result = await result
+        if isinstance(result, ToolExecutionResult):
+            return result
         return normalize_legacy_result(
             result,
             tool_call_id=context.tool_call_id,
@@ -275,6 +285,12 @@ def normalize_legacy_result(
     if not isinstance(name, str) or not name.strip():
         raise ValueError("name is required")
 
+    if isinstance(value, ToolExecutionResult):
+        return NormalizedLegacyResult(
+            result=value,
+            tool_call_id=tool_call_id,
+            name=name,
+        )
     if isinstance(value, ToolResultMessage):
         return _normalize_message(value, tool_call_id=tool_call_id, name=name)
     if isinstance(value, ToolResult):
