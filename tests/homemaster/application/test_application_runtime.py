@@ -15,7 +15,7 @@ import pytest
 from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
-from homemaster.application.contracts import ResourceBinding, RunRequest, RunStatus
+from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequest, RunStatus
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import ApplicationRuntime
 from homemaster.application.session import SessionManager
@@ -54,7 +54,7 @@ class _FakeTransport:
         self.calls: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
-    def stream(
+    async def stream(
         self,
         messages,
         *,
@@ -79,7 +79,8 @@ class _FakeTransport:
                     cause_code=None,
                 )
             )
-        yield from response
+        for delta in response:
+            yield delta
 
 
 class _BlockingTransport(_FakeTransport):
@@ -88,10 +89,33 @@ class _BlockingTransport(_FakeTransport):
         self.entered = threading.Event()
         self.release = threading.Event()
 
-    def stream(self, *args, **kwargs):
+    async def stream(self, *args, **kwargs):
+        messages = args[0]
+        tools = kwargs.get("tools")
+        with self._lock:
+            response = self._responses.pop(0)
+            self.calls.append({"messages": messages, "tools": tools})
         self.entered.set()
-        self.release.wait(timeout=5)
-        yield from super().stream(*args, **kwargs)
+        await asyncio.to_thread(self.release.wait, 5)
+        for delta in response:
+            yield delta
+
+
+class _AsyncBlockingTransport:
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cancelled = False
+
+    async def stream(self, *_args, **_kwargs):
+        self.entered.set()
+        try:
+            await self.release.wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        for delta in _text("released"):
+            yield delta
 
 
 class _ClosableTransport(_FakeTransport):
@@ -124,7 +148,7 @@ class _FailingSaveBackend:
 
 
 class _ObservationAwareTransport(_FakeTransport):
-    def stream(
+    async def stream(
         self,
         messages,
         *,
@@ -179,7 +203,8 @@ class _ObservationAwareTransport(_FakeTransport):
                     outbound_observations=tuple(observations),
                 )
             )
-        yield from response
+        for delta in response:
+            yield delta
 
 
 class _Backend:
@@ -651,6 +676,48 @@ async def test_cancel_fences_late_return_and_control_adds_no_message(tmp_path) -
     message_count = len(runtime.session.messages)
     await app.compact("cancelled")
     assert len(runtime.session.messages) == message_count
+
+
+@pytest.mark.asyncio
+async def test_provider_deadline_cancels_native_async_stream(tmp_path) -> None:
+    transport = _AsyncBlockingTransport()
+    app = _application(tmp_path, [_echo_tool()], {"deadline": transport})
+
+    result = await app.run(
+        RunRequest(
+            text="deadline",
+            session_id="provider-deadline",
+            profile="test",
+            run_policy=RunPolicy(deadline_s=0.02),
+        )
+    )
+
+    assert result.status is RunStatus.FAILED
+    assert result.error_code == "deadline_exceeded"
+    assert transport.entered.is_set()
+    assert transport.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_blocked_native_provider_does_not_block_another_session(tmp_path) -> None:
+    blocked = _AsyncBlockingTransport()
+    fast = _FakeTransport([_text("fast")])
+    app = _application(tmp_path, [_echo_tool()], {"blocked": blocked, "fast": fast})
+    blocked_task = asyncio.create_task(
+        app.run(RunRequest(text="blocked", session_id="blocked", profile="test"))
+    )
+    await blocked.entered.wait()
+
+    fast_result = await asyncio.wait_for(
+        app.run(RunRequest(text="fast", session_id="fast", profile="test")),
+        timeout=0.5,
+    )
+    blocked.release.set()
+    blocked_result = await blocked_task
+
+    assert fast_result.status is RunStatus.REPLIED
+    assert fast_result.final_reply == "fast"
+    assert blocked_result.status is RunStatus.REPLIED
 
 
 @pytest.mark.asyncio

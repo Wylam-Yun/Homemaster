@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from homemaster.agent.messages import Message
@@ -20,19 +20,19 @@ class FakeTransport:
         self.replies = list(replies)
         self.closed = 0
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools=None,
         *,
         attempt_sink=None,
         **kwargs,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         del messages, tools, attempt_sink, kwargs
         reply = self.replies.pop(0)
         yield TransportDelta(type="text", text_delta=reply, finish_reason="stop")
 
-    def complete(self, messages, **kwargs):
+    async def complete(self, messages, **kwargs):
         del messages, kwargs
         from homemaster.agent.messages import AssistantMessage, ContentBlock
 

@@ -177,7 +177,7 @@ class LLMClient:
                 temperature=temperature,
             )
             request_sha256 = _request_sha256(kwargs)
-            _emit(
+            await _emit(
                 sink,
                 "transport.request_started",
                 session_id=session_id,
@@ -194,7 +194,7 @@ class LLMClient:
             )
             async for delta in self._stream_once(api_key=api_key, kwargs=kwargs):
                 yield delta
-            _emit(
+            await _emit(
                 sink,
                 "transport.response_completed",
                 session_id=session_id,
@@ -226,7 +226,7 @@ class LLMClient:
                 recorded = True
             return
         except LLMClientError as exc:
-            _emit(
+            await _emit(
                 sink,
                 "transport.request_failed",
                 session_id=session_id,
@@ -747,7 +747,7 @@ def _serialized_observation_contents(value: Any) -> list[str]:
     return contents
 
 
-def _emit(
+async def _emit(
     event_sink: Any,
     event_type: str,
     *,
@@ -760,15 +760,20 @@ def _emit(
         return
     from homemaster.events.runtime_events import RuntimeEvent
 
-    event_sink.emit(
-        RuntimeEvent(
-            type=event_type,
-            session_id=session_id,
-            run_id=run_id,
-            turn_index=turn_index,
-            payload=payload,
-        )
+    event = RuntimeEvent(
+        type=event_type,
+        session_id=session_id,
+        run_id=run_id,
+        turn_index=turn_index,
+        payload=payload,
     )
+    aemit = getattr(event_sink, "aemit", None)
+    if callable(aemit):
+        await aemit(event)
+        return
+    value = event_sink.emit(event)
+    if inspect.isawaitable(value):
+        await value
 
 
 LLMProviderResponseError = LLMProviderError

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +31,6 @@ from homemaster.events.stream_events import (
 )
 from homemaster.observations import ObservationService
 from homemaster.providers.llm_client import LLMClient
-from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 
 class DeadlineAwareTransport:
@@ -46,28 +45,28 @@ class DeadlineAwareTransport:
     def token_estimator(self):
         return self.client.token_estimator
 
-    def stream(self, *args: Any, **kwargs: Any) -> Iterator[Any]:
+    async def stream(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any]:
         self.budget.before_external(self.outcome)
-        for delta in self.client.stream(*args, **kwargs):
+        stream = self.client.stream(*args, **kwargs)
+        if not hasattr(stream, "__aiter__"):
+            raise TypeError("coworker provider stream must be an async iterator")
+        async for delta in stream:
             if self.budget.remaining_s <= 0:
                 raise TimeoutError("coworker deadline expired during provider stream")
             yield delta
 
-    def complete(self, *args: Any, **kwargs: Any):
+    async def complete(self, *args: Any, **kwargs: Any):
         self.budget.before_external(self.outcome)
-        return self.client.complete(*args, **kwargs)
-
-    def close(self) -> None:
-        close = getattr(self.client, "close", None)
-        if callable(close):
-            close()
+        return await self.client.complete(*args, **kwargs)
 
     async def aclose(self) -> None:
-        close = getattr(self.client, "aclose", None)
-        if callable(close):
-            await close()
+        aclose = getattr(self.client, "aclose", None)
+        if callable(aclose):
+            await aclose()
             return
-        self.close()
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            await asyncio.to_thread(close)
 
 
 def build_coworker_transport_factory(
@@ -79,9 +78,7 @@ def build_coworker_transport_factory(
 ) -> Callable[[str], DeadlineAwareTransport]:
     def build(run_id: str) -> DeadlineAwareTransport:
         return DeadlineAwareTransport(
-            SyncProviderAdapter(
-                LLMClient(provider_profile, timeout_s=timeout_s, run_id=run_id)
-            ),
+            LLMClient(provider_profile, timeout_s=timeout_s, run_id=run_id),
             budget,
             outcome,
         )

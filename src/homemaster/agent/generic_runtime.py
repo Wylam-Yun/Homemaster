@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import signal
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +74,7 @@ class GenericRunResult:
 
 StopCondition = Callable[
     [AgentSession, list[ToolResultMessage]],
-    RuntimeStopDecision | None,
+    RuntimeStopDecision | None | Awaitable[RuntimeStopDecision | None],
 ]
 
 
@@ -103,7 +104,7 @@ class AgentRuntime:
         self._provider_commit_observer = provider_commit_observer
         self._provider_attempt_sink_factory = provider_attempt_sink_factory
 
-    def run(
+    async def run(
         self,
         session: AgentSession,
         user_text: str,
@@ -117,6 +118,8 @@ class AgentRuntime:
         task_state_store: TaskStateStore | None = None,
         force_compact: str | bool | None = None,
         tool_view: ToolView | None = None,
+        cancellation_token: Any = None,
+        deadline: Any = None,
     ) -> GenericRunResult:
         """Execute one agent run: user input -> model -> tool loop -> final reply."""
 
@@ -137,7 +140,7 @@ class AgentRuntime:
             except ValueError:
                 signal_registered = False
 
-        def emit(event_type: str, **kwargs: Any) -> None:
+        async def emit(event_type: str, **kwargs: Any) -> None:
             event = RuntimeEvent(
                 type=event_type,
                 session_id=session.session_id,
@@ -150,7 +153,13 @@ class AgentRuntime:
             )
             events.append(event)
             if event_sink is not None:
-                event_sink.emit(event)
+                aemit = getattr(event_sink, "aemit", None)
+                if callable(aemit):
+                    await aemit(event)
+                else:
+                    value = event_sink.emit(event)
+                    if inspect.isawaitable(value):
+                        await value
 
         initial_content = user_content or normalize_content(user_text)
         session.append(UserMessage(content=initial_content))
@@ -193,7 +202,7 @@ class AgentRuntime:
                 agent_state.status = status  # type: ignore[assignment]
             persistence.save_snapshot()
 
-        emit(
+        await emit(
             "runtime.turn_started",
             payload={
                 "user_text": user_text,
@@ -211,8 +220,8 @@ class AgentRuntime:
         pending_compaction = force_compact
         try:
             while self._max_tool_iterations is None or iteration < self._max_tool_iterations:
-                if interrupt.cancelled:
-                    return self._cancel_result(
+                if _cancelled(interrupt, cancellation_token):
+                    return await self._cancel_result(
                         session,
                         run_id,
                         events,
@@ -229,13 +238,23 @@ class AgentRuntime:
                 context_system_prompt = self._system_prompt
                 context_tools = tool_schemas if tool_schemas else None
                 if self._context_assembler is not None:
-                    composed = self._context_assembler.prepare(
-                        session=session,
-                        agent_state=agent_state,
-                        task_state_store=task_state_store,
-                        tools=context_tools,
-                        force_compact=pending_compaction,
-                    )
+                    aprepare = getattr(self._context_assembler, "aprepare", None)
+                    if callable(aprepare):
+                        composed = await aprepare(
+                            session=session,
+                            agent_state=agent_state,
+                            task_state_store=task_state_store,
+                            tools=context_tools,
+                            force_compact=pending_compaction,
+                        )
+                    else:
+                        composed = self._context_assembler.prepare(
+                            session=session,
+                            agent_state=agent_state,
+                            task_state_store=task_state_store,
+                            tools=context_tools,
+                            force_compact=pending_compaction,
+                        )
                     pending_compaction = None
                     context_messages = composed.messages
                     context_system_prompt = composed.system_prompt
@@ -250,7 +269,7 @@ class AgentRuntime:
                                 else "auto"
                             )
                         )
-                        emit(
+                        await emit(
                             "context.compaction",
                             payload={
                                 "trigger": compaction_trigger,
@@ -334,15 +353,16 @@ class AgentRuntime:
                             )
                             interrupt.set_stream(stream)
                             try:
-                                for delta in stream:
-                                    if interrupt.cancelled:
-                                        break
-                                    deltas.append(delta)
+                                await _consume_stream(
+                                    stream,
+                                    deltas,
+                                    interrupt=interrupt,
+                                    cancellation_token=cancellation_token,
+                                    deadline=deadline,
+                                )
                             finally:
                                 interrupt.clear_stream()
-                                close = getattr(stream, "close", None)
-                                if callable(close):
-                                    close()
+                                await _close_stream(stream)
                         except Exception as exc:
                             failed_attempt = _last_provider_attempt(attempt_sink)
                             if (
@@ -357,7 +377,7 @@ class AgentRuntime:
                                 assert failed_attempt is not None
                                 first_request_sha256 = failed_attempt.request_sha256
                                 attempt_index = 1
-                                emit(
+                                await emit(
                                     "transport.request_retrying",
                                     payload={
                                         "cause_code": failed_attempt.cause_code,
@@ -369,8 +389,8 @@ class AgentRuntime:
                                 continue
                             raise
 
-                        if interrupt.cancelled:
-                            return self._cancel_result(
+                        if _cancelled(interrupt, cancellation_token):
+                            return await self._cancel_result(
                                 session,
                                 run_id,
                                 events,
@@ -395,7 +415,7 @@ class AgentRuntime:
                     if self._context_assembler is not None and _is_context_length_error(str(exc)):
                         max_retries = self._reactive_compact_max_retries(settings)
                         if reactive_compact_retries >= max_retries:
-                            emit(
+                            await emit(
                                 "runtime.turn_failed",
                                 payload={
                                     "error": str(exc),
@@ -410,17 +430,25 @@ class AgentRuntime:
                                 events=events,
                                 error_code="context_length_exceeded_after_compact",
                             )
-                        emit("runtime.reactive_compact_started", payload={"reason": str(exc)[:300]})
+                        await emit(
+                            "runtime.reactive_compact_started",
+                            payload={"reason": str(exc)[:300]},
+                        )
                         reactive_compact_retries += 1
                         pending_compaction = "aggressive"
                         continue
-                    emit(
+                    error_code = (
+                        "deadline_exceeded"
+                        if isinstance(exc, TimeoutError)
+                        else "transport_error"
+                    )
+                    await emit(
                         "transport.request_failed",
                         payload={"error": str(exc), "error_type": type(exc).__name__},
                     )
-                    emit(
+                    await emit(
                         "runtime.turn_failed",
-                        payload={"error": str(exc), "error_code": "transport_error"},
+                        payload={"error": str(exc), "error_code": error_code},
                     )
                     save_snapshot("failed")
                     return GenericRunResult(
@@ -428,7 +456,7 @@ class AgentRuntime:
                         status="failed",
                         session=session,
                         events=events,
-                        error_code="transport_error",
+                        error_code=error_code,
                     )
 
                 model_elapsed_ms = round((time.perf_counter() - model_started) * 1000, 1)
@@ -460,22 +488,22 @@ class AgentRuntime:
                             if callable(invalidate):
                                 invalidate(f"{type(exc).__name__}: {exc}")
                 if assistant_msg.reasoning_content:
-                    emit(
+                    await emit(
                         "assistant.thinking",
                         payload={"thinking": assistant_msg.reasoning_content},
                     )
                 if assistant_msg.text:
-                    emit("assistant.reply", payload={"reply": assistant_msg.text})
+                    await emit("assistant.reply", payload={"reply": assistant_msg.text})
                     if persistence is not None:
                         persistence.append_message(assistant_msg)
                 reactive_compact_retries = 0
 
                 agent_state.last_assistant_text = assistant_msg.text
                 if assistant_msg.usage:
-                    self._record_usage(agent_state, assistant_msg.usage, emit=emit)
+                    await self._record_usage(agent_state, assistant_msg.usage, emit=emit)
 
                 if assistant_msg.finish_reason == "length":
-                    emit(
+                    await emit(
                         "runtime.turn_failed",
                         payload={
                             "error": "model output truncated",
@@ -493,7 +521,7 @@ class AgentRuntime:
                     )
 
                 if not assistant_msg.tool_calls:
-                    emit(
+                    await emit(
                         "runtime.turn_completed",
                         payload={
                             "final_reply": assistant_msg.text,
@@ -511,7 +539,7 @@ class AgentRuntime:
 
                 tool_calls = assistant_msg.tool_calls
                 for tool_call in tool_calls:
-                    emit(
+                    await emit(
                         "tool.call_started",
                         tool_call_id=tool_call.id,
                         name=tool_call.name,
@@ -519,7 +547,7 @@ class AgentRuntime:
                     )
 
                 dispatch_started = time.perf_counter()
-                tool_results = self._dispatch_tools(
+                tool_results = await self._dispatch_tools(
                     tool_calls,
                     session,
                     run_id,
@@ -535,7 +563,7 @@ class AgentRuntime:
                 actual_ids = {result.tool_call_id for result in tool_results}
                 if expected_ids != actual_ids:
                     missing = expected_ids - actual_ids
-                    emit(
+                    await emit(
                         "runtime.turn_failed",
                         payload={
                             "error": f"tool result ID mismatch: missing {missing}",
@@ -570,7 +598,7 @@ class AgentRuntime:
 
                 call_args = {tool_call.id: tool_call.arguments for tool_call in tool_calls}
                 for result in tool_results:
-                    emit(
+                    await emit(
                         "tool.call_failed" if result.is_error else "tool.call_completed",
                         tool_call_id=result.tool_call_id,
                         name=result.name,
@@ -585,8 +613,8 @@ class AgentRuntime:
                         duration_ms=dispatch_ms,
                     )
 
-                if interrupt.cancelled:
-                    return self._cancel_result(
+                if _cancelled(interrupt, cancellation_token):
+                    return await self._cancel_result(
                         session,
                         run_id,
                         events,
@@ -601,8 +629,10 @@ class AgentRuntime:
 
                 if self._stop_condition is not None:
                     decision = self._stop_condition(session, tool_results)
+                    if inspect.isawaitable(decision):
+                        decision = await decision
                     if decision is not None:
-                        emit(
+                        await emit(
                             "runtime.turn_completed"
                             if decision.status == "replied"
                             else "runtime.turn_failed",
@@ -619,7 +649,7 @@ class AgentRuntime:
                         )
 
                 if settings is not None:
-                    guard_result = self._check_loop_guards(
+                    guard_result = await self._check_loop_guards(
                         agent_state,
                         emit=emit,
                         settings=settings,
@@ -636,7 +666,7 @@ class AgentRuntime:
 
                 iteration += 1
 
-            emit(
+            await emit(
                 "runtime.budget_exhausted",
                 payload={
                     "max_tool_iterations": self._max_tool_iterations,
@@ -684,11 +714,11 @@ class AgentRuntime:
         )
 
     @staticmethod
-    def _record_usage(
+    async def _record_usage(
         agent_state: AgentState,
         usage: dict[str, int],
         *,
-        emit: Callable[..., None],
+        emit: Callable[..., Awaitable[None]],
     ) -> None:
         input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
         input_tokens += int(usage.get("cache_read_input_tokens") or 0)
@@ -699,7 +729,7 @@ class AgentRuntime:
             output_tokens=previous.output_tokens + output_tokens,
             total_tokens=previous.total_tokens + input_tokens + output_tokens,
         )
-        emit(
+        await emit(
             "usage.update",
             payload={
                 "input_tokens": agent_state.provider_usage.input_tokens,
@@ -708,19 +738,19 @@ class AgentRuntime:
             },
         )
 
-    def _cancel_result(
+    async def _cancel_result(
         self,
         session: AgentSession,
         run_id: str,
         events: list[RuntimeEvent],
         *,
-        emit: Callable[..., None],
+        emit: Callable[..., Awaitable[None]],
         phase: str,
         agent_state: AgentState | None = None,
         task_state_store: TaskStateStore | None = None,
         persistence: SessionPersistenceManager | None = None,
     ) -> GenericRunResult:
-        emit("runtime.cancelled", payload={"phase": phase})
+        await emit("runtime.cancelled", payload={"phase": phase})
         snapshot = getattr(task_state_store, "snapshot", None)
         if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
             task_state_store.update_status(TaskStatus.PAUSED)
@@ -737,10 +767,10 @@ class AgentRuntime:
         )
 
     @staticmethod
-    def _check_loop_guards(
+    async def _check_loop_guards(
         agent_state: AgentState,
         *,
-        emit: Callable[..., None],
+        emit: Callable[..., Awaitable[None]],
         settings: Any,
     ) -> str | None:
         guards = getattr(settings, "runtime_guards", None)
@@ -748,11 +778,14 @@ class AgentRuntime:
             return None
         max_errors = getattr(guards, "max_consecutive_tool_errors", 5)
         if agent_state.consecutive_tool_errors >= max_errors:
-            emit("runtime.guard_triggered", payload={"guard": "max_consecutive_tool_errors"})
+            await emit("runtime.guard_triggered", payload={"guard": "max_consecutive_tool_errors"})
             return "max_consecutive_tool_errors"
         max_no_progress = getattr(guards, "max_no_progress_iterations", 20)
         if agent_state.no_progress_iterations >= max_no_progress:
-            emit("runtime.guard_triggered", payload={"guard": "max_no_progress_iterations"})
+            await emit(
+                "runtime.guard_triggered",
+                payload={"guard": "max_no_progress_iterations"},
+            )
             return "max_no_progress_iterations"
         return None
 
@@ -765,7 +798,7 @@ class AgentRuntime:
         except (TypeError, ValueError):
             return 2
 
-    def _dispatch_tools(
+    async def _dispatch_tools(
         self,
         tool_calls: list[ToolCall],
         session: AgentSession,
@@ -790,10 +823,60 @@ class AgentRuntime:
                 event_sink=event_sink,
             )
         run_context.cancellation_token = cancellation_token
-        return self._tool_executor.dispatch(
+        value = self._tool_executor.dispatch(
             tool_calls=tool_calls,
             run_context=run_context,
         )
+        if inspect.isawaitable(value):
+            value = await value
+        return value
+
+
+def _cancelled(interrupt: InterruptController, cancellation_token: Any) -> bool:
+    return interrupt.cancelled or bool(
+        getattr(cancellation_token, "cancelled", False)
+    )
+
+
+async def _consume_stream(
+    stream: Any,
+    deltas: list[Any],
+    *,
+    interrupt: InterruptController,
+    cancellation_token: Any,
+    deadline: Any,
+) -> None:
+    async def consume() -> None:
+        if not hasattr(stream, "__aiter__"):
+            raise TypeError("provider stream must be an async iterator")
+        async for delta in stream:
+            if _cancelled(interrupt, cancellation_token):
+                break
+            deltas.append(delta)
+
+    remaining = deadline.remaining_s() if deadline is not None else None
+    if remaining is None:
+        await consume()
+        return
+    if remaining <= 0:
+        raise TimeoutError("provider deadline expired")
+    try:
+        async with asyncio.timeout(remaining):
+            await consume()
+    except TimeoutError as exc:
+        raise TimeoutError("provider deadline expired") from exc
+
+
+async def _close_stream(stream: Any) -> None:
+    aclose = getattr(stream, "aclose", None)
+    if callable(aclose):
+        await aclose()
+        return
+    close = getattr(stream, "close", None)
+    if callable(close):
+        value = close()
+        if inspect.isawaitable(value):
+            await value
 
 
 def _accepts_attempt_sink(stream: Any) -> bool:

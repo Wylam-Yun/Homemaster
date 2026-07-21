@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
 
@@ -588,22 +589,113 @@ async def test_query_engine_synthesizes_tool_result_when_single_tool_raises() ->
     assert resources.active == 0
 
 
-def test_sync_bridge_reuses_async_pipeline_and_rejects_nested_loop() -> None:
+def test_sync_pipeline_bridge_is_removed() -> None:
     order = []
-    pipeline, context, _executor, _verifier, _resources, _ledger = build_pipeline(order)
-    result = pipeline.execute_sync(
-        ToolCall(id="call-1", name="action", arguments={"value": 1}),
-        context,
-    )
-    assert result.status is ToolExecutionStatus.SUCCESS
+    pipeline, _context, _executor, _verifier, _resources, _ledger = build_pipeline(order)
+    assert not hasattr(pipeline, "execute_sync")
+
+
+class _MonotonicDeadline:
+    def __init__(self, timeout_s: float) -> None:
+        self._expires_at = asyncio.get_running_loop().time() + timeout_s
+
+    def remaining_s(self) -> float:
+        return self._expires_at - asyncio.get_running_loop().time()
+
+
+class _BlockedResource:
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.active = 0
+
+    @asynccontextmanager
+    async def acquire(self, key, context):
+        del key, context
+        self.entered.set()
+        await self.release.wait()
+        self.active += 1
+        try:
+            yield
+        finally:
+            self.active -= 1
+
+
+class _BlockedVerifier(Verifier):
+    def __init__(self, order) -> None:
+        super().__init__(order)
+        self.cancelled = False
+
+    async def verify(self, result, context):
+        del result, context
+        self.calls += 1
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
 
 
 @pytest.mark.asyncio
-async def test_sync_bridge_rejects_active_event_loop() -> None:
+async def test_deadline_while_waiting_for_resource_never_starts_backend() -> None:
     order = []
-    pipeline, context, _executor, _verifier, _resources, _ledger = build_pipeline(order)
-    with pytest.raises(RuntimeError, match="active event loop"):
-        pipeline.execute_sync(
+    pipeline, context, executor, _verifier, _resources, _ledger = build_pipeline(order)
+    blocked = _BlockedResource()
+    pipeline.resource_manager = blocked
+    context = replace(context, deadline=_MonotonicDeadline(0.01))
+
+    result = await pipeline.execute(
+        ToolCall(id="call-1", name="action", arguments={"value": 1}),
+        context,
+    )
+
+    assert result.status is ToolExecutionStatus.CANCELLED
+    assert result.error is not None and result.error.code == "deadline_exceeded"
+    assert executor.calls == 0
+    assert blocked.active == 0
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_waiting_for_resource_releases_waiter() -> None:
+    order = []
+    pipeline, context, executor, _verifier, _resources, _ledger = build_pipeline(order)
+    blocked = _BlockedResource()
+    pipeline.resource_manager = blocked
+    task = asyncio.create_task(
+        pipeline.execute(
             ToolCall(id="call-1", name="action", arguments={"value": 1}),
             context,
         )
+    )
+    await blocked.entered.wait()
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert executor.calls == 0
+    assert blocked.active == 0
+
+
+@pytest.mark.asyncio
+async def test_verification_deadline_returns_pending_and_cancels_verifier() -> None:
+    order = []
+    verifier = _BlockedVerifier(order)
+    pipeline, context, executor, _verifier, resources, _ledger = build_pipeline(
+        order,
+        verifier=verifier,
+    )
+    context = replace(context, deadline=_MonotonicDeadline(0.02))
+
+    result = await pipeline.execute(
+        ToolCall(id="call-1", name="action", arguments={"value": 1}),
+        context,
+    )
+
+    assert executor.calls == 1
+    assert verifier.calls == 1
+    assert verifier.cancelled is True
+    assert result.status is ToolExecutionStatus.VERIFICATION_PENDING
+    assert result.error is not None and result.error.code == "deadline_exceeded"
+    assert result.verification.status is VerificationStatus.PENDING
+    assert resources.active == 0

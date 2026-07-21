@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
 from homemaster.providers.transports.types import TransportDelta
@@ -18,7 +20,7 @@ class _Transport:
     def __init__(self) -> None:
         self.tools = None
 
-    def stream(self, messages, *, tools=None, **kwargs):
+    async def stream(self, messages, *, tools=None, **kwargs):
         del messages, kwargs
         self.tools = tools
         yield TransportDelta(type="text", text_delta="done", finish_reason="stop")
@@ -50,10 +52,12 @@ def test_agent_runtime_uses_explicit_frozen_tool_view() -> None:
     transport = _Transport()
     runtime = AgentRuntime(transport=transport, tool_executor=lambda *_args: {})
 
-    result = runtime.run(
-        AgentSession("tool-view"),
-        "hello",
-        tool_view=view,
+    result = asyncio.run(
+        runtime.run(
+            AgentSession("tool-view"),
+            "hello",
+            tool_view=view,
+        )
     )
 
     assert result.final_reply == "done"

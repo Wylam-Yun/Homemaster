@@ -6,9 +6,10 @@ importing home domain modules.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -87,7 +88,7 @@ class FakeTransport:
     def call_count(self) -> int:
         return self._call_count
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -98,7 +99,7 @@ class FakeTransport:
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         self.last_system_prompt = system_prompt
         msg = self._get_next_response()
         if msg.content:
@@ -129,7 +130,7 @@ class ContextLengthFailingTransport:
     def __init__(self) -> None:
         self.call_count = 0
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -140,7 +141,7 @@ class ContextLengthFailingTransport:
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         self.call_count += 1
         raise RuntimeError("context_length_exceeded")
         yield
@@ -162,7 +163,7 @@ class AuditedRetryTransport:
         self.attempt_ids: list[str] = []
         self.request_hashes: list[str] = []
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -172,7 +173,7 @@ class AuditedRetryTransport:
         model_attempt_id: str,
         provider_key_index: int,
         **_kwargs: Any,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         payload = {
             "messages": [message.model_dump(mode="json") for message in messages],
             "system_prompt": system_prompt,
@@ -292,7 +293,7 @@ def _run(utterance: str, **kwargs: Any) -> GenericRunResult:
         max_tool_iterations=max_iter,
     )
     session = AgentSession(session_id="test")
-    return runtime.run(session, utterance, **kwargs)
+    return asyncio.run(runtime.run(session, utterance, **kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -427,7 +428,7 @@ def test_stop_condition_can_end_run_after_tool_results() -> None:
         stop_condition=stop_condition,
     )
     session = AgentSession(session_id="test-stop")
-    result = runtime.run(session, "run benchmark")
+    result = asyncio.run(runtime.run(session, "run benchmark"))
 
     assert result.status == "failed"
     assert result.error_code == "benchmark_invalid_action_limit"
@@ -445,7 +446,7 @@ def test_runtime_passes_system_prompt_to_transport() -> None:
     )
     session = AgentSession(session_id="test-sp")
 
-    runtime.run(session, "hello")
+    asyncio.run(runtime.run(session, "hello"))
 
     assert transport.last_system_prompt == "You are HomeMaster."
 
@@ -470,7 +471,7 @@ def test_runtime_writes_session_persistence_artifacts(tmp_path: Path) -> None:
     )
     session = AgentSession(session_id="persist-session")
 
-    result = runtime.run(session, "帮我找水杯", settings=settings)
+    result = asyncio.run(runtime.run(session, "帮我找水杯", settings=settings))
 
     assert result.status == "replied"
     session_dir = tmp_path / "sessions" / "persist-session"
@@ -528,7 +529,7 @@ def test_runtime_supports_unbounded_iterations() -> None:
         stop_condition=stop_after_3,
     )
     session = AgentSession(session_id="test-unbounded")
-    result = runtime.run(session, "go")
+    result = asyncio.run(runtime.run(session, "go"))
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -559,7 +560,7 @@ def test_reactive_compact_retries_context_length_error_twice_by_default() -> Non
         context_assembler=assembler,
     )
 
-    result = runtime.run(AgentSession(session_id="reactive"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="reactive"), "hello"))
 
     assert transport.call_count == 3
     assert result.status == "failed"
@@ -588,7 +589,7 @@ def test_runtime_retries_one_frozen_retryable_provider_attempt() -> None:
         provider_attempt_sink_factory=sink_factory,
     )
 
-    result = runtime.run(AgentSession(session_id="retry"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="retry"), "hello"))
 
     assert result.status == "replied"
     assert result.final_reply == "done"
@@ -629,7 +630,7 @@ def test_runtime_does_not_retry_closed_nonretryable_provider_errors(
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="no-retry"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="no-retry"), "hello"))
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -652,7 +653,7 @@ def test_runtime_does_not_retry_after_partial_provider_delta() -> None:
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="partial"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="partial"), "hello"))
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -676,7 +677,7 @@ def test_runtime_rejects_retry_request_hash_drift() -> None:
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="hash-drift"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="hash-drift"), "hello"))
 
     assert result.status == "failed"
     assert result.error_code == "transport_error"
@@ -691,14 +692,14 @@ def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
     provider_commits: list[ProviderAttemptRecord] = []
 
     class ToolTransport:
-        def stream(
+        async def stream(
             self,
             _messages: list[Message],
             *,
             attempt_sink: Any,
             model_attempt_id: str,
             **_kwargs: Any,
-        ) -> Iterator[TransportDelta]:
+        ) -> AsyncIterator[TransportDelta]:
             attempt_sink.record_attempt(
                 ProviderAttemptRecord(
                     model_attempt_id=model_attempt_id,
@@ -743,7 +744,7 @@ def test_runtime_commits_successful_attempt_before_tool_dispatch() -> None:
         provider_attempt_sink_factory=ListProviderAttemptSink,
     )
 
-    result = runtime.run(AgentSession(session_id="commit-order"), "hello")
+    result = asyncio.run(runtime.run(AgentSession(session_id="commit-order"), "hello"))
 
     assert result.error_code == "max_tool_iterations_exceeded"
     assert order == ["model_view_commit", "provider_commit", "tool_dispatch"]

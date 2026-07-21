@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -160,7 +160,7 @@ class FakeTransport:
         self.seen_system_prompts: list[str] = []
         self.seen_messages: list[list[Message]] = []
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -173,7 +173,7 @@ class FakeTransport:
         iteration: int | None = None,
         attempt_sink: Any = None,
         model_attempt_id: str = "attempt",
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         self.seen_tools.append(tools or [])
         self.seen_system_prompts.append(system_prompt)
         self.seen_messages.append(messages)
@@ -197,7 +197,7 @@ class RepeatingNavigateTransport:
     def __init__(self) -> None:
         self.call_count = 0
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -210,7 +210,7 @@ class RepeatingNavigateTransport:
         iteration: int | None = None,
         attempt_sink: Any = None,
         model_attempt_id: str = "attempt",
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         self.call_count += 1
         if attempt_sink is not None:
             _record_provider_attempt(
@@ -820,7 +820,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
         def __init__(self) -> None:
             self.call_count = 0
 
-        def stream(
+        async def stream(
             self,
             messages: list[Message],
             tools: list[dict[str, Any]] | None = None,
@@ -828,7 +828,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
             attempt_sink: Any = None,
             model_attempt_id: str = "attempt",
             **_kwargs: Any,
-        ) -> Iterator[TransportDelta]:
+        ) -> AsyncIterator[TransportDelta]:
             if attempt_sink is not None:
                 _record_provider_attempt(
                     messages,

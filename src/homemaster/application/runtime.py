@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import inspect
 import time
 import uuid
@@ -273,7 +272,7 @@ class _CanonicalToolExecutor:
             external_owner=request.dependencies.get("external_terminal_owner"),
         )
 
-    def dispatch(
+    async def dispatch(
         self,
         *,
         tool_calls: list[ToolCall],
@@ -293,7 +292,7 @@ class _CanonicalToolExecutor:
                     messages.append(terminal)
                     continue
                 try:
-                    result = asyncio.run(self._pipeline.execute(call, context))
+                    result = await self._pipeline.execute(call, context)
                 except Exception as exc:
                     messages.append(observer.on_exception(call, exc))
                     continue
@@ -301,8 +300,8 @@ class _CanonicalToolExecutor:
                 self._record_result(context, result)
                 messages.append(result.to_message(tool_call_id=call.id, name=call.name))
             return messages
-        results = asyncio.run(
-            self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
+        results = await self._pipeline.execute_many(
+            list(zip(tool_calls, contexts, strict=True))
         )
         for _call, context, result in zip(tool_calls, contexts, results, strict=True):
             self._record_result(context, result)
@@ -385,6 +384,10 @@ class _CanonicalToolExecutor:
         self.evidence_refs = tuple(
             dict.fromkeys((*self.evidence_refs, *refs))
         )
+
+    @property
+    def deadline(self) -> Deadline:
+        return self._deadline
 
 
 class ApplicationRuntime:
@@ -495,9 +498,8 @@ class ApplicationRuntime:
                         ListProviderAttemptSink,
                     ),
                 )
-                worker = asyncio.create_task(
-                    asyncio.to_thread(
-                        agent.run,
+                try:
+                    generic = await agent.run(
                         fenced_session,
                         request.text,
                         None,
@@ -508,13 +510,10 @@ class ApplicationRuntime:
                         task_state_store=task_state_store,
                         force_compact=runtime.consume_compaction(generation),
                         tool_view=view,
+                        cancellation_token=runtime.cancellation,
+                        deadline=executor.deadline,
                     )
-                )
-                try:
-                    generic = await asyncio.shield(worker)
                 except asyncio.CancelledError:
-                    with contextlib.suppress(Exception):
-                        await worker
                     return RunResult(
                         run_id=run_id,
                         session_id=session_id,
@@ -528,15 +527,31 @@ class ApplicationRuntime:
                         status=RunStatus.CANCELLED,
                         error_code="stale_generation",
                     )
-                result = self._commit_result(
-                    runtime,
-                    generation,
-                    agent_state,
-                    task_state_store,
-                    executor.evidence_refs,
-                    generic,
-                )
-                await self._save_if_configured(session_id, generation)
+                if generic.status == "cancelled":
+                    return RunResult(
+                        run_id=run_id,
+                        session_id=session_id,
+                        status=RunStatus.CANCELLED,
+                        error_code=generic.error_code or "user_interrupted",
+                        events=tuple(generic.events),
+                    )
+                try:
+                    result = self._commit_result(
+                        runtime,
+                        generation,
+                        agent_state,
+                        task_state_store,
+                        executor.evidence_refs,
+                        generic,
+                    )
+                    await self._save_if_configured(session_id, generation)
+                except SessionGenerationError:
+                    return RunResult(
+                        run_id=run_id,
+                        session_id=session_id,
+                        status=RunStatus.CANCELLED,
+                        error_code="stale_generation",
+                    )
                 return result
 
     async def compact(self, session_id: str) -> CompactionResult:
@@ -560,12 +575,16 @@ class ApplicationRuntime:
                     _provider_binding(provider_value, run_id=f"compact-{generation}")
                 ).resource
                 assembler = self.context_assembler_factory(request, provider)
-                composed: ComposedContext = assembler.prepare(
-                    session=runtime.session,
-                    agent_state=runtime.agent_state,
-                    task_state_store=runtime.task_state_store,
-                    tools=list(self._view(request, profile).manifests()),
-                    force_compact=runtime.consume_compaction(generation),
+                aprepare = getattr(assembler, "aprepare", None)
+                prepare = aprepare if callable(aprepare) else assembler.prepare
+                composed: ComposedContext = await _maybe_await(
+                    prepare(
+                        session=runtime.session,
+                        agent_state=runtime.agent_state,
+                        task_state_store=runtime.task_state_store,
+                        tools=list(self._view(request, profile).manifests()),
+                        force_compact=runtime.consume_compaction(generation),
+                    )
                 )
                 revision = await self._save_if_configured(session_id, generation)
                 return CompactionResult(
@@ -718,10 +737,10 @@ def _stop_condition(request: RunRequest):
     if condition is None:
         return None
 
-    def stop(session, results):
+    async def stop(session, results):
         value = condition({"session": session, "tool_results": results})
         if inspect.isawaitable(value):
-            value = asyncio.run(value)
+            value = await value
         if isinstance(value, RuntimeStopDecision):
             return value
         if value:

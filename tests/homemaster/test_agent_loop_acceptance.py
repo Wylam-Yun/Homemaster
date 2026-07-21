@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 from homemaster.agent.generic_runtime import AgentRuntime
@@ -22,7 +23,7 @@ class FakeTransport:
         self._responses = list(responses)
         self._index = 0
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -33,7 +34,7 @@ class FakeTransport:
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         if self._index >= len(self._responses):
             resp = {"content": "I'm here to help!", "stop_reason": "end_turn"}
         else:
@@ -71,7 +72,7 @@ def test_chat_turn_uses_zero_tools() -> None:
         tool_executor=dispatcher,
     )
     session = AgentSession(session_id="test-greeting")
-    result = runtime.run(session, "你好")
+    result = asyncio.run(runtime.run(session, "你好"))
     assert result.final_reply
     assert "你好" in result.final_reply
 
@@ -107,5 +108,5 @@ def test_task_turn_calls_tools() -> None:
         tool_executor=dispatcher,
     )
     session = AgentSession(session_id="test-tools")
-    result = runtime.run(session, "do something")
+    result = asyncio.run(runtime.run(session, "do something"))
     assert result.final_reply

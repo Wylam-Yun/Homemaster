@@ -1,0 +1,69 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0D2-CL16b",
+  "change_list": "CL-16b-agent-pipeline-async-cancellation",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster_parent": "e3ec020b27ec68ab31c4f2496a2c477ce400832a",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl16a": "GATE_PASSED",
+    "external_live_gate": "Deferred by release plan: Xorg, THOR, ALFWorld, Coworker and real-provider gates remain concentrated on hkust4 after CL-16d."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds_completed": 0,
+    "group": ["CL-16b", "CL-16c", "CL-16d"],
+    "status": "pending_until_cl16d",
+    "independent_review_rounds_allowed": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "AgentRuntime.run and canonical batch dispatch are native async and directly await ToolExecutionPipeline",
+    "application provider and AgentRuntime contracts require async provider streams; no provider worker-thread bridge remains",
+    "ContextAssembler.aprepare awaits LLM compaction while prepare remains only for synchronous unit compatibility",
+    "provider wait, resource acquisition, backend execution and verification share one monotonic run deadline",
+    "deadline before lease acquisition never marks a backend attempt; mutating execution timeout is outcome_unknown; verification timeout is verification_pending",
+    "LegacyExecutorAdapter is the controlled synchronous tool-backend adapter and executes off the owner loop; Coworker thread affinity is owned by CL-16c",
+    "SyncProviderAdapter and ToolExecutionPipeline.execute_sync are deleted"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/application tests/homemaster/tools/test_execution_pipeline.py tests/homemaster/tools/test_retry_policy.py tests/homemaster/test_generic_agent_runtime.py tests/homemaster/test_agent_loop_acceptance.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/guard_no_legacy_terms.py",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "e3ec020b27ec68ab31c4f2496a2c477ce400832a",
+  "evidence": [
+    {
+      "kind": "native_async_runtime",
+      "status": "pass",
+      "details": "ApplicationRuntime directly awaits AgentRuntime; AgentRuntime awaits async provider streams, async context preparation and canonical tool dispatch without asyncio.run or provider to_thread bridges."
+    },
+    {
+      "kind": "deadline_and_cancellation",
+      "status": "pass",
+      "details": "Provider timeout cancels the async stream; resource-wait deadline and cancellation start no backend and leave no active lease; mutating execution timeout or cancellation after backend start is outcome_unknown; verification deadline cancels the verifier and returns verification_pending."
+    },
+    {
+      "kind": "session_isolation",
+      "status": "pass",
+      "details": "A blocked native provider does not block a fast session, same-session turns remain serialized, cancellation fences stale generation commits, and resource leases are released."
+    },
+    {
+      "kind": "ordering_and_parity",
+      "status": "pass",
+      "details": "Frozen provider request hashes, provider commit before tool dispatch, model-view binding, pipeline stage order, evidence ordering, entry parity and retry contracts continue to pass."
+    },
+    {
+      "kind": "full_nonlive",
+      "status": "pass",
+      "details": "1101 passed, 7 deselected, with one existing Starlette/httpx warning; Ruff, compileall, cleanup guard, upstream manifest and diff checks pass."
+    }
+  ],
+  "reviews": []
+}

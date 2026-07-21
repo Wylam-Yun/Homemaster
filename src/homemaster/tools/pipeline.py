@@ -452,19 +452,6 @@ class ToolExecutionPipeline:
         assert all(result is not None for result in ordered)
         return [result for result in ordered if result is not None]
 
-    def execute_sync(
-        self,
-        tool_call: ToolCall,
-        context: ToolExecutionContext,
-    ) -> ToolExecutionResult:
-        """Compatibility bridge; never creates a nested event loop."""
-
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.execute(tool_call, context))
-        raise RuntimeError("execute_sync cannot run inside an active event loop")
-
     def _resolve(
         self,
         tool_call: ToolCall,
@@ -568,18 +555,37 @@ class ToolExecutionPipeline:
     ) -> ToolExecutionResult:
         definition = registered.definition
         resource_key = _resource_key(definition)
-        try:
+        acquired = False
+
+        async def execute_with_lease() -> ToolExecutionResult:
+            nonlocal acquired
             async with _lease(self.resource_manager, resource_key, context):
-                early = self._check_cancel_deadline(context)
-                if early is not None:
-                    return early
+                acquired = True
                 return await self._invoke_executor(registered, tool_call, context)
-        except asyncio.CancelledError:
+
+        try:
+            remaining = _remaining_s(context)
+            if remaining is None:
+                return await execute_with_lease()
+            if remaining <= 0:
+                return _result(
+                    ToolExecutionStatus.CANCELLED,
+                    "deadline_exceeded",
+                    "tool execution deadline expired before resource acquisition",
+                )
+            return await asyncio.wait_for(execute_with_lease(), timeout=remaining)
+        except TimeoutError:
+            if acquired:
+                return _timeout_result(definition)
             return _result(
                 ToolExecutionStatus.CANCELLED,
-                "cancelled",
-                "tool execution was cancelled",
+                "deadline_exceeded",
+                "tool execution deadline expired while waiting for a resource",
             )
+        except asyncio.CancelledError:
+            if acquired:
+                return _cancelled_after_attempt_result(definition)
+            raise
         except Exception as exc:
             return _result(
                 ToolExecutionStatus.FAILURE,
@@ -634,7 +640,44 @@ class ToolExecutionPipeline:
     ) -> ToolExecutionResult:
         assert registered.verifier is not None
         try:
-            verification = await registered.verifier.verify(result, context)
+            awaitable = registered.verifier.verify(result, context)
+            remaining = _remaining_s(context)
+            if remaining is None:
+                verification = await awaitable
+            elif remaining <= 0:
+                raise TimeoutError
+            else:
+                verification = await asyncio.wait_for(awaitable, timeout=remaining)
+        except TimeoutError:
+            return replace(
+                result,
+                status=ToolExecutionStatus.VERIFICATION_PENDING,
+                error=ToolExecutionError(
+                    "deadline_exceeded",
+                    "verification did not finish before the deadline",
+                ),
+                verification=VerificationRecord(
+                    status=VerificationStatus.PENDING,
+                    detail="verification deadline expired",
+                ),
+                retryable=False,
+            )
+        except asyncio.CancelledError:
+            if context.cancellation is not None and context.cancellation.cancelled:
+                return replace(
+                    result,
+                    status=ToolExecutionStatus.VERIFICATION_PENDING,
+                    error=ToolExecutionError(
+                        "cancelled",
+                        "verification was cancelled before certainty was established",
+                    ),
+                    verification=VerificationRecord(
+                        status=VerificationStatus.PENDING,
+                        detail="verification cancelled",
+                    ),
+                    retryable=False,
+                )
+            raise
         except Exception as exc:
             return _result(
                 ToolExecutionStatus.FAILURE,
@@ -735,6 +778,25 @@ def _timeout_result(definition: ToolDefinition) -> ToolExecutionResult:
     )
 
 
+def _cancelled_after_attempt_result(definition: ToolDefinition) -> ToolExecutionResult:
+    if _is_mutating(definition):
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.OUTCOME_UNKNOWN,
+            error=ToolExecutionError(
+                "cancelled",
+                "backend outcome is unknown after cancellation",
+            ),
+            outcome_certainty=OutcomeCertainty.UNKNOWN,
+            backend_attempted=True,
+        )
+    return _result(
+        ToolExecutionStatus.CANCELLED,
+        "cancelled",
+        "tool execution was cancelled",
+        backend_attempted=True,
+    )
+
+
 def _is_mutating(definition: ToolDefinition) -> bool:
     return any(effect not in {"none", "read", "read_only"} for effect in definition.state_effects)
 
@@ -745,6 +807,12 @@ def _resource_key(definition: ToolDefinition) -> str | None:
     if definition.concurrency_policy.value == "serialized":
         return f"tool:{definition.internal_id}"
     return None
+
+
+def _remaining_s(context: ToolExecutionContext) -> float | None:
+    if context.deadline is None:
+        return None
+    return context.deadline.remaining_s()
 
 
 def _verifier_applies(definition: ToolDefinition, result: ToolExecutionResult) -> bool:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import sys
 from dataclasses import asdict
@@ -201,6 +202,16 @@ class FanoutEventSink:
     def emit(self, event: RuntimeEvent) -> None:
         for sink in self._sinks:
             sink.emit(event)
+
+    async def aemit(self, event: RuntimeEvent) -> None:
+        for sink in self._sinks:
+            aemit = getattr(sink, "aemit", None)
+            if callable(aemit):
+                await aemit(event)
+                continue
+            value = sink.emit(event)
+            if inspect.isawaitable(value):
+                await value
 
     @property
     def events(self) -> list[RuntimeEvent]:

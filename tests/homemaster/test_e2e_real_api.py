@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -184,11 +185,13 @@ def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_sett
     )
 
     session = AgentSession(session_id="e2e-loop")
-    result = runtime.run(
-        session,
-        "hello",
-        settings=runtime_settings,
-        tool_view=tool_view,
+    result = asyncio.run(
+        runtime.run(
+            session,
+            "hello",
+            settings=runtime_settings,
+            tool_view=tool_view,
+        )
     )
 
     assert result.status == "replied"

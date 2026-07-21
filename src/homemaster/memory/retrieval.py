@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -31,7 +32,6 @@ from homemaster.events.trace import append_jsonl_event, write_json
 from homemaster.prompts.loader import render
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
-from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 from .index import (
     JsonEmbeddingCache,
@@ -189,22 +189,22 @@ class MimoMemoryQueryProvider:
         self,
         prompt: str,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
-        llm_client = SyncProviderAdapter(
-            LLMClient(
-                self._provider,
-                event_sink=self._event_sink,
-                run_id=self._run_id,
-            )
+        llm_client = LLMClient(
+            self._provider,
+            event_sink=self._event_sink,
+            run_id=self._run_id,
         )
+
+        async def complete():
+            try:
+                return await llm_client.complete_json(prompt, temperature=0.0)
+            finally:
+                await llm_client.aclose()
+
         try:
-            response = llm_client.complete_json(
-                prompt,
-                temperature=0.0,
-            )
+            response = asyncio.run(complete())
         except LLMClientError:
             raise
-        finally:
-            llm_client.close()
         try:
             query = MemoryRetrievalQuery.model_validate(response.json_payload)
         except ValidationError as exc:

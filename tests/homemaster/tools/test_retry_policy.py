@@ -300,3 +300,41 @@ async def test_mutating_timeout_returns_unknown_and_releases_resource() -> None:
     assert executor.calls == 1
     assert resource.active == 0
     assert ledger.attempts[0][0] == 1
+
+
+@pytest.mark.asyncio
+async def test_mutating_cancellation_after_backend_start_is_outcome_unknown() -> None:
+    entered = asyncio.Event()
+
+    class BlockingExecutor:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, arguments, context):
+            del arguments, context
+            self.calls += 1
+            entered.set()
+            await asyncio.Event().wait()
+
+    executor = BlockingExecutor()
+    cancellation = Cancellation()
+    pipeline, context, _executor, ledger, _events, resource = make(
+        state_effects=("device.write",),
+        cancellation=cancellation,
+        executor=executor,
+    )
+    task = asyncio.create_task(
+        pipeline.execute(ToolCall(id="call-1", name="retry", arguments={}), context)
+    )
+    await entered.wait()
+
+    cancellation.cancelled = True
+    task.cancel()
+    result = await task
+
+    assert result.status is ToolExecutionStatus.OUTCOME_UNKNOWN
+    assert result.outcome_certainty is OutcomeCertainty.UNKNOWN
+    assert result.retryable is False
+    assert executor.calls == 1
+    assert resource.active == 0
+    assert ledger.attempts == [(1, ToolExecutionStatus.OUTCOME_UNKNOWN)]

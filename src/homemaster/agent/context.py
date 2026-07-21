@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 from collections.abc import Callable
@@ -409,6 +410,107 @@ class ContextAssembler:
             ),
         )
 
+    async def aprepare(
+        self,
+        *,
+        session: AgentSession,
+        agent_state: AgentState,
+        task_state_store: TaskStateStore | None,
+        tools: list[dict] | None,
+        force_compact: str | bool | None = None,
+    ) -> ComposedContext:
+        """Assemble context without blocking the application event loop."""
+
+        providers = self._build_providers(
+            session=session,
+            agent_state=agent_state,
+            task_state_store=task_state_store,
+        )
+        items = [
+            item
+            for provider in providers
+            for item in provider.collect()
+            if item.placement is not ContextPlacement.TRACE_ONLY
+        ]
+        prelude_texts: list[str] = []
+        conversation_messages: list[Message] = session.messages
+        for item in items:
+            rendered = item.render(item.mode)
+            if item.placement is ContextPlacement.CONTEXT_PRELUDE and isinstance(rendered, str):
+                prelude_texts.append(rendered)
+            elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
+                conversation_messages = rendered
+
+        estimated = self._estimator.estimate_text(self._system_prompt)
+        estimated += self._estimator.estimate_messages(conversation_messages)
+        estimated += sum(self._estimator.estimate_text(text) for text in prelude_texts)
+        estimated += estimate_tools_tokens(tools)
+        budget = self._budget()
+        padded = budget.padded(estimated)
+        agent_state.estimated_context_tokens = padded
+        compaction_triggered = False
+        compaction_kind = "none"
+
+        force_requested = bool(force_compact)
+        should_auto_compact = (
+            self._policy.auto_compact_enabled
+            and budget.should_compact(padded) is BudgetDecision.COMPACT
+        )
+        if force_requested or should_auto_compact:
+            before_tokens = padded
+            force_mode = str(force_compact) if force_compact else ""
+            compaction_triggered, compaction_kind, conversation_messages = (
+                await self._acompact(
+                    session=session,
+                    messages=conversation_messages,
+                    budget=budget,
+                    aggressive=force_mode in {"aggressive", "manual"},
+                    force_summary=force_mode == "manual",
+                )
+            )
+            if compaction_triggered:
+                if force_mode == "manual":
+                    record_kind = "manual"
+                    record_reason = "manual"
+                    compaction_kind = f"manual_{compaction_kind}"
+                elif force_requested:
+                    record_kind = "reactive"
+                    record_reason = "provider_context_length"
+                else:
+                    record_kind = "summary"
+                    record_reason = "threshold"
+                after_estimate = estimate_messages_tokens(
+                    conversation_messages,
+                    estimator=self._estimator,
+                )
+                after_estimate += self._estimator.estimate_text(self._system_prompt)
+                after_estimate += sum(
+                    self._estimator.estimate_text(text) for text in prelude_texts
+                )
+                after_estimate += estimate_tools_tokens(tools)
+                after_tokens = budget.padded(after_estimate)
+                padded = after_tokens
+                agent_state.last_compaction = CompactionRecord(
+                    kind=record_kind,
+                    before_tokens=before_tokens,
+                    after_tokens=after_tokens,
+                    reason=record_reason,
+                )
+
+        return ComposedContext(
+            messages=self._render_messages(
+                prelude_texts=prelude_texts,
+                conversation_messages=conversation_messages,
+            ),
+            system_prompt=self._system_prompt,
+            tools=tools,
+            metrics=ContextMetrics(
+                estimated_tokens=padded,
+                compaction_triggered=compaction_triggered,
+                compaction_kind=compaction_kind,
+            ),
+        )
+
     def _build_providers(
         self,
         *,
@@ -545,6 +647,123 @@ class ContextAssembler:
                 prompt=prompt,
                 system_prompt=load_prompt(PromptId.COMPACT_SUMMARY),
             )
+        except Exception:
+            if self._policy.abort_on_summary_failure:
+                return None
+            return f"[Summary unavailable. {len(older)} messages dropped]"
+        if message.text.strip():
+            return message.text.strip()
+        if self._policy.abort_on_summary_failure:
+            return None
+        return f"[Summary unavailable. {len(older)} messages omitted]"
+
+    async def _acompact(
+        self,
+        *,
+        session: AgentSession,
+        messages: list[Message],
+        budget: ContextBudget,
+        aggressive: bool = False,
+        force_summary: bool = False,
+    ) -> tuple[bool, str, list[Message]]:
+        stage1_messages, stripped_images = strip_old_images(
+            messages,
+            keep_recent_images=self._policy.keep_recent_images,
+        )
+        stage1_messages, saved_tool_tokens = microcompact_tool_results_by_type(
+            stage1_messages,
+            keep_recent_per_type=dict(self._policy.keep_recent_tool_results_per_type),
+            default_keep_recent=self._policy.default_keep_recent_tool_results,
+        )
+        if stripped_images or saved_tool_tokens:
+            stage1_messages = sanitize_tool_pairs(stage1_messages)
+            stage1_estimate = estimate_messages_tokens(
+                stage1_messages,
+                estimator=self._estimator,
+            )
+            if (
+                not force_summary
+                and budget.should_compact(budget.padded(stage1_estimate))
+                is not BudgetDecision.COMPACT
+            ):
+                session.replace_messages(stage1_messages)
+                return True, "micro", stage1_messages
+            messages = stage1_messages
+
+        tail_ratio = (
+            self._policy.aggressive_tail_token_ratio
+            if aggressive
+            else self._policy.tail_token_ratio
+        )
+        protect_first_n = (
+            self._policy.aggressive_protect_first_n
+            if aggressive
+            else self._policy.protect_first_n
+        )
+        preserve_count = (
+            1
+            if force_summary
+            else _tail_message_count_for_budget(
+                messages,
+                tail_token_budget=max(
+                    1,
+                    int(budget.compaction_threshold_tokens * tail_ratio),
+                ),
+                estimator=self._estimator,
+                min_messages=1,
+            )
+        )
+        older, recent = split_preserving_recent_context(
+            messages,
+            preserve_recent_messages=preserve_count,
+            protect_first_n=protect_first_n,
+        )
+        if not older:
+            if stripped_images or saved_tool_tokens:
+                session.replace_messages(messages)
+                return True, "micro", messages
+            return False, "none", messages
+
+        summary = await self._abuild_summary(older=older, recent=recent)
+        if summary is None:
+            return False, "none", messages
+        compacted_messages = sanitize_tool_pairs(
+            [build_compaction_summary_message(summary), *recent]
+        )
+        compacted_messages, _ = strip_old_images(
+            compacted_messages,
+            keep_recent_images=self._policy.keep_recent_images,
+        )
+        session.replace_messages(compacted_messages)
+        return True, "summary", compacted_messages
+
+    async def _abuild_summary(
+        self,
+        *,
+        older: list[Message],
+        recent: list[Message],
+    ) -> str | None:
+        if not self._policy.enable_llm_summary or self._summary_client is None:
+            if self._policy.abort_on_summary_failure:
+                return None
+            return f"[Summary unavailable. {len(older)} messages omitted]"
+        try:
+            from homemaster.prompts.loader import PromptId, load_prompt
+
+            prompt = _render_summary_source(older=older, recent=recent)
+            try:
+                value = self._summary_client.complete(
+                    [UserMessage.from_text(prompt)],
+                    system_prompt=load_prompt(PromptId.COMPACT_SUMMARY),
+                    max_output_tokens=self._policy.output_reserve_tokens,
+                    temperature=0.0,
+                )
+            except TypeError:
+                value = self._summary_client.complete(
+                    [UserMessage.from_text(prompt)],
+                    system_prompt=load_prompt(PromptId.COMPACT_SUMMARY),
+                )
+            message = await value if inspect.isawaitable(value) else value
         except Exception:
             if self._policy.abort_on_summary_failure:
                 return None

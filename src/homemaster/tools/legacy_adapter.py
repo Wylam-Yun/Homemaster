@@ -8,6 +8,7 @@ old API did not carry.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import inspect
@@ -129,7 +130,8 @@ class LegacyExecutorAdapter:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         legacy_context = LegacyToolExecutionContext.from_canonical(context)
-        result = self._executor(
+        result = await asyncio.to_thread(
+            self._executor,
             arguments=dict(arguments),
             run_context=legacy_context.run_context,
         )

@@ -34,11 +34,11 @@ from scripts.coworker_demo.preflight import _mode_0600_check
 class FakeClient:
     token_estimator = object()
 
-    def stream(self, *_args, **_kwargs):
+    async def stream(self, *_args, **_kwargs):
         yield "one"
         yield "two"
 
-    def complete(self, *_args, **_kwargs):
+    async def complete(self, *_args, **_kwargs):
         return "done"
 
 
@@ -49,7 +49,7 @@ class RetryClient:
         self.key_indices: list[int] = []
         self.closed = False
 
-    def stream(
+    async def stream(
         self,
         *_args,
         attempt_sink,
@@ -142,11 +142,12 @@ def test_run_ids_are_unique_and_prefixed() -> None:
     assert first != second
 
 
-def test_deadline_transport_checks_shared_budget() -> None:
+@pytest.mark.asyncio
+async def test_deadline_transport_checks_shared_budget() -> None:
     outcome = CoworkerOutcome()
     wrapper = DeadlineAwareTransport(FakeClient(), CoworkerBudget(), outcome)
-    assert list(wrapper.stream([])) == ["one", "two"]
-    assert wrapper.complete([]) == "done"
+    assert [item async for item in wrapper.stream([])] == ["one", "two"]
+    assert await wrapper.complete([]) == "done"
 
 
 def test_navigate_returns_receipt_only_without_dom() -> None:

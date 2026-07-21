@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import subprocess
@@ -21,7 +22,6 @@ from homemaster.config import (
 )
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
-from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
 
@@ -210,14 +210,18 @@ def _live_mimo_smoke() -> DoctorCheck:
         provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
             DEFAULT_PROVIDER_NAME, kind="chat"
         )
-        client = SyncProviderAdapter(LLMClient(provider))
-        try:
-            response = client.complete_json(
+        client = LLMClient(provider)
+
+        async def smoke():
+            try:
+                return await client.complete_json(
                 '只输出 JSON object: {"ok": true}',
                 temperature=0.0,
-            )
-        finally:
-            client.close()
+                )
+            finally:
+                await client.aclose()
+
+        response = asyncio.run(smoke())
     except (ConfigError, LLMClientError) as exc:
         return DoctorCheck(
             name="live_mimo_smoke",
