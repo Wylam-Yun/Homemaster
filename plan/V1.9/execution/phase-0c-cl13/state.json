@@ -1,0 +1,94 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0C-CL13",
+  "change_list": "CL-13-alfworld-entry",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "ec292fd",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl12": "VERIFYING",
+    "exception": "Implementation and all non-live gates pass. The single CL-11/12/13 grouped review follows this record; Xorg/THOR/real-provider gates are deferred to the user-approved concentrated hkust4 batch."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-11", "CL-12", "CL-13"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "scripts/v19_release/_common.py",
+    "scripts/v19_release/run_alfworld.py",
+    "scripts/v19_release/run_m0_runtime_qualification.py",
+    "scripts/v19_release/verify_alfworld_release.py",
+    "scripts/v19_release/verify_m0_runtime_qualification.py",
+    "src/homemaster/adapters/alfworld_entry.py",
+    "src/homemaster/agent/compact.py",
+    "src/homemaster/application/runtime.py",
+    "src/homemaster/benchmarking/alfworld/env_adapter.py",
+    "src/homemaster/benchmarking/alfworld/model_view.py",
+    "src/homemaster/benchmarking/alfworld/runner.py",
+    "src/homemaster/benchmarking/alfworld/tools.py",
+    "src/homemaster/benchmarking/alfworld/tracing.py",
+    "src/homemaster/benchmarking/alfworld/types.py",
+    "src/homemaster/observations/service.py",
+    "tests/homemaster/benchmarking/test_alfworld_release_tools.py",
+    "tests/homemaster/benchmarking/test_alfworld_runner.py",
+    "tests/homemaster/benchmarking/test_alfworld_v18_guards.py",
+    "tests/homemaster/integration/test_no_implicit_model_media.py",
+    "tests/homemaster/test_context_compact.py",
+    "tests/homemaster/test_m0_runtime_qualification.py",
+    "tests/homemaster/test_v19_baseline_artifacts.py",
+    "tests/homemaster/tools/test_observation_service.py"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/benchmarking/test_alfworld_release_tools.py tests/homemaster/benchmarking/test_alfworld_v18_guards.py",
+    "uv run pytest -q tests/homemaster/benchmarking/test_alfworld_runner.py tests/homemaster/test_m0_runtime_qualification.py tests/homemaster/test_context_compact.py",
+    "uv run pytest -q tests/homemaster/benchmarking/alfworld",
+    "uv run pytest -q tests/homemaster/application tests/homemaster/tools tests/homemaster/integration/test_no_implicit_model_media.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release",
+    "git diff --check"
+  ],
+  "rollback_point": "bfd93c3",
+  "evidence": [
+    {
+      "kind": "unified_entry",
+      "status": "pass",
+      "details": "Single-episode and continuous-taskset runners call AlfworldApplicationEntry with typed RunRequest. The benchmark runner no longer imports or constructs LLMClient, model-facing registry, dispatcher, or agent runtime; environment lifecycle and scoring remain benchmark-owned."
+    },
+    {
+      "kind": "observation_authority",
+      "status": "pass",
+      "details": "Initial requests contain no image. Explicit observe is committed only on the next successful frozen provider request, same-response observe plus mutation is rejected, action invalidates current binding, retries do not recapture, and taskset boundaries remove historical image blocks while preserving text history."
+    },
+    {
+      "kind": "domain_parity",
+      "status": "pass",
+      "details": "Provider-attempt and model-view correlation remain isolated across taskset subtasks. Terminal tool-call ID and a content-hashed trace-row evidence reference persist in episode summaries; setup/control/model/total action accounting and borrowed adapter ownership remain reconciled."
+    },
+    {
+      "kind": "release_gate_tooling",
+      "status": "pass",
+      "details": "Machine runner binds candidate SHA, locked four-row manifest and bytes, exact runtime profile, sanitized provider identity, artifact hashes, provider attempts, reset evidence, terminal IDs and outcomes. The independent verifier recomputes all counts; migration permits task failures while release requires 4/4, and both fail closed on incomplete or inconsistent evidence."
+    },
+    {
+      "kind": "tests",
+      "status": "pass",
+      "details": "Release/AST gate: 28 passed in the final pre-commit rerun. Earlier focused runner/M0/compaction gate: 26 passed; ALFWorld benchmarking: 348 passed; application/tools/observation: 148 passed; full non-live: 1070 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, and diff check pass."
+    },
+    {
+      "kind": "external_live_gate",
+      "status": "pending",
+      "details": "Per user direction, Xorg/THOR/ALFWorld/real-provider execution is deferred to one concentrated hkust4 batch using conda run -n hm_alfworld after Git sync of an exact committed SHA. No live completion claim is made."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The one allowed independent CL-11/12/13 grouped review is the next gate. It may run once; remediation will be verified without requesting a second grouped review."
+    }
+  ],
+  "reviews": []
+}
