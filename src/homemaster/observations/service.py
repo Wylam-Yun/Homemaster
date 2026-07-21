@@ -345,7 +345,7 @@ class ObservationLedger:
             raise ObservationFreshnessError("observation capture event is stale or out of order")
         if self.observation_debt:
             assert self.debt_action_event_sequence is not None
-            if record.capture_event_sequence <= self.debt_action_event_sequence:
+            if record.capture_event_sequence < self.debt_action_event_sequence:
                 raise ObservationFreshnessError("observation must follow action completion")
             if (
                 self.debt_post_state_sequence is not None

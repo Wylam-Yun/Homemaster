@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Any, Protocol
 
+from homemaster.agent.compact import strip_old_images
 from homemaster.agent.context import ComposedContext, ContextAssembler
 from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult, RuntimeStopDecision
 from homemaster.agent.messages import Message, ToolCall, ToolResultMessage
@@ -132,6 +133,27 @@ class _FencedAgentSession:
             self.session_id,
             self._generation,
             lambda runtime: runtime.session.clear(),
+        )
+
+    def to_snapshot_dict(
+        self,
+        *,
+        agent_state: AgentState,
+        task_state_store: TaskStateStore,
+        model: str,
+        system_prompt: str,
+        strip_images: bool = True,
+    ) -> dict[str, Any]:
+        return self._manager.apply(
+            self.session_id,
+            self._generation,
+            lambda runtime: runtime.session.to_snapshot_dict(
+                agent_state=agent_state,
+                task_state_store=task_state_store,
+                model=model,
+                system_prompt=system_prompt,
+                strip_images=strip_images,
+            ),
         )
 
 
@@ -259,25 +281,51 @@ class _CanonicalToolExecutor:
         del run_context
         self._completion.begin_batch(tool_calls, self._view)
         contexts = [self._context_for(call) for call in tool_calls]
+        observer = self._request.dependencies.get("tool_dispatch_observer")
+        if observer is not None:
+            for call in tool_calls:
+                observer.on_call(call)
+            messages: list[ToolResultMessage] = []
+            for call, context in zip(tool_calls, contexts, strict=True):
+                terminal = observer.terminal_result(call)
+                if terminal is not None:
+                    messages.append(terminal)
+                    continue
+                try:
+                    result = asyncio.run(self._pipeline.execute(call, context))
+                except Exception as exc:
+                    messages.append(observer.on_exception(call, exc))
+                    continue
+                observer.on_result(call, result)
+                self._record_result(context, result)
+                messages.append(result.to_message(tool_call_id=call.id, name=call.name))
+            return messages
         results = asyncio.run(
             self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
         )
         for _call, context, result in zip(tool_calls, contexts, results, strict=True):
-            lookup = self._view.lookup(context.internal_tool_id)
-            tool = lookup.tool if lookup.status is ToolLookupStatus.ENABLED else None
-            if tool is not None:
-                policy = tool.definition.verification_policy
-                if policy.execution_proof is not ExecutionProof.NONE:
-                    self._completion.record(
-                        tool.definition.internal_id,
-                        result,
-                        policy.terminal_rule,
-                    )
-            self._record_evidence(result)
+            self._record_result(context, result)
         return [
             result.to_message(tool_call_id=call.id, name=call.name)
             for call, result in zip(tool_calls, results, strict=True)
         ]
+
+    def _record_result(
+        self,
+        context: ToolExecutionContext,
+        result: ToolExecutionResult,
+    ) -> None:
+        lookup = self._view.lookup(context.internal_tool_id)
+        tool = lookup.tool if lookup.status is ToolLookupStatus.ENABLED else None
+        if tool is not None:
+            policy = tool.definition.verification_policy
+            if policy.execution_proof is not ExecutionProof.NONE:
+                self._completion.record(
+                    tool.definition.internal_id,
+                    result,
+                    policy.terminal_rule,
+                )
+        self._record_evidence(result)
 
     def _context_for(self, call: ToolCall) -> ToolExecutionContext:
         lookup = self._view.lookup(call.name)
@@ -382,6 +430,12 @@ class ApplicationRuntime:
             session_id,
             environment_ref=environment_ref,
         ) as (runtime, generation, _):
+            if request.continuous_taskset and runtime.session.messages:
+                messages, _ = strip_old_images(
+                    runtime.session.messages,
+                    keep_recent_images=0,
+                )
+                runtime.session.replace_messages(messages)
             bind_run = getattr(backend, "bind_application_run", None)
             if callable(bind_run):
                 await _maybe_await(bind_run(run_id, generation))
@@ -390,7 +444,7 @@ class ApplicationRuntime:
             ledger = ObservationLedger(
                 run_id=run_id,
                 backend_id=_backend_id(backend, request.profile),
-                generation=generation,
+                generation=_backend_generation(backend, generation),
             )
             runtime.set_observation_reset(ledger.invalidate)
             provider_value = await _maybe_await(self.provider_factory(request, run_id))
@@ -434,7 +488,10 @@ class ApplicationRuntime:
                     system_prompt=getattr(assembler, "_system_prompt", ""),
                     model_view_observer=request.dependencies.get("model_view_observer"),
                     provider_commit_observer=committer,
-                    provider_attempt_sink_factory=ListProviderAttemptSink,
+                    provider_attempt_sink_factory=request.dependencies.get(
+                        "provider_attempt_sink_factory",
+                        ListProviderAttemptSink,
+                    ),
                 )
                 worker = asyncio.create_task(
                     asyncio.to_thread(
@@ -630,6 +687,11 @@ def _backend_id(backend: object | None, profile: str) -> str:
     return str(value) if isinstance(value, str) and value.strip() else f"{profile}:none"
 
 
+def _backend_generation(backend: object | None, fallback: int) -> int:
+    value = getattr(backend, "generation", fallback)
+    return value if isinstance(value, int) and value >= 0 else fallback
+
+
 def _bind_profile_backend(deps: dict[str, object], profile: str, backend: object | None) -> None:
     if backend is None:
         return
@@ -655,6 +717,8 @@ def _stop_condition(request: RunRequest):
         value = condition({"session": session, "tool_results": results})
         if inspect.isawaitable(value):
             value = asyncio.run(value)
+        if isinstance(value, RuntimeStopDecision):
+            return value
         if value:
             return RuntimeStopDecision(status="completed")
         return None

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 from pathlib import Path
 
-from scripts.v19_release._common import sha256_file
+from scripts.v19_release._common import canonical_json_bytes, sha256_bytes, sha256_file
 from scripts.v19_release.capture_baseline import (
     ALFWORLD_CONTRACT_PATHS,
     COWORKER_CONTRACT_PATHS,
@@ -25,8 +27,8 @@ def test_committed_baseline_artifacts_match_current_cl01_contract_owners() -> No
     assert sources["production_roots_match_homemaster_commit"] is True
     assert _read("tool-surfaces.json") == _tool_surfaces()
     assert _read("provider-attempt-contract.json") == _provider_attempt_contract()
-    assert _read("alfworld-contract-hashes.json") == _contract_hashes(
-        REPO_ROOT, "alfworld", ALFWORLD_CONTRACT_PATHS
+    assert _read("alfworld-contract-hashes.json") == _contract_hashes_at_commit(
+        "alfworld", ALFWORLD_CONTRACT_PATHS, HOMEMASTER_BASELINE_COMMIT
     )
     assert _read("coworker-contract-hashes.json") == _contract_hashes(
         REPO_ROOT, "coworker", COWORKER_CONTRACT_PATHS
@@ -59,3 +61,23 @@ def test_committed_baseline_test_evidence_is_a_passing_sanitized_run() -> None:
 
 def _read(name: str) -> dict:
     return json.loads((BASELINE / name).read_text(encoding="utf-8"))
+
+
+def _contract_hashes_at_commit(
+    domain: str,
+    paths: tuple[str, ...],
+    commit: str,
+) -> dict:
+    files = {}
+    for relative in paths:
+        content = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "show", f"{commit}:{relative}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        files[relative] = hashlib.sha256(content).hexdigest()
+    return {
+        "schema_version": f"homemaster-v1.9-baseline-{domain}-contracts-v1",
+        "files": files,
+        "aggregate_sha256": sha256_bytes(canonical_json_bytes(files)),
+    }

@@ -4,29 +4,21 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
-from homemaster.agent.context import ContextAssembler
-from homemaster.agent.generic_runtime import (
-    GenericAgentRuntime,
-    RuntimeStopDecision,
-)
-from homemaster.agent.generic_runtime import (
-    ToolSpec as RuntimeToolSpec,
-)
-from homemaster.agent.messages import ContentBlock, ToolResultMessage
-from homemaster.agent.normalized import RunContext
+from homemaster.adapters.alfworld_entry import AlfworldApplicationEntry
+from homemaster.agent.generic_runtime import RuntimeStopDecision
+from homemaster.agent.messages import ToolResultMessage
 from homemaster.agent.session import AgentSession
+from homemaster.application import RunPolicy, RunRequest
 from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     build_alfworld_batch_env,
     build_alfworld_batch_env_with_first_trial,
 )
 from homemaster.benchmarking.alfworld.prompt import build_episode_prompt, extract_task_text
-from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.benchmarking.alfworld.tracing import (
     AlfworldToolDispatchObserver,
     AlfworldTraceWriter,
@@ -62,11 +54,7 @@ from homemaster.benchmarking.alfworld.types import (
 )
 from homemaster.config import load_config
 from homemaster.events.sinks import JsonlEventSink
-from homemaster.prompts.loader import load_prompt
 from homemaster.providers.attempts import JsonlProviderAttemptSink
-from homemaster.providers.llm_client import LLMClient
-from homemaster.task_state.store import TaskStateStore
-from homemaster.tools.dispatcher import ToolDispatcher
 
 TransportFactory = Callable[[], Any]
 AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
@@ -77,8 +65,17 @@ AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 _ENABLE_V18_RESET_TRANSACTION = True
 
 
+class _AlfworldTerminalOwner:
+    def __init__(self, adapter: AlfworldEnvAdapter) -> None:
+        self._adapter = adapter
+
+    @property
+    def succeeded(self) -> bool:
+        return self._adapter.current_state.won
+
+
 class AlfworldBenchmarkRunner:
-    """Run ALFWorld episodes through GenericAgentRuntime and ALFWorld tools."""
+    """Run ALFWorld episodes through the unified application runtime."""
 
     def __init__(
         self,
@@ -88,7 +85,7 @@ class AlfworldBenchmarkRunner:
         adapter_factory: AdapterFactory | None = None,
     ) -> None:
         self.config = config
-        self._transport_factory = transport_factory or self._build_transport
+        self._transport_factory = transport_factory
         self._adapter_factory = adapter_factory or self._build_adapter
         self._custom_adapter_factory = adapter_factory is not None
         self.run_id = config.run_id or uuid.uuid4().hex[:12]
@@ -169,66 +166,9 @@ class AlfworldBenchmarkRunner:
         )
         runtime_sink = JsonlEventSink(episode_dir / "runtime")
         translator = create_translator(self.config.env_type)
-        dispatcher = ToolDispatcher()
-        tool_specs = self._register_tools(dispatcher)
         provider_profile = self._resolve_provider_profile()
         config = load_config(self.config.provider_config)
-        settings = SimpleNamespace(
-            run_id=episode_run_id,
-            max_turns=12,
-            runtime_root=self.run_dir / "runtime",
-            debug_root=self.run_dir / "debug",
-            results_root=self.run_dir / "results",
-            provider_name=provider_profile.name,
-            embedding_provider_name=config.runtime_defaults.default_embedding_provider_name,
-            config_path=config.config_path,
-            memory_path=None,
-            context=config.context,
-            runtime_guards=config.runtime,
-            prompts=config.prompts,
-            observability=config.observability,
-        )
-        task_state_store = TaskStateStore(run_id=episode_run_id)
         outcome = EpisodeOutcome()
-        run_context = RunContext(
-            session_id=episode_run_id,
-            run_id=episode_run_id,
-            turn_index=0,
-            settings=settings,
-            event_sink=runtime_sink,
-            deps={
-                "alfworld_env": adapter,
-                "alfworld_translator": translator,
-                "alfworld_trace": trace,
-                "alfworld_config": self.config,
-                "alfworld_episode_outcome": outcome,
-                "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
-                "alfworld_semantic_judge_config": (
-                    self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
-                ),
-                "task_state_store": task_state_store,
-            },
-        )
-        dispatcher.set_run_context(run_context)
-        system_prompt = load_prompt(settings.prompts.agent_system_prompt)
-        context_assembler = ContextAssembler(
-            provider=provider_profile,
-            policy=settings.context,
-            system_prompt=system_prompt,
-        )
-
-        runtime = GenericAgentRuntime(
-            transport=self._transport_factory(),
-            tool_executor=dispatcher,
-            max_tool_iterations=self.config.max_tool_iterations,
-            stop_condition=self._stop_condition(adapter),
-            context_assembler=context_assembler,
-            system_prompt=system_prompt,
-            model_view_observer=getattr(adapter, "model_view_observer", None),
-            provider_attempt_sink_factory=lambda: JsonlProviderAttemptSink(
-                episode_dir / "provider_attempts.jsonl"
-            ),
-        )
         prompt = build_episode_prompt(
             state=state,
             translator=translator,
@@ -237,16 +177,50 @@ class AlfworldBenchmarkRunner:
             max_env_steps=self.config.max_env_steps,
             observation_mode=self.config.observation_mode,
         )
-        result = runtime.run(
-            AgentSession(session_id=episode_run_id),
-            prompt,
-            tools=tool_specs,
-            user_content=_initial_user_content(prompt, state.frame_path),
+        entry = AlfworldApplicationEntry(
+            config=config,
+            memory_mode=self.config.memory_mode,
+            runtime_root=episode_dir / "application",
+            session_root=episode_dir / "sessions",
+            transport_factory=self._transport_factory,
             event_sink=runtime_sink,
-            run_id=episode_run_id,
-            settings=settings,
         )
-        trace.write_session_messages(result.session)
+        try:
+            result = entry.run(
+                RunRequest(
+                    text=prompt,
+                    session_id=episode_run_id,
+                    profile="alfworld",
+                    provider_name=provider_profile.name,
+                    environment=adapter,
+                    run_policy=RunPolicy(
+                        max_tool_iterations=self.config.max_tool_iterations,
+                        stop_condition=self._application_stop_condition(adapter),
+                    ),
+                    dependencies={
+                        "alfworld_translator": translator,
+                        "alfworld_trace": trace,
+                        "alfworld_config": self.config,
+                        "alfworld_episode_outcome": outcome,
+                        "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
+                        "alfworld_semantic_judge_config": (
+                            self.config.alfworld_root
+                            / "configs"
+                            / "semantic_judge_agnes.yaml"
+                        ),
+                        "model_view_observer": adapter.model_view_observer,
+                        "external_terminal_owner": _AlfworldTerminalOwner(adapter),
+                        "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
+                            episode_dir / "provider_attempts.jsonl"
+                        ),
+                    },
+                )
+            )
+            session = entry.application.session_manager.get(episode_run_id).session
+            trace.write_session_messages(session)
+        finally:
+            entry.close()
+            runtime_sink.close()
 
         final_state = adapter.current_state
         success = final_state.won
@@ -295,6 +269,8 @@ class AlfworldBenchmarkRunner:
                     else 0
                 )
             ),
+            terminal_tool_call_id=outcome.terminal_tool_call_id,
+            terminal_evidence_ref=outcome.terminal_evidence_ref,
         )
         episode_summary = {
             "episode_id": episode_result.episode_id,
@@ -311,24 +287,6 @@ class AlfworldBenchmarkRunner:
         trace.write_summary(episode_summary)
         trace.write_trajectory(episode_summary)
         return episode_result
-
-    def _register_tools(self, dispatcher: ToolDispatcher) -> list[RuntimeToolSpec]:
-        registry = build_alfworld_tool_registry(memory_mode=self.config.memory_mode)
-        tool_specs: list[RuntimeToolSpec] = []
-        for name in registry.all_names():
-            spec = registry.get(name)
-            if spec is None:
-                continue
-            dispatcher.register(spec)
-            if spec.selectable_by_model:
-                tool_specs.append(
-                    RuntimeToolSpec(
-                        name=spec.name,
-                        description=spec.description,
-                        input_schema=spec.input_schema,
-                    )
-                )
-        return tool_specs
 
     def _summary_config(self) -> dict[str, object]:
         return {
@@ -433,9 +391,24 @@ class AlfworldBenchmarkRunner:
 
         return decide
 
-    def _build_transport(self) -> LLMClient:
-        provider = self._resolve_provider_profile()
-        return LLMClient(provider, timeout_s=300.0)
+    def _application_stop_condition(
+        self,
+        adapter: AlfworldEnvAdapter,
+    ) -> Callable[[Mapping[str, object]], RuntimeStopDecision | None]:
+        decide = self._stop_condition(adapter)
+
+        def application_decide(context: Mapping[str, object]) -> RuntimeStopDecision | None:
+            session = context.get("session")
+            tool_results = context.get("tool_results")
+            if session is None:
+                raise TypeError("ALFWorld stop context requires a session")
+            if not isinstance(tool_results, list) or not all(
+                isinstance(result, ToolResultMessage) for result in tool_results
+            ):
+                raise TypeError("ALFWorld stop context requires ToolResultMessage results")
+            return decide(cast(AgentSession, session), tool_results)
+
+        return application_decide
 
     def _resolve_provider_profile(self):
         return load_config(self.config.provider_config).get_provider(
@@ -519,10 +492,10 @@ def _episode_failure_reason(error_code: str | None, done: bool) -> str:
 
 def _terminal_tool_payload(
     tool_results: list[ToolResultMessage],
-) -> dict[str, Any] | None:
+) -> Mapping[str, Any] | None:
     for result in tool_results:
         data = getattr(result, "data", None)
-        if isinstance(data, dict) and data.get("terminal") is True:
+        if isinstance(data, Mapping) and data.get("terminal") is True:
             return data
     return None
 
@@ -583,11 +556,6 @@ def _initial_model_trace_state(
     }
 
 
-def _initial_user_content(prompt: str, frame_path: str | None) -> list[ContentBlock]:
-    del frame_path
-    return [ContentBlock(text=prompt)]
-
-
 # ----------------------------------------------------------------------
 # Long-horizon taskset runner: one persistent agent session per taskset,
 # swapping goals in the same loaded scene via adapter.advance_goal.
@@ -597,9 +565,8 @@ def _initial_user_content(prompt: str, frame_path: str | None) -> list[ContentBl
 class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
     """Run long-horizon tasksets (a chain of subtasks in one persistent scene).
 
-    Reuses AlfworldBenchmarkRunner helpers (transport, adapter, stop_condition,
-    tool registry). Overrides run() to iterate tasksets instead of episodes,
-    and shares one AgentSession + runtime across subtasks within a taskset.
+    Reuses AlfworldBenchmarkRunner transport and policy helpers, iterates tasksets
+    instead of episodes, and shares one application session within each taskset.
     """
 
     def __init__(
@@ -608,9 +575,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         taskset_config: TasksetRunConfig,
         transport_factory: TransportFactory | None = None,
     ) -> None:
-        # Build an AlfworldBenchmarkConfig shim so the inherited helpers
-        # (_resolve_provider_profile, _stop_condition, _register_tools, ...) work
-        # without modification.
+        # The base runner owns common provider, adapter, and stop-policy settings.
         shim = AlfworldBenchmarkConfig(
             alfworld_root=taskset_config.alfworld_root,
             alfworld_config=taskset_config.alfworld_config,
@@ -684,6 +649,8 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
             seed=self.config.seed,
             require_v18_reset=_ENABLE_V18_RESET_TRANSACTION,
         )
+        entry: AlfworldApplicationEntry | None = None
+        runtime_sink: JsonlEventSink | None = None
 
         try:
             first_subtask_dir = taskset_dir / "subtask-01"
@@ -737,56 +704,19 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
             benchmark_control_action_count = 0
             root_terminal: TasksetRootTerminal | None = None
             subtask_results: list[SubtaskResult] = []
-            session = AgentSession(session_id=f"{self.run_id}-{taskset.id}")
-            task_state_store = TaskStateStore(run_id=f"{self.run_id}-{taskset.id}")
             runtime_sink = JsonlEventSink(taskset_dir / "runtime")
             translator = create_translator(self.config.env_type)
-            dispatcher = ToolDispatcher()
-            tool_specs = self._register_tools(dispatcher)
             provider_profile = self._resolve_provider_profile()
             config = load_config(self.config.provider_config)
-            settings = SimpleNamespace(
-                run_id=f"{self.run_id}-{taskset.id}",
-                max_turns=12,
-                runtime_root=taskset_dir / "runtime",
-                debug_root=taskset_dir / "debug",
-                results_root=taskset_dir / "results",
-                provider_name=provider_profile.name,
-                embedding_provider_name=(
-                    config.runtime_defaults.default_embedding_provider_name
-                ),
-                config_path=config.config_path,
-                memory_path=None,
-                context=config.context,
-                runtime_guards=config.runtime,
-                prompts=config.prompts,
-                observability=config.observability,
-            )
-            run_context = RunContext(
-                session_id=f"{self.run_id}-{taskset.id}",
-                run_id=f"{self.run_id}-{taskset.id}",
-                turn_index=0,
-                settings=settings,
+            entry = AlfworldApplicationEntry(
+                config=config,
+                memory_mode=self.config.memory_mode,
+                runtime_root=taskset_dir / "application",
+                session_root=taskset_dir / "sessions",
+                transport_factory=self._transport_factory,
                 event_sink=runtime_sink,
-                deps={
-                    "alfworld_env": adapter,
-                    "alfworld_translator": translator,
-                    "alfworld_config": self.config,
-                    "alfworld_semantic_judge_config": (
-                        self.config.alfworld_root
-                        / "configs"
-                        / "semantic_judge_agnes.yaml"
-                    ),
-                    "task_state_store": task_state_store,
-                },
             )
-            dispatcher.set_run_context(run_context)
-            system_prompt = load_prompt(settings.prompts.agent_system_prompt)
-            context_assembler = ContextAssembler(
-                provider=provider_profile,
-                policy=settings.context,
-                system_prompt=system_prompt,
-            )
+            application_session_id = f"{self.run_id}-{taskset.id}"
 
             for idx, subtask in enumerate(taskset.subtasks):
                 selection, traj_data = trial_inputs[idx]
@@ -871,13 +801,6 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     state = advance_result.state
 
                 outcome = EpisodeOutcome()
-                run_context.deps["alfworld_trace"] = trace
-                run_context.deps["alfworld_current_subtask"] = subtask
-                run_context.deps["alfworld_episode_outcome"] = outcome
-                run_context.deps["tool_dispatch_observer"] = (
-                    AlfworldToolDispatchObserver(outcome)
-                )
-                run_context.deps["alfworld_current_traj_data"] = traj_data
                 subtask_run_id = (
                     f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}"
                 )
@@ -895,22 +818,6 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     }
                 )
 
-                runtime = GenericAgentRuntime(
-                    transport=self._transport_factory(),
-                    tool_executor=dispatcher,
-                    max_tool_iterations=self.config.max_tool_iterations,
-                    stop_condition=self._stop_condition(adapter),
-                    context_assembler=context_assembler,
-                    system_prompt=system_prompt,
-                    model_view_observer=getattr(
-                        adapter,
-                        "model_view_observer",
-                        None,
-                    ),
-                    provider_attempt_sink_factory=lambda path=(
-                        subtask_dir / "provider_attempts.jsonl"
-                    ): JsonlProviderAttemptSink(path),
-                )
                 prompt = build_episode_prompt(
                     state=state,
                     translator=translator,
@@ -920,16 +827,43 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     observation_mode=self.config.observation_mode,
                     subtask_instruction=subtask.instruction,
                 )
-                result = runtime.run(
-                    session,
-                    prompt,
-                    tools=tool_specs,
-                    user_content=_initial_user_content(prompt, state.frame_path),
-                    event_sink=runtime_sink,
-                    run_id=subtask_run_id,
-                    settings=settings,
+                result = entry.run(
+                    RunRequest(
+                        text=prompt,
+                        session_id=application_session_id,
+                        profile="alfworld",
+                        provider_name=provider_profile.name,
+                        continuous_taskset=True,
+                        environment=adapter,
+                        run_policy=RunPolicy(
+                            max_tool_iterations=self.config.max_tool_iterations,
+                            stop_condition=self._application_stop_condition(adapter),
+                        ),
+                        dependencies={
+                            "alfworld_translator": translator,
+                            "alfworld_trace": trace,
+                            "alfworld_config": self.config,
+                            "alfworld_current_subtask": subtask,
+                            "alfworld_episode_outcome": outcome,
+                            "alfworld_current_traj_data": traj_data,
+                            "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
+                            "alfworld_semantic_judge_config": (
+                                self.config.alfworld_root
+                                / "configs"
+                                / "semantic_judge_agnes.yaml"
+                            ),
+                            "model_view_observer": adapter.model_view_observer,
+                            "external_terminal_owner": _AlfworldTerminalOwner(adapter),
+                            "provider_attempt_sink_factory": lambda path=(
+                                subtask_dir / "provider_attempts.jsonl"
+                            ): JsonlProviderAttemptSink(path),
+                        },
+                    )
                 )
-                trace.write_session_messages(result.session)
+                session = entry.application.session_manager.get(
+                    application_session_id
+                ).session
+                trace.write_session_messages(session)
 
                 final_state = adapter.current_state
                 success = adapter.is_current_goal_satisfied()
@@ -1016,6 +950,10 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 root_terminal=root_terminal,
             )
         finally:
+            if entry is not None:
+                entry.close()
+            if runtime_sink is not None:
+                runtime_sink.close()
             adapter.close()
 
     def _taskset_trial_inputs(

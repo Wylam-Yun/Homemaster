@@ -66,6 +66,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldStepResult,
     make_execution_feedback,
 )
+from homemaster.observations import ObservationCapture
 
 
 class _NavigationResult(SimpleNamespace):
@@ -243,6 +244,7 @@ class AlfworldEnvAdapter:
         self._scene_generation = 0
         self._goal_generation = 0
         self._event_sequence = 0
+        self._application_run_id = "unbound"
         self._scene_object_index: SceneObjectIndex | None = None
         self._pose_context: PoseContext | OracleExecutionContext | None = None
         self._scene_reset_fingerprint: str | None = None
@@ -310,6 +312,26 @@ class AlfworldEnvAdapter:
     @property
     def model_view_observer(self) -> AlfworldModelViewObserver:
         return self._model_view_observer
+
+    def capture(self) -> ObservationCapture:
+        state = self.current_state
+        if not state.frame_path:
+            raise RuntimeError("ALFWorld raster observation has no current frame")
+        path = Path(state.frame_path)
+        return ObservationCapture(
+            backend_id=self.backend_id,
+            run_id=self._application_run_id,
+            generation=self.generation,
+            state_sequence=self.state_sequence,
+            capture_event_sequence=self.event_sequence,
+            media_type="image/png",
+            content=path.read_bytes(),
+            evidence_ref=f"alfworld/{state.episode_id}/frame/{self.event_sequence}",
+        )
+
+    def bind_application_run(self, run_id: str, generation: int) -> None:
+        del generation
+        self._application_run_id = run_id
 
     def reset(
         self,
@@ -939,6 +961,7 @@ class AlfworldEnvAdapter:
     ) -> AlfworldStepResult:
         previous = self.current_state
         self._pose_context = None
+        self._event_sequence += 1
 
         try:
             obs, scores, dones, infos = self._env.step([command])
@@ -977,6 +1000,7 @@ class AlfworldEnvAdapter:
                     tool_name, tool_args, success=False, failure_reason="env_error"
                 ),
                 feedback=str(exc),
+                backend_action_count=1,
             )
 
         invalid_count = previous.invalid_action_count + (1 if invalid else 0)
@@ -1010,6 +1034,7 @@ class AlfworldEnvAdapter:
                 failure_reason="invalid_action" if invalid else None,
             ),
             feedback=observation,
+            backend_action_count=1,
         )
 
     def virtual_navigate(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from homemaster.agent.compact import (
     build_compaction_summary_message,
     microcompact_tool_results_by_type,
@@ -90,6 +92,21 @@ def test_strip_old_images_keeps_recent_images_and_records_tool_args() -> None:
     )
     assert "image stripped" in text
     assert "room-0" in text
+
+
+def test_strip_old_images_can_remove_every_historical_image() -> None:
+    messages = [
+        UserMessage(
+            content=[ContentBlock(type="image", source={"type": "base64", "data": "abc"})]
+        )
+    ]
+
+    stripped, count = strip_old_images(messages, keep_recent_images=0)
+
+    assert count == 1
+    assert [block.type for block in stripped[0].content] == ["text"]
+    with pytest.raises(ValueError, match="non-negative"):
+        strip_old_images(messages, keep_recent_images=-1)
 
 
 def test_microcompact_tool_results_by_type_uses_per_tool_retention() -> None:

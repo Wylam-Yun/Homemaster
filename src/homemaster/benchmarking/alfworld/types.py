@@ -1122,6 +1122,8 @@ class AlfworldEpisodeResult:
     model_backend_action_count: int = 0
     total_backend_action_count: int = 0
     total_external_request_count: int = 0
+    terminal_tool_call_id: str | None = None
+    terminal_evidence_ref: str | None = None
 
 
 @dataclass
@@ -1287,6 +1289,8 @@ class AlfworldSummary:
                     "total_external_request_count": int(
                         getattr(e, "total_external_request_count", 0)
                     ),
+                    "terminal_tool_call_id": getattr(e, "terminal_tool_call_id", None),
+                    "terminal_evidence_ref": getattr(e, "terminal_evidence_ref", None),
                 }
                 for e in self.episodes
             ],

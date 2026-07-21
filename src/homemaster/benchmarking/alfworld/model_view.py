@@ -197,6 +197,22 @@ class FrameLedger:
     def get_by_binding(self, binding_id: str) -> FrameLedgerRecord | None:
         return self._by_binding.get(binding_id)
 
+    def find_observation_frame(
+        self,
+        *,
+        content_sha256: str,
+        pixel_sha256: str | None,
+        event_sequence: int,
+    ) -> FrameLedgerRecord | None:
+        matches = [
+            record
+            for record in self._by_binding.values()
+            if record.content_sha256 == content_sha256
+            and record.pixel_sha256 == pixel_sha256
+            and record.event_sequence == event_sequence
+        ]
+        return matches[0] if len(matches) == 1 else None
+
 
 class AlfworldModelViewObserver:
     def __init__(self, *, frame_ledger: FrameLedger) -> None:
@@ -310,12 +326,29 @@ class AlfworldModelViewObserver:
             ),
             None,
         )
-        if binding is None or binding.frame_binding_id is None:
-            raise ValueError("provider attempt did not contain a bound ALFWorld frame")
-        record = self._frame_ledger.get_by_binding(binding.frame_binding_id)
+        record = (
+            self._frame_ledger.get_by_binding(binding.frame_binding_id)
+            if binding is not None and binding.frame_binding_id is not None
+            else None
+        )
         if record is None:
-            raise ValueError("provider attempt referenced an unknown frame binding")
-        if binding.content_sha256 != record.content_sha256:
+            observation = next(
+                (
+                    item
+                    for item in reversed(attempt.outbound_observations)
+                    if item.observation_pixel_sha256 is not None
+                ),
+                None,
+            )
+            if observation is not None:
+                record = self._frame_ledger.find_observation_frame(
+                    content_sha256=observation.observation_content_sha256,
+                    pixel_sha256=observation.observation_pixel_sha256,
+                    event_sequence=observation.observation_capture_event_sequence,
+                )
+        if record is None:
+            raise ValueError("provider attempt did not contain a known ALFWorld observation")
+        if binding is not None and binding.content_sha256 != record.content_sha256:
             raise ValueError("outbound image bytes do not match the frame ledger")
         view = CommittedModelView(
             model_attempt_id=attempt.model_attempt_id,

@@ -22,6 +22,9 @@ def strip_old_images(
 ) -> tuple[list[Message], int]:
     """Replace older image blocks with text placeholders, preserving latest N images."""
 
+    if keep_recent_images < 0:
+        raise ValueError("keep_recent_images must be non-negative")
+
     image_positions: list[tuple[int, int]] = []
     tool_args_by_result_id = _tool_args_by_result_id(messages)
     for message_index, message in enumerate(messages):
@@ -30,7 +33,7 @@ def strip_old_images(
                 image_positions.append((message_index, block_index))
     if len(image_positions) <= keep_recent_images:
         return list(messages), 0
-    keep = set(image_positions[-keep_recent_images:])
+    keep = set() if keep_recent_images == 0 else set(image_positions[-keep_recent_images:])
     stripped = 0
     result: list[Message] = []
     for message_index, message in enumerate(messages):

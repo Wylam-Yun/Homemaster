@@ -87,6 +87,31 @@ def test_product_source_does_not_import_gate_evidence_helpers() -> None:
     assert offenders == []
 
 
+def test_alfworld_runner_does_not_assemble_model_facing_runtime_components() -> None:
+    path = ROOT / "src/homemaster/benchmarking/alfworld/runner.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    forbidden = {
+        "AgentRuntime",
+        "GenericAgentRuntime",
+        "LLMClient",
+        "ToolDispatcher",
+        "ToolRegistry",
+        "build_alfworld_tool_registry",
+    }
+    imported_or_called: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported_or_called.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.Import):
+            imported_or_called.update(alias.name.rsplit(".", 1)[-1] for alias in node.names)
+        elif isinstance(node, ast.Call):
+            name = _call_name(node.func)
+            if name is not None:
+                imported_or_called.add(name)
+
+    assert forbidden.isdisjoint(imported_or_called)
+
+
 def _call_name(node: ast.expr) -> str | None:
     if isinstance(node, ast.Name):
         return node.id

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from homemaster.agent.messages import ToolCall
 from homemaster.agent.normalized import RunContext
-from homemaster.benchmarking.alfworld.runner import _initial_user_content
+from homemaster.application import RunRequest
 from homemaster.benchmarking.alfworld.tools import _receipt_tool_result
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
@@ -12,7 +12,9 @@ from homemaster.tools.spec import ToolSpec
 
 
 def test_initial_prompt_and_alfworld_action_receipt_have_no_image() -> None:
-    assert [block.type for block in _initial_user_content("task", "/tmp/frame.png")] == ["text"]
+    request = RunRequest(text="task", profile="alfworld")
+    assert request.text == "task"
+    assert not hasattr(request, "user_content")
 
     result = _receipt_tool_result(
         name="robot_go_to",

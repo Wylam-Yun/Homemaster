@@ -134,7 +134,7 @@ def run_qualification(
         memory_mode="disabled",
         max_invalid_actions=1,
         max_env_steps=1,
-        max_tool_iterations=1,
+        max_tool_iterations=2,
         provider_config=provider_config,
         provider_name=provider_name,
         run_id=run_id,

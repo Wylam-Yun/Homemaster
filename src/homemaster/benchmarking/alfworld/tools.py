@@ -103,7 +103,12 @@ def _feedback_action(tool_name: str, arguments: dict[str, Any]) -> Any:
     return "verify"
 
 
-def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResultMessage:
+def _result_from_step(
+    step_result: Any,
+    run_context: RunContext,
+    *,
+    evidence_refs: tuple[str, ...] = (),
+) -> ToolResultMessage:
     data = step_result.execution_feedback.to_model_payload()
     outcome = run_context.deps.get("alfworld_episode_outcome")
     if outcome is not None:
@@ -114,6 +119,7 @@ def _result_from_step(step_result: Any, run_context: RunContext) -> ToolResultMe
         data=data,
         failure_reason=step_result.failure_reason,
         is_error=step_result.execution_feedback.terminal,
+        evidence_refs=evidence_refs,
     )
 
 
@@ -144,13 +150,14 @@ def _validation_failure(
     )
 
 
-def _write_trace(run_context: RunContext, step_result: Any) -> None:
+def _write_trace(run_context: RunContext, step_result: Any) -> tuple[str, ...]:
     trace = run_context.deps.get("alfworld_trace")
-    if trace is not None:
-        for event in getattr(step_result, "trace_events", ()):
-            if isinstance(event, dict):
-                trace.write_event(event)
-        trace.write_event(step_result.to_trace_event())
+    if trace is None:
+        return ()
+    for event in getattr(step_result, "trace_events", ()):
+        if isinstance(event, dict):
+            trace.write_event(event)
+    return (trace.write_event(step_result.to_trace_event()),)
 
 
 def _exec_go_to(
@@ -190,8 +197,8 @@ def _exec_go_to(
             tool_name="robot_go_to",
             tool_args=grounded_args,
         )
-    _write_trace(run_context, step_result)
-    return _result_from_step(step_result, run_context)
+    evidence_refs = _write_trace(run_context, step_result)
+    return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
 
 
 def _exec_manipulate(
@@ -206,8 +213,8 @@ def _exec_manipulate(
             tool_name="robot_manipulate",
             tool_args=_with_grounding_metadata(grounded, grounding_results),
         )
-        _write_trace(run_context, step_result)
-        return _result_from_step(step_result, run_context)
+        evidence_refs = _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
     if grounded.get("action") == "use" and _is_current_subtask_toggle_target(
         run_context,
         str(grounded.get("object", "")),
@@ -217,8 +224,8 @@ def _exec_manipulate(
             tool_name="robot_manipulate",
             tool_args=_with_grounding_metadata(grounded, grounding_results),
         )
-        _write_trace(run_context, step_result)
-        return _result_from_step(step_result, run_context)
+        evidence_refs = _write_trace(run_context, step_result)
+        return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
     try:
         command = _translator(run_context).manipulate(**grounded)
     except TranslatorValidationError as exc:
@@ -233,8 +240,8 @@ def _exec_manipulate(
         tool_name="robot_manipulate",
         tool_args=_with_grounding_metadata(grounded, grounding_results),
     )
-    _write_trace(run_context, step_result)
-    return _result_from_step(step_result, run_context)
+    evidence_refs = _write_trace(run_context, step_result)
+    return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
 
 
 def _exec_verify(
@@ -273,7 +280,10 @@ def _receipt_tool_result(
     data: dict[str, Any],
     failure_reason: str | None = None,
     is_error: bool | None = None,
+    evidence_refs: tuple[str, ...] = (),
 ) -> ToolResultMessage:
+    if evidence_refs:
+        data = {**data, "evidence_refs": list(evidence_refs)}
     content = [ContentBlock(text=_json_dumps(data))]
     return ToolResultMessage(
         tool_call_id="",

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +18,7 @@ from homemaster.agent.messages import (
     UserMessage,
 )
 from homemaster.agent.session import AgentSession
+from homemaster.application import RunResult, RunStatus
 from homemaster.benchmarking.alfworld import runner as runner_module
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.runner import (
@@ -32,12 +36,78 @@ from homemaster.benchmarking.alfworld.types import (
     Taskset,
     TasksetRunConfig,
 )
+from homemaster.observations import ObservationCapture
+from homemaster.providers.attempts import (
+    OutboundObservationBinding,
+    ProviderAttemptRecord,
+)
 from homemaster.providers.transports import TransportDelta
+
+
+def _record_provider_attempt(
+    messages: list[Message],
+    tools: list[dict[str, Any]] | None,
+    *,
+    attempt_sink: Any,
+    model_attempt_id: str,
+) -> None:
+    observations: list[OutboundObservationBinding] = []
+    for message_index, message in enumerate(messages):
+        for block_index, block in enumerate(message.content):
+            if block.type != "image" or not isinstance(block.source, dict):
+                continue
+            metadata = block.metadata
+            if "observation_id" not in metadata:
+                continue
+            encoded = block.source.get("data")
+            if not isinstance(encoded, str):
+                continue
+            content_sha256 = hashlib.sha256(base64.b64decode(encoded)).hexdigest()
+            observations.append(
+                OutboundObservationBinding(
+                    message_index=message_index,
+                    block_index=block_index,
+                    content_sha256=content_sha256,
+                    media_type=str(block.source["media_type"]),
+                    observation_id=str(metadata["observation_id"]),
+                    observation_content_sha256=str(
+                        metadata["observation_content_sha256"]
+                    ),
+                    observation_pixel_sha256=str(
+                        metadata["observation_pixel_sha256"]
+                    ),
+                    observation_backend_id=str(metadata["observation_backend_id"]),
+                    observation_run_id=str(metadata["observation_run_id"]),
+                    observation_generation=int(metadata["observation_generation"]),
+                    observation_state_sequence=int(
+                        metadata["observation_state_sequence"]
+                    ),
+                    observation_capture_event_sequence=int(
+                        metadata["observation_capture_event_sequence"]
+                    ),
+                )
+            )
+    attempt_sink.record_attempt(
+        ProviderAttemptRecord(
+            model_attempt_id=model_attempt_id,
+            request_sha256=hashlib.sha256(repr((messages, tools)).encode()).hexdigest(),
+            outbound_images=(),
+            stripped_images=False,
+            response_completed=True,
+            error_type=None,
+            cause_code=None,
+            outbound_observations=tuple(observations),
+        )
+    )
 
 
 class FakeTransport:
     def __init__(self) -> None:
         self._responses = [
+            AssistantMessage(
+                tool_calls=[ToolCall(id="observe_1", name="observe", arguments={})],
+                finish_reason="tool_calls",
+            ),
             AssistantMessage(
                 tool_calls=[
                     ToolCall(
@@ -46,6 +116,10 @@ class FakeTransport:
                         arguments={"target": "countertop 1"},
                     )
                 ],
+                finish_reason="tool_calls",
+            ),
+            AssistantMessage(
+                tool_calls=[ToolCall(id="observe_2", name="observe", arguments={})],
                 finish_reason="tool_calls",
             ),
             AssistantMessage(
@@ -63,6 +137,10 @@ class FakeTransport:
                 finish_reason="tool_calls",
             ),
             AssistantMessage(
+                tool_calls=[ToolCall(id="observe_3", name="observe", arguments={})],
+                finish_reason="tool_calls",
+            ),
+            AssistantMessage(
                 tool_calls=[
                     ToolCall(
                         id="call_3",
@@ -75,10 +153,6 @@ class FakeTransport:
                     )
                 ],
                 finish_reason="tool_calls",
-            ),
-            AssistantMessage(
-                content=[ContentBlock(text="done")],
-                finish_reason="stop",
             ),
         ]
         self.call_count = 0
@@ -97,10 +171,19 @@ class FakeTransport:
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
+        attempt_sink: Any = None,
+        model_attempt_id: str = "attempt",
     ) -> Iterator[TransportDelta]:
         self.seen_tools.append(tools or [])
         self.seen_system_prompts.append(system_prompt)
         self.seen_messages.append(messages)
+        if attempt_sink is not None:
+            _record_provider_attempt(
+                messages,
+                tools,
+                attempt_sink=attempt_sink,
+                model_attempt_id=model_attempt_id,
+            )
         msg = self._responses[self.call_count]
         self.call_count += 1
         for block in msg.content:
@@ -125,16 +208,27 @@ class RepeatingNavigateTransport:
         session_id: str = "",
         turn_index: int | None = None,
         iteration: int | None = None,
+        attempt_sink: Any = None,
+        model_attempt_id: str = "attempt",
     ) -> Iterator[TransportDelta]:
         self.call_count += 1
-        yield TransportDelta(
-            type="transport.delta",
-            tool_call_delta=ToolCall(
+        if attempt_sink is not None:
+            _record_provider_attempt(
+                messages,
+                tools,
+                attempt_sink=attempt_sink,
+                model_attempt_id=model_attempt_id,
+            )
+        tool_call = (
+            ToolCall(id=f"observe_{self.call_count}", name="observe", arguments={})
+            if self.call_count % 2
+            else ToolCall(
                 id=f"nav_{self.call_count}",
                 name="robot_go_to",
                 arguments={"target": "countertop 1"},
-            ),
+            )
         )
+        yield TransportDelta(type="transport.delta", tool_call_delta=tool_call)
         yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
 
 
@@ -252,6 +346,36 @@ def _provider_config(tmp_path: Path) -> Path:
     return path
 
 
+def _attach_fake_raster_capture(
+    adapter: AlfworldEnvAdapter,
+    tmp_path: Path,
+) -> dict[str, int]:
+    image = __import__("PIL.Image", fromlist=["Image"])
+    frame_path = tmp_path / "fake-alfworld-frame.png"
+    image.new("RGB", (2, 2), (32, 96, 160)).save(frame_path)
+    counts = {"capture": 0}
+
+    def capture() -> ObservationCapture:
+        counts["capture"] += 1
+        adapter._frame_ledger.record_frame(  # noqa: SLF001 - test fixture
+            frame_path,
+            event_sequence=adapter.event_sequence,
+        )
+        return ObservationCapture(
+            backend_id=adapter.backend_id,
+            run_id=adapter._application_run_id,  # noqa: SLF001 - test fixture
+            generation=adapter.generation,
+            state_sequence=adapter.state_sequence,
+            capture_event_sequence=adapter.event_sequence,
+            media_type="image/png",
+            content=frame_path.read_bytes(),
+            evidence_ref=f"test/frame/{adapter.event_sequence}",
+        )
+
+    adapter.capture = capture  # type: ignore[method-assign]
+    return counts
+
+
 def _taskset_fixture(
     tmp_path: Path,
     *,
@@ -357,7 +481,7 @@ def test_terminal_harness_navigation_failure_wins_over_runtime_budget_error() ->
     assert outcome.score_eligible is False
 
 
-def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
+def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     tmp_path: Path,
 ) -> None:
     transport = FakeTransport()
@@ -366,6 +490,7 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
         episode_prefix="fake",
         seed=42,
     )
+    counts = _attach_fake_raster_capture(adapter, tmp_path)
     config = AlfworldBenchmarkConfig(
         alfworld_root=tmp_path / "alfworld",
         alfworld_config=tmp_path / "base_config.yaml",
@@ -385,7 +510,14 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     assert summary.success_rate == 1.0
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
-    assert transport.call_count == 3
+    assert transport.call_count == 6
+    assert counts["capture"] == 3
+    assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
+    assert any(
+        block.type == "image"
+        for message in transport.seen_messages[1]
+        for block in message.content
+    )
     assert transport.seen_system_prompts[0]
     assert any(
         isinstance(message, UserMessage)
@@ -420,6 +552,306 @@ def test_runner_uses_generic_runtime_and_marks_success_on_env_won(
     }
     assert "observation" not in episode_started["state"]
     assert "goal_condition_success_rate" not in episode_started["state"]
+    attempts_path = run_dir / "episode-0001" / "provider_attempts.jsonl"
+    attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
+    assert len(attempts) == transport.call_count
+    assert attempts[0]["outbound_images"] == []
+    assert attempts[0]["outbound_observations"] == []
+    assert attempts[1]["outbound_observations"][-1][
+        "observation_capture_event_sequence"
+    ] == 0
+
+
+def test_same_response_observe_plus_mutation_does_not_reach_backend(
+    tmp_path: Path,
+) -> None:
+    class BatchTransport(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self._responses = [
+                AssistantMessage(
+                    tool_calls=[
+                        ToolCall(id="observe-batch", name="observe", arguments={}),
+                        ToolCall(
+                            id="action-batch",
+                            name="robot_go_to",
+                            arguments={"target": "countertop 1"},
+                        ),
+                    ],
+                    finish_reason="tool_calls",
+                ),
+                AssistantMessage(
+                    content=[ContentBlock(text="stopped after rejected batch")],
+                    finish_reason="stop",
+                ),
+            ]
+
+    class CountingEnv(FakeBatchEnv):
+        def __init__(self) -> None:
+            super().__init__()
+            self.step_count = 0
+
+        def step(self, actions: list[str]):
+            self.step_count += 1
+            return super().step(actions)
+
+    transport = BatchTransport()
+    env = CountingEnv()
+    adapter = AlfworldEnvAdapter(env=env, episode_prefix="fake", seed=42)
+    counts = _attach_fake_raster_capture(adapter, tmp_path)
+    runner = AlfworldBenchmarkRunner(
+        config=AlfworldBenchmarkConfig(
+            alfworld_root=tmp_path / "alfworld",
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            episodes=1,
+            max_tool_iterations=3,
+            provider_config=_provider_config(tmp_path),
+        ),
+        transport_factory=lambda: transport,
+        adapter_factory=lambda _config: adapter,
+    )
+
+    summary = runner.run()
+
+    assert summary.episodes[0].success is False
+    assert env.step_count == 0
+    assert counts["capture"] == 1
+    action_result = next(
+        message
+        for message in transport.seen_messages[1]
+        if isinstance(message, ToolResultMessage) and message.tool_call_id == "action-batch"
+    )
+    assert action_result.is_error is True
+    assert action_result.data is not None
+    assert action_result.data["error"]["code"] == "observation_required"
+
+
+def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    initial_state = AlfworldEnvState(
+        episode_id="taskset-entry",
+        task="put pencil on shelf",
+        observation="ready",
+        inventory=None,
+        last_command=None,
+        last_feedback=None,
+        reward=0.0,
+        done=False,
+        won=False,
+        goal_condition_success_rate=0.0,
+        frame_path=None,
+        step_index=0,
+        invalid_action_count=0,
+    )
+
+    class TasksetAdapter:
+        backend_id = "alfworld:taskset-entry"
+        model_view_observer = None
+
+        def __init__(self) -> None:
+            self.current_state = initial_state
+            self.generation = 0
+            self.state_sequence = 0
+            self.event_sequence = 0
+            self.application_run_id = ""
+            self.capture_count = 0
+            self.close_count = 0
+
+        def bind_application_run(self, run_id: str, generation: int) -> None:
+            self.application_run_id = run_id
+            self.generation = generation
+
+        def set_frame_dir(self, _path: Path) -> None:
+            return None
+
+        def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
+            return AlfworldResetResult(
+                backend_kind="textworld",
+                ready=True,
+                state=self.current_state,
+                scene_generation=None,
+                goal_generation=1,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256=None,
+                snapshot_ref=None,
+                setup_trigger=None,
+                setup_failure=None,
+                classification=None,
+                score_eligible=True,
+                setup_backend_action_count=0,
+                recovery_status="not_applicable",
+                cleanup_status="not_applicable",
+                quarantine_required=False,
+                environment_disposition="ready",
+                evidence_ref=None,
+            )
+
+        def advance_goal(
+            self,
+            _traj_data: dict[str, Any],
+            *,
+            subtask_label: str,
+            selection_entry: Any,
+        ) -> AlfworldGoalAdvanceResult:
+            del subtask_label
+            self.state_sequence += 1
+            self.event_sequence += 1
+            self.current_state = replace(
+                initial_state,
+                episode_id="taskset-entry-second",
+                task="put second pencil on shelf",
+            )
+            return AlfworldGoalAdvanceResult(
+                backend_kind="textworld",
+                ready=True,
+                state=self.current_state,
+                scene_generation=None,
+                goal_generation=2,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256=None,
+                before_scene_state_sha256=None,
+                after_scene_state_sha256=None,
+                advance_trigger=None,
+                advance_failure=None,
+                classification=None,
+                score_eligible=True,
+                benchmark_control_action_count=1,
+                cleanup_status="not_needed",
+                quarantine_required=False,
+                environment_disposition="ready",
+                evidence_ref=None,
+            )
+
+        def capture(self) -> ObservationCapture:
+            self.capture_count += 1
+            png = base64.b64decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNUSFjAwMDA"
+                "xMDAwMDAAAANKgEkX1CfuAAAAABJRU5ErkJggg=="
+            )
+            return ObservationCapture(
+                backend_id=self.backend_id,
+                run_id=self.application_run_id,
+                generation=self.generation,
+                state_sequence=self.state_sequence,
+                capture_event_sequence=self.event_sequence,
+                media_type="image/png",
+                content=png,
+                pixel_bytes=f"pixels-{self.capture_count}".encode(),
+                evidence_ref=f"frame/{self.capture_count}",
+            )
+
+        def is_current_goal_satisfied(self) -> bool:
+            return self.current_state.won
+
+        def current_goal_condition_success_rate(self) -> float:
+            return self.current_state.goal_condition_success_rate
+
+        def close(self) -> None:
+            self.close_count += 1
+
+    adapter = TasksetAdapter()
+
+    class TasksetTransport:
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def stream(
+            self,
+            messages: list[Message],
+            tools: list[dict[str, Any]] | None = None,
+            *,
+            attempt_sink: Any = None,
+            model_attempt_id: str = "attempt",
+            **_kwargs: Any,
+        ) -> Iterator[TransportDelta]:
+            if attempt_sink is not None:
+                _record_provider_attempt(
+                    messages,
+                    tools,
+                    attempt_sink=attempt_sink,
+                    model_attempt_id=model_attempt_id,
+                )
+            self.call_count += 1
+            if self.call_count % 2:
+                yield TransportDelta(
+                    type="transport.delta",
+                    tool_call_delta=ToolCall(
+                        id=f"observe-{self.call_count}",
+                        name="observe",
+                        arguments={},
+                    ),
+                )
+                yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+                return
+            adapter.current_state = replace(
+                adapter.current_state,
+                done=True,
+                won=True,
+                goal_condition_success_rate=1.0,
+            )
+            yield TransportDelta(
+                type="transport.delta",
+                text_delta="goal complete",
+                finish_reason="stop",
+            )
+
+    transport = TasksetTransport()
+    alfworld_root, taskset = _taskset_fixture(
+        tmp_path,
+        taskset_id="entry-sharing",
+        count=2,
+    )
+    runner = AlfworldTasksetRunner(
+        taskset_config=TasksetRunConfig(
+            alfworld_root=alfworld_root,
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            provider_config=_provider_config(tmp_path),
+            provider_name="mimo_v25",
+            run_id="taskset-entry-sharing",
+            tasksets=(taskset,),
+        ),
+        transport_factory=lambda: transport,
+    )
+    monkeypatch.setattr(
+        runner_module,
+        "build_alfworld_batch_env_with_first_trial",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(runner_module, "AlfworldEnvAdapter", lambda **_kwargs: adapter)
+
+    summary = runner.run()
+
+    result = summary.taskset_results[0]
+    assert [subtask.success for subtask in result.subtasks] == [True, True]
+    assert adapter.capture_count == 2
+    assert adapter.close_count == 1
+    taskset_dir = runner.run_dir / "taskset-entry-sharing"
+    session_dirs = list((taskset_dir / "sessions").iterdir())
+    assert len(session_dirs) == 1
+    ledgers = []
+    for index in (1, 2):
+        path = taskset_dir / f"subtask-{index:02d}" / "provider_attempts.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert rows
+        ledgers.append(rows)
+    attempt_ids = [{row["model_attempt_id"] for row in rows} for rows in ledgers]
+    observation_run_ids = [
+        {
+            binding["observation_run_id"]
+            for row in rows
+            for binding in row["outbound_observations"]
+        }
+        for rows in ledgers
+    ]
+    assert attempt_ids[0].isdisjoint(attempt_ids[1])
+    assert all(observation_run_ids)
+    assert observation_run_ids[0].isdisjoint(observation_run_ids[1])
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
@@ -430,6 +862,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
         episode_prefix="fake",
         seed=42,
     )
+    _attach_fake_raster_capture(adapter, tmp_path)
     config = AlfworldBenchmarkConfig(
         alfworld_root=tmp_path / "alfworld",
         alfworld_config=tmp_path / "base_config.yaml",
@@ -452,7 +885,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
     assert summary.episodes[0].steps == 2
     assert summary.episodes[0].failure_reason == "benchmark_env_step_limit"
     assert fake_env.step_count == 2
-    assert transport.call_count == 2
+    assert transport.call_count == 4
 
 
 def test_runner_stops_on_terminal_outcome_before_next_llm_call(tmp_path: Path) -> None:
@@ -527,6 +960,8 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     )
 
     class FakeTasksetAdapter:
+        model_view_observer = None
+
         def __init__(self) -> None:
             self.current_state = state
             self.reset_calls = 0
@@ -576,12 +1011,27 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     adapter = FakeTasksetAdapter()
     observed_outcomes: list[EpisodeOutcome] = []
 
-    class TerminalRuntime:
-        def __init__(self, *, tool_executor: Any, **_kwargs: Any) -> None:
-            self._tool_executor = tool_executor
+    observed_requests = []
 
-        def run(self, session: AgentSession, *_args: Any, **_kwargs: Any) -> Any:
-            outcome = self._tool_executor._run_context.deps["alfworld_episode_outcome"]
+    class SessionManager:
+        def __init__(self) -> None:
+            self.sessions: dict[str, AgentSession] = {}
+
+        def get(self, session_id: str) -> Any:
+            return SimpleNamespace(session=self.sessions[session_id])
+
+    class TerminalApplicationEntry:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.application = SimpleNamespace(session_manager=SessionManager())
+
+        def run(self, request: Any) -> RunResult:
+            observed_requests.append(request)
+            assert request.session_id is not None
+            self.application.session_manager.sessions.setdefault(
+                request.session_id,
+                AgentSession(request.session_id),
+            )
+            outcome = request.dependencies["alfworld_episode_outcome"]
             assert isinstance(outcome, EpisodeOutcome)
             observed_outcomes.append(outcome)
             outcome.agent_tool_call_count = 2
@@ -591,13 +1041,21 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
                 tool_call_id="call_terminal",
                 evidence_ref="attempts.jsonl#execution_terminal",
             )
-            return SimpleNamespace(
-                session=session,
-                status="failed",
+            return RunResult(
+                run_id="application-run",
+                session_id=request.session_id,
+                status=RunStatus.FAILED,
                 error_code="generic_runtime_failure",
             )
 
-    monkeypatch.setattr(runner_module, "GenericAgentRuntime", TerminalRuntime)
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        runner_module,
+        "AlfworldApplicationEntry",
+        TerminalApplicationEntry,
+    )
     monkeypatch.setattr(
         runner_module,
         "build_alfworld_batch_env_with_first_trial",
@@ -613,8 +1071,6 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
         "build_episode_prompt",
         lambda **_kwargs: "taskset prompt",
     )
-    monkeypatch.setattr(AlfworldTasksetRunner, "_register_tools", lambda *_args: [])
-
     alfworld_root, taskset = _taskset_fixture(
         tmp_path,
         taskset_id="infra-terminal",
@@ -638,6 +1094,9 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     persisted = json.loads((runner.run_dir / "summary.json").read_text(encoding="utf-8"))
 
     assert len(observed_outcomes) == 1
+    assert len(observed_requests) == 1
+    assert observed_requests[0].continuous_taskset is True
+    assert observed_requests[0].environment is adapter
     assert adapter.reset_calls == 1
     assert adapter.advance_goal_calls == 0
     assert adapter.close_calls == 1
@@ -800,6 +1259,8 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
     )
 
     class GoalTerminalAdapter:
+        model_view_observer = None
+
         def __init__(self) -> None:
             self.current_state = state
             self.advance_goal_calls = 0
@@ -871,21 +1332,48 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
         def close(self) -> None:
             self.close_calls += 1
 
-    class SuccessfulRuntime:
-        def __init__(self, **_kwargs: Any) -> None:
-            return None
-
-        def run(self, session: AgentSession, *_args: Any, **_kwargs: Any) -> Any:
-            return SimpleNamespace(session=session, status="replied", error_code=None)
-
     adapter = GoalTerminalAdapter()
     transport_calls: list[None] = []
+    observed_requests = []
 
     def transport_factory() -> object:
         transport_calls.append(None)
         return object()
 
-    monkeypatch.setattr(runner_module, "GenericAgentRuntime", SuccessfulRuntime)
+    class SessionManager:
+        def __init__(self) -> None:
+            self.sessions: dict[str, AgentSession] = {}
+
+        def get(self, session_id: str) -> Any:
+            return SimpleNamespace(session=self.sessions[session_id])
+
+    class SuccessfulApplicationEntry:
+        def __init__(self, *, transport_factory: Any, **_kwargs: Any) -> None:
+            self._transport_factory = transport_factory
+            self.application = SimpleNamespace(session_manager=SessionManager())
+
+        def run(self, request: Any) -> RunResult:
+            observed_requests.append(request)
+            self._transport_factory()
+            assert request.session_id is not None
+            self.application.session_manager.sessions.setdefault(
+                request.session_id,
+                AgentSession(request.session_id),
+            )
+            return RunResult(
+                run_id="application-run",
+                session_id=request.session_id,
+                status=RunStatus.REPLIED,
+            )
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        runner_module,
+        "AlfworldApplicationEntry",
+        SuccessfulApplicationEntry,
+    )
     monkeypatch.setattr(
         runner_module,
         "build_alfworld_batch_env_with_first_trial",
@@ -897,7 +1385,6 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
         "build_episode_prompt",
         lambda **_kwargs: "taskset prompt",
     )
-    monkeypatch.setattr(AlfworldTasksetRunner, "_register_tools", lambda *_args: [])
     alfworld_root, taskset = _taskset_fixture(tmp_path, taskset_id="goal-terminal")
     runner = AlfworldTasksetRunner(
         taskset_config=TasksetRunConfig(
@@ -916,6 +1403,9 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
     payload = result.to_dict()
 
     assert transport_calls == [None]
+    assert len(observed_requests) == 1
+    assert observed_requests[0].continuous_taskset is True
+    assert observed_requests[0].environment is adapter
     assert adapter.advance_goal_calls == 1
     assert adapter.close_calls == 1
     assert payload["root_terminal"]["phase"] == "goal_advance"

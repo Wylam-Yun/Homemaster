@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +51,7 @@ class AlfworldToolDispatchObserver:
 
     def on_result(self, tool_call: ToolCall, result: Any) -> None:
         data = getattr(result, "data", None)
-        if not isinstance(data, dict) or data.get("terminal") is not True:
+        if not isinstance(data, Mapping) or data.get("terminal") is not True:
             return
         classification = str(
             data.get("classification") or "unclassified_execution_failure"
@@ -57,6 +59,7 @@ class AlfworldToolDispatchObserver:
         self._outcome.mark_terminal(
             classification=classification,
             tool_call_id=tool_call.id,
+            evidence_ref=_first_evidence_ref(data),
         )
 
     def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage:
@@ -82,6 +85,16 @@ class AlfworldToolDispatchObserver:
         )
 
 
+def _first_evidence_ref(data: Mapping[str, Any]) -> str | None:
+    refs = data.get("evidence_refs")
+    if isinstance(refs, list):
+        for ref in refs:
+            if isinstance(ref, str) and ref:
+                return ref
+    ref = data.get("evidence_ref")
+    return ref if isinstance(ref, str) and ref else None
+
+
 class AlfworldTraceWriter:
     def __init__(self, episode_dir: Path) -> None:
         self.episode_dir = episode_dir
@@ -91,10 +104,17 @@ class AlfworldTraceWriter:
         self.summary_path = self.episode_dir / "summary.json"
         self.trajectory_path = self.episode_dir / "trajectory.md"
 
-    def write_event(self, event: dict[str, Any]) -> None:
+    def write_event(self, event: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            _redact(event),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         with self.trace_path.open("a", encoding="utf-8") as writer:
-            writer.write(json.dumps(_redact(event), ensure_ascii=False, sort_keys=True))
+            writer.write(encoded)
             writer.write("\n")
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return f"{self.trace_path.name}#sha256={digest}"
 
     def write_model_event(self, event: dict[str, Any]) -> None:
         with self.model_trace_path.open("a", encoding="utf-8") as writer:
