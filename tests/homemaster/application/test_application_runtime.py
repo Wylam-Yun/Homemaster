@@ -118,6 +118,20 @@ class _AsyncBlockingTransport:
             yield delta
 
 
+class _CancellationSwallowingTransport:
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+
+    async def stream(self, *_args, **_kwargs):
+        self.entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            pass
+        for delta in _text("late response"):
+            yield delta
+
+
 class _ClosableTransport(_FakeTransport):
     def __init__(self, responses: list[list[TransportDelta]]) -> None:
         super().__init__(responses)
@@ -757,6 +771,30 @@ async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_s
     assert runtime.last_result is None
     async with app.session_manager.turn("tool-cancel"):
         pass
+
+
+@pytest.mark.asyncio
+async def test_provider_that_swallows_cancellation_cannot_publish_late_events(
+    tmp_path,
+) -> None:
+    transport = _CancellationSwallowingTransport()
+    app = _application(tmp_path, [_echo_tool()], {"late": transport})
+    run_task = asyncio.create_task(
+        app.run(RunRequest(text="late", session_id="late-events", profile="test"))
+    )
+    await transport.entered.wait()
+    events_before_cancel = tuple(app.event_bus.events)
+
+    assert app.cancel("late-events") is True
+    result = await run_task
+
+    runtime = app.session_manager.get("late-events")
+    assert result.status is RunStatus.CANCELLED
+    assert result.error_code == "stale_generation"
+    assert tuple(app.event_bus.events) == events_before_cancel
+    assert runtime.last_result is None
+    assert runtime.revision == 0
+    await app.event_bus.aclose()
 
 
 @pytest.mark.asyncio

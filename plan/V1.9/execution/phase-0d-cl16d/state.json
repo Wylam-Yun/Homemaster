@@ -1,0 +1,71 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0D4-CL16d",
+  "change_list": "CL-16d-stress-generation-backpressure-leak",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster_parent": "ea8854e771e01fb55b8a8cd4a00bd521ccf8ba9b",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl16c": "GATE_PASSED",
+    "external_live_gate": "Deferred by user instruction to the concentrated exact-SHA hkust4 release gate after the grouped review."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds_completed": 0,
+    "group": ["CL-16b", "CL-16c", "CL-16d"],
+    "status": "ready_for_unique_grouped_review",
+    "independent_review_rounds_allowed": 1,
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "ApplicationRuntime uses one generation-fenced run event sink for agent events and canonical tool publication",
+    "EventBus guarded writes validate the session generation atomically with event recording",
+    "cancelled or closed bounded producers cancel and join all internal queue and close waiter tasks",
+    "simultaneous successful queue insertion and stream close linearizes as a successful publication",
+    "deterministic stress coverage adds 32-session barrier, 1000-event bounded flood, 1000 stream/backend lifecycle cycles and 100 cancel/restart races"
+  ],
+  "test_commands": [
+    "uv run pytest -q -m stress",
+    "uv run pytest -q tests/homemaster/application tests/homemaster/tools",
+    "uv run pytest -q tests/homemaster/test_cli_run.py tests/homemaster/test_cli_help.py tests/homemaster/test_agent_turn_cli_adapter.py tests/homemaster/test_cli_interactive.py tests/homemaster/integration/test_entry_parity.py",
+    "uv run pytest -q -m 'not live_alfworld' $(rg --files tests/homemaster | rg '(^|/)test_.*alfworld|test_alfworld') tests/homemaster/test_m0_runtime_qualification.py tests/homemaster/test_context_compact.py tests/homemaster/integration/test_no_implicit_model_media.py",
+    "uv run pytest -q -m 'not live_coworker' tests/case02_openenv tests/coworker_demo tests/homemaster/benchmarking/coworker_demo tests/homemaster/integration/test_observation_profiles.py tests/homemaster/benchmarking/test_coworker_release_tools.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/guard_no_legacy_terms.py",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "ea8854e771e01fb55b8a8cd4a00bd521ccf8ba9b",
+  "evidence": [
+    {
+      "kind": "deterministic_stress",
+      "status": "pass",
+      "details": "4 stress tests pass: 32 sessions rendezvous at one asyncio barrier; 1000 events prove an 8-slot queue blocks at authoritative count 10/completed count 9; 1000 stream and real thread-owned backend open/close cycles leave no worker; 100 cancel/restart races reject all 600 stale message/domain/task/snapshot/final/event writes."
+    },
+    {
+      "kind": "leak_audit",
+      "status": "pass",
+      "details": "Every stress scenario compares pending asyncio tasks and homemaster-sync worker identities to its baseline and asserts zero EventBus subscribers, pending producers and active resource leases."
+    },
+    {
+      "kind": "late_write_and_backpressure",
+      "status": "pass",
+      "details": "A provider that swallows cancellation cannot append a late RuntimeEvent through the production ApplicationRuntime wiring; a cancelled blocked queue producer leaves no queue.put task or late delivery; simultaneous final put/consumer close is accepted without producer failure."
+    },
+    {
+      "kind": "entry_parity",
+      "status": "pass",
+      "details": "Application/tools: 156 passed. Home CLI/Interactive: 23 passed. ALFWorld current non-live set: 225 passed, 1 live deselected. Coworker non-live set: 440 passed, 3 live deselected."
+    },
+    {
+      "kind": "full_nonlive",
+      "status": "pass",
+      "details": "1110 passed, 11 deselected, with one existing Starlette/httpx warning; Ruff, compileall, cleanup guard, upstream manifest and diff checks pass."
+    }
+  ],
+  "reviews": []
+}

@@ -7,6 +7,7 @@ import contextlib
 import inspect
 import threading
 from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,6 +17,7 @@ from homemaster.events.stream_events import StreamEvent
 _CLOSED = object()
 
 PublicEventProjector = Callable[[RuntimeEvent], StreamEvent | None]
+EventWriteGuard = Callable[[], AbstractContextManager[None]]
 
 
 @dataclass(eq=False)
@@ -101,12 +103,20 @@ class EventBus:
 
     def emit(self, event: RuntimeEvent) -> None:
         """Produce from a non-owner thread, preserving bounded backpressure."""
+        self.emit_guarded(event)
+
+    def emit_guarded(
+        self,
+        event: RuntimeEvent,
+        guard: EventWriteGuard | None = None,
+    ) -> None:
+        """Produce synchronously while atomically validating an optional guard."""
         loop, streams = self._producer_snapshot(event)
         if streams and loop is None:
             raise RuntimeError("event bus must be started before async stream delivery")
         if loop is not None and _running_loop() is loop:
             raise RuntimeError("owner-loop event producers must await EventBus.aemit")
-        self._record_and_notify(event)
+        self._record_and_notify(event, guard=guard)
         if streams:
             assert loop is not None
             future = asyncio.run_coroutine_threadsafe(
@@ -117,10 +127,18 @@ class EventBus:
 
     async def aemit(self, event: RuntimeEvent) -> None:
         """Produce asynchronously with close-aware bounded backpressure."""
+        await self.aemit_guarded(event)
+
+    async def aemit_guarded(
+        self,
+        event: RuntimeEvent,
+        guard: EventWriteGuard | None = None,
+    ) -> None:
+        """Produce asynchronously while atomically validating an optional guard."""
         loop, streams = self._producer_snapshot(event)
         if streams and loop is None:
             raise RuntimeError("event bus must be started before async stream delivery")
-        self._record_and_notify(event)
+        self._record_and_notify(event, guard=guard)
         if not streams:
             return
         assert loop is not None
@@ -141,12 +159,19 @@ class EventBus:
                 raise EventBusClosedError("event bus is closed")
             return self._loop, tuple(self._streams)
 
-    def _record_and_notify(self, event: RuntimeEvent) -> None:
-        with self._lock:
-            if self._closed:
-                raise EventBusClosedError("event bus is closed")
-            self._events.append(event)
-            subscribers = tuple(self._subscribers)
+    def _record_and_notify(
+        self,
+        event: RuntimeEvent,
+        *,
+        guard: EventWriteGuard | None = None,
+    ) -> None:
+        guard_context = contextlib.nullcontext() if guard is None else guard()
+        with guard_context:
+            with self._lock:
+                if self._closed:
+                    raise EventBusClosedError("event bus is closed")
+                self._events.append(event)
+                subscribers = tuple(self._subscribers)
         for callback in subscribers:
             value = callback(event)
             if inspect.isawaitable(value):
@@ -174,20 +199,22 @@ class EventBus:
                 put_task = asyncio.create_task(channel.queue.put(event))
                 close_task = asyncio.create_task(signal.wait())
                 stream_close_task = asyncio.create_task(channel.closed.wait())
-                done, _ = await asyncio.wait(
-                    {put_task, close_task, stream_close_task},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                if close_task in done or stream_close_task in done:
-                    put_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await put_task
-                    raise EventBusClosedError("event stream closed during publish")
-                for task in (close_task, stream_close_task):
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-                await put_task
+                waiters = (put_task, close_task, stream_close_task)
+                try:
+                    done, _ = await asyncio.wait(
+                        waiters,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if put_task not in done and (
+                        close_task in done or stream_close_task in done
+                    ):
+                        raise EventBusClosedError("event stream closed during publish")
+                    await put_task
+                finally:
+                    for task in waiters:
+                        if not task.done():
+                            task.cancel()
+                    await asyncio.gather(*waiters, return_exceptions=True)
         finally:
             with self._lock:
                 self._producer_tasks.discard(current)
@@ -225,7 +252,15 @@ class EventBus:
             if projected is not None:
                 yield projected
 
-    async def publish(self, tool_call, result, context, attempt_index: int) -> None:
+    async def publish(
+        self,
+        tool_call,
+        result,
+        context,
+        attempt_index: int,
+        *,
+        guard: EventWriteGuard | None = None,
+    ) -> None:
         event = RuntimeEvent(
             type="tool.execution_published",
             session_id=context.session_id,
@@ -239,7 +274,7 @@ class EventBus:
                 "tool_view_id": context.tool_view.view_id,
             },
         )
-        await self.aemit(event)
+        await self.aemit_guarded(event, guard)
 
     async def aclose(self) -> None:
         with self._lock:
@@ -274,4 +309,9 @@ def _running_loop() -> asyncio.AbstractEventLoop | None:
         return None
 
 
-__all__ = ["EventBus", "EventBusClosedError", "PublicEventProjector"]
+__all__ = [
+    "EventBus",
+    "EventBusClosedError",
+    "EventWriteGuard",
+    "PublicEventProjector",
+]

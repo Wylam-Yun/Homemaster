@@ -157,6 +157,42 @@ class _FencedAgentSession:
         )
 
 
+class _GenerationFencedEventSink:
+    """Reject event and tool-publication writes after a run loses ownership."""
+
+    def __init__(
+        self,
+        runtime: SessionRuntime,
+        generation: int,
+        event_bus: EventBus,
+    ) -> None:
+        self._runtime = runtime
+        self._generation = generation
+        self._event_bus = event_bus
+
+    @property
+    def events(self) -> list[Any]:
+        return self._event_bus.events
+
+    def _guard(self) -> Any:
+        return self._runtime.generation_guard(self._generation)
+
+    def emit(self, event: Any) -> None:
+        self._event_bus.emit_guarded(event, self._guard)
+
+    async def aemit(self, event: Any) -> None:
+        await self._event_bus.aemit_guarded(event, self._guard)
+
+    async def publish(self, tool_call: Any, result: Any, context: Any, attempt_index: int) -> None:
+        await self._event_bus.publish(
+            tool_call,
+            result,
+            context,
+            attempt_index,
+            guard=self._guard,
+        )
+
+
 class _CompletionGuard:
     def __init__(
         self,
@@ -435,6 +471,11 @@ class ApplicationRuntime:
             session_id,
             environment_ref=environment_ref,
         ) as (runtime, generation, _):
+            run_event_sink = _GenerationFencedEventSink(
+                runtime,
+                generation,
+                self.event_bus,
+            )
             if request.continuous_taskset and runtime.session.messages:
                 messages, _ = strip_old_images(
                     runtime.session.messages,
@@ -459,7 +500,11 @@ class ApplicationRuntime:
                     _provider_binding(provider_value, run_id=run_id)
                 ).resource
                 assembler = self.context_assembler_factory(request, provider)
-                run_pipeline = replace(self.pipeline, terminal_policy=request.terminal_policy)
+                run_pipeline = replace(
+                    self.pipeline,
+                    terminal_policy=request.terminal_policy,
+                    public_event_sink=run_event_sink,
+                )
                 agent_state = runtime.agent_state.model_copy(deep=True)
                 agent_state.run_id = run_id
                 task_state_store = TaskStateStore.from_snapshot_dict(
@@ -476,7 +521,7 @@ class ApplicationRuntime:
                     task_state_store=task_state_store,
                     ledger=ledger,
                     settings=self.settings,
-                    event_sink=self.event_bus,
+                    event_sink=run_event_sink,
                 )
                 committer = ObservationProviderCommitter(self.observation_service, ledger)
                 fenced_session = _FencedAgentSession(
@@ -503,7 +548,7 @@ class ApplicationRuntime:
                         fenced_session,
                         request.text,
                         None,
-                        event_sink=self.event_bus,
+                        event_sink=run_event_sink,
                         run_id=run_id,
                         settings=self.settings,
                         agent_state=agent_state,

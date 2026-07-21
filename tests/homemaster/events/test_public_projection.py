@@ -151,6 +151,38 @@ async def test_consumer_close_releases_its_blocked_producer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_blocked_producer_does_not_enqueue_after_cancellation() -> None:
+    bus = EventBus(capacity=1)
+    await bus.start()
+    stream = bus.stream()
+    first_wait = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    await bus.aemit(_event("assistant.reply", payload={"reply": "first"}))
+    await first_wait
+    await bus.aemit(_event("assistant.reply", payload={"reply": "queued"}))
+    blocked = asyncio.create_task(
+        bus.aemit(_event("assistant.reply", payload={"reply": "cancelled"}))
+    )
+    while bus.pending_producer_count == 0:
+        await asyncio.sleep(0)
+
+    blocked.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await blocked
+    assert bus.pending_producer_count == 0
+    assert (await anext(stream)).payload["reply"] == "queued"
+
+    late = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    assert late.done() is False
+    late.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await late
+    await stream.aclose()
+    await bus.aclose()
+
+
+@pytest.mark.asyncio
 async def test_public_stream_does_not_expose_private_events() -> None:
     bus = EventBus(capacity=2, public_projector=project_stream_event)
     await bus.start()
