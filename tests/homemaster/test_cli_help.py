@@ -21,6 +21,11 @@ def test_help_exposes_only_final_commands() -> None:
     assert "scenario" not in result.stdout.lower()
     assert "contract-smoke" not in result.stdout.lower()
     assert "understand" not in result.stdout.lower()
+    assert "--print" in result.stdout
+    assert "--dry-run" in result.stdout
+    assert "--output-format" in result.stdout
+    assert "--resume" in result.stdout
+    assert "--continue" in result.stdout
 
 
 def test_run_help_mentions_generic_agent() -> None:

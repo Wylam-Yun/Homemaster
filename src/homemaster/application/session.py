@@ -405,6 +405,11 @@ class SessionManager:
     def sessions(self) -> tuple[SessionRuntime, ...]:
         return tuple(self._sessions.values())
 
+    def list_session_ids(self) -> tuple[str, ...]:
+        if self._backend is None:
+            return tuple(runtime.session.session_id for runtime in self.sessions)
+        return self._backend.list_session_ids()
+
     async def open_or_resume(
         self,
         session_id: str | None = None,

@@ -1,200 +1,190 @@
-"""Interactive HomeMaster shell for GenericAgentRuntime."""
+"""Interactive Home shell over one long-lived V1.9 ApplicationRuntime."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 
 import typer
 
-from homemaster.agent.session import AgentSession
-from homemaster.agent.session_persistence import (
-    load_session_json,
-    resume_session,
-    save_snapshot,
-    session_snapshot_path,
-)
-from homemaster.agent.turn import compact_agent_context, new_session_id, run_agent_turn
+from homemaster.agent.turn import new_session_id
+from homemaster.application import RunRequest, RunStatus
 from homemaster.benchmarking.coworker_demo.turn import run_coworker_turn
 from homemaster.benchmarking.coworker_demo.types import CoworkerAttemptError, TicketRouteKind
+from homemaster.cli.composition import HomeCliBackend, create_home_application
 from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.cli.doctor import render_doctor_text, run_doctor
-from homemaster.config import load_config
-from homemaster.task_state.store import TaskStateStore
 
 
-def run_interactive_shell(*, resume_session_id: str | None = None) -> None:
+def run_interactive_shell(
+    *,
+    resume_session_id: str | None = None,
+    continue_latest: bool = False,
+) -> None:
     _enable_line_editing()
-    typer.echo("HomeMaster V1.6")
+    typer.echo("HomeMaster V1.9")
     report = run_doctor(live=False)
     if report.has_failures:
         typer.echo(render_doctor_text(report))
-        typer.echo("本地体检存在 FAIL，先修复后再进入任务对话。")
+        typer.echo("Local checks failed; fix them before starting a task session.")
         return
-    typer.echo("输入任务开始对话。命令：/help、/new、/compact、/status、/events、/doctor、/exit。")
+    if resume_session_id is not None and continue_latest:
+        raise ValueError("--continue cannot be combined with --resume")
 
-    if resume_session_id is not None:
-        session_root = Path(load_config().observability.session_dir)
-        snapshot_path = session_snapshot_path(session_root, resume_session_id)
-        snapshot_payload = load_session_json(snapshot_path)
-        session, agent_state, task_state_store = resume_session(snapshot_path)
-        snapshot_model = str(snapshot_payload.get("model") or "")
-        snapshot_system_prompt = str(snapshot_payload.get("system_prompt") or "")
-        typer.echo(f"已恢复会话: {session.session_id}")
-    else:
-        session = AgentSession(session_id=new_session_id())
-        agent_state = None
-        task_state_store = TaskStateStore(run_id=session.session_id)
-        snapshot_path = None
-        snapshot_model = ""
-        snapshot_system_prompt = ""
+    bundle = create_home_application(run_label=f"shell-{new_session_id()}")
+    application = bundle.application
+    backend = HomeCliBackend(world_path=None, memory_path=None)
+    session_id = resume_session_id or new_session_id()
+    session_open = False
     last_status = "idle"
     last_run_id: str | None = None
-    last_trace_path: str | None = None
 
-    while True:
+    with asyncio.Runner() as runner:
         try:
-            utterance = input("homemaster> ").strip()
-        except EOFError:
-            typer.echo("再见")
-            return
-        except KeyboardInterrupt:
-            _pause_active_task(task_state_store)
-            if snapshot_path is not None and agent_state is not None:
-                save_snapshot(
-                    session=session,
-                    agent_state=agent_state,
-                    task_state_store=task_state_store,
-                    path=snapshot_path,
-                    model=snapshot_model,
-                    system_prompt=snapshot_system_prompt,
-                )
-            typer.echo("\n再见")
-            return
-        if not utterance:
-            continue
-        if utterance == "/exit":
-            typer.echo("再见")
-            return
-        if utterance == "/help":
-            typer.echo(_render_help())
-            continue
-        if utterance == "/new":
-            session = AgentSession(session_id=new_session_id())
-            agent_state = None
-            task_state_store = TaskStateStore(run_id=session.session_id)
-            last_status = "idle"
-            last_run_id = None
-            last_trace_path = None
-            typer.echo("新会话已创建。")
-            continue
-        if utterance == "/compact":
-            run_id = new_session_id()
-            try:
-                compact_result = compact_agent_context(
-                    session,
-                    run_id=run_id,
-                    progress=False,
-                    agent_state=agent_state,
-                    task_state_store=task_state_store,
-                )
-            except Exception as exc:
-                last_status = "failed"
-                typer.echo(f"上下文压缩失败：{exc}")
-                continue
-            agent_state = compact_result.agent_state
-            last_status = compact_result.status
-            last_run_id = compact_result.run_id
-            last_trace_path = str(compact_result.trace_path) if compact_result.trace_path else None
-            typer.echo(f"上下文压缩：{compact_result.message}")
-            continue
-        if utterance == "/doctor":
-            typer.echo(render_doctor_text(run_doctor(live=False)))
-            continue
-        if utterance == "/status":
-            typer.echo(f"状态：{last_status}")
-            continue
-        if utterance == "/debug":
-            typer.echo(f"调试：run_id={last_run_id or '还没有运行任务'}")
-            continue
-        if utterance == "/events":
-            if last_trace_path:
-                typer.echo(f"上一轮 trace 文件：{last_trace_path}")
-            else:
-                typer.echo("还没有 trace。")
-            continue
-
-        ticket_route = route_coworker_ticket(utterance)
-        if ticket_route.kind == TicketRouteKind.INVALID_TICKET_INTENT:
-            last_status = "failed"
-            typer.echo(f"变更单无效：{ticket_route.message}")
-            continue
-        if ticket_route.kind == TicketRouteKind.VALID_TICKET:
-            try:
-                coworker_result = run_coworker_turn(ticket_route)
-            except CoworkerAttemptError as exc:
-                last_status = "failed"
-                last_run_id = exc.run_id
-                candidate_trace = exc.run_root / "agent/runtime_events.jsonl"
-                last_trace_path = str(candidate_trace) if candidate_trace.is_file() else None
-                typer.echo(f"变更配合执行失败：{exc.error_type}")
-                typer.echo(f"运行产物：{exc.run_root}")
-                continue
-            except Exception as exc:
-                last_status = "failed"
-                typer.echo(f"变更配合执行失败：{exc}")
-                continue
-            last_status = coworker_result.status
-            last_run_id = coworker_result.run_id
-            last_trace_path = (
-                str(coworker_result.trace_path) if coworker_result.trace_path else None
-            )
-            typer.echo(f"模型回复：{coworker_result.final_reply}")
+            if continue_latest:
+                session_ids = application.session_manager.list_session_ids()
+                if not session_ids:
+                    raise FileNotFoundError("no persisted session is available to continue")
+                session_id = session_ids[0]
+            if resume_session_id is not None or continue_latest:
+                runner.run(application.session_manager.resume(session_id))
+                session_open = True
+                typer.echo(f"Resumed session: {session_id}")
             typer.echo(
-                "评分："
-                f"trajectory={coworker_result.trajectory_score:.1f}, "
-                f"result={coworker_result.result_score:.1f}, "
-                f"overall={coworker_result.overall_score:.1f}"
+                "Enter a task. Commands: /help, /new, /compact, /status, "
+                "/events, /doctor, /exit."
             )
-            typer.echo(f"正式成功：{coworker_result.formal_success}")
-            typer.echo(f"运行产物：{coworker_result.artifact_path}")
-            if coworker_result.video_path:
-                typer.echo(f"演示视频：{coworker_result.video_path}")
-            continue
 
-        run_id = new_session_id()
-        try:
-            result = run_agent_turn(
-                session,
-                utterance,
-                run_id=run_id,
-                progress=True,
-                console_show_replies=False,
-                agent_state=agent_state,
-                task_state_store=task_state_store,
-            )
-        except Exception as exc:
-            last_status = "failed"
-            typer.echo(f"失败：{exc}")
-            continue
-        last_status = result.status
-        last_run_id = result.run_id
-        last_trace_path = str(result.trace_path) if result.trace_path else None
-        typer.echo(f"模型回复：{result.final_reply}")
+            while True:
+                try:
+                    utterance = input("homemaster> ").strip()
+                except EOFError:
+                    typer.echo("Goodbye")
+                    return
+                except KeyboardInterrupt:
+                    typer.echo("\nGoodbye")
+                    return
+                if not utterance:
+                    continue
+                if utterance == "/exit":
+                    typer.echo("Goodbye")
+                    return
+                if utterance == "/help":
+                    typer.echo(_render_help())
+                    continue
+                if utterance == "/new":
+                    session_id = new_session_id()
+                    backend = HomeCliBackend(world_path=None, memory_path=None)
+                    session_open = False
+                    last_status = "idle"
+                    last_run_id = None
+                    typer.echo("New session created.")
+                    continue
+                if utterance == "/compact":
+                    if not session_open:
+                        typer.echo("Context compaction: no active session.")
+                        continue
+                    try:
+                        compact = runner.run(application.compact(session_id))
+                    except Exception as exc:
+                        last_status = "failed"
+                        typer.echo(f"Context compaction failed: {exc}")
+                        continue
+                    last_status = "compacted" if compact.triggered else "noop"
+                    typer.echo(
+                        "Context compaction: "
+                        f"status={last_status}, kind={compact.kind}, revision={compact.revision}"
+                    )
+                    continue
+                if utterance == "/doctor":
+                    typer.echo(render_doctor_text(run_doctor(live=False)))
+                    continue
+                if utterance == "/status":
+                    if not session_open:
+                        typer.echo("Status: idle")
+                    else:
+                        status = application.status(session_id)
+                        typer.echo(
+                            f"Status: {status.status}; generation={status.generation}; "
+                            f"revision={status.revision}; active={str(status.active).lower()}"
+                        )
+                    continue
+                if utterance == "/debug":
+                    typer.echo(f"Debug: run_id={last_run_id or 'none'}")
+                    continue
+                if utterance == "/events":
+                    typer.echo(f"Trace: {bundle.trace_path}")
+                    continue
+
+                ticket_route = route_coworker_ticket(utterance)
+                if ticket_route.kind == TicketRouteKind.INVALID_TICKET_INTENT:
+                    last_status = "failed"
+                    typer.echo(f"Invalid change ticket: {ticket_route.message}")
+                    continue
+                if ticket_route.kind == TicketRouteKind.VALID_TICKET:
+                    coworker = _run_coworker(ticket_route)
+                    if coworker is None:
+                        last_status = "failed"
+                        continue
+                    last_status = coworker.status
+                    last_run_id = coworker.run_id
+                    continue
+
+                try:
+                    result = runner.run(
+                        application.run(
+                            RunRequest(
+                                text=utterance,
+                                session_id=session_id,
+                                profile="home",
+                                resume=session_open,
+                                environment=backend,
+                            )
+                        )
+                    )
+                except KeyboardInterrupt:
+                    if session_open:
+                        application.cancel(session_id)
+                    last_status = "cancelled"
+                    typer.echo("Run cancelled.")
+                    continue
+                except Exception as exc:
+                    last_status = "failed"
+                    typer.echo(f"Run failed: {exc}")
+                    continue
+                session_open = True
+                last_status = str(result.status)
+                last_run_id = result.run_id
+                typer.echo(f"Assistant: {result.final_reply}")
+                if result.status is RunStatus.CANCELLED:
+                    typer.echo("Run cancelled.")
+        finally:
+            runner.run(application.aclose())
 
 
-def _pause_active_task(task_state_store: TaskStateStore | None) -> None:
-    if task_state_store is None:
-        return
-    from homemaster.task_state.models import TaskStatus
-
-    snapshot = task_state_store.snapshot
-    if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
-        task_state_store.update_status(TaskStatus.PAUSED)
+def _run_coworker(ticket_route):
+    try:
+        result = run_coworker_turn(ticket_route)
+    except CoworkerAttemptError as exc:
+        typer.echo(f"Change execution failed: {exc.error_type}")
+        typer.echo(f"Artifacts: {exc.run_root}")
+        return None
+    except Exception as exc:
+        typer.echo(f"Change execution failed: {exc}")
+        return None
+    typer.echo(f"Assistant: {result.final_reply}")
+    typer.echo(
+        "Scores: "
+        f"trajectory={result.trajectory_score:.1f}, "
+        f"result={result.result_score:.1f}, overall={result.overall_score:.1f}"
+    )
+    typer.echo(f"Formal success: {result.formal_success}")
+    typer.echo(f"Artifacts: {result.artifact_path}")
+    if result.video_path:
+        typer.echo(f"Video: {result.video_path}")
+    return result
 
 
 def _enable_line_editing() -> None:
-    """Enable readline-backed editing for terminals that support it."""
-
     try:
         import readline  # noqa: F401
     except ImportError:
@@ -204,13 +194,15 @@ def _enable_line_editing() -> None:
 def _render_help() -> str:
     return "\n".join(
         [
-            "可用命令：",
-            "/new：新建会话，清空当前对话状态。",
-            "/compact：立即压缩已有上下文，会按需调用 summary API。",
-            "/status：查看上一轮状态。",
-            "/events：查看上一轮 trace 文件路径，供调试和可观测性检查。",
-            "/doctor：检查本地配置和依赖。",
-            "/exit：退出 shell。",
-            "发送一条可验证的变更单 JSON 绝对路径，可自主执行整单变更。",
+            "Commands:",
+            "/new: start a new session.",
+            "/compact: persist an immediate context compaction.",
+            "/status: show typed application session status.",
+            "/events: show the application trace path.",
+            "/doctor: check local configuration and dependencies.",
+            "/exit: close owned application resources and exit.",
         ]
     )
+
+
+__all__ = ["run_interactive_shell"]

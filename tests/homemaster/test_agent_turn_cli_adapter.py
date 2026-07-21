@@ -1,189 +1,122 @@
-"""Tests for the CLI-facing agent turn adapter."""
+"""Tests for thin CLI-facing application compatibility wrappers."""
 
 from __future__ import annotations
 
-import json
-import uuid
-from collections.abc import Iterator
+import ast
 from pathlib import Path
-from typing import Any
 
-from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, UserMessage
 from homemaster.agent.session import AgentSession
-from homemaster.agent.turn import (
-    _build_run_context,
-    _build_tool_dispatcher_and_specs,
-    compact_agent_context,
-    run_agent_turn,
-)
-from homemaster.providers.transports import TransportDelta
-from homemaster.task_state.store import TaskStateStore
-
-EXPECTED_HOME_TOOLS = [
-    "task_interpreter",
-    "memory_retriever",
-    "target_grounder",
-    "skill_view",
-    "robot_go_to",
-    "observe",
-    "robot_manipulate",
-    "robot_verify",
-    "memory_writer",
-    "task_summarizer",
-    "task_planner",
-    "task_progress_check",
-]
-EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "config/homemaster.example.yaml"
+from homemaster.agent.turn import compact_agent_context, run_agent_turn, run_single_turn
+from homemaster.application import CompactionResult, RunResult, RunStatus, SessionManager
 
 
-class FakeTransport:
-    def stream(
-        self,
-        messages: list[Message],
-        tools: list[dict[str, Any]] | None = None,
-        *,
-        system_prompt: str = "",
-        event_sink: Any = None,
-        run_id: str = "",
-        session_id: str = "",
-        turn_index: int | None = None,
-        iteration: int | None = None,
-    ) -> Iterator[TransportDelta]:
-        yield TransportDelta(type="transport.delta", text_delta="你好，我在。")
-        yield TransportDelta(type="transport.delta", finish_reason="stop")
+class RecordingApplication:
+    def __init__(self) -> None:
+        self.session_manager = SessionManager()
+        self.requests = []
+        self.compactions: list[str] = []
 
-    def complete(
-        self,
-        messages: list[Message],
-        *,
-        system_prompt: str = "",
-        **kwargs: Any,
-    ) -> AssistantMessage:
-        return AssistantMessage(content=[ContentBlock(text="manual compact summary")])
+    async def run(self, request):
+        self.requests.append(request)
+        session_id = request.session_id or "generated-session"
+        return RunResult(
+            run_id="run-recorded",
+            session_id=session_id,
+            status=RunStatus.REPLIED,
+            final_reply="recorded reply",
+        )
 
-
-def test_cli_adapter_registers_v14_home_tools() -> None:
-    _dispatcher, schemas = _build_tool_dispatcher_and_specs("r1")
-    assert [schema["name"] for schema in schemas] == EXPECTED_HOME_TOOLS
+    async def compact(self, session_id):
+        self.compactions.append(session_id)
+        runtime = self.session_manager.get(session_id)
+        return CompactionResult(
+            session_id=session_id,
+            generation=runtime.generation,
+            revision=runtime.revision,
+            triggered=False,
+            kind="none",
+        )
 
 
-def test_run_context_carries_memory_path_and_drops_dead_world_path(tmp_path: Path) -> None:
-    world_path = tmp_path / "world.json"
-    memory_path = tmp_path / "memory.json"
-    context = _build_run_context(
-        "r1",
-        "s1",
-        world_path=world_path,
-        memory_path=memory_path,
-    )
-    assert not hasattr(context.settings, "world_path")
-    assert context.settings.memory_path == memory_path
+def test_run_single_turn_only_submits_typed_application_request() -> None:
+    application = RecordingApplication()
 
-
-def test_run_context_carries_task_state_store(tmp_path: Path) -> None:
-    context = _build_run_context(
-        "r1",
-        "s1",
-        world_path=tmp_path / "world.json",
-        memory_path=tmp_path / "memory.json",
+    result = run_single_turn(
+        application=application,  # type: ignore[arg-type]
+        utterance="hello",
+        session_id="session-one",
+        provider_name="provider-one",
     )
 
-    assert isinstance(context.deps["task_state_store"], TaskStateStore)
+    request = application.requests[0]
+    assert result.final_reply == "recorded reply"
+    assert request.text == "hello"
+    assert request.session_id == "session-one"
+    assert request.profile == "home"
+    assert request.provider_name == "provider-one"
+    assert request.resume is False
 
 
-def test_run_agent_turn_writes_trace_and_uses_transport_stream(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
-    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
-    run_id = f"test-trace-{uuid.uuid4().hex}"
-    result = run_agent_turn(
-        AgentSession(session_id="s1"),
-        "你好",
-        run_id=run_id,
-        world_path=tmp_path / "world.json",
-        memory_path=tmp_path / "memory.json",
-        progress=False,
-    )
-    assert result.final_reply == "你好，我在。"
-    assert result.trace_path is not None
-    assert result.trace_path.exists()
-    events = [
-        json.loads(line)
-        for line in result.trace_path.read_text(encoding="utf-8").splitlines()
-    ]
-    assert [event["type"] for event in events] == [
-        "runtime.turn_started",
-        "assistant.reply",
-        "runtime.turn_completed",
-    ]
+def test_run_agent_turn_attaches_legacy_session_and_submits_resume() -> None:
+    application = RecordingApplication()
+    session = AgentSession("legacy-session")
 
-
-def test_run_agent_turn_force_compact_writes_manual_compaction_event(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
-    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
-    session = AgentSession(session_id="s1")
-    for index in range(4):
-        session.append(UserMessage.from_text(f"old user turn {index} " + "x" * 400))
-        session.append(AssistantMessage(content=[ContentBlock(text="old answer " + "y" * 400)]))
-
-    run_id = f"test-compact-{uuid.uuid4().hex}"
     result = run_agent_turn(
         session,
-        "当前请求",
-        run_id=run_id,
-        world_path=tmp_path / "world.json",
-        memory_path=tmp_path / "memory.json",
-        progress=False,
-        force_compact=True,
+        "continue",
+        application=application,  # type: ignore[arg-type]
     )
 
-    assert result.trace_path is not None
-    events = [
-        json.loads(line)
-        for line in result.trace_path.read_text(encoding="utf-8").splitlines()
-    ]
-    compaction_events = [
-        event for event in events if event["type"] == "context.compaction"
-    ]
-    assert len(compaction_events) == 1
-    assert compaction_events[0]["payload"]["trigger"] == "manual"
-    assert compaction_events[0]["payload"]["kind"] == "manual_summary"
-    assert result.final_reply == "你好，我在。"
+    request = application.requests[0]
+    assert result.status == "replied"
+    assert request.session_id == "legacy-session"
+    assert request.resume is True
+    assert application.session_manager.get("legacy-session").session is session
 
 
-def test_compact_agent_context_immediately_writes_manual_compaction_event(
-    monkeypatch: Any,
-    tmp_path: Path,
-) -> None:
-    monkeypatch.setattr("homemaster.agent.turn._build_transport", lambda: FakeTransport())
-    monkeypatch.setattr("homemaster.agent.turn.HOMEMASTER_CONFIG_PATH", EXAMPLE_CONFIG)
-    session = AgentSession(session_id="s1")
-    for index in range(4):
-        session.append(UserMessage.from_text(f"old user turn {index} " + "x" * 400))
-        session.append(AssistantMessage(content=[ContentBlock(text="old answer " + "y" * 400)]))
+def test_compact_wrapper_forwards_to_exact_application_session() -> None:
+    application = RecordingApplication()
+    session = AgentSession("compact-session")
 
-    run_id = f"test-compact-now-{uuid.uuid4().hex}"
     result = compact_agent_context(
         session,
-        run_id=run_id,
-        progress=False,
+        application=application,  # type: ignore[arg-type]
     )
 
-    assert result.status == "compacted"
-    assert result.compaction_triggered is True
-    assert result.trace_path is not None
-    events = [
-        json.loads(line)
-        for line in result.trace_path.read_text(encoding="utf-8").splitlines()
-    ]
-    compaction_events = [
-        event for event in events if event["type"] == "context.compaction"
-    ]
-    assert len(compaction_events) == 1
-    assert compaction_events[0]["payload"]["trigger"] == "manual"
-    assert compaction_events[0]["payload"]["kind"] == "manual_summary"
+    assert application.compactions == ["compact-session"]
+    assert result.status == "noop"
+    assert result.compaction_triggered is False
+
+
+def test_turn_module_has_no_runtime_composition_imports_or_constructors() -> None:
+    source_path = Path(__file__).parents[2] / "src/homemaster/agent/turn.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    imported = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    calls = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert not imported.intersection(
+        {
+            "homemaster.agent.generic_runtime",
+            "homemaster.domain.tool_registry",
+            "homemaster.providers.llm_client",
+            "homemaster.tools.dispatcher",
+        }
+    )
+    assert not calls.intersection(
+        {
+            "AgentRuntime",
+            "GenericAgentRuntime",
+            "LLMClient",
+            "ToolDispatcher",
+            "build_home_tool_registry",
+            "create_application",
+        }
+    )

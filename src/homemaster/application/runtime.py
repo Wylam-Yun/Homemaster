@@ -382,6 +382,9 @@ class ApplicationRuntime:
             session_id,
             environment_ref=environment_ref,
         ) as (runtime, generation, _):
+            bind_run = getattr(backend, "bind_application_run", None)
+            if callable(bind_run):
+                await _maybe_await(bind_run(run_id, generation))
             runtime.application_control = _control_request(request, session_id)
             view = self._view(request, profile)
             ledger = ObservationLedger(

@@ -1,170 +1,163 @@
-"""Tests for CLI run command."""
+"""Tests for V1.9 one-shot CLI and the legacy run wrapper."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import importlib
+import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from homemaster.agent.session import AgentSession
-from homemaster.agent.session_persistence import save_snapshot
-from homemaster.agent.state import AgentState
+from homemaster.application import RunResult, RunStatus
 from homemaster.cli.app import app
-from homemaster.task_state.models import TaskStatus
-from homemaster.task_state.store import TaskStateStore
+from homemaster.cli.run_command import OneShotExecution
 
 
-@dataclass(frozen=True)
-class FakeTurn:
-    run_id: str = "r1"
-    status: str = "replied"
-    final_reply: str = "已完成。"
-    trace_path: Path | None = None
-    run_dir: Path | None = None
-    tool_events: list = field(default_factory=list)
-
-
-def test_run_command_prints_assistant_reply_and_trace(monkeypatch, tmp_path: Path) -> None:
-    trace = tmp_path / "runs" / "r1" / "events.jsonl"
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.run_single_turn",
-        lambda **kwargs: FakeTurn("r1", "replied", "已完成。", trace, tmp_path / "runs" / "r1", []),
+def _execution(
+    tmp_path: Path,
+    *,
+    status: RunStatus = RunStatus.REPLIED,
+    reply: str = "done",
+) -> OneShotExecution:
+    run_dir = tmp_path / "run"
+    return OneShotExecution(
+        result=RunResult(
+            run_id="run-one",
+            session_id="session-one",
+            status=status,
+            final_reply=reply,
+        ),
+        trace_path=run_dir / "runtime_events.jsonl",
+        run_dir=run_dir,
     )
-    result = CliRunner().invoke(app, ["run", "--utterance", "帮我拿个水"])
+
+
+def test_legacy_run_wrapper_preserves_labeled_output(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.execute_one_shot",
+        lambda **kwargs: _execution(tmp_path, reply="completed"),
+    )
+
+    result = CliRunner().invoke(app, ["run", "--utterance", "do it"])
+
     assert result.exit_code == 0
-    assert "assistant: 已完成。" in result.stdout
+    assert "assistant: completed" in result.stdout
+    assert "status: replied" in result.stdout
     assert "trace:" in result.stdout
-    assert "stage" not in result.stdout.lower()
-    assert "scenario" not in result.stdout.lower()
 
 
-def test_run_command_accepts_progress_flag(monkeypatch, tmp_path: Path) -> None:
-    """--progress flag is accepted."""
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.run_single_turn",
-        lambda **kwargs: FakeTurn(),
-    )
-    result = CliRunner().invoke(app, ["run", "--utterance", "test", "--progress"])
-    assert result.exit_code == 0
-
-
-def test_run_command_accepts_verbose_and_quiet_flags(monkeypatch) -> None:
+def test_legacy_wrapper_forwards_progress_verbose_and_quiet(monkeypatch, tmp_path: Path) -> None:
     captured = {}
 
-    def fake_run_single_turn(**kwargs):
+    def execute(**kwargs):
         captured.update(kwargs)
-        return FakeTurn()
+        return _execution(tmp_path)
 
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.run_single_turn",
-        fake_run_single_turn,
+    monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
+    result = CliRunner().invoke(
+        app,
+        ["run", "--utterance", "do it", "--progress", "--verbose", "--quiet"],
     )
 
-    result = CliRunner().invoke(app, ["run", "--utterance", "test", "--verbose", "--quiet"])
-
     assert result.exit_code == 0
+    assert captured["progress"] is True
     assert captured["verbose"] is True
     assert captured["quiet"] is True
 
 
-def test_run_command_no_scenario_flag() -> None:
-    """--scenario is no longer a valid flag."""
+def test_legacy_wrapper_rejects_missing_utterance_and_removed_scenario() -> None:
+    missing = CliRunner().invoke(app, ["run"])
+    removed = CliRunner().invoke(
+        app,
+        ["run", "--utterance", "test", "--scenario", "old"],
+    )
+
+    assert missing.exit_code == 1
+    assert removed.exit_code != 0
+
+
+def test_top_level_print_supports_text_json_and_stream_json(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.execute_one_shot",
+        lambda **kwargs: _execution(tmp_path, reply="answer"),
+    )
+    runner = CliRunner()
+
+    text = runner.invoke(app, ["-p", "question"])
+    structured = runner.invoke(app, ["-p", "question", "--output-format", "json"])
+    streamed = runner.invoke(
+        app,
+        ["-p", "question", "--output-format", "stream-json"],
+    )
+
+    assert text.exit_code == structured.exit_code == streamed.exit_code == 0
+    assert text.stdout.strip() == "answer"
+    assert json.loads(structured.stdout)["type"] == "result"
+    assert json.loads(streamed.stdout)["session_id"] == "session-one"
+
+
+def test_top_level_print_forwards_resume_and_continue(monkeypatch, tmp_path: Path) -> None:
+    captured = []
+
+    def execute(**kwargs):
+        captured.append(kwargs)
+        return _execution(tmp_path)
+
+    monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
+    runner = CliRunner()
+    resumed = runner.invoke(app, ["-p", "next", "--resume", "session-one"])
+    continued = runner.invoke(app, ["-p", "next", "--continue"])
+
+    assert resumed.exit_code == continued.exit_code == 0
+    assert captured[0]["resume_session_id"] == "session-one"
+    assert captured[1]["continue_latest"] is True
+
+
+def test_dry_run_resolves_home_profile_without_application_or_external_io(
+    monkeypatch,
+) -> None:
+    def forbidden(*args, **kwargs):
+        raise AssertionError("dry-run created the application")
+
+    monkeypatch.setattr("homemaster.cli.composition.create_application", forbidden)
     result = CliRunner().invoke(
         app,
-        ["run", "--utterance", "test", "--scenario", "fetch_cup_retry"],
-    )
-    assert result.exit_code != 0
-
-
-def test_run_command_status_field(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.run_single_turn",
-        lambda **kwargs: FakeTurn(status="replied"),
-    )
-    result = CliRunner().invoke(app, ["run", "--utterance", "test"])
-    assert result.exit_code == 0
-    assert "status: replied" in result.stdout
-
-
-def test_run_command_resume_without_utterance_prints_restored_status(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    _write_snapshot(tmp_path, session_id="s1")
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.load_config",
-        lambda: SimpleNamespace(observability=SimpleNamespace(session_dir=str(tmp_path))),
-    )
-
-    result = CliRunner().invoke(app, ["run", "--resume", "s1"])
-
-    assert result.exit_code == 0
-    assert "session: s1" in result.stdout
-    assert "status: resumed" in result.stdout
-
-
-def test_run_command_resume_passes_restored_task_state(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
-    _write_snapshot(tmp_path, session_id="s2", task_status=TaskStatus.PAUSED)
-    captured = {}
-
-    def fake_run_agent_turn(session, text, **kwargs):
-        captured["session_id"] = session.session_id
-        captured["text"] = text
-        captured["task_status"] = kwargs["task_state_store"].snapshot.status
-        return FakeTurn(run_id=kwargs["run_id"], final_reply="继续。")
-
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.load_config",
-        lambda: SimpleNamespace(observability=SimpleNamespace(session_dir=str(tmp_path))),
-    )
-    monkeypatch.setattr("homemaster.cli.run_command.run_agent_turn", fake_run_agent_turn)
-
-    result = CliRunner().invoke(
-        app,
-        ["run", "--resume", "s2", "--utterance", "继续"],
+        ["--dry-run", "-p", "inspect", "--output-format", "json"],
     )
 
     assert result.exit_code == 0
-    assert captured == {
-        "session_id": "s2",
-        "text": "继续",
-        "task_status": TaskStatus.ACTIVE,
-    }
-    assert "assistant: 继续。" in result.stdout
+    preview = json.loads(result.stdout)
+    assert preview["entrypoint"] == "model_prompt"
+    assert preview["settings"]["profile"] == "home"
+    assert preview["mcp_discovery"] == "unknown_until_connect"
+    assert preview["external_io"] is False
+    assert [tool["name"] for tool in preview["tools"]][:6] == [
+        "task_interpreter",
+        "memory_retriever",
+        "target_grounder",
+        "skill_view",
+        "robot_go_to",
+        "observe",
+    ]
 
 
-def _write_snapshot(
-    root: Path,
-    *,
-    session_id: str,
-    task_status: TaskStatus = TaskStatus.ACTIVE,
-) -> None:
-    session = AgentSession(session_id=session_id)
-    from homemaster.agent.messages import UserMessage
+def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:
+    calls = []
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
 
-    session.append(UserMessage.from_text("hello"))
-    agent_state = AgentState(
-        run_id=f"{session_id}-run",
-        session_id=session_id,
-        status="waiting_user",
-        iteration_index=2,
+    result = CliRunner().invoke(app, [])
+
+    assert result.exit_code == 0
+    assert calls == [{"resume_session_id": None, "continue_latest": False}]
+
+
+def test_result_status_controls_process_exit(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.execute_one_shot",
+        lambda **kwargs: _execution(tmp_path, status=RunStatus.FAILED),
     )
-    task_store = TaskStateStore(run_id=agent_state.run_id)
-    task_store.create_or_replace_plan(
-        goal="test",
-        subtasks=[{"id": "a", "title": "A", "description": "test step"}],
-    )
-    task_store.update_status(task_status)
-    save_snapshot(
-        session=session,
-        agent_state=agent_state,
-        task_state_store=task_store,
-        path=root / session_id / "session.json",
-        model="test-model",
-        system_prompt="system",
-    )
+
+    result = CliRunner().invoke(app, ["-p", "question"])
+
+    assert result.exit_code == 1

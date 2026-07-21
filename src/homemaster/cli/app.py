@@ -13,9 +13,11 @@ from homemaster.cli.benchmark_alfworld import (
     handle_benchmark_alfworld_taskset,
 )
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
+from homemaster.cli.dry_run import build_dry_run_preview
 from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.interactive_shell import run_interactive_shell
-from homemaster.cli.run_command import handle_run
+from homemaster.cli.renderers import parse_output_format, render_dry_run
+from homemaster.cli.run_command import handle_print, handle_run
 from homemaster.cli.session_command import session_app
 from homemaster.events.logger import setup_logging
 
@@ -24,6 +26,77 @@ app = typer.Typer(
     help="HomeMaster V1.6 — Generic agent loop CLI.",
 )
 app.add_typer(session_app, name="session")
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(
+    ctx: typer.Context,
+    print_prompt: Annotated[
+        str | None,
+        typer.Option("--print", "-p", help="Print one response and exit."),
+    ] = None,
+    output_format: Annotated[
+        str | None,
+        typer.Option(
+            "--output-format",
+            help="Output format for print or dry-run: text, json, or stream-json.",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Preview local resolution without external I/O."),
+    ] = False,
+    resume_session_id: Annotated[
+        str | None,
+        typer.Option("--resume", help="Resume the specified persisted session."),
+    ] = None,
+    continue_latest: Annotated[
+        bool,
+        typer.Option("--continue", help="Resume the latest persisted session."),
+    ] = False,
+    probe: Annotated[
+        bool,
+        typer.Option("--probe", help="Probe configured external discovery during dry-run."),
+    ] = False,
+) -> None:
+    """Start interactive HomeMaster or execute one typed request."""
+
+    if ctx.invoked_subcommand is not None:
+        return
+    try:
+        resolved_format = parse_output_format(output_format)
+        if resume_session_id is not None and continue_latest:
+            raise typer.BadParameter("--continue cannot be combined with --resume")
+        if probe and not dry_run:
+            raise typer.BadParameter("--probe is only valid with --dry-run")
+        if dry_run:
+            prompt = print_prompt.strip() if print_prompt is not None else None
+            if print_prompt is not None and not prompt:
+                raise typer.BadParameter("-p/--print requires a non-empty prompt")
+            preview = build_dry_run_preview(prompt=prompt, probe=probe)
+            typer.echo(render_dry_run(preview, resolved_format))
+            return
+        if print_prompt is not None:
+            prompt = print_prompt.strip()
+            if not prompt:
+                raise typer.BadParameter("-p/--print requires a non-empty prompt")
+            handle_print(
+                prompt=prompt,
+                output_format=resolved_format,
+                resume_session_id=resume_session_id,
+                continue_latest=continue_latest,
+            )
+            return
+        if output_format is not None:
+            raise typer.BadParameter("--output-format requires --print or --dry-run")
+        run_interactive_shell(
+            resume_session_id=resume_session_id,
+            continue_latest=continue_latest,
+        )
+    except (typer.Exit, typer.BadParameter, SystemExit):
+        raise
+    except Exception as exc:
+        render_error_and_exit(exc)
 
 
 @app.command("run")

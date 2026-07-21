@@ -1,0 +1,59 @@
+{
+  "schema_version": "homemaster-v1.9-allowed-deltas-v1",
+  "deltas": [
+    {
+      "id": "home-navigation-alias",
+      "old": "robot_navigate",
+      "new": "robot_go_to",
+      "reason": "V1.9 canonical Home navigation model alias",
+      "owner": "home-profile",
+      "introduced_phase": "CL-07",
+      "stability_condition": "robot_go_to remains the sole model-facing Home navigation alias"
+    },
+    {
+      "id": "home-explicit-observe",
+      "old": "robot_observe",
+      "new": "observe",
+      "reason": "explicit canonical observation boundary",
+      "owner": "home-profile",
+      "introduced_phase": "CL-07",
+      "stability_condition": "legacy operation remains execution-only until adapter cleanup"
+    },
+    {
+      "id": "alfworld-explicit-observe",
+      "old": "implicit initial and post-action model images",
+      "new": "explicit observe result followed by a frozen provider request",
+      "reason": "bind model-visible raster evidence to an explicit observation",
+      "owner": "alfworld-entry",
+      "introduced_phase": "CL-13",
+      "stability_condition": "no model image is injected outside an explicit observe result"
+    },
+    {
+      "id": "coworker-explicit-observe",
+      "old": "browser_observe",
+      "new": "observe",
+      "reason": "canonical structured observation alias",
+      "owner": "coworker-entry",
+      "introduced_phase": "CL-14",
+      "stability_condition": "the ordered eleven-tool surface keeps observe in position five"
+    },
+    {
+      "id": "coworker-ticket-read-owner",
+      "old": "browser_navigate",
+      "new": "observe",
+      "reason": "ticket-read evidence requires model-visible DOM content",
+      "owner": "coworker-evaluation",
+      "introduced_phase": "CL-14",
+      "stability_condition": "node identity, order, dependencies, checkpoints, and weights stay unchanged"
+    },
+    {
+      "id": "home-cli-v19-entry",
+      "old": "run --utterance labeled text only",
+      "new": "default interactive plus -p, dry-run, resume, text, json, and stream-json",
+      "reason": "unified typed application entry contract",
+      "owner": "home-cli",
+      "introduced_phase": "CL-11",
+      "stability_condition": "legacy run wrapper only forwards to ApplicationRuntime until its declared removal version"
+    }
+  ]
+}
