@@ -1,4 +1,25 @@
-# Current Coworker Demo Progress
+# Current V1.9 Recovery Progress
+
+## 2026-07-21
+
+- 已恢复中断现场：HEAD `70d8e91` 的 V1.9 core CL-01～CL-16d 已提交，M0/最终真实
+  ALFWorld 4/4 与 Coworker 1/1 外部门仍未完成；未提交区是 CL-17 半成品。
+- CL-17 根因：loader/config 局部测试存在但未接 Home composition，installed-wheel 测试未真实构建
+  wheel，provider list provenance 不完整，并错误删除了脱敏 example 配置。
+- 已完成 Home one-shot/Interactive/dry-run SkillRegistry 接线、四级来源与 provenance、路径 containment、
+  ToolView capability、named builtin override、model invocation gate、typed auth/env/CLI precedence、递归
+  redaction，并恢复 example 模板。
+- Anthropic SDK 外部符号已在本机 0.116.0 核对：`AsyncAnthropic(auth_token=...)` 构造与关闭成功。
+- CL-17 已通过内部与本机黑盒门：全量 non-live `1155 passed, 7 deselected`；全仓 Ruff lint、改动
+  format、compileall、cleanup guard、upstream manifest、diff/secret/config 权限通过。真实 wheel 已
+  隔离安装并从源码树外发现 builtin SKILL.md；dry-run 确认 12 项 Home ToolView、CLI provenance、
+  skill 路径不外泄和 `external_io=false`。
+- CL-17 machine state 已写入 `plan/V1.9/execution/phase-1-cl17/state.json`，状态 GATE_PASSED；按当前
+  AGENTS 规则不在实施中追加 reviewer，唯一最终代码评审保留到全部实现、外部终态和文档完成之后。
+- 下一步：提交 CL-17 候选；在同一已提交 SHA 上执行真实 provider、ALFWorld 4/4 和 Coworker 1/1
+  外部终态门，然后才开始 CL-18。
+
+# Historical Coworker Demo Progress
 
 ## 2026-07-20
 

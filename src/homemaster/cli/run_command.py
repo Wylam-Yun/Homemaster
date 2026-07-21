@@ -34,12 +34,16 @@ def execute_one_shot(
     resume_session_id: str | None = None,
     continue_latest: bool = False,
     provider_name: str | None = None,
+    model: str | None = None,
 ) -> OneShotExecution:
     if not prompt.strip():
         raise ValueError("a non-empty prompt is required")
     if continue_latest and resume_session_id is not None:
         raise ValueError("--continue cannot be combined with --resume")
-    config = load_config()
+    overrides = (
+        {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
+    )
+    config = load_config(cli_overrides=overrides)
     bundle = create_home_application(
         config=config,
         world_path=world_path,
@@ -65,6 +69,7 @@ def execute_one_shot(
                     profile="home",
                     provider_name=provider_name,
                     resume=session_id is not None,
+                    dependencies={"skill_registry": bundle.skill_registry},
                     environment=HomeCliBackend(
                         world_path=world_path,
                         memory_path=memory_path,
@@ -93,6 +98,8 @@ def handle_run(
     quiet: bool = False,
     resume_session_id: str | None = None,
     continue_latest: bool = False,
+    provider_name: str | None = None,
+    model: str | None = None,
 ) -> None:
     """Compatibility renderer for the historical ``run`` subcommand."""
 
@@ -109,6 +116,8 @@ def handle_run(
         quiet=quiet,
         resume_session_id=resume_session_id,
         continue_latest=continue_latest,
+        provider_name=provider_name,
+        model=model,
     )
     result = execution.result
     typer.echo(f"run_id: {result.run_id}")
@@ -127,11 +136,15 @@ def handle_print(
     output_format: OutputFormat,
     resume_session_id: str | None = None,
     continue_latest: bool = False,
+    provider_name: str | None = None,
+    model: str | None = None,
 ) -> None:
     execution = execute_one_shot(
         prompt=prompt,
         resume_session_id=resume_session_id,
         continue_latest=continue_latest,
+        provider_name=provider_name,
+        model=model,
         quiet=True,
     )
     typer.echo(render_run_result(execution.result, output_format))

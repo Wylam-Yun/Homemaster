@@ -320,7 +320,7 @@ class LLMClient:
         try:
             if self._provider.api_format == "anthropic":
                 client_kwargs: dict[str, Any] = {
-                    "api_key": api_key,
+                    self._provider.auth_type: api_key,
                     "base_url": self._provider.base_url,
                     "timeout": self._timeout_s,
                     "max_retries": 0,
@@ -334,9 +334,7 @@ class LLMClient:
                 try:
                     stream_context = client.messages.stream(**kwargs)
                     async with _async_context(stream_context) as stream:
-                        async for delta in self._transport.aiter_stream_deltas(
-                            _async_iter(stream)
-                        ):
+                        async for delta in self._transport.aiter_stream_deltas(_async_iter(stream)):
                             yield delta
                 finally:
                     close = getattr(client, "aclose", None) or getattr(client, "close", None)
@@ -364,9 +362,7 @@ class LLMClient:
                 )
                 stream_context = await _maybe_await(stream_context)
                 async with _async_context(stream_context) as stream:
-                    async for delta in self._transport.aiter_stream_deltas(
-                        _async_iter(stream)
-                    ):
+                    async for delta in self._transport.aiter_stream_deltas(_async_iter(stream)):
                         yield delta
             finally:
                 close = getattr(client, "aclose", None) or getattr(client, "close", None)
@@ -529,8 +525,7 @@ def _attempt_record(
                             or block.metadata.get("backend_id")
                         ),
                         observation_run_id=_optional_str(
-                            block.metadata.get("observation_run_id")
-                            or block.metadata.get("run_id")
+                            block.metadata.get("observation_run_id") or block.metadata.get("run_id")
                         ),
                         observation_generation=_optional_int(
                             block.metadata.get("observation_generation")
@@ -557,9 +552,7 @@ def _attempt_record(
                 block=block,
                 content_sha256=content_sha256,
                 media_type=_optional_str(
-                    block.source.get("media_type")
-                    if isinstance(block.source, dict)
-                    else None
+                    block.source.get("media_type") if isinstance(block.source, dict) else None
                 )
                 or "image/unknown",
             )
@@ -573,8 +566,7 @@ def _attempt_record(
                 block_index=block_index,
                 block=block,
                 content_sha256=hashlib.sha256(content).hexdigest(),
-                media_type=_optional_str(block.metadata.get("media_type"))
-                or "text/plain",
+                media_type=_optional_str(block.metadata.get("media_type")) or "text/plain",
             )
     serialized_counts = Counter(
         hashlib.sha256(content).hexdigest() for content in _serialized_image_contents(request_body)
@@ -587,8 +579,7 @@ def _attempt_record(
         bindings.append(binding)
     bindings.reverse()
     serialized_observation_counts = Counter(
-        digest
-        for digest in _serialized_observation_contents(request_body)
+        digest for digest in _serialized_observation_contents(request_body)
     )
     observation_bindings: list[OutboundObservationBinding] = []
     for content_sha256, binding in reversed(observation_candidates):
@@ -623,9 +614,7 @@ def _append_observation_binding(
     observation_content_sha256 = _optional_str(
         metadata.get("observation_content_sha256") or metadata.get("content_sha256")
     )
-    backend_id = _optional_str(
-        metadata.get("observation_backend_id") or metadata.get("backend_id")
-    )
+    backend_id = _optional_str(metadata.get("observation_backend_id") or metadata.get("backend_id"))
     run_id = _optional_str(metadata.get("observation_run_id") or metadata.get("run_id"))
     generation = _optional_int(
         metadata.get("observation_generation")

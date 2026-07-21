@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "phase": "1-CL17",
+  "change_list": "CL-17-skills-config-sources",
+  "status": "GATE_PASSED",
+  "commits": {
+    "implementation_base": "70d8e91",
+    "candidate": "containing_commit"
+  },
+  "review_policy": {
+    "source": "repository AGENTS.md supplied for the recovery session",
+    "implementation_review": "deferred_to_single_final_code_review",
+    "reason": "The active rule permits reviewer subagents only after all implementation, tests, external terminal-state verification, and documentation are complete."
+  },
+  "subgoals": [
+    "Port standard YAML frontmatter and deterministic builtin/user/project/explicit discovery with upstream provenance.",
+    "Enforce resolved path containment, frozen ToolView capability checks, named builtin override authorization, model invocation policy, and atomic registry replacement.",
+    "Resolve provider/auth defaults, file, provider-specific environment, and limited CLI model overrides through one typed schema with per-field source labels.",
+    "Recursively redact credentials, authorization values, and URL userinfo from diagnostics, errors, dry-run output, logs, and events.",
+    "Wire one validated Home skill registry into one-shot and Interactive RunRequest dependencies without changing ALFWorld or Coworker ToolViews.",
+    "Build and install a real wheel in an isolated environment and discover builtin SKILL.md package data outside the source checkout."
+  ],
+  "external_symbols": [
+    {
+      "symbol": "anthropic.AsyncAnthropic(auth_token=...)",
+      "status": "VERIFIED_RUNTIME",
+      "environment": "anthropic 0.116.0",
+      "result": "constructor signature contains auth_token; placeholder client construction and async close returned exit 0"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "full_non_live",
+      "status": "pass",
+      "command": "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+      "result": "1155 passed, 7 deselected, 1 pre-existing Starlette/httpx deprecation warning"
+    },
+    {
+      "kind": "installed_wheel",
+      "status": "pass",
+      "result": "full suite built a wheel, installed it without dependencies into an isolated venv, and discovered both builtin SKILL.md files with isolated Python outside the checkout"
+    },
+    {
+      "kind": "static",
+      "status": "pass",
+      "result": "full Ruff lint, changed-file format check, compileall, cleanup guard, manifest validator, and git diff check returned exit 0"
+    },
+    {
+      "kind": "upstream_port_manifest",
+      "status": "pass",
+      "result": "locked OpenHarness commit 9b2efd7; port_count=7"
+    },
+    {
+      "kind": "dry_run_blackbox",
+      "status": "pass",
+      "result": "process exit 0; external_io=false; Home ToolView count=12; model source=cli; builtin skills loaded; no skill host paths emitted"
+    },
+    {
+      "kind": "secret_and_real_config",
+      "status": "pass",
+      "result": "diff credential scan empty; real config ignored and mode 0600; committed example contains placeholders only"
+    }
+  ],
+  "invariants": {
+    "home_registry": "loaded once at composition and passed as an immutable run dependency",
+    "automatic_source_failure": "single invalid user/project skill is diagnosed without hiding builtins",
+    "explicit_source_failure": "fail closed",
+    "builtin_override": "requires exact name authorization",
+    "runtime_tool_capability": "skills cannot enable tools outside the frozen ToolView",
+    "alfworld_toolview": "unchanged",
+    "coworker_toolview": "unchanged exact ordered eleven tools"
+  },
+  "next": [
+    "Commit the CL-17 candidate with matching CHANGELOG content.",
+    "Run the real provider and V1.9 core ALFWorld 4/4 plus Coworker 1/1 external terminal-state gates on one committed SHA.",
+    "Start CL-18 only after the release-gate result is recorded."
+  ]
+}

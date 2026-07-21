@@ -2,6 +2,32 @@
 
 最新记录放在最上方。
 
+## 2026-07-21 - Pydantic model_copy 让 env override 绕过字段校验
+
+严重程度：中。CL-17 初版的 file 配置会经过 typed validator，但 env/CLI 覆盖使用
+`model_copy(update=...)`，同一字段在不同来源下实际遵循了不同契约。
+
+### 症状与根因
+
+- `HOMEMASTER_MIMO_BASE_URL=https://env.example/v1/` 合并后保留末尾 `/`，而 YAML 中同值会被
+  `base_url` validator 规范化。
+- `model_copy(update=...)` 不重新运行 Pydantic validator，因此非法 `auth_type` 也可能进入已标为
+  typed 的 provider 对象；只用 fake client 断言 kwargs 无法发现该问题。
+- 原测试只覆盖 override 优先级，没有用一个必须经过规范化或 enum 校验的值证明 validator 真执行。
+
+### 修法与教训
+
+- 把 provider dump 与 override 合并后重新调用 `ProviderProfileConfig.model_validate()`。
+- 对 base URL 规范化、认证 enum、model 和 provenance 分别断言，保证 file/env/CLI 使用同一 schema。
+- 外部 `auth_token` 另在当前安装的 Anthropic SDK 0.116.0 上核对构造器签名和实例化/关闭，不以 fake
+  factory 代替真环境符号验证。
+
+### 参考
+
+- `src/homemaster/config/config.py`
+- `tests/homemaster/test_config_resolution.py`
+- `tests/homemaster/test_llm_client.py`
+
 ## 2026-07-20 - 聚合存在性检查让缺失 Planner 和部分真实模型调用仍可通过验收
 
 严重程度：高。最终评审发现两个假阳性窗口：成功 Planner 结果可以静默丢弃不安全/超限 plan；provider 门只要求至少一个 request 和 response，不能证明完整实时推演都由真实模型响应驱动。

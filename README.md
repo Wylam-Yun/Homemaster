@@ -1,4 +1,4 @@
-# HomeMaster V1.8
+# HomeMaster V1.9
 
 LLM-first generic agent runtime with home-robot domain tools.
 
@@ -35,15 +35,15 @@ PYTHONPATH=src .venv/bin/python -c "import homemaster, bm25s, jieba; print(homem
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-API 配置默认从 `config/api_config.json` 读取；更完整的运行配置放在 `config/homemaster.json`。不要把真实 key 提交进 git。
-
-ALFWorld benchmark 使用完整的 YAML provider 配置。首次配置时复制脱敏模板并只在本机填写真实 key：
+Provider 配置只从 `config/homemaster.yaml` 读取。首次配置时复制脱敏模板：
 
 ```bash
 cp config/homemaster.example.yaml config/homemaster.yaml
+chmod 600 config/homemaster.yaml
 ```
 
-`config/homemaster.yaml` 已加入 `.gitignore`，真实文件只能保留在运行机器上；仓库只提交字段齐全的 `config/homemaster.example.yaml`。
+真实配置已加入 `.gitignore`，真实 key 只能保留在运行机器上，不能提交进 Git。仓库中的
+`config/homemaster.example.yaml` 是字段模板，只包含占位认证值。
 
 配置文件需要包含两个 provider：
 
@@ -66,6 +66,21 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - Mimo 最小 JSON 调用
 - BGE-M3 `/v1/embeddings` 调用
 - runtime memory 目录是否可写
+
+## 配置与 Skills
+
+Home profile 支持 builtin、用户目录、Git root 内的项目目录和显式目录四类 skill 来源。每个
+`SKILL.md` 使用标准 YAML frontmatter；加载时会核对真实路径、来源优先级、builtin 覆盖授权，
+并确保 `tool_names` 只能引用当前 frozen ToolView 中的 model alias。可先运行：
+
+```bash
+uv run homemaster --dry-run -p '检查药盒状态' --output-format json
+```
+
+输出包含 provider/model 的 `default/file/env/cli` 来源、已加载 skill 及 secret-safe 拒绝计数，
+不会创建 provider client 或执行工具。完整配置和 skill 示例见
+[Skills 与配置用户指南](docs/skills-and-config-user-guide.md)，owner 与数据流见
+[Application Runtime 架构](docs/architecture/application-runtime.md)。
 
 ## 跑一个任务
 
@@ -179,22 +194,22 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 
 ## 架构
 
-默认入口是 **GenericAgentRuntime**（`src/homemaster/agent/`），一个 Mimo 驱动的
-tool loop。Mimo 在每一轮选择 tool 调用，Dispatcher 执行，结果返回给 Mimo，
-直到 Mimo 选择结束或达到 max_turns。
+默认入口是 **ApplicationRuntime**（`src/homemaster/application/`），其内部使用统一
+AgentRuntime 和无 session 状态的 ToolExecutionPipeline。CLI、Interactive、ALFWorld 与
+Coworker 共享这条控制流，每个 run 单独冻结 ToolView、provider request、generation 和环境绑定。
 
-**Tool 系统**：10 个 home domain tools（task_interpreter, memory_retriever,
-target_grounder, skill_view, robot_navigate, robot_observe, robot_manipulate,
-robot_verify, memory_writer, task_summarizer）。
+**Tool 系统**：Home 正式 alias 包括 `robot_go_to` 与显式 `observe`；canonical Catalog 以 stable
+internal id 注册环境 variant，ToolView 决定每个 run 的可见与可执行集合。
 
-**Skills**：通过 skill_view 实现 progressive disclosure。Mimo 按需加载 skill context
-（fetch_object, check_object_state），而不是一次性获取所有 skill 信息。
+**Skills**：通过 `skill_view` 实现 progressive disclosure。builtin/user/project/explicit 来源在
+composition 时完成路径和 capability 校验，运行中不能修改 frozen ToolView 或扩大 permission。
 
 **目录结构**：
 
 ```text
-agent/      GenericAgentRuntime 实现（tool loop, context, turn）
-tools/      ToolSpec / ToolRegistry / Dispatcher
+application/ ApplicationRuntime、SessionManager 与资源 ownership
+agent/      AgentRuntime、context 与 provider turn
+tools/      canonical contracts、Catalog/ToolView 与统一执行链
 domain/     Home domain tools and contracts
 skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
 memory/     RAG retrieval / index / tokenizer / runtime memory store

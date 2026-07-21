@@ -88,7 +88,8 @@ def _exec_memory_retriever(
             records = records.get("objects", [])
         keywords = query.lower().split()
         hits = [
-            r for r in records
+            r
+            for r in records
             if any(kw in json.dumps(r, ensure_ascii=False).lower() for kw in keywords)
         ][:5]
     except Exception:
@@ -153,7 +154,8 @@ def _exec_skill_view(
             failure_reason="no skill_registry in run_context.deps",
         )
 
-    spec = skill_registry.get(skill_name)
+    get_skill = getattr(skill_registry, "get_model_visible", skill_registry.get)
+    spec = get_skill(skill_name)
     if spec is None:
         return ToolResult(
             success=False,

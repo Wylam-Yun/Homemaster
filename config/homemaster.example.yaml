@@ -5,43 +5,25 @@ providers:
       kind: chat
       api_format: anthropic
       transport: anthropic_sdk
-      base_url: https://token-plan-cn.xiaomimimo.com/anthropic
-      model: mimo-v2.5
+      auth_type: auth_token
+      base_url: https://provider.example/anthropic
+      model: your-chat-model
       api_keys:
         - "<your-api-key>"
-      context_window_tokens: 1000000
+      context_window_tokens: 200000
       max_output_tokens: null
 
     - name: MemoryEmbedding
       kind: embedding
       api_format: openai
       transport: openai_sdk
-      base_url: https://api.siliconflow.cn/v1
-      model: BAAI/bge-m3
+      auth_type: api_key
+      base_url: https://embedding.example/v1
+      model: your-embedding-model
       api_keys:
         - "<your-api-key>"
-      embedding_url: https://api.siliconflow.cn/v1/embeddings
+      embedding_url: https://embedding.example/v1/embeddings
       context_window_tokens: 8192
-
-    - name: huya_anthropic
-      kind: chat
-      api_format: anthropic
-      transport: anthropic_sdk
-      base_url: https://copilot.huya.info/api/anthropic
-      model: z-ai/glm-5.1
-      api_keys:
-        - "<your-api-key>"
-      context_window_tokens: 128000
-
-    - name: mytokenland
-      kind: chat
-      api_format: openai
-      transport: openai_sdk
-      base_url: https://api.mytokenland.com/v1
-      model: glm-5.1
-      api_keys:
-        - "<your-api-key>"
-      context_window_tokens: 128000
 
 context:
   auto_compact_enabled: true
@@ -150,3 +132,16 @@ observability:
   interrupt_enabled: true
   interrupt_abort_llm_stream: true
   schema_version: 1
+
+skills:
+  user_dirs:
+    - ~/.homemaster/skills
+    - ~/.agents/skills
+    - ~/.claude/skills
+  project_dirs:
+    - .homemaster/skills
+    - .agents/skills
+    - .claude/skills
+  explicit_dirs: []
+  allow_project: true
+  allowed_builtin_overrides: []

@@ -145,6 +145,97 @@
         "tests/homemaster/events/test_public_projection.py::test_public_stream_does_not_expose_private_events"
       ],
       "sync_policy": "Recompare the locked stream event DTO union and query-engine consumer branches before future upstream sync; preserve HomeMaster private/public projection and bounded lifecycle deltas."
+    },
+    {
+      "id": "cl17-openharness-skill-frontmatter",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/skills/_frontmatter.py",
+        "symbol": "parse_skill_metadata",
+        "sha256": "668a128511d47e172d9cfc785917e2e52d03914a2f982df7f273a4329f4a5920"
+      },
+      "destination": "src/homemaster/skills/_frontmatter.py",
+      "copied_test_ids": [
+        "tests/test_skills/test_loader.py::test_parse_frontmatter_folded_block_scalar",
+        "tests/test_skills/test_loader.py::test_parse_frontmatter_literal_block_scalar",
+        "tests/test_skills/test_loader.py::test_parse_frontmatter_quoted_description"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "retain yaml.safe_load parsing for folded, literal, quoted, boolean, and nested YAML values",
+        "return the parsed body together with metadata for the HomeMaster SkillSpec"
+      ],
+      "homemaster_deltas": [
+        "fail closed on malformed or non-mapping frontmatter instead of silently accepting a partially parsed safety skill",
+        "exclude frontmatter lines from body-description fallback"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/skills/test_frontmatter.py::test_frontmatter_supports_folded_literal_boolean_and_colons",
+        "tests/homemaster/skills/test_frontmatter.py::test_frontmatter_rejects_invalid_yaml"
+      ],
+      "sync_policy": "Recompare the locked parser before future sync and retain HomeMaster fail-closed parsing."
+    },
+    {
+      "id": "cl17-openharness-skill-loader",
+      "mode": "V",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/skills/loader.py",
+        "symbol": "load_skill_registry",
+        "sha256": "f8981e8f900fdec99dc48af9680190c7a0fc8ac25c1ef6a5b9c2245e1a16ee11"
+      },
+      "destination": "src/homemaster/skills/loader.py",
+      "copied_test_ids": [
+        "tests/test_skills/test_loader.py::test_project_skill_discovery_walks_up_to_git_root",
+        "tests/test_skills/test_loader.py::test_project_skill_nearer_cwd_overrides_parent_and_user",
+        "tests/test_skills/test_loader.py::test_unsafe_project_skill_dirs_are_ignored"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "retain builtin, user, project, and explicit source discovery with deterministic precedence",
+        "retain git-root bounded project directory discovery"
+      ],
+      "homemaster_deltas": [
+        "resolve every skill and resource against an authorized root before reading",
+        "reject aliases outside the frozen ToolView so skills cannot grant tool capability",
+        "preserve all replacement provenance and require explicit policy to replace a builtin skill"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/skills/test_loader_sources.py::test_source_precedence_and_provenance_are_deterministic",
+        "tests/homemaster/skills/test_skill_security.py::test_skill_resource_rejects_absolute_parent_and_symlink_escape"
+      ],
+      "sync_policy": "Recompare discovery precedence and project walking before future sync; retain containment and capability gates."
+    },
+    {
+      "id": "cl17-openharness-skill-registry",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/skills/registry.py",
+        "symbol": "SkillRegistry",
+        "sha256": "93c9068a41e56297c74bbc742b3c7fd55658c2302b4597ca96c82055e05126e1"
+      },
+      "destination": "src/homemaster/skills/registry.py",
+      "copied_test_ids": [
+        "tests/test_skills/test_loader.py::test_user_skill_metadata_tracks_command_name_and_frontmatter_flags"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "retain name-keyed lookup and deterministic unique listing",
+        "replace OpenHarness SkillDefinition with HomeMaster SkillSpec"
+      ],
+      "homemaster_deltas": [
+        "apply fixed source priority and preserve the full provenance chain",
+        "reject implicit builtin replacement"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/skills/test_loader_sources.py::test_explicit_source_can_replace_builtin_only_with_recorded_provenance"
+      ],
+      "sync_policy": "Retain provenance-aware replacement and never restore silent builtin overwrite."
     }
   ]
 }

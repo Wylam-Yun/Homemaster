@@ -78,6 +78,7 @@ def _install_shell(monkeypatch, tmp_path: Path):
     bundle = SimpleNamespace(
         application=application,
         trace_path=tmp_path / "runtime_events.jsonl",
+        skill_registry=object(),
     )
     monkeypatch.setattr(module, "create_home_application", lambda **kwargs: bundle)
     monkeypatch.setattr(
@@ -98,7 +99,7 @@ def test_shell_exits_and_closes_owned_application_once(monkeypatch, tmp_path) ->
 
 
 def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_path) -> None:
-    application, _ = _install_shell(monkeypatch, tmp_path)
+    application, bundle = _install_shell(monkeypatch, tmp_path)
 
     result = CliRunner().invoke(app, ["shell"], input="first\nsecond\n/exit\n")
 
@@ -107,6 +108,7 @@ def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_
     assert application.requests[0].session_id == application.requests[1].session_id
     assert application.requests[0].resume is False
     assert application.requests[1].resume is True
+    assert application.requests[0].dependencies["skill_registry"] is bundle.skill_registry
     assert "Assistant: reply-1" in result.stdout
     assert "Assistant: reply-2" in result.stdout
     assert application.closed == 1

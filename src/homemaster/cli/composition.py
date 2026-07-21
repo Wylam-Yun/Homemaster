@@ -20,6 +20,8 @@ from homemaster.events.sinks import (
     MessagesLogSink,
 )
 from homemaster.observations import ObservationCapture, ObservationService
+from homemaster.skills.loader import load_skill_registry
+from homemaster.skills.registry import SkillRegistry
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class HomeApplicationBundle:
     config: HomeMasterConfig
     run_dir: Path
     trace_path: Path
+    skill_registry: SkillRegistry
 
 
 class HomeCliBackend:
@@ -97,6 +100,7 @@ def create_home_application(
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
     )
+    skill_registry = load_home_skills(resolved, profile)
     bus = EventBus()
     scope = RunResourceScope()
     trace = JsonlTraceSink(run_dir)
@@ -138,7 +142,33 @@ def create_home_application(
         config=resolved,
         run_dir=run_dir,
         trace_path=run_dir / "runtime_events.jsonl",
+        skill_registry=skill_registry,
     )
 
 
-__all__ = ["HomeApplicationBundle", "HomeCliBackend", "create_home_application"]
+def load_home_skills(
+    config: HomeMasterConfig,
+    profile: Any,
+    *,
+    cwd: Path | None = None,
+) -> SkillRegistry:
+    """Load only skills whose tool names resolve in the frozen Home ToolView."""
+
+    sources = config.skills
+    return load_skill_registry(
+        cwd=cwd or Path.cwd(),
+        user_dirs=sources.user_dirs,
+        project_dirs=sources.project_dirs,
+        explicit_dirs=sources.explicit_dirs,
+        allowed_tool_names=profile.model_tool_names,
+        allow_project=sources.allow_project,
+        allowed_builtin_overrides=sources.allowed_builtin_overrides,
+    )
+
+
+__all__ = [
+    "HomeApplicationBundle",
+    "HomeCliBackend",
+    "create_home_application",
+    "load_home_skills",
+]

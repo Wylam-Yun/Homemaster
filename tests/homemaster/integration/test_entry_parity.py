@@ -9,10 +9,8 @@ from pathlib import Path
 from homemaster.agent.messages import Message
 from homemaster.application import RunRequest, RunStatus
 from homemaster.cli.composition import HomeCliBackend, create_home_application
-from homemaster.config import load_config
+from homemaster.config import HomeMasterConfig
 from homemaster.providers.transports import TransportDelta
-
-EXAMPLE_CONFIG = Path(__file__).parents[3] / "config/homemaster.example.yaml"
 
 
 class FakeTransport:
@@ -43,7 +41,24 @@ class FakeTransport:
 
 
 def _config(tmp_path: Path):
-    config = load_config(EXAMPLE_CONFIG)
+    config = HomeMasterConfig.model_validate(
+        {
+            "providers": {
+                "default": "Mimo",
+                "items": [
+                    {
+                        "name": "Mimo",
+                        "kind": "chat",
+                        "api_format": "anthropic",
+                        "transport": "anthropic_sdk",
+                        "base_url": "https://mimo.example/anthropic",
+                        "model": "mimo-v2.5",
+                        "api_keys": ["test-key"],
+                    }
+                ],
+            }
+        }
+    )
     observability = config.observability.model_copy(
         update={"session_dir": str(tmp_path / "sessions")}
     )

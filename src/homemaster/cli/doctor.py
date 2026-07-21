@@ -136,6 +136,17 @@ def _config_check(config_source: str) -> DoctorCheck:
             "config_source": config_source,
             "chat_provider": chat_provider.public_summary(),
             "embedding_provider": embedding_provider.public_summary(),
+            "field_sources": {
+                "default_provider": config.field_source("providers.default"),
+                "chat_model": config.field_source(f"providers.{chat_provider.name}.model"),
+                "chat_auth": config.field_source(f"providers.{chat_provider.name}.api_keys"),
+                "embedding_model": config.field_source(
+                    f"providers.{embedding_provider.name}.model"
+                ),
+                "embedding_auth": config.field_source(
+                    f"providers.{embedding_provider.name}.api_keys"
+                ),
+            },
         },
     )
 
@@ -215,8 +226,8 @@ def _live_mimo_smoke() -> DoctorCheck:
         async def smoke():
             try:
                 return await client.complete_json(
-                '只输出 JSON object: {"ok": true}',
-                temperature=0.0,
+                    '只输出 JSON object: {"ok": true}',
+                    temperature=0.0,
                 )
             finally:
                 await client.aclose()

@@ -53,15 +53,16 @@ def test_runtime_guard_defaults_allow_unbounded_tool_iterations() -> None:
     assert guards.max_no_progress_iterations == 20
 
 
-def test_example_config_declares_explicit_mimo_context_window() -> None:
+def test_example_config_is_typed_complete_and_contains_only_placeholders() -> None:
     path = Path(__file__).resolve().parents[2] / "config" / "homemaster.example.yaml"
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    provider = data["providers"]["items"][0]
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    config = load_config(path)
 
-    assert provider["name"] == "Mimo"
-    assert provider["context_window_tokens"] == 1_000_000
-    assert provider["max_output_tokens"] is None
-    assert data["context"]["output_reserve_tokens"] == 8192
+    assert payload["providers"]["items"][0]["auth_type"] == "auth_token"
+    assert config.get_provider("Mimo").api_keys == ()
+    assert config.get_provider("MemoryEmbedding", kind="embedding").api_keys == ()
+    assert config.skills.user_dirs
+    assert config.skills.allowed_builtin_overrides == ()
 
 
 def test_context_window_uses_conservative_fallback_when_not_explicit() -> None:

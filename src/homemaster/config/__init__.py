@@ -20,8 +20,10 @@ from homemaster.config.config import (
     RuntimeDefaultsConfig,
     RuntimeGuardConfig,
     RuntimePathsConfig,
+    SkillSourcesConfig,
     TransportName,
     load_config,
+    redact_config_value,
 )
 from homemaster.config.observability import SCHEMA_VERSION, ObservabilityConfig
 
@@ -46,7 +48,9 @@ __all__ = [
     "RuntimeDefaultsConfig",
     "RuntimeGuardConfig",
     "RuntimePathsConfig",
+    "SkillSourcesConfig",
     "SCHEMA_VERSION",
     "TransportName",
     "load_config",
+    "redact_config_value",
 ]

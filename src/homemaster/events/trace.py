@@ -6,9 +6,21 @@ import json
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 _SECRET_KEY_PARTS = (
-    "api_key", "apikey", "authorization", "x-api-key", "token", "secret", "password",
+    "api_key",
+    "apikey",
+    "authorization",
+    "x-api-key",
+    "auth_token",
+    "access_token",
+    "refresh_token",
+    "token",
+    "secret",
+    "password",
+    "credential",
+    "private_key",
 )
 
 
@@ -44,4 +56,24 @@ def sanitize_for_log(value: Any) -> Any:
         return [sanitize_for_log(item) for item in value]
     if isinstance(value, tuple):
         return [sanitize_for_log(item) for item in value]
+    if isinstance(value, str) and value.lower().startswith(("bearer ", "basic ")):
+        return "[REDACTED]"
+    if isinstance(value, str):
+        return _redact_url_userinfo(value)
     return value
+
+
+def _redact_url_userinfo(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        if parsed.username is None and parsed.password is None:
+            return value
+        host = parsed.hostname or ""
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return urlunsplit(
+            (parsed.scheme, f"[REDACTED]@{host}{port}", parsed.path, parsed.query, parsed.fragment)
+        )
+    except ValueError:
+        return "[REDACTED_URL]"

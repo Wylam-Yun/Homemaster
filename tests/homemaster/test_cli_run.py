@@ -113,6 +113,28 @@ def test_top_level_print_forwards_resume_and_continue(monkeypatch, tmp_path: Pat
     assert captured[1]["continue_latest"] is True
 
 
+def test_top_level_print_forwards_limited_provider_and_model_overrides(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured = {}
+
+    def execute(**kwargs):
+        captured.update(kwargs)
+        return _execution(tmp_path)
+
+    monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
+
+    result = CliRunner().invoke(
+        app,
+        ["-p", "question", "--provider-name", "Mimo", "--model", "cli-model"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["provider_name"] == "Mimo"
+    assert captured["model"] == "cli-model"
+
+
 def test_dry_run_resolves_home_profile_without_application_or_external_io(
     monkeypatch,
 ) -> None:
@@ -139,6 +161,75 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
         "robot_go_to",
         "observe",
     ]
+    assert {skill["name"] for skill in preview["skills"]} >= {
+        "fetch_object",
+        "check_object_state",
+    }
+    assert preview["skill_diagnostics"]["loaded"] >= 2
+    assert all("path" not in skill for skill in preview["skills"])
+
+
+def test_dry_run_applies_limited_model_override_without_external_io() -> None:
+    result = CliRunner().invoke(
+        app,
+        [
+            "--dry-run",
+            "-p",
+            "inspect",
+            "--provider-name",
+            "Mimo",
+            "--model",
+            "dry-run-model",
+            "--output-format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    preview = json.loads(result.stdout)
+    assert preview["settings"]["model"] == "dry-run-model"
+    assert preview["config_sources"]["model"] == "cli"
+    assert preview["external_io"] is False
+
+
+def test_home_application_wires_validated_skill_registry_into_run_dependencies(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured = {}
+
+    class FakeApplication:
+        class Sessions:
+            @staticmethod
+            def list_session_ids():
+                return []
+
+        session_manager = Sessions()
+
+        async def run(self, request):
+            captured.update(request.dependencies)
+            return _execution(tmp_path).result
+
+        async def aclose(self):
+            return None
+
+    class Bundle:
+        application = FakeApplication()
+        trace_path = tmp_path / "trace.jsonl"
+        run_dir = tmp_path
+        skill_registry = object()
+
+    monkeypatch.setattr("homemaster.cli.run_command.load_config", lambda **kwargs: object())
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.create_home_application",
+        lambda **kwargs: Bundle(),
+    )
+
+    from homemaster.cli.run_command import execute_one_shot
+
+    execute_one_shot(prompt="inspect")
+
+    assert captured["skill_registry"] is Bundle.skill_registry
 
 
 def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:

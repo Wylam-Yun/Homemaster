@@ -23,7 +23,7 @@ from homemaster.events.logger import setup_logging
 
 app = typer.Typer(
     add_completion=False,
-    help="HomeMaster V1.6 — Generic agent loop CLI.",
+    help="HomeMaster V1.9 - Generic agent loop CLI.",
 )
 app.add_typer(session_app, name="session")
 
@@ -58,6 +58,14 @@ def main_callback(
         bool,
         typer.Option("--probe", help="Probe configured external discovery during dry-run."),
     ] = False,
+    provider_name: Annotated[
+        str | None,
+        typer.Option("--provider-name", help="Select one configured chat provider."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Override the selected provider model for this request."),
+    ] = None,
 ) -> None:
     """Start interactive HomeMaster or execute one typed request."""
 
@@ -73,7 +81,12 @@ def main_callback(
             prompt = print_prompt.strip() if print_prompt is not None else None
             if print_prompt is not None and not prompt:
                 raise typer.BadParameter("-p/--print requires a non-empty prompt")
-            preview = build_dry_run_preview(prompt=prompt, probe=probe)
+            preview = build_dry_run_preview(
+                prompt=prompt,
+                probe=probe,
+                provider_name=provider_name,
+                model=model,
+            )
             typer.echo(render_dry_run(preview, resolved_format))
             return
         if print_prompt is not None:
@@ -85,8 +98,12 @@ def main_callback(
                 output_format=resolved_format,
                 resume_session_id=resume_session_id,
                 continue_latest=continue_latest,
+                provider_name=provider_name,
+                model=model,
             )
             return
+        if provider_name is not None or model is not None:
+            raise typer.BadParameter("--provider-name/--model require --print or --dry-run")
         if output_format is not None:
             raise typer.BadParameter("--output-format requires --print or --dry-run")
         run_interactive_shell(
@@ -144,6 +161,14 @@ def run_command(
         bool,
         typer.Option("--continue", help="Resume the latest persisted session."),
     ] = False,
+    provider_name: Annotated[
+        str | None,
+        typer.Option("--provider-name", help="Select one configured chat provider."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Override the selected provider model for this run."),
+    ] = None,
 ) -> None:
     """Run one HomeMaster task with the generic agent loop."""
     try:
@@ -158,6 +183,8 @@ def run_command(
             quiet=quiet,
             resume_session_id=resume_session_id,
             continue_latest=continue_latest,
+            provider_name=provider_name,
+            model=model,
         )
     except Exception as exc:
         render_error_and_exit(exc)
@@ -308,17 +335,10 @@ def benchmark_alfworld_command(
         )
         typer.echo(f"harness_invalid_episodes: {metrics['harness_invalid_episodes']}")
         typer.echo(f"harness_valid_coverage: {float(metrics['harness_valid_coverage']):.3f}")
-        typer.echo(
-            "evaluation_valid_coverage: "
-            f"{float(metrics['evaluation_valid_coverage']):.3f}"
-        )
+        typer.echo(f"evaluation_valid_coverage: {float(metrics['evaluation_valid_coverage']):.3f}")
         typer.echo(f"harness_coverage: {float(metrics['harness_coverage']):.3f}")
-        typer.echo(
-            f"provider_availability: {float(metrics['provider_availability']):.3f}"
-        )
-        typer.echo(
-            f"runtime_availability: {float(metrics['runtime_availability']):.3f}"
-        )
+        typer.echo(f"provider_availability: {float(metrics['provider_availability']):.3f}")
+        typer.echo(f"runtime_availability: {float(metrics['runtime_availability']):.3f}")
         typer.echo(f"cancelled_episodes: {int(metrics['cancelled_episodes'])}")
         typer.echo(
             f"formal_score_available: {str(bool(metrics['formal_score_available'])).lower()}"

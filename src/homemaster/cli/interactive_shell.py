@@ -50,8 +50,7 @@ def run_interactive_shell(
                 session_open = True
                 typer.echo(f"Resumed session: {session_id}")
             typer.echo(
-                "Enter a task. Commands: /help, /new, /compact, /status, "
-                "/events, /doctor, /exit."
+                "Enter a task. Commands: /help, /new, /compact, /status, /events, /doctor, /exit."
             )
 
             while True:
@@ -137,6 +136,7 @@ def run_interactive_shell(
                                 session_id=session_id,
                                 profile="home",
                                 resume=session_open,
+                                dependencies={"skill_registry": bundle.skill_registry},
                                 environment=backend,
                             )
                         )

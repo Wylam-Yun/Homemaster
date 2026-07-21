@@ -11,9 +11,21 @@ Hard constraints:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+SkillSource = Literal["builtin", "user", "project", "explicit"]
+
+
+class SkillProvenance(BaseModel):
+    """Resolved origin of one skill definition."""
+
+    model_config = ConfigDict(frozen=True)
+
+    source: SkillSource
+    path: Path
+    root: Path
 
 
 class SkillSpec(BaseModel):
@@ -28,3 +40,14 @@ class SkillSpec(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     version: str = "v1"
+    command_name: str | None = None
+    display_name: str | None = None
+    aliases: tuple[str, ...] = ()
+    user_invocable: bool = True
+    disable_model_invocation: bool = False
+    model: str | None = None
+    argument_hint: str | None = None
+    source: SkillSource = "builtin"
+    resource_root: Path | None = None
+    provenance: tuple[SkillProvenance, ...] = ()
+    model_config = ConfigDict(arbitrary_types_allowed=True)

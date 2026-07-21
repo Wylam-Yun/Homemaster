@@ -15,13 +15,13 @@ uv pip install --python apps/case02_openenv/.venv/bin/python \
   -e apps/case02_openenv
 
 cp config/coworker_demo.example.yaml config/coworker_demo.yaml
-cp config/homemaster.example.yaml config/homemaster.yaml
+test -f config/homemaster.yaml || cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/coworker_demo.yaml config/homemaster.yaml
 
 realpath data/coworker_demo/case_02/test_set/item_change_ticket.json
 ```
 
-Keep real provider keys only in `config/homemaster.yaml`. Both real config files are gitignored. The coworker config must point to the project data root, artifact root, app venv Python, system Chrome, TigerVNC, FFmpeg/ffprobe, tmux, Bash, and bubblewrap.
+Keep real provider keys only in `config/homemaster.yaml`; the committed `.example` files contain placeholders only. Both real config files are gitignored. The coworker config must point to the project data root, artifact root, app venv Python, system Chrome, TigerVNC, FFmpeg/ffprobe, tmux, Bash, and bubblewrap.
 
 Run the secret-safe readiness check before every real recording:
 

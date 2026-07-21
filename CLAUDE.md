@@ -1,5 +1,13 @@
 # HomeMaster Agent Rules
 
+## 配置合并纪律
+
+- 把 file/env/CLI 值写入 Pydantic 配置后必须重新执行 `model_validate()`；不得用
+  `model_copy(update=...)` 假定 validator 会重跑。对规范化、enum、URL 和认证类型各保留至少一条
+  override 回归，并断言最终值与 provenance。
+- 真实配置必须保持 gitignored mode-0600，同时提交字段完整、只含占位值的 `.example`。doctor、
+  dry-run、异常、日志和事件只能输出递归脱敏后的值与 `default/file/env/cli` 来源标签。
+
 ## Coworker 外部编排纪律
 
 - 成功的 `task_planner` / `task_progress_check` 必须安全投影出合法 plan；无法投影时记录 presentation failure，禁止发布无 plan 的 succeeded 事件。独立 verifier 必须逐个成功 Planner 结果检查 plan 存在，不能只验证已有 plan 的归属。

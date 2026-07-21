@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### V1.9 Phase 1 - Skills 与配置来源
+
+- 变更：移植 OpenHarness YAML frontmatter、skill discovery 和 registry 控制流，增加 builtin/user/
+  project/explicit 优先级、完整 provenance、Git-root/symlink containment、ToolView capability gate、
+  named builtin override、model invocation gate 和真实 wheel package-data 验证；Home one-shot、
+  Interactive 与 dry-run 现在使用同一份 registry。
+  原因：旧 loader 只支持两个硬编码 builtin 和逐行伪 YAML，且用户/项目 skill 没有路径、能力或
+  覆盖边界；局部实现若不接 composition 只能得到内部自洽测试，不能成为用户能力。
+  影响：自动来源中的非法单项会以 secret-safe diagnostic 拒绝且不影响 builtin，显式来源失败会
+  阻止启动；ALFWorld manifest 和 Coworker 固定十一项 ToolView 不变。
+- 变更：provider/auth 配置新增 `api_key/auth_token` typed schema、provider-specific env、有限 CLI
+  model override、逐字段 `default/file/env/cli` provenance 和递归 redaction；恢复字段完整且只有
+  占位值的 `config/homemaster.example.yaml`。
+  原因：环境/CLI 合并必须可诊断且不能被 ambient `ANTHROPIC_*` 变量改变身份，也不能在异常、
+  doctor、dry-run、日志或事件中泄漏 credential。
+  影响：真实配置仍只保存在 ignored mode-0600 `config/homemaster.yaml`；Anthropic SDK
+  `auth_token` 已在安装的 0.116.0 真环境构造器中核对可用。
+- 验证：全量 non-live `1155 passed, 7 deselected`；全仓 Ruff lint、改动文件 format-check、compileall、
+  cleanup guard、OpenHarness port manifest 和 diff/secret/config 权限门通过。真实 wheel 已安装进隔离
+  venv 并从源码树外发现 builtin `SKILL.md`；dry-run 黑盒返回 12 项 Home ToolView、CLI model 来源、
+  skill 诊断和 `external_io=false`，不输出 skill 宿主机路径。
+
 ### V1.8 Implementation
 
 - 问题：V1.8 最初的 current-visible 导航前置条件与公开工具面不兼容，模型无法主动改变视角让离屏目标进入画面，导致工具循环零 backend action 后耗尽预算并被误归为 Agent 失败；reset evidence、ALFWorld control state 和持物导航的物理状态投影也不完整。

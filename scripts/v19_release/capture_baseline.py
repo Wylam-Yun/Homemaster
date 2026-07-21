@@ -345,8 +345,6 @@ def _sensitive_environment_values() -> tuple[str, ...]:
 
 def _known_sensitive_values(repo_root: Path) -> tuple[str, ...]:
     config_path = repo_root / "config/homemaster.yaml"
-    if not config_path.is_file():
-        config_path = repo_root / "config/homemaster.example.yaml"
     configured = (
         api_key
         for provider in load_config(config_path).providers.items

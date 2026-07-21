@@ -66,7 +66,11 @@ class FakeAnthropicClient:
         self.messages = FakeAnthropicMessages(events, requests, enter_error)
 
 
-def _provider(*, api_keys: list[str] | None = None) -> ProviderProfileConfig:
+def _provider(
+    *,
+    api_keys: list[str] | None = None,
+    auth_type: str = "api_key",
+) -> ProviderProfileConfig:
     return ProviderProfileConfig(
         name="Mimo",
         kind="chat",
@@ -75,6 +79,7 @@ def _provider(*, api_keys: list[str] | None = None) -> ProviderProfileConfig:
         base_url="https://mimo.example/anthropic",
         model="mimo-v2-pro",
         api_keys=api_keys or ["secret-one"],
+        auth_type=auth_type,
         context_window_tokens=1_000_000,
         max_output_tokens=None,
     )
@@ -149,6 +154,36 @@ async def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() 
             "messages": [{"role": "user", "content": [{"type": "text", "text": "prompt body"}]}],
             "max_tokens": 4096,
             "temperature": 0.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_auth_token_is_passed_as_bearer_credential() -> None:
+    requests: list[dict[str, Any]] = []
+    constructions: list[dict[str, Any]] = []
+    events = [
+        {"type": "message_start", "message": {}},
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "ok"},
+        },
+        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}},
+    ]
+    client = LLMClient(
+        _provider(auth_type="auth_token"),
+        anthropic_client_factory=_anthropic_factory(events, requests, constructions),
+    )
+
+    await client.complete([UserMessage.from_text("hello")])
+
+    assert constructions == [
+        {
+            "auth_token": "secret-one",
+            "base_url": "https://mimo.example/anthropic",
+            "timeout": 60.0,
+            "max_retries": 0,
         }
     ]
 

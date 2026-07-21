@@ -266,8 +266,6 @@ def _default_provider_identity(repo_root: Path) -> tuple[str, str]:
     from homemaster.config import load_config
 
     config_path = repo_root / "config/homemaster.yaml"
-    if not config_path.is_file():
-        config_path = repo_root / "config/homemaster.example.yaml"
     provider = load_config(config_path).get_provider(kind="chat")
     return provider.name, provider.model
 

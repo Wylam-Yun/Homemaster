@@ -15,9 +15,29 @@ SECRET_MARKERS = ("Authorization", "Bearer", "x-api-key", "api_keys", "sk-")
 
 
 @pytest.fixture(autouse=True)
-def _use_committed_example_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    config_path = repo_root / "config/homemaster.example.yaml"
+def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text(
+        """
+        providers:
+          default: Mimo
+          items:
+            - name: Mimo
+              kind: chat
+              api_format: anthropic
+              transport: anthropic_sdk
+              base_url: https://mimo.example/anthropic
+              model: mimo-v2.5
+            - name: MemoryEmbedding
+              kind: embedding
+              api_format: openai
+              transport: openai_sdk
+              base_url: https://embedding.example/v1
+              model: BAAI/bge-m3
+              embedding_url: https://embedding.example/v1/embeddings
+        """,
+        encoding="utf-8",
+    )
     monkeypatch.setattr("homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path)
     monkeypatch.setattr("homemaster.cli.doctor._config_source", lambda: "config/homemaster.yaml")
 
