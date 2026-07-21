@@ -1,0 +1,103 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0B-CL10",
+  "change_list": "CL-10-unified-application-runtime",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "bb36703",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl08": "VERIFYING",
+    "cl09": "VERIFYING",
+    "exception": "Implementation-first stacking; the single grouped review follows this change list."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-08", "CL-09", "CL-10"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/adapters/profiles.py",
+    "src/homemaster/agent/__init__.py",
+    "src/homemaster/agent/generic_runtime.py",
+    "src/homemaster/application/__init__.py",
+    "src/homemaster/application/contracts.py",
+    "src/homemaster/application/factory.py",
+    "src/homemaster/application/runtime.py",
+    "src/homemaster/application/session.py",
+    "src/homemaster/events/__init__.py",
+    "src/homemaster/events/bus.py",
+    "src/homemaster/task_state/tools.py",
+    "src/homemaster/tools/contracts.py",
+    "src/homemaster/tools/legacy_adapter.py",
+    "tests/homemaster/application/test_agent_runtime_tool_view.py",
+    "tests/homemaster/application/test_application_runtime.py",
+    "tests/homemaster/application/test_factory.py",
+    "tests/homemaster/tools/test_execution_result.py",
+    "plan/V1.9/execution/phase-0b-cl10/state.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/application/test_factory.py tests/homemaster/application/test_agent_runtime_tool_view.py tests/homemaster/application/test_application_runtime.py tests/homemaster/tools/test_execution_result.py",
+    "uv run pytest -q tests/homemaster/benchmarking",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release",
+    "git diff --check"
+  ],
+  "rollback_point": "4fc2b3f",
+  "evidence": [
+    {
+      "kind": "composition_root",
+      "status": "pass",
+      "details": "create_application builds the shared Catalog, canonical pipeline, ObservationService, EventBus, SessionManager, provider factory, and all three environment profiles without opening external connections. Injected services retain exact identity and mismatched catalogs are rejected."
+    },
+    {
+      "kind": "application_controls",
+      "status": "pass",
+      "details": "ApplicationRuntime exposes typed run, compact, cancel, status, and aclose operations. Control operations do not create user messages; run results and session revisions are generation fenced and persisted under the per-session turn lock."
+    },
+    {
+      "kind": "tool_and_provider_boundary",
+      "status": "pass",
+      "details": "AgentRuntime receives an explicit immutable ToolView. Successful provider attempts carry exact structured/raster observation identity, commit the current model view before current_bound tool dispatch, and preserve frozen-request retry rules. Disabled tools are rejected through the frozen view."
+    },
+    {
+      "kind": "completion_gate",
+      "status": "pass",
+      "details": "Task completion is rejected for observation debt, pending or failed required verification, and only profile tools declaring external_terminal_owner when the external owner has not succeeded. Normal Home completion and successful external ownership both complete."
+    },
+    {
+      "kind": "concurrency_and_ownership",
+      "status": "pass",
+      "details": "Different sessions enter providers concurrently while isolating backend, ToolView, ledger, TaskState, and cancellation; the same session is serialized. Late cancelled workers cannot append. Borrowed environments/providers are never closed and owned run providers close exactly once."
+    },
+    {
+      "kind": "compatibility",
+      "status": "pass",
+      "details": "AgentRuntime is the primary model loop and GenericAgentRuntime remains the same-class compatibility alias. Existing CLI, ALFWorld, Coworker, legacy adapter, provider, tool pipeline, and observation regressions pass before their later entry-point migration change lists."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "CL-10 composition/runtime/result projection focused set: 37 passed. Existing benchmark non-live directory: 323 passed."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "Full non-live suite: 1040 passed, 7 deselected, with one existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Full Ruff, compileall, prohibited direct benchmark import scan, package import smoke, and git diff --check passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The one allowed independent review for grouped CL-08/09/10 begins only after this evidence commit."
+    }
+  ],
+  "reviews": []
+}
