@@ -293,7 +293,6 @@ class ContextAssembler:
         self._provider = provider
         self._policy = policy
         self._system_prompt = system_prompt
-        self.force_compact_next = False
         self._estimator = make_default_estimator(provider)
         self._summary_client = summary_client
 
@@ -314,6 +313,7 @@ class ContextAssembler:
         agent_state: AgentState,
         task_state_store: TaskStateStore | None,
         tools: list[dict] | None,
+        force_compact: str | bool | None = None,
     ) -> ComposedContext:
         providers = self._build_providers(
             session=session,
@@ -350,14 +350,14 @@ class ContextAssembler:
         compaction_triggered = False
         compaction_kind = "none"
 
-        force_compact = bool(self.force_compact_next)
+        force_requested = bool(force_compact)
         should_auto_compact = (
             self._policy.auto_compact_enabled
             and budget.should_compact(padded) is BudgetDecision.COMPACT
         )
-        if force_compact or should_auto_compact:
+        if force_requested or should_auto_compact:
             before_tokens = padded
-            force_mode = str(self.force_compact_next) if self.force_compact_next else ""
+            force_mode = str(force_compact) if force_compact else ""
             compaction_triggered, compaction_kind, conversation_messages = self._compact(
                 session=session,
                 messages=conversation_messages,
@@ -370,7 +370,7 @@ class ContextAssembler:
                     record_kind = "manual"
                     record_reason = "manual"
                     compaction_kind = f"manual_{compaction_kind}"
-                elif force_compact:
+                elif force_requested:
                     record_kind = "reactive"
                     record_reason = "provider_context_length"
                 else:
@@ -393,8 +393,6 @@ class ContextAssembler:
                     after_tokens=after_tokens,
                     reason=record_reason,
                 )
-            self.force_compact_next = False
-
         messages = self._render_messages(
             prelude_texts=prelude_texts,
             conversation_messages=conversation_messages,

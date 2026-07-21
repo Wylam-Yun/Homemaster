@@ -57,6 +57,12 @@ def task_progress_check_executor(
     *, arguments: dict[str, Any], run_context: RunContext,
 ) -> ToolResultMessage:
     store = _store(run_context)
+    raw_task_status = arguments.get("task_status")
+    task_status = (
+        store.validate_status_transition(TaskStatus(raw_task_status))
+        if raw_task_status is not None
+        else None
+    )
     raw_updates = arguments.get("updates", [])
     updates = [
         TaskProgressUpdate(
@@ -72,12 +78,15 @@ def task_progress_check_executor(
         next_focus=arguments.get("next_focus"),
         updated_at_iteration=run_context.turn_index,
     )
-    raw_task_status = arguments.get("task_status")
-    if raw_task_status is not None:
-        task_status = TaskStatus(raw_task_status)
+    if task_status is not None:
         if task_status is TaskStatus.COMPLETED:
             snapshot = store.mark_completed(
                 final_summary=arguments.get("completion_summary") or "Task completed.",
+                updated_at_iteration=run_context.turn_index,
+            )
+        else:
+            snapshot = store.update_status(
+                task_status,
                 updated_at_iteration=run_context.turn_index,
             )
     return ToolResultMessage(

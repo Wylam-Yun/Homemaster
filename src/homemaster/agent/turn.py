@@ -278,9 +278,6 @@ def run_agent_turn(
         system_prompt=system_prompt,
         summary_client=transport,
     )
-    if force_compact:
-        context_assembler.force_compact_next = "manual"
-
     runtime = GenericAgentRuntime(
         transport=transport,
         tool_executor=dispatcher,
@@ -298,6 +295,7 @@ def run_agent_turn(
         settings=run_context.settings,
         agent_state=agent_state,
         task_state_store=run_context.deps.get("task_state_store"),
+        force_compact="manual" if force_compact else None,
     )
 
     return _to_turn_result(result, run_id, trace_path=trace_path, run_dir=run_dir)
@@ -349,8 +347,6 @@ def compact_agent_context(
         system_prompt=system_prompt,
         summary_client=transport,
     )
-    context_assembler.force_compact_next = "manual"
-
     if agent_state is None:
         agent_state = AgentState(
             run_id=run_id,
@@ -367,6 +363,7 @@ def compact_agent_context(
         agent_state=agent_state,
         task_state_store=run_context.deps.get("task_state_store"),
         tools=[],
+        force_compact="manual",
     )
     record = agent_state.last_compaction
     if composed.metrics.compaction_triggered and record is not None:

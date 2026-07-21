@@ -16,6 +16,38 @@ class TaskStateStoreError(RuntimeError):
     pass
 
 
+class TaskStateTransitionError(TaskStateStoreError):
+    """Raised when a TaskStatus transition is not part of the lifecycle."""
+
+    def __init__(self, current: TaskStatus, requested: TaskStatus) -> None:
+        self.current = current
+        self.requested = requested
+        super().__init__(f"invalid task status transition: {current.value} -> {requested.value}")
+
+
+_ALLOWED_STATUS_TRANSITIONS: dict[TaskStatus, frozenset[TaskStatus]] = {
+    TaskStatus.ACTIVE: frozenset(
+        {
+            TaskStatus.PAUSED,
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+        }
+    ),
+    TaskStatus.PAUSED: frozenset(
+        {
+            TaskStatus.ACTIVE,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+        }
+    ),
+    TaskStatus.COMPLETED: frozenset(),
+    TaskStatus.FAILED: frozenset(),
+    TaskStatus.CANCELLED: frozenset(),
+    TaskStatus.NONE: frozenset(),
+}
+
+
 class TaskStateStore:
     def __init__(self, *, run_id: str) -> None:
         self._run_id = run_id
@@ -77,12 +109,13 @@ class TaskStateStore:
         for update in updates:
             if update.subtask_id not in by_id:
                 raise TaskStateStoreError(f"unknown subtask: {update.subtask_id}")
+        if current_subtask is not None and current_subtask not in by_id:
+            raise TaskStateStoreError(f"unknown current_subtask: {current_subtask}")
+        for update in updates:
             subtask = by_id[update.subtask_id]
             subtask.status = update.status
             subtask.evidence.extend(update.evidence)
         if current_subtask is not None:
-            if current_subtask not in by_id:
-                raise TaskStateStoreError(f"unknown current_subtask: {current_subtask}")
             self._snapshot.current_subtask = current_subtask
         if next_focus is not None:
             self._snapshot.next_focus = next_focus
@@ -92,11 +125,13 @@ class TaskStateStore:
     def mark_completed(self, *, final_summary: str, updated_at_iteration: int = 0) -> TaskSnapshot:
         if self._snapshot is None:
             raise TaskStateStoreError("no_active_task_plan")
-        self._snapshot.status = TaskStatus.COMPLETED
+        self.update_status(
+            TaskStatus.COMPLETED,
+            updated_at_iteration=updated_at_iteration,
+        )
         self._snapshot.completion_summary = final_summary
         self._snapshot.current_subtask = None
         self._snapshot.next_focus = None
-        self._snapshot.updated_at_iteration = updated_at_iteration
         return self._snapshot
 
     def update_status(
@@ -107,10 +142,24 @@ class TaskStateStore:
     ) -> TaskSnapshot:
         if self._snapshot is None:
             raise TaskStateStoreError("no_active_task_plan")
+        status = self.validate_status_transition(status)
         self._snapshot.status = status
         if updated_at_iteration is not None:
             self._snapshot.updated_at_iteration = updated_at_iteration
         return self._snapshot
+
+    def validate_status_transition(self, status: TaskStatus) -> TaskStatus:
+        if self._snapshot is None:
+            raise TaskStateStoreError("no_active_task_plan")
+        if not isinstance(status, TaskStatus):
+            try:
+                status = TaskStatus(status)
+            except (TypeError, ValueError) as exc:
+                raise TaskStateStoreError(f"unknown task status: {status!r}") from exc
+        current = self._snapshot.status
+        if status is not current and status not in _ALLOWED_STATUS_TRANSITIONS[current]:
+            raise TaskStateTransitionError(current, status)
+        return status
 
     def to_snapshot_dict(self) -> dict[str, Any]:
         return {

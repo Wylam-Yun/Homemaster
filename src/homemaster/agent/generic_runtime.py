@@ -142,6 +142,7 @@ class GenericAgentRuntime:
         settings: Any = None,
         agent_state: AgentState | None = None,
         task_state_store: TaskStateStore | None = None,
+        force_compact: str | bool | None = None,
     ) -> GenericRunResult:
         """Execute one agent run: user input -> model -> tool loop -> final reply."""
 
@@ -234,6 +235,7 @@ class GenericAgentRuntime:
 
         iteration = 0
         reactive_compact_retries = 0
+        pending_compaction = force_compact
         try:
             while self._max_tool_iterations is None or iteration < self._max_tool_iterations:
                 if interrupt.cancelled:
@@ -263,7 +265,9 @@ class GenericAgentRuntime:
                         agent_state=agent_state,
                         task_state_store=task_state_store,
                         tools=context_tools,
+                        force_compact=pending_compaction,
                     )
+                    pending_compaction = None
                     context_messages = composed.messages
                     context_system_prompt = composed.system_prompt
                     context_tools = composed.tools
@@ -439,7 +443,7 @@ class GenericAgentRuntime:
                             )
                         emit("runtime.reactive_compact_started", payload={"reason": str(exc)[:300]})
                         reactive_compact_retries += 1
-                        self._context_assembler.force_compact_next = "aggressive"
+                        pending_compaction = "aggressive"
                         continue
                     emit(
                         "transport.request_failed",

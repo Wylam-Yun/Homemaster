@@ -66,11 +66,11 @@ class AgentSession:
     ) -> tuple[AgentSession, AgentState, TaskStateStore]:
         session = cls(session_id=str(data["session_id"]))
         session._created_at = float(data.get("created_at") or time.time())
-        session._messages = [
-            _message_from_dict(item)
-            for item in data.get("messages", [])
-            if isinstance(item, dict)
-        ]
+        session._messages = []
+        for item in data.get("messages", []):
+            if not isinstance(item, dict) or _is_legacy_empty_assistant(item):
+                continue
+            session._messages.append(_message_from_dict(item))
         agent_state = AgentState.model_validate(data.get("agent_state") or {})
         task_state = TaskStateStore.from_snapshot_dict(data.get("task_state") or {})
         return session, agent_state, task_state
@@ -126,3 +126,12 @@ def _message_from_dict(data: dict[str, Any]) -> Message:
     if role == "tool":
         return ToolResultMessage.model_validate(data)
     raise ValueError(f"unknown message role: {role!r}")
+
+
+def _is_legacy_empty_assistant(data: dict[str, Any]) -> bool:
+    return (
+        data.get("role") == "assistant"
+        and not data.get("content")
+        and not data.get("tool_calls")
+        and not data.get("reasoning_content")
+    )

@@ -304,7 +304,6 @@ def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
             content=[ContentBlock(text=f"old answer {index} " + "y" * 400)]
         ))
     session.append(UserMessage(content=[ContentBlock(text="current request")]))
-    assembler.force_compact_next = "manual"
     agent_state = AgentState(run_id="r1", session_id="s1")
 
     context = assembler.prepare(
@@ -312,6 +311,7 @@ def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
         agent_state=agent_state,
         task_state_store=None,
         tools=[],
+        force_compact="manual",
     )
 
     text = "\n".join(
@@ -348,13 +348,12 @@ def test_manual_force_compaction_noops_without_old_history() -> None:
     )
     session = AgentSession(session_id="s1")
     session.append(UserMessage(content=[ContentBlock(text="current request")]))
-    assembler.force_compact_next = "manual"
-
     context = assembler.prepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
+        force_compact="manual",
     )
 
     assert context.metrics.compaction_triggered is False

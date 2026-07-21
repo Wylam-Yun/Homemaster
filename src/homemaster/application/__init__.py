@@ -17,9 +17,23 @@ from homemaster.application.resources import (
     ResourceScopeError,
     RunResourceScope,
 )
+from homemaster.application.session import (
+    CancellationSource,
+    CompactionRequest,
+    SessionBackend,
+    SessionConflictError,
+    SessionError,
+    SessionFileBackend,
+    SessionGenerationError,
+    SessionManager,
+    SessionRuntime,
+    SessionSnapshot,
+)
 
 __all__ = [
     "EnvironmentBackend",
+    "CancellationSource",
+    "CompactionRequest",
     "ResourceBinding",
     "ResourceCleanupError",
     "ResourceHandle",
@@ -31,5 +45,13 @@ __all__ = [
     "RunResourceScope",
     "RunResult",
     "RunStatus",
+    "SessionConflictError",
+    "SessionBackend",
+    "SessionError",
+    "SessionFileBackend",
+    "SessionGenerationError",
+    "SessionManager",
+    "SessionRuntime",
+    "SessionSnapshot",
     "TerminalPolicy",
 ]
