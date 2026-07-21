@@ -171,7 +171,7 @@ def map_task(
         )
         return ticket_task(ticket, "change_implement", 0, field)
 
-    if item.tool_name in ORCHESTRATION_TOOLS or item.tool_name == "browser_observe":
+    if item.tool_name in ORCHESTRATION_TOOLS or item.tool_name == "observe":
         return previous
 
     control = bid or operation

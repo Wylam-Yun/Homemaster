@@ -489,7 +489,7 @@ def test_terminal_execution_maps_implementation_verification_or_rollback(
     assert_ticket_source(task, episode.ticket, "change_implement", 0, field)
 
 
-@pytest.mark.parametrize("tool_name", sorted(ORCHESTRATION_TOOLS) + ["browser_observe"])
+@pytest.mark.parametrize("tool_name", sorted(ORCHESTRATION_TOOLS) + ["observe"])
 def test_orchestration_and_observation_retain_previous_task(store, tool_name: str) -> None:
     store.create(f"retain-{tool_name}", "normal")
     episode = store.episode(f"retain-{tool_name}")
@@ -608,7 +608,7 @@ def test_display_stage_is_terminal_for_outcome(store) -> None:
     store.create("display-outcome", "normal")
     episode = store.episode("display-outcome")
     episode.state.terminal_outcome = "completed"
-    assert display_stage(episode.ticket, episode.state, item("browser_observe"), None) == "terminal"
+    assert display_stage(episode.ticket, episode.state, item("observe"), None) == "terminal"
 
 
 def test_public_constants_and_input_factories_are_stable() -> None:
@@ -621,8 +621,8 @@ def test_public_constants_and_input_factories_are_stable() -> None:
         "change_rollback",
         "terminal",
     }
-    first = item("browser_observe")
-    second = item("browser_observe")
+    first = item("observe")
+    second = item("observe")
     first.arguments["x"] = 1
     first.result["x"] = 1
     first.evidence_refs.append("ev")

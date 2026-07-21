@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import ast
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
-from homemaster.agent.session import AgentSession
+from homemaster.adapters.coworker_entry import CoworkerApplicationEntry, DeadlineAwareTransport
+from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.application import RunPolicy, RunRequest
+from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.turn import (
-    DeadlineAwareTransport,
-    _make_coworker_runtime,
     _resolve_configured_bundle,
     _safe_provider_identity,
     _update_attempt_manifest,
@@ -20,10 +23,12 @@ from homemaster.benchmarking.coworker_demo.types import (
     ValidTicketRoute,
 )
 from homemaster.cli.coworker_router import route_coworker_ticket
-from homemaster.config import ProviderProfileConfig
-from homemaster.providers.attempts import ProviderAttemptRecord
+from homemaster.config import HomeMasterConfig, ProviderProfileConfig
+from homemaster.events.sinks import NullEventSink
+from homemaster.providers.attempts import JsonlProviderAttemptSink, ProviderAttemptRecord
 from homemaster.providers.errors import LLMNetworkError
 from homemaster.providers.transports import TransportDelta
+from scripts.coworker_demo.preflight import _mode_0600_check
 
 
 class FakeClient:
@@ -42,6 +47,7 @@ class RetryClient:
 
     def __init__(self) -> None:
         self.key_indices: list[int] = []
+        self.closed = False
 
     def stream(
         self,
@@ -73,6 +79,61 @@ class RetryClient:
         yield TransportDelta(type="transport.delta", text_delta="done")
         yield TransportDelta(type="transport.delta", finish_reason="stop")
 
+    def close(self) -> None:
+        self.closed = True
+
+
+class BorrowedBackend:
+    backend_id = "coworker:test"
+
+    def __init__(self) -> None:
+        self.bound_run_id: str | None = None
+        self.bound_generation: int | None = None
+        self.closed = False
+
+    def bind_application_run(self, run_id: str, generation: int) -> None:
+        self.bound_run_id = run_id
+        self.bound_generation = generation
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakePage:
+    url = "about:blank"
+
+    def goto(self, url: str, **_kwargs) -> None:
+        self.url = url
+
+
+class FakeBrowserClient:
+    def __init__(self) -> None:
+        self.runtime_events: list[dict] = []
+
+    def state(self, _run_id: str) -> dict:
+        return {"state_version": 3}
+
+    def reserve(self, *_args, **_kwargs) -> None:
+        return None
+
+    def record_action(self, *_args, **_kwargs) -> dict:
+        return {"event": {"event_id": "ev-navigate"}}
+
+    def runtime_event(self, _run_id: str, **kwargs) -> dict:
+        self.runtime_events.append(kwargs)
+        return {"event": {"event_id": "ev-observe"}}
+
+
+class FakeObservationDriver:
+    def observe(self, _action_id: str) -> dict:
+        return {
+            "route": "ticket",
+            "url": "http://case02.test/ticket/domain-run",
+            "dom": {"title": "Locked procedure"},
+            "page_state_version": 3,
+            "evidence_refs": ["ev-browser-observe"],
+        }
+
 
 def test_run_ids_are_unique_and_prefixed() -> None:
     first = new_coworker_run_id()
@@ -88,6 +149,60 @@ def test_deadline_transport_checks_shared_budget() -> None:
     assert wrapper.complete([]) == "done"
 
 
+def test_navigate_returns_receipt_only_without_dom() -> None:
+    client = FakeBrowserClient()
+    driver = object.__new__(PlaywrightBrowserDriver)
+    driver.run_id = "domain-run"
+    driver.base_url = "http://case02.test"
+    driver.timeout_ms = 1000
+    driver.client = client
+    driver.page = FakePage()
+
+    receipt = driver.navigate("ticket", "navigate-1")
+
+    assert receipt == {
+        "url": "http://case02.test/ticket/domain-run",
+        "route": "ticket",
+        "page_state_version": 3,
+        "evidence_refs": ["ev-navigate"],
+    }
+    assert "dom" not in receipt and "html" not in receipt
+
+
+def test_observe_records_ticket_read_with_canonical_content_hash() -> None:
+    client = FakeBrowserClient()
+    backend = CoworkerObservationBackend(
+        driver=FakeObservationDriver(),
+        client=client,
+        domain_run_id="domain-run",
+    )
+    backend.bind_application_run("application-run", 2)
+
+    capture = backend.capture()
+
+    expected = json.dumps(
+        capture.content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    assert client.runtime_events == [
+        {
+            "action_id": "observe-0001",
+            "tool_name": "observe",
+            "arguments": {
+                "content_sha256": hashlib.sha256(expected).hexdigest(),
+                "page_state_version": 3,
+            },
+            "node_id": "TICKET_READ",
+            "evidence_refs": ["ev-browser-observe"],
+        }
+    ]
+    assert capture.run_id == "application-run"
+    assert capture.evidence_ref == "ev-observe"
+
+
 def test_configured_bundle_root_must_match_the_routed_root(tmp_path: Path) -> None:
     ticket = Path("data/coworker_demo/case_02/test_set/item_change_ticket.json").resolve()
     route = route_coworker_ticket(str(ticket))
@@ -98,29 +213,55 @@ def test_configured_bundle_root_must_match_the_routed_root(tmp_path: Path) -> No
         _resolve_configured_bundle(route, tmp_path)
 
 
-def test_coworker_runtime_retries_one_transient_provider_failure(tmp_path: Path) -> None:
+def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path) -> None:
     client = RetryClient()
     outcome = CoworkerOutcome()
-    runtime = _make_coworker_runtime(
-        transport=DeadlineAwareTransport(client, CoworkerBudget(), outcome),
-        dispatcher=object(),
-        max_tool_iterations=1,
-        stop_condition=None,
-        context_assembler=None,
-        system_prompt="",
-        run_root=tmp_path,
-    )
+    backend = BorrowedBackend()
+    transport_run_ids: list[str] = []
 
-    result = runtime.run(
-        AgentSession(session_id="retry"),
-        "hello",
-        tools=[],
-        run_id="retry",
+    def transport_factory(run_id: str):
+        transport_run_ids.append(run_id)
+        return DeadlineAwareTransport(client, CoworkerBudget(), outcome)
+
+    entry = CoworkerApplicationEntry(
+        config=HomeMasterConfig(),
+        provider_profile=ProviderProfileConfig(
+            name="test",
+            model="test-model",
+            api_format="openai",
+            base_url="https://example.invalid/v1",
+        ),
+        system_prompt="test",
+        run_root=tmp_path,
+        transport_factory=transport_factory,
+        event_sink=NullEventSink(),
     )
+    try:
+        result = entry.run(
+            RunRequest(
+                text="hello",
+                session_id="retry",
+                profile="coworker",
+                environment=backend,
+                run_policy=RunPolicy(max_tool_iterations=1),
+                dependencies={
+                    "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
+                        tmp_path / "agent/provider_attempts.jsonl"
+                    )
+                },
+            )
+        )
+    finally:
+        entry.close()
 
     assert result.status == "replied"
     assert result.final_reply == "done"
     assert client.key_indices == [0, 1]
+    assert transport_run_ids == [result.run_id]
+    assert backend.bound_run_id == result.run_id
+    assert backend.bound_generation == 1
+    assert backend.closed is False
+    assert client.closed is True
     attempts = [
         json.loads(line)
         for line in (tmp_path / "agent/provider_attempts.jsonl")
@@ -136,6 +277,31 @@ def test_playwright_wait_arguments_are_keyword_only() -> None:
     )
     assert "arg=job_id" in source
     assert "arg=selector" in source
+
+
+def test_coworker_runner_has_no_model_runtime_assembly() -> None:
+    path = Path("src/homemaster/benchmarking/coworker_demo/turn.py")
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imported = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    constructed = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+
+    assert not {
+        "AgentRuntime",
+        "GenericAgentRuntime",
+        "LLMClient",
+        "ToolDispatcher",
+        "ToolRegistry",
+        "build_coworker_tool_registry",
+    } & (imported | constructed)
 
 
 def test_provider_identity_contains_no_endpoint_path_or_secret() -> None:
@@ -177,3 +343,14 @@ def test_attempt_manifest_is_created_and_updated_without_secret_values(tmp_path)
     encoded = (tmp_path / "attempt_manifest.json").read_text(encoding="utf-8")
     assert "must-not-be-used" not in encoded
     assert json.loads(encoded)["error_type"] == "TimeoutError"
+
+
+def test_preflight_requires_exact_mode_0600_for_each_config(tmp_path: Path) -> None:
+    path = tmp_path / "private.yaml"
+    path.write_text("safe: true\n", encoding="utf-8")
+    path.chmod(0o600)
+    assert _mode_0600_check(path) == {"pass": True, "mode": "0o600"}
+
+    path.chmod(0o640)
+    assert _mode_0600_check(path) == {"pass": False, "mode": "0o640"}
+    assert _mode_0600_check(tmp_path / "missing.yaml") == {"pass": False, "mode": None}

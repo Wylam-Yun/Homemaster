@@ -118,7 +118,7 @@ def test_recorded_browser_action_consumes_its_reservation(tmp_path: Path) -> Non
     reservation = {
         "operation": "reserve",
         "action_id": "observe-once",
-        "tool_name": "browser_observe",
+        "tool_name": "observe",
         "page_state_version": 1,
     }
     assert api.post("/api/runs/read-ledger/action-events", json=reservation).status_code == 200
@@ -353,7 +353,7 @@ def test_presentation_sse_restarts_cursor_after_reset(tmp_path: Path, monkeypatc
             runtime_event_type="tool.call_started",
             tool_call_id="old-call",
             action_id="old-action",
-            tool_name="browser_observe",
+            tool_name="observe",
             status="running",
         ),
     )
@@ -369,7 +369,7 @@ def test_presentation_sse_restarts_cursor_after_reset(tmp_path: Path, monkeypatc
                 runtime_event_type="tool.call_started",
                 tool_call_id="new-call",
                 action_id="new-action",
-                tool_name="browser_observe",
+                tool_name="observe",
                 status="running",
             ),
         )

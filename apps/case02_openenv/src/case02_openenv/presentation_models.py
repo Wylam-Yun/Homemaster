@@ -43,7 +43,7 @@ TOOL_PRESENTATION: dict[str, tuple[str, ToolKind]] = {
     "task_progress_check": ("更新计划进度", "orchestration"),
     "skill_view": ("读取操作规范", "orchestration"),
     "browser_navigate": ("打开业务页面", "observation"),
-    "browser_observe": ("读取页面状态", "observation"),
+    "observe": ("读取页面状态", "observation"),
     "browser_click": ("执行页面操作", "mutation"),
     "browser_fill": ("填写变更参数", "mutation"),
     "browser_select": ("选择变更选项", "mutation"),

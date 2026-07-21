@@ -83,7 +83,7 @@ def test_started_tool_projects_only_allowlisted_arguments() -> None:
             {"skill_name": "change_execution"},
         ),
         ("browser_navigate", {"route": "ticket", "url": "no"}, {"route": "ticket"}),
-        ("browser_observe", {"raw": "no"}, {}),
+        ("observe", {"raw": "no"}, {}),
         (
             "browser_click",
             {"bid": "monitor-query-alarm", "api_key": "no"},
@@ -490,7 +490,7 @@ def test_status_mapping_accepts_only_trusted_backend_lifecycle_status() -> None:
         projected = project_runtime_event(
             event(
                 event_type,
-                name="browser_observe",
+                name="observe",
                 tool_call_id=f"call-{backend_status}-{event_type}",
                 payload={
                     "data": (
@@ -881,7 +881,7 @@ def test_spoofed_result_action_id_raises_projection_error() -> None:
         project_runtime_event(
             event(
                 "tool.call_completed",
-                name="browser_observe",
+                name="observe",
                 tool_call_id="call-spoof",
                 payload={"data": {"action_id": "action-spoofed"}},
             )
@@ -967,7 +967,7 @@ def test_evidence_refs_accept_only_bounded_repository_ids() -> None:
     projected = project_runtime_event(
         event(
             "tool.call_completed",
-            name="browser_observe",
+            name="observe",
             tool_call_id="call-evidence",
             payload={"data": {"evidence_refs": [*valid, *hostile, *valid] * 20}},
         )
@@ -1016,7 +1016,7 @@ def test_contradictory_result_status_fails_closed(event_type: str, data: dict) -
         project_runtime_event(
             event(
                 event_type,
-                name="browser_observe",
+                name="observe",
                 tool_call_id="call-status",
                 payload={"data": data},
             )
@@ -1151,13 +1151,13 @@ def test_concurrent_lifecycle_mirroring_preserves_local_ticket_order(tmp_path: P
     call_id = "call-ordered"
     started = event(
         "tool.call_started",
-        name="browser_observe",
+        name="observe",
         tool_call_id=call_id,
         payload={"arguments": {}},
     )
     completed = event(
         "tool.call_completed",
-        name="browser_observe",
+        name="observe",
         tool_call_id=call_id,
         payload={"data": {"action_id": action_id_for("run-a", call_id)}},
     )

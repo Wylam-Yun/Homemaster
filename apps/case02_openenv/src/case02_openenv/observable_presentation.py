@@ -79,7 +79,7 @@ def _is_recovery(incident: PresentationIncident, event: PresentationEvent) -> bo
     if code == "command_not_allowed":
         return event.tool_name == "terminal_execute"
     if code == "external_state_mismatch":
-        return event.tool_name in {"browser_observe", "terminal_execute", "sop_decide"}
+        return event.tool_name in {"observe", "terminal_execute", "sop_decide"}
     return event.tool_name == incident.failed_tool and _matches_target(incident, event)
 
 

@@ -1,0 +1,71 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0C-CL14",
+  "change_list": "CL-14-coworker-entry",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster_parent": "1e4c51a",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl13": "VERIFYING",
+    "exception": "Implementation and non-live gates pass. The candidate and final Coworker Xorg/real-provider gates are deferred to the user-approved concentrated hkust4 batch."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "next_group": ["CL-14", "CL-15", "CL-16a"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "Coworker entry assembly moves to src/homemaster/adapters/coworker_entry.py",
+    "browser_navigate becomes receipt-only and explicit observe owns TICKET_READ plus canonical DOM hash",
+    "the public Coworker model alias changes from browser_observe to observe while the driver legacy operation remains internal",
+    "the 24-node ground truth changes only TICKET_READ tool ownership; node order, dependencies, checkpoints and weights remain fixed",
+    "Coworker contract baseline aggregate changes from da9dd96c81aba23ce0da1d7a28ce85dbaf5d0b8298ed197789dc402717ce2405 to adc6324c9dbec868b22184369e84f579a04e9e6d24ff48fa9ad2e8a7b1cef0d8",
+    "preflight requires exact mode 0600 independently for provider and Coworker configs",
+    "release tooling adds a hash-chained append-only attempt ledger, per-attempt indexes, atomic accepted pointer and independent verifier"
+  ],
+  "test_commands": [
+    "uv run pytest -q -m 'not live_coworker' tests/case02_openenv tests/coworker_demo tests/homemaster/benchmarking/coworker_demo tests/homemaster/integration/test_observation_profiles.py",
+    "uv run pytest -q tests/homemaster/benchmarking/test_coworker_release_tools.py tests/homemaster/benchmarking/coworker_demo/test_turn.py tests/homemaster/integration/test_observation_profiles.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "1e4c51a",
+  "evidence": [
+    {
+      "kind": "unified_entry",
+      "status": "pass",
+      "details": "Coworker runner delegates provider, Catalog/View, pipeline, session and ApplicationRuntime assembly to CoworkerApplicationEntry; its AST no longer imports or constructs LLMClient, registry, dispatcher or agent runtime."
+    },
+    {
+      "kind": "observation_contract",
+      "status": "pass",
+      "details": "The exact ordered eleven-tool view has observe fifth. Navigate returns only route/URL/state/evidence receipt fields; explicit observe records TICKET_READ and a canonical DOM content hash. Planner, browser mutations and SOP require a current bound observation."
+    },
+    {
+      "kind": "identity_and_ownership",
+      "status": "pass",
+      "details": "Provider attempts, application child run ID and observation binding use one run identity. Application close releases its owned provider and subscription while leaving the borrowed environment/browser/client lifecycle with run_coworker_turn."
+    },
+    {
+      "kind": "release_gate_tooling",
+      "status": "pass",
+      "details": "Both configs require exact mode 0600. Candidate attempts use a locked/fsynced hash-chain ledger and hashed indexes; the atomic pointer binds exactly one accepted run and the independent verifier rejects truncation, append-after-pointer, cross-candidate rows, duplicate accepted attempts, index tamper and formal verification failure."
+    },
+    {
+      "kind": "tests",
+      "status": "pass",
+      "details": "Focused Coworker non-live suite: 433 passed, 3 live deselected. Release/entry/profile direct set: 21 passed. Full non-live suite: 1082 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall and diff check pass."
+    },
+    {
+      "kind": "external_live_gate",
+      "status": "pending",
+      "details": "The unique fresh normal test-set item, headed browser/video gate and real provider verification will run on hkust4 after exact-SHA Git sync; CL-16d final SHA must rerun the same 1/1 product gate."
+    }
+  ],
+  "reviews": []
+}

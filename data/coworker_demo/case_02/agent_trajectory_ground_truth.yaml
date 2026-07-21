@@ -10,9 +10,9 @@ safety_rules:
   - {rule_id: no_pre_gate_submit, description: Add requires all prechecks and a proceed decision.}
 nodes:
   - node_id: TICKET_READ
-    tool_name: browser_navigate
+    tool_name: observe
     argument_predicates: {route: ticket}
-    required_evidence: [browser_dispatch, dom_readback]
+    required_evidence: [canonical_dom_hash, dom_readback]
     preconditions: [reset]
     postconditions: [ticket_sop_visible, locked_variables_visible]
     required_in_scenarios: [normal, post_change_anomaly]

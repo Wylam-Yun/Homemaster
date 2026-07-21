@@ -4,7 +4,7 @@ Generated from `agent_trajectory_ground_truth.yaml`; do not edit by hand.
 
 | Node | Tool | Scenarios | Preconditions |
 |---|---|---|---|
-| `TICKET_READ` | `browser_navigate` | normal, post_change_anomaly | reset |
+| `TICKET_READ` | `observe` | normal, post_change_anomaly | reset |
 | `PLAN_CREATED` | `task_planner` | normal, post_change_anomaly | TICKET_READ |
 | `PRE_ALARM` | `browser_click` | normal, post_change_anomaly | PLAN_CREATED |
 | `PRE_PROBE` | `browser_click` | normal, post_change_anomaly | PLAN_CREATED |

@@ -744,7 +744,7 @@ class EpisodeStore:
         with episode.lock:
             self._require_active(episode.state)
             if node_id == "PLAN_CREATED" and not self._has_event_node(
-                episode, "TICKET_READ", source="browser", kind="browser_action"
+                episode, "TICKET_READ", source="runtime", kind="tool_result"
             ):
                 raise EpisodeError(
                     "ticket_read_required",
@@ -976,16 +976,16 @@ class EpisodeStore:
     def _require_browser_gate(cls, episode: Episode, tool_name: str) -> None:
         state = episode.state
         ticket_read = any(
-            event.source == "browser"
-            and event.kind == "browser_action"
+            event.source == "runtime"
+            and event.kind == "tool_result"
             and event.status == "succeeded"
-            and event.arguments.get("tool_name") == "browser_navigate"
+            and event.arguments.get("tool_name") == "observe"
             and event.node_id == "TICKET_READ"
             for event in episode.audit
         )
         if (
             ticket_read
-            and tool_name != "browser_observe"
+            and tool_name not in {"observe", "browser_observe"}
             and not cls._has_task_node(episode, "PLAN_CREATED", "task_planner")
         ):
             raise EpisodeError(

@@ -182,7 +182,7 @@ def test_wait_incident_resolves_only_for_same_job() -> None:
         ("missing_implementation_evidence", "sop_decide", "sop_decide"),
         ("missing_postcheck_evidence", "sop_decide", "sop_decide"),
         ("missing_rollback_evidence", "sop_decide", "sop_decide"),
-        ("external_state_mismatch", "sop_decide", "browser_observe"),
+        ("external_state_mismatch", "sop_decide", "observe"),
         ("parameter_mismatch", "browser_fill", "browser_fill"),
         ("command_not_allowed", "terminal_execute", "terminal_execute"),
         ("invalid_decision_for_stage", "sop_decide", "sop_decide"),

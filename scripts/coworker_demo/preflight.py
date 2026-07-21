@@ -16,6 +16,14 @@ from homemaster.benchmarking.coworker_demo.ticket_bundle import CaseRepository
 from homemaster.config import load_config
 
 
+def _mode_0600_check(path: Path) -> dict[str, Any]:
+    mode = path.stat().st_mode & 0o777 if path.is_file() else None
+    return {
+        "pass": mode == 0o600,
+        "mode": oct(mode) if mode is not None else None,
+    }
+
+
 def run_preflight(coworker_config: Path, provider_config: Path) -> dict[str, Any]:
     config = load_coworker_config(coworker_config)
     home = load_config(provider_config)
@@ -28,10 +36,8 @@ def run_preflight(coworker_config: Path, provider_config: Path) -> dict[str, Any
         "api_format": provider.api_format,
         "key_count": len(provider.api_keys),
     }
-    checks["config_mode"] = {
-        "pass": provider_config.is_file() and provider_config.stat().st_mode & 0o077 == 0,
-        "mode": oct(provider_config.stat().st_mode & 0o777),
-    }
+    checks["provider_config_mode"] = _mode_0600_check(provider_config)
+    checks["coworker_config_mode"] = _mode_0600_check(coworker_config)
     executables = {
         "service_python": config.paths.service_python,
         "chrome": config.browser.chrome_executable,

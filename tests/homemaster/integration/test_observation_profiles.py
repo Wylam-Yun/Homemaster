@@ -62,3 +62,19 @@ def test_environment_profiles_execute_typed_observation_policies() -> None:
         coworker.definition.verification_policy.post_action_observation
         is PostActionObservation.FRESH_AFTER_BACKEND_ADVANCE
     )
+
+
+def test_coworker_planner_mutations_and_sop_require_current_observation() -> None:
+    view = build_environment_profiles()["coworker"].view
+
+    for name in (
+        "task_planner",
+        "browser_click",
+        "browser_fill",
+        "browser_select",
+        "browser_wait",
+        "sop_decide",
+    ):
+        tool = view.lookup(name).tool
+        assert tool is not None
+        assert tool.definition.verification_policy.requires_pre_observation == "current_bound"

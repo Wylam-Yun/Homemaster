@@ -7,6 +7,8 @@ explicit ``observe`` capability shared by all three environments.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -162,17 +164,18 @@ class CoworkerObservationBackend:
 
     driver: Any
     client: Any
-    run_id: str
+    domain_run_id: str
     generation: int = 0
     capture_sequence: int = 0
+    application_run_id: str = "unbound"
 
     @property
     def backend_id(self) -> str:
-        return f"coworker:{self.run_id}"
+        return f"coworker:{self.domain_run_id}"
 
     @property
     def state_sequence(self) -> int:
-        return int(self.client.state(self.run_id)["state_version"])
+        return self.capture_sequence
 
     @property
     def event_sequence(self) -> int:
@@ -180,12 +183,34 @@ class CoworkerObservationBackend:
 
     def capture(self) -> ObservationCapture:
         self.capture_sequence += 1
-        observation = self.driver.observe(f"observe-{self.capture_sequence:04d}")
-        refs = observation.get("evidence_refs") or ()
-        evidence_ref = str(refs[0]) if refs else f"coworker/{self.run_id}/dom"
+        action_id = f"observe-{self.capture_sequence:04d}"
+        raw_observation = self.driver.observe(action_id)
+        backend_refs = raw_observation.get("evidence_refs") or ()
+        observation = {
+            key: value for key, value in raw_observation.items() if key != "evidence_refs"
+        }
+        encoded = json.dumps(
+            observation,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        mirrored = self.client.runtime_event(
+            self.domain_run_id,
+            action_id=action_id,
+            tool_name="observe",
+            arguments={
+                "content_sha256": hashlib.sha256(encoded).hexdigest(),
+                "page_state_version": observation.get("page_state_version"),
+            },
+            node_id="TICKET_READ" if observation.get("route") == "ticket" else None,
+            evidence_refs=[str(ref) for ref in backend_refs if isinstance(ref, str)],
+        )
+        evidence_ref = str(mirrored["event"]["event_id"])
         return ObservationCapture(
             backend_id=self.backend_id,
-            run_id=self.run_id,
+            run_id=self.application_run_id,
             generation=self.generation,
             state_sequence=self.state_sequence,
             capture_event_sequence=self.capture_sequence,
@@ -193,6 +218,10 @@ class CoworkerObservationBackend:
             content=observation,
             evidence_ref=evidence_ref,
         )
+
+    def bind_application_run(self, run_id: str, generation: int) -> None:
+        self.application_run_id = run_id
+        self.generation = generation
 
 
 class _ObservationExecutor:
@@ -677,7 +706,19 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
         "task_interpreter",
         "target_grounder",
     }:
-        return VerificationPolicy(execution_proof=ExecutionProof.NONE)
+        return VerificationPolicy(
+            execution_proof=ExecutionProof.NONE,
+            requires_pre_observation=(
+                "current_bound"
+                if environment == "coworker" and name == "task_planner"
+                else False
+            ),
+        )
+    if name == "sop_decide" and environment == "coworker":
+        return VerificationPolicy(
+            execution_proof=ExecutionProof.STRUCTURED_RECEIPT,
+            requires_pre_observation="current_bound",
+        )
     return VerificationPolicy(execution_proof=ExecutionProof.STRUCTURED_RECEIPT)
 
 

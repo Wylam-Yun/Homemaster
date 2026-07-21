@@ -82,11 +82,13 @@ class PlaywrightBrowserDriver:
             tool_name="browser_navigate",
             version=version,
             arguments={"route": route, "url": url},
-            node_id="TICKET_READ" if route == "ticket" else None,
         )
-        observation = self._observation()
-        observation["evidence_refs"] = [recorded["event"]["event_id"]]
-        return observation
+        return {
+            "url": url,
+            "route": route,
+            "page_state_version": self.client.state(self.run_id)["state_version"],
+            "evidence_refs": [recorded["event"]["event_id"]],
+        }
 
     def observe(self, action_id: str) -> dict[str, Any]:
         self._require_agent_page()
@@ -100,6 +102,8 @@ class PlaywrightBrowserDriver:
             arguments={"url": self.page.url},
         )
         observation = self._observation()
+        observation["route"] = self.page.url.rstrip("/").split("/")[-2]
+        observation["page_state_version"] = self.client.state(self.run_id)["state_version"]
         observation["evidence_refs"] = [recorded["event"]["event_id"]]
         return observation
 

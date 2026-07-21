@@ -234,7 +234,7 @@ def test_browser_action_requires_real_progress_event_after_pre_decision(
             run_id,
             ActionReservation(
                 action_id="spoofed-progress",
-                tool_name="browser_observe",
+                tool_name="browser_click",
                 page_state_version=state.state_version,
             ),
         )
@@ -258,10 +258,10 @@ def test_operational_browser_action_requires_real_plan_after_ticket_read(
     store.create(run_id, "normal")
     store.record(
         run_id,
-        source="browser",
-        kind="browser_action",
+        source="runtime",
+        kind="tool_result",
         status="succeeded",
-        arguments={"tool_name": "browser_navigate", "route": "ticket"},
+        arguments={"tool_name": "observe"},
         node_id="TICKET_READ",
         mutate_version=False,
     )
@@ -270,7 +270,7 @@ def test_operational_browser_action_requires_real_plan_after_ticket_read(
         run_id,
         ActionReservation(
             action_id="read-ticket",
-            tool_name="browser_observe",
+            tool_name="observe",
             page_state_version=state.state_version,
         ),
     )
@@ -312,10 +312,10 @@ def test_plan_requires_ticket_read_first(store: EpisodeStore) -> None:
 
     store.record(
         run_id,
-        source="browser",
-        kind="browser_action",
+        source="runtime",
+        kind="tool_result",
         status="succeeded",
-        arguments={"tool_name": "browser_navigate", "route": "ticket"},
+        arguments={"tool_name": "observe"},
         node_id="TICKET_READ",
         mutate_version=False,
     )
@@ -345,7 +345,7 @@ def test_browser_progress_gate_tracks_current_phase(
             run_id,
             ActionReservation(
                 action_id="blocked",
-                tool_name="browser_observe",
+                tool_name="browser_click",
                 page_state_version=state.state_version,
             ),
         )
@@ -354,7 +354,7 @@ def test_browser_progress_gate_tracks_current_phase(
         run_id,
         ActionReservation(
             action_id="allowed",
-            tool_name="browser_observe",
+            tool_name="browser_click",
             page_state_version=state.state_version,
         ),
     )

@@ -7,17 +7,18 @@ import json
 import os
 import time
 import uuid
-from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 
-from homemaster.agent.context import ContextAssembler
-from homemaster.agent.generic_runtime import GenericAgentRuntime, RuntimeStopDecision, ToolSpec
-from homemaster.agent.normalized import RunContext
-from homemaster.agent.session import AgentSession
+from homemaster.adapters.coworker_entry import (
+    CoworkerApplicationEntry,
+    build_coworker_transport_factory,
+)
+from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.agent.generic_runtime import RuntimeStopDecision
+from homemaster.application import RunPolicy, RunRequest
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.config import load_coworker_config
@@ -26,7 +27,6 @@ from homemaster.benchmarking.coworker_demo.environment_client import (
     EnvironmentProcess,
 )
 from homemaster.benchmarking.coworker_demo.prompt import SYSTEM_PROMPT, build_task_prompt
-from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
 from homemaster.benchmarking.coworker_demo.skills import load_coworker_skills
 from homemaster.benchmarking.coworker_demo.ticket_bundle import CaseRepository
 from homemaster.benchmarking.coworker_demo.tracing import CoworkerTraceSink
@@ -39,9 +39,6 @@ from homemaster.benchmarking.coworker_demo.types import (
 from homemaster.config import HOMEMASTER_CONFIG_PATH, load_config
 from homemaster.events.sinks import ConsoleEventSink, FanoutEventSink
 from homemaster.providers.attempts import JsonlProviderAttemptSink
-from homemaster.providers.llm_client import LLMClient
-from homemaster.task_state.store import TaskStateStore
-from homemaster.tools.dispatcher import ToolDispatcher
 
 
 def new_coworker_run_id() -> str:
@@ -107,28 +104,6 @@ def _safe_provider_identity(
         **nonsecret,
         "config_fingerprint_sha256": hashlib.sha256(fingerprint_source).hexdigest(),
     }
-
-
-class DeadlineAwareTransport:
-    def __init__(self, client: LLMClient, budget: CoworkerBudget, outcome: CoworkerOutcome) -> None:
-        self.client = client
-        self.budget = budget
-        self.outcome = outcome
-
-    @property
-    def token_estimator(self):
-        return self.client.token_estimator
-
-    def stream(self, *args: Any, **kwargs: Any) -> Iterator[Any]:
-        self.budget.before_external(self.outcome)
-        for delta in self.client.stream(*args, **kwargs):
-            if self.budget.remaining_s <= 0:
-                raise TimeoutError("coworker deadline expired during provider stream")
-            yield delta
-
-    def complete(self, *args: Any, **kwargs: Any):
-        self.budget.before_external(self.outcome)
-        return self.client.complete(*args, **kwargs)
 
 
 def _resolve_configured_bundle(route: ValidTicketRoute, data_root: Path):
@@ -305,29 +280,6 @@ def run_coworker_turn(
     )
 
 
-def _make_coworker_runtime(
-    *,
-    transport: Any,
-    dispatcher: Any,
-    max_tool_iterations: int,
-    stop_condition: Any,
-    context_assembler: Any,
-    system_prompt: str,
-    run_root: Path,
-) -> GenericAgentRuntime:
-    return GenericAgentRuntime(
-        transport=transport,
-        tool_executor=dispatcher,
-        max_tool_iterations=max_tool_iterations,
-        stop_condition=stop_condition,
-        context_assembler=context_assembler,
-        system_prompt=system_prompt,
-        provider_attempt_sink_factory=lambda: JsonlProviderAttemptSink(
-            run_root / "agent/provider_attempts.jsonl"
-        ),
-    )
-
-
 def _run_runtime(
     *,
     run_id: str,
@@ -356,32 +308,13 @@ def _run_runtime(
         status="provider_identity_recorded",
         provider_identity_path="agent/provider_identity.json",
     )
-    client_timeout = budget.timeout(home_config.provider_client.timeout_s)
-    llm_client = LLMClient(provider, timeout_s=client_timeout, run_id=run_id)
-    transport = DeadlineAwareTransport(llm_client, budget, outcome)
     observability = home_config.observability.model_copy(
         update={
             "trace_dir": str(run_root / "agent/trace"),
             "session_dir": str(run_root / "agent/session"),
         }
     )
-    settings = SimpleNamespace(
-        run_id=run_id,
-        max_turns=max_tool_iterations,
-        runtime_root=run_root / "agent/runtime",
-        debug_root=run_root / "agent/debug",
-        results_root=run_root / "agent/results",
-        provider_name=provider.name,
-        embedding_provider_name=home_config.runtime_defaults.default_embedding_provider_name,
-        config_path=home_config.config_path or HOMEMASTER_CONFIG_PATH,
-        memory_path=None,
-        context=home_config.context,
-        runtime_guards=home_config.runtime.model_copy(
-            update={"max_tool_iterations": max_tool_iterations}
-        ),
-        prompts=home_config.prompts,
-        observability=observability,
-    )
+    home_config = home_config.model_copy(update={"observability": observability})
     trace_sink = CoworkerTraceSink(
         trace_path,
         client,
@@ -390,46 +323,10 @@ def _run_runtime(
         sensitive_values=tuple(provider.api_keys),
     )
     event_sink = FanoutEventSink([trace_sink, ConsoleEventSink(show_replies=False)])
-    task_store = TaskStateStore(run_id=run_id)
     skill_registry = load_coworker_skills()
-    run_context = RunContext(
-        session_id=run_id,
-        run_id=run_id,
-        turn_index=0,
-        settings=settings,
-        event_sink=event_sink,
-        deps={
-            "task_state_store": task_store,
-            "skill_registry": skill_registry,
-            "coworker_environment": client,
-            "coworker_browser": driver,
-            "coworker_budget": budget,
-            "coworker_outcome": outcome,
-        },
-    )
-    registry = build_coworker_tool_registry()
-    dispatcher = ToolDispatcher(event_sink=event_sink)
-    tools: list[ToolSpec] = []
-    for name in registry.all_names():
-        spec = registry.get(name)
-        if spec is None:
-            continue
-        dispatcher.register(spec)
-        if spec.selectable_by_model:
-            tools.append(
-                ToolSpec(
-                    name=spec.name, description=spec.description, input_schema=spec.input_schema
-                )
-            )
-    dispatcher.set_run_context(run_context)
-    context = ContextAssembler(
-        provider=provider,
-        policy=home_config.context,
-        system_prompt=SYSTEM_PROMPT,
-        summary_client=transport,
-    )
+    backend = CoworkerObservationBackend(driver=driver, client=client, domain_run_id=run_id)
 
-    def stop_condition(_session: AgentSession, _results: list[Any]):
+    def stop_condition(_context: Any):
         if not outcome.terminal:
             return None
         return RuntimeStopDecision(
@@ -438,24 +335,56 @@ def _run_runtime(
             payload={"classification": outcome.classification},
         )
 
-    runtime = _make_coworker_runtime(
-        transport=transport,
-        dispatcher=dispatcher,
-        max_tool_iterations=max_tool_iterations,
-        stop_condition=stop_condition,
-        context_assembler=context,
+    entry = CoworkerApplicationEntry(
+        config=home_config,
+        provider_profile=provider,
         system_prompt=SYSTEM_PROMPT,
         run_root=run_root,
-    )
-    return runtime.run(
-        AgentSession(session_id=run_id),
-        build_task_prompt(run_id, ticket_url),
-        tools=tools,
+        transport_factory=build_coworker_transport_factory(
+            provider_profile=provider,
+            budget=budget,
+            outcome=outcome,
+            timeout_s=budget.timeout(home_config.provider_client.timeout_s),
+        ),
         event_sink=event_sink,
-        run_id=run_id,
-        settings=settings,
-        task_state_store=task_store,
     )
+    try:
+        return entry.run(
+            RunRequest(
+                text=build_task_prompt(run_id, ticket_url),
+                session_id=run_id,
+                profile="coworker",
+                provider_name=provider.name,
+                environment=backend,
+                run_policy=RunPolicy(
+                    max_tool_iterations=max_tool_iterations,
+                    deadline_s=max(budget.remaining_s, 0.001),
+                    stop_condition=stop_condition,
+                ),
+                dependencies={
+                    "skill_registry": skill_registry,
+                    "coworker_environment": client,
+                    "coworker_browser": driver,
+                    "coworker_budget": budget,
+                    "coworker_outcome": outcome,
+                    "external_terminal_owner": _CoworkerTerminalOwner(outcome),
+                    "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
+                        run_root / "agent/provider_attempts.jsonl"
+                    ),
+                },
+            )
+        )
+    finally:
+        entry.close()
+
+
+class _CoworkerTerminalOwner:
+    def __init__(self, outcome: CoworkerOutcome) -> None:
+        self._outcome = outcome
+
+    @property
+    def succeeded(self) -> bool:
+        return self._outcome.terminal
 
 
 def _append_transcript(path: Path, line: str) -> None:

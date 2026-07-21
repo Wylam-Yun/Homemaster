@@ -22,7 +22,7 @@ _TOOLS = {
     "task_progress_check",
     "skill_view",
     "browser_navigate",
-    "browser_observe",
+    "observe",
     "browser_click",
     "browser_fill",
     "browser_select",
@@ -122,7 +122,7 @@ _TOOL_PRESENTATION = {
     "task_progress_check": ("更新计划进度", "orchestration"),
     "skill_view": ("读取操作规范", "orchestration"),
     "browser_navigate": ("打开业务页面", "observation"),
-    "browser_observe": ("读取页面状态", "observation"),
+    "observe": ("读取页面状态", "observation"),
     "browser_click": ("执行页面操作", "mutation"),
     "browser_fill": ("填写变更参数", "mutation"),
     "browser_select": ("选择变更选项", "mutation"),
@@ -387,7 +387,7 @@ def _safe_arguments(tool_name: str, value: Any) -> dict[str, Any]:
         return {"skill_name": _required_closed(arguments, "skill_name", _SKILLS)}
     if tool_name == "browser_navigate":
         return {"route": _required_closed(arguments, "route", _ROUTES)}
-    if tool_name == "browser_observe":
+    if tool_name == "observe":
         return {}
     if tool_name == "browser_click":
         return {"bid": _required_closed(arguments, "bid", _BIDS)}
