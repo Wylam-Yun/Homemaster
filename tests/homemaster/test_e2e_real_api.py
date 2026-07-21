@@ -56,10 +56,11 @@ def runtime_settings(tmp_path):
 
 
 @pytest.mark.live_api
-def test_system_prompt_delivered_to_model(transport) -> None:
+@pytest.mark.asyncio
+async def test_system_prompt_delivered_to_model(transport) -> None:
     """Verify system prompt appears in the model's behavior."""
     system_prompt = "You are a helpful assistant. Always reply with exactly one word: 'hello'."
-    msg = transport.complete(
+    msg = await transport.complete(
         [UserMessage(content=[ContentBlock(text="Follow the system instruction now.")])],
         system_prompt=system_prompt,
     )
@@ -67,7 +68,8 @@ def test_system_prompt_delivered_to_model(transport) -> None:
 
 
 @pytest.mark.live_api
-def test_context_assembler_with_task_snapshot(transport, provider_profile) -> None:
+@pytest.mark.asyncio
+async def test_context_assembler_with_task_snapshot(transport, provider_profile) -> None:
     """Verify context assembler injects task snapshot into model context."""
     session = AgentSession(session_id="e2e-ctx")
     session.append(UserMessage(content=[ContentBlock(text="What is the current goal?")]))
@@ -107,7 +109,7 @@ def test_context_assembler_with_task_snapshot(transport, provider_profile) -> No
     assert "find the red cup" in prelude_text
 
     # Send to real model and verify it can see the task context
-    msg = transport.complete(
+    msg = await transport.complete(
         context.messages,
         system_prompt=context.system_prompt,
     )

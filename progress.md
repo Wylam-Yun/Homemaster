@@ -16,8 +16,16 @@
   skill 路径不外泄和 `external_io=false`。
 - CL-17 machine state 已写入 `plan/V1.9/execution/phase-1-cl17/state.json`，状态 GATE_PASSED；按当前
   AGENTS 规则不在实施中追加 reviewer，唯一最终代码评审保留到全部实现、外部终态和文档完成之后。
-- 下一步：提交 CL-17 候选；在同一已提交 SHA 上执行真实 provider、ALFWorld 4/4 和 Coworker 1/1
-  外部终态门，然后才开始 CL-18。
+- CL-17 已提交为 `79f286f` 并推送到 `origin/codex/v1.9-release`。恢复真实 Provider 门时发现两条
+  `live_api` 用例未 await 已异步化的 `LLMClient.complete()`，首次运行在发出外部请求前失败；修复后
+  三条真实 Mimo/mimo-v2.5 用例全部通过，包含 system prompt、任务上下文和真实工具循环。
+- ALFWorld 锁定 manifest 与外部 dataset bytes 已独立验证：selected=4、source_entries=10、
+  `dataset_bytes_verified=true`。HPC2 当前项目环境尚未装入外部 ALFWorld runtime，且没有现成 X
+  display；继续以 import origin 和真实 THOR preflight 取证，不把 manifest PASS 当作 4/4。
+- hkust4 的 canonical worktree 位于 `/home/haodong2/weilin_workspace/Homemaster`，当前为干净 detached
+  `70d8e91`；HTTPS/SSH GitHub fetch 均无远端凭据，需用不含配置/credential 的 Git bundle 同步新候选。
+- 下一步：提交 live gate 修复并冻结新 SHA；完成 HPC2 ALFWorld runtime/M0/4-of-4 和 hkust4
+  Coworker 1-of-1 外部终态门，记录两端 return code/identity 后才开始 CL-18。
 
 # Historical Coworker Demo Progress
 

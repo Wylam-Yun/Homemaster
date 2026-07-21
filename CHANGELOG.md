@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- 修复两条真实 Provider 验收仍按同步方式调用异步 `LLMClient.complete()`、导致 coroutine 逃逸且请求
+  根本未发出的问题；live gate 现在直接 await 真实入口并断言外部响应，防止 non-live 全绿掩盖正式
+  Provider 门失效。
+
 ### V1.9 Phase 1 - Skills 与配置来源
 
 - 变更：移植 OpenHarness YAML frontmatter、skill discovery 和 registry 控制流，增加 builtin/user/

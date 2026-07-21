@@ -1,5 +1,11 @@
 # HomeMaster Agent Rules
 
+## Provider 外部门纪律
+
+- Provider 接口从同步迁移为异步后，逐条审计所有 live gate 并直接 `await` 真实入口；验收必须拒绝
+  coroutine/awaitable 逃逸和 `never awaited` warning。只看到测试启动或 fixture 成功不能证明请求已发出，
+  必须同时断言真实响应终态和命令返回码。
+
 ## 配置合并纪律
 
 - 把 file/env/CLI 值写入 Pydantic 配置后必须重新执行 `model_validate()`；不得用

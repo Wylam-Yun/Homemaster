@@ -2,6 +2,29 @@
 
 最新记录放在最上方。
 
+## 2026-07-21 - live_api 未 await 异步 Provider，正式请求根本没有发出
+
+严重程度：高。V1.9 release 恢复时，最小真实 Provider gate 在读取响应前直接拿到了 coroutine，
+因此测试失败且没有产生任何外部请求；另外一条上下文 live gate 存在同样漂移。
+
+### 症状与根因
+
+- `LLMClient.complete()` 已迁移为 `async def`，但 `test_e2e_real_api.py` 的两条 live 用例仍按同步接口调用。
+- non-live 默认排除 `live_api` marker，所以全量 `1155 passed` 无法发现这两条验收入口已经失效。
+- fixture 构造成功和 coroutine 对象存在都不是 Provider 外部返回证据。
+
+### 修法与教训
+
+- 将两条用例改为 pytest async test，并直接 `await transport.complete(...)` 后断言真实响应内容。
+- Provider sync/async 契约变化时，审计全部 live consumer；把 `coroutine was never awaited` 视为 gate
+  失败，不得用手工请求替代失效的正式测试后继续发布。
+- live 门同时保留命令非零/零返回码与真实响应终态，避免“测试运行了”被误算成“请求发生了”。
+
+### 参考
+
+- `src/homemaster/providers/llm_client.py`
+- `tests/homemaster/test_e2e_real_api.py`
+
 ## 2026-07-21 - Pydantic model_copy 让 env override 绕过字段校验
 
 严重程度：中。CL-17 初版的 file 配置会经过 typed validator，但 env/CLI 覆盖使用
