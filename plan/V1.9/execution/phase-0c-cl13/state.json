@@ -5,11 +5,12 @@
   "status": "VERIFYING",
   "source_commits": {
     "homemaster": "ec292fd",
+    "review_remediation": "4e2b7cf",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
     "cl12": "VERIFYING",
-    "exception": "Implementation and all non-live gates pass. The single CL-11/12/13 grouped review follows this record; Xorg/THOR/real-provider gates are deferred to the user-approved concentrated hkust4 batch."
+    "exception": "Implementation, non-live gates, and the single grouped review remediation pass. Xorg/THOR/real-provider gates are deferred to the user-approved concentrated hkust4 batch."
   },
   "review_policy": {
     "grouped_review_after_phases": 3,
@@ -77,7 +78,7 @@
     {
       "kind": "tests",
       "status": "pass",
-      "details": "Release/AST gate: 28 passed in the final pre-commit rerun. Earlier focused runner/M0/compaction gate: 26 passed; ALFWorld benchmarking: 348 passed; application/tools/observation: 148 passed; full non-live: 1070 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, and diff check pass."
+      "details": "Pre-review release/AST gate: 28 passed; runner/M0/compaction: 26 passed; ALFWorld benchmarking: 348 passed; application/tools/observation: 148 passed; full non-live: 1070 passed, 7 deselected. Post-review direct regressions: 34 passed; expanded ALFWorld set: 227 passed; full non-live: 1072 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, and diff check pass."
     },
     {
       "kind": "external_live_gate",
@@ -86,9 +87,22 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "The one allowed independent CL-11/12/13 grouped review is the next gate. It may run once; remediation will be verified without requesting a second grouped review."
+      "status": "pass",
+      "details": "The one allowed independent CL-11/12/13 grouped review completed once. A THOR mixed-trace verifier failure and repeated-observe sequence failure were remediated in 4e2b7cf and covered by focused regressions; no second grouped review is permitted."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl11-cl13-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": [
+        {"id": "CL13-R1", "severity": "P1", "summary": "The release verifier treated every THOR process trace row as an action-count row.", "disposition": "REMEDIATED", "reverification": "mixed process/canonical-step trace verifier regression passes"},
+        {"id": "CL13-R2", "severity": "P2", "summary": "Consecutive explicit ALFWorld observations reused the capture event sequence and made the second record stale.", "disposition": "REMEDIATED", "reverification": "same-frame consecutive observe/bind regression passes with distinct identities"}
+      ],
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "4e2b7cf"
+    }
+  ]
 }

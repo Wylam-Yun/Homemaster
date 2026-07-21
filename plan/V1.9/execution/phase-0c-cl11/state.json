@@ -5,11 +5,12 @@
   "status": "VERIFYING",
   "source_commits": {
     "homemaster": "440cf5b",
+    "review_remediation": "4e2b7cf",
     "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
   },
   "dependency_status": {
     "cl10": "VERIFYING",
-    "exception": "Implementation and non-live gates pass; the single CL-11/12/13 grouped review follows CL-13."
+    "exception": "The single CL-11/12/13 grouped review is complete and remediated; deferred hkust4/live gates remain pending."
   },
   "review_policy": {
     "grouped_review_after_phases": 3,
@@ -67,9 +68,22 @@
     },
     {
       "kind": "review",
-      "status": "pending",
-      "details": "The one allowed independent CL-11/12/13 grouped review is reserved until CL-13 implementation and candidate gates are complete."
+      "status": "pass",
+      "details": "The one allowed independent CL-11/12/13 grouped review completed once. Both ALFWorld findings were remediated in 4e2b7cf; no second grouped review is permitted."
     }
   ],
-  "reviews": []
+  "reviews": [
+    {
+      "review_id": "review-cl11-cl13-unique-1",
+      "round": 1,
+      "status": "completed",
+      "reviewer": "independent-review-agent",
+      "findings": [
+        {"id": "CL13-R1", "severity": "P1", "summary": "The release verifier treated every THOR process trace row as an action-count row.", "disposition": "REMEDIATED", "reverification": "mixed process/canonical-step trace verifier regression passes"},
+        {"id": "CL13-R2", "severity": "P2", "summary": "Consecutive explicit ALFWorld observations reused the capture event sequence and made the second record stale.", "disposition": "REMEDIATED", "reverification": "same-frame consecutive observe/bind regression passes with distinct identities"}
+      ],
+      "disposition": "all remediated; no second grouped review permitted",
+      "commit": "4e2b7cf"
+    }
+  ]
 }
