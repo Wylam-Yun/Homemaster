@@ -171,6 +171,26 @@ def test_both_gates_reject_action_count_contract_violation(
         _verify(report, manifest, gate=gate)
 
 
+def test_release_verifier_ignores_thor_process_rows_when_counting_actions(
+    tmp_path: Path,
+) -> None:
+    report, manifest = _release_fixture(tmp_path, successes=4)
+    payload = _read(report)
+    trace_path = report.parent / payload["episodes"][0]["trace_ref"]
+    step = json.loads(trace_path.read_text(encoding="utf-8"))
+    process_rows = [
+        {"event": "context_created", "tool_call_id": "call-0"},
+        {"event": "attempt_started", "attempt_id": "attempt-0"},
+        {"event": "execution_terminal", "success": True},
+    ]
+    _write_jsonl(trace_path, [*process_rows, step])
+    _refresh_hash(payload, report, trace_path)
+
+    result = _verify(report, manifest, gate="release")
+
+    assert result["success"] == 4
+
+
 @pytest.mark.parametrize("gate", ["migration", "release"])
 def test_both_gates_reject_persisted_formal_score_unavailable(
     tmp_path: Path,
@@ -283,7 +303,15 @@ def _release_fixture(
         )
         score_eligible = not is_harness_invalid
         run_id = f"episode-run-{index}"
-        trace_line = json.dumps({"backend_action_count": 1}, sort_keys=True)
+        trace_line = json.dumps(
+            {
+                "backend_action_count": 1,
+                "tool_args": {},
+                "tool_name": "robot_go_to",
+                "tool_success": True,
+            },
+            sort_keys=True,
+        )
         paths = {
             "trace_ref": episode_dir / "trace.jsonl",
             "model_trace_ref": episode_dir / "model_trace.jsonl",

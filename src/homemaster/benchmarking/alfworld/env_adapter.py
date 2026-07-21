@@ -318,15 +318,17 @@ class AlfworldEnvAdapter:
         if not state.frame_path:
             raise RuntimeError("ALFWorld raster observation has no current frame")
         path = Path(state.frame_path)
+        self._event_sequence += 1
+        self._frame_ledger.record_frame(path, event_sequence=self._event_sequence)
         return ObservationCapture(
             backend_id=self.backend_id,
             run_id=self._application_run_id,
             generation=self.generation,
             state_sequence=self.state_sequence,
-            capture_event_sequence=self.event_sequence,
+            capture_event_sequence=self._event_sequence,
             media_type="image/png",
             content=path.read_bytes(),
-            evidence_ref=f"alfworld/{state.episode_id}/frame/{self.event_sequence}",
+            evidence_ref=f"alfworld/{state.episode_id}/frame/{self._event_sequence}",
         )
 
     def bind_application_run(self, run_id: str, generation: int) -> None:

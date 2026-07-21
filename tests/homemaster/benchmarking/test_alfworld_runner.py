@@ -357,6 +357,7 @@ def _attach_fake_raster_capture(
 
     def capture() -> ObservationCapture:
         counts["capture"] += 1
+        adapter._event_sequence += 1  # noqa: SLF001 - mirrors explicit capture identity
         adapter._frame_ledger.record_frame(  # noqa: SLF001 - test fixture
             frame_path,
             event_sequence=adapter.event_sequence,
@@ -559,7 +560,66 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert attempts[0]["outbound_observations"] == []
     assert attempts[1]["outbound_observations"][-1][
         "observation_capture_event_sequence"
-    ] == 0
+    ] == 1
+
+
+def test_consecutive_explicit_observes_get_distinct_bindings_for_same_frame(
+    tmp_path: Path,
+) -> None:
+    class ConsecutiveObserveTransport(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self._responses = [
+                AssistantMessage(
+                    tool_calls=[ToolCall(id="observe-first", name="observe", arguments={})],
+                    finish_reason="tool_calls",
+                ),
+                AssistantMessage(
+                    tool_calls=[ToolCall(id="observe-second", name="observe", arguments={})],
+                    finish_reason="tool_calls",
+                ),
+                AssistantMessage(
+                    content=[ContentBlock(text="observed twice")],
+                    finish_reason="stop",
+                ),
+            ]
+
+    transport = ConsecutiveObserveTransport()
+    adapter = AlfworldEnvAdapter(env=FakeBatchEnv(), episode_prefix="fake", seed=42)
+    counts = _attach_fake_raster_capture(adapter, tmp_path)
+    runner = AlfworldBenchmarkRunner(
+        config=AlfworldBenchmarkConfig(
+            alfworld_root=tmp_path / "alfworld",
+            alfworld_config=tmp_path / "base_config.yaml",
+            trace_root=tmp_path / "traces",
+            episodes=1,
+            max_tool_iterations=3,
+            provider_config=_provider_config(tmp_path),
+        ),
+        transport_factory=lambda: transport,
+        adapter_factory=lambda _config: adapter,
+    )
+
+    summary = runner.run()
+
+    attempts_path = (
+        tmp_path
+        / "traces"
+        / "valid"
+        / summary.run_id
+        / "episode-0001"
+        / "provider_attempts.jsonl"
+    )
+    attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
+    first = attempts[1]["outbound_observations"][-1]
+    second = attempts[2]["outbound_observations"][-1]
+    assert counts["capture"] == 2
+    assert first["observation_id"] != second["observation_id"]
+    assert first["observation_capture_event_sequence"] < second[
+        "observation_capture_event_sequence"
+    ]
+    assert first["content_sha256"] == second["content_sha256"]
+    assert first["observation_pixel_sha256"] == second["observation_pixel_sha256"]
 
 
 def test_same_response_observe_plus_mutation_does_not_reach_backend(

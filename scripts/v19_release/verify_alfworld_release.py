@@ -312,7 +312,17 @@ def _verify_episode(
     trace_path = _artifact_path(root, refs["trace_ref"])
     trace_rows = _read_jsonl(trace_path, label=f"episode {index} action trace", allow_empty=True)
     trace_model_actions = 0
+    step_row_keys = {"backend_action_count", "tool_args", "tool_name", "tool_success"}
     for row in trace_rows:
+        present_step_keys = step_row_keys.intersection(row)
+        if not present_step_keys:
+            continue
+        if present_step_keys != step_row_keys:
+            raise ValueError("action trace contains a malformed canonical step row")
+        if not isinstance(row["tool_name"], str) or not row["tool_name"]:
+            raise ValueError("action trace step tool name is invalid")
+        if not isinstance(row["tool_args"], dict) or not isinstance(row["tool_success"], bool):
+            raise ValueError("action trace step payload is invalid")
         count = row.get("backend_action_count")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError("action trace backend_action_count is invalid")
