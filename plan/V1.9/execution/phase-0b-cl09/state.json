@@ -1,0 +1,89 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0B-CL09",
+  "change_list": "CL-09-session-manager",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "76f786a",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl08": "VERIFYING",
+    "exception": "Implementation-first stacking; grouped review follows CL-10."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-08", "CL-09", "CL-10"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/application/session.py",
+    "src/homemaster/application/session_manager.py",
+    "src/homemaster/application/__init__.py",
+    "src/homemaster/agent/session.py",
+    "src/homemaster/agent/context.py",
+    "src/homemaster/agent/generic_runtime.py",
+    "src/homemaster/agent/turn.py",
+    "src/homemaster/task_state/store.py",
+    "src/homemaster/task_state/tools.py",
+    "tests/homemaster/application/test_session_manager.py",
+    "tests/homemaster/application/test_session_file_backend.py",
+    "tests/homemaster/application/test_task_state_wiring.py",
+    "tests/homemaster/application/test_context_assembler_scope.py",
+    "tests/homemaster/application/test_generation_fencing.py",
+    "tests/homemaster/test_context_assembler.py",
+    "plan/V1.9/execution/phase-0b-cl09/state.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/application tests/homemaster/test_task_state_store.py tests/homemaster/test_task_state_tools.py tests/homemaster/test_context_assembler.py tests/homemaster/test_agent_session.py tests/homemaster/test_generic_agent_runtime.py tests/homemaster/test_agent_turn_cli_adapter.py tests/homemaster/test_cli_run.py tests/homemaster/test_context_compact.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release",
+    "git diff --check"
+  ],
+  "rollback_point": "c2a5088",
+  "evidence": [
+    {
+      "kind": "session_ownership",
+      "status": "pass",
+      "details": "SessionManager owns AgentSession, AgentState, the exact TaskStateStore, per-session lock, generation, active task, cancellation source, compaction request, and revision. Ordinary opens create new sessions; active reuse requires explicit resume or continuous-taskset policy."
+    },
+    {
+      "kind": "generation_and_observation",
+      "status": "pass",
+      "details": "Cancellation advances generation before task cancellation; stale message, snapshot, domain projection, and final-result commits are rejected. Resume and environment rebind force observation authority to NEEDS_OBSERVE."
+    },
+    {
+      "kind": "snapshot_backend",
+      "status": "pass",
+      "details": "Immutable revision snapshots are fsynced before an atomic latest pointer, use expected-revision CAS plus thread/process file locks, skip orphan revision numbers without overwrite, recover only complete revisions, preserve canonical evidence refs, and exclude active resources."
+    },
+    {
+      "kind": "task_and_context",
+      "status": "pass",
+      "details": "TaskStatus transitions implement active/paused/terminal contracts with typed reject; every declared task_status is handled. Context is reprojected from the exact session store each iteration and compaction is an explicit session/generation value rather than shared assembler state."
+    },
+    {
+      "kind": "focused_tests",
+      "status": "pass",
+      "details": "Expanded CL-08/09 and associated runtime/session/context regression set: 88 passed."
+    },
+    {
+      "kind": "non_live_suite",
+      "status": "pass",
+      "details": "Full non-live suite: 1020 passed, 7 deselected, 1 existing Starlette/httpx deprecation warning."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "details": "Ruff, compileall, and git diff --check passed."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "Grouped CL-08/09/10 review is reserved for the single review after CL-10."
+    }
+  ],
+  "reviews": []
+}
