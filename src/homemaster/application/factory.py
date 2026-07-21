@@ -22,6 +22,7 @@ from homemaster.events.bus import EventBus
 from homemaster.observations import ObservationService
 from homemaster.prompts.loader import load_prompt
 from homemaster.providers.llm_client import LLMClient
+from homemaster.providers.sync_adapter import SyncProviderAdapter
 from homemaster.tools.catalog import ToolCatalog
 from homemaster.tools.pipeline import ToolExecutionPipeline
 
@@ -101,10 +102,12 @@ def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
         )
         return ResourceBinding.owned(
             f"provider:{run_id}",
-            LLMClient(
-                profile,
-                timeout_s=config.provider_client.timeout_s,
-                run_id=run_id,
+            SyncProviderAdapter(
+                LLMClient(
+                    profile,
+                    timeout_s=config.provider_client.timeout_s,
+                    run_id=run_id,
+                )
             ),
             lifetime=ResourceLifetime.RUN,
         )

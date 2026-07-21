@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall
@@ -68,75 +68,90 @@ class AnthropicTransport(ProviderTransport):
         )
 
     def iter_stream_deltas(self, stream: Any) -> Iterator[TransportDelta]:
-        tool_blocks: dict[int, dict[str, Any]] = {}
-        message_started = False
+        decoder = _AnthropicStreamDecoder()
         for event in stream:
-            event_type = _get(event, "type", "")
-            if event_type == "message_start":
-                message_started = True
-            elif event_type == "content_block_start":
-                index = int(_get(event, "index", 0) or 0)
-                block = _get(event, "content_block", None)
-                if _get(block, "type", "") == "tool_use":
-                    tool_blocks[index] = {
-                        "id": _get(block, "id", f"call_{index}"),
-                        "name": _get(block, "name", ""),
-                        "json": "",
-                        "input": _get(block, "input", None),
-                    }
-            elif event_type == "content_block_delta":
-                index = int(_get(event, "index", 0) or 0)
-                delta = _get(event, "delta", None)
-                delta_type = _get(delta, "type", "")
-                if delta_type == "text_delta":
-                    yield TransportDelta(type="transport.delta", text_delta=_get(delta, "text", ""))
-                elif delta_type == "thinking_delta":
-                    yield TransportDelta(
-                        type="transport.delta",
-                        reasoning_delta=_get(delta, "thinking", ""),
-                    )
-                elif delta_type == "input_json_delta" and index in tool_blocks:
-                    tool_blocks[index]["json"] += str(_get(delta, "partial_json", ""))
-            elif event_type == "content_block_stop":
-                index = int(_get(event, "index", 0) or 0)
-                tool = tool_blocks.pop(index, None)
-                if tool is not None:
-                    partial_json = str(tool.get("json", ""))
-                    if partial_json.strip():
-                        arguments = _loads_json_object(partial_json)
-                    else:
-                        arguments = tool.get("input")
-                    if not isinstance(arguments, dict):
-                        arguments = {}
-                    yield TransportDelta(
-                        type="transport.delta",
-                        tool_call_delta=ToolCall(
-                            id=str(tool.get("id") or f"call_{index}"),
-                            name=str(tool.get("name") or ""),
-                            arguments=arguments,
-                        ),
-                    )
-            elif event_type == "message_delta":
-                if not message_started:
-                    raise LLMProviderError(
-                        error_type="stream_protocol_error",
-                        message="provider sent message_delta before message_start",
-                        cause_code="message_delta_before_message_start",
-                    )
-                delta = _get(event, "delta", None)
-                stop_reason = _get(delta, "stop_reason", None)
-                usage = _usage_to_dict(_get(event, "usage", None))
-                if stop_reason or usage:
-                    yield TransportDelta(
-                        type="transport.delta",
-                        finish_reason=_normalize_anthropic_stop(stop_reason),
-                        usage=usage,
-                        provider_metadata={"raw_stop_reason": stop_reason},
-                    )
-            elif event_type == "message_stop":
-                usage = _usage_to_dict(_get(event, "usage", None))
-                if usage:
-                    yield TransportDelta(type="transport.delta", usage=usage)
+            yield from decoder.consume(event)
+
+    async def aiter_stream_deltas(self, stream: Any) -> AsyncIterator[TransportDelta]:
+        decoder = _AnthropicStreamDecoder()
+        async for event in stream:
+            for delta in decoder.consume(event):
+                yield delta
+
+
+class _AnthropicStreamDecoder:
+    def __init__(self) -> None:
+        self.tool_blocks: dict[int, dict[str, Any]] = {}
+        self.message_started = False
+
+    def consume(self, event: Any) -> Iterator[TransportDelta]:
+        event_type = _get(event, "type", "")
+        if event_type == "message_start":
+            self.message_started = True
+        elif event_type == "content_block_start":
+            index = int(_get(event, "index", 0) or 0)
+            block = _get(event, "content_block", None)
+            if _get(block, "type", "") == "tool_use":
+                self.tool_blocks[index] = {
+                    "id": _get(block, "id", f"call_{index}"),
+                    "name": _get(block, "name", ""),
+                    "json": "",
+                    "input": _get(block, "input", None),
+                }
+        elif event_type == "content_block_delta":
+            index = int(_get(event, "index", 0) or 0)
+            delta = _get(event, "delta", None)
+            delta_type = _get(delta, "type", "")
+            if delta_type == "text_delta":
+                yield TransportDelta(type="transport.delta", text_delta=_get(delta, "text", ""))
+            elif delta_type == "thinking_delta":
+                yield TransportDelta(
+                    type="transport.delta",
+                    reasoning_delta=_get(delta, "thinking", ""),
+                )
+            elif delta_type == "input_json_delta" and index in self.tool_blocks:
+                self.tool_blocks[index]["json"] += str(_get(delta, "partial_json", ""))
+        elif event_type == "content_block_stop":
+            index = int(_get(event, "index", 0) or 0)
+            tool = self.tool_blocks.pop(index, None)
+            if tool is not None:
+                partial_json = str(tool.get("json", ""))
+                arguments = (
+                    _loads_json_object(partial_json)
+                    if partial_json.strip()
+                    else tool.get("input")
+                )
+                if not isinstance(arguments, dict):
+                    arguments = {}
+                yield TransportDelta(
+                    type="transport.delta",
+                    tool_call_delta=ToolCall(
+                        id=str(tool.get("id") or f"call_{index}"),
+                        name=str(tool.get("name") or ""),
+                        arguments=arguments,
+                    ),
+                )
+        elif event_type == "message_delta":
+            if not self.message_started:
+                raise LLMProviderError(
+                    error_type="stream_protocol_error",
+                    message="provider sent message_delta before message_start",
+                    cause_code="message_delta_before_message_start",
+                )
+            delta = _get(event, "delta", None)
+            stop_reason = _get(delta, "stop_reason", None)
+            usage = _usage_to_dict(_get(event, "usage", None))
+            if stop_reason or usage:
+                yield TransportDelta(
+                    type="transport.delta",
+                    finish_reason=_normalize_anthropic_stop(stop_reason),
+                    usage=usage,
+                    provider_metadata={"raw_stop_reason": stop_reason},
+                )
+        elif event_type == "message_stop":
+            usage = _usage_to_dict(_get(event, "usage", None))
+            if usage:
+                yield TransportDelta(type="transport.delta", usage=usage)
 
 
 def _anthropic_messages(messages: list[Message]) -> list[dict[str, Any]]:

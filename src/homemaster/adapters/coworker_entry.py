@@ -22,6 +22,7 @@ from homemaster.config import HomeMasterConfig
 from homemaster.events.bus import EventBus
 from homemaster.observations import ObservationService
 from homemaster.providers.llm_client import LLMClient
+from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 
 class DeadlineAwareTransport:
@@ -52,6 +53,13 @@ class DeadlineAwareTransport:
         if callable(close):
             close()
 
+    async def aclose(self) -> None:
+        close = getattr(self.client, "aclose", None)
+        if callable(close):
+            await close()
+            return
+        self.close()
+
 
 def build_coworker_transport_factory(
     *,
@@ -62,7 +70,9 @@ def build_coworker_transport_factory(
 ) -> Callable[[str], DeadlineAwareTransport]:
     def build(run_id: str) -> DeadlineAwareTransport:
         return DeadlineAwareTransport(
-            LLMClient(provider_profile, timeout_s=timeout_s, run_id=run_id),
+            SyncProviderAdapter(
+                LLMClient(provider_profile, timeout_s=timeout_s, run_id=run_id)
+            ),
             budget,
             outcome,
         )

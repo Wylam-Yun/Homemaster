@@ -16,11 +16,26 @@ from homemaster.events.sinks import (
     NullEventSink,
     VerboseConsoleEventSink,
 )
+from homemaster.events.stream_events import (
+    AssistantTextDelta,
+    AssistantTurnComplete,
+    CompactProgressEvent,
+    ErrorEvent,
+    StatusEvent,
+    StreamEvent,
+    ToolExecutionCompleted,
+    ToolExecutionStarted,
+    project_stream_event,
+)
 
 __all__ = [
     "ConsoleEventSink",
+    "AssistantTextDelta",
+    "AssistantTurnComplete",
+    "CompactProgressEvent",
     "EventBus",
     "EventSink",
+    "ErrorEvent",
     "FanoutEventSink",
     "JsonlEventSink",
     "JsonlTraceSink",
@@ -28,7 +43,12 @@ __all__ = [
     "MessagesLogSink",
     "NullEventSink",
     "RuntimeEvent",
+    "StatusEvent",
+    "StreamEvent",
+    "ToolExecutionCompleted",
+    "ToolExecutionStarted",
     "VerboseConsoleEventSink",
     "sanitize_event_payload",
     "sanitize_for_trace",
+    "project_stream_event",
 ]

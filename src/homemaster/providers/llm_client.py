@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
+import inspect
 import json
 import time
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,8 +96,8 @@ class LLMClient:
         del max_image_strip_attempts
         self._transport = make_transport(provider)
         self._token_estimator = make_default_estimator(provider)
-        self._anthropic_client_factory = anthropic_client_factory or anthropic.Anthropic
-        self._openai_client_factory = openai.OpenAI
+        self._anthropic_client_factory = anthropic_client_factory or anthropic.AsyncAnthropic
+        self._openai_client_factory = openai.AsyncOpenAI
         if openai_client_factory is not None:
             self._openai_client_factory = openai_client_factory
 
@@ -103,7 +105,7 @@ class LLMClient:
     def token_estimator(self) -> TokenEstimator:
         return self._token_estimator
 
-    def complete(
+    async def complete(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -117,8 +119,9 @@ class LLMClient:
         max_output_tokens: int | None = None,
         temperature: float | None = None,
     ) -> AssistantMessage:
-        deltas = list(
-            self.stream(
+        deltas = [
+            delta
+            async for delta in self.stream(
                 messages,
                 tools,
                 system_prompt=system_prompt,
@@ -130,10 +133,10 @@ class LLMClient:
                 max_output_tokens=max_output_tokens,
                 temperature=temperature,
             )
-        )
+        ]
         return aggregate_deltas(deltas)
 
-    def stream(
+    async def stream(
         self,
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
@@ -149,7 +152,7 @@ class LLMClient:
         attempt_sink: ProviderAttemptSink | None = None,
         model_attempt_id: str | None = None,
         provider_key_index: int = 0,
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         sink = event_sink or self._event_sink
         effective_run_id = run_id or self._run_id
         if not self._provider.api_keys:
@@ -189,7 +192,8 @@ class LLMClient:
                     "stripped_images": False,
                 },
             )
-            yield from self._stream_once(api_key=api_key, kwargs=kwargs)
+            async for delta in self._stream_once(api_key=api_key, kwargs=kwargs):
+                yield delta
             _emit(
                 sink,
                 "transport.response_completed",
@@ -207,7 +211,7 @@ class LLMClient:
                 },
             )
             if attempt_sink is not None:
-                attempt_sink.record_attempt(
+                await attempt_sink.arecord_attempt(
                     _attempt_record(
                         messages=messages,
                         request_body=kwargs,
@@ -237,7 +241,7 @@ class LLMClient:
                 },
             )
             if attempt_sink is not None and request_sha256:
-                attempt_sink.record_attempt(
+                await attempt_sink.arecord_attempt(
                     _attempt_record(
                         messages=messages,
                         request_body=kwargs,
@@ -253,7 +257,7 @@ class LLMClient:
             raise
         finally:
             if attempt_sink is not None and request_sha256 and not recorded:
-                attempt_sink.record_attempt(
+                await attempt_sink.arecord_attempt(
                     _attempt_record(
                         messages=messages,
                         request_body=kwargs,
@@ -270,14 +274,14 @@ class LLMClient:
                     )
                 )
 
-    def complete_json(
+    async def complete_json(
         self,
         prompt: str,
         *,
         temperature: float = 0.0,
     ) -> LLMJsonResponse:
         started = time.perf_counter()
-        message = self.complete([UserMessage.from_text(prompt)], temperature=temperature)
+        message = await self.complete([UserMessage.from_text(prompt)], temperature=temperature)
         content = message.text
         if message.finish_reason == "length":
             raw_content = content or message.reasoning_content
@@ -304,15 +308,15 @@ class LLMClient:
             finish_reason=message.finish_reason,
         )
 
-    def close(self) -> None:
+    async def aclose(self) -> None:
         """SDK clients are scoped per call; no persistent handle to close."""
 
-    def _stream_once(
+    async def _stream_once(
         self,
         *,
         api_key: str,
         kwargs: dict[str, Any],
-    ) -> Iterator[TransportDelta]:
+    ) -> AsyncIterator[TransportDelta]:
         try:
             if self._provider.api_format == "anthropic":
                 client_kwargs: dict[str, Any] = {
@@ -321,19 +325,23 @@ class LLMClient:
                     "timeout": self._timeout_s,
                     "max_retries": 0,
                 }
-                if self._anthropic_client_factory is anthropic.Anthropic:
-                    client_kwargs["http_client"] = httpx.Client(
+                if self._anthropic_client_factory is anthropic.AsyncAnthropic:
+                    client_kwargs["http_client"] = httpx.AsyncClient(
                         timeout=self._timeout_s,
                         trust_env=False,
                     )
                 client = self._anthropic_client_factory(**client_kwargs)
                 try:
-                    with client.messages.stream(**kwargs) as stream:
-                        yield from self._transport.iter_stream_deltas(stream)
+                    stream_context = client.messages.stream(**kwargs)
+                    async with _async_context(stream_context) as stream:
+                        async for delta in self._transport.aiter_stream_deltas(
+                            _async_iter(stream)
+                        ):
+                            yield delta
                 finally:
-                    close = getattr(client, "close", None)
+                    close = getattr(client, "aclose", None) or getattr(client, "close", None)
                     if callable(close):
-                        close()
+                        await _maybe_await(close())
                 return
 
             client_kwargs = {
@@ -342,23 +350,28 @@ class LLMClient:
                 "timeout": self._timeout_s,
                 "max_retries": 0,
             }
-            if self._openai_client_factory is openai.OpenAI:
-                client_kwargs["http_client"] = httpx.Client(
+            if self._openai_client_factory is openai.AsyncOpenAI:
+                client_kwargs["http_client"] = httpx.AsyncClient(
                     timeout=self._timeout_s,
                     trust_env=False,
                 )
             client = self._openai_client_factory(**client_kwargs)
             try:
-                with client.chat.completions.create(
+                stream_context = client.chat.completions.create(
                     stream=True,
                     stream_options={"include_usage": True},
                     **kwargs,
-                ) as stream:
-                    yield from self._transport.iter_stream_deltas(stream)
+                )
+                stream_context = await _maybe_await(stream_context)
+                async with _async_context(stream_context) as stream:
+                    async for delta in self._transport.aiter_stream_deltas(
+                        _async_iter(stream)
+                    ):
+                        yield delta
             finally:
-                close = getattr(client, "close", None)
+                close = getattr(client, "aclose", None) or getattr(client, "close", None)
                 if callable(close):
-                    close()
+                    await _maybe_await(close())
         except Exception as exc:
             raise _map_sdk_error(exc) from exc
 
@@ -372,6 +385,31 @@ def make_transport(provider: ProviderProfileConfig) -> ProviderTransport:
         error_type="unsupported_provider",
         message=f"unsupported provider api_format: {provider.api_format}",
     )
+
+
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+async def _async_iter(value: Any) -> AsyncIterator[Any]:
+    if hasattr(value, "__aiter__"):
+        async for item in value:
+            yield item
+        return
+    for item in value:
+        yield item
+
+
+@contextlib.asynccontextmanager
+async def _async_context(value: Any) -> AsyncIterator[Any]:
+    if hasattr(value, "__aenter__"):
+        async with value as entered:
+            yield entered
+        return
+    with value as entered:
+        yield entered
 
 
 def _map_sdk_error(exc: Exception) -> LLMClientError:

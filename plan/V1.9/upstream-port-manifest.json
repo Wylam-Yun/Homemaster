@@ -113,6 +113,38 @@
         "tests/homemaster/tools/test_execution_pipeline.py::test_query_engine_synthesizes_tool_result_when_parallel_tool_raises"
       ],
       "sync_policy": "Recompare the locked _execute_tool_call and gather exception-isolation blocks before future upstream sync; preserve HomeMaster stage order and typed domain deltas."
+    },
+    {
+      "id": "cl16a-openharness-stream-event-dtos",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/engine/stream_events.py",
+        "symbol": "StreamEvent",
+        "sha256": "813917fc2f5e25bdb5d99a1c0d52d34221584c32cabbeebf426e5f580fe3852d"
+      },
+      "destination": "src/homemaster/events/stream_events.py",
+      "copied_test_ids": [
+        "tests/test_engine/test_query_engine.py::test_query_engine_plain_text_reply",
+        "tests/test_engine/test_query_engine.py::test_query_engine_executes_tool_calls"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "replace OpenHarness ConversationMessage and UsageSnapshot with HomeMaster AssistantMessage and usage dictionaries",
+        "retain frozen DTO shapes, StreamEvent union, async-for consumer branches, and tool error metadata"
+      ],
+      "homemaster_deltas": [
+        "map only allowlisted sanitized RuntimeEvent values into public stream DTOs",
+        "keep assistant reasoning and unknown private events out of the public stream",
+        "add an application-owned bounded EventBus lifecycle with cross-thread producer backpressure and deterministic close"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/events/test_public_projection.py::test_openharness_consumer_branches_map_from_allowlisted_runtime_events",
+        "tests/homemaster/events/test_public_projection.py::test_bounded_stream_backpressures_and_closes_without_subscribers",
+        "tests/homemaster/events/test_public_projection.py::test_public_stream_does_not_expose_private_events"
+      ],
+      "sync_policy": "Recompare the locked stream event DTO union and query-engine consumer branches before future upstream sync; preserve HomeMaster private/public projection and bounded lifecycle deltas."
     }
   ]
 }

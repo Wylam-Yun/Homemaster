@@ -88,7 +88,7 @@ def test_agent_and_dispatcher_have_no_private_run_context_or_runtime_tool_spec()
     )
 
 
-def test_application_factory_is_the_only_production_pipeline_constructor() -> None:
+def test_application_factory_is_the_only_production_execution_constructor() -> None:
     constructors = []
     for path in (REPO_ROOT / "src/homemaster").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))

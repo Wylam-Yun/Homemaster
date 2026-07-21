@@ -94,7 +94,8 @@ def _anthropic_factory(
     return factory
 
 
-def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> None:
+@pytest.mark.asyncio
+async def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
@@ -130,7 +131,7 @@ def test_sdk_json_client_sends_anthropic_stream_request_and_parses_json() -> Non
         anthropic_client_factory=_anthropic_factory(events, requests, constructions),
     )
 
-    response = client.complete_json("prompt body", temperature=0.0)
+    response = await client.complete_json("prompt body", temperature=0.0)
 
     assert response.json_payload["task_type"] == "check_presence"
     assert response.finish_reason == "stop"
@@ -158,7 +159,8 @@ def test_extract_json_payload_accepts_plain_json() -> None:
     assert payload == {"task_type": "check_presence", "target": "药盒"}
 
 
-def test_successful_stream_emits_external_response_completed_event() -> None:
+@pytest.mark.asyncio
+async def test_successful_stream_emits_external_response_completed_event() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
@@ -182,7 +184,7 @@ def test_successful_stream_emits_external_response_completed_event() -> None:
         run_id="run-a",
         anthropic_client_factory=_anthropic_factory(events, requests, constructions),
     )
-    client.complete([], session_id="session-a", turn_index=0, iteration=1)
+    await client.complete([], session_id="session-a", turn_index=0, iteration=1)
 
     assert [event.type for event in emitted] == [
         "transport.request_started",
@@ -192,7 +194,8 @@ def test_successful_stream_emits_external_response_completed_event() -> None:
     assert emitted[-1].payload["status"] == "ok"
 
 
-def test_llm_client_rejects_anthropic_thinking_without_text_for_json_parsing() -> None:
+@pytest.mark.asyncio
+async def test_llm_client_rejects_anthropic_thinking_without_text_for_json_parsing() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
@@ -213,14 +216,15 @@ def test_llm_client_rejects_anthropic_thinking_without_text_for_json_parsing() -
     )
 
     with pytest.raises(LLMProviderResponseError) as exc_info:
-        client.complete_json("prompt body", temperature=0.0)
+        await client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_missing_text" in exc_info.value.message
     assert "query_text" in (exc_info.value.raw_content or "")
 
 
-def test_llm_client_treats_provider_token_stop_as_truncation() -> None:
+@pytest.mark.asyncio
+async def test_llm_client_treats_provider_token_stop_as_truncation() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
@@ -238,14 +242,15 @@ def test_llm_client_treats_provider_token_stop_as_truncation() -> None:
     )
 
     with pytest.raises(LLMProviderResponseError) as exc_info:
-        client.complete_json("prompt body", temperature=0.0)
+        await client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_truncated" in exc_info.value.message
     assert exc_info.value.raw_content == '{"task_type":"check_presence"'
 
 
-def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation() -> None:
+@pytest.mark.asyncio
+async def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation() -> None:
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     events = [
@@ -266,7 +271,7 @@ def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation() -> 
     )
 
     with pytest.raises(LLMProviderResponseError) as exc_info:
-        client.complete_json("prompt body", temperature=0.0)
+        await client.complete_json("prompt body", temperature=0.0)
 
     assert exc_info.value.error_type == "provider_response_error"
     assert "response_truncated" in exc_info.value.message
@@ -290,7 +295,10 @@ def test_sanitize_for_log_redacts_secret_fields() -> None:
     assert sanitized["safe"] == "visible"
 
 
-def test_llm_client_exposes_multimodal_corruption_without_stripping_images(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_llm_client_exposes_multimodal_corruption_without_stripping_images(
+    tmp_path,
+) -> None:
     image_path = tmp_path / "frame.png"
     image_path.write_bytes(b"fake-png")
     requests: list[dict[str, Any]] = []
@@ -318,7 +326,7 @@ def test_llm_client_exposes_multimodal_corruption_without_stripping_images(tmp_p
     )
 
     with pytest.raises(LLMProviderError) as exc_info:
-        client.complete(
+        await client.complete(
             [
                 UserMessage(
                     content=[
@@ -335,7 +343,10 @@ def test_llm_client_exposes_multimodal_corruption_without_stripping_images(tmp_p
     assert requests[0]["messages"][0]["content"][1]["type"] == "image"
 
 
-def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_path) -> None:
+@pytest.mark.asyncio
+async def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(
+    tmp_path,
+) -> None:
     image_path = tmp_path / "frame.png"
     image_path.write_bytes(b"exact-image-bytes")
     image_block = ContentBlock.from_image_path(image_path).model_copy(
@@ -366,8 +377,9 @@ def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_p
         ),
     )
 
-    list(
-        client.stream(
+    deltas = [
+        delta
+        async for delta in client.stream(
             [
                 UserMessage(
                     content=[
@@ -379,8 +391,9 @@ def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_p
             attempt_sink=sink,
             model_attempt_id="run-1:attempt-0001",
         )
-    )
+    ]
 
+    assert deltas
     assert len(sink.records) == 1
     record = sink.records[0]
     assert record.model_attempt_id == "run-1:attempt-0001"
@@ -407,7 +420,8 @@ def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash(tmp_p
     assert "frame-bound-exact" not in json.dumps(requests[0], ensure_ascii=False)
 
 
-def test_llm_client_selects_one_requested_key_without_internal_rotation() -> None:
+@pytest.mark.asyncio
+async def test_llm_client_selects_one_requested_key_without_internal_rotation() -> None:
     class RateLimitError(RuntimeError):
         pass
 
@@ -424,12 +438,13 @@ def test_llm_client_selects_one_requested_key_without_internal_rotation() -> Non
     )
 
     with pytest.raises(LLMRateLimitError):
-        list(
-            client.stream(
+        _ = [
+            delta
+            async for delta in client.stream(
                 [UserMessage.from_text("hello")],
                 provider_key_index=1,
             )
-        )
+        ]
 
     assert len(constructions) == 1
     assert constructions[0]["api_key"] == "key-two"

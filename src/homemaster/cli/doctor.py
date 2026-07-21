@@ -21,6 +21,7 @@ from homemaster.config import (
 )
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
+from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
 
@@ -209,7 +210,7 @@ def _live_mimo_smoke() -> DoctorCheck:
         provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
             DEFAULT_PROVIDER_NAME, kind="chat"
         )
-        client = LLMClient(provider)
+        client = SyncProviderAdapter(LLMClient(provider))
         try:
             response = client.complete_json(
                 '只输出 JSON object: {"ok": true}',

@@ -1,0 +1,73 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0D1-CL16a",
+  "change_list": "CL-16a-provider-event-async",
+  "status": "GATE_PASSED",
+  "source_commits": {
+    "homemaster_parent": "4e6d72ac6550231d48445c15f05b6503ff96957c",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl15": "GATE_PASSED",
+    "external_live_gate": "No new live dependency. Final Xorg, THOR, ALFWorld, Coworker and real-provider gates remain concentrated on hkust4 after implementation completion."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-14", "CL-15", "CL-16a"],
+    "status": "pending_unique_group_review",
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "LLMClient complete, complete_json and stream use AsyncAnthropic/AsyncOpenAI and native async iteration",
+    "Anthropic and OpenAI protocol decoders share stateful synchronous characterization and incremental async paths",
+    "provider attempt persistence has an awaited interface; JSONL append is locked, flushed and fsynced",
+    "SyncProviderAdapter is the explicit CL-16a-only bridge into the synchronous AgentRuntime worker and must be removed in CL-16b",
+    "application-owned EventBus has bounded per-consumer queues, cross-thread producer backpressure, explicit start/aclose and private/public async streams",
+    "OpenHarness stream DTO and consumer branches are adapted through a sanitized RuntimeEvent allowlist without replacing authoritative domain ledgers",
+    "Coworker deadline transport exposes async cleanup so application resource shutdown never nests asyncio.run"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/providers/test_async_provider.py tests/homemaster/events/test_public_projection.py tests/homemaster/test_llm_client.py tests/homemaster/test_anthropic_transport.py tests/homemaster/test_provider_transports.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker and not stress'",
+    "uv run python scripts/v19_release/validate_upstream_port_manifest.py plan/V1.9/upstream-port-manifest.json",
+    "uv run python scripts/guard_no_legacy_terms.py",
+    "uv run ruff check src tests scripts/v19_release scripts/coworker_demo",
+    "uv run python -m compileall -q src tests scripts/v19_release scripts/coworker_demo",
+    "git diff --check"
+  ],
+  "rollback_point": "4e6d72ac6550231d48445c15f05b6503ff96957c",
+  "evidence": [
+    {
+      "kind": "native_async_provider",
+      "status": "pass",
+      "details": "Provider SDK clients, stream context, event iteration, completion and attempt persistence are awaited. A first text delta is observable before stream completion, and a blocked provider session does not block a second session."
+    },
+    {
+      "kind": "frozen_attempt_parity",
+      "status": "pass",
+      "details": "Existing request canonical bytes/hash, exact image binding, requested-key selection, error classification and one-call attempt tests pass after async migration; response_completed precedes awaited attempt persistence."
+    },
+    {
+      "kind": "bounded_event_lifecycle",
+      "status": "pass",
+      "details": "Capacity-one stream proves producer backpressure, ordered delivery, explicit close and zero remaining subscribers without EventBus-owned producer/consumer tasks."
+    },
+    {
+      "kind": "public_private_projection",
+      "status": "pass",
+      "details": "OpenHarness-style assistant/tool/final/error/status consumer branches map from sanitized allowlisted RuntimeEvents; assistant reasoning and unknown private events are not projected. Existing pipeline order still persists the authoritative ledger before public publication."
+    },
+    {
+      "kind": "upstream_port",
+      "status": "pass",
+      "details": "The locked stream_events.py hash is 813917fc2f5e25bdb5d99a1c0d52d34221584c32cabbeebf426e5f580fe3852d; manifest validator reports PASS with four ports."
+    },
+    {
+      "kind": "full_nonlive",
+      "status": "pass",
+      "details": "1091 passed, 7 deselected, with one existing Starlette/httpx warning. Ruff, compileall, cleanup guard, manifest validation and diff check pass."
+    }
+  ],
+  "reviews": []
+}

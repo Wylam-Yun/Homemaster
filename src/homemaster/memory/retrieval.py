@@ -31,6 +31,7 @@ from homemaster.events.trace import append_jsonl_event, write_json
 from homemaster.prompts.loader import render
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
+from homemaster.providers.sync_adapter import SyncProviderAdapter
 
 from .index import (
     JsonEmbeddingCache,
@@ -188,10 +189,12 @@ class MimoMemoryQueryProvider:
         self,
         prompt: str,
     ) -> tuple[MemoryRetrievalQuery, str, dict[str, Any]]:
-        llm_client = LLMClient(
-            self._provider,
-            event_sink=self._event_sink,
-            run_id=self._run_id,
+        llm_client = SyncProviderAdapter(
+            LLMClient(
+                self._provider,
+                event_sink=self._event_sink,
+                run_id=self._run_id,
+            )
         )
         try:
             response = llm_client.complete_json(

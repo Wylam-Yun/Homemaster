@@ -416,6 +416,7 @@ class ApplicationRuntime:
     async def run(self, request: RunRequest) -> RunResult:
         if not isinstance(request, RunRequest):
             raise TypeError("request must be RunRequest")
+        await self.event_bus.start()
         profile = self._profile(request.profile)
         backend = request.borrowed_environment
         environment_ref = _backend_id(backend, request.profile)
@@ -597,8 +598,11 @@ class ApplicationRuntime:
         try:
             await self.resource_scope.aclose()
         finally:
-            for runtime in self.session_manager.sessions:
-                runtime.application_control = None
+            try:
+                await self.event_bus.aclose()
+            finally:
+                for runtime in self.session_manager.sessions:
+                    runtime.application_control = None
 
     def _profile(self, name: str) -> ToolProfile:
         try:

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
+import fcntl
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
@@ -62,12 +65,13 @@ class AttemptCommitState:
 
 
 class ProviderAttemptSink(Protocol):
-    def record_attempt(self, record: ProviderAttemptRecord) -> None: ...
+    async def arecord_attempt(self, record: ProviderAttemptRecord) -> None: ...
 
 
 class ListProviderAttemptSink:
     def __init__(self) -> None:
         self._records: list[ProviderAttemptRecord] = []
+        self._lock = asyncio.Lock()
 
     @property
     def records(self) -> tuple[ProviderAttemptRecord, ...]:
@@ -78,21 +82,39 @@ class ListProviderAttemptSink:
         return self._records[-1] if self._records else None
 
     def record_attempt(self, record: ProviderAttemptRecord) -> None:
+        """Compatibility hook for synchronous fake transports during CL-16a."""
         self._records.append(record)
+
+    async def arecord_attempt(self, record: ProviderAttemptRecord) -> None:
+        async with self._lock:
+            self.record_attempt(record)
 
 
 class JsonlProviderAttemptSink:
     def __init__(self, path: Path) -> None:
         self._path = path
         self._last_record: ProviderAttemptRecord | None = None
+        self._lock = asyncio.Lock()
 
     @property
     def last_record(self) -> ProviderAttemptRecord | None:
         return self._last_record
 
     def record_attempt(self, record: ProviderAttemptRecord) -> None:
+        """Compatibility hook for synchronous fake transports during CL-16a."""
+        self._write_record(record)
+
+    async def arecord_attempt(self, record: ProviderAttemptRecord) -> None:
+        async with self._lock:
+            await asyncio.to_thread(self._write_record, record)
+
+    def _write_record(self, record: ProviderAttemptRecord) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._path.open("a", encoding="utf-8") as writer:
+            fcntl.flock(writer.fileno(), fcntl.LOCK_EX)
             writer.write(json.dumps(asdict(record), ensure_ascii=False, sort_keys=True))
             writer.write("\n")
+            writer.flush()
+            os.fsync(writer.fileno())
+            fcntl.flock(writer.fileno(), fcntl.LOCK_UN)
         self._last_record = record

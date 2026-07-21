@@ -7,7 +7,7 @@ request/response shapes. They do not own SDK clients and do not perform HTTP.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, Message
@@ -37,3 +37,7 @@ class ProviderTransport(ABC):
     @abstractmethod
     def iter_stream_deltas(self, stream: Any) -> Iterator[TransportDelta]:
         """Convert provider SDK stream events into normalized deltas."""
+
+    @abstractmethod
+    async def aiter_stream_deltas(self, stream: Any) -> AsyncIterator[TransportDelta]:
+        """Incrementally convert an async provider SDK stream."""

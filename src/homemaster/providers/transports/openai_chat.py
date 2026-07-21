@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall
@@ -95,43 +95,60 @@ class OpenAIChatTransport(ProviderTransport):
         )
 
     def iter_stream_deltas(self, stream: Any) -> Iterator[TransportDelta]:
-        tool_parts: dict[int, dict[str, str]] = {}
+        decoder = _OpenAIStreamDecoder()
         for chunk in stream:
-            usage = _usage_to_dict(_get(chunk, "usage", None))
-            if usage:
-                yield TransportDelta(type="transport.delta", usage=usage)
-            choices = _get(chunk, "choices", []) or []
-            if not choices:
-                continue
-            choice = choices[0]
-            delta = _get(choice, "delta", {})
-            content = _get(delta, "content", None)
-            if content:
-                yield TransportDelta(type="transport.delta", text_delta=content)
-            reasoning = _get(delta, "reasoning_content", None)
-            if reasoning:
-                yield TransportDelta(type="transport.delta", reasoning_delta=reasoning)
-            for item in _get(delta, "tool_calls", []) or []:
-                index = int(_get(item, "index", 0) or 0)
-                function = _get(item, "function", {})
-                part = tool_parts.setdefault(index, {"id": "", "name": "", "arguments": ""})
-                part["id"] = str(_get(item, "id", part["id"]) or part["id"])
-                part["name"] += str(_get(function, "name", "") or "")
-                part["arguments"] += str(_get(function, "arguments", "") or "")
-            finish_reason = _get(choice, "finish_reason", None)
-            if finish_reason:
-                for index in sorted(tool_parts):
-                    part = tool_parts[index]
-                    yield TransportDelta(
-                        type="transport.delta",
-                        tool_call_delta=ToolCall(
-                            id=part["id"] or f"call_{index}",
-                            name=part["name"],
-                            arguments=_loads_json_object(part["arguments"]),
-                        ),
-                    )
-                tool_parts.clear()
-                yield TransportDelta(type="transport.delta", finish_reason=finish_reason)
+            yield from decoder.consume(chunk)
+
+    async def aiter_stream_deltas(self, stream: Any) -> AsyncIterator[TransportDelta]:
+        decoder = _OpenAIStreamDecoder()
+        async for chunk in stream:
+            for delta in decoder.consume(chunk):
+                yield delta
+
+
+class _OpenAIStreamDecoder:
+    def __init__(self) -> None:
+        self.tool_parts: dict[int, dict[str, str]] = {}
+
+    def consume(self, chunk: Any) -> Iterator[TransportDelta]:
+        usage = _usage_to_dict(_get(chunk, "usage", None))
+        if usage:
+            yield TransportDelta(type="transport.delta", usage=usage)
+        choices = _get(chunk, "choices", []) or []
+        if not choices:
+            return
+        choice = choices[0]
+        delta = _get(choice, "delta", {})
+        content = _get(delta, "content", None)
+        if content:
+            yield TransportDelta(type="transport.delta", text_delta=content)
+        reasoning = _get(delta, "reasoning_content", None)
+        if reasoning:
+            yield TransportDelta(type="transport.delta", reasoning_delta=reasoning)
+        for item in _get(delta, "tool_calls", []) or []:
+            index = int(_get(item, "index", 0) or 0)
+            function = _get(item, "function", {})
+            part = self.tool_parts.setdefault(
+                index,
+                {"id": "", "name": "", "arguments": ""},
+            )
+            part["id"] = str(_get(item, "id", part["id"]) or part["id"])
+            part["name"] += str(_get(function, "name", "") or "")
+            part["arguments"] += str(_get(function, "arguments", "") or "")
+        finish_reason = _get(choice, "finish_reason", None)
+        if finish_reason:
+            for index in sorted(self.tool_parts):
+                part = self.tool_parts[index]
+                yield TransportDelta(
+                    type="transport.delta",
+                    tool_call_delta=ToolCall(
+                        id=part["id"] or f"call_{index}",
+                        name=part["name"],
+                        arguments=_loads_json_object(part["arguments"]),
+                    ),
+                )
+            self.tool_parts.clear()
+            yield TransportDelta(type="transport.delta", finish_reason=finish_reason)
 
 
 def _text_content(blocks: list[ContentBlock]) -> str:
