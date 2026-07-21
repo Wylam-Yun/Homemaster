@@ -1,0 +1,66 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0C-CL12",
+  "change_list": "CL-12-interactive-compact",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "440cf5b",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl11": "VERIFYING",
+    "exception": "CL-11/12 share one atomic Home entry migration commit; the single grouped review follows CL-13."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-11", "CL-12", "CL-13"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/cli/interactive_shell.py",
+    "src/homemaster/cli/composition.py",
+    "src/homemaster/cli/app.py",
+    "src/homemaster/agent/turn.py",
+    "src/homemaster/application/session.py",
+    "tests/homemaster/test_cli_interactive.py",
+    "tests/homemaster/integration/test_entry_parity.py"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/test_cli_interactive.py tests/homemaster/integration/test_entry_parity.py",
+    "uv run pytest -q tests/homemaster/test_context_compact.py tests/homemaster/test_agent_session.py tests/homemaster/application",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release",
+    "git diff --check"
+  ],
+  "rollback_point": "ace4dff",
+  "evidence": [
+    {
+      "kind": "application_lifetime",
+      "status": "pass",
+      "details": "Interactive uses one Home ApplicationRuntime and one asyncio.Runner across all turns. New sessions reset only session/backend identity; no application-level Catalog, profile, observation service, or event bus is rebuilt per turn."
+    },
+    {
+      "kind": "typed_controls",
+      "status": "pass",
+      "details": "Turns use run(), manual compaction uses compact(), status uses status(), and interruption routes to cancel(). Shutdown closes application-owned event/provider resources and never closes the borrowed Home backend."
+    },
+    {
+      "kind": "durable_compaction_resume",
+      "status": "pass",
+      "details": "The real composition regression persists run revision 1, compact revision 2, reconstructs the process/application, resumes the same session, commits revision 3, and preserves user/assistant history pairing."
+    },
+    {
+      "kind": "tests",
+      "status": "pass",
+      "details": "Focused CLI/interactive/entry set: 23 passed. Full non-live suite: 1044 passed, 7 deselected, 1 existing warning. Static gates pass."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The one allowed independent CL-11/12/13 grouped review is reserved until CL-13."
+    }
+  ],
+  "reviews": []
+}

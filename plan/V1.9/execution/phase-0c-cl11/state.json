@@ -1,0 +1,75 @@
+{
+  "schema_version": "homemaster-v1.9-phase-state-v1",
+  "phase": "0C-CL11",
+  "change_list": "CL-11-home-one-shot-cli",
+  "status": "VERIFYING",
+  "source_commits": {
+    "homemaster": "440cf5b",
+    "openharness": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "dependency_status": {
+    "cl10": "VERIFYING",
+    "exception": "Implementation and non-live gates pass; the single CL-11/12/13 grouped review follows CL-13."
+  },
+  "review_policy": {
+    "grouped_review_after_phases": 3,
+    "review_rounds": 1,
+    "group": ["CL-11", "CL-12", "CL-13"],
+    "final_release_review_rounds_max": 2
+  },
+  "allowed_deltas": [
+    "src/homemaster/cli/app.py",
+    "src/homemaster/cli/composition.py",
+    "src/homemaster/cli/dry_run.py",
+    "src/homemaster/cli/renderers.py",
+    "src/homemaster/cli/run_command.py",
+    "src/homemaster/agent/turn.py",
+    "tests/homemaster/test_cli_run.py",
+    "tests/homemaster/test_cli_help.py",
+    "tests/homemaster/test_agent_turn_cli_adapter.py",
+    "tests/homemaster/integration/test_entry_parity.py",
+    "tests/homemaster/fixtures/v19/allowed_deltas.json"
+  ],
+  "test_commands": [
+    "uv run pytest -q tests/homemaster/test_cli_run.py tests/homemaster/test_cli_help.py tests/homemaster/test_agent_turn_cli_adapter.py tests/homemaster/integration/test_entry_parity.py",
+    "uv run pytest -q -m 'not live_api and not live_alfworld and not live_mcp and not live_coworker'",
+    "uv run ruff check src tests scripts/v19_release",
+    "uv run python -m compileall -q src tests scripts/v19_release",
+    "uv run python scripts/guard_no_legacy_terms.py",
+    "git diff --check"
+  ],
+  "rollback_point": "ace4dff",
+  "evidence": [
+    {
+      "kind": "entry_contract",
+      "status": "pass",
+      "details": "Top-level default interactive, -p/--print, dry-run, resume/continue, and text/json/stream-json are implemented over typed RunRequest/RunResult envelopes; the historical run --utterance labels remain a forwarding renderer."
+    },
+    {
+      "kind": "dry_run",
+      "status": "pass",
+      "details": "Dry-run resolves the same local config and Home profile without creating ApplicationRuntime, provider, MCP client, or backend connection. Unprobed discovery is explicitly unknown_until_connect and probe intent is explicit."
+    },
+    {
+      "kind": "thin_wrapper",
+      "status": "pass",
+      "details": "agent/turn.py contains only compatibility request/control forwarding. AST tests reject provider, registry, dispatcher, AgentRuntime, and application composition imports or constructors."
+    },
+    {
+      "kind": "renderer_and_exit",
+      "status": "pass",
+      "details": "Text, JSON, and line-delimited stream JSON share one RunResult; failed and cancelled statuses map to non-zero process exits."
+    },
+    {
+      "kind": "tests",
+      "status": "pass",
+      "details": "CLI/turn/interactive/entry focused set: 23 passed. Full non-live suite: 1044 passed, 7 deselected, 1 existing warning. Ruff, compileall, diff check, and legacy-term guard pass."
+    },
+    {
+      "kind": "review",
+      "status": "pending",
+      "details": "The one allowed independent CL-11/12/13 grouped review is reserved until CL-13 implementation and candidate gates are complete."
+    }
+  ],
+  "reviews": []
+}
