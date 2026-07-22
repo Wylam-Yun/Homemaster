@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
@@ -94,6 +95,138 @@ def test_top_level_print_supports_text_json_and_stream_json(monkeypatch, tmp_pat
     assert text.stdout.strip() == "answer"
     assert json.loads(structured.stdout)["type"] == "result"
     assert json.loads(streamed.stdout)["session_id"] == "session-one"
+
+
+def test_live_print_delegates_stdout_to_execution_without_post_run_echo(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured = {}
+
+    def execute(**kwargs):
+        captured.update(kwargs)
+        print("live-answer", end="")
+        return SimpleNamespace(
+            result=_execution(tmp_path, reply="live-answer").result,
+            live_rendered=True,
+        )
+
+    monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
+
+    result = CliRunner().invoke(app, ["-p", "question", "--output-format", "text"])
+
+    assert result.exit_code == 0
+    assert captured.get("output_format") is not None
+    assert str(captured["output_format"]) == "text"
+    assert result.stdout == "live-answer"
+
+
+def test_stream_json_fatal_error_emits_one_safe_error_and_no_result(monkeypatch) -> None:
+    def fail(**_kwargs):
+        raise RuntimeError("api_key=top-secret")
+
+    monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", fail)
+
+    result = CliRunner().invoke(
+        app,
+        ["-p", "question", "--output-format", "stream-json"],
+    )
+
+    assert result.exit_code == 1
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert rows == [
+        {
+            "type": "error",
+            "message": "api_key=[REDACTED]",
+            "recoverable": False,
+        }
+    ]
+    assert "top-secret" not in result.stdout
+    assert all(row["type"] != "result" for row in rows)
+
+
+def test_stream_json_composition_error_redacts_bare_configured_literal(monkeypatch) -> None:
+    secret = "bare-configured-literal"
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.load_config",
+        lambda **_kwargs: SimpleNamespace(providers=object()),
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.configured_sensitive_values",
+        lambda _config: (secret,),
+    )
+
+    def fail_composition(**_kwargs):
+        raise RuntimeError(f"composition exposed {secret}")
+
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.create_home_application",
+        fail_composition,
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["-p", "question", "--output-format", "stream-json"],
+    )
+
+    assert result.exit_code == 1
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert rows == [
+        {
+            "type": "error",
+            "message": "composition exposed [REDACTED]",
+            "recoverable": False,
+        }
+    ]
+    assert secret not in result.stdout
+
+
+def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_path: Path) -> None:
+    secret = "close-configured-literal"
+
+    class Application:
+        session_manager = SimpleNamespace(list_session_ids=lambda: [])
+
+        async def run(self, _request):
+            return _execution(tmp_path, reply="done").result
+
+        async def aclose(self):
+            raise RuntimeError(f"close exposed {secret}")
+
+    bundle = SimpleNamespace(
+        application=Application(),
+        trace_path=tmp_path / "trace.jsonl",
+        run_dir=tmp_path,
+        skill_registry=object(),
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.load_config",
+        lambda **_kwargs: SimpleNamespace(providers=object()),
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.configured_sensitive_values",
+        lambda _config: (secret,),
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.create_home_application",
+        lambda **_kwargs: bundle,
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["-p", "question", "--output-format", "stream-json"],
+    )
+
+    assert result.exit_code == 1
+    rows = [json.loads(line) for line in result.stdout.splitlines()]
+    assert rows == [
+        {
+            "type": "error",
+            "message": "close exposed [REDACTED]",
+            "recoverable": False,
+        }
+    ]
+    assert secret not in result.stdout
 
 
 def test_top_level_print_forwards_resume_and_continue(monkeypatch, tmp_path: Path) -> None:

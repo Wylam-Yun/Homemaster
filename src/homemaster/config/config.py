@@ -19,7 +19,7 @@ from pydantic import (
 )
 
 from homemaster.config.observability import ObservabilityConfig
-from homemaster.mcp.types import McpSettingsConfig
+from homemaster.mcp.types import McpSettingsConfig, mcp_secret_values
 from homemaster.permissions.config import PermissionSettingsConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -521,6 +521,14 @@ _SECRET_KEY_PARTS = (
     "credential",
     "private_key",
 )
+
+
+def configured_sensitive_values(config: HomeMasterConfig) -> tuple[str, ...]:
+    """Return configured secret values for public-output sanitizers without logging them."""
+
+    values = [key for provider in config.providers.items for key in provider.api_keys if key]
+    values.extend(mcp_secret_values(config.mcp.servers))
+    return tuple(sorted(set(values), key=len, reverse=True))
 
 
 def redact_config_value(value: Any, *, key: object | None = None) -> Any:

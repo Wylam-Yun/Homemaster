@@ -87,6 +87,10 @@
 
 ## Provider 外部门纪律
 
+- 用真实顶层 consumer 的 pre-completion first-byte 黑盒门证明实时输出：让 fake
+  provider 在首 delta 后阻塞，并断言 CLI 已输出且仍未退出；provider-level
+  streaming 不能作为 UI streaming 的替代证据。
+
 - Provider 接口从同步迁移为异步后，逐条审计所有 live gate 并直接 `await` 真实入口；验收必须拒绝
   coroutine/awaitable 逃逸和 `never awaited` warning。只看到测试启动或 fixture 成功不能证明请求已发出，
   必须同时断言真实响应终态和命令返回码。

@@ -6,6 +6,41 @@
   },
   "ports": [
     {
+      "upstream_test_gap": {
+        "reason": "The locked OpenHarness commit tests output mode construction but has no direct OutputRenderer Live-region, spinner cleanup, tool FIFO, or final Markdown state-transition tests.",
+        "search_evidence": [
+          "git grep -n 'OutputRenderer' 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 -- tests finds only tests/test_ui/test_modes.py construction coverage",
+          "git grep -n -E 'Live|model working|render_assistant' 9b2efd795c6aa09f88b0c257d269a9e518da6ae7 -- tests/test_ui returns no renderer behavior assertions"
+        ]
+      },
+      "characterization_test_ids": [
+        "tests/homemaster/test_event_sinks.py::test_rich_renderer_uses_one_live_region_then_replaces_it_with_final_markdown",
+        "tests/homemaster/test_event_sinks.py::test_rich_renderer_pairs_same_name_tools_fifo_and_cleans_every_active_state"
+      ],
+      "destination": "src/homemaster/cli/rich_renderer.py",
+      "mechanical_deltas": [
+        "replace OpenHarness imports with HomeMaster's existing seven StreamEvent dataclasses",
+        "inject Console, Live, and status factories for deterministic tests and stderr ownership",
+        "retain one mutable assistant Live region and final Markdown replacement"
+      ],
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "symbol": "OutputRenderer",
+        "sha256": "60d0d106d235f242fce44d75b752b7b1acb98f04af6e04e7eb0c0326d7ebcec4",
+        "path": "src/openharness/ui/output.py"
+      },
+      "homemaster_deltas": [
+        "use per-tool-name FIFO pairing because the locked public DTO has no tool_call_id",
+        "render error, status, and honest compaction phases through the public projection",
+        "add explicit idempotent close and ASCII fallback behavior"
+      ],
+      "copied_test_ids": [],
+      "mode": "A",
+      "sync_policy": "Manually compare locked OutputRenderer state and Live behavior before adapting future upstream changes; preserve HomeMaster redaction and terminal ownership invariants.",
+      "id": "cl22-openharness-rich-output-renderer"
+    },
+    {
       "id": "cl02-openharness-base-tool-schema",
       "mode": "A",
       "source": {

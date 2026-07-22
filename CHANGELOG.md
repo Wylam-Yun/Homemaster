@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Realtime CLI streaming
+
+- Changed the generic agent runtime to publish statefully sanitized text deltas before
+  provider completion while retaining the same authoritative aggregate and persistence path.
+- Added the adapted OpenHarness Rich renderer plus live text and JSON-lines sinks over the
+  existing exact seven-event public contract.
+- Kept buffered JSON as one document; `stream-json` now flushes ordered event objects and one
+  final HomeMaster result. Live text/Rich entrypoints no longer echo the final answer twice.
+- Preserved Gateway terminal-final ownership and blocked retry/compaction after a committed
+  partial delta. This fixes a user-visible regression where provider streaming tests passed
+  although every CLI consumer waited for the complete response.
+
 ### Verification
 
 - V1.9 final-review remediation concentrated verification passed: full non-live `1295 passed, 11 deselected`,

@@ -5,11 +5,13 @@ from __future__ import annotations
 import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
-from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
+
+if TYPE_CHECKING:
+    from homemaster.events.bus import EventBus
 
 _PRIVATE_KEY_PARTS = (
     "api_key",
@@ -45,11 +47,25 @@ _SAFE_METADATA_KEYS = frozenset(
 )
 _FREE_TEXT_CREDENTIAL_RE = re.compile(
     r"(?i)\b(api[_-]?key|auth(?:orization)?|credential|password|secret|token)"
-    r"\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+    r"\s*[:=]\s*(?:(?:bearer|basic)\s+[^\s,;]+|\"[^\"]*\"|'[^']*'|[^\s,;]+)"
 )
+_FREE_TEXT_AUTH_VALUE_RE = re.compile(r"(?i)\b(bearer|basic)\s+[^\s,;]+")
 _HOST_PATH_RE = re.compile(
     r"(?<![\w:])/(?:data\d*|home|hpc2hdd|mnt|tmp|var|workspace)(?:/[^\s,;]*)*"
 )
+_STREAM_CREDENTIAL_KEYS = (
+    "api_key",
+    "api-key",
+    "authorization",
+    "auth",
+    "credential",
+    "password",
+    "secret",
+    "token",
+)
+_STREAM_URL_PREFIXES = ("http://", "https://")
+_STREAM_DELIMITERS = frozenset(" \t\r\n,;")
+_DEFAULT_STREAM_CARRY_LIMIT = 8192
 
 
 @dataclass(frozen=True)
@@ -110,6 +126,11 @@ class PublicEventProjection:
 
         return str(self._sanitize(content))
 
+    def sanitize_value(self, value: object) -> object:
+        """Recursively sanitize a structured public-output value."""
+
+        return self._sanitize(value)
+
     def _content(self, event_type: str, payload: dict[str, Any]) -> str:
         if event_type == "assistant.reply":
             return str(payload.get("reply") or "")
@@ -141,10 +162,12 @@ class PublicEventProjection:
             sanitized = value
             for secret in self._sensitive:
                 sanitized = sanitized.replace(secret, "[REDACTED]")
-            if sanitized.casefold().startswith(("bearer ", "basic ")):
-                return "[REDACTED]"
             sanitized = _FREE_TEXT_CREDENTIAL_RE.sub(
                 lambda match: f"{match.group(1)}=[REDACTED]",
+                sanitized,
+            )
+            sanitized = _FREE_TEXT_AUTH_VALUE_RE.sub(
+                lambda match: f"{match.group(1)} [REDACTED]",
                 sanitized,
             )
             sanitized = _HOST_PATH_RE.sub("[REDACTED_PATH]", sanitized)
@@ -152,12 +175,140 @@ class PublicEventProjection:
         return value
 
 
+class StreamingPublicTextSanitizer:
+    """Incrementally release public text without splitting sensitive constructs.
+
+    Whitespace, comma, and semicolon terminate lexical units. The scanner retains
+    only a trailing configured-secret prefix or an unfinished credential, Bearer/
+    Basic value, host path, or HTTP(S) token. Retained memory is capped at
+    ``carry_limit``; an over-limit suspicious token becomes ``[REDACTED]`` rather
+    than releasing raw bytes.
+    """
+
+    def __init__(
+        self,
+        *,
+        sensitive_values: tuple[str, ...] = (),
+        carry_limit: int = _DEFAULT_STREAM_CARRY_LIMIT,
+    ) -> None:
+        if carry_limit <= 0:
+            raise ValueError("carry_limit must be positive")
+        self._projection = PublicEventProjection(sensitive_values=sensitive_values)
+        self._sensitive = tuple(value for value in sensitive_values if value)
+        self._carry_limit = carry_limit
+        self._carry = ""
+
+    def feed(self, text: str) -> str:
+        if not text:
+            return ""
+        self._carry += text
+        unstable_start = self._unstable_start(self._carry)
+        if unstable_start is None:
+            stable, self._carry = self._carry, ""
+            return self._projection.sanitize_content(stable)
+
+        stable = self._carry[:unstable_start]
+        self._carry = self._carry[unstable_start:]
+        released = self._projection.sanitize_content(stable) if stable else ""
+        if len(self._carry) > self._carry_limit:
+            self._carry = ""
+            return released + "[REDACTED]"
+        return released
+
+    def finish(self) -> str:
+        carry, self._carry = self._carry, ""
+        if not carry:
+            return ""
+        if self._is_proper_secret_prefix(carry):
+            return "[REDACTED]"
+        return self._projection.sanitize_content(carry)
+
+    def _unstable_start(self, value: str) -> int | None:
+        starts: list[int] = []
+        secret_start = self._secret_prefix_start(value)
+        if secret_start is not None:
+            starts.append(secret_start)
+
+        credential_start = self._credential_start(value)
+        if credential_start is not None:
+            starts.append(credential_start)
+
+        token_start = self._token_start(value)
+        token = value[token_start:]
+        if token and self._is_suspicious_token(token):
+            starts.append(token_start)
+        return min(starts) if starts else None
+
+    def _secret_prefix_start(self, value: str) -> int | None:
+        starts = []
+        for secret in self._sensitive:
+            lower = max(0, len(value) - len(secret) + 1)
+            for start in range(lower, len(value)):
+                suffix = value[start:]
+                if len(suffix) < len(secret) and secret.startswith(suffix):
+                    starts.append(start)
+                    break
+        return min(starts) if starts else None
+
+    def _is_proper_secret_prefix(self, value: str) -> bool:
+        return any(
+            len(value) < len(secret) and secret.startswith(value) for secret in self._sensitive
+        )
+
+    @staticmethod
+    def _token_start(value: str) -> int:
+        for index in range(len(value) - 1, -1, -1):
+            if value[index] in _STREAM_DELIMITERS:
+                return index + 1
+        return 0
+
+    @staticmethod
+    def _credential_start(value: str) -> int | None:
+        lowered = value.casefold()
+        candidates: list[int] = []
+        for key in _STREAM_CREDENTIAL_KEYS:
+            start = lowered.rfind(key)
+            if start < 0:
+                continue
+            if start and lowered[start - 1] not in _STREAM_DELIMITERS:
+                continue
+            tail = lowered[start + len(key) :]
+            if not re.fullmatch(
+                r"\s*[:=]\s*(?:(?:bearer|basic)\s*)?[^\s,;]*",
+                tail,
+            ):
+                continue
+            candidates.append(start)
+        auth = re.search(r"(?i)(?:^|[\s,;])(bearer|basic)\s+[^\s,;]*$", value)
+        if auth is not None:
+            candidates.append(auth.start(1))
+        return min(candidates) if candidates else None
+
+    @staticmethod
+    def _is_suspicious_token(token: str) -> bool:
+        lowered = token.casefold()
+        if lowered.startswith("/"):
+            return True
+        if any(prefix.startswith(lowered) for prefix in _STREAM_URL_PREFIXES):
+            return True
+        if "://" in lowered:
+            return True
+        if any(key.startswith(lowered) for key in _STREAM_CREDENTIAL_KEYS):
+            return True
+        return any(prefix.startswith(lowered) for prefix in ("bearer", "basic"))
+
+
 def _strip_url_query(value: str) -> str:
     try:
         parsed = urlsplit(value)
     except ValueError:
         return "[REDACTED_URL]"
-    if parsed.scheme and parsed.netloc and (parsed.query or parsed.fragment):
+    if (
+        parsed.scheme
+        and parsed.netloc
+        and (parsed.query or parsed.fragment)
+        and not any(character.isspace() for character in value)
+    ):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
     return re.sub(r"https?://[^\s?]+\?[^\s]+", "[REDACTED_URL]", value)
 
@@ -185,5 +336,6 @@ async def public_gateway_stream(
 __all__ = [
     "PublicEventProjection",
     "PublicGatewayEvent",
+    "StreamingPublicTextSanitizer",
     "public_gateway_stream",
 ]

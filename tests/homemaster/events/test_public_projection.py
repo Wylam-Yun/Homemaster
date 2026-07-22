@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import get_args
 
 import pytest
 
@@ -12,8 +13,10 @@ from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.stream_events import (
     AssistantTextDelta,
     AssistantTurnComplete,
+    CompactProgressEvent,
     ErrorEvent,
     StatusEvent,
+    StreamEvent,
     ToolExecutionCompleted,
     ToolExecutionStarted,
     project_stream_event,
@@ -31,9 +34,80 @@ def _event(event_type: str, **values) -> RuntimeEvent:
     )
 
 
+def test_public_stream_event_union_remains_exactly_the_locked_seven_classes() -> None:
+    assert set(get_args(StreamEvent)) == {
+        AssistantTextDelta,
+        AssistantTurnComplete,
+        ToolExecutionStarted,
+        ToolExecutionCompleted,
+        ErrorEvent,
+        StatusEvent,
+        CompactProgressEvent,
+    }
+
+
+def test_transport_text_delta_maps_immediately_and_private_delta_fields_are_rejected() -> None:
+    public = project_stream_event(
+        _event(
+            "transport.delta",
+            payload={
+                "text_delta": "visible",
+                "reasoning_delta": "private chain",
+                "tool_json": '{"secret":',
+                "provider_metadata": {"request_id": "private"},
+            },
+        )
+    )
+
+    assert public == AssistantTextDelta(text="visible")
+    assert (
+        project_stream_event(
+            _event(
+                "transport.delta",
+                payload={
+                    "reasoning_delta": "private chain",
+                    "tool_json": '{"secret":',
+                    "provider_metadata": {"request_id": "private"},
+                },
+            )
+        )
+        is None
+    )
+
+
+def test_successful_assistant_reply_maps_to_completion_not_another_delta() -> None:
+    public = project_stream_event(
+        _event(
+            "assistant.reply",
+            payload={
+                "reply": "complete",
+                "finish_reason": "stop",
+                "usage": {"output_tokens": 2},
+                "tool_calls": [],
+                "reasoning_content": "private",
+                "provider_metadata": {"request_id": "private"},
+            },
+        )
+    )
+
+    assert isinstance(public, AssistantTurnComplete)
+    assert public.message.text == "complete"
+    assert public.message.finish_reason == "stop"
+    assert public.message.reasoning_content is None
+    assert public.message.provider_metadata == {}
+    assert public.usage == {"output_tokens": 2}
+
+
+def test_runtime_terminal_does_not_duplicate_assistant_completion() -> None:
+    assert (
+        project_stream_event(_event("runtime.turn_completed", payload={"final_reply": "complete"}))
+        is None
+    )
+
+
 def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> None:
     events = [
-        _event("assistant.reply", payload={"reply": "done"}),
+        _event("transport.delta", payload={"text_delta": "done"}),
         _event(
             "tool.call_started",
             name="observe",
@@ -44,7 +118,15 @@ def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> 
             name="observe",
             payload={"result": "visible", "data": {"state": "ready"}},
         ),
-        _event("runtime.turn_completed", payload={"final_reply": "done", "usage": {"x": 1}}),
+        _event(
+            "assistant.reply",
+            payload={
+                "reply": "done",
+                "finish_reason": "stop",
+                "usage": {"x": 1},
+                "tool_calls": [],
+            },
+        ),
         _event("runtime.turn_failed", payload={"error_code": "failed"}),
         _event("context.compaction", payload={"message": "compacting"}),
     ]
@@ -57,7 +139,7 @@ def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> 
     assert isinstance(projected[2], ToolExecutionCompleted)
     assert isinstance(projected[3], AssistantTurnComplete)
     assert isinstance(projected[4], ErrorEvent)
-    assert isinstance(projected[5], StatusEvent)
+    assert isinstance(projected[5], CompactProgressEvent)
     private = _event("assistant.thinking", payload={"thinking": "private"})
     assert project_stream_event(private) is None
 
@@ -209,7 +291,7 @@ async def test_public_stream_does_not_expose_private_events() -> None:
     )
     await asyncio.to_thread(
         bus.emit,
-        _event("assistant.reply", payload={"reply": "public answer"}),
+        _event("transport.delta", payload={"text_delta": "public answer"}),
     )
 
     public = await asyncio.wait_for(public_wait, timeout=1)

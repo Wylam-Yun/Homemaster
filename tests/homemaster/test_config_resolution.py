@@ -2,10 +2,62 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import homemaster.config as config_module
 from homemaster.config import ProviderProfileConfig, load_config
 from homemaster.config.config import redact_config_value
+
+
+def test_configured_sensitive_values_collect_provider_and_mcp_secrets_without_logging(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "homemaster.yaml"
+    path.write_text(
+        """
+        providers:
+          default: Mimo
+          items:
+            - name: Mimo
+              api_format: anthropic
+              base_url: https://configured.example/v1
+              model: mimo-v2.5
+              api_keys: [provider-secret]
+        mcp:
+          servers:
+            local:
+              transport: stdio
+              command: python
+              env:
+                MCP_TOKEN: mcp-env-secret
+            remote:
+              transport: http
+              url: https://mcp-user:mcp-password@example.test/mcp
+              headers:
+                Authorization: Bearer mcp-header-secret
+        """,
+        encoding="utf-8",
+    )
+    config = load_config(path)
+
+    assert hasattr(config_module, "configured_sensitive_values")
+    values = config_module.configured_sensitive_values(config)
+
+    assert set(values) == {
+        "provider-secret",
+        "mcp-env-secret",
+        "Bearer mcp-header-secret",
+        "mcp-user",
+        "mcp-password",
+    }
+    public = json.dumps(
+        {
+            "providers": [provider.public_summary() for provider in config.providers.items],
+            "mcp": config.mcp.public_summary(),
+        }
+    )
+    assert all(value not in public for value in values)
 
 
 def test_resolve_provider_profile_prefers_typed_homemaster_config(

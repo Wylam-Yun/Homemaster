@@ -1,5 +1,21 @@
 # Skills 与配置用户指南
 
+## CLI 实时输出与管道
+
+`homemaster -p PROMPT` 默认实时输出纯文本。文本 delta 会立即 flush，进程结束时
+不会再回显完整答案，因此重定向文件就是一次完整、脱敏后的最终文本：
+
+```bash
+homemaster -p "列出可用工具" > answer.txt
+homemaster -p "列出可用工具" --output-format json | jq .final_reply
+homemaster -p "列出可用工具" --output-format stream-json | jq -c .
+```
+
+`json` 是结束后一次输出的单文档；`stream-json` 是 UTF-8 JSON Lines，事件逐行
+flush，最后恰好一行 `type=result`。若启动阶段无法形成 `RunResult`，则最多输出
+一行脱敏的 `type=error`，不伪造 result。交互模式使用 Rich 展示模型等待、助手
+Markdown、工具开始/结束、错误、状态与压缩进度；机器输出 stdout 不含 ANSI。
+
 ## Provider 配置
 
 HomeMaster 只读取 YAML 真理源。新环境先创建被 Git 忽略的真实配置：

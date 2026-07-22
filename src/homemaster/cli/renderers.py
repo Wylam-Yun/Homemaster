@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any
 
 from homemaster.application import RunResult, RunStatus
+from homemaster.events.public_projection import PublicEventProjection
 from homemaster.events.sanitizer import sanitize_event_payload
 
 
@@ -25,10 +26,16 @@ def parse_output_format(value: str | None) -> OutputFormat:
         raise ValueError("--output-format must be text, json, or stream-json") from exc
 
 
-def render_run_result(result: RunResult, output_format: OutputFormat) -> str:
-    envelope = run_result_envelope(result)
+def render_run_result(
+    result: RunResult,
+    output_format: OutputFormat,
+    *,
+    sensitive_values: tuple[str, ...] = (),
+) -> str:
+    envelope = run_result_envelope(result, sensitive_values=sensitive_values)
+    projection = PublicEventProjection(sensitive_values=sensitive_values)
     if output_format is OutputFormat.TEXT:
-        return result.final_reply
+        return projection.sanitize_content(result.final_reply)
     if output_format is OutputFormat.JSON:
         return json.dumps(envelope, ensure_ascii=False, indent=2, sort_keys=True)
     lines = [
@@ -67,15 +74,20 @@ def render_dry_run(preview: Mapping[str, object], output_format: OutputFormat) -
     return json.dumps(preview, ensure_ascii=False, sort_keys=True)
 
 
-def run_result_envelope(result: RunResult) -> dict[str, object]:
+def run_result_envelope(
+    result: RunResult,
+    *,
+    sensitive_values: tuple[str, ...] = (),
+) -> dict[str, object]:
+    projection = PublicEventProjection(sensitive_values=sensitive_values)
     return {
         "type": "result",
         "run_id": result.run_id,
         "session_id": result.session_id,
         "status": str(result.status),
-        "final_reply": result.final_reply,
+        "final_reply": projection.sanitize_content(result.final_reply),
         "error_code": result.error_code,
-        "metadata": result.metadata_dict(),
+        "metadata": projection.sanitize_value(result.metadata_dict()),
     }
 
 

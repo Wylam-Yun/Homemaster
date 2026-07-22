@@ -35,7 +35,7 @@ def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
     assert report == {
         "status": "PASS",
         "upstream_commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
-        "port_count": 14,
+        "port_count": 15,
     }
 
 

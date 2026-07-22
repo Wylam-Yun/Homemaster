@@ -27,6 +27,12 @@ from homemaster.agent.messages import (
 from homemaster.agent.session import AgentSession
 from homemaster.application.runtime import Deadline
 from homemaster.config.observability import ObservabilityConfig
+from homemaster.events.stream_events import (
+    AssistantTextDelta,
+    AssistantTurnComplete,
+    ErrorEvent,
+    project_stream_event,
+)
 from homemaster.providers.attempts import (
     ListProviderAttemptSink,
     ProviderAttemptRecord,
@@ -70,8 +76,7 @@ class FakeTransport:
             AssistantMessage(
                 content=[],
                 tool_calls=[
-                    ToolCall(id=cid, name=name, arguments=args)
-                    for cid, name, args in calls
+                    ToolCall(id=cid, name=name, arguments=args) for cid, name, args in calls
                 ],
                 finish_reason="tool_calls",
             )
@@ -425,6 +430,153 @@ def _run(utterance: str, **kwargs: Any) -> GenericRunResult:
     return asyncio.run(runtime.run(session, utterance, **kwargs))
 
 
+class _RecordingAsyncSink:
+    def __init__(self) -> None:
+        self.events = []
+        self.delta_seen = asyncio.Event()
+
+    async def aemit(self, event) -> None:
+        self.events.append(event)
+        if event.type == "transport.delta":
+            self.delta_seen.set()
+
+
+@pytest.mark.asyncio
+async def test_runtime_publishes_first_text_delta_before_stream_completion() -> None:
+    release = asyncio.Event()
+
+    class DelayedTransport:
+        def __init__(self) -> None:
+            self.provider_blocked = asyncio.Event()
+
+        async def stream(self, *_args, **_kwargs) -> AsyncIterator[TransportDelta]:
+            yield TransportDelta(type="transport.delta", text_delta="hello ")
+            self.provider_blocked.set()
+            await release.wait()
+            yield TransportDelta(type="transport.delta", text_delta="world")
+            yield TransportDelta(type="transport.delta", finish_reason="stop")
+
+    transport = DelayedTransport()
+    sink = _RecordingAsyncSink()
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+    )
+    run_task = asyncio.create_task(
+        runtime.run(
+            AgentSession(session_id="live-delta"),
+            "hello",
+            event_sink=sink,
+        )
+    )
+    await asyncio.wait_for(transport.provider_blocked.wait(), timeout=1)
+
+    try:
+        await asyncio.wait_for(sink.delta_seen.wait(), timeout=0.1)
+        assert run_task.done() is False
+    finally:
+        release.set()
+        result = await asyncio.wait_for(run_task, timeout=1)
+
+    deltas = [
+        projected.text
+        for event in sink.events
+        if isinstance((projected := project_stream_event(event)), AssistantTextDelta)
+    ]
+    assert "".join(deltas) == "hello world"
+    assert result.final_reply == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_partial_delta_failure_streams_then_emits_one_error_without_completion() -> None:
+    release = asyncio.Event()
+
+    class FailingDelayedTransport:
+        def __init__(self) -> None:
+            self.provider_blocked = asyncio.Event()
+
+        async def stream(self, *_args, **_kwargs) -> AsyncIterator[TransportDelta]:
+            yield TransportDelta(type="transport.delta", text_delta="partial")
+            self.provider_blocked.set()
+            await release.wait()
+            raise LLMProviderError(
+                error_type="provider_error",
+                message="provider failed",
+                cause_code="provider_error",
+            )
+
+    transport = FailingDelayedTransport()
+    sink = _RecordingAsyncSink()
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+    )
+    run_task = asyncio.create_task(
+        runtime.run(
+            AgentSession(session_id="partial-failure"),
+            "hello",
+            event_sink=sink,
+        )
+    )
+    await asyncio.wait_for(transport.provider_blocked.wait(), timeout=1)
+
+    try:
+        await asyncio.wait_for(sink.delta_seen.wait(), timeout=0.1)
+        assert run_task.done() is False
+    finally:
+        release.set()
+        result = await asyncio.wait_for(run_task, timeout=1)
+
+    projected = [project_stream_event(event) for event in sink.events]
+    assert [event.text for event in projected if isinstance(event, AssistantTextDelta)] == [
+        "partial"
+    ]
+    assert sum(isinstance(event, ErrorEvent) for event in projected) == 1
+    assert not any(isinstance(event, AssistantTurnComplete) for event in projected)
+    assert result.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_runtime_streaming_redaction_blocks_configured_secret_split_across_deltas() -> None:
+    secret = "configured-secret-value"
+
+    class SplitSecretTransport:
+        async def stream(self, *_args, **_kwargs) -> AsyncIterator[TransportDelta]:
+            yield TransportDelta(type="transport.delta", text_delta="prefix configured-")
+            yield TransportDelta(type="transport.delta", text_delta="secret-")
+            yield TransportDelta(type="transport.delta", text_delta="value suffix")
+            yield TransportDelta(type="transport.delta", finish_reason="stop")
+
+    sink = _RecordingAsyncSink()
+    runtime = AgentRuntime(
+        transport=SplitSecretTransport(),
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+    )
+
+    result = await runtime.run(
+        AgentSession(session_id="split-secret"),
+        "hello",
+        event_sink=sink,
+        settings=SimpleNamespace(
+            observability=None,
+            public_sensitive_values=(secret,),
+        ),
+    )
+
+    public_deltas = [
+        projected.text
+        for event in sink.events
+        if isinstance((projected := project_stream_event(event)), AssistantTextDelta)
+    ]
+    reconstructed = "".join(public_deltas)
+    assert secret not in reconstructed
+    assert reconstructed == "prefix [REDACTED] suffix"
+    assert result.final_reply == f"prefix {secret} suffix"
+
+
 # ---------------------------------------------------------------------------
 # Greeting: no tools
 # ---------------------------------------------------------------------------
@@ -461,10 +613,12 @@ def test_tool_failure_is_appended_as_tool_message() -> None:
 
 def test_parallel_tool_call_ids_are_preserved() -> None:
     transport = FakeTransport()
-    transport.queue_tool_calls([
-        ("call_1", "memory_retriever", {"query": "水杯"}),
-        ("call_2", "skill_view", {"skill": "fetch_object"}),
-    ])
+    transport.queue_tool_calls(
+        [
+            ("call_1", "memory_retriever", {"query": "水杯"}),
+            ("call_2", "skill_view", {"skill": "fetch_object"}),
+        ]
+    )
     transport.queue_text("我查到了两个结果。")
     result = _run("帮我拿水杯", transport=transport)
     tool_messages = [msg for msg in result.session.messages if msg.role == "tool"]
@@ -644,6 +798,7 @@ def test_runtime_supports_unbounded_iterations() -> None:
         call_count["n"] += 1
         if call_count["n"] >= 3:
             from homemaster.application import RuntimeStopDecision
+
             return RuntimeStopDecision(status="replied", final_reply="done")
         return None
 
@@ -788,6 +943,82 @@ def test_runtime_does_not_retry_after_partial_provider_delta() -> None:
     assert result.error_code == "transport_error"
     assert transport.call_count == 1
     assert [message.role for message in result.session.messages] == ["user"]
+
+
+def test_runtime_does_not_reactive_compact_after_partial_provider_delta() -> None:
+    from homemaster.agent.context import ContextAssembler
+    from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
+
+    transport = AuditedRetryTransport(
+        first_error=RuntimeError("context_length_exceeded"),
+        partial_delta=True,
+    )
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="mimo",
+            protocol="anthropic",
+            base_url="https://mimo.example",
+            model="m",
+            api_keys=["secret"],
+            context_window_tokens=100_000,
+            max_output_tokens=4096,
+        ),
+        policy=ContextPolicyConfig(),
+        system_prompt="system",
+    )
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        context_assembler=assembler,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = asyncio.run(runtime.run(AgentSession(session_id="partial-context"), "hello"))
+
+    assert result.status == "failed"
+    assert result.error_code == "transport_error"
+    assert transport.call_count == 1
+
+
+def test_configured_secret_never_enters_runtime_event_payloads() -> None:
+    secret = "configured-secret-under-innocuous-key"
+    transport = FakeTransport()
+    transport.queue_tool_call("lookup", {"query": secret})
+    transport.queue_text("done")
+
+    class SecretResultExecutor(FakeToolExecutor):
+        def dispatch(self, *, tool_calls, run_context) -> list[ToolResultMessage]:
+            del run_context
+            self.calls.extend((call.name, call.arguments) for call in tool_calls)
+            return [
+                ToolResultMessage(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    content=[ContentBlock(text=f"result: {secret}")],
+                    data={"value": secret},
+                )
+                for call in tool_calls
+            ]
+
+    executor = SecretResultExecutor()
+    result = _run(
+        "use the configured secret",
+        transport=transport,
+        dispatcher=executor,
+        settings=SimpleNamespace(public_sensitive_values=(secret,)),
+    )
+
+    serialized_events = json.dumps(
+        [event.payload for event in result.events],
+        ensure_ascii=False,
+        default=str,
+    )
+    assert secret not in serialized_events
+    assert executor.calls == [("lookup", {"query": secret})]
+    tool_messages = [message for message in result.session.messages if message.role == "tool"]
+    assert secret in tool_messages[0].content[0].text
+    assert tool_messages[0].data == {"value": secret}
 
 
 def test_runtime_rejects_retry_request_hash_drift() -> None:

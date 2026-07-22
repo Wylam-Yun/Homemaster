@@ -1,5 +1,28 @@
 # Engineering Pitfalls
 
+## 2026-07-22 - Provider 流式测试全绿但 CLI 仍在完成后批量输出
+
+### 症状与根因
+
+Provider transport 持续 yield delta，相关单测也全绿，但文本和 `stream-json` 在
+`RunResult` 形成前没有任何字节。统一运行时的 `_consume_stream()` 只聚合 delta，
+没有把安全文本转发到 EventBus；旧 Mimo 专用路径被统一 LLMClient 替代时丢失了
+`transport.delta` 发布，而测试只验证 provider 与最终聚合值。
+
+### 修法与教训
+
+由通用运行时统一发布逐 delta 事件，并用每 run/assistant-turn 独立的增量脱敏器
+保留不稳定后缀；七事件投影和实时 sink 消费同一 EventBus，最终聚合与持久化保持
+不变。每个实时入口必须有黑盒门禁：假 provider 发首 delta 后保持阻塞，断言真实
+CLI 在 provider 完成前已经产生首字节且进程仍运行。Provider 层“能流式”不能替代
+UI 层 pre-completion first-byte 证明。
+
+### 参考
+
+- `plan/realtime-rich-streaming-cli-implementation-plan.md`
+- `tests/homemaster/test_cli_streaming_blackbox.py`
+- `tests/homemaster/test_generic_agent_runtime.py`
+
 最新记录放在最上方。
 
 ## 2026-07-22 - 临时候选只同步 dev/mcp extra，Coworker 到浏览器创建才缺 Playwright

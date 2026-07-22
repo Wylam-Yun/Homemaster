@@ -28,6 +28,7 @@ from homemaster.config.config import (
     SkillSourcesConfig,
     TelegramChannelConfig,
     TransportName,
+    configured_sensitive_values,
     load_config,
     redact_config_value,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "TelegramChannelConfig",
     "SCHEMA_VERSION",
     "TransportName",
+    "configured_sensitive_values",
     "load_config",
     "redact_config_value",
 ]

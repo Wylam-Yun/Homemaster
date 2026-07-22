@@ -18,7 +18,7 @@ from homemaster.application.runtime import (
     ToolProfile,
 )
 from homemaster.application.session import SessionManager
-from homemaster.config import HomeMasterConfig, load_config
+from homemaster.config import HomeMasterConfig, configured_sensitive_values, load_config
 from homemaster.devices import (
     DeviceAuditLog,
     DeviceConnectionPool,
@@ -121,6 +121,7 @@ def create_application(
         provider_name=resolved_config.runtime_defaults.default_provider_name,
         device_connection_pool=connections,
         device_lease_manager=execution_pipeline.resource_manager,
+        public_sensitive_values=configured_sensitive_values(resolved_config),
     )
     return ApplicationRuntime(
         catalog=catalog,

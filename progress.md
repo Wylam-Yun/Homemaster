@@ -2,6 +2,28 @@
 
 ## 2026-07-22
 
+### Realtime Rich streaming CLI
+
+- Status: implementation, external terminal validation, documentation, provenance, the single
+  final read-only review, finding disposition, and post-review verification are complete.
+- Restored generic-runtime delta publication, exact seven-event projection, per-turn streaming
+  redaction, Rich/text/stream-json sinks, CLI ownership, safe result serialization, and the
+  no-retry-after-visible-delta fence.
+- Baseline cleanup guard fixed by excluding the two canonical pipeline files from the legacy
+  term scan; baseline then passed 1295 tests with 11 deselected.
+- External gates passed for live text/stream-json first byte, buffered JSON, partial provider
+  failure, tool failure, SIGINT cancellation, split-secret/path/URL redaction, and interpreted
+  tmux Rich final-screen state.
+- The sole final reviewer found three issues: configured literals in private RuntimeEvent payloads,
+  missing configured-literal sanitation for fatal `stream-json` errors, and premature result output
+  before resource close. All three were reproduced with RED tests, fixed, and dispositioned without
+  requesting a second review.
+- Verification: 84 post-review focused tests passed; complete non-live suite passed with 1337 tests
+  and 7 deselected; Ruff, format, compileall, diff, cleanup/secret guards, and the 15-port upstream
+  manifest validator passed. The separate live-coworker browser gate remains unavailable because
+  `/usr/bin/google-chrome` is not installed and is not claimed.
+- No blocker. Implementation branch is ready for integration choice.
+
 - V1.9 final-review remediation concentrated verification is complete: full non-live `1295 passed, 11 deselected`,
   final-review focus `193 passed`, runtime stress `5 passed`, Ruff check/changed-file format, compileall and
   `git diff --check` all pass. The inherited Starlette/httpx deprecation warning remains unchanged.

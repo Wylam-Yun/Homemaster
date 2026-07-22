@@ -30,7 +30,7 @@ def run_interactive_shell(
     if resume_session_id is not None and continue_latest:
         raise ValueError("--continue cannot be combined with --resume")
 
-    bundle = create_home_application(run_label=f"shell-{new_session_id()}")
+    bundle = create_home_application(run_label=f"shell-{new_session_id()}", progress=True)
     application = bundle.application
     backend = HomeCliBackend(world_path=None, memory_path=None)
     session_id = resume_session_id or new_session_id()
@@ -154,7 +154,8 @@ def run_interactive_shell(
                 session_open = True
                 last_status = str(result.status)
                 last_run_id = result.run_id
-                typer.echo(f"Assistant: {result.final_reply}")
+                if not getattr(bundle, "live_rendered", False):
+                    typer.echo(f"Assistant: {result.final_reply}")
                 if result.status is RunStatus.CANCELLED:
                     typer.echo("Run cancelled.")
         finally:

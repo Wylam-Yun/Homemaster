@@ -144,6 +144,46 @@ def test_factory_default_pipeline_uses_application_resource_manager() -> None:
     assert application.resource_scope.get("device-connection-pool").resource is connections
 
 
+def test_factory_wires_configured_sensitive_values_into_runtime_settings() -> None:
+    catalog, profile = _catalog_and_profile()
+    config = HomeMasterConfig.model_validate(
+        {
+            "providers": {
+                "default": "fake",
+                "items": [
+                    {
+                        "name": "fake",
+                        "api_format": "openai",
+                        "base_url": "https://provider.example.test/v1",
+                        "model": "fake-model",
+                        "api_keys": ["provider-secret"],
+                    }
+                ],
+            },
+            "mcp": {
+                "servers": {
+                    "remote": {
+                        "transport": "http",
+                        "url": "https://example.test/mcp",
+                        "headers": {"Authorization": "Bearer mcp-secret"},
+                    }
+                }
+            },
+        }
+    )
+
+    application = create_application(
+        config=config,
+        profiles={"test": profile},
+        catalog=catalog,
+    )
+
+    assert set(application.settings.public_sensitive_values) == {
+        "provider-secret",
+        "Bearer mcp-secret",
+    }
+
+
 @pytest.mark.asyncio
 async def test_factory_owns_and_closes_default_device_connection_pool() -> None:
     catalog, profile = _catalog_and_profile()

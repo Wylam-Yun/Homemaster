@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,9 +11,20 @@ import typer
 
 from homemaster.application import RunRequest, RunResult
 from homemaster.cli.composition import HomeCliBackend, create_home_application
-from homemaster.cli.renderers import OutputFormat, render_run_result, result_exit_code
-from homemaster.config import load_config
+from homemaster.cli.live_output import StreamJsonEventSink, TextStreamEventSink
+from homemaster.cli.renderers import (
+    OutputFormat,
+    render_run_result,
+    result_exit_code,
+    run_result_envelope,
+)
+from homemaster.config import configured_sensitive_values, load_config
 from homemaster.events.logger import setup_logging
+from homemaster.events.public_projection import PublicEventProjection
+
+
+class _PublicCliError(RuntimeError):
+    """An exception whose message is already safe for public CLI rendering."""
 
 
 @dataclass(frozen=True)
@@ -20,6 +32,8 @@ class OneShotExecution:
     result: RunResult
     trace_path: Path
     run_dir: Path
+    live_rendered: bool = False
+    sensitive_values: tuple[str, ...] = ()
 
 
 def execute_one_shot(
@@ -35,6 +49,7 @@ def execute_one_shot(
     continue_latest: bool = False,
     provider_name: str | None = None,
     model: str | None = None,
+    output_format: OutputFormat | None = None,
 ) -> OneShotExecution:
     if not prompt.strip():
         raise ValueError("a non-empty prompt is required")
@@ -44,15 +59,30 @@ def execute_one_shot(
         {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
     )
     config = load_config(cli_overrides=overrides)
-    bundle = create_home_application(
-        config=config,
-        world_path=world_path,
-        memory_path=memory_path,
-        run_label=run_label,
-        progress=progress,
-        verbose=verbose,
-        quiet=quiet,
-    )
+    sensitive_values = configured_sensitive_values(config) if hasattr(config, "providers") else ()
+    live_sink = None
+    if output_format is OutputFormat.TEXT:
+        import sys
+
+        live_sink = TextStreamEventSink(file=sys.stdout, sensitive_values=sensitive_values)
+    elif output_format is OutputFormat.STREAM_JSON:
+        import sys
+
+        live_sink = StreamJsonEventSink(file=sys.stdout, sensitive_values=sensitive_values)
+    projection = PublicEventProjection(sensitive_values=sensitive_values)
+    try:
+        bundle = create_home_application(
+            config=config,
+            world_path=world_path,
+            memory_path=memory_path,
+            run_label=run_label,
+            progress=progress,
+            verbose=verbose,
+            quiet=quiet,
+            event_sink=live_sink,
+        )
+    except Exception as exc:
+        raise _PublicCliError(projection.sanitize_content(str(exc))) from exc
 
     async def execute() -> RunResult:
         try:
@@ -79,10 +109,20 @@ def execute_one_shot(
         finally:
             await bundle.application.aclose()
 
+    try:
+        result = asyncio.run(execute())
+    except Exception as exc:
+        raise _PublicCliError(projection.sanitize_content(str(exc))) from exc
+    if isinstance(live_sink, TextStreamEventSink):
+        live_sink.finish(result.final_reply)
+    elif isinstance(live_sink, StreamJsonEventSink):
+        live_sink.write_envelope(run_result_envelope(result, sensitive_values=sensitive_values))
     return OneShotExecution(
-        result=asyncio.run(execute()),
+        result=result,
         trace_path=bundle.trace_path,
         run_dir=bundle.run_dir,
+        live_rendered=live_sink is not None or getattr(bundle, "live_rendered", False),
+        sensitive_values=sensitive_values,
     )
 
 
@@ -121,7 +161,8 @@ def handle_run(
     )
     result = execution.result
     typer.echo(f"run_id: {result.run_id}")
-    typer.echo(f"assistant: {result.final_reply}")
+    if not execution.live_rendered:
+        typer.echo(f"assistant: {result.final_reply}")
     typer.echo(f"status: {result.status}")
     typer.echo(f"trace: {execution.trace_path}")
     typer.echo(f"run_dir: {execution.run_dir}")
@@ -139,15 +180,36 @@ def handle_print(
     provider_name: str | None = None,
     model: str | None = None,
 ) -> None:
-    execution = execute_one_shot(
-        prompt=prompt,
-        resume_session_id=resume_session_id,
-        continue_latest=continue_latest,
-        provider_name=provider_name,
-        model=model,
-        quiet=True,
-    )
-    typer.echo(render_run_result(execution.result, output_format))
+    try:
+        execution = execute_one_shot(
+            prompt=prompt,
+            resume_session_id=resume_session_id,
+            continue_latest=continue_latest,
+            provider_name=provider_name,
+            model=model,
+            quiet=True,
+            output_format=output_format,
+        )
+    except Exception as exc:
+        if output_format is OutputFormat.STREAM_JSON:
+            message = PublicEventProjection().sanitize_content(str(exc))
+            typer.echo(
+                json.dumps(
+                    {"type": "error", "message": message, "recoverable": False},
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+            raise typer.Exit(code=1) from exc
+        raise
+    if not execution.live_rendered:
+        typer.echo(
+            render_run_result(
+                execution.result,
+                output_format,
+                sensitive_values=execution.sensitive_values,
+            )
+        )
     code = result_exit_code(execution.result)
     if code:
         raise typer.Exit(code=code)

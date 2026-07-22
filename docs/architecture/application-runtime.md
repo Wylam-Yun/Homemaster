@@ -2,6 +2,22 @@
 
 ## Ownership
 
+### 实时公开事件流
+
+```text
+Provider TransportDelta
+  -> Generic AgentRuntime（聚合原始最终消息；逐 delta 状态化脱敏）
+  -> private RuntimeEvent / EventBus（trace、审计、生命周期）
+  -> exact seven StreamEvent projection（公开 UI 边界）
+  -> Rich / text / stream-json sink
+```
+
+Provider 只负责 yield delta；通用运行时负责在 provider 完成前发布安全文本。
+`AssistantTurnComplete` 每次成功模型轮次只出现一次，并在工具开始前出现。
+`RunResult.final_reply`、会话持久化和 Gateway terminal final 仍是原有权威所有者；
+公开 completion 或 delta 不产生第二个 Gateway 终态。推理、部分工具 JSON、provider
+元数据、密钥、主机路径和资源 URI 均不进入七事件 UI 协议。
+
 CLI、Interactive、ALFWorld 和 Coworker 通过同一个 `ApplicationRuntime` 执行。application 持有
 Catalog、无 session 状态的执行链、ObservationService、EventBus、SessionManager、device connection
 pool、physical-device lease manager 和可选 MCP manager；每个 run

@@ -122,6 +122,23 @@ audit sink 是旁路镜像；写入失败会形成 typed `DeviceAuditFailure`，
 
 ## 跑一个任务
 
+实时输出模式：
+
+```bash
+# 纯文本会在模型仍在生成时写入 stdout，最终答案不会重复打印
+homemaster -p "检查客厅" --output-format text
+
+# 单个缓冲 JSON 文档，只在运行结束后输出
+homemaster -p "检查客厅" --output-format json
+
+# 每个事件一行紧凑 JSON，最后一行固定为 type=result
+homemaster -p "检查客厅" --output-format stream-json
+```
+
+交互 shell 与 `run --progress` 使用 Rich 实时区域；Rich/状态信息只写 stderr，
+不会污染 `json` 或 `stream-json` 的 stdout。公开实时协议只包含七种
+`StreamEvent`，`type=result` 是 HomeMaster 的终端扩展。
+
 ```bash
 cd /Users/wylam/Documents/workspace/HomeMaster
 

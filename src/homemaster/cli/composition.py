@@ -12,10 +12,11 @@ from homemaster.application import ApplicationRuntime, ResourceBinding, Resource
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
 from homemaster.artifacts import ToolOutputStore
-from homemaster.config import HomeMasterConfig, load_config
+from homemaster.cli.live_output import RichStreamEventSink
+from homemaster.cli.rich_renderer import RichOutputRenderer
+from homemaster.config import HomeMasterConfig, configured_sensitive_values, load_config
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import (
-    ConsoleEventSink,
     FanoutEventSink,
     JsonlTraceSink,
     MessagesLogSink,
@@ -47,6 +48,7 @@ class HomeApplicationBundle:
     mcp_audit_path: Path | None = None
     extension_runner: HookRunner | None = None
     extension_reloader: ExtensionReloader | None = None
+    live_rendered: bool = False
 
 
 class HomeCliBackend:
@@ -104,6 +106,7 @@ def create_home_application(
     quiet: bool = False,
     console_show_replies: bool = True,
     mcp_connector: Connector | None = None,
+    event_sink: Any | None = None,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
@@ -151,6 +154,7 @@ def create_home_application(
             quiet=quiet,
             console_show_replies=console_show_replies,
             mcp_connector=mcp_connector,
+            event_sink=event_sink,
         )
     except BaseException:
         if extension_generation is not None:
@@ -171,6 +175,7 @@ def _finish_home_application(
     quiet: bool,
     console_show_replies: bool,
     mcp_connector: Connector | None,
+    event_sink: Any | None,
 ) -> HomeApplicationBundle:
     """Finish composition while the caller retains extension rollback ownership."""
 
@@ -189,14 +194,24 @@ def _finish_home_application(
         )
     )
     sinks: list[Any] = [trace, MessagesLogSink(run_dir)]
+    live_rendered = False
+    if event_sink is not None:
+        sinks.append(event_sink)
     if progress or verbose:
-        sinks.append(
-            ConsoleEventSink(
-                verbose=verbose,
-                quiet=quiet,
-                show_replies=console_show_replies,
+        if not quiet:
+            rich_sink = RichStreamEventSink(
+                RichOutputRenderer(),
+                sensitive_values=configured_sensitive_values(resolved),
             )
-        )
+            sinks.append(rich_sink)
+            live_rendered = True
+            scope.bind(
+                ResourceBinding.owned(
+                    "cli-rich-output",
+                    rich_sink,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
     unsubscribe = bus.subscribe(FanoutEventSink(sinks).emit)
     scope.bind(
         ResourceBinding.owned(
@@ -278,6 +293,7 @@ def _finish_home_application(
         mcp_audit_path=mcp_audit_path,
         extension_runner=extension_runner,
         extension_reloader=extension_reloader,
+        live_rendered=live_rendered,
     )
 
 
