@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "phase": "2-CL19",
+  "change_list": "CL-19-permission-auth-device-foundations",
+  "status": "VERIFYING",
+  "commits": {
+    "implementation_base": "eae74e8",
+    "candidate": "uncommitted_stacked_worktree"
+  },
+  "dependency_status": {
+    "cl18": "VERIFYING",
+    "exception": "User directed completion of CL-18 through CL-21 code and documentation on HPC2 before the consolidated hkust4 live gate."
+  },
+  "review_policy": {
+    "implementation_review": "completed_stage_review",
+    "reason": "The user explicitly requested one read-only review after each CL-18 through CL-21 stage, plus the consolidated final review.",
+    "findings": "All six findings were accepted: missing production pool binding, disconnect/close fencing, granted-waiter race, MCP tenant partition, monotonic disconnect generation, and same-source emergency-stop verification."
+  },
+  "subgoals": [
+    "Authenticate remote credentials into immutable typed tenant principals without trusting prompt or metadata.",
+    "Evaluate every canonical tool call against capability, mode, tool, path, and command policy.",
+    "Bind one application-owned connection pool to one generation-aware physical-device FIFO lease manager.",
+    "Fence stale, disconnected, stopped, uncertain, and closed devices before backend execution.",
+    "Return outcome_unknown without automatic retry when fencing occurs after a mutating backend starts.",
+    "Run emergency stop through an independent control path and require both successful return and external stopped state.",
+    "Persist device lifecycle events to a private append-only JSONL audit."
+  ],
+  "external_symbols": [
+    {
+      "symbols": [
+        "robot SDK emergency-stop success return codes",
+        "robot SDK stopped-state enums"
+      ],
+      "status": "UNVERIFIED",
+      "environment": "hkust4 user-guided live device environment",
+      "result": "HomeMaster now requires normalized DeviceControlReceipt and DeviceStateObservation. Concrete adapter mappings must be checked on hkust4 after CL-18 through CL-21 code is complete."
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "focused_non_live",
+      "status": "pass",
+      "result": "143 related permission, auth, device, application, pipeline, runtime, MCP, stress, and adapter tests passed on HPC2."
+    },
+    {
+      "kind": "device_terminal_blackbox",
+      "status": "pass",
+      "result": "Per-device tests independently observed stopped state, disconnect state, active outcome_unknown, pre-backend waiter denial, owned/borrowed close effects, and mode-0600 JSONL bytes."
+    },
+    {
+      "kind": "stage_review_remediation",
+      "status": "pass",
+      "result": "All six reviewer findings were reproduced and fixed. A factory-to-runtime test proves the real borrowed environment is tenant-pinned before provider execution; race tests prove grant/fence and terminal cleanup behavior per instance."
+    },
+    {
+      "kind": "deferred_series_gate",
+      "status": "pending",
+      "result": "Full non-live regression, final reviewer, hkust4 synchronization, and user-guided live acceptance remain deferred until CL-20 and CL-21 are complete."
+    }
+  ],
+  "next": [
+    "Lock the first real CL-20 channel and implement Gateway, routing, bounded bus, recovery, and public projection on HPC2.",
+    "Do not access hkust4 until all CL-18 through CL-21 code and documentation are complete and the user provides live-test guidance."
+  ]
+}

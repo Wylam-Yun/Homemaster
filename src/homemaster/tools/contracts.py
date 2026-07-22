@@ -135,6 +135,7 @@ class ToolDefinition:
     concurrency_policy: ConcurrencyPolicy = ConcurrencyPolicy.PARALLEL
     resource_key: str | None = None
     state_effects: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.verification_policy, VerificationPolicy):
@@ -170,6 +171,14 @@ class ToolDefinition:
         for effect in effects:
             _require_token(effect, label="state effect")
         object.__setattr__(self, "state_effects", effects)
+        if isinstance(self.required_capabilities, str):
+            raise TypeError("required_capabilities must be a sequence of tokens")
+        required_capabilities = tuple(self.required_capabilities)
+        if len(required_capabilities) != len(set(required_capabilities)):
+            raise ValueError("required_capabilities must be unique")
+        for capability in required_capabilities:
+            _require_token(capability, label="required capability")
+        object.__setattr__(self, "required_capabilities", required_capabilities)
         input_schema = _freeze_json_object(self.input_schema, "input")
         output_schema = _freeze_json_object(self.output_schema, "output")
         try:
@@ -208,6 +217,7 @@ class ToolDefinition:
             "concurrency_policy": self.concurrency_policy.value,
             "resource_key": self.resource_key,
             "state_effects": list(self.state_effects),
+            "required_capabilities": list(self.required_capabilities),
         }
 
     @property
@@ -226,6 +236,8 @@ class PermissionSubject:
     subject_id: str
     channel: str
     roles: tuple[str, ...] = ()
+    tenant_id: str = "local"
+    capabilities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _require_nonempty(self.subject_id, label="permission subject id")
@@ -238,6 +250,15 @@ class PermissionSubject:
         for role in roles:
             _require_token(role, label="permission role")
         object.__setattr__(self, "roles", roles)
+        _require_token(self.tenant_id, label="permission tenant id")
+        if isinstance(self.capabilities, str):
+            raise TypeError("permission capabilities must be a sequence of tokens")
+        capabilities = tuple(self.capabilities)
+        if len(capabilities) != len(set(capabilities)):
+            raise ValueError("permission capabilities must be unique")
+        for capability in capabilities:
+            _require_token(capability, label="permission capability")
+        object.__setattr__(self, "capabilities", capabilities)
 
 
 @runtime_checkable
@@ -293,9 +314,7 @@ class ToolExecutionContext:
             raise TypeError("permission_subject must be PermissionSubject")
         if self.deadline is not None and not isinstance(self.deadline, DeadlineHandle):
             raise TypeError("deadline must implement DeadlineHandle")
-        if self.cancellation is not None and not isinstance(
-            self.cancellation, CancellationHandle
-        ):
+        if self.cancellation is not None and not isinstance(self.cancellation, CancellationHandle):
             raise TypeError("cancellation must implement CancellationHandle")
 
 
@@ -593,9 +612,7 @@ class ToolExecutionResult:
                 None,
             )
             metadata = (
-                _observation_content_metadata(reference, self.data)
-                if reference is not None
-                else {}
+                _observation_content_metadata(reference, self.data) if reference is not None else {}
             )
             content.append(
                 ContentBlock(

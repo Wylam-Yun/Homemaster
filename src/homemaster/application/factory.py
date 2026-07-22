@@ -12,14 +12,23 @@ from homemaster.application.contracts import ResourceBinding, ResourceLifetime, 
 from homemaster.application.resources import ApplicationResourceManager, RunResourceScope
 from homemaster.application.runtime import (
     ApplicationRuntime,
+    ApplicationStarter,
     ContextAssemblerFactory,
     ProviderFactory,
     ToolProfile,
 )
 from homemaster.application.session import SessionManager
 from homemaster.config import HomeMasterConfig, load_config
+from homemaster.devices import (
+    DeviceAuditLog,
+    DeviceConnectionPool,
+    DeviceLeaseManager,
+    InMemoryDeviceEventStore,
+)
 from homemaster.events.bus import EventBus
+from homemaster.extensions import HookRunner
 from homemaster.observations import ObservationService
+from homemaster.permissions import HomePermissionPolicy
 from homemaster.prompts.loader import load_prompt
 from homemaster.providers.llm_client import LLMClient
 from homemaster.tools.catalog import ToolCatalog
@@ -39,6 +48,9 @@ def create_application(
     provider_factory: ProviderFactory | None = None,
     context_assembler_factory: ContextAssemblerFactory | None = None,
     resource_scope: RunResourceScope | None = None,
+    application_starter: ApplicationStarter | None = None,
+    device_connection_pool: DeviceConnectionPool | None = None,
+    extension_runner: HookRunner | None = None,
 ) -> ApplicationRuntime:
     """Build all application-owned services without opening environment resources."""
 
@@ -61,12 +73,21 @@ def create_application(
     elif any(profile.catalog is not catalog for profile in resolved_profiles.values()):
         raise ValueError("profiles must use the supplied application ToolCatalog")
     bus = event_bus or EventBus()
-    execution_pipeline = pipeline or ToolExecutionPipeline(
-        catalog,
-        resource_manager=ApplicationResourceManager(),
-        observation_service=service,
-        public_event_sink=bus,
-    )
+    if pipeline is None:
+        device_events = InMemoryDeviceEventStore(
+            DeviceAuditLog(
+                Path(resolved_config.observability.trace_dir).expanduser() / "device_audit.jsonl"
+            )
+        )
+        execution_pipeline = ToolExecutionPipeline(
+            catalog,
+            permission_policy=HomePermissionPolicy(resolved_config.permissions),
+            resource_manager=ApplicationResourceManager(event_store=device_events),
+            observation_service=service,
+            public_event_sink=bus,
+        )
+    else:
+        execution_pipeline = pipeline
     if execution_pipeline.catalog is not catalog:
         raise ValueError("pipeline must use the application ToolCatalog")
     execution_pipeline.validate_catalog()
@@ -75,10 +96,31 @@ def create_application(
     )
     providers = provider_factory or _provider_factory(resolved_config)
     assemblers = context_assembler_factory or _context_factory(resolved_config)
+    scope = resource_scope or RunResourceScope()
+    existing_connections = scope.get("device-connection-pool")
+    if existing_connections is not None:
+        connections = existing_connections.resource
+        if not isinstance(connections, DeviceConnectionPool):
+            raise TypeError("device-connection-pool resource has an invalid type")
+        if device_connection_pool is not None and connections is not device_connection_pool:
+            raise ValueError("device connection pool conflicts with the supplied resource scope")
+    else:
+        connections = device_connection_pool or DeviceConnectionPool()
+        scope.bind(
+            ResourceBinding.owned(
+                "device-connection-pool",
+                connections,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+    if isinstance(execution_pipeline.resource_manager, DeviceLeaseManager):
+        connections.bind_lease_manager(execution_pipeline.resource_manager)
     settings = SimpleNamespace(
         runtime_guards=resolved_config.runtime,
         context=resolved_config.context,
         provider_name=resolved_config.runtime_defaults.default_provider_name,
+        device_connection_pool=connections,
+        device_lease_manager=execution_pipeline.resource_manager,
     )
     return ApplicationRuntime(
         catalog=catalog,
@@ -90,7 +132,9 @@ def create_application(
         provider_factory=providers,
         context_assembler_factory=assemblers,
         settings=settings,
-        resource_scope=resource_scope,
+        resource_scope=scope,
+        application_starter=application_starter,
+        extension_runner=extension_runner,
     )
 
 

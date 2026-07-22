@@ -19,6 +19,8 @@ from pydantic import (
 )
 
 from homemaster.config.observability import ObservabilityConfig
+from homemaster.mcp.types import McpSettingsConfig
+from homemaster.permissions.config import PermissionSettingsConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HOMEMASTER_CONFIG_PATH = REPO_ROOT / "config" / "homemaster.yaml"
@@ -262,6 +264,88 @@ class SkillSourcesConfig(BaseModel):
         return values
 
 
+class ChannelPrincipalConfig(BaseModel):
+    principal_id: str
+    roles: tuple[str, ...] = ()
+    capabilities: tuple[str, ...] = ()
+
+
+class TelegramChannelConfig(BaseModel):
+    enabled: bool = False
+    token_env: str = "HOMEMASTER_TELEGRAM_BOT_TOKEN"
+    tenant_id: str = "local"
+    bot_name: str = "HomeMaster"
+    attachment_root: Path = Path("~/.homemaster/attachments/telegram")
+    principals: dict[str, ChannelPrincipalConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _enabled_channel_has_explicit_principals(self) -> TelegramChannelConfig:
+        if self.enabled and not self.principals:
+            raise ValueError("enabled Telegram channel requires explicit principals")
+        if "*" in self.principals:
+            raise ValueError("Telegram wildcard principals are not allowed")
+        return self
+
+
+class GatewayConfig(BaseModel):
+    enabled: bool = False
+    bus_capacity: int = Field(default=128, ge=1)
+    per_tenant_capacity: int = Field(default=64, ge=1)
+    per_session_capacity: int = Field(default=32, ge=1)
+    shutdown_deadline_s: float = Field(default=5.0, gt=0)
+    telegram: TelegramChannelConfig = Field(default_factory=TelegramChannelConfig)
+
+    @model_validator(mode="after")
+    def _capacity_is_consistent(self) -> GatewayConfig:
+        if self.per_session_capacity > self.bus_capacity:
+            raise ValueError("per-session Gateway capacity cannot exceed total capacity")
+        if self.per_tenant_capacity > self.bus_capacity:
+            raise ValueError("per-tenant Gateway capacity cannot exceed total capacity")
+        if self.per_session_capacity > self.per_tenant_capacity:
+            raise ValueError("per-session Gateway capacity cannot exceed tenant capacity")
+        if self.telegram.enabled and not self.enabled:
+            raise ValueError("Telegram cannot be enabled while Gateway is disabled")
+        return self
+
+
+class ExtensionApprovalConfig(BaseModel):
+    """Deployment-owned pin and grants for one trusted local extension."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    manifest_path: Path
+    extension_id: str = Field(pattern=r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
+    version: str = Field(pattern=r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
+    expected_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    granted_capabilities: tuple[str, ...] = ()
+    enabled_tool_ids: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _sequences_are_unique_and_nonempty(self) -> ExtensionApprovalConfig:
+        for label, values in (
+            ("granted capabilities", self.granted_capabilities),
+            ("enabled tool ids", self.enabled_tool_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"extension {label} must be unique")
+            if any(not value.strip() for value in values):
+                raise ValueError(f"extension {label} must be non-empty")
+        return self
+
+
+class ExtensionsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    approvals: tuple[ExtensionApprovalConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def _ids_are_unique(self) -> ExtensionsConfig:
+        ids = [approval.extension_id for approval in self.approvals]
+        if len(ids) != len(set(ids)):
+            raise ValueError("extension approval ids must be unique")
+        return self
+
+
 class HomeMasterConfig(BaseModel):
     providers: ProviderConfigSection = Field(default_factory=ProviderConfigSection)
     context: ContextPolicyConfig = Field(default_factory=ContextPolicyConfig)
@@ -274,6 +358,10 @@ class HomeMasterConfig(BaseModel):
     runtime_defaults: RuntimeDefaultsConfig = Field(default_factory=RuntimeDefaultsConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     skills: SkillSourcesConfig = Field(default_factory=SkillSourcesConfig)
+    mcp: McpSettingsConfig = Field(default_factory=McpSettingsConfig)
+    permissions: PermissionSettingsConfig = Field(default_factory=PermissionSettingsConfig)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
 
     _config_path: Path | None = PrivateAttr(default=None)
     _provenance: dict[str, ConfigSource] = PrivateAttr(default_factory=dict)

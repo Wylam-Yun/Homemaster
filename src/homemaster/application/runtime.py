@@ -6,7 +6,8 @@ import asyncio
 import inspect
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Any, Protocol
@@ -25,13 +26,15 @@ from homemaster.application.contracts import (
     RunStatus,
     RuntimeStopDecision,
 )
-from homemaster.application.resources import RunResourceScope
+from homemaster.application.resources import ResourceCleanupError, RunResourceScope
 from homemaster.application.session import (
     SessionGenerationError,
     SessionManager,
     SessionRuntime,
 )
 from homemaster.events.bus import EventBus
+from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.extensions import AggregatedHookResult, HookEvent, HookRunner
 from homemaster.observations import (
     ObservationLedger,
     ObservationProviderCommitter,
@@ -68,6 +71,9 @@ class ToolProfile(Protocol):
 
     @property
     def enabled_tool_ids(self) -> tuple[str, ...]: ...
+
+
+ApplicationStarter = Callable[["ApplicationRuntime"], Any]
 
 
 @dataclass(frozen=True)
@@ -165,10 +171,12 @@ class _GenerationFencedEventSink:
         runtime: SessionRuntime,
         generation: int,
         event_bus: EventBus,
+        gateway_generation: int | None = None,
     ) -> None:
         self._runtime = runtime
         self._generation = generation
         self._event_bus = event_bus
+        self._gateway_generation = gateway_generation
 
     @property
     def events(self) -> list[Any]:
@@ -178,10 +186,15 @@ class _GenerationFencedEventSink:
         return self._runtime.generation_guard(self._generation)
 
     def emit(self, event: Any) -> None:
-        self._event_bus.emit_guarded(event, self._guard)
+        self._event_bus.emit_guarded(self._bind_gateway_generation(event), self._guard)
 
     async def aemit(self, event: Any) -> None:
-        await self._event_bus.aemit_guarded(event, self._guard)
+        await self._event_bus.aemit_guarded(self._bind_gateway_generation(event), self._guard)
+
+    def _bind_gateway_generation(self, event: Any) -> Any:
+        if not isinstance(event, RuntimeEvent) or self._gateway_generation is None:
+            return event
+        return replace(event, gateway_generation=self._gateway_generation)
 
     async def publish(self, tool_call: Any, result: Any, context: Any, attempt_index: int) -> None:
         await self._event_bus.publish(
@@ -336,9 +349,7 @@ class _CanonicalToolExecutor:
                 self._record_result(context, result)
                 messages.append(result.to_message(tool_call_id=call.id, name=call.name))
             return messages
-        results = await self._pipeline.execute_many(
-            list(zip(tool_calls, contexts, strict=True))
-        )
+        results = await self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
         for _call, context, result in zip(tool_calls, contexts, results, strict=True):
             self._record_result(context, result)
         return [
@@ -417,9 +428,7 @@ class _CanonicalToolExecutor:
         if not refs:
             return
 
-        self.evidence_refs = tuple(
-            dict.fromkeys((*self.evidence_refs, *refs))
-        )
+        self.evidence_refs = tuple(dict.fromkeys((*self.evidence_refs, *refs)))
 
     @property
     def deadline(self) -> Deadline:
@@ -440,6 +449,8 @@ class ApplicationRuntime:
         context_assembler_factory: ContextAssemblerFactory,
         settings: Any = None,
         resource_scope: RunResourceScope | None = None,
+        application_starter: ApplicationStarter | None = None,
+        extension_runner: HookRunner | None = None,
     ) -> None:
         self.catalog = catalog
         self.profiles = dict(profiles)
@@ -451,13 +462,72 @@ class ApplicationRuntime:
         self.context_assembler_factory = context_assembler_factory
         self.settings = settings or SimpleNamespace()
         self.resource_scope = resource_scope or RunResourceScope()
+        self._application_starter = application_starter
+        self.extension_runner = extension_runner
+        self._start_lock = asyncio.Lock()
+        self._started = False
+        self._extension_stop_lock = asyncio.Lock()
+        self._extension_stop_started = False
+        self._extensions_closed = False
+
+    @property
+    def started(self) -> bool:
+        return self._started
+
+    async def start(self) -> None:
+        """Start application-owned resources exactly once on the owner loop."""
+
+        if self._started:
+            return
+        async with self._start_lock:
+            if self._started:
+                return
+            if self.resource_scope.closed:
+                raise RuntimeError("application resource scope is closed")
+            try:
+                if self._application_starter is not None:
+                    await _maybe_await(self._application_starter(self))
+                self.pipeline.validate_catalog()
+                if self.extension_runner is not None:
+                    hook_result = await self._execute_extension_hooks(
+                        HookEvent.APPLICATION_START,
+                        {"event": HookEvent.APPLICATION_START.value},
+                        session_id="application",
+                        run_id="application",
+                    )
+                    if hook_result.blocked:
+                        raise RuntimeError(
+                            f"application_start extension hook blocked: {hook_result.reason}"
+                        )
+            except BaseException as exc:
+                try:
+                    await self._close_extensions()
+                except BaseException as extension_cleanup_error:
+                    exc.add_note(str(extension_cleanup_error))
+                extensions_released = self.extension_runner is None or self.extension_runner.closed
+                if extensions_released:
+                    try:
+                        await self.resource_scope.aclose()
+                    except ResourceCleanupError as cleanup_error:
+                        exc.add_note(str(cleanup_error))
+                        exc.cleanup_error = cleanup_error  # type: ignore[attr-defined]
+                raise
+            self._started = True
 
     async def run(self, request: RunRequest) -> RunResult:
         if not isinstance(request, RunRequest):
             raise TypeError("request must be RunRequest")
-        await self.event_bus.start()
         profile = self._profile(request.profile)
+        view = self._view(request, profile)
+        await self.start()
+        await self.event_bus.start()
         backend = request.borrowed_environment
+        connection_pool = getattr(self.settings, "device_connection_pool", None)
+        if backend is not None and connection_pool is not None:
+            backend = connection_pool.bind_borrowed(
+                backend,
+                tenant_id=request.permission_subject.tenant_id,
+            )
         environment_ref = _backend_id(backend, request.profile)
         session = await self.session_manager.open_or_resume(
             request.session_id,
@@ -467,14 +537,27 @@ class ApplicationRuntime:
         session_id = session.session.session_id
         run_id = f"run-{uuid.uuid4().hex[:12]}"
 
-        async with self.session_manager.turn(
-            session_id,
-            environment_ref=environment_ref,
-        ) as (runtime, generation, _):
+        async with self._extension_turn(
+            self.session_manager.turn(
+                session_id,
+                environment_ref=environment_ref,
+            ),
+            request=request,
+            run_id=run_id,
+        ) as (runtime, generation, _, hook_blocked_reason):
+            if hook_blocked_reason:
+                return RunResult(
+                    run_id=run_id,
+                    session_id=session_id,
+                    status=RunStatus.FAILED,
+                    error_code="extension_run_start_blocked",
+                    metadata={"reason": hook_blocked_reason},
+                )
             run_event_sink = _GenerationFencedEventSink(
                 runtime,
                 generation,
                 self.event_bus,
+                gateway_generation=_gateway_generation(request),
             )
             if request.continuous_taskset and runtime.session.messages:
                 messages, _ = strip_old_images(
@@ -486,7 +569,6 @@ class ApplicationRuntime:
             if callable(bind_run):
                 await _maybe_await(bind_run(run_id, generation))
             runtime.application_control = _control_request(request, session_id)
-            view = self._view(request, profile)
             ledger = ObservationLedger(
                 run_id=run_id,
                 backend_id=_backend_id(backend, request.profile),
@@ -600,6 +682,7 @@ class ApplicationRuntime:
                 return result
 
     async def compact(self, session_id: str) -> CompactionResult:
+        await self.start()
         control = self.session_manager.get(session_id).application_control
         request = control if isinstance(control, RunRequest) else None
         if request is None:
@@ -659,6 +742,7 @@ class ApplicationRuntime:
         )
 
     async def aclose(self) -> None:
+        await self._close_extensions()
         try:
             await self.resource_scope.aclose()
         finally:
@@ -675,8 +759,149 @@ class ApplicationRuntime:
             raise ValueError(f"unknown application profile: {name}") from exc
 
     def _view(self, request: RunRequest, profile: ToolProfile) -> ToolView:
-        enabled = request.enabled_tool_ids or profile.enabled_tool_ids
+        enabled = (
+            profile.enabled_tool_ids
+            if request.enabled_tool_ids is None
+            else request.enabled_tool_ids
+        )
+        unknown = sorted(set(enabled) - set(profile.enabled_tool_ids))
+        if unknown:
+            raise ValueError(
+                f"request enabled_tool_ids may only narrow the selected profile: {unknown}"
+            )
         return self.catalog.freeze(enabled)
+
+    async def _close_extensions(self) -> None:
+        if self.extension_runner is None or self._extensions_closed:
+            return
+        async with self._extension_stop_lock:
+            if self._extensions_closed:
+                return
+            if not self._extension_stop_started:
+                quiesce_diagnostics = await self.extension_runner.quiesce()
+                if quiesce_diagnostics:
+                    raise RuntimeError("; ".join(quiesce_diagnostics))
+                self._extension_stop_started = True
+                await self._execute_extension_hooks(
+                    HookEvent.APPLICATION_STOP,
+                    {"event": HookEvent.APPLICATION_STOP.value},
+                    session_id="application",
+                    run_id="application",
+                    best_effort=True,
+                )
+            cleanup_diagnostics = await self.extension_runner.aclose()
+            await self.event_bus.aemit(
+                RuntimeEvent(
+                    type="extension.cleanup_completed",
+                    session_id="application",
+                    run_id="application",
+                    turn_index=None,
+                    payload={
+                        "generation": self.extension_runner.generation.generation,
+                        "success": self.extension_runner.closed and not cleanup_diagnostics,
+                        "diagnostics": list(cleanup_diagnostics),
+                    },
+                )
+            )
+            self._extensions_closed = self.extension_runner.closed
+            if not self._extensions_closed:
+                raise RuntimeError(
+                    "extension callbacks remain active; application resources were not closed"
+                )
+
+    @asynccontextmanager
+    async def _extension_turn(
+        self,
+        turn_context: Any,
+        *,
+        request: RunRequest,
+        run_id: str,
+    ):
+        async with turn_context as (runtime, generation, resumed):
+            blocked_reason = ""
+            try:
+                if self.extension_runner is not None:
+                    result = await self._execute_extension_hooks(
+                        HookEvent.RUN_START,
+                        {
+                            "event": HookEvent.RUN_START.value,
+                            "run_id": run_id,
+                            "session_id": runtime.session.session_id,
+                            "generation": generation,
+                            "profile": request.profile,
+                            "prompt": request.text,
+                        },
+                        session_id=runtime.session.session_id,
+                        run_id=run_id,
+                        principal_capabilities=request.permission_subject.capabilities,
+                    )
+                    blocked_reason = result.reason if result.blocked else ""
+                yield runtime, generation, resumed, blocked_reason
+            finally:
+                if self.extension_runner is not None:
+                    await self._execute_extension_hooks(
+                        HookEvent.RUN_END,
+                        {
+                            "event": HookEvent.RUN_END.value,
+                            "run_id": run_id,
+                            "session_id": runtime.session.session_id,
+                            "generation": generation,
+                            "profile": request.profile,
+                        },
+                        session_id=runtime.session.session_id,
+                        run_id=run_id,
+                        principal_capabilities=request.permission_subject.capabilities,
+                        best_effort=True,
+                    )
+
+    async def _execute_extension_hooks(
+        self,
+        event: HookEvent,
+        payload: Mapping[str, object],
+        *,
+        session_id: str,
+        run_id: str,
+        principal_capabilities: tuple[str, ...] = (),
+        best_effort: bool = False,
+    ) -> AggregatedHookResult:
+        runner = self.extension_runner
+        if runner is None:
+            return AggregatedHookResult()
+        started = time.monotonic()
+        result = await runner.execute(
+            event,
+            payload,
+            principal_capabilities=principal_capabilities,
+            best_effort=best_effort,
+        )
+        await self.event_bus.aemit(
+            RuntimeEvent(
+                type="extension.hook_completed",
+                session_id=session_id,
+                run_id=run_id,
+                turn_index=None,
+                payload={
+                    "event": event.value,
+                    "generation": runner.generation.generation,
+                    "blocked": result.blocked,
+                    "results": [
+                        {
+                            "extension_id": item.extension_id,
+                            "hook_id": item.hook_id,
+                            "success": item.success,
+                            "blocked": item.blocked,
+                            "timed_out": item.timed_out,
+                            "stale_generation": item.stale_generation,
+                            "reason": item.reason,
+                            "output": item.output,
+                        }
+                        for item in result.results
+                    ],
+                },
+                duration_ms=(time.monotonic() - started) * 1000,
+            )
+        )
+        return result
 
     def _commit_result(
         self,
@@ -757,8 +982,23 @@ def _backend_id(backend: object | None, profile: str) -> str:
 
 
 def _backend_generation(backend: object | None, fallback: int) -> int:
-    value = getattr(backend, "generation", fallback)
-    return value if isinstance(value, int) and value >= 0 else fallback
+    value = getattr(backend, "backend_generation", None)
+    if callable(value):
+        value = value()
+    if value is None:
+        value = getattr(backend, "generation", fallback)
+        if callable(value):
+            value = value()
+    return (
+        value if not isinstance(value, bool) and isinstance(value, int) and value >= 0 else fallback
+    )
+
+
+def _gateway_generation(request: RunRequest) -> int | None:
+    value = request.metadata.get("gateway_generation")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
 
 
 def _bind_profile_backend(deps: dict[str, object], profile: str, backend: object | None) -> None:
@@ -827,6 +1067,7 @@ def _control_request(request: RunRequest, session_id: str) -> RunRequest:
 
 __all__ = [
     "ApplicationRuntime",
+    "ApplicationStarter",
     "CompactionResult",
     "ContextAssemblerFactory",
     "Deadline",

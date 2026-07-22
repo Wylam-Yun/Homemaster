@@ -7,14 +7,24 @@ import sys
 import pytest
 
 from homemaster.adapters.profiles import EnvironmentToolProfile
+from homemaster.agent.context import ContextAssembler
+from homemaster.application.contracts import RunRequest, RunStatus
 from homemaster.application.factory import create_application
 from homemaster.application.resources import ApplicationResourceManager
 from homemaster.application.session import SessionManager
-from homemaster.config import HomeMasterConfig
+from homemaster.config import (
+    ContextPolicyConfig,
+    HomeMasterConfig,
+    ProviderProfileConfig,
+)
+from homemaster.devices import DeviceConnectionPool, DeviceLeaseError
 from homemaster.events.bus import EventBus
 from homemaster.observations import ObservationService
+from homemaster.permissions import HomePermissionPolicy
+from homemaster.providers.transports.types import TransportDelta
 from homemaster.tools.catalog import ToolCatalog
 from homemaster.tools.contracts import (
+    PermissionSubject,
     RegisteredTool,
     ToolDefinition,
     ToolExecutionResult,
@@ -29,6 +39,17 @@ class _Executor:
     async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments, context
         return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
+
+
+class _TextTransport:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.calls = 0
+
+    async def stream(self, *args, **kwargs):
+        del args, kwargs
+        self.calls += 1
+        yield TransportDelta(type="text", text_delta=self.text, finish_reason="stop")
 
 
 def _catalog_and_profile() -> tuple[ToolCatalog, EnvironmentToolProfile]:
@@ -116,6 +137,102 @@ def test_factory_default_pipeline_uses_application_resource_manager() -> None:
     )
 
     assert isinstance(application.pipeline.resource_manager, ApplicationResourceManager)
+    assert isinstance(application.pipeline.permission_policy, HomePermissionPolicy)
+    connections = application.settings.device_connection_pool
+    assert isinstance(connections, DeviceConnectionPool)
+    assert connections.lease_manager is application.pipeline.resource_manager
+    assert application.resource_scope.get("device-connection-pool").resource is connections
+
+
+@pytest.mark.asyncio
+async def test_factory_owns_and_closes_default_device_connection_pool() -> None:
+    catalog, profile = _catalog_and_profile()
+    application = create_application(
+        config=HomeMasterConfig(),
+        profiles={"test": profile},
+        catalog=catalog,
+    )
+    connections = application.settings.device_connection_pool
+
+    assert connections.closed is False
+    await application.aclose()
+    assert connections.closed is True
+
+
+@pytest.mark.asyncio
+async def test_factory_runtime_pins_borrowed_backend_to_first_tenant(tmp_path) -> None:
+    catalog, profile = _catalog_and_profile()
+    transports = {
+        "first": _TextTransport("first done"),
+        "second": _TextTransport("second done"),
+    }
+    provider_profile = ProviderProfileConfig(
+        name="fake",
+        api_format="openai",
+        base_url="https://provider.example.test/v1",
+        model="fake-model",
+    )
+
+    def provider_factory(request, run_id):
+        del run_id
+        return transports[request.text]
+
+    def context_factory(request, provider):
+        del request
+        return ContextAssembler(
+            provider=provider_profile,
+            policy=ContextPolicyConfig(),
+            system_prompt="system",
+            summary_client=provider,
+        )
+
+    application = create_application(
+        config=HomeMasterConfig.model_validate(
+            {"observability": {"session_dir": str(tmp_path / "sessions")}}
+        ),
+        profiles={"test": profile},
+        catalog=catalog,
+        provider_factory=provider_factory,
+        context_assembler_factory=context_factory,
+    )
+
+    class Backend:
+        backend_id = "physical-backend"
+        device_id = "device"
+        generation = 0
+
+        def __init__(self) -> None:
+            self.close_count = 0
+
+        def close(self) -> None:
+            self.close_count += 1
+
+    backend = Backend()
+
+    def request(text: str, tenant_id: str) -> RunRequest:
+        return RunRequest(
+            text=text,
+            profile="test",
+            environment=backend,
+            permission_subject=PermissionSubject(
+                subject_id=f"operator-{tenant_id}",
+                tenant_id=tenant_id,
+                channel="gateway",
+                capabilities=("device.control",),
+            ),
+        )
+
+    first = await application.run(request("first", "tenant-a"))
+    assert first.status is RunStatus.REPLIED
+    assert transports["first"].calls == 1
+
+    with pytest.raises(DeviceLeaseError) as error:
+        await application.run(request("second", "tenant-b"))
+    assert error.value.error_code == "cross_tenant_device"
+    assert transports["second"].calls == 0
+
+    await application.aclose()
+    assert backend.close_count == 0
 
 
 def test_factory_rejects_profile_catalog_mismatch() -> None:

@@ -622,8 +622,7 @@ def _validate_provider_attempt(
             and binding.observation_run_id == record.run_id
             and binding.observation_generation == record.generation
             and binding.observation_state_sequence == record.state_sequence
-            and binding.observation_capture_event_sequence
-            == record.capture_event_sequence
+            and binding.observation_capture_event_sequence == record.capture_event_sequence
         )
     ]
     if not matching:
@@ -740,7 +739,11 @@ def _backend_identity(backend: object | None, name: str) -> object | None:
 
 
 def _backend_sequence(backend: object | None, name: str) -> int | None:
-    value = _backend_identity(backend, name)
+    value = None
+    if name == "generation":
+        value = _backend_identity(backend, "backend_generation")
+    if value is None:
+        value = _backend_identity(backend, name)
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:

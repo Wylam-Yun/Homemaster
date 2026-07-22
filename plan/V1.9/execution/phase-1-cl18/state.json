@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "phase": "1-CL18",
+  "change_list": "CL-18-mcp-resources-tool-adapter",
+  "status": "VERIFYING",
+  "commits": {
+    "implementation_base": "eae74e8",
+    "candidate": "uncommitted_stacked_worktree"
+  },
+  "dependency_status": {
+    "cl17": "GATE_PASSED",
+    "exception": "User directed completion of CL-18 through CL-21 code and documentation on HPC2 before the consolidated hkust4 live gate; CL-18 cannot claim GATE_PASSED yet."
+  },
+  "review_policy": {
+    "implementation_review": "completed_stage_review",
+    "reason": "The user explicitly requested one read-only review after each CL-18 through CL-21 stage, plus the consolidated final review.",
+    "findings": "Five findings accepted and fixed: tenant artifact identity, resource preview URI disclosure, resource audit URI disclosure, audit sink cleanup isolation, and explicit probe audit wiring."
+  },
+  "subgoals": [
+    "Own MCP manager and connections at application lifetime with idempotent async startup and isolated cleanup.",
+    "Support stdio and streamable HTTP discovery/calls while reporting WebSocket as explicitly unsupported.",
+    "Preserve complete discovered JSON Schema and atomically register connected MCP tools into the Home Catalog.",
+    "Re-freeze the Home ToolView and revalidate skills only after final MCP aliases are known.",
+    "Persist raw tool output before redaction with opaque handles, exact ACL, tenant quota, TTL, and private atomic files.",
+    "Keep resource URI internal and expose only opaque resource ids to the model.",
+    "Keep ordinary dry-run connection-free and make explicit probe externally observable and secret-safe."
+  ],
+  "external_symbols": [
+    {
+      "symbols": [
+        "mcp.ClientSession",
+        "mcp.StdioServerParameters",
+        "mcp.client.stdio.stdio_client",
+        "mcp.client.streamable_http.streamable_http_client",
+        "mcp.server.fastmcp.FastMCP"
+      ],
+      "status": "VERIFIED_RUNTIME",
+      "environment": "mcp 1.28.1 on HPC2",
+      "result": "Installed signatures were inspected and real stdio plus loopback streamable HTTP protocol fixtures completed handshake, discovery, call/resource, close, and server shutdown."
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "focused_non_live",
+      "status": "pass",
+      "result": "MCP/artifact/application/CLI focused suites cover partial init, timeout, cancellation, disconnect, close isolation, optional dependency status, schema round-trip, alias conflict, per-run disablement, redaction, ACL/quota/TTL, dry-run and explicit probe semantics."
+    },
+    {
+      "kind": "local_protocol_blackbox",
+      "status": "pass",
+      "result": "FastMCP stdio subprocess and loopback streamable HTTP server each returned independently observed tool/resource payloads and completed cleanup without error."
+    },
+    {
+      "kind": "stage_review_remediation",
+      "status": "pass",
+      "result": "All five read-only reviewer findings were reproduced with RED tests, fixed, and verified by 40 MCP/artifact/application/CLI tests plus Ruff, format, and diff gates."
+    },
+    {
+      "kind": "deferred_series_gate",
+      "status": "pending",
+      "result": "Full non-live regression, final reviewer, hkust4 synchronization, and user-guided live acceptance remain deferred until CL-19 through CL-21 code and documentation are complete."
+    }
+  ],
+  "next": [
+    "Implement CL-19 permission, authentication, device connection, lease, and emergency-stop foundations on HPC2.",
+    "Do not access hkust4 until all CL-18 through CL-21 code and documentation are complete and the user provides live-test guidance."
+  ]
+}

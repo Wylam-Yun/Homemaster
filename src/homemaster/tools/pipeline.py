@@ -520,11 +520,7 @@ class ToolExecutionPipeline:
         policy = self.terminal_policy
         if policy is None:
             return None
-        method = (
-            "before_execute"
-            if callable(getattr(policy, "before_execute", None))
-            else "check"
-        )
+        method = "before_execute" if callable(getattr(policy, "before_execute", None)) else "check"
         value = await _call(policy, method, tool_call, context, default=None)
         if value is None:
             return None
@@ -585,14 +581,13 @@ class ToolExecutionPipeline:
                 "tool execution deadline expired while waiting for a resource",
             )
         except asyncio.CancelledError:
-            if (
-                acquired
-                and context.cancellation is not None
-                and context.cancellation.cancelled
-            ):
+            if acquired and context.cancellation is not None and context.cancellation.cancelled:
                 return _cancelled_after_attempt_result(definition)
             raise
         except Exception as exc:
+            typed = _resource_manager_error(exc)
+            if typed is not None:
+                return typed
             return _result(
                 ToolExecutionStatus.FAILURE,
                 "resource_acquire_failed",
@@ -765,6 +760,26 @@ def _result(
     )
 
 
+def _resource_manager_error(exc: BaseException) -> ToolExecutionResult | None:
+    code = getattr(exc, "error_code", None)
+    status_name = getattr(exc, "execution_status", None)
+    attempted = getattr(exc, "backend_attempted", None)
+    if not isinstance(code, str) or not isinstance(status_name, str):
+        return None
+    try:
+        status = ToolExecutionStatus(status_name)
+    except ValueError:
+        return None
+    if status is ToolExecutionStatus.OUTCOME_UNKNOWN:
+        return ToolExecutionResult(
+            status=status,
+            error=ToolExecutionError(code, str(exc)),
+            outcome_certainty=OutcomeCertainty.UNKNOWN,
+            backend_attempted=True,
+        )
+    return _result(status, code, str(exc), backend_attempted=bool(attempted))
+
+
 def _timeout_result(definition: ToolDefinition) -> ToolExecutionResult:
     if _is_mutating(definition):
         return ToolExecutionResult(
@@ -822,10 +837,14 @@ def _remaining_s(context: ToolExecutionContext) -> float | None:
 
 
 def _verifier_applies(definition: ToolDefinition, result: ToolExecutionResult) -> bool:
-    return result.status in {
-        ToolExecutionStatus.SUCCESS,
-        ToolExecutionStatus.FAILURE,
-    } and definition.verification_policy.execution_proof.value != "none"
+    return (
+        result.status
+        in {
+            ToolExecutionStatus.SUCCESS,
+            ToolExecutionStatus.FAILURE,
+        }
+        and definition.verification_policy.execution_proof.value != "none"
+    )
 
 
 def _observation_block(value: object) -> ToolExecutionResult | None:

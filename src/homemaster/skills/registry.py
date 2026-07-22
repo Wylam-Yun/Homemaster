@@ -68,6 +68,15 @@ class SkillRegistry:
     def record_issue(self, issue: SkillLoadIssue) -> None:
         self._issues.append(issue)
 
+    def replace_with(self, registry: SkillRegistry) -> None:
+        """Atomically replace this handle with an already validated registry snapshot."""
+
+        if not isinstance(registry, SkillRegistry):
+            raise TypeError("registry must be a SkillRegistry")
+        self._specs = dict(registry._specs)
+        self._lookup = dict(registry._lookup)
+        self._issues = list(registry._issues)
+
     def all(self) -> list[SkillSpec]:
         """Return all registered specs."""
         return list(self._specs.values())

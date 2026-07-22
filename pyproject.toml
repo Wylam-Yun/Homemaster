@@ -35,6 +35,12 @@ coworker = [
 alfworld = [
   "pyyaml>=6.0",
 ]
+mcp = [
+    "mcp>=1.0,<2",
+]
+gateway = [
+  "python-telegram-bot>=21,<23",
+]
 
 [project.scripts]
 homemaster = "homemaster.cli.app:app"

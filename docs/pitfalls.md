@@ -2,6 +2,231 @@
 
 最新记录放在最上方。
 
+## 2026-07-22 - 临时候选只同步 dev/mcp extra，Coworker 到浏览器创建才缺 Playwright
+
+严重程度：中。V1.9 临时候选通过了 Python import、Provider、MCP 和 Coworker preflight，但正式 run 在
+service、observer 和录屏启动后才以 `ModuleNotFoundError` 退出；preflight 没有核对执行 turn 所需的
+Playwright Python 模块。
+
+### 症状与根因
+
+- 临时环境只执行 `uv sync --extra dev --extra mcp`，漏掉 `pyproject.toml` 已声明的 `coworker` extra。
+- `config/coworker_demo.yaml` 的 `service_python` 指向 canonical Coworker venv，所以 service/preflight
+  正常；真正创建 `PlaywrightBrowserDriver` 的却是 candidate venv，两个 Python 边界不同。
+- 失败 wrapper 只保留 `ModuleNotFoundError` 类型；通过 run 阶段、缺失 `agent/` 目录和两个 venv 的
+  `find_spec("playwright")` 对比，才定位到 candidate 缺包。
+
+### 修法与教训
+
+- 按将要执行的入口同步全部 optional extra；Coworker candidate 必须包含 `coworker`，不能用 service
+  venv 的 preflight PASS 推断 runner venv 完整。
+- preflight 后再从实际 runner Python 启动 `sync_playwright()`，并核对配置的 Chrome executable；同时
+  保留首次失败 attempt，不覆盖 ledger。
+- 本次临时候选按锁文件补齐 Playwright 1.61.0、greenlet 3.5.3 和 pyee 13.0.1，未升级共享依赖。
+
+### 参考
+
+- `pyproject.toml`
+- `src/homemaster/benchmarking/coworker_demo/turn.py`
+- `scripts/coworker_demo/preflight.py`
+- `coworker-20260722-101417-86a6e389`
+
+## 2026-07-21 - V1.9 final review 暴露跨阶段所有权与外部失败语义假绿
+
+严重程度：高。CL-18～CL-21 的阶段 review、`1285 passed` non-live 和静态门都完成后，唯一整体 final
+review 仍发现 6 个可让控制面挂死、权限 fail-open、旧进度串代或扩展行为逃离 digest 的问题。
+
+### 症状与根因
+
+- Device event 先写内存，但 audit sink 异常仍从 `append()` 抛出；acquired audit 可跳过 lease `finally`，
+  emergency-stop requested audit 可阻止后端 stop。
+- Discovered MCP tool 没有 state effect，被 PLAN/default 当只读；连接后 timeout/call failure 又落成
+  confirmed failure，外部可能已变更却允许上层按普通失败处理。SDK annotation 尚未真环境核对。
+- Gateway 的 deadline 只覆盖 bus drain，active worker cancel/join、channel stop 和 service join 都可无界；
+  public-event backlog 在消费时读取 current generation，把旧 run progress 重新标成新代际。
+- Extension factory 已返回 cleanup 后，loader validation、reload candidate 与 composition 后续构建之间没有
+  连续 owner；async rollback 还是 fire-and-forget。
+- content digest 只覆盖 entrypoint；真实 `__file__` 与普通 absolute import 可读取未纳入 hash 的 adjacent
+  helper，helper 改变时 approval SHA 不变。
+
+### 修法与教训
+
+- Authoritative event 与 audit mirror 分层；sink failure typed 留存，分别黑盒断言 lease 释放和 stop 调用。
+- 未证明只读的外部 tool 按 mutating fail closed；已尝试且外部终态不明返回 `outcome_unknown`。
+- 用一个 absolute deadline 和 `asyncio.wait` 覆盖完整 shutdown；generation 在 event 生产时固化。
+- factory success 立即建立 rollback owner，async failure 必须 await cleanup；composition owner 持续到
+  ApplicationRuntime 接管。
+- manifest 显式列 dependency files，digest 和 same-bytes importer 覆盖它们并隐藏真实 `__file__`；同时
+  明确 trusted code 仍可硬编码任意外部路径，不能把内容锁定宣传成 sandbox。
+
+### 参考
+
+- `src/homemaster/devices/contracts.py`
+- `src/homemaster/mcp/adapter.py`
+- `src/homemaster/gateway/runtime.py`
+- `src/homemaster/application/runtime.py`
+- `src/homemaster/extensions/{contracts,loader,reloader}.py`
+- `src/homemaster/cli/composition.py`
+- `tests/homemaster/{devices,mcp,gateway,extensions}`
+
+## 2026-07-21 - CL-21 同源绿灯漏掉 timeout、reload 与 cleanup 绕过
+
+严重程度：高。CL-21 首轮 targeted 与完整 non-live 都通过，但 stage review 证明抗取消 callback 可让
+`asyncio.wait_for` 越过 deadline、hook-only reload 可漂移 version/grant、exact token 可绕过 canonical
+capability，失败 candidate 和 active-close 还会泄漏或提前清理资源。
+
+### 症状与根因
+
+- timeout 测试只用了会正常响应 cancellation 的 `asyncio.sleep`；`wait_for` 会等待抗取消 coroutine，既
+  不按 deadline 返回，也可能把迟到结果发布为成功。
+- reload digest 只覆盖 tool snapshot；无工具 extension 的 id/version/requested/granted capability 不在门内。
+- permission 循环把 exact tool token 当成每一项 required capability 的替代，破坏三方 capability 交集。
+- `enabled_tool_ids or profile_ids` 混淆“显式空集合”和“未提供”，且 subset 校验晚于 RUN_START hook。
+- `O_NOFOLLOW` 只放在 entrypoint 最后一个分量，中间目录 symlink 仍存在 TOCTOU；失败加载批次丢弃已返回
+  的 async cleanup，close 也没有先 join active callback。
+- dir-fd 改造后，same-bytes monkeypatch 收到的 path 从绝对路径变成相对路径；测试仍直接 `Path(path)`
+  写替换内容，因而在仓库根生成了 `extension.py`。测试全绿但工作区被污染，直到 final-review preflight
+  的 untracked audit 才发现。
+
+### 修法与教训
+
+- timeout 测试必须包含捕获 `CancelledError` 后继续运行的 callback；host 立即 fence result，并保持 task
+  active，直到它真实退出。Close 必须 seal/quiesce 后才运行 stop hook 和 cleanup。
+- reload boundary 独立覆盖 extension identity、version、requested/granted capability 与 tool plane；只有
+  hook bytes 可热换。
+- canonical capability 永远逐项核对；exact token 不替代 plugin/hook required capability。空 override 用
+  `None` sentinel，与空 tuple 分开，并在 hook 前拒绝越界请求。
+- 文件从 pinned root dir-fd 逐级无 symlink 打开。每个 partial/candidate/catalog failure 测试都断言 cleanup
+  的真实外部终态，而不是只看异常或 diagnostic。
+- monkeypatch/fake 回调若接收相对路径，必须显式锚定 `tmp_path`/fixture root；测试后审计新增 untracked
+  文件，不能把“pytest exit 0”当作工作区无副作用证明。
+
+### 参考
+
+- `src/homemaster/extensions/{loader,hook_runner,reloader}.py`
+- `src/homemaster/application/{contracts,runtime}.py`
+- `src/homemaster/permissions/policy.py`
+- `tests/homemaster/extensions/test_extensions.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
+## 2026-07-21 - 缺 capability 的 blocking hook 被静默跳过
+
+严重程度：高。CL-21 runner 最初把 principal capability 检查写进 hook 选择过滤器；callback 确实没有
+执行，但一个 `block_on_failure=true` 的安全 hook 也不会产生 denied result，run 会继续进入 provider。
+
+### 症状与根因
+
+- 测试只断言未授权 callback 调用次数为零，把“拒绝执行 hook”误当成“run 已 fail closed”。
+- matcher/event 选择与 authorization 被合并成一个过滤条件，授权失败没有可观察结果，也无法应用
+  blocking policy。
+- plugin tool 若允许空 `required_capabilities`，同样会让 deployment grant 停留在加载期，运行时只剩
+  generic `tool.read/tool.mutate`，三方 capability 交集没有真正闭合。
+
+### 修法与教训
+
+- 先按 event/matcher/priority 选择 hook，再单独做 principal authorization；未授权必须产生 typed denied
+  result，并按该 hook 的 blocking policy 决定是否停止当前 run。
+- plugin tool 强制声明至少一个 canonical `required_capabilities`，loader 核对 requested 与 deployment
+  grants，permission policy 再逐项核对 run principal。
+- 权限测试同时断言 callback 次数、denied reason、blocked aggregate 和 provider 调用次数，不能只验其中一项。
+
+### 参考
+
+- `src/homemaster/extensions/hook_runner.py`
+- `src/homemaster/extensions/loader.py`
+- `src/homemaster/permissions/policy.py`
+- `tests/homemaster/extensions/test_extensions.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
+## 2026-07-21 - Gateway queue/lifecycle boundary 让阶段测试假绿
+
+严重程度：高。CL-20 的 focused tests 都通过，但只覆盖了“消息入队时 generation 正确”和“正常
+channel stop”；旧 generation 已入队消息、未认证附件、重复 final、后台 task 异常和 shutdown drain
+没有被黑盒验证。
+
+### 症状与根因
+
+- egress 只在 producer 入队前检查 generation，旧 final 在 reconnect 后仍会发送。
+- Telegram handler 先下载附件再做 exact sender mapping，未授权 sender 可触发网络和磁盘副作用。
+- `assistant.reply` 与 `RunResult.final_reply` 都被发送，投影测试没有断言远程 outbound 的完整序列。
+- `serve()` 只等待 channel task；后台 ingress/egress/projection 失败不会 fail-fast，清理还会取消 egress
+  后再尝试 drain，导致关键消息丢失或 channel 未停止。
+- projection 的 key-based redaction 不能保护自由文本，bridge terminal reply 又绕过了 projection。
+
+### 修法与教训
+
+- 每条 outbound 在 egress 读取后重新核对 session generation 和 authoritative identity；队列中的旧消息也必须丢弃。
+- 认证必须先于任何 attachment `get_file`、下载或落盘；测试要断言未授权路径的下载调用次数为零。
+- Gateway 规定 terminal `RunResult` 是唯一 final；公共事件只补充非 terminal progress，并逐序列断言一次 final。
+- supervisor 必须观察全部 service tasks；shutdown 先拒绝新输入、保留 egress 排空 outbound，再停止 channel，
+  并对 drain deadline 和主动取消区别处理。
+- 自由文本和 terminal outbound 必须经过同一 projection；配置 secret、credential assignment、URL query
+  和宿主路径都要有独立脱敏断言。
+
+### 参考
+
+- `src/homemaster/gateway/runtime.py`
+- `src/homemaster/channels/impl/telegram.py`
+- `src/homemaster/events/public_projection.py`
+- `tests/homemaster/gateway/test_runtime.py`
+
+## 2026-07-21 - 空 connection pool 让设备租约只在 isolated tests 生效
+
+严重程度：高。Factory 正确创建并拥有 connection pool，pool/lease 的单测也全绿，但 production
+`RunRequest.environment` 从未注册进去；真实执行仍直接使用 borrowed backend。
+
+### 症状与根因
+
+- 测试只断言 factory settings 里“有一个空 pool”，没有让真实 `ApplicationRuntime.run()` 穿过它。
+- 无声明 identity 的 backend 按每次调用者 tenant 临时合成 identity，同一物理对象可形成两个 tenant
+  lease slot 并发执行。
+- disconnect 从冻结的 registration generation 每次都计算 `+1`；stop 后会回退或 stale。close 和
+  同步 `mark_disconnected` 完全不通知 lease manager。
+- FIFO future 被 grant 后没有进入 backend 前的二次锁内核对，stop 可在该窗口抢先但 waiter 仍执行。
+
+### 修法与教训
+
+- 写一条 factory-to-runtime 接线测试，要求同一 borrowed backend 在 provider 前绑定首个 tenant，跨
+  tenant 重绑 fail closed，application close 不关闭 borrowed resource。
+- 所有 terminal transition 从 lease owner 原子取得下一 generation；不得从 registration 快照重算。
+- future grant 不是 backend 授权终态；yield 前必须在同一 registry lock 内复核 active lease、generation
+  和 READY state。
+- 外部 stop 返回与状态查询分别规范化成内部 typed receipt，保留两次 return code；raw 字符串不背书。
+
+### 参考
+
+- `src/homemaster/application/runtime.py`
+- `src/homemaster/devices/connection_pool.py`
+- `src/homemaster/devices/lease_manager.py`
+- `tests/homemaster/application/test_factory.py`
+
+
+## 2026-07-21 - principal/tenant 混淆与 resource URI 让 MCP 安全测试假绿
+
+严重程度：高。MCP 原始输出看似按 tenant 分区、resource list 也只暴露 opaque id，但实际写 artifact
+时使用了 principal id，resource read payload 和 audit 又把 URI 原样带出。
+
+### 症状与根因
+
+- 测试把 `subject_id` 和预期 `tenant_id` 都写成 `tenant-a`，掩盖了 ACL/quota domain 取错字段。
+- `mcp_list_resources` 隐藏 URI 不代表 `read_resource` 返回的 `contents[*].uri` 也被隐藏；普通递归
+  credential redaction 不会把 URI 本身视为 secret。
+- audit 被当成旁路日志，既记录完整 URI，又允许 sink 异常改变连接状态或中断 cleanup。
+
+### 修法与教训
+
+- ACL 测试必须使用不同 principal/tenant 值，并从真实 tenant partition 回读 raw bytes。
+- 对 resource discovery、read payload、model preview、audit 分别断言 URI 边界；raw artifact 可在 ACL 内
+  保真，模型与 audit 只能看到 opaque id/hash。
+- 可观测 sink 故障必须 typed 留存且与被观测生命周期隔离；用多连接 close 测试证明每个实例都清理。
+
+### 参考
+
+- `src/homemaster/mcp/adapter.py`
+- `src/homemaster/mcp/client.py`
+- `tests/homemaster/mcp/test_adapter.py`
+- `tests/homemaster/mcp/test_client.py`
+
 ## 2026-07-21 - live_api 未 await 异步 Provider，正式请求根本没有发出
 
 严重程度：高。V1.9 release 恢复时，最小真实 Provider gate 在读取响应前直接拿到了 coroutine，

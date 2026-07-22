@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_home_profile
+from homemaster.adapters.profiles import EnvironmentToolProfile, build_home_profile
 from homemaster.application import ApplicationRuntime, ResourceBinding, ResourceLifetime
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
+from homemaster.artifacts import ToolOutputStore
 from homemaster.config import HomeMasterConfig, load_config
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import (
@@ -19,6 +20,17 @@ from homemaster.events.sinks import (
     JsonlTraceSink,
     MessagesLogSink,
 )
+from homemaster.extensions import (
+    ExtensionApproval,
+    ExtensionReloader,
+    HookRunner,
+    dispose_extension_generation,
+    load_extension_generation,
+    register_extension_tools_atomically,
+)
+from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
+from homemaster.mcp.audit import McpAuditLog
+from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.observations import ObservationCapture, ObservationService
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
@@ -31,6 +43,10 @@ class HomeApplicationBundle:
     run_dir: Path
     trace_path: Path
     skill_registry: SkillRegistry
+    mcp_manager: McpClientManager | None = None
+    mcp_audit_path: Path | None = None
+    extension_runner: HookRunner | None = None
+    extension_reloader: ExtensionReloader | None = None
 
 
 class HomeCliBackend:
@@ -87,6 +103,7 @@ def create_home_application(
     verbose: bool = False,
     quiet: bool = False,
     console_show_replies: bool = True,
+    mcp_connector: Connector | None = None,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
@@ -100,7 +117,67 @@ def create_home_application(
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
     )
-    skill_registry = load_home_skills(resolved, profile)
+    extension_runner: HookRunner | None = None
+    extension_reloader: ExtensionReloader | None = None
+    extension_generation = None
+    if resolved.extensions.approvals:
+        approvals = _extension_approvals(resolved)
+        extension_generation = load_extension_generation(approvals, generation=1)
+        try:
+            enabled_extension_ids = register_extension_tools_atomically(
+                profile.catalog,
+                extension_generation,
+            )
+            profile = EnvironmentToolProfile(
+                environment="home",
+                catalog=profile.catalog,
+                view=profile.catalog.freeze((*profile.enabled_tool_ids, *enabled_extension_ids)),
+            )
+        except BaseException:
+            dispose_extension_generation(extension_generation)
+            raise
+        extension_runner = HookRunner(extension_generation)
+        extension_reloader = ExtensionReloader(extension_runner)
+    try:
+        return _finish_home_application(
+            resolved=resolved,
+            label=label,
+            profile=profile,
+            observation=observation,
+            extension_runner=extension_runner,
+            extension_reloader=extension_reloader,
+            progress=progress,
+            verbose=verbose,
+            quiet=quiet,
+            console_show_replies=console_show_replies,
+            mcp_connector=mcp_connector,
+        )
+    except BaseException:
+        if extension_generation is not None:
+            dispose_extension_generation(extension_generation)
+        raise
+
+
+def _finish_home_application(
+    *,
+    resolved: HomeMasterConfig,
+    label: str,
+    profile: EnvironmentToolProfile,
+    observation: ObservationService,
+    extension_runner: HookRunner | None,
+    extension_reloader: ExtensionReloader | None,
+    progress: bool,
+    verbose: bool,
+    quiet: bool,
+    console_show_replies: bool,
+    mcp_connector: Connector | None,
+) -> HomeApplicationBundle:
+    """Finish composition while the caller retains extension rollback ownership."""
+
+    run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
+    skill_registry = (
+        SkillRegistry() if resolved.mcp.servers else load_home_skills(resolved, profile)
+    )
     bus = EventBus()
     scope = RunResourceScope()
     trace = JsonlTraceSink(run_dir)
@@ -129,6 +206,58 @@ def create_home_application(
             release=lambda callback: callback(),
         )
     )
+    mcp_manager: McpClientManager | None = None
+    mcp_audit_path: Path | None = None
+    application_starter = None
+    if resolved.mcp.servers:
+        mcp_audit_path = run_dir / "mcp_audit.jsonl"
+        audit_log = McpAuditLog(mcp_audit_path)
+        mcp_manager = McpClientManager(
+            resolved.mcp.servers,
+            connector=mcp_connector,
+            connect_timeout_s=resolved.mcp.connect_timeout_s,
+            call_timeout_s=resolved.mcp.call_timeout_s,
+            audit_sink=audit_log,
+        )
+        scope.bind(
+            ResourceBinding.owned(
+                "mcp-manager",
+                mcp_manager,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+
+        async def start_mcp(application: ApplicationRuntime) -> None:
+            assert mcp_manager is not None
+            await mcp_manager.connect_all()
+            store = ToolOutputStore(
+                Path(resolved.mcp.artifact_root),
+                quota_bytes=resolved.mcp.artifact_quota_bytes,
+                ttl_seconds=resolved.mcp.artifact_ttl_seconds,
+            )
+            application.resource_scope.bind(
+                ResourceBinding.owned(
+                    "mcp-tool-output-store",
+                    store,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
+            registered = build_mcp_registered_tools(
+                mcp_manager,
+                store,
+                preview_chars=resolved.mcp.preview_chars,
+            )
+            mcp_ids = register_mcp_tools_atomically(application.catalog, registered)
+            current = application.profiles["home"]
+            final_profile = EnvironmentToolProfile(
+                environment="home",
+                catalog=application.catalog,
+                view=application.catalog.freeze((*current.enabled_tool_ids, *mcp_ids)),
+            )
+            application.profiles["home"] = final_profile
+            skill_registry.replace_with(load_home_skills(resolved, final_profile))
+
+        application_starter = start_mcp
     application = create_application(
         config=resolved,
         profiles={"home": profile},
@@ -136,6 +265,8 @@ def create_home_application(
         observation_service=observation,
         event_bus=bus,
         resource_scope=scope,
+        application_starter=application_starter,
+        extension_runner=extension_runner,
     )
     return HomeApplicationBundle(
         application=application,
@@ -143,7 +274,31 @@ def create_home_application(
         run_dir=run_dir,
         trace_path=run_dir / "runtime_events.jsonl",
         skill_registry=skill_registry,
+        mcp_manager=mcp_manager,
+        mcp_audit_path=mcp_audit_path,
+        extension_runner=extension_runner,
+        extension_reloader=extension_reloader,
     )
+
+
+def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, ...]:
+    config_dir = config.config_path.parent if config.config_path is not None else Path.cwd()
+    approvals: list[ExtensionApproval] = []
+    for value in config.extensions.approvals:
+        manifest_path = value.manifest_path.expanduser()
+        if not manifest_path.is_absolute():
+            manifest_path = config_dir / manifest_path
+        approvals.append(
+            ExtensionApproval(
+                manifest_path=manifest_path,
+                extension_id=value.extension_id,
+                version=value.version,
+                expected_sha256=value.expected_sha256,
+                granted_capabilities=value.granted_capabilities,
+                enabled_tool_ids=value.enabled_tool_ids,
+            )
+        )
+    return tuple(approvals)
 
 
 def load_home_skills(

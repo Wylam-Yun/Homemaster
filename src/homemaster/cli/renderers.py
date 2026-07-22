@@ -59,7 +59,7 @@ def render_dry_run(preview: Mapping[str, object], output_format: OutputFormat) -
                 f"model: {settings['model']}",
                 f"tools: {len(tools)}",
                 f"mcp: {preview['mcp_discovery']}",
-                "external_io: false",
+                f"external_io: {str(bool(preview['external_io'])).lower()}",
             ]
         )
     if output_format is OutputFormat.JSON:

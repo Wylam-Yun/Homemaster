@@ -151,11 +151,24 @@ class RunRequest:
     resume: bool = False
     continuous_taskset: bool = False
     environment: EnvironmentBackend | ResourceBinding | None = None
-    enabled_tool_ids: tuple[str, ...] = ()
+    enabled_tool_ids: tuple[str, ...] | None = None
     run_policy: RunPolicy = field(default_factory=RunPolicy)
     terminal_policy: TerminalPolicy | None = None
     permission_subject: PermissionSubject = field(
-        default_factory=lambda: PermissionSubject(subject_id="local-user", channel="application")
+        default_factory=lambda: PermissionSubject(
+            subject_id="local-user",
+            channel="application",
+            roles=("local_operator",),
+            tenant_id="local",
+            capabilities=(
+                "tool.read",
+                "tool.mutate",
+                "tool.auto",
+                "device.read",
+                "device.control",
+                "mcp.call",
+            ),
+        )
     )
     dependencies: Mapping[str, object] = field(default_factory=dict)
     metadata: Mapping[str, object] = field(default_factory=dict)
@@ -188,8 +201,9 @@ class RunRequest:
             raise TypeError("terminal_policy must provide before_execute() or check()")
         if not isinstance(self.permission_subject, PermissionSubject):
             raise TypeError("permission_subject must be PermissionSubject")
-        ids = _freeze_tool_ids(self.enabled_tool_ids)
-        object.__setattr__(self, "enabled_tool_ids", ids)
+        if self.enabled_tool_ids is not None:
+            ids = _freeze_tool_ids(self.enabled_tool_ids)
+            object.__setattr__(self, "enabled_tool_ids", ids)
         object.__setattr__(self, "dependencies", _freeze_dependency_mapping(self.dependencies))
         metadata = _freeze_json_mapping(self.metadata)
         object.__setattr__(self, "metadata", metadata)

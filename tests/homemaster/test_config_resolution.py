@@ -248,3 +248,55 @@ def test_config_rejects_unsafe_project_skill_directory(tmp_path: Path) -> None:
         assert "safe relative paths" in str(exc)
     else:
         raise AssertionError("unsafe project skill path should fail")
+
+
+def test_extensions_default_disabled_and_duplicate_approvals_fail_closed(
+    tmp_path: Path,
+) -> None:
+    assert load_config(tmp_path / "missing.yaml").extensions.approvals == ()
+    path = tmp_path / "homemaster.yaml"
+    path.write_text(
+        """
+extensions:
+  approvals:
+    - &approval
+      manifest_path: extension/manifest.json
+      extension_id: example.audit
+      version: 1.0.0
+      expected_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    - *approval
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(path)
+    except Exception as exc:
+        assert "approval ids must be unique" in str(exc)
+    else:
+        raise AssertionError("duplicate extension approvals must fail")
+
+
+def test_extension_approval_hash_and_version_are_typed(tmp_path: Path) -> None:
+    path = tmp_path / "homemaster.yaml"
+    path.write_text(
+        """
+extensions:
+  approvals:
+    - manifest_path: extension/manifest.json
+      extension_id: Example.Audit
+      version: latest
+      expected_sha256: not-a-digest
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(path)
+    except Exception as exc:
+        message = str(exc)
+        assert "extensions.approvals.0.extension_id" in message
+        assert "extensions.approvals.0.version" in message
+        assert "extensions.approvals.0.expected_sha256" in message
+    else:
+        raise AssertionError("untyped extension approval pins must fail")

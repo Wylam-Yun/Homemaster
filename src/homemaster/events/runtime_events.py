@@ -12,25 +12,29 @@ _UTC = timezone.utc  # noqa: UP017
 
 # All known event types. Used for documentation and test validation.
 # RuntimeEvent.type is str for forward compatibility.
-KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
-    "runtime.turn_started",
-    "runtime.turn_completed",
-    "runtime.turn_failed",
-    "runtime.budget_exhausted",
-    "runtime.cancelled",
-    "assistant.thinking",
-    "assistant.reply",
-    "context.compaction",
-    "context.length_error",
-    "usage.update",
-    "transport.request_started",
-    "transport.delta",
-    "transport.response_completed",
-    "transport.request_failed",
-    "tool.call_started",
-    "tool.call_completed",
-    "tool.call_failed",
-})
+KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "runtime.turn_started",
+        "runtime.turn_completed",
+        "runtime.turn_failed",
+        "runtime.budget_exhausted",
+        "runtime.cancelled",
+        "assistant.thinking",
+        "assistant.reply",
+        "context.compaction",
+        "context.length_error",
+        "usage.update",
+        "transport.request_started",
+        "transport.delta",
+        "transport.response_completed",
+        "transport.request_failed",
+        "tool.call_started",
+        "tool.call_completed",
+        "tool.call_failed",
+        "extension.hook_completed",
+        "extension.cleanup_completed",
+    }
+)
 
 
 @dataclass
@@ -51,6 +55,7 @@ class RuntimeEvent:
     timestamp: str = field(default_factory=lambda: datetime.now(_UTC).isoformat())
     event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     duration_ms: float | None = None
+    gateway_generation: int | None = None
 
 
 class EventSink(Protocol):

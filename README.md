@@ -82,6 +82,44 @@ uv run homemaster --dry-run -p '检查药盒状态' --output-format json
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)，owner 与数据流见
 [Application Runtime 架构](docs/architecture/application-runtime.md)。
 
+## MCP 工具与资源
+
+安装可选依赖后，Home application 可连接 stdio 或 streamable HTTP MCP server：
+
+```bash
+uv sync --extra dev --extra mcp
+uv run homemaster --dry-run -p '检查外部工具' --output-format json
+```
+
+普通 `--dry-run` 只审计脱敏静态配置，不连接 server；显式增加 `--probe` 才会产生外部 I/O、
+执行 discovery 并立即关闭临时连接，同时写入 `trace_dir/mcp_probe_audit.jsonl`。真实
+one-shot/Interactive application 在首次 run 前只启动一次
+MCP manager，连接成功的工具会加入 Home ToolView，失败 server 不影响 builtin。MCP nested JSON
+Schema 保真进入 Catalog；resource URI 仅在 adapter 内部保存，模型只见 opaque `resource_id`。
+所有 tool/resource 原始结果先按 tenant/session/run 写入 ACL artifact，模型和事件只接收脱敏、限长
+preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audit 写入故障不会阻断连接清理。
+在 MCP SDK 的 mutation/read-only annotation 经真环境核对前，普通 discovered tool 一律按可能修改
+远端状态处理：PLAN 拒绝、DEFAULT 要求确认；已连接且调用失败返回不可自动重试的
+`outcome_unknown`。`mcp_list_resources` 与 `mcp_read_resource` 保持只读。
+配置示例和 skill 引用方式见
+[Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。
+
+## 权限、设备租约与急停
+
+每次工具执行都经过同一条 `ToolExecutionPipeline` 权限门。远程 Bearer credential 只能映射到预先
+配置的 typed principal、tenant 和 capability；prompt、metadata、skill、slash command 与附件都不能
+扩权。机器人读操作要求 `device.read`，写操作要求 `device.control`，MCP 调用要求 `mcp.call`。
+
+application 在每个 run 边界把 borrowed backend 绑定为 tenant-pinned connection handle，并与
+generation-aware FIFO lease 共用一个单调 generation owner。同一设备的写动作串行，不同设备可并发；
+断线、close、stale generation 和 emergency-stop 会在 backend 前拒绝等待动作。已经开始但被 fence
+的动作返回 `outcome_unknown`，不会自动重试。急停走独立 control path，只有 typed control receipt
+成功且独立 typed state query 确认为 stopped 才成功；两次 return code 都进入结果与 audit。lease、
+disconnect、fence 和 stop 事件追加到
+`observability.trace_dir/device_audit.jsonl`，文件权限为 `0600`。
+audit sink 是旁路镜像；写入失败会形成 typed `DeviceAuditFailure`，authoritative 内存事件、lease
+释放和 emergency-stop 后端调用仍继续。
+
 ## 跑一个任务
 
 ```bash
@@ -185,6 +223,28 @@ Use `--progress` to stream a compact progress summary to stderr during the run.
 > but never raw LLM prompts, responses, or API keys. The `sanitize_for_log()` function
 > strips sensitive content before writing to the trace sink.
 
+## Trusted Extensions（CL-21）
+
+Home extensions 默认关闭。部署者必须在 `extensions.approvals` 中固定 manifest 路径、extension id、
+SemVer、host 重新计算的 canonical SHA-256、deployment grants 和 enabled tool ids。manifest 的
+requested capabilities 不能自授权；plugin tool 的权限是 requested、deployment grant 与当前
+run principal capabilities 的交集。plugin tool 还必须使用 `ExecutionBackend.PLUGIN`、精确
+`extension:<id>@<version>#sha256:<digest>` provenance 和非空 `required_capabilities`；exact tool token
+只能替代通用读写能力，不能替代这些 canonical capabilities。entrypoint 从 pinned manifest directory
+fd 逐级拒绝 symlink，校验与执行始终使用同一份字节。
+
+manifest 可用 `dependencies` 显式列出同目录 flat `.py` 依赖；canonical digest 覆盖 manifest、
+entrypoint 与排序后的依赖字节，依赖只从同一批已验证 bytes 加载。未声明的同目录 import fail closed，
+执行模块的 `__file__` 不暴露批准目录。MVP 只支持显式批准的可信本地 Python 文件和 async lifecycle
+hooks，不是 hostile-code sandbox；硬编码任意外部绝对路径仍属于部署者批准 trusted code 的权限，
+timeout/cancel 会按 deadline 立即 fence 结果；抗取消 task 仍计入 active 并阻止 reload/cleanup，但不撤销
+任意副作用。hook
+不能成为 permission、device safety、terminal、verifier 或 scorer 的唯一 owner。reload 只允许
+hooks-only candidate；extension version、tool/provenance/capability/profile 变化返回 `restart_required`，
+活动 callback 存在时返回 `busy`。省略 request `enabled_tool_ids` 使用 profile；显式空 tuple 禁用全部工具，
+任何越界 id 在 lifecycle hook 前拒绝。所有 hook result 和 lifecycle trace 都经过统一脱敏。CL-21 当前只在 HPC2 做
+non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测试等待用户指导。
+
 ## 当前边界
 
 - 真实：Mimo、BGE-M3。
@@ -204,6 +264,28 @@ internal id 注册环境 variant，ToolView 决定每个 run 的可见与可执�
 **Skills**：通过 `skill_view` 实现 progressive disclosure。builtin/user/project/explicit 来源在
 composition 时完成路径和 capability 校验，运行中不能修改 frozen ToolView 或扩大 permission。
 
+**MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
+结果并重新冻结 Home ToolView；连接、调用、断线和关闭写入脱敏 JSONL audit。WebSocket 配置会
+明确报告 unsupported，不会静默降级。
+
+**Permissions/Devices**：Gateway credential 产生 immutable principal/capabilities；统一 execution chain 在
+每次调用前授权。application-owned connection pool 与 physical-device FIFO lease 共用 generation，
+disconnect/emergency-stop fencing 阻止等待动作，并把已开始动作标为不可自动重试的未知结果。
+
+**Gateway/Channels**：首个 remote channel 为 Telegram long polling。Gateway 从 exact sender mapping
+产生 typed tenant/channel/chat/thread/sender identity，确定性路由到 application-owned session，并只向
+现有 `ApplicationRuntime.run(RunRequest)` 提交请求。bounded priority bus 对 progress 合并/淘汰，
+final/error/cancel 保留并反压；远程 progress 只能来自严格 allowlist/redaction 的公共事件投影，终态
+`RunResult` 只发送一次 final。每条 outbound 在 egress 重新核对 generation，shutdown 在 deadline 内先
+排空 outbound 再停止 channel；未认证 sender 在任何附件下载前即被拒绝。
+默认配置关闭 Gateway，安装 `gateway` extra、配置环境变量 token 与 sender principal 后运行：
+
+```bash
+uv sync --extra dev --extra gateway
+export HOMEMASTER_TELEGRAM_BOT_TOKEN='...'
+uv run homemaster gateway --config config/homemaster.yaml
+```
+
 **目录结构**：
 
 ```text
@@ -212,8 +294,14 @@ agent/      AgentRuntime、context 与 provider turn
 tools/      canonical contracts、Catalog/ToolView 与统一执行链
 domain/     Home domain tools and contracts
 skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
+mcp/        MCP config/status、stdio/HTTP client、Catalog adapter 与 audit
+artifacts/  tenant/session/run 分区的 opaque tool-output store
+permissions/ typed 配置、capability policy 与路径/命令规则
+devices/    connection pool、generation lease、emergency stop 与 JSONL audit
+channels/   typed channel DTO、bounded priority bus、router 与 Telegram adapter
+gateway/    credential、ApplicationRuntime bridge、cancel/recovery 与公共事件边界
 memory/     RAG retrieval / index / tokenizer / runtime memory store
-events/     RuntimeEvent schema, sinks, sanitizer
+events/     RuntimeEvent schema, sinks, sanitizer 与 remote public projection
 config/     RuntimeSettings 和 path/config helpers
 providers/  LLM/embedding provider clients
 cli/        CLI 入口（run, doctor, interactive shell）

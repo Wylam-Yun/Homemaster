@@ -1,0 +1,13 @@
+repo: https://github.com/nanobot-ai/nanobot
+commit: 473ae5ef18394ab839a3364eee66836ef9776902
+vendored_via: ../OpenHarness@9b2efd795c6aa09f88b0c257d269a9e518da6ae7
+synced: 2026-07-21T00:00:00Z
+paths:
+  nanobot/bus/ -> contracts.py,bus.py
+  nanobot/channels/base.py -> impl/base.py
+  nanobot/channels/telegram.py -> impl/telegram.py
+home_master_deltas:
+  - authenticated typed identity replaces metadata and session-key overrides
+  - bounded priority queues replace unbounded asyncio queues
+  - application-owned runtime replaces per-session engine construction
+  - Telegram credentials are loaded from an environment variable and exact sender mappings

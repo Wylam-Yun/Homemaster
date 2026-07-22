@@ -35,7 +35,7 @@ def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
     assert report == {
         "status": "PASS",
         "upstream_commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
-        "port_count": 7,
+        "port_count": 14,
     }
 
 
@@ -156,18 +156,15 @@ def test_port_provenance_rejects_symbols_pytest_will_not_collect() -> None:
             "tests/test_x.py::test_case",
         ),
         (
-            b"def test_disabled():\n    pass\n"
-            b"test_disabled.__test__ = False\n",
+            b"def test_disabled():\n    pass\ntest_disabled.__test__ = False\n",
             "tests/test_x.py::test_disabled",
         ),
         (
-            b"def test_rebound():\n    pass\n"
-            b"test_rebound = None\n",
+            b"def test_rebound():\n    pass\ntest_rebound = None\n",
             "tests/test_x.py::test_rebound",
         ),
         (
-            b"def test_disabled_zero():\n    pass\n"
-            b"test_disabled_zero.__test__ = 0\n",
+            b"def test_disabled_zero():\n    pass\ntest_disabled_zero.__test__ = 0\n",
             "tests/test_x.py::test_disabled_zero",
         ),
         (
@@ -252,9 +249,10 @@ def test_environment_identity_records_required_hkust4_alfworld_evidence(
         conda_explicit=b"@EXPLICIT\npackage\n",
     )
     assert identity["alfworld"]["environment_name"] == "hm_alfworld"
-    assert identity["alfworld"]["conda_explicit_sha256"] == hashlib.sha256(
-        b"@EXPLICIT\npackage\n"
-    ).hexdigest()
+    assert (
+        identity["alfworld"]["conda_explicit_sha256"]
+        == hashlib.sha256(b"@EXPLICIT\npackage\n").hexdigest()
+    )
     assert set(identity["imports"]) == {"homemaster", "alfworld", "ai2thor"}
     assert identity["coworker"]["declared_file_sha256"]
     assert identity["python"]["executable"] == str(conda_prefix / "bin/python")
@@ -328,9 +326,7 @@ def test_import_identity_resolves_symlinks_before_containment(
         "scripts.v19_release.capture_environment_identity.importlib.util.find_spec",
         lambda package: SimpleNamespace(origin=str(candidate_link)),
     )
-    homemaster = _import_identity(
-        "homemaster", repo_root=candidate, conda_prefix=None
-    )
+    homemaster = _import_identity("homemaster", repo_root=candidate, conda_prefix=None)
     assert homemaster["origin"] == str(outside_origin)
     assert homemaster["origin_within_repo"] is False
 
@@ -340,9 +336,7 @@ def test_import_identity_resolves_symlinks_before_containment(
         "scripts.v19_release.capture_environment_identity.importlib.util.find_spec",
         lambda package: SimpleNamespace(origin=str(conda_link)),
     )
-    alfworld = _import_identity(
-        "alfworld", repo_root=candidate, conda_prefix=conda_prefix
-    )
+    alfworld = _import_identity("alfworld", repo_root=candidate, conda_prefix=conda_prefix)
     assert alfworld["origin"] == str(outside_origin)
     assert alfworld["origin_within_conda_prefix"] is False
 
@@ -397,17 +391,17 @@ def test_baseline_capture_writes_exact_sanitized_contract_artifacts(
         )
         == 0
     )
-    assert {
-        path.name: path.read_bytes() for path in output.iterdir()
-    } == {path.name: path.read_bytes() for path in second.iterdir()}
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == {
+        path.name: path.read_bytes() for path in second.iterdir()
+    }
 
 
 def test_baseline_canonicalizes_runtime_duration_and_rejects_upstream_head_drift(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert _sanitize_output(
-        "875 passed in 23.13s", repo_root=REPO_ROOT
-    ) == "875 passed in <DURATION>"
+    assert (
+        _sanitize_output("875 passed in 23.13s", repo_root=REPO_ROOT) == "875 passed in <DURATION>"
+    )
     leaked = _sanitize_output(
         "Authorization: Bearer sk-phase1-secret x-api-key=abc123 env=opaque-value",
         repo_root=REPO_ROOT,

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from homemaster.adapters.profiles import build_home_profile
 from homemaster.cli.composition import load_home_skills
 from homemaster.config import ConfigError, HomeMasterConfig, load_config
+from homemaster.mcp.audit import McpAuditLog
+from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.observations import ObservationService
 
 
@@ -50,6 +53,16 @@ def build_dry_run_preview(
         memory_path=memory_path,
     )
     skill_registry = load_home_skills(resolved, profile)
+    mcp_statuses: list[dict[str, object]] = []
+    external_io = False
+    if probe and resolved.mcp.servers:
+        mcp_statuses = asyncio.run(_probe_mcp(resolved))
+        mcp_discovery = "probed"
+        external_io = True
+    elif resolved.mcp.servers:
+        mcp_discovery = "unknown_until_connect"
+    else:
+        mcp_discovery = "not_configured"
     return {
         "type": "dry-run",
         "entrypoint": "model_prompt" if prompt else "interactive_session",
@@ -82,14 +95,50 @@ def build_dry_run_preview(
             "provider": resolved.field_source("providers.default"),
             "model": resolved.field_source(f"providers.{provider_values['provider']}.model"),
         },
-        "mcp_discovery": "not_configured" if probe else "unknown_until_connect",
+        "mcp": resolved.mcp.public_summary(),
+        "mcp_discovery": mcp_discovery,
+        "mcp_statuses": mcp_statuses,
         "probe_requested": probe,
-        "external_io": False,
+        "external_io": external_io,
         "validation": {
             "provider": "ok" if provider_error is None else "configuration_required",
             "detail": provider_error or "",
         },
     }
+
+
+async def _probe_mcp(
+    config: HomeMasterConfig,
+    *,
+    connector: Connector | None = None,
+) -> list[dict[str, object]]:
+    """Probe configured MCP servers without creating an application runtime."""
+
+    audit_path = Path(config.observability.trace_dir).expanduser() / "mcp_probe_audit.jsonl"
+    manager = McpClientManager(
+        config.mcp.servers,
+        connector=connector,
+        connect_timeout_s=config.mcp.connect_timeout_s,
+        call_timeout_s=config.mcp.call_timeout_s,
+        audit_sink=McpAuditLog(audit_path),
+    )
+    try:
+        await manager.connect_all()
+        return [
+            {
+                "name": status.name,
+                "state": status.state,
+                "transport": status.transport,
+                "auth_configured": status.auth_configured,
+                "error_code": status.error_code,
+                "detail": status.detail,
+                "tool_count": len(status.tools),
+                "resource_count": len(status.resources),
+            }
+            for status in manager.list_statuses()
+        ]
+    finally:
+        await manager.aclose()
 
 
 __all__ = ["build_dry_run_preview"]

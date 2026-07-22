@@ -1,5 +1,34 @@
 # Current V1.9 Recovery Progress
 
+## 2026-07-22
+
+- V1.9 final-review remediation concentrated verification is complete: full non-live `1295 passed, 11 deselected`,
+  final-review focus `193 passed`, runtime stress `5 passed`, Ruff check/changed-file format, compileall and
+  `git diff --check` all pass. The inherited Starlette/httpx deprecation warning remains unchanged.
+- Candidate `800d391dd780fd13e5d3116bb269a99b9b975474` passed three real Mimo live API tests, real MCP stdio and
+  loopback HTTP (`21 passed`), device audit/file gates (`27 passed`, external fake backend only) and extension
+  digest/reload/rollback filesystem gates (`32 passed`). This closes the internal verification task but does not
+  prove a real robot SDK/device gate.
+- The hkust4 Coworker canonical `.venv` editable install was repaired: its `direct_url.json` had pointed to stale
+  `/data1/haodong2/weilin_workspace/Homemaster`; reinstalling the current project with `uv pip install --no-deps
+  -e .` restored imports to the Coworker repository. Doctor and preflight pass without dependency upgrades.
+- The temporary V1.9 candidate environment initially omitted the declared `coworker` optional extra. The first
+  formal attempt `coworker-20260722-101417-86a6e389` is preserved as failed with `ModuleNotFoundError`.
+  Installing lock-matched Playwright 1.61.0, greenlet 3.5.3 and pyee 13.0.1 fixed that environment boundary.
+- The repaired Coworker attempt `coworker-20260722-102116-a79213c1` reached real Mimo, headed Chrome, service,
+  VNC and FFmpeg: 32 provider attempts, return codes observer=0/tigervnc=0/ffmpeg=0, and a verified 255-second
+  H.264 video. The changed observation freshness contract rejected every business action, leaving only 1/24
+  trajectory nodes and no `presentation/events.jsonl`; formal success is false and the independent verifier
+  returned 1. This is a valid “can run” reproduction, not a Coworker release PASS.
+- The locked ALFWorld run `v19-800d391dd780-3a166c923d50` started all four real AI2-THOR episodes and preserved
+  per-episode evidence. Results were 0/4: episodes 1 and 4 ended `execution_state_uncertain`, episode 2 ended
+  setup-terminal `scan_restore_mismatch` before a provider attempt, and episode 3 was score-eligible but not won.
+  Provider/runtime availability were both 1.0, harness coverage was 0.25, and the release wrapper returned 1
+  because episode 2 correctly had no `provider_attempts.jsonl`. This is also reproduced, not release PASS.
+- Current split verdict: V1.9 code, documentation and final-review remediation internal gates are PASS; real
+  provider/MCP/filesystem gates are PASS; ALFWorld 4/4 and Coworker 1/1 formal release gates were executed and
+  are FAIL under the changed observation contract. No additional reviewer is permitted or needed for this record.
+
 ## 2026-07-21
 
 - 已恢复中断现场：HEAD `70d8e91` 的 V1.9 core CL-01～CL-16d 已提交，M0/最终真实
@@ -24,8 +53,100 @@
   display；继续以 import origin 和真实 THOR preflight 取证，不把 manifest PASS 当作 4/4。
 - hkust4 的 canonical worktree 位于 `/home/haodong2/weilin_workspace/Homemaster`，当前为干净 detached
   `70d8e91`；HTTPS/SSH GitHub fetch 均无远端凭据，需用不含配置/credential 的 Git bundle 同步新候选。
-- 下一步：提交 live gate 修复并冻结新 SHA；完成 HPC2 ALFWorld runtime/M0/4-of-4 和 hkust4
-  Coworker 1-of-1 外部终态门，记录两端 return code/identity 后才开始 CL-18。
+- 用户更正执行顺序：先在 HPC2 完成 CL-18～CL-21 全部代码、non-live 测试与文档，再由用户指导
+  hkust4 和最终 4+1 live gate；在此之前不再触碰 hkust4。已进行的远端动作仅为只读定位/状态检查和
+  一次因无凭据失败的 fetch，没有运行 Coworker、没有 checkout、没有修改远端代码，远端仍是干净
+  detached `70d8e91`。
+- 下一步：仅在 HPC2 实施 CL-18 MCP client/resources/tool adapter 与 artifact policy；全部代码完成后
+  再冻结最终 SHA、同步 hkust4 并执行外部终态门。
+- CL-18 代码与同源文档已完成并保持 `VERIFYING`：application 首次真实 run 前幂等 async start，
+  application-owned MCP manager 支持 stdio/streamable HTTP、部分失败、timeout/cancel/disconnect、
+  close isolation、typed status 和 JSONL audit；discovery 后原子注册保真 JSON Schema、重冻 Home
+  ToolView 并重验 skills，ALFWorld/Coworker profile 不变。
+- MCP tool/resource 原始输出现以 tenant/session/run 精确 ACL、opaque handle、quota/TTL、0600 原子
+  文件先落盘后脱敏；resource URI 不进入模型，改用 opaque `resource_id`。普通 dry-run 零外部 I/O，
+  显式 `--probe` 才临时连接并立即关闭。真实 FastMCP stdio subprocess 与 HPC2 loopback HTTP fixture
+  已完成 handshake/list/call/resource/cleanup，本结果不是 hkust4 live gate。
+- 下一步：仅在 HPC2 实施 CL-19 permission/auth/device/lease/emergency-stop foundations；CL-18～CL-21
+  全部代码、文档和 non-live gate 完成前不访问 hkust4。
+- CL-19 代码与同源文档已完成并保持 `VERIFYING`：统一 pipeline 默认接 capability-aware policy，
+  remote Bearer 只映射预配置 typed principal；application-owned connection pool 与 generation-aware
+  physical-device FIFO lease 共用 fencing owner。同设备写动作串行、不同设备并行，disconnect/stale/
+  emergency-stop 在 backend 前拒绝等待动作，活动动作返回不可自动重试的 `outcome_unknown`。
+- emergency-stop 要求 `device.control`，并同时核对 control 返回和外部 stopped 状态；owned/borrowed
+  connection 隔离关闭，lease/fence/stop 写入 mode-0600 `device_audit.jsonl`。CL-19 相关 115 项
+  HPC2 回归与 Ruff 已通过；这不是 hkust4 真机 gate。
+- CL-18 阶段 reviewer 已完成并处置全部 5 项发现：tenant/principal artifact 分区、resource preview URI、
+  resource audit URI、audit sink cleanup isolation 和显式 probe audit。修复按 RED-to-GREEN 完成，扩大
+  MCP/artifact/application/CLI 回归 `40 passed`，Ruff/format/diff gate 通过；状态继续保持 `VERIFYING`，
+  因为按用户顺序 hkust4 外部门须等待 CL-18～CL-21 全部代码完成。
+- CL-19 阶段 reviewer 的 3 项高风险和 3 项中风险发现已全部处置：补齐 factory/runtime 到 borrowed
+  backend 的真实 pool 接线、跨 tenant physical-device owner、disconnect/close fencing、grant 后
+  backend 前复核、generation 单调性和 typed stop/state query contract。扩大 permission/auth/device/
+  application/MCP 回归 `143 passed`；具体外部设备 enum 保持 `UNVERIFIED`，没有访问 hkust4。
+- 下一步：锁定 CL-20 的第一个真实 channel 后，仅在 HPC2 实施 Gateway/channel/public projection；
+  CL-18～CL-21 全部代码、文档和 non-live gate 完成前不访问 hkust4。
+
+## CL-20 Gateway、Channel 与公共事件投影
+
+- 2026-07-21：首个真实 channel 锁定为 Telegram long polling；OpenHarness/nanobot provenance 为
+  `473ae5ef18394ab839a3364eee66836ef9776902`，其 OpenHarness mirror commit 为
+  `9b2efd795c6aa09f88b0c257d269a9e518da6ae7`。上游无界 queue 与 per-session runtime 未直接复制。
+- 已实现 typed `ChannelIdentity`/`InboundMessage`/`OutboundMessage`、exact principal mapping、
+  sender-inclusive group/thread routing、attachment realpath containment、global/tenant/session
+  bounded priority bus、progress coalescing、critical backpressure、deadline drain、Gateway bridge/runtime、
+  cancel-and-join、restart snapshot cleanup/generation fencing、Telegram adapter 和 CLI `gateway`。
+- 已实现 `PublicEventProjection` 与 `public_gateway_stream`：private RuntimeEvent 先进入 application
+  ledger，Gateway 只接收 allowlist/redacted/correlated DTO；terminal result 由 bridge 统一发布，避免
+  duplicate final。
+- CL-20 收尾修复了 connection-pool fencing generation 与 backend application-run generation 混用的
+  根因：handle 保留 pool `generation`，观察账本和 runtime 改读 `backend_generation`；新增回归覆盖
+  borrowed ALFWorld handle 的真实 capture/provider binding。同步补齐三个 manifest destination、真实
+  `OhmoGatewayBridge` provenance symbol、`uv.lock` baseline hash 和 legacy 文档术语。
+- CL-20 阶段只读 reviewer 已完成并处置全部 5 组发现：egress 重新核对 generation/identity，Telegram
+  auth-before-download，terminal final 单一 owner，全部 service task fail-fast + outbound drain 后 stop，
+  progress/final/error/cancel 共用自由文本脱敏 projection。新增 RED 回归并同步 README、用户指南、
+  架构、CHANGELOG、pitfall 与正向规则；没有追加 review。
+- 当前 post-review targeted non-live：CL-20 及 application/device/ALFWorld 回归 `151 passed`；完整
+  HPC2 non-live `1251 passed, 7 deselected`，Ruff、format、compileall、cleanup guard、manifest JSON
+  和 `git diff --check` 通过。具体 python-telegram-bot 外部 API 仍 `UNVERIFIED`，不访问 hkust4。
+- 下一步：仅在 HPC2 进入 CL-21；用户要求的 hkust4 真机测试继续延期。
+
+## CL-21 Hooks 与 Plugins
+
+- 已完成 plan reviewer 后锁定的 trusted-local MVP：显式 approval、canonical content digest、secure
+  same-bytes compile、async-only hooks、content-bound plugin tools、canonical required capabilities、
+  atomic Catalog registration、profile narrowing、generation-fenced hook runner 和 hooks-only reloader。
+- lifecycle 已接入 application/run 两层：application start/stop 各一次，run start/end 每 run 各一次；
+  blocking run hook 只失败当前 run，失败/取消仍走 run end。stop 后再执行 async extension cleanup，
+  hook/cleanup 状态进入脱敏 RuntimeEvent JSONL。
+- 定向与扩大 HPC2 non-live 已通过：extension/config 聚焦 25 项、extension/application 聚焦 15 项，
+  application/tools/permissions/config/gateway/channels 扩大回归 239 项；stage review 后新增 timeout
+  resistance、reload identity、exact capability、candidate cleanup、close/reload、empty narrowing、dir-fd
+  containment、process-control 和 lifecycle/Gateway 回归，focused 为 `64 passed`。
+- 本阶段唯一一次只读 stage review 已完成，9 项 findings 全部采纳并修复，没有追加 review：reload 固定
+  id/version/requested/granted/tool-plane；timeout hard-fence 且保留真实 active task；exact token 不再绕过
+  canonical capability；失败 candidate/partial load/Catalog collision cleanup；close 先 quiesce；空 override
+  不再 fail-open；entrypoint 逐目录 fd 无 symlink；loader 不吞进程控制异常；缺失回归已补齐。
+- post-review 完整 HPC2 non-live 为 `1285 passed, 7 deselected`；全仓 Ruff、12 个涉及文件 format、
+  compileall、canonical manifest/state JSON 与 diff gates 通过。唯一 warning 是继承的 Starlette/httpx
+  deprecation；没有 live I/O。
+- 具体外部引擎/API/device 符号没有在 CL-21 新增背书，既有外部符号继续 `UNVERIFIED`。未访问 hkust4；
+  全部 CL-18～CL-21 代码与文档完成后，才按用户指导执行真环境测试。
+- 下一步：完成状态/文档 gate 后启动一次 V1.9 整体 final reviewer；处理其 findings 后只做针对性验证，
+  不追加 CL-21 或 final review。
+- V1.9 唯一整体 final reviewer 已完成并消费评审名额，报告 6 项发现：device audit sink 可阻断 lease/
+  emergency-stop，MCP discovered tool 被误判只读且 attempted failure 语义 fail-open，Gateway shutdown
+  deadline 未覆盖 worker join，public backlog generation 在消费时漂移，extension cleanup owner 存在
+  loader/composition 窗口，以及 digest 未覆盖 adjacent helper。
+- 6 项代码与同源文档修复已全部实现：authoritative device event 与 typed audit failure 隔离；MCP 未验证
+  工具默认 mutating、已尝试失败为 `outcome_unknown`；Gateway 以一个 absolute deadline 硬限制完整关闭，
+  generation 在 RuntimeEvent 生产时固化；reload await partial cleanup、composition 持续持有 rollback owner；
+  manifest `dependencies` 纳入 digest 并只从已验证 bytes import，真实 `__file__` 不暴露部署目录。
+- 当前状态是 `FINAL_REVIEW_REMEDIATION_IMPLEMENTED`，不是验证 PASS。此前 `1285 passed, 7 deselected`
+  发生在这 6 项修改之前，不能作为新候选证据；按用户要求先完成全部代码和文档，再由用户指导集中测试。
+  未访问 hkust4、未运行 live Telegram/MCP/provider/device/browser/ALFWorld/Coworker 测试，也不得追加
+  CL-21 或 V1.9 final review。
 
 # Historical Coworker Demo Progress
 

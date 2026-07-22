@@ -20,7 +20,18 @@ from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import ApplicationRuntime
 from homemaster.application.session import SessionManager
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.devices import DeviceConnectionPool, DeviceLeaseError, DeviceLeaseManager
 from homemaster.events.bus import EventBus
+from homemaster.extensions import (
+    ExtensionContributions,
+    ExtensionGeneration,
+    ExtensionManifest,
+    HookContext,
+    HookEvent,
+    HookRunner,
+    HookSpec,
+    LoadedExtension,
+)
 from homemaster.observations import ObservationCapture, ObservationService, ObservationState
 from homemaster.providers.attempts import (
     OutboundObservationBinding,
@@ -33,6 +44,7 @@ from homemaster.tools.catalog import ToolCatalog
 from homemaster.tools.contracts import (
     ExecutionProof,
     ObservationReference,
+    PermissionSubject,
     PostActionObservation,
     RegisteredTool,
     TerminalRule,
@@ -189,16 +201,12 @@ class _ObservationAwareTransport(_FakeTransport):
                         content_sha256=hashlib.sha256(content).hexdigest(),
                         media_type=str(metadata["media_type"]),
                         observation_id=str(metadata["observation_id"]),
-                        observation_content_sha256=str(
-                            metadata["observation_content_sha256"]
-                        ),
+                        observation_content_sha256=str(metadata["observation_content_sha256"]),
                         observation_pixel_sha256=None,
                         observation_backend_id=str(metadata["observation_backend_id"]),
                         observation_run_id=str(metadata["observation_run_id"]),
                         observation_generation=int(metadata["observation_generation"]),
-                        observation_state_sequence=int(
-                            metadata["observation_state_sequence"]
-                        ),
+                        observation_state_sequence=int(metadata["observation_state_sequence"]),
                         observation_capture_event_sequence=int(
                             metadata["observation_capture_event_sequence"]
                         ),
@@ -446,6 +454,7 @@ def _application(
     *,
     profile_name: str = "test",
     observation_service: ObservationService | None = None,
+    extension_runner: HookRunner | None = None,
 ) -> ApplicationRuntime:
     catalog = ToolCatalog()
     for tool in tools:
@@ -485,6 +494,7 @@ def _application(
         context=ContextPolicyConfig(),
         provider_name="fake",
     )
+
     def provider_factory(request, run_id):
         backend = request.borrowed_environment
         if isinstance(backend, _ObservationBackend):
@@ -507,15 +517,318 @@ def _application(
         provider_factory=provider_factory,
         context_assembler_factory=context_factory,
         settings=settings,
+        extension_runner=extension_runner,
     )
 
 
 @pytest.mark.asyncio
+async def test_extension_lifecycle_is_once_per_application_and_run(tmp_path) -> None:
+    events: list[str] = []
+
+    async def application_start(context: HookContext) -> None:
+        del context
+        events.append("application_start")
+
+    async def run_start(context: HookContext) -> bool:
+        events.append(f"run_start:{context.payload['prompt']}")
+        return context.payload["prompt"] != "blocked"
+
+    async def run_end(context: HookContext) -> None:
+        events.append(f"run_end:{context.payload['run_id']}")
+
+    async def application_stop(context: HookContext) -> None:
+        del context
+        events.append("application_stop")
+
+    async def cleanup() -> None:
+        events.append("cleanup")
+
+    hooks = (
+        HookSpec(
+            "test.extensions",
+            "app-start",
+            HookEvent.APPLICATION_START,
+            application_start,
+            "hook.lifecycle",
+        ),
+        HookSpec(
+            "test.extensions",
+            "run-start",
+            HookEvent.RUN_START,
+            run_start,
+            "hook.lifecycle",
+            block_on_failure=True,
+        ),
+        HookSpec("test.extensions", "run-end", HookEvent.RUN_END, run_end, "hook.lifecycle"),
+        HookSpec(
+            "test.extensions",
+            "app-stop",
+            HookEvent.APPLICATION_STOP,
+            application_stop,
+            "hook.lifecycle",
+        ),
+    )
+    runner = HookRunner(
+        ExtensionGeneration(
+            generation=1,
+            extensions=(
+                LoadedExtension(
+                    manifest=ExtensionManifest(
+                        schema_version=1,
+                        extension_id="test.extensions",
+                        version="1.0.0",
+                        requested_capabilities=("hook.lifecycle",),
+                        entrypoint="extension.py",
+                    ),
+                    root=tmp_path,
+                    content_sha256="0" * 64,
+                    granted_capabilities=("hook.lifecycle",),
+                    enabled_tool_ids=(),
+                    contributions=ExtensionContributions(
+                        hooks=hooks,
+                        cleanup=cleanup,
+                    ),
+                ),
+            ),
+            hooks=hooks,
+            tools=(),
+            enabled_tool_ids=(),
+            tool_plane_digest="0" * 64,
+        )
+    )
+    app = _application(
+        tmp_path,
+        [_echo_tool()],
+        {"ok": _FakeTransport([_text("ok")])},
+        extension_runner=runner,
+    )
+    subject = PermissionSubject(
+        "operator",
+        "cli",
+        capabilities=("tool.read", "hook.lifecycle"),
+    )
+
+    blocked = await app.run(RunRequest(text="blocked", profile="test", permission_subject=subject))
+    assert blocked.status is RunStatus.FAILED
+    assert blocked.error_code == "extension_run_start_blocked"
+    assert "application_start" in events
+    assert events.count("application_start") == 1
+    assert events.count("run_start:blocked") == 1
+    assert sum(item.startswith("run_end:") for item in events) == 1
+
+    replied = await app.run(RunRequest(text="ok", profile="test", permission_subject=subject))
+    assert replied.status is RunStatus.REPLIED
+    assert sum(item.startswith("run_start:") for item in events) == 2
+    assert sum(item.startswith("run_end:") for item in events) == 2
+
+    await app.aclose()
+    await app.aclose()
+    assert events.count("application_stop") == 1
+    assert events[-2:] == ["application_stop", "cleanup"]
+    hook_events = [
+        event for event in app.event_bus.events if event.type == "extension.hook_completed"
+    ]
+    assert [event.payload["event"] for event in hook_events] == [
+        "application_start",
+        "run_start",
+        "run_end",
+        "run_start",
+        "run_end",
+        "application_stop",
+    ]
+    cleanup_events = [
+        event for event in app.event_bus.events if event.type == "extension.cleanup_completed"
+    ]
+    assert len(cleanup_events) == 1
+    assert cleanup_events[0].payload["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_blocked_application_start_rolls_back_extension_and_resources(tmp_path) -> None:
+    cleaned = False
+
+    async def block(context: HookContext) -> bool:
+        del context
+        return False
+
+    async def cleanup() -> None:
+        nonlocal cleaned
+        cleaned = True
+
+    hook = HookSpec(
+        "test.extensions",
+        "block-start",
+        HookEvent.APPLICATION_START,
+        block,
+        "hook.lifecycle",
+        block_on_failure=True,
+    )
+    loaded = LoadedExtension(
+        manifest=ExtensionManifest(
+            1,
+            "test.extensions",
+            "1.0.0",
+            ("hook.lifecycle",),
+            "extension.py",
+        ),
+        root=tmp_path,
+        content_sha256="0" * 64,
+        granted_capabilities=("hook.lifecycle",),
+        enabled_tool_ids=(),
+        contributions=ExtensionContributions(hooks=(hook,), cleanup=cleanup),
+    )
+    runner = HookRunner(
+        ExtensionGeneration(
+            generation=1,
+            extensions=(loaded,),
+            hooks=(hook,),
+            tools=(),
+            enabled_tool_ids=(),
+            tool_plane_digest="0" * 64,
+        )
+    )
+    app = _application(tmp_path, [_echo_tool()], {}, extension_runner=runner)
+
+    with pytest.raises(RuntimeError, match="application_start extension hook blocked"):
+        await app.start()
+
+    assert cleaned is True
+    assert app.resource_scope.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_end_executes_once_for_provider_failure_and_cancellation(tmp_path) -> None:
+    run_end_calls: list[str] = []
+
+    async def run_end(context: HookContext) -> None:
+        run_end_calls.append(str(context.payload["run_id"]))
+
+    hook = HookSpec(
+        "test.extensions",
+        "run-end",
+        HookEvent.RUN_END,
+        run_end,
+        "hook.lifecycle",
+    )
+    runner = HookRunner(
+        ExtensionGeneration(
+            generation=1,
+            extensions=(),
+            hooks=(hook,),
+            tools=(),
+            enabled_tool_ids=(),
+            tool_plane_digest="0" * 64,
+        )
+    )
+    cancelling = _AsyncBlockingTransport()
+    app = _application(
+        tmp_path,
+        [_echo_tool()],
+        {"failure": _FakeTransport([]), "cancel": cancelling},
+        extension_runner=runner,
+    )
+    subject = PermissionSubject(
+        "operator",
+        "test",
+        capabilities=("tool.read", "hook.lifecycle"),
+    )
+
+    failed = await app.run(RunRequest(text="failure", profile="test", permission_subject=subject))
+    assert failed.status is RunStatus.FAILED
+    assert len(run_end_calls) == 1
+
+    task = asyncio.create_task(
+        app.run(RunRequest(text="cancel", profile="test", permission_subject=subject))
+    )
+    await cancelling.entered.wait()
+    task.cancel()
+    result = await task
+
+    assert result.status is RunStatus.CANCELLED
+    assert len(run_end_calls) == 2
+    assert len(set(run_end_calls)) == 2
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_request_tool_ids_can_only_narrow_profile_not_catalog(tmp_path) -> None:
+    first = _echo_tool()
+    second = RegisteredTool(
+        definition=replace(
+            first.definition,
+            internal_id="test.other.v1",
+            model_alias="other",
+        ),
+        executor=first.executor,
+    )
+    hook_calls = 0
+
+    async def run_start(context: HookContext) -> None:
+        nonlocal hook_calls
+        del context
+        hook_calls += 1
+
+    hook = HookSpec(
+        "test.extensions",
+        "run-start",
+        HookEvent.RUN_START,
+        run_start,
+        "hook.lifecycle",
+    )
+    runner = HookRunner(
+        ExtensionGeneration(
+            generation=1,
+            extensions=(),
+            hooks=(hook,),
+            tools=(),
+            enabled_tool_ids=(),
+            tool_plane_digest="0" * 64,
+        )
+    )
+    app = _application(
+        tmp_path,
+        [first, second],
+        {"spoof": _FakeTransport([_text("ok")])},
+        extension_runner=runner,
+    )
+    profile = app.profiles["test"]
+    app.profiles["test"] = EnvironmentToolProfile(
+        "test",
+        app.catalog,
+        app.catalog.freeze((first.definition.internal_id,)),
+    )
+
+    with pytest.raises(ValueError, match="only narrow"):
+        await app.run(
+            RunRequest(
+                text="spoof",
+                profile="test",
+                enabled_tool_ids=(second.definition.internal_id,),
+            )
+        )
+    assert hook_calls == 0
+    assert profile.catalog is app.catalog
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_tool_override_disables_entire_profile(tmp_path) -> None:
+    transport = _FakeTransport([_text("ok")])
+    app = _application(tmp_path, [_echo_tool()], {"empty": transport})
+
+    result = await app.run(RunRequest(text="empty", profile="test", enabled_tool_ids=()))
+
+    assert result.status is RunStatus.REPLIED
+    assert transport.calls[0]["tools"] is None
+
+
+@pytest.mark.asyncio
 async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_path) -> None:
-    transport = _FakeTransport([
-        _tool("call-1", "echo", {"value": "ok"}),
-        _text("done"),
-    ])
+    transport = _FakeTransport(
+        [
+            _tool("call-1", "echo", {"value": "ok"}),
+            _text("done"),
+        ]
+    )
     app = _application(tmp_path, [_echo_tool()], {"request": transport})
     backend = _Backend()
 
@@ -529,8 +842,7 @@ async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_
     assert status.active is False
     assert status.revision == 1
     roles = [
-        message.role
-        for message in app.session_manager.get(result.session_id).session.messages
+        message.role for message in app.session_manager.get(result.session_id).session.messages
     ]
     assert roles == [
         "user",
@@ -541,13 +853,61 @@ async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_
 
 
 @pytest.mark.asyncio
+async def test_runtime_binds_untyped_backend_to_authoritative_tenant_once(tmp_path) -> None:
+    app = _application(
+        tmp_path,
+        [_echo_tool()],
+        {
+            "first": _FakeTransport([_text("first done")]),
+            "second": _FakeTransport([_text("second done")]),
+        },
+    )
+    manager = DeviceLeaseManager()
+    pool = DeviceConnectionPool(manager)
+    app.settings.device_connection_pool = pool
+    app.pipeline.resource_manager = manager
+    backend = _Backend()
+
+    def subject(tenant_id: str) -> PermissionSubject:
+        return PermissionSubject(
+            subject_id=f"operator-{tenant_id}",
+            tenant_id=tenant_id,
+            channel="gateway",
+            capabilities=("device.control",),
+        )
+
+    first = await app.run(
+        RunRequest(
+            text="first",
+            profile="test",
+            environment=backend,
+            permission_subject=subject("tenant-a"),
+        )
+    )
+
+    assert first.status is RunStatus.REPLIED
+    with pytest.raises(DeviceLeaseError) as error:
+        await app.run(
+            RunRequest(
+                text="second",
+                profile="test",
+                environment=backend,
+                permission_subject=subject("tenant-b"),
+            )
+        )
+    assert error.value.error_code == "cross_tenant_device"
+
+
+@pytest.mark.asyncio
 async def test_disabled_tool_call_is_rejected_by_frozen_view(tmp_path) -> None:
     enabled = _echo_tool()
     disabled = _echo_tool("test.disabled.v1", "disabled")
-    transport = _FakeTransport([
-        _tool("call-disabled", "test.disabled.v1", {}),
-        _text("stopped"),
-    ])
+    transport = _FakeTransport(
+        [
+            _tool("call-disabled", "test.disabled.v1", {}),
+            _text("stopped"),
+        ]
+    )
     app = _application(tmp_path, [enabled, disabled], {"request": transport})
 
     result = await app.run(
@@ -589,15 +949,17 @@ async def test_action_debt_rejects_task_completion_without_writing_completed(tmp
         version="1.9.0",
         output_schema={"type": "object"},
     ).registered_tool
-    transport = _FakeTransport([
-        _tool("call-action", "action", {}),
-        _tool(
-            "call-complete",
-            "task_progress_check",
-            {"updates": [], "task_status": "completed", "completion_summary": "done"},
-        ),
-        _text("cannot complete yet"),
-    ])
+    transport = _FakeTransport(
+        [
+            _tool("call-action", "action", {}),
+            _tool(
+                "call-complete",
+                "task_progress_check",
+                {"updates": [], "task_status": "completed", "completion_summary": "done"},
+            ),
+            _text("cannot complete yet"),
+        ]
+    )
     app = _application(tmp_path, [action, progress], {"request": transport})
     runtime = await app.session_manager.open_or_resume("completion")
     runtime.task_state_store.create_or_replace_plan(
@@ -644,14 +1006,16 @@ async def test_external_terminal_rule_blocks_model_completion_claim(tmp_path) ->
         ),
         executor=adapted.executor,
     )
-    transport = _FakeTransport([
-        _tool(
-            "call-complete",
-            "task_progress_check",
-            {"updates": [], "task_status": "completed"},
-        ),
-        _text("pending"),
-    ])
+    transport = _FakeTransport(
+        [
+            _tool(
+                "call-complete",
+                "task_progress_check",
+                {"updates": [], "task_status": "completed"},
+            ),
+            _text("pending"),
+        ]
+    )
     app = _application(tmp_path, [progress], {"request": transport})
     runtime = await app.session_manager.open_or_resume("external")
     runtime.task_state_store.create_or_replace_plan(
@@ -659,9 +1023,7 @@ async def test_external_terminal_rule_blocks_model_completion_claim(tmp_path) ->
         subtasks=[{"id": "a", "description": "A"}],
     )
 
-    await app.run(
-        RunRequest(text="request", session_id="external", profile="test", resume=True)
-    )
+    await app.run(RunRequest(text="request", session_id="external", profile="test", resume=True))
 
     assert runtime.task_state_store.snapshot is not None
     assert runtime.task_state_store.snapshot.status is TaskStatus.ACTIVE
@@ -828,9 +1190,7 @@ async def test_successful_observation_attempt_commits_before_action(tmp_path) ->
         observation_service=service,
     )
 
-    result = await app.run(
-        RunRequest(text="observe then act", profile="test", environment=backend)
-    )
+    result = await app.run(RunRequest(text="observe then act", profile="test", environment=backend))
 
     assert result.status is RunStatus.REPLIED
     assert order == ["provider_commit", "action"]
@@ -894,12 +1254,10 @@ async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path
     assert [tool["name"] for tool in second_transport.calls[0]["tools"]] == ["second"]
     assert first_backend.close_count == second_backend.close_count == 0
     assert [
-        message.role
-        for message in app.session_manager.get("session-first").session.messages
+        message.role for message in app.session_manager.get("session-first").session.messages
     ] == ["user"]
     assert [
-        message.role
-        for message in app.session_manager.get("session-second").session.messages
+        message.role for message in app.session_manager.get("session-second").session.messages
     ] == ["user", "assistant"]
 
 

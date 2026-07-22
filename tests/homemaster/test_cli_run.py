@@ -151,7 +151,7 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     preview = json.loads(result.stdout)
     assert preview["entrypoint"] == "model_prompt"
     assert preview["settings"]["profile"] == "home"
-    assert preview["mcp_discovery"] == "unknown_until_connect"
+    assert preview["mcp_discovery"] == "not_configured"
     assert preview["external_io"] is False
     assert [tool["name"] for tool in preview["tools"]][:6] == [
         "task_interpreter",

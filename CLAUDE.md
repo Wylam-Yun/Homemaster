@@ -1,5 +1,90 @@
 # HomeMaster Agent Rules
 
+## Gateway 远程边界纪律
+
+- Outbound 消息在 egress 消费时必须再次核对 session generation 与 authoritative identity；只在 producer
+  入队时检查不能阻止 reconnect 后发送已排队旧消息。
+- Channel 必须先完成 exact principal/authentication，再进行任何外部 attachment 查询、下载或落盘；未授权
+  sender 的资源调用次数必须为零。
+- `RunResult` terminal final 是唯一远程 final；public event 只能补充非 terminal progress。测试必须按完整
+  outbound 序列断言没有 duplicate final。
+- Gateway supervisor 必须观察 channel、ingress、egress、public-event 全部 service task；任一真实异常
+  fail-fast。shutdown 先拒绝新输入并保留 egress drain，再 stop channel；主动取消不得伪装成故障。
+- Gateway shutdown 使用一个 absolute deadline 覆盖 active worker cancel/join、bus drain、channel stop 和
+  service task join；对抗取消 task 用 `asyncio.wait` 硬上限，禁止用会等待 cancellation 完成的
+  `wait_for` 冒充总 deadline。未全部完成只返回 false，不能提前标 close complete。
+- Public progress 的 Gateway generation 必须在 RunRequest/event 生产时固化到 RuntimeEvent；消费 backlog
+  时只核对事件携带的 generation 与 current generation，禁止读取 current 值后给旧事件重新贴标签。
+- 所有 progress、final、error、cancel 文本必须经过同一 public projection；自由文本也要脱敏配置 secret、
+  credential assignment、URL query 和宿主路径，不能只依赖 metadata key redaction。
+
+## Tenant 与外部资源边界纪律
+
+- ACL、quota、artifact 和 connection ownership 必须使用 typed `tenant_id`，不得用 principal
+  `subject_id` 代替；回归 fixture 必须让两个值不同，并从真实 tenant partition 验证读写。
+- 外部 resource URI 必须分别审计 discovery、read payload、model preview 和 audit。ACL raw artifact
+  可以保真，模型只见 opaque resource id，audit 只见不可逆 hash；query token、userinfo 和本地路径
+  不得进入 preview、事件或 audit。
+- Audit/trace sink 是可观测旁路，其失败必须 typed 留存并与业务生命周期隔离。用多实例 cleanup 测试
+  逐个断言关闭，禁止 sink 异常改变连接状态、留下 connection 或中止后续清理。
+- Authoritative device event 必须先提交到控制面 store，再 best-effort 镜像到 audit sink；审计失败不得
+  从 append 抛出。lease acquire/release 与 emergency-stop 用例必须注入 sink failure，并分别断言 lease
+  归零、后端 stop 实际调用和 typed audit failure。
+- 外部工具没有经真环境核对的 read-only contract 时一律按 mutating fail closed。连接后已经尝试的
+  timeout/call failure 若无法证明外部未变更，必须返回 `outcome_unknown` 且禁止自动重试；外部
+  annotation 存在但未验证时继续标 `UNVERIFIED`。
+
+## 测试工作区纪律
+
+- monkeypatch、fake 和 callback 收到相对路径时，必须显式锚定 `tmp_path` 或 fixture root，禁止默认相对
+  当前仓库目录写文件。测试 gate 后、final review 前检查新增 untracked 文件；pytest 通过不证明测试无
+  工作区副作用。
+
+## 设备连接与租约纪律
+
+- Factory 创建 application-owned pool 后，必须用 factory-to-runtime 测试证明真实
+  `RunRequest.environment` 在 provider/backend 前进入 pool；只断言空 pool 存在不算接线。
+- 无声明 identity 的 borrowed backend 必须在首次 run 绑定 authoritative tenant；同一 physical backend
+  的跨 tenant 重绑 fail closed。ACL/lease key 不得从每次调用者临时合成第二套 owner。
+- disconnect、重复 disconnect、stop、uncertain 和 close 必须从唯一 lease owner 原子取得下一
+  generation，并在 terminal transition 时逐 waiter 拒绝。不得从 immutable registration generation
+  每次重算 `+1`。
+- Lease future 获准后、进入 backend 前必须在 registry lock 内复核 active lease、generation 和 READY
+  state；动作结束后的核对只能判定 `outcome_unknown`，不能阻止 stop 后新动作已经启动。
+- 机器人 adapter 必须把 control 返回和独立状态查询分别规范化为内部 typed receipt，并保留两次
+  return code。外部 SDK enum/字符串在真环境核对前标 `UNVERIFIED`，raw `success/stopped` 不得背书。
+
+## Extension 权限与生命周期纪律
+
+- Hook 的 event/matcher 选择与 principal authorization 必须分开。未授权 callback 不执行，但必须产生
+  typed denied result；`block_on_failure` hook 的 capability 缺失必须阻断当前 run，禁止静默跳过。
+- Plugin tool 必须声明非空 canonical `required_capabilities`。加载时核对 manifest requested 与 deployment
+  grants，调用时逐项核对 run principal；Catalog 注册、profile enable 或 exact CLI/Gateway metadata 都
+  不得替代任何一层授权。
+- 可信 in-process callback timeout/cancel 只宣称 cooperative cancellation 与 result fencing，不宣称撤销
+  任意副作用或 hostile-code sandbox。Hook 不得成为 permission、device safety、terminal、verifier 或
+  scorer 的唯一 owner。
+- 不要用 `asyncio.wait_for(callback())` 证明抗取消 callback 已停止；单独建 task，deadline 到点立即 fence
+  result，task 实际结束前持续计入 active。Reload/stop/cleanup 必须以真实 active task 为门，close 先
+  seal、cancel、join，再执行 stop hook 和 cleanup。
+- Extension reload 只允许 hooks-only candidate；tool/provenance/capability/profile 任一变化都要求 restart。
+  extension id/version/requested/granted capability 也属于 restart boundary。活动 callback 存在时拒绝 swap，
+  candidate 全量验证通过前不得修改 Catalog 或当前 generation。
+- Exact tool/hook token 只能表达目标选择，不能替代 plugin/hook 的 canonical `required_capabilities`。
+  request override 用显式 sentinel 区分“未提供”与“空集合”，并在任何 lifecycle hook 前完成 subset 校验。
+- 受批准文件的 containment 必须固定 root directory fd，并逐级 `openat`/`O_NOFOLLOW`；只检查 resolved path
+  或最后一个文件分量挡不住父目录 symlink TOCTOU。Partial load、candidate rejection 和 Catalog collision
+  都必须按逆序释放已经取得的 cleanup ownership。
+- Extension content digest 必须覆盖所有可改变声明行为的 entrypoint/dependency bytes，并从这些已验证
+  bytes 执行；真实 `__file__` 不得给动态 adjacent-file loader。显式 dependency 方案仍是 trusted-code
+  内容锁定，不得包装成 hostile-code sandbox。
+- Factory 返回 contributions 的那一刻就建立 rollback owner；async candidate failure 必须 await cleanup
+  后再返回，composition 则持有 owner 直到 ApplicationRuntime 接管。禁止用 fire-and-forget cleanup 填补
+  构建阶段之间的所有权窗口。
+- Application/run lifecycle 分开计数：application start/stop 各一次，run start/end 每 run 各一次；失败、
+  blocking 和 cancel 都必须进入 best-effort run end。Application stop 后、普通 resources 关闭前执行
+  extension cleanup，并把 hook/cleanup 状态写入脱敏结构化 trace。
+
 ## Provider 外部门纪律
 
 - Provider 接口从同步迁移为异步后，逐条审计所有 live gate 并直接 `await` 真实入口；验收必须拒绝
@@ -16,6 +101,9 @@
 
 ## Coworker 外部编排纪律
 
+- 构建 Coworker 候选环境时必须安装 `coworker` optional extra；service Python 与 runner Python 分别
+  核对。Service preflight PASS 后，仍要用实际 runner Python import Playwright、启动
+  `sync_playwright()` 并核对配置的 Chrome executable，禁止用另一个 venv 的可用性替代。
 - 成功的 `task_planner` / `task_progress_check` 必须安全投影出合法 plan；无法投影时记录 presentation failure，禁止发布无 plan 的 succeeded 事件。独立 verifier 必须逐个成功 Planner 结果检查 plan 存在，不能只验证已有 plan 的归属。
 - 真实 provider 验收必须按 iteration 逐实例核对：连续非负编号、每轮 request/response 各一次、集合一致、request 先于成功 response、工具选择不早于成功 response。至少一个 request/response 只能证明 provider 曾被调用，不能证明完整轨迹由真实模型执行。
 - 修改 run 生命周期 helper、attempt manifest 或 CLI 异常传播后，必须用与真实入口完全相同的参数跑一次顶层 shell smoke，并断言 run root 实际创建、失败/成功路径都打印该路径；helper 单测不能替代入口验收，形参与落盘字段不得同名冲突。

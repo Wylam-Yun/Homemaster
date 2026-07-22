@@ -236,6 +236,246 @@
         "tests/homemaster/skills/test_loader_sources.py::test_explicit_source_can_replace_builtin_only_with_recorded_provenance"
       ],
       "sync_policy": "Retain provenance-aware replacement and never restore silent builtin overwrite."
+    },
+    {
+      "id": "cl20-nanobot-channel-bus",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/channels/bus/queue.py",
+        "symbol": "MessageBus",
+        "sha256": "ae81decdc46364d78a889042cd04e391924862f28477845b51126f895f1520b6"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "The locked OpenHarness queue is an unbounded two-asyncio.Queue transport and has no bounded priority, quota, coalescing, or shutdown-drain tests.",
+        "search_evidence": [
+          "OpenHarness src/openharness/channels/bus/queue.py constructs asyncio.Queue() without maxsize",
+          "git grep for MessageBus under OpenHarness tests found channel integration setup but no queue pressure assertions"
+        ]
+      },
+      "mechanical_deltas": [
+        "retain separate inbound and outbound async publish/consume paths",
+        "retain channel-neutral message transport independent of one concrete adapter"
+      ],
+      "homemaster_deltas": [
+        "replace free-form sender/chat/session override fields with authenticated tenant/channel/chat/thread/sender identity",
+        "bound total, per-tenant, and per-session occupancy",
+        "coalesce or evict progress while retaining final/error/cancel with producer backpressure",
+        "add deadline-aware close and reject producers after closing begins"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/channels/test_bus.py::test_progress_flood_is_coalesced_and_critical_events_are_retained",
+        "tests/homemaster/channels/test_bus.py::test_full_critical_queue_backpressures_producer_until_consumer_advances",
+        "tests/homemaster/channels/test_bus.py::test_tenant_quota_prevents_one_tenant_from_consuming_global_capacity",
+        "tests/homemaster/channels/test_bus.py::test_shutdown_drains_before_deadline_and_rejects_new_producers"
+      ],
+      "destination": "src/homemaster/channels/bus.py",
+      "sync_policy": "Recompare the OpenHarness inbound/outbound DTO and adapter call surface before future sync; never restore metadata session overrides or unbounded queues."
+    },
+    {
+      "id": "cl20-openharness-telegram-channel",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/channels/impl/telegram.py",
+        "symbol": "TelegramChannel",
+        "sha256": "9c60293117cbf38b2e06a2f606c80ad24d8761e0929bdc8a7358a3a7310340b8"
+      },
+      "copied_test_ids": [
+        "tests/test_channels/test_telegram_security.py::test_silence_telegram_token_url_loggers_raises_dependency_log_levels",
+        "tests/test_channels/test_telegram_security.py::test_telegram_error_handler_records_last_error"
+      ],
+      "upstream_test_gap": null,
+      "mechanical_deltas": [
+        "retain python-telegram-bot long polling, dependency logger silencing, message receive, attachment download, and outbound send flow",
+        "load python-telegram-bot lazily from the optional gateway dependency"
+      ],
+      "homemaster_deltas": [
+        "load the bot token only from a configured environment variable",
+        "map exact numeric Telegram sender ids to immutable configured principals and reject wildcard access",
+        "resolve downloaded attachments under one configured root before publishing inbound messages",
+        "mark concrete python-telegram-bot runtime symbols UNVERIFIED until the user-led hkust4 gate"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/channels/test_telegram.py::test_telegram_exact_sender_mapping_creates_authoritative_identity",
+        "tests/homemaster/channels/test_telegram.py::test_telegram_configuration_fails_closed_and_repr_has_no_token",
+        "tests/homemaster/channels/test_telegram.py::test_telegram_dependency_loggers_are_silenced",
+        "tests/homemaster/channels/test_telegram.py::test_disabled_telegram_channel_does_not_import_or_start_network"
+      ],
+      "destination": "src/homemaster/channels/impl/telegram.py",
+      "sync_policy": "Recompare locked Telegram polling and media handling before upgrades; preserve exact principal mapping, environment-only token loading, and attachment containment."
+    },
+    {
+      "id": "cl20-ohmo-gateway-seed",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "ohmo/gateway/bridge.py",
+        "symbol": "OhmoGatewayBridge",
+        "sha256": "7dff9d14aeb0609cada95f2a86d942182a824ccb584f70edcc9bc8b1c69ea22c"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "Upstream gateway tests exercise its per-session RuntimeBundle architecture, which CL-20 explicitly excludes; HomeMaster adds characterization tests at the ApplicationRuntime boundary.",
+        "search_evidence": [
+          "OpenHarness ohmo/gateway/runtime.py owns a RuntimeBundle dictionary per session",
+          "HomeMaster CL-20 plan requires the bridge to call the application-owned ApplicationRuntime"
+        ]
+      },
+      "mechanical_deltas": [
+        "retain channel-to-session routing, async per-session task ownership, cancel-and-join, progress/final separation, and persisted-session recovery intent",
+        "retain restart cleanup of invalid conversation tails"
+      ],
+      "homemaster_deltas": [
+        "call only the supplied application-factory ApplicationRuntime through RunRequest",
+        "derive session ids from typed identity and ignore all metadata/session overrides",
+        "use ApplicationRuntime SessionBackend and generation fencing instead of per-session QueryEngine or provider clients",
+        "consume RuntimeEvent values only through PublicEventProjection and reject stale-generation outbound results"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/gateway/test_runtime.py::test_bridge_submits_only_application_run_request_with_authoritative_principal",
+        "tests/homemaster/gateway/test_runtime.py::test_gateway_cancel_joins_worker_and_rejects_late_result",
+        "tests/homemaster/gateway/test_runtime.py::test_gateway_restart_restores_sanitized_snapshot_with_new_generation",
+        "tests/homemaster/gateway/test_runtime.py::test_gateway_relays_only_projected_public_progress",
+        "tests/homemaster/gateway/test_runtime.py::test_gateway_assembly_reuses_supplied_application_runtime"
+      ],
+      "destination": "src/homemaster/gateway/runtime.py",
+      "sync_policy": "Recompare routing/cancel/recovery behavior before future sync; never port per-session runtime construction, free-form session overrides, or private provider payload publication."
+    },
+    {
+      "id": "cl21-openharness-hook-contracts",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/hooks/events.py",
+        "symbol": "HookEvent",
+        "sha256": "0c991e2da2a5db0c4bebb8b7894111fb6ed4a2769bb571318e6f0dafaf3b2e91"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "The locked hooks contract has no direct HomeMaster-compatible async lifecycle characterization suite; CL-21 adds the focused tests below.",
+        "search_evidence": [
+          "Locked OpenHarness hook tests exercise command/prompt events, not HomeMaster application/run lifecycle callbacks."
+        ]
+      },
+      "mechanical_deltas": [
+        "retain event, priority, matcher, timeout, blocking and aggregate result characterization inputs from the locked hooks contracts"
+      ],
+      "homemaster_deltas": [
+        "replace command, HTTP, prompt and agent hook variants with trusted local async callbacks only",
+        "add application/run lifecycle separation, capability grants, immutable payloads, generation fencing and redacted output",
+        "explicitly do not describe in-process callbacks as a hostile-code sandbox or enforceable side-effect revocation"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/extensions/test_extensions.py::test_runner_orders_matches_blocks_and_checks_run_capabilities",
+        "tests/homemaster/extensions/test_extensions.py::test_hook_spec_rejects_sync_callbacks",
+        "tests/homemaster/application/test_application_runtime.py::test_extension_lifecycle_is_once_per_application_and_run"
+      ],
+      "destination": "src/homemaster/extensions/contracts.py",
+      "sync_policy": "Recompare locked event and aggregate semantics before future upstream sync; preserve HomeMaster trusted-async and lifecycle deltas."
+    },
+    {
+      "id": "cl21-openharness-hook-executor",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/hooks/executor.py",
+        "symbol": "HookExecutor",
+        "sha256": "8d498d1fe705b8b048e8003e1df7c27c9ececbdf2d96d3a7fa8c4d37723a8223"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "The locked executor tests cover command/HTTP/prompt variants that CL-21 intentionally excludes; HomeMaster adds trusted async callback tests.",
+        "search_evidence": [
+          "Locked HookExecutor branches are CommandHookDefinition, HttpHookDefinition, PromptHookDefinition and AgentHookDefinition."
+        ]
+      },
+      "mechanical_deltas": [
+        "retain deterministic event filtering, matcher subject selection and priority ordering as characterization inputs"
+      ],
+      "homemaster_deltas": [
+        "remove shell, HTTP, prompt and agent execution paths",
+        "add cooperative async timeout/cancel, principal capability denial, blocking aggregation, stale-generation fencing and public redaction",
+        "never make a hook the sole owner of permission, terminal, device safety, verification or scoring policy"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/extensions/test_extensions.py::test_runner_timeout_is_cooperative_and_reload_is_busy",
+        "tests/homemaster/extensions/test_extensions.py::test_hook_cancellation_propagates_and_releases_active_count",
+        "tests/homemaster/extensions/test_extensions.py::test_hook_result_free_text_is_redacted"
+      ],
+      "destination": "src/homemaster/extensions/hook_runner.py",
+      "sync_policy": "Recompare locked matcher/priority/blocking behavior before future sync; preserve capability and generation fences."
+    },
+    {
+      "id": "cl21-openharness-hook-hot-reload",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/hooks/hot_reload.py",
+        "symbol": "HookReloader",
+        "sha256": "028ea7a8ffef3c2720cd83a2f2f056f91370d31d20f362ae993122565b494d62"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "The locked upstream reloader has no atomic generation, tool-plane or active-callback safety contract; HomeMaster tests these as new deltas.",
+        "search_evidence": [
+          "Locked HookReloader replaces its registry solely from settings mtime and exposes no active callback or tool-plane gate."
+        ]
+      },
+      "mechanical_deltas": [
+        "retain settings-backed reload intent as the characterization seed"
+      ],
+      "homemaster_deltas": [
+        "lock MVP reload to hooks-only candidates",
+        "reject tool/provenance/capability/profile changes with restart_required",
+        "refuse swaps while callbacks are active and preserve the prior generation on every failure"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/extensions/test_extensions.py::test_hooks_only_reload_swaps_generation_and_failed_reload_rolls_back",
+        "tests/homemaster/extensions/test_extensions.py::test_plugin_tool_byte_change_requires_application_restart"
+      ],
+      "destination": "src/homemaster/extensions/reloader.py",
+      "sync_policy": "Recompare reload intent before future sync; never restore non-atomic settings reload or mixed hook/tool generations."
+    },
+    {
+      "id": "cl21-openharness-plugin-schema-seed",
+      "mode": "A",
+      "source": {
+        "repo": "../OpenHarness",
+        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+        "path": "src/openharness/plugins/schemas.py",
+        "symbol": "PluginManifest",
+        "sha256": "64809b859f463e428c5e348dd6a8eb20b445242e29e3731c34ddcaa11e6e1548"
+      },
+      "copied_test_ids": [],
+      "upstream_test_gap": {
+        "reason": "The locked plugin schema is not a deployment authorization or provenance digest contract.",
+        "search_evidence": [
+          "Locked PluginManifest fields do not provide HomeMaster deployment grants, canonical content digest or same-bytes execution."
+        ]
+      },
+      "mechanical_deltas": [
+        "retain versioned manifest and entrypoint concepts as characterization inputs"
+      ],
+      "homemaster_deltas": [
+        "require explicit deployment approvals, canonical host digest and contained non-symlink entrypoints",
+        "intersect requested capabilities with deployment grants and run-principal capabilities",
+        "load verified bytes once, isolate failed candidates before Catalog mutation and bind plugin tools to exact provenance"
+      ],
+      "characterization_test_ids": [
+        "tests/homemaster/extensions/test_extensions.py::test_loader_verifies_canonical_bytes_and_executes_the_same_source",
+        "tests/homemaster/extensions/test_extensions.py::test_loader_compiles_the_verified_bytes_even_if_path_is_replaced",
+        "tests/homemaster/extensions/test_extensions.py::test_plugin_tool_is_content_bound_capability_typed_and_atomically_registered"
+      ],
+      "destination": "src/homemaster/extensions/loader.py",
+      "sync_policy": "Recompare locked manifest fields before future sync; never trust self-declared authority, hashes or implicit discovery."
     }
   ]
 }

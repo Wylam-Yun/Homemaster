@@ -7,6 +7,7 @@ import pytest
 
 from homemaster.adapters.coworker_entry import build_coworker_stream_projector
 from homemaster.events.bus import EventBus, EventBusClosedError
+from homemaster.events.public_projection import PublicEventProjection
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.stream_events import (
     AssistantTextDelta,
@@ -61,6 +62,20 @@ def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> 
     assert project_stream_event(private) is None
 
 
+def test_gateway_projection_redacts_secrets_queries_and_host_paths_in_free_text() -> None:
+    projection = PublicEventProjection(sensitive_values=("configured-secret",))
+
+    sanitized = projection.sanitize_content(
+        "token=raw-token configured-secret /home/operator/private.txt "
+        "https://example.test/file?signature=raw"
+    )
+
+    assert "raw-token" not in sanitized
+    assert "configured-secret" not in sanitized
+    assert "/home/operator" not in sanitized
+    assert "signature" not in sanitized
+
+
 @pytest.mark.asyncio
 async def test_bounded_stream_backpressures_and_closes_without_subscribers() -> None:
     bus = EventBus(capacity=1)
@@ -74,9 +89,7 @@ async def test_bounded_stream_backpressures_and_closes_without_subscribers() -> 
     assert first.payload["reply"] == "one"
 
     await bus.aemit(_event("assistant.reply", payload={"reply": "two"}))
-    blocked = asyncio.create_task(
-        bus.aemit(_event("assistant.reply", payload={"reply": "three"}))
-    )
+    blocked = asyncio.create_task(bus.aemit(_event("assistant.reply", payload={"reply": "three"})))
     await asyncio.sleep(0.05)
     assert not blocked.done()
 
@@ -224,9 +237,7 @@ def test_coworker_projector_rejects_free_text_secrets_and_raw_outputs() -> None:
         project(
             _event(
                 "assistant.reply",
-                payload={
-                    "reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"
-                },
+                payload={"reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"},
             )
         )
         is None
@@ -252,3 +263,43 @@ def test_coworker_projector_rejects_free_text_secrets_and_raw_outputs() -> None:
     )
     assert isinstance(failure, ErrorEvent)
     assert secret not in failure.message
+
+
+def test_gateway_projection_is_allowlisted_correlated_and_recursively_redacted() -> None:
+    secret = "configured-provider-secret"
+    projection = PublicEventProjection(sensitive_values=(secret,))
+    event = _event(
+        "tool.call_completed",
+        name="observe",
+        tool_call_id="call-1",
+        payload={
+            "result": "done",
+            "usage": {"nested": [{"api_key": "raw-key", "safe": "ready"}]},
+            "data": {
+                "token": secret,
+                "path": "/private/work/result.png",
+                "uri": "https://example.invalid/file?token=raw",
+            },
+        },
+    )
+
+    public = projection.project(event)
+
+    assert public is not None
+    assert public.session_id == "session-a"
+    assert public.run_id == "run-a"
+    assert public.turn_index == 0
+    assert public.correlation_id == "call-1"
+    encoded = json.dumps(public.to_dict())
+    assert secret not in encoded
+    assert "raw-key" not in encoded
+    assert "/private/work" not in encoded
+    assert "?token=" not in encoded
+
+
+def test_gateway_projection_rejects_private_and_unknown_events() -> None:
+    projection = PublicEventProjection()
+    assert projection.project(_event("assistant.thinking", payload={"thinking": "private"})) is None
+    assert (
+        projection.project(_event("provider.private_payload", payload={"raw": "private"})) is None
+    )

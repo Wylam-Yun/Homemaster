@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "phase": "2-CL20",
+  "change_list": "CL-20-gateway-channel-public-projection",
+  "status": "VERIFYING",
+  "commits": {
+    "implementation_base": "eae74e8",
+    "candidate": "uncommitted_stacked_worktree"
+  },
+  "dependency_status": {
+    "cl19": "VERIFYING",
+    "exception": "User directed completion of CL-18 through CL-21 code and documentation on HPC2 before the consolidated hkust4 live gate."
+  },
+  "review_policy": {
+    "implementation_review": "completed_stage_review_findings_resolved",
+    "reason": "The user explicitly requested one read-only review after each CL-18 through CL-21 stage, plus the consolidated final review.",
+    "findings": "The read-only CL-20 stage reviewer identified stale queued-generation egress, pre-auth attachment download, duplicate final projection, incomplete service supervision/shutdown drain, and free-text redaction bypass. All findings were fixed with RED regressions; no external symbol was endorsed."
+  },
+  "channel": {
+    "name": "telegram",
+    "transport": "long_polling",
+    "default_enabled": false,
+    "upstream_nanobot_commit": "473ae5ef18394ab839a3364eee66836ef9776902",
+    "openharness_mirror_commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
+  },
+  "subgoals": [
+    "Route immutable tenant/channel/chat/thread/sender identity without trusting prompt, metadata, or session overrides.",
+    "Use global, per-tenant, and per-session bounded queues that coalesce progress and retain final/error/cancel with backpressure.",
+    "Submit remote work only through the supplied application-owned ApplicationRuntime and canonical RunRequest.",
+    "Contain attachments after realpath resolution and reject parent or symlink escape.",
+    "Fence reconnect, cancel, restart, and late result by session generation and cancel-and-join.",
+    "Recover only pure SessionBackend snapshot data and sanitize unpaired tool conversation tails.",
+    "Publish remote progress only through an allowlisted, recursively redacted, correlated public projection.",
+    "Port one real Telegram long-poll adapter with exact principal mapping and environment-only credentials."
+  ],
+  "external_symbols": [
+    {
+      "symbols": [
+        "telegram.ext.Application",
+        "telegram.ext.MessageHandler",
+        "telegram.ext.filters",
+        "telegram.request.HTTPXRequest",
+        "Application.updater.start_polling",
+        "Bot.get_file",
+        "Bot.send_message"
+      ],
+      "status": "UNVERIFIED",
+      "environment": "hkust4 user-guided Telegram environment",
+      "result": "Imports and calls are isolated behind the optional gateway extra. Concrete API acceptance and external Telegram state are deferred until the user-led hkust4 gate."
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "full_non_live",
+      "status": "pass",
+      "result": "Post-review HPC2 non-live suite: 1251 passed, 7 deselected; targeted CL-20/application/device/ALFWorld regression: 151 passed. Ruff, format, compileall, cleanup guard, manifest JSON and diff checks pass."
+    },
+    {
+      "kind": "stage_review",
+      "status": "pass",
+      "result": "One read-only CL-20 reviewer completed after implementation. Five lifecycle/security finding groups were accepted and fixed; post-fix targeted regression is 151 passed."
+    },
+    {
+      "kind": "focused_non_live",
+      "status": "pass",
+      "result": "Targeted channel, Gateway, event projection, config, and CLI tests cover routing, spoof rejection, attachment containment, 1000-progress flood, global/tenant/session quotas, critical backpressure, shutdown drain, cancel late-result rejection, restart recovery, public projection, Telegram exact auth, disabled startup, and composition parity."
+    },
+    {
+      "kind": "public_projection_boundary",
+      "status": "pass",
+      "result": "A private RuntimeEvent is independently observed in the application ledger before the events-layer projection reaches Gateway; provider-private fields and path/query/credential data are absent from outbound DTOs."
+    },
+    {
+      "kind": "deferred_external_gate",
+      "status": "pending",
+      "result": "No Telegram network call or hkust4 access was performed. External return status plus observable Telegram terminal state remain deferred by user instruction."
+    }
+  ],
+  "next": [
+    "Start CL-21 implementation now that CL-20 stage review findings are resolved.",
+    "Keep Telegram runtime symbols UNVERIFIED and do not access hkust4 until CL-18 through CL-21 code and documentation are complete and the user provides live-test guidance."
+  ]
+}

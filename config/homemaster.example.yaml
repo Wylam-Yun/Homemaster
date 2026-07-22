@@ -145,3 +145,76 @@ skills:
   explicit_dirs: []
   allow_project: true
   allowed_builtin_overrides: []
+
+# Optional MCP support requires installing the project with the `mcp` extra.
+# Keep real headers and environment values only in ignored config/homemaster.yaml.
+mcp:
+  servers:
+    local_tools:
+      transport: stdio
+      command: python
+      args: ["/absolute/path/to/server.py"]
+      env:
+        MCP_TOKEN: "<your-mcp-token>"
+      cwd: null
+      enabled: false
+    remote_tools:
+      transport: http
+      url: https://mcp.example/mcp
+      headers:
+        Authorization: "Bearer <your-mcp-token>"
+      enabled: false
+  connect_timeout_s: 15.0
+  call_timeout_s: 60.0
+  artifact_root: ~/.homemaster/artifacts/tool-output
+  artifact_quota_bytes: 67108864
+  artifact_ttl_seconds: 604800
+  preview_chars: 4000
+
+# Permission mode never grants a capability. Remote capabilities must come from
+# a configured credential-to-principal mapping at the Gateway boundary.
+permissions:
+  mode: full_auto
+  allowed_tools: []
+  denied_tools: []
+  path_rules: []
+  # Example:
+  # path_rules:
+  #   - pattern: "/approved/workspace/**"
+  #     allow: true
+  #   - pattern: "/restricted/**"
+  #     allow: false
+  denied_commands:
+    - "rm -rf *"
+
+# Optional Telegram long polling requires installing the `gateway` extra.
+# The real bot token belongs only in HOMEMASTER_TELEGRAM_BOT_TOKEN (or the
+# configured token_env); never put it in this file.
+gateway:
+  enabled: false
+  bus_capacity: 128
+  per_tenant_capacity: 64
+  per_session_capacity: 32
+  shutdown_deadline_s: 5.0
+  telegram:
+    enabled: false
+    token_env: HOMEMASTER_TELEGRAM_BOT_TOKEN
+    tenant_id: local
+    bot_name: HomeMaster
+    attachment_root: ~/.homemaster/attachments/telegram
+    principals:
+      # Telegram numeric sender id -> immutable HomeMaster principal.
+      "123456789":
+        principal_id: operator-name
+        roles: [operator]
+        capabilities: [tool.read]
+
+# Trusted local Python extensions are disabled unless every approval field is pinned.
+extensions:
+  approvals: []
+  # - manifest_path: ./extensions/example/manifest.json
+  #   extension_id: example.audit
+  #   version: 1.0.0
+  #   expected_sha256: <64-lowercase-hex-host-computed-digest>
+  #   granted_capabilities: [hook.lifecycle]
+  #   enabled_tool_ids: []

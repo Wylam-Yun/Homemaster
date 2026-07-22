@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from types import SimpleNamespace
 
 import pytest
@@ -76,6 +76,19 @@ async def _assert_no_leaks(
     assert bus.pending_producer_count == 0
     assert active_leases == 0
     assert _backend_threads() == baseline_threads
+
+
+@pytest.mark.asyncio
+async def test_generation_fenced_sink_binds_gateway_generation_at_production() -> None:
+    bus = EventBus()
+    await bus.start()
+    runtime = SimpleNamespace(generation_guard=lambda _generation: nullcontext())
+    sink = _GenerationFencedEventSink(runtime, 3, bus, gateway_generation=11)
+
+    await sink.aemit(_event(1))
+
+    assert bus.events[0].gateway_generation == 11
+    await bus.aclose()
 
 
 @pytest.mark.stress
@@ -230,9 +243,7 @@ async def test_1000_progress_events_obey_bounded_backpressure_without_leaks() ->
     await _spin_until(lambda: bus.subscriber_count == 1)
     producer = asyncio.create_task(produce())
     await first_consumed.wait()
-    await _spin_until(
-        lambda: len(authoritative) == 10 and len(published) == 9
-    )
+    await _spin_until(lambda: len(authoritative) == 10 and len(published) == 9)
 
     assert authoritative == list(range(10))
     assert published == list(range(9))
@@ -390,9 +401,7 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
                         f"stale-{race_index}",
                     )
                 )
-                await reject_stale(
-                    lambda: manager.save("generation-race", generation=generation)
-                )
+                await reject_stale(lambda: manager.save("generation-race", generation=generation))
                 await reject_stale(lambda: sink.aemit(_event(race_index)))
 
         async def stale_run(
@@ -447,9 +456,7 @@ async def test_100_cancel_restart_races_fence_every_stale_write(tmp_path) -> Non
                     manager.apply(
                         "generation-race",
                         race_generation,
-                        lambda value: value.agent_state.metadata.update(
-                            {"domain": race_index}
-                        ),
+                        lambda value: value.agent_state.metadata.update({"domain": race_index}),
                     )
                     manager.commit_final_result(
                         "generation-race",

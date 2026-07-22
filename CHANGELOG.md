@@ -2,11 +2,134 @@
 
 ## Unreleased
 
+### Verification
+
+- V1.9 final-review remediation concentrated verification passed: full non-live `1295 passed, 11 deselected`,
+  focused review regression `193 passed`, runtime stress `5 passed`, Ruff check/format, compileall and diff gates.
+  Real Mimo API (`3 passed`), MCP stdio/HTTP (`21 passed`), device audit/file (`27 passed`, fake backend) and
+  extension filesystem/reload (`32 passed`) gates also passed.
+- Candidate `800d391dd780fd13e5d3116bb269a99b9b975474` executed the locked four real THOR episodes and one real
+  Coworker normal run. ALFWorld finished 0/4 with three Harness-invalid episodes and one score-eligible model
+  failure; its wrapper returned 1. Coworker reached 32 real Mimo attempts and produced a verified 255-second H.264
+  video, but the changed observation freshness contract rejected business actions and the independent verifier
+  returned 1 for missing `presentation/events.jsonl`. These are preserved failed release attempts, not PASS.
+- Repaired the hkust4 Coworker editable install that pointed at a stale source tree, and completed Doctor/preflight
+  without dependency upgrades. The temporary V1.9 candidate additionally received its omitted lock-matched
+  Playwright/greenlet/pyee Coworker runtime dependencies; the initial `ModuleNotFoundError` attempt remains in the
+  append-only release ledger.
+
+### Added
+
+- CL-21 增加默认关闭、部署者显式批准的 trusted local extension layer：canonical manifest/entrypoint
+  SHA-256、same-bytes compile、non-symlink containment、content-bound plugin provenance、canonical
+  `required_capabilities` 与 requested/deployment/run-principal 三方 capability 交集。原因：manifest
+  requested capability 不是部署授权，Catalog 中存在的 plugin id 也不能由 request/CLI/Gateway 扩张
+  profile。影响：扩展工具只进入 Home final ToolView，ALFWorld/Coworker 不变；坏 hash/import/collision
+  在 Catalog mutation 前整体失败。
+- CL-21 lifecycle 只接受可信 async callback，区分 application 与 run start/end/stop，提供稳定 priority/
+  matcher、cooperative timeout/cancel、blocking、generation fencing、脱敏 JSONL trace 和 cleanup。
+  hooks-only reload 在活动 callback 时返回 `busy`，任何 tool/provenance/capability/profile 变化返回
+  `restart_required`。该 MVP 不宣称 hostile-code sandbox，也不允许 hook 成为 permission、device safety、
+  terminal、verifier 或 scorer 的唯一 owner。当前证据仅为 HPC2 non-live；hkust4 外部门按用户要求延后。
+- CL-21 stage review 后收紧边界：reload identity 现在固定 extension id/version/requested/granted
+  capabilities 与完整 tool plane；exact tool/hook token 不能替代 canonical required capability；显式空
+  `enabled_tool_ids` 关闭全部工具，非法扩权在任何 run hook 前拒绝。callback timeout 改为独立 task
+  hard result fence，抗取消 task 继续计入 active 并阻止 reload/cleanup；application close 先 quiesce 再
+  stop/cleanup。entrypoint 每级目录均通过 pinned dir-fd 与 `O_NOFOLLOW` 打开，失败 candidate、partial
+  load 和 Catalog collision 会释放已取得的 extension cleanup ownership。原因：原有同源测试无法覆盖
+  `asyncio.wait_for` 抗取消、父目录 symlink TOCTOU 和空 tuple fail-open。影响：post-review HPC2
+  non-live 为 `1285 passed, 7 deselected`，未访问 hkust4 或 live 外部系统。
+
+- CL-20 增加 Gateway、channel-neutral typed identity、确定性 tenant/session 路由、附件 containment、
+  bounded priority bus 和严格 `PublicEventProjection`。首个 remote channel 为默认关闭的 Telegram
+  long polling；它只从环境变量读取 token，并将 exact sender mapping 转成 immutable principal，
+  不信任 prompt、metadata 或 session override。
+- Gateway 复用 application factory 的同一个 `ApplicationRuntime`，通过 `RunRequest` 执行并用
+  generation fencing、cancel-and-join、SessionBackend snapshot recovery 和 unpaired tool-tail 清洗
+  拒绝 late result。progress 可合并/淘汰，final/error/cancel 保留并在满载 critical queue 时反压。
+  Gateway 只消费 events 层的 allowlist/redaction/correlation public projection。
+
+影响：新增 `gateway` optional extra 和 `homemaster gateway --config ...`；具体
+python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对，当前只宣称 HPC2 non-live gate。
+
+- 收尾修复：borrowed device handle 的 pool fencing generation 不再冒充 backend application-run
+  generation；观察 capture/provider binding 读取独立的 `backend_generation`，并保留原有 disconnect/
+  close fencing 语义。同步刷新 CL-20 upstream manifest destinations/provenance、`uv.lock` baseline
+  hash 与 legacy 文档术语。
+
+- 阶段 review 修复：egress 消费时重新核对 generation/identity，Telegram 在认证前不查询或下载附件，
+  supervisor 观察全部 service task 并在 outbound drain 后停止 channel；assistant reply 不再与
+  `RunResult` duplicate final。progress、final、error、cancel 共用递归 public projection，补充自由文本
+  credential、host path、URL query 和配置 secret 脱敏。新增 review regression 后 targeted gate 为
+  `151 passed`，完整 HPC2 non-live gate 为 `1251 passed, 7 deselected`。
+
 ### Fixed
+
+- V1.9 整体 final review 的 6 项发现已完成代码修复与集中验证：设备 authoritative event append
+  与 audit sink 故障隔离，审计失败不再阻断 lease release 或 emergency-stop；未知 MCP discovered tool
+  默认按 mutating fail closed，已尝试调用的 timeout/call failure 返回 `outcome_unknown`；Gateway 用一个
+  absolute deadline 硬限制 active run、bus、channel 与 service-task shutdown，并在 RuntimeEvent 生产时
+  固化 Gateway generation；extension reload 失败会 await partial candidate cleanup，composition 在
+  ApplicationRuntime 接管前持有 rollback ownership；manifest 可显式声明 flat Python dependency files，
+  digest 与 same-bytes loader 覆盖全部依赖且不暴露真实 `__file__`。原因：阶段内绿灯没有覆盖旁路 sink
+  反向中断控制面、backlog 代际漂移、抗取消 shutdown、跨构建阶段 cleanup ownership 和 entrypoint
+  之外的行为字节。影响：MCP SDK mutation annotation 仍标 `UNVERIFIED`，trusted extension 仍不宣称
+  hostile-code sandbox。评审修复后的独立证据为 `1295 passed, 11 deselected`，没有沿用修复前的
+  `1285 passed`；hkust4 外部门的真实失败结果见本节 Verification。
 
 - 修复两条真实 Provider 验收仍按同步方式调用异步 `LLMClient.complete()`、导致 coroutine 逃逸且请求
   根本未发出的问题；live gate 现在直接 await 真实入口并断言外部响应，防止 non-live 全绿掩盖正式
   Provider 门失效。
+
+### V1.9 Phase 2 - 权限、认证与设备资源基础
+
+- 修复阶段评审发现的生产接线与 fencing 缺口：runtime 现在在 run 边界把 borrowed backend 自动
+  注册为 tenant-pinned pool handle；同一 physical backend 不能跨 tenant 生成第二个 lease slot；
+  disconnect/repeat-disconnect/stop/close 共用原子单调 `fence_next`；已 grant waiter 在 backend 前
+  再次锁内核对。原因：只有 isolated pool 测试而没有生产环境接线，会让所有 ownership 与串行门在
+  真路径失效；immutable registration generation 也会在 stop 后回退。影响：活动动作在 terminal
+  transition 后为 `outcome_unknown`，等待动作从不进入 backend，borrowed backend 仍不会被关闭。
+- 急停外部边界改为内部 `DeviceControlReceipt` + 独立 `DeviceStateObservation`，拒绝 raw
+  `"success"/"stopped"` 字符串；两次 return code 保留到 result、authoritative event 和 mode-0600
+  audit。具体机器人 SDK enum 仍为 `UNVERIFIED`，等待用户指导的 hkust4 真机核对。阶段扩大回归
+  `143 passed`，未访问 hkust4。
+
+- 变更：统一 canonical execution chain 默认接入 capability-aware permission policy；Bearer credential 只映射预配置
+  typed principal/tenant/capabilities，robot read/control 与 MCP 分别要求 `device.read`、
+  `device.control` 和 `mcp.call`，显式 allow、prompt、metadata 与 skill 均不能扩权。
+  原因：远程入口不能复用本地隐式信任，也不能建立第二条绕过 canonical executor 的机器人路径。
+  影响：本地 `RunRequest` 保留兼容能力；远程 channel 必须显式配置 principal capability，敏感路径、
+  command deny 和 tool deny 继续 fail closed。
+- 变更：application-owned connection pool 与 generation-aware physical-device FIFO lease 绑定；同设备
+  写动作串行、不同设备并发，disconnect/stale/emergency-stop 拒绝等待动作并把活动动作标为
+  `outcome_unknown`。急停要求 control capability，且必须同时看到成功返回和外部 stopped 状态。
+  原因：连接状态、互斥锁和急停若各自维护 generation，会允许 late result、重复动作或断线后误执行。
+  影响：owned/borrowed connection 按 ownership 隔离关闭；设备 lease/fence/stop 追加到 mode-0600
+  `device_audit.jsonl`；未知写结果不可自动重试。
+
+### V1.9 Phase 1 - MCP、Resources 与 Tool Output Artifacts
+
+- 修复阶段评审发现的五个边界缺口：artifact 分区改用 immutable tenant identity 而非 principal id；
+  resource URI 从 model preview 移除且 audit 只保留 SHA-256 引用；audit sink 故障以 typed failure
+  留存但不改变连接状态或中止 cleanup；显式 `--probe` 写入独立 mode-0600 JSONL audit。原因：
+  principal/tenant 混淆会破坏 quota/ACL domain，resource payload 与 audit 可能泄漏 query token 或宿主
+  路径，观测系统故障也不能反向泄漏连接。影响：raw resource artifact 仍在精确 tenant ACL 内保真；
+  MCP、artifact、application/CLI 聚焦回归 `40 passed`，未访问 hkust4。
+
+- 变更：增加 optional MCP SDK、application-owned async manager、stdio/streamable HTTP discovery、
+  typed per-server status、timeout/cancel/disconnect fencing、best-effort close isolation 和脱敏 JSONL
+  audit；首次真实 run 前原子注册保真 JSON Schema tools，并在 final Home ToolView 后重验 skills。
+  原因：动态 MCP 连接与 event loop 绑定，不能由每个 turn 临时创建，也不能用浅层 schema 投影或
+  单个 server 失败破坏 builtin Catalog。
+  影响：普通 dry-run 保持零外部 I/O，`--probe` 才临时连接；WebSocket 明确 unsupported；
+  ALFWorld/Coworker ToolView 不变，每个 Home run 仍只能执行其 frozen ToolView 中的 MCP stable id。
+- 变更：新增 tenant/session/run 分区 `ToolOutputStore`，原始 MCP 输出在脱敏前以 opaque handle、
+  quota、TTL、0600 原子文件和精确 ACL 落盘；模型只接收 bounded preview/hash/handle，resource URI
+  由 adapter 内部映射为 opaque `resource_id`。
+  原因：外部工具结果和 URI 可能包含 credential、宿主路径或大 payload，不能直接进入模型、事件
+  或 session snapshot。
+  影响：调用者必须持有准确 partition identity 才能读取 artifact；config summary、状态、异常、
+  dry-run 和 audit 不输出 MCP headers/env/URL userinfo。
 
 ### V1.9 Phase 1 - Skills 与配置来源
 

@@ -17,7 +17,7 @@ config/homemaster.json
 /config/homemaster.yaml
 /config/coworker_demo.yaml
 .cache/
-artifacts/
+/artifacts/
 tmp/
 data/runs/
 trace.jsonl

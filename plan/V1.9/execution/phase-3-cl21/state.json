@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "phase": "3-CL21",
+  "change_list": "CL-21-hooks-plugins",
+  "status": "INTERNAL_GATES_PASSED_EXTERNAL_RELEASE_GATES_FAILED",
+  "plan_sha256": "b229b637cb344344c38b9ba2fd637007e6d70aae466834b2750c1cbd2b0236e8",
+  "review_policy": {
+    "plan_review": "completed_with_findings_resolved",
+    "stage_review": "completed_with_findings_resolved",
+    "final_review": "completed_once_with_six_findings_implemented_and_verified"
+  },
+  "external_gate": {
+    "status": "executed_failed",
+    "candidate_sha": "800d391dd780fd13e5d3116bb269a99b9b975474",
+    "reason": "The locked four-episode ALFWorld run and one Coworker normal run both reached their real external runtimes, but neither satisfied the release verifier after the observation contract changed. These failures are preserved and are not reported as release PASS.",
+    "alfworld": {
+      "status": "failed",
+      "run_id": "v19-800d391dd780-3a166c923d50",
+      "episodes_started": 4,
+      "episodes_succeeded": 0,
+      "runner_return_code": 1,
+      "provider_availability": 1.0,
+      "runtime_availability": 1.0,
+      "harness_coverage": 0.25,
+      "failure_summary": "Episodes 1 and 4 terminated execution_state_uncertain, episode 2 terminated during setup with scan_restore_mismatch before any provider attempt, and episode 3 was score-eligible but not won. The release wrapper also rejected the absent episode-2 provider_attempts.jsonl."
+    },
+    "coworker": {
+      "status": "failed",
+      "run_id": "coworker-20260722-102116-a79213c1",
+      "runner_return_code": 1,
+      "provider_attempts": 32,
+      "video_verification": "passed",
+      "ffmpeg_return_code": 0,
+      "formal_success": false,
+      "failure_summary": "The real Mimo/browser/service run completed and persisted a verified 255-second H.264 video, but freshness fencing rejected the business actions. No presentation/events.jsonl was produced, so the independent bundle verifier returned 1."
+    }
+  },
+  "implementation": {
+    "trusted_code_tier": "explicitly_approved_local_async_python",
+    "hostile_code_sandbox": false,
+    "reload_scope": "hooks_only",
+    "application_lifecycle": [
+      "application_start",
+      "application_stop"
+    ],
+    "run_lifecycle": [
+      "run_start",
+      "run_end"
+    ],
+    "capability_authority": "manifest_requested intersect deployment_grants intersect run_principal",
+    "profile_override": "narrowing_only",
+    "content_digest_scope": "canonical_manifest_entrypoint_and_declared_flat_dependencies",
+    "async_candidate_rollback": "awaited",
+    "composition_rollback_owner": "factory_success_through_application_runtime_transfer"
+  },
+  "evidence": [
+    {
+      "kind": "focused_non_live",
+      "status": "pass",
+      "result": "Post-review extension/application/Gateway focus: 64 passed."
+    },
+    {
+      "kind": "expanded_non_live",
+      "status": "pass",
+      "result": "Application/tools/permissions/config/Gateway/channels expansion: 239 passed."
+    },
+    {
+      "kind": "static_gates",
+      "status": "pass",
+      "result": "Full Ruff, 12 involved-file format, compileall, upstream/state JSON and git diff checks pass."
+    },
+    {
+      "kind": "full_non_live",
+      "status": "pass",
+      "result": "Post-review HPC2 non-live suite: 1285 passed, 7 deselected. One inherited Starlette/httpx deprecation warning; no live I/O."
+    },
+    {
+      "kind": "stage_review",
+      "status": "pass",
+      "result": "The sole read-only CL-21 stage review reported 9 findings; all were accepted, fixed and targeted without a second review."
+    },
+    {
+      "kind": "v19_final_review",
+      "status": "remediation_verified",
+      "result": "The sole V1.9 final review reported 6 findings covering device audit isolation, MCP mutation/outcome semantics, whole-shutdown deadline, event generation provenance, extension rollback ownership and dependency content pinning. All six remediations are implemented. Post-review verification passed: 1295 non-live tests with 11 deselected, 193 focused tests, 5 stress tests, Ruff check/format, compileall and git diff checks."
+    },
+    {
+      "kind": "provider_live_api",
+      "status": "pass",
+      "result": "Three real Mimo provider tests returned external responses and process exit 0."
+    },
+    {
+      "kind": "external_protocol_and_artifact_gates",
+      "status": "pass_with_device_limitation",
+      "result": "Real MCP stdio and loopback HTTP gates passed (21 tests); device audit/file gates passed (27 tests) against the external fake backend because no robot SDK is present; extension filesystem/reload/rollback gates passed (32 tests)."
+    },
+    {
+      "kind": "alfworld_release_gate",
+      "status": "fail",
+      "result": "Four real THOR episodes started, but per-episode external terminal checks produced 0/4 successes and the wrapper returned 1."
+    },
+    {
+      "kind": "coworker_release_gate",
+      "status": "fail",
+      "result": "The repaired candidate environment completed a real 32-attempt Mimo/browser/service/recording run, but freshness fencing prevented business actions and the independent verifier returned 1."
+    }
+  ],
+  "next": [
+    "Do not start another CL-21 or V1.9 final reviewer; both single review slots are consumed.",
+    "Treat final-review remediation and internal V1.9 implementation as verified, but do not label the candidate release-complete while the two real release verifiers remain nonzero.",
+    "If release PASS is still required, first reconcile the new observation freshness contract with ALFWorld state verification and Coworker action binding, then create a new candidate SHA and rerun both external gates from fresh evidence roots."
+  ]
+}

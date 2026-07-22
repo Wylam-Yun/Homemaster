@@ -15,10 +15,12 @@ from homemaster.cli.benchmark_alfworld import (
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.dry_run import build_dry_run_preview
 from homemaster.cli.errors import render_error_and_exit
+from homemaster.cli.gateway_command import run_gateway
 from homemaster.cli.interactive_shell import run_interactive_shell
 from homemaster.cli.renderers import parse_output_format, render_dry_run
 from homemaster.cli.run_command import handle_print, handle_run
 from homemaster.cli.session_command import session_app
+from homemaster.config import load_config
 from homemaster.events.logger import setup_logging
 
 app = typer.Typer(
@@ -226,6 +228,22 @@ def shell_command(
 ) -> None:
     """Launch the interactive HomeMaster shell."""
     run_interactive_shell(resume_session_id=resume_session_id)
+
+
+@app.command("gateway")
+def gateway_command(
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+    ] = None,
+) -> None:
+    """Run the configured remote Gateway (Telegram long polling)."""
+    try:
+        run_gateway(load_config(config_path))
+    except (typer.Exit, SystemExit):
+        raise
+    except Exception as exc:
+        render_error_and_exit(exc)
 
 
 @app.command("benchmark-alfworld")
