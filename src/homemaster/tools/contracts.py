@@ -256,14 +256,6 @@ class PermissionSubject:
 
 
 @runtime_checkable
-class ToolViewHandle(Protocol):
-    @property
-    def view_id(self) -> str: ...
-
-    def is_enabled(self, internal_id: str) -> bool: ...
-
-
-@runtime_checkable
 class CancellationHandle(Protocol):
     @property
     def cancelled(self) -> bool: ...
@@ -281,7 +273,6 @@ class ToolExecutionContext:
     turn_index: int
     tool_call_id: str
     internal_tool_id: str
-    tool_view: ToolViewHandle
     permission_subject: PermissionSubject
     backend: object | None
     deadline: DeadlineHandle | None
@@ -303,8 +294,6 @@ class ToolExecutionContext:
             raise ValueError("turn_index must be non-negative")
         if _INTERNAL_ID_RE.fullmatch(self.internal_tool_id) is None:
             raise ValueError("internal_tool_id must be a stable namespaced lowercase id")
-        if not isinstance(self.tool_view, ToolViewHandle):
-            raise TypeError("tool_view must implement ToolViewHandle")
         if not isinstance(self.permission_subject, PermissionSubject):
             raise TypeError("permission_subject must be PermissionSubject")
         if self.deadline is not None and not isinstance(self.deadline, DeadlineHandle):

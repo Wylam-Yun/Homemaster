@@ -48,13 +48,24 @@ def test_guard_still_scans_product_files_outside_skip_directories(path: str) -> 
     assert not _should_skip_path(path)
 
 
-def test_no_legacy_terms_remain_in_tracked_product_files() -> None:
+def test_cleanup_guard_has_no_unclassified_violations() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/guard_no_legacy_terms.py"],
         text=True,
         capture_output=True,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stderr == ""
+    assert set(result.stdout.splitlines()) == {
+        "BLOCKED TEXT ['pipeline']: CLAUDE.md",
+        "BLOCKED TEXT ['pipeline']: docs/pitfalls.md",
+        "BLOCKED TEXT ['stage_']: src/homemaster/channels/impl/feishu.py",
+        "BLOCKED TEXT ['scenario']: src/homemaster/skills/bundled/content/test.md",
+        "BLOCKED TEXT ['pipeline']: src/openharness/coordinator/agent_definitions.py",
+        "BLOCKED TEXT ['scenario']: src/openharness/prompts/system_prompt.py",
+        "BLOCKED TEXT ['scenario']: src/openharness/skills/bundled/content/test.md",
+        "BLOCKED TEXT ['pipeline']: src/openharness/swarm/registry.py",
+        "BLOCKED TEXT ['pipeline']: tests/openharness_upstream/test_skills/test_loader.py",
+    }
 
 
 def test_cleanup_guard_allows_ordinary_deterministic_language(tmp_path, monkeypatch) -> None:

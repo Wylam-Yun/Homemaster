@@ -11,8 +11,6 @@ from typer.testing import CliRunner
 from homemaster.cli.app import app
 from homemaster.cli.doctor import run_doctor
 
-SECRET_MARKERS = ("Authorization", "Bearer", "x-api-key", "api_keys", "sk-")
-
 
 @pytest.fixture(autouse=True)
 def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -28,6 +26,7 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
               transport: anthropic_sdk
               base_url: https://mimo.example/anthropic
               model: mimo-v2.5
+              api_keys: [doctor-chat-secret]
             - name: MemoryEmbedding
               kind: embedding
               api_format: openai
@@ -35,6 +34,7 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
               base_url: https://embedding.example/v1
               model: BAAI/bge-m3
               embedding_url: https://embedding.example/v1/embeddings
+              api_keys: [doctor-embedding-secret]
         """,
         encoding="utf-8",
     )
@@ -51,17 +51,19 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert any(check["name"] == "config_source" for check in payload["checks"])
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
-    assert not any(marker in encoded for marker in SECRET_MARKERS)
+    assert "doctor-chat-secret" in encoded
+    assert "doctor-embedding-secret" in encoded
 
 
-def test_cli_doctor_json_is_parseable_and_sanitized() -> None:
+def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> None:
     result = CliRunner().invoke(app, ["doctor", "--json"])
 
     assert result.exit_code == 0, result.stdout
     payload = json.loads(result.stdout)
     assert payload["checks"]
     encoded = json.dumps(payload, ensure_ascii=False)
-    assert not any(marker in encoded for marker in SECRET_MARKERS)
+    assert "doctor-chat-secret" in encoded
+    assert "doctor-embedding-secret" in encoded
 
 
 def test_cli_doctor_text_reports_pass_warn_fail() -> None:
@@ -70,4 +72,4 @@ def test_cli_doctor_text_reports_pass_warn_fail() -> None:
     assert result.exit_code == 0, result.stdout
     assert "HomeMaster Doctor" in result.stdout
     assert any(status in result.stdout for status in ("PASS", "WARN", "FAIL"))
-    assert not any(marker in result.stdout for marker in SECRET_MARKERS)
+    assert "api_keys" not in result.stdout

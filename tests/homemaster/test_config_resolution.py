@@ -16,7 +16,7 @@ from homemaster.config import (
     ProviderProfileConfig,
     load_config,
 )
-from homemaster.config.config import REPO_ROOT, redact_config_value
+from homemaster.config.config import REPO_ROOT
 
 
 def test_feishu_config_exposes_only_locked_domain_and_trusted_entry_fields() -> None:
@@ -39,7 +39,7 @@ def test_enabled_feishu_requires_no_bot_or_sender_ids() -> None:
     assert config.enabled
 
 
-def test_feishu_yaml_credentials_are_preferred_secret_safe_and_sanitized(monkeypatch) -> None:
+def test_feishu_yaml_credentials_are_preferred_and_service_repr_is_exact(monkeypatch) -> None:
     monkeypatch.setenv("HOMEMASTER_FEISHU_APP_ID", "cli-env")
     monkeypatch.setenv("HOMEMASTER_FEISHU_APP_SECRET", "env-secret")
     config = FeishuChannelConfig(app_id="cli-file", app_secret="file-secret")
@@ -48,19 +48,16 @@ def test_feishu_yaml_credentials_are_preferred_secret_safe_and_sanitized(monkeyp
 
     assert service.app_id == "cli-file"
     assert service.credential_source == "file"
-    assert "file-secret" in config_module.configured_sensitive_values(
-        config_module.HomeMasterConfig(gateway={"feishu": config})
-    )
-    rendered = (
+    config_rendered = (
         repr(config),
         str(config),
         repr(config.model_dump(mode="python")),
         repr(config.model_dump(mode="json")),
         config.model_dump_json(),
-        repr(service),
     )
-    assert all("file-secret" not in value for value in rendered)
-    assert all("env-secret" not in value for value in rendered)
+    assert all("file-secret" not in value for value in config_rendered)
+    assert "file-secret" in repr(service)
+    assert "env-secret" not in repr(service)
 
 
 def test_feishu_environment_credentials_remain_pairwise_fallback(monkeypatch) -> None:
@@ -71,7 +68,7 @@ def test_feishu_environment_credentials_remain_pairwise_fallback(monkeypatch) ->
 
     assert service.app_id == "cli-env"
     assert service.credential_source == "env"
-    assert "env-secret" not in repr(service)
+    assert "env-secret" in repr(service)
 
 
 def test_feishu_credentials_reject_partial_or_cross_source_pairs(monkeypatch) -> None:
@@ -120,7 +117,7 @@ def test_gateway_extra_and_example_expose_only_feishu() -> None:
     assert "  telegram:" not in example
 
 
-def test_configured_sensitive_values_collect_provider_and_mcp_secrets_without_logging(
+def test_config_has_no_runtime_secret_collection_api_and_keeps_authoritative_values(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "homemaster.yaml"
@@ -151,23 +148,15 @@ def test_configured_sensitive_values_collect_provider_and_mcp_secrets_without_lo
     )
     config = load_config(path)
 
-    assert hasattr(config_module, "configured_sensitive_values")
-    values = config_module.configured_sensitive_values(config)
-
-    assert set(values) == {
-        "provider-secret",
-        "mcp-env-secret",
-        "Bearer mcp-header-secret",
-        "mcp-user",
-        "mcp-password",
-    }
-    public = json.dumps(
-        {
-            "providers": [provider.public_summary() for provider in config.providers.items],
-            "mcp": config.mcp.public_summary(),
-        }
+    assert not hasattr(config_module, "configured_sensitive_values")
+    assert config.providers.items[0].api_keys == ("provider-secret",)
+    assert config.mcp.servers["local"].env["MCP_TOKEN"] == "mcp-env-secret"
+    assert config.mcp.servers["remote"].headers["Authorization"] == (
+        "Bearer mcp-header-secret"
     )
-    assert all(value not in public for value in values)
+    assert str(config.mcp.servers["remote"].url) == (
+        "https://mcp-user:mcp-password@example.test/mcp"
+    )
 
 
 def test_resolve_provider_profile_prefers_typed_homemaster_config(
@@ -342,7 +331,7 @@ def test_provider_specific_environment_overrides_are_typed_and_tracked(
     assert config.field_source("providers.Mimo.auth_type") == "env"
 
 
-def test_recursive_config_redaction_covers_nested_secrets_and_auth_headers() -> None:
+def test_authoritative_config_values_are_not_rewritten() -> None:
     value = {
         "providers": [{"api_keys": ["secret-one"], "model": "safe"}],
         "nested": {"headers": {"Authorization": "Bearer secret-two"}},
@@ -350,17 +339,14 @@ def test_recursive_config_redaction_covers_nested_secrets_and_auth_headers() -> 
         "database_url": "postgres://user:secret-four@example.test/db",
     }
 
-    redacted = redact_config_value(value)
-
-    encoded = str(redacted)
-    assert "secret-one" not in encoded
-    assert "secret-two" not in encoded
-    assert "secret-three" not in encoded
-    assert "secret-four" not in encoded
-    assert "safe" in encoded
+    encoded = json.dumps(value)
+    assert "secret-one" in encoded
+    assert "secret-two" in encoded
+    assert "secret-three" in encoded
+    assert "secret-four" in encoded
 
 
-def test_provider_public_summary_redacts_url_userinfo() -> None:
+def test_provider_public_summary_preserves_url_userinfo() -> None:
     provider = ProviderProfileConfig(
         name="private-url",
         api_format="anthropic",
@@ -370,9 +356,7 @@ def test_provider_public_summary_redacts_url_userinfo() -> None:
 
     summary = str(provider.public_summary())
 
-    assert "user" not in summary
-    assert "password" not in summary
-    assert "example.test/v1" in summary
+    assert "https://user:password@example.test/v1" in summary
 
 
 def test_invalid_config_error_does_not_echo_secret_input(tmp_path: Path) -> None:

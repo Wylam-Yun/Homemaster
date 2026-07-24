@@ -1,8 +1,21 @@
-"""Generic tool primitives used by domain registries and the agent runtime.
+"""Universal HomeMaster tool contract."""
 
-Responsibility boundary:
-  ToolSpec:      declares tool metadata + executor; generates model manifest
-  ToolRegistry:  stores ToolSpec by name; returns selectable manifests
-  ToolResult:    typed execution outcome; no state_patch
-  Dispatcher:    validates + invokes executor and returns ToolResultMessage
-"""
+from homemaster.tools.base import (
+    BaseTool,
+    FunctionTool,
+    ToolExecutionContext,
+    ToolRegistry,
+    ToolRegistryError,
+    ToolResult,
+    normalize_tool_result,
+)
+
+__all__ = [
+    "BaseTool",
+    "FunctionTool",
+    "ToolExecutionContext",
+    "ToolRegistry",
+    "ToolRegistryError",
+    "ToolResult",
+    "normalize_tool_result",
+]

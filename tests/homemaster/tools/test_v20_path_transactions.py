@@ -1,4 +1,4 @@
-"""Black-box regressions for the V2.0 file-tool transaction foundation."""
+"""Black-box regressions for path permissions and resource transactions."""
 
 from __future__ import annotations
 
@@ -9,121 +9,10 @@ from pathlib import Path
 import pytest
 
 from homemaster.agent.messages import ToolCall
-from homemaster.permissions import HomePermissionPolicy, PermissionSettingsConfig
-from homemaster.tools.catalog import ToolCatalog
-from homemaster.tools.contracts import (
-    ConcurrencyPolicy,
-    ExecutionProof,
-    PermissionSubject,
-    RegisteredTool,
-    ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionResult,
-    ToolExecutionStatus,
-    ToolProvenance,
-    VerificationPolicy,
-    VerificationRecord,
-    VerificationStatus,
-)
+from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
+from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.executor import ToolExecutor
 from homemaster.tools.paths import path_resource_key, resolve_context_tool_path
-from homemaster.tools.pipeline import ToolExecutionPipeline
-
-
-class _Executor:
-    def __init__(self) -> None:
-        self.paths: list[str] = []
-
-    async def execute(self, arguments, context):
-        del context
-        self.paths.append(arguments["path"])
-        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, backend_attempted=True)
-
-
-class _BlockingVerifier:
-    def __init__(self) -> None:
-        self.entered = asyncio.Event()
-        self.release = asyncio.Event()
-        self.calls = 0
-
-    async def verify(self, result, context):
-        del result, context
-        self.calls += 1
-        self.entered.set()
-        await self.release.wait()
-        return VerificationRecord(
-            status=VerificationStatus.PASSED,
-            evidence_refs=(f"verification/{self.calls}",),
-        )
-
-
-class _Resources:
-    def __init__(self) -> None:
-        self._lock = asyncio.Lock()
-        self.keys: list[str] = []
-        self.active = 0
-
-    @asynccontextmanager
-    async def acquire(self, resource_key, context):
-        del context
-        async with self._lock:
-            self.keys.append(resource_key)
-            self.active += 1
-            try:
-                yield
-            finally:
-                self.active -= 1
-
-
-def _definition(*, mutating: bool = True) -> ToolDefinition:
-    return ToolDefinition(
-        internal_id="openharness.write_file.v1",
-        model_alias="write_file",
-        description="Write a UTF-8 file.",
-        input_schema={
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-            "additionalProperties": False,
-        },
-        output_schema={"type": "object"},
-        verification_policy=VerificationPolicy(
-            execution_proof=ExecutionProof.EXTERNAL_STATE if mutating else ExecutionProof.NONE
-        ),
-        provenance=ToolProvenance(source="test", reference="v20-path-transaction"),
-        version="2.0.0",
-        concurrency_policy=(
-            ConcurrencyPolicy.RESOURCE_KEY if mutating else ConcurrencyPolicy.PARALLEL
-        ),
-        resource_key="filesystem:placeholder" if mutating else None,
-        state_effects=("filesystem.write",) if mutating else (),
-    )
-
-
-def _context(
-    catalog: ToolCatalog,
-    working_directory: Path,
-    *,
-    call_id: str,
-) -> ToolExecutionContext:
-    definition = catalog.get("openharness.write_file.v1").definition
-    return ToolExecutionContext(
-        session_id="session",
-        run_id="run",
-        turn_index=0,
-        tool_call_id=call_id,
-        internal_tool_id=definition.internal_id,
-        tool_view=catalog.freeze((definition.internal_id,)),
-        permission_subject=PermissionSubject(
-            subject_id="operator",
-            channel="test",
-            capabilities=("tool.read", "tool.mutate", "tool.auto"),
-        ),
-        backend=None,
-        deadline=None,
-        cancellation=None,
-        domain_observer=None,
-        working_directory=working_directory,
-    )
 
 
 def test_relative_path_permission_and_execution_stay_anchored_after_cwd_changes(
@@ -134,25 +23,24 @@ def test_relative_path_permission_and_execution_stay_anchored_after_cwd_changes(
     working_directory.mkdir()
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    catalog = ToolCatalog()
-    catalog.register(RegisteredTool(_definition(mutating=False), _Executor()))
-    context = _context(catalog, working_directory, call_id="call")
+    context = ToolExecutionContext(working_directory)
     monkeypatch.chdir(elsewhere)
 
     resolved = resolve_context_tool_path(context, "blocked/sentinel.txt")
     assert resolved == working_directory / "blocked" / "sentinel.txt"
 
-    policy = HomePermissionPolicy(
+    checker = PermissionChecker(
         PermissionSettingsConfig(
-            path_rules=(
-                {"pattern": f"{working_directory}/blocked/*", "allow": False},
-            )
+            mode=PermissionMode.FULL_AUTO,
+            path_rules=({"pattern": f"{working_directory}/blocked/*", "allow": False},),
         )
     )
-    decision = policy.evaluate(
-        _definition(mutating=False),
-        {"path": "blocked/sentinel.txt"},
-        context,
+    decision = checker.evaluate_tool(
+        tool_name="write_file",
+        is_read_only=False,
+        required_capabilities=(),
+        arguments={"path": "blocked/sentinel.txt"},
+        context=context,
     )
 
     assert decision.allowed is False
@@ -163,44 +51,85 @@ def test_relative_path_permission_and_execution_stay_anchored_after_cwd_changes(
 async def test_path_lease_covers_executor_and_independent_verifier(tmp_path: Path) -> None:
     working_directory = tmp_path / "workspace"
     working_directory.mkdir()
-    catalog = ToolCatalog()
-    executor = _Executor()
-    verifier = _BlockingVerifier()
-    catalog.register(
-        RegisteredTool(
-            _definition(),
-            executor,
-            verifier,
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    paths: list[str] = []
+    verifier_calls = 0
+
+    async def execute(arguments, context):
+        nonlocal verifier_calls
+        del context
+        paths.append(str(arguments["path"]))
+        verifier_calls += 1
+        if verifier_calls == 1:
+            entered.set()
+            await release.wait()
+        return ToolResult("verified", metadata={"status": "success"})
+
+    class Resources:
+        def __init__(self) -> None:
+            self._lock = asyncio.Lock()
+            self.keys: list[str] = []
+            self.active = 0
+
+        @asynccontextmanager
+        async def acquire(self, resource_key, context):
+            del context
+            async with self._lock:
+                self.keys.append(resource_key)
+                self.active += 1
+                try:
+                    yield
+                finally:
+                    self.active -= 1
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="write_file",
+            description="Write a UTF-8 file.",
+            input_schema={
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+            execute=execute,
+            concurrency_policy="resource_key",
+            resource_key="filesystem:placeholder",
             resource_key_resolver=path_resource_key,
         )
     )
-    resources = _Resources()
-    pipeline = ToolExecutionPipeline(catalog, resource_manager=resources)
+    resources = Resources()
+    executor = ToolExecutor(registry, resource_manager=resources)
+
+    def context(call_id: str) -> ToolExecutionContext:
+        return ToolExecutionContext(working_directory, metadata={"tool_call_id": call_id})
 
     first = asyncio.create_task(
-        pipeline.execute(
+        executor.execute(
             ToolCall(id="call-1", name="write_file", arguments={"path": "target.txt"}),
-            _context(catalog, working_directory, call_id="call-1"),
+            context("call-1"),
         )
     )
-    await verifier.entered.wait()
+    await entered.wait()
     second = asyncio.create_task(
-        pipeline.execute(
+        executor.execute(
             ToolCall(id="call-2", name="write_file", arguments={"path": "target.txt"}),
-            _context(catalog, working_directory, call_id="call-2"),
+            context("call-2"),
         )
     )
     await asyncio.sleep(0)
 
-    assert executor.paths == ["target.txt"]
+    assert paths == ["target.txt"]
     assert resources.active == 1
-    verifier.release.set()
+    release.set()
     first_result, second_result = await asyncio.gather(first, second)
 
     expected_key = f"filesystem:{(working_directory / 'target.txt').as_posix()}"
-    assert first_result.status is ToolExecutionStatus.SUCCESS
-    assert second_result.status is ToolExecutionStatus.SUCCESS
-    assert verifier.calls == 2
+    assert first_result.is_error is False
+    assert second_result.is_error is False
+    assert verifier_calls == 2
     assert resources.keys == [expected_key, expected_key]
-    assert executor.paths == ["target.txt", "target.txt"]
+    assert paths == ["target.txt", "target.txt"]
     assert resources.active == 0

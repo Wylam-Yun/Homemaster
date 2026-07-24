@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
 import time
@@ -13,7 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from homemaster.agent.compact import sanitize_tool_pairs
+from homemaster.agent.compact import repair_tool_pairs
 from homemaster.agent.messages import Message
 from homemaster.artifacts import ToolOutputArtifactResolver
 from homemaster.channels.bridge import ChannelBridge
@@ -45,7 +44,7 @@ def _audit_gateway_generation(
         json.dumps(
             {
                 "action": action,
-                "target_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16],
+                "target": session_id,
                 "duration_ms": round((time.monotonic() - started) * 1000, 3),
                 "return_code": generation,
                 "certainty": "confirmed_success",
@@ -192,7 +191,7 @@ class GatewayRuntime:
                         session_id=session_id,
                         generation=generation,
                         kind=ChannelEventKind.CANCEL,
-                        content=self._public_projection.sanitize_content(reason),
+                        content=self._public_projection.project_content(reason),
                         correlation_id=f"cancel-{uuid.uuid4().hex[:12]}",
                         delivery_context=self._delivery_contexts.get(session_id),
                     )
@@ -426,7 +425,7 @@ class GatewayRuntime:
             if session_id not in manager.list_session_ids():
                 return False
             runtime = await manager.resume(session_id)
-        runtime.session.replace_messages(sanitize_recovered_messages(runtime.session.messages))
+        runtime.session.replace_messages(repair_recovered_messages(runtime.session.messages))
         self._known_sessions.add(session_id)
         return True
 
@@ -446,19 +445,19 @@ async def _wait_until(tasks: Sequence[asyncio.Task[Any]], deadline: float) -> bo
     return not still_pending
 
 
-def sanitize_recovered_messages(messages: Sequence[Message]) -> list[Message]:
+def repair_recovered_messages(messages: Sequence[Message]) -> list[Message]:
     """Drop orphan tool calls/results before a persisted session is resumed."""
 
-    sanitized = sanitize_tool_pairs(list(messages))
+    repaired = repair_tool_pairs(list(messages))
     call_ids = {
         call.id
-        for message in sanitized
+        for message in repaired
         if getattr(message, "role", None) == "assistant"
         for call in getattr(message, "tool_calls", ())
     }
     return [
         message
-        for message in sanitized
+        for message in repaired
         if getattr(message, "role", None) != "tool"
         or getattr(message, "tool_call_id", None) in call_ids
     ]
@@ -468,7 +467,6 @@ def build_gateway_assembly(
     application: GatewayApplication,
     config: GatewayConfig,
     *,
-    sensitive_values: tuple[str, ...] = (),
     api_service: FeishuApiService | None = None,
     group_operations: Any | None = None,
 ) -> GatewayAssembly:
@@ -481,7 +479,7 @@ def build_gateway_assembly(
     )
     attachment_root = config.feishu.attachment_root.expanduser()
     attachment_root.mkdir(parents=True, exist_ok=True)
-    projection = PublicEventProjection(sensitive_values=sensitive_values)
+    projection = PublicEventProjection()
     bridge = ChannelBridge(
         application=application,
         bus=bus,
@@ -516,5 +514,5 @@ __all__ = [
     "GatewayAssembly",
     "GatewayRuntime",
     "build_gateway_assembly",
-    "sanitize_recovered_messages",
+    "repair_recovered_messages",
 ]

@@ -31,8 +31,9 @@ from homemaster.extensions import (
     load_extension_generation,
     register_extension_tools_atomically,
 )
-from homemaster.permissions import HomePermissionPolicy, PermissionSettingsConfig
-from homemaster.tools.catalog import ToolCatalog, ToolCatalogError
+from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
+from homemaster.tools import ToolExecutionContext, ToolRegistry
+from homemaster.tools.base import ToolRegistryError
 from homemaster.tools.contracts import (
     ExecutionBackend,
     PermissionSubject,
@@ -293,11 +294,13 @@ def build_extension(context):
     )
 
     generation = load_extension_generation((approval,))
-    catalog = ToolCatalog()
-    registered = register_extension_tools_atomically(catalog, generation)
+    registry = ToolRegistry()
+    registered = register_extension_tools_atomically(registry, generation)
 
-    assert registered == ("plugin.audit.query.v1",)
-    definition = catalog.get(registered[0]).definition  # type: ignore[union-attr]
+    assert registered == ("plugin_audit_query",)
+    registered_tool = registry.get(registered[0])
+    assert registered_tool is not None
+    definition = generation.tools[0].definition
     assert definition.execution_backend is ExecutionBackend.PLUGIN
     assert definition.required_capabilities == ("extension.audit.read",)
     assert definition.provenance.reference == (
@@ -389,8 +392,7 @@ def build_extension(context):
     try:
         assert bundle.extension_runner is not None
         assert bundle.extension_reloader is not None
-        assert "plugin.audit.query.v1" in (bundle.application.profiles["home"].enabled_tool_ids)
-        assert bundle.application.catalog.get("plugin.audit.query.v1") is not None
+        assert bundle.application.registry.get("plugin_audit_query") is not None
     finally:
         await bundle.application.aclose()
 
@@ -527,8 +529,8 @@ async def cleanup():
 
 def build_extension(context):
     definition = ToolDefinition(
-        internal_id="core.observe.v1",
-        model_alias="plugin_collision",
+        internal_id="plugin.observe.v1",
+        model_alias="observe",
         description="Collide with a built-in tool.",
         input_schema={{"type": "object"}},
         output_schema={{"type": "object"}},
@@ -560,12 +562,12 @@ def build_extension(context):
                     version="1.0.0",
                     expected_sha256=extension_content_sha256(collision),
                     granted_capabilities=("tool.register", "extension.audit.read"),
-                    enabled_tool_ids=("core.observe.v1",),
+                    enabled_tool_ids=("plugin.observe.v1",),
                 ),
             )
         ),
     )
-    with pytest.raises(ToolCatalogError, match="extension internal id conflict"):
+    with pytest.raises(ToolRegistryError, match="duplicate tool name 'observe'"):
         create_home_application(config=collision_config, run_label="collision")
     assert cleaned_collision.read_text(encoding="utf-8") == "clean"
 
@@ -732,8 +734,8 @@ async def test_hook_result_free_text_is_redacted() -> None:
         principal_capabilities=("hook.lifecycle",),
     )
     encoded = repr(result.results[0])
-    assert "secret-value" not in encoded
-    assert "/hpc2hdd" not in encoded
+    assert "token=secret-value /hpc2hdd/home/private/file" in encoded
+    assert "https://example.test/path?api_key=secret-value" in encoded
 
 
 @pytest.mark.asyncio
@@ -1161,50 +1163,59 @@ def test_canonical_tool_required_capabilities_are_snapshotted_and_enforced() -> 
         required_capabilities=("extension.audit.read",),
     )
     assert definition.to_dict()["required_capabilities"] == ["extension.audit.read"]
-    policy = HomePermissionPolicy(PermissionSettingsConfig())
-    context = type(
-        "Context",
-        (),
-        {
-            "run_id": "run",
-            "tool_call_id": "call",
+    policy = PermissionChecker(PermissionSettingsConfig())
+    context = ToolExecutionContext(
+        Path.cwd(),
+        metadata={
             "permission_subject": PermissionSubject(
                 "principal",
                 "gateway",
                 capabilities=("tool.read",),
             ),
         },
-    )()
-    denied = policy.evaluate(definition, {}, context)
+    )
+    denied = policy.evaluate_tool(
+        tool_name=definition.model_alias,
+        is_read_only=True,
+        required_capabilities=("tool.read", "extension.audit.read"),
+        arguments={},
+        context=context,
+    )
     assert denied.allowed is False
     assert "extension.audit.read" in denied.reason
-    allowed_context = type(
-        "Context",
-        (),
-        {
-            "run_id": "run",
-            "tool_call_id": "call",
+    allowed_context = ToolExecutionContext(
+        Path.cwd(),
+        metadata={
             "permission_subject": replace(
-                context.permission_subject,
+                context.metadata["permission_subject"],
                 capabilities=("tool.read", "extension.audit.read"),
             ),
         },
-    )()
-    assert policy.evaluate(definition, {}, allowed_context).allowed is True
+    )
+    assert policy.evaluate_tool(
+        tool_name=definition.model_alias,
+        is_read_only=True,
+        required_capabilities=("tool.read", "extension.audit.read"),
+        arguments={},
+        context=allowed_context,
+    ).allowed is True
 
-    exact_only_context = type(
-        "Context",
-        (),
-        {
-            "run_id": "run",
-            "tool_call_id": "call",
+    exact_only_context = ToolExecutionContext(
+        Path.cwd(),
+        metadata={
             "permission_subject": replace(
-                context.permission_subject,
+                context.metadata["permission_subject"],
                 capabilities=("tool:plugin.audit.query.v1",),
             ),
         },
-    )()
-    exact_denied = policy.evaluate(definition, {}, exact_only_context)
+    )
+    exact_denied = policy.evaluate_tool(
+        tool_name=definition.model_alias,
+        is_read_only=True,
+        required_capabilities=("tool.read", "extension.audit.read"),
+        arguments={},
+        context=exact_only_context,
+    )
     assert exact_denied.allowed is False
     assert "extension.audit.read" in exact_denied.reason
 

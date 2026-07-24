@@ -23,12 +23,12 @@ from homemaster.events.stream_events import (
 
 
 class _ProjectedRuntimeSink:
-    def __init__(self, *, sensitive_values: tuple[str, ...] = ()) -> None:
-        self._projection = PublicEventProjection(sensitive_values=sensitive_values)
+    def __init__(self) -> None:
+        self._projection = PublicEventProjection()
 
     def _project(self, event: RuntimeEvent) -> StreamEvent | None:
         public = project_stream_event(event)
-        return _sanitize_stream_event(public, self._projection) if public is not None else None
+        return _copy_stream_event(public, self._projection) if public is not None else None
 
     @property
     def events(self) -> list[RuntimeEvent]:
@@ -36,8 +36,8 @@ class _ProjectedRuntimeSink:
 
 
 class TextStreamEventSink(_ProjectedRuntimeSink):
-    def __init__(self, *, file: TextIO, sensitive_values: tuple[str, ...] = ()) -> None:
-        super().__init__(sensitive_values=sensitive_values)
+    def __init__(self, *, file: TextIO) -> None:
+        super().__init__()
         self._file = file
         self._text = ""
 
@@ -52,7 +52,7 @@ class TextStreamEventSink(_ProjectedRuntimeSink):
     def finish(self, final_text: str) -> None:
         """Complete stdout when a provider returned no or only partial deltas."""
 
-        safe = self._projection.sanitize_content(final_text)
+        safe = self._projection.project_content(final_text)
         if safe.startswith(self._text):
             suffix = safe[len(self._text) :]
             if suffix:
@@ -62,8 +62,8 @@ class TextStreamEventSink(_ProjectedRuntimeSink):
 
 
 class StreamJsonEventSink(_ProjectedRuntimeSink):
-    def __init__(self, *, file: TextIO, sensitive_values: tuple[str, ...] = ()) -> None:
-        super().__init__(sensitive_values=sensitive_values)
+    def __init__(self, *, file: TextIO) -> None:
+        super().__init__()
         self._file = file
 
     def emit(self, event: RuntimeEvent) -> None:
@@ -84,10 +84,8 @@ class RichStreamEventSink(_ProjectedRuntimeSink):
     def __init__(
         self,
         renderer: RichOutputRenderer,
-        *,
-        sensitive_values: tuple[str, ...] = (),
     ) -> None:
-        super().__init__(sensitive_values=sensitive_values)
+        super().__init__()
         self._renderer = renderer
 
     def emit(self, event: RuntimeEvent) -> None:
@@ -165,25 +163,25 @@ def stream_event_envelope(event: StreamEvent) -> dict[str, object]:
     raise TypeError(f"unsupported StreamEvent: {type(event).__name__}")
 
 
-def _sanitize_stream_event(
+def _copy_stream_event(
     event: StreamEvent,
     projection: PublicEventProjection,
 ) -> StreamEvent:
     if isinstance(event, AssistantTextDelta):
-        return AssistantTextDelta(projection.sanitize_content(event.text))
+        return AssistantTextDelta(projection.project_content(event.text))
     if isinstance(event, AssistantTurnComplete):
         return AssistantTurnComplete(
             message=AssistantMessage(
                 content=[
-                    ContentBlock(text=projection.sanitize_content(block.text))
+                    ContentBlock(text=projection.project_content(block.text))
                     for block in event.message.content
                     if block.type == "text"
                 ],
                 tool_calls=[
                     ToolCall(
                         id=tool_call.id,
-                        name=projection.sanitize_content(tool_call.name),
-                        arguments=_safe_mapping(projection.sanitize_value(tool_call.arguments)),
+                        name=projection.project_content(tool_call.name),
+                        arguments=_safe_mapping(projection.copy_value(tool_call.arguments)),
                     )
                     for tool_call in event.message.tool_calls
                 ],
@@ -193,35 +191,35 @@ def _sanitize_stream_event(
         )
     if isinstance(event, ToolExecutionStarted):
         return ToolExecutionStarted(
-            tool_name=projection.sanitize_content(event.tool_name),
-            tool_input=_safe_mapping(projection.sanitize_value(event.tool_input)),
+            tool_name=projection.project_content(event.tool_name),
+            tool_input=_safe_mapping(projection.copy_value(event.tool_input)),
         )
     if isinstance(event, ToolExecutionCompleted):
-        metadata = projection.sanitize_value(event.metadata)
+        metadata = projection.copy_value(event.metadata)
         return ToolExecutionCompleted(
-            tool_name=projection.sanitize_content(event.tool_name),
-            output=projection.sanitize_content(event.output),
+            tool_name=projection.project_content(event.tool_name),
+            output=projection.project_content(event.output),
             is_error=event.is_error,
             metadata=_safe_mapping(metadata) if isinstance(metadata, dict) else None,
         )
     if isinstance(event, ErrorEvent):
         return ErrorEvent(
-            message=projection.sanitize_content(event.message),
+            message=projection.project_content(event.message),
             recoverable=event.recoverable,
         )
     if isinstance(event, StatusEvent):
-        return StatusEvent(projection.sanitize_content(event.message))
+        return StatusEvent(projection.project_content(event.message))
     if isinstance(event, CompactProgressEvent):
-        metadata = projection.sanitize_value(event.metadata)
+        metadata = projection.copy_value(event.metadata)
         return CompactProgressEvent(
             phase=event.phase,
             trigger=event.trigger,
             message=(
-                projection.sanitize_content(event.message) if event.message is not None else None
+                projection.project_content(event.message) if event.message is not None else None
             ),
             attempt=event.attempt,
             checkpoint=(
-                projection.sanitize_content(event.checkpoint)
+                projection.project_content(event.checkpoint)
                 if event.checkpoint is not None
                 else None
             ),

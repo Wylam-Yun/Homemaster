@@ -1,7 +1,6 @@
-"""Home adapters for the locked OpenHarness text-file and search tools.
+"""HomeMaster text-file and search tools.
 
-The public names and input shapes follow OpenHarness. File mutation differs at
-the execution boundary: HomeMaster writes atomically and verifies bytes from a
+File mutation writes atomically and verifies bytes from a
 fresh file descriptor while the per-path resource lease is still held.
 """
 
@@ -30,7 +29,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.paths import path_resource_key, resolve_context_tool_path
 
-_UPSTREAM_REFERENCE = "OpenHarness@9b2efd7:src/openharness/tools"
+_IMPLEMENTATION_REFERENCE = "homemaster.tools.file_tools"
 
 
 class ReadFileExecutor:
@@ -248,7 +247,7 @@ class GrepExecutor:
 
 
 def build_file_tools() -> tuple[RegisteredTool, ...]:
-    """Create the Home registrations for OpenHarness file/search tools."""
+    """Create the HomeMaster file and search registrations."""
 
     return (
         RegisteredTool(_read_definition(), ReadFileExecutor()),
@@ -372,7 +371,7 @@ def _definition(
     required_capabilities: tuple[str, ...] = (),
 ) -> ToolDefinition:
     return ToolDefinition(
-        internal_id=f"openharness.{name}.v1",
+        internal_id=f"homemaster.{name}.v1",
         model_alias=name,
         description=description,
         input_schema=input_schema,
@@ -381,8 +380,8 @@ def _definition(
             execution_proof=ExecutionProof.EXTERNAL_STATE if mutating else ExecutionProof.NONE
         ),
         provenance=ToolProvenance(
-            source="openharness",
-            reference=f"{_UPSTREAM_REFERENCE}/{name}_tool.py",
+            source="homemaster",
+            reference=f"{_IMPLEMENTATION_REFERENCE}:{name}",
         ),
         version="2.0.0",
         concurrency_policy=(

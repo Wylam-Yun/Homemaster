@@ -15,19 +15,9 @@ from homemaster.devices import (
     DeviceState,
     DeviceStateObservation,
 )
-from homemaster.tools.catalog import ToolCatalog
-from homemaster.tools.contracts import (
-    ConcurrencyPolicy,
-    PermissionSubject,
-    RegisteredTool,
-    ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionResult,
-    ToolExecutionStatus,
-    ToolProvenance,
-    VerificationPolicy,
-)
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.contracts import PermissionSubject
+from homemaster.tools.executor import ToolExecutor
 
 
 class Backend:
@@ -62,10 +52,9 @@ class Executor:
         self.calls += 1
         self.entered.set()
         await self.release.wait()
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS,
-            data={"moved": True},
-            backend_attempted=True,
+        return ToolResult(
+            "moved",
+            metadata={"moved": True, "status": "success", "backend_attempted": True},
         )
 
 
@@ -73,44 +62,35 @@ def setup(backend: Backend):
     entered = asyncio.Event()
     release = asyncio.Event()
     executor = Executor(entered, release)
-    definition = ToolDefinition(
-        internal_id="home.robot_move.v1",
-        model_alias="robot_move",
+    registry = ToolRegistry()
+    registry.register(FunctionTool(
+        name="robot_move",
         description="Move the robot.",
         input_schema={"type": "object"},
-        output_schema={"type": "object"},
-        verification_policy=VerificationPolicy(),
-        provenance=ToolProvenance(source="test", reference="device-pipeline"),
-        version="1.0.0",
-        concurrency_policy=ConcurrencyPolicy.RESOURCE_KEY,
+        execute=executor.execute,
+        concurrency_policy="resource_key",
         resource_key="home:backend",
-        state_effects=("device.move",),
-    )
-    catalog = ToolCatalog()
-    catalog.register(RegisteredTool(definition=definition, executor=executor))
-    view = catalog.freeze((definition.internal_id,))
+    ))
     manager = DeviceLeaseManager()
-    pipeline = ToolExecutionPipeline(catalog, resource_manager=manager)
+    pipeline = ToolExecutor(registry, resource_manager=manager)
 
     def context(call_id: str) -> ToolExecutionContext:
         return ToolExecutionContext(
-            session_id="session",
-            run_id="run",
-            turn_index=0,
-            tool_call_id=call_id,
-            internal_tool_id=definition.internal_id,
-            tool_view=view,
-            permission_subject=PermissionSubject(
-                subject_id="operator",
-                channel="gateway",
-                tenant_id="tenant",
-                capabilities=("device.control",),
-            ),
-            backend=backend,
-            deadline=None,
-            cancellation=None,
-            domain_observer=None,
-            working_directory=Path.cwd(),
+            Path.cwd(),
+            metadata={
+                "session_id": "session",
+                "run_id": "run",
+                "turn_index": 0,
+                "tool_call_id": call_id,
+                "internal_tool_id": "homemaster.robot_move.v1",
+                "permission_subject": PermissionSubject(
+                    subject_id="operator",
+                    channel="gateway",
+                    tenant_id="tenant",
+                    capabilities=("device.control",),
+                ),
+                "backend": backend,
+            },
         )
 
     return pipeline, manager, executor, entered, release, context
@@ -133,9 +113,9 @@ async def test_stale_generation_is_denied_before_backend_execution() -> None:
         context("call-stale"),
     )
 
-    assert result.status is ToolExecutionStatus.DENIED
-    assert result.error is not None and result.error.code == "stale_generation"
-    assert result.backend_attempted is False
+    assert result.metadata["status"] == "denied"
+    assert result.metadata["error_code"] == "stale_generation"
+    assert result.metadata["backend_attempted"] is False
     assert executor.calls == 0
 
 
@@ -160,9 +140,9 @@ async def test_emergency_stop_during_action_returns_outcome_unknown() -> None:
     result = await execution
 
     assert stopped.succeeded is True
-    assert result.status is ToolExecutionStatus.OUTCOME_UNKNOWN
-    assert result.error is not None and result.error.code == "device_generation_changed"
-    assert result.backend_attempted is True
+    assert result.metadata["status"] == "outcome_unknown"
+    assert result.metadata["error_code"] == "device_generation_changed"
+    assert result.metadata["backend_attempted"] is True
     assert executor.calls == 1
 
 
@@ -199,10 +179,9 @@ async def test_disconnect_fences_active_and_waiting_pipeline_actions() -> None:
 
     assert generation == 1
     assert pool.state(backend.device_identity) is DeviceState.DISCONNECTED
-    assert waiting_result.status is ToolExecutionStatus.DENIED
-    assert waiting_result.error is not None
-    assert waiting_result.error.code == "device_fenced"
-    assert waiting_result.backend_attempted is False
-    assert active_result.status is ToolExecutionStatus.OUTCOME_UNKNOWN
-    assert active_result.backend_attempted is True
+    assert waiting_result.metadata["status"] == "denied"
+    assert waiting_result.metadata["error_code"] == "device_fenced"
+    assert waiting_result.metadata["backend_attempted"] is False
+    assert active_result.metadata["status"] == "outcome_unknown"
+    assert active_result.metadata["backend_attempted"] is True
     assert executor.calls == 1

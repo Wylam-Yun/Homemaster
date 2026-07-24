@@ -6,79 +6,45 @@ import asyncio
 import base64
 import json
 import os
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from homemaster.adapters.profiles import build_home_profile
-from homemaster.agent.messages import ToolCall
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.config import HomeMasterConfig, load_config
 from homemaster.events import JsonlTraceSink, RuntimeEvent
 from homemaster.mcp.client import McpClientManager, McpConnection
-from homemaster.permissions import HomePermissionPolicy, PermissionMode, PermissionSettingsConfig
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
-from homemaster.tools.openharness_runtime import HomeOpenHarnessServices
-from homemaster.tools.pipeline import ToolExecutionPipeline
-
-
-def _context(
-    profile,
-    root: Path,
-    name: str,
-    services: HomeOpenHarnessServices,
-    extra_services: dict[str, object] | None = None,
-):
-    tool = profile.view.lookup(name).tool
-    assert tool is not None
-    return ToolExecutionContext(
-        session_id="service-session",
-        run_id="service-run",
-        turn_index=0,
-        tool_call_id=f"call-{name}",
-        internal_tool_id=tool.definition.internal_id,
-        tool_view=profile.view,
-        permission_subject=PermissionSubject(
-            subject_id="operator",
-            channel="cli",
-            capabilities=(
-                "tool.read",
-                "tool.mutate",
-                "tool.auto",
-                "filesystem.read",
-                "filesystem.write",
-                "process.exec",
-                "network.http",
-                "scheduler.manage",
-                "config.mutate",
-                "mcp.manage",
-                "process.spawn",
-            ),
-        ),
-        backend=None,
-        deadline=None,
-        cancellation=None,
-        domain_observer=None,
-        working_directory=root,
-        services={
-            "openharness_services": services,
-            "plan_mode": services.plan_mode,
-            **(extra_services or {}),
-        },
-    )
+from homemaster.permissions import PermissionMode
+from homemaster.tools.contracts import ToolExecutionStatus
+from homemaster.tools.runtime_services import HomeToolServices
+from tests.homemaster.tools.universal_harness import execute, registry
 
 
 async def _execute(profile, root, services, name, arguments, *, extra_services=None):
-    pipeline = ToolExecutionPipeline(
-        profile.catalog,
-        permission_policy=HomePermissionPolicy(
-            PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO)
+    service_map = {
+        "tool_services": services,
+        "plan_mode": services.plan_mode,
+        **(extra_services or {}),
+    }
+    return await execute(
+        profile,
+        root,
+        name,
+        arguments,
+        capabilities=(
+            "tool.read",
+            "tool.mutate",
+            "tool.auto",
+            "filesystem.read",
+            "filesystem.write",
+            "process.exec",
+            "network.http",
+            "scheduler.manage",
+            "config.mutate",
+            "mcp.manage",
+            "process.spawn",
         ),
-    )
-    return await pipeline.execute(
-        ToolCall(id=f"call-{name}", name=name, arguments=arguments),
-        _context(profile, root, name, services, extra_services),
+        services=service_map,
     )
 
 
@@ -89,8 +55,8 @@ async def test_lsp_and_ask_user_use_real_workspace_and_entry_callback(tmp_path: 
         "def target(value: int) -> int:\n    return value + 1\n\nresult = target(2)\n",
         encoding="utf-8",
     )
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
 
     async def prompt(question: str) -> str:
         assert question == "Continue?"
@@ -125,8 +91,8 @@ async def test_lsp_and_ask_user_use_real_workspace_and_entry_callback(tmp_path: 
 async def test_ask_user_without_entry_callback_returns_durable_wait_marker(
     tmp_path: Path,
 ) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
 
     try:
         result = await _execute(
@@ -139,7 +105,7 @@ async def test_ask_user_without_entry_callback_returns_durable_wait_marker(
 
         assert result.status is ToolExecutionStatus.SUCCESS
         assert result.text == "Which room?"
-        assert result.data == {
+        assert {key: result.data[key] for key in ("waiting_user", "question", "tool_call_id")} == {
             "waiting_user": True,
             "question": "Which room?",
             "tool_call_id": "call-ask_user_question",
@@ -153,8 +119,8 @@ async def test_image_tools_use_configured_provider_boundary_and_publish_verified
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    from openharness.tools.image_generation_tool import ImageGenerationTool
-    from openharness.tools.image_to_text_tool import ImageToTextTool
+    from homemaster.tools.image_generation import ImageGenerationTool
+    from homemaster.tools.image_to_text import ImageToTextTool
 
     source_bytes = b"\x89PNG\r\n\x1a\nsource"
     generated_bytes = b"\x89PNG\r\n\x1a\ngenerated"
@@ -174,8 +140,8 @@ async def test_image_tools_use_configured_provider_boundary_and_publish_verified
 
     monkeypatch.setattr(ImageToTextTool, "_call_vision_model", staticmethod(describe))
     monkeypatch.setattr(ImageGenerationTool, "_generate_with_openai", generate)
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     provider = {"model": "fixture-vision", "api_key": "fixture-key", "base_url": ""}
     try:
         described = await _execute(
@@ -207,7 +173,7 @@ async def test_image_tools_use_configured_provider_boundary_and_publish_verified
 
         store = ToolOutputStore(tmp_path / "artifacts", quota_bytes=4096, ttl_seconds=60)
         artifacts = ArtifactPublisher(store).publish(
-            generated,
+            generated.raw,
             tenant_id="tenant",
             session_id="service-session",
             run_id="service-run",
@@ -244,8 +210,8 @@ async def test_config_and_mcp_auth_persist_home_yaml_and_reconnect(tmp_path: Pat
     )
     os.chmod(config_path, 0o600)
     config = load_config(config_path)
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(config, state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(config, state_root=tmp_path / "home")
     seen_tokens: list[str] = []
     closed = 0
 
@@ -303,10 +269,11 @@ async def test_config_and_mcp_auth_persist_home_yaml_and_reconnect(tmp_path: Pat
 
 
 @pytest.mark.asyncio
-async def test_config_show_redacts_provider_and_mcp_credentials(tmp_path: Path) -> None:
+async def test_config_show_preserves_provider_and_mcp_credentials(tmp_path: Path) -> None:
     provider_secret = "provider-SUPERSECRET"
     mcp_env_secret = "mcp-env-SUPERSECRET"
     mcp_header_secret = "mcp-header-SUPERSECRET"
+    feishu_secret = "feishu-SUPERSECRET"
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text(
         "providers:\n"
@@ -325,16 +292,23 @@ async def test_config_show_redacts_provider_and_mcp_credentials(tmp_path: Path) 
         "      transport: http\n"
         "      url: https://mcp-user:mcp-password@mcp.example/api\n"
         f"      headers: {{X-Custom-Credential: {mcp_header_secret}}}\n"
-        f"      env: {{ARBITRARY_NAME: {mcp_env_secret}}}\n",
+        "    private_stdio:\n"
+        "      transport: stdio\n"
+        "      command: fixture\n"
+        f"      env: {{ARBITRARY_NAME: {mcp_env_secret}}}\n"
+        "gateway:\n"
+        "  feishu:\n"
+        "    app_id: cli_identifier\n"
+        f"    app_secret: {feishu_secret}\n",
         encoding="utf-8",
     )
     config = load_config(config_path)
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(config, state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(config, state_root=tmp_path / "home")
     try:
         shown = await _execute(profile, tmp_path, services, "config", {"action": "show"})
         serialized = json.dumps(shown.to_dict(), sort_keys=True)
-        message = shown.to_message(tool_call_id="show-config", name="config")
+        message = shown.raw
         trace = JsonlTraceSink(tmp_path / "trace")
         trace.emit(
             RuntimeEvent(
@@ -355,13 +329,13 @@ async def test_config_show_redacts_provider_and_mcp_credentials(tmp_path: Path) 
             provider_secret,
             mcp_env_secret,
             mcp_header_secret,
+            feishu_secret,
             "user:password",
             "mcp-user:mcp-password",
         ):
-            assert secret not in serialized
-            assert secret not in str(message)
-            assert secret not in persisted_trace
-        assert "[REDACTED]" in serialized
+            assert secret in serialized
+            assert secret in str(message)
+            assert secret in persisted_trace
     finally:
         await services.aclose()
 
@@ -384,11 +358,11 @@ async def test_config_show_redacts_provider_and_mcp_credentials(tmp_path: Path) 
 def test_service_tools_declare_independent_management_capabilities(
     tool_name: str, capability: str
 ) -> None:
-    profile = build_home_profile()
-    tool = profile.view.lookup(tool_name).tool
+    profile = registry()
+    tool = profile.get(tool_name)
 
     assert tool is not None
-    assert capability in tool.definition.required_capabilities
+    assert capability in tool.required_capabilities
 
 
 @pytest.mark.asyncio
@@ -412,28 +386,17 @@ async def test_service_tools_reject_subject_missing_management_capability(
     arguments: dict[str, object],
     capability: str,
 ) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
-    context = _context(profile, tmp_path, tool_name, services)
-    restricted = replace(
-        context,
-        permission_subject=replace(
-            context.permission_subject,
-            capabilities=tuple(
-                item for item in context.permission_subject.capabilities if item != capability
-            ),
-        ),
-    )
-    pipeline = ToolExecutionPipeline(
-        profile.catalog,
-        permission_policy=HomePermissionPolicy(
-            PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO)
-        ),
-    )
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     try:
-        result = await pipeline.execute(
-            ToolCall(id=f"deny-{tool_name}", name=tool_name, arguments=arguments),
-            restricted,
+        result = await execute(
+            profile,
+            tmp_path,
+            tool_name,
+            arguments,
+            capabilities=("tool.read", "tool.mutate", "tool.auto"),
+            services={"tool_services": services, "plan_mode": services.plan_mode},
+            call_id=f"deny-{tool_name}",
         )
         assert result.status is ToolExecutionStatus.DENIED
         assert result.error is not None
@@ -444,8 +407,8 @@ async def test_service_tools_reject_subject_missing_management_capability(
 
 @pytest.mark.asyncio
 async def test_cron_tools_persist_toggle_trigger_and_delete_real_state(tmp_path: Path) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     terminal = tmp_path / "cron-terminal.txt"
     try:
         created = await _execute(
@@ -475,11 +438,11 @@ async def test_cron_tools_persist_toggle_trigger_and_delete_real_state(tmp_path:
             {"name": "terminal-gate", "timeout_seconds": 5},
         )
 
-        registry = json.loads(services.cron.registry_path.read_text(encoding="utf-8"))
+        cron_registry = json.loads(services.cron.registry_path.read_text(encoding="utf-8"))
         assert created.status is ToolExecutionStatus.SUCCESS
         assert listed.status is ToolExecutionStatus.SUCCESS
         assert toggled.status is ToolExecutionStatus.SUCCESS
-        assert registry[0]["enabled"] is False
+        assert cron_registry[0]["enabled"] is False
         assert triggered.status is ToolExecutionStatus.SUCCESS
         assert triggered.data["return_code"] == 0
         assert terminal.read_text(encoding="utf-8") == "verified"
@@ -499,8 +462,8 @@ async def test_cron_tools_persist_toggle_trigger_and_delete_real_state(tmp_path:
 
 @pytest.mark.asyncio
 async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path: Path) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     try:
         created = await _execute(
             profile,
@@ -544,6 +507,7 @@ async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path
         records = json.loads((services.tasks.tasks_dir / "tasks.json").read_text(encoding="utf-8"))
         assert records[0]["return_code"] == 0
 
+        child_pid_path = tmp_path / "task-child.pid"
         running = await _execute(
             profile,
             tmp_path,
@@ -552,12 +516,21 @@ async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path
             {
                 "type": "local_bash",
                 "description": "stop gate",
-                "command": "sleep 30",
+                "command": (
+                    "sleep 30 & child=$!; "
+                    f"printf '%s' \"$child\" > {child_pid_path}; "
+                    "wait \"$child\""
+                ),
             },
         )
         running_id = str(running.data["task_id"])
         process = services.tasks._processes[running_id]
         pid = process.pid
+        for _ in range(200):
+            if child_pid_path.exists() and child_pid_path.read_text(encoding="utf-8"):
+                break
+            await asyncio.sleep(0.01)
+        child_pid = int(child_pid_path.read_text(encoding="utf-8"))
         stopped = await _execute(
             profile,
             tmp_path,
@@ -566,17 +539,18 @@ async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path
             {"task_id": running_id},
         )
         assert stopped.status is ToolExecutionStatus.SUCCESS
-        assert stopped.data["status"] == "killed"
-        with pytest.raises(ProcessLookupError):
-            os.kill(pid, 0)
+        assert stopped.data["domain_status"] == "killed"
+        for stopped_pid in (pid, child_pid):
+            with pytest.raises(ProcessLookupError):
+                os.kill(stopped_pid, 0)
     finally:
         await services.aclose()
 
 
 @pytest.mark.asyncio
 async def test_agent_and_send_message_reach_same_interactive_child_process(tmp_path: Path) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     command = (
         f'{Path(os.sys.executable)} -u -c "import sys; '
         '[print(line.strip(), flush=True) for line in sys.stdin]"'
@@ -625,8 +599,8 @@ async def test_agent_and_send_message_reach_same_interactive_child_process(tmp_p
 
 @pytest.mark.asyncio
 async def test_team_registry_and_plan_mode_change_authoritative_home_state(tmp_path: Path) -> None:
-    profile = build_home_profile()
-    services = HomeOpenHarnessServices(HomeMasterConfig(), state_root=tmp_path / "home")
+    profile = registry()
+    services = HomeToolServices(HomeMasterConfig(), state_root=tmp_path / "home")
     try:
         created = await _execute(
             profile,

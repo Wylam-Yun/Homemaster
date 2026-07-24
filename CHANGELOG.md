@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### V2 workspace checkpoint
+
+- Preserved the complete accumulated V2 workspace in one checkpoint: universal ordinary-name tool execution,
+  repository Skill relocation into `.homemaster/skills`, the still-unsplit raw-output/event/renderer changes, and
+  the V2.1 memory-system discussion. This checkpoint records the current tested working state; it is not a claim
+  that every included line belongs to the universal-tools release boundary.
+
+### V2.0 universal tool execution
+
+- Replaced the active application `ToolProfile -> ToolView -> ToolCatalog -> ToolExecutionPipeline` route with one
+  ordinary-name `ToolRegistry -> PermissionChecker -> ToolExecutor` path. `RunRequest.enabled_tool_ids` was removed;
+  Home, ALFWorld, Coworker and dry-run now compose the same universal Registry, while environment selection only
+  binds the runtime Backend.
+- Made bulk Registry registration atomic and moved MCP, Feishu group and approved extension tools onto that same
+  Registry. Hidden `homemaster.<name>.v1` IDs remain diagnostic metadata and duplicate ordinary names fail
+  composition.
+- Preserved command/path rules, principal capabilities, session plan mode, deadlines, cancellation and resource
+  leases on the new executor. Importing the application factory no longer loads the legacy Catalog or Pipeline.
+- Final review remediation makes Registry composition fail closed on every undeclared ordinary-name collision and
+  validates the exact source set and winner for intentional adapter overlaps. One deadline now covers resource-lease
+  acquisition, backend execution, and lease release; mutating timeout, exception, and cancellation after backend
+  start report `outcome_unknown` with `backend_attempted=true`. Cancellation retains that uncertainty in the run-local
+  event result without publishing stale-generation events or committing run-local session/task state.
+- Moved application-owned background tasks into independent process groups so stop and close terminate the real
+  child workload, not only its shell. The release gate now inspects a cleanly rebuilt wheel and verifies from an
+  isolated installation that the removed modules and `openharness` package are absent.
+
 ### V1.9 Generic screenshot observe
 
 - Replaced environment-specific observation state machines with one `core.observe.v1` tool shared by Home,

@@ -539,7 +539,7 @@ async def test_partial_delta_failure_streams_then_emits_one_error_without_comple
 
 
 @pytest.mark.asyncio
-async def test_runtime_streaming_redaction_blocks_configured_secret_split_across_deltas() -> None:
+async def test_runtime_streaming_preserves_configured_secret_split_across_deltas() -> None:
     secret = "configured-secret-value"
 
     class SplitSecretTransport:
@@ -572,8 +572,7 @@ async def test_runtime_streaming_redaction_blocks_configured_secret_split_across
         if isinstance((projected := project_stream_event(event)), AssistantTextDelta)
     ]
     reconstructed = "".join(public_deltas)
-    assert secret not in reconstructed
-    assert reconstructed == "prefix [REDACTED] suffix"
+    assert reconstructed == f"prefix {secret} suffix"
     assert result.final_reply == f"prefix {secret} suffix"
 
 
@@ -981,7 +980,7 @@ def test_runtime_does_not_reactive_compact_after_partial_provider_delta() -> Non
     assert transport.call_count == 1
 
 
-def test_configured_secret_never_enters_runtime_event_payloads() -> None:
+def test_configured_secret_is_preserved_in_runtime_event_payloads() -> None:
     secret = "configured-secret-under-innocuous-key"
     transport = FakeTransport()
     transport.queue_tool_call("lookup", {"query": secret})
@@ -1014,7 +1013,7 @@ def test_configured_secret_never_enters_runtime_event_payloads() -> None:
         ensure_ascii=False,
         default=str,
     )
-    assert secret not in serialized_events
+    assert secret in serialized_events
     assert executor.calls == [("lookup", {"query": secret})]
     tool_messages = [message for message in result.session.messages if message.role == "tool"]
     assert secret in tool_messages[0].content[0].text

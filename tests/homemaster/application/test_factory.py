@@ -6,7 +6,6 @@ import sys
 
 import pytest
 
-from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
 from homemaster.application.contracts import RunRequest, RunStatus
 from homemaster.application.factory import (
@@ -23,9 +22,10 @@ from homemaster.config import (
 )
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError
 from homemaster.events.bus import EventBus
-from homemaster.permissions import HomePermissionPolicy
+from homemaster.permissions import PermissionChecker
 from homemaster.providers.transports.types import TransportDelta
-from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
     PermissionSubject,
     RegisteredTool,
@@ -35,7 +35,7 @@ from homemaster.tools.contracts import (
     ToolProvenance,
     VerificationPolicy,
 )
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools.executor import ToolExecutor
 
 
 class _Executor:
@@ -55,8 +55,7 @@ class _TextTransport:
         yield TransportDelta(type="text", text_delta=self.text, finish_reason="stop")
 
 
-def _catalog_and_profile() -> tuple[ToolCatalog, EnvironmentToolProfile]:
-    catalog = ToolCatalog()
+def _registry() -> ToolRegistry:
     tool = RegisteredTool(
         definition=ToolDefinition(
             internal_id="test.echo.v1",
@@ -70,12 +69,9 @@ def _catalog_and_profile() -> tuple[ToolCatalog, EnvironmentToolProfile]:
         ),
         executor=_Executor(),
     )
-    catalog.register(tool)
-    return catalog, EnvironmentToolProfile(
-        "test",
-        catalog,
-        catalog.freeze((tool.definition.internal_id,)),
-    )
+    registry = ToolRegistry()
+    registry.register(from_registered_tool(tool))
+    return registry
 
 
 def _model_override_config() -> HomeMasterConfig:
@@ -164,10 +160,10 @@ def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch
 
 
 def test_factory_composes_injected_application_services_without_connecting(tmp_path) -> None:
-    catalog, profile = _catalog_and_profile()
+    registry = _registry()
     bus = EventBus()
     sessions = SessionManager(session_root=tmp_path)
-    pipeline = ToolExecutionPipeline(catalog, public_event_sink=bus)
+    resource_manager = ApplicationResourceManager()
     provider_calls = 0
 
     def provider_factory(request, run_id):
@@ -182,51 +178,44 @@ def test_factory_composes_injected_application_services_without_connecting(tmp_p
 
     application = create_application(
         config=HomeMasterConfig(),
-        profiles={"test": profile},
-        catalog=catalog,
-        pipeline=pipeline,
+        registry=registry,
+        resource_manager=resource_manager,
         event_bus=bus,
         session_manager=sessions,
         provider_factory=provider_factory,
         context_assembler_factory=context_factory,
     )
 
-    assert application.catalog is catalog
-    assert application.pipeline is pipeline
+    assert application.registry is registry
+    assert application.tool_executor.resource_manager is resource_manager
     assert application.event_bus is bus
     assert application.session_manager is sessions
-    assert application.profiles == {"test": profile}
     assert provider_calls == 0
 
 
-def test_factory_rejects_empty_profiles() -> None:
-    try:
-        create_application(config=HomeMasterConfig(), profiles={})
-    except ValueError as exc:
-        assert str(exc) == "application requires at least one tool profile"
-    else:
-        raise AssertionError("empty profile mapping must be rejected")
+def test_factory_rejects_non_registry() -> None:
+    with pytest.raises(TypeError, match="registry must be a ToolRegistry"):
+        create_application(config=HomeMasterConfig(), registry=None)  # type: ignore[arg-type]
 
 
-def test_factory_default_pipeline_uses_application_resource_manager() -> None:
-    catalog, profile = _catalog_and_profile()
+def test_factory_default_executor_uses_application_resource_manager() -> None:
+    registry = _registry()
 
     application = create_application(
         config=HomeMasterConfig(),
-        profiles={"test": profile},
-        catalog=catalog,
+        registry=registry,
     )
 
-    assert isinstance(application.pipeline.resource_manager, ApplicationResourceManager)
-    assert isinstance(application.pipeline.permission_policy, HomePermissionPolicy)
+    assert isinstance(application.tool_executor.resource_manager, ApplicationResourceManager)
+    assert isinstance(application.tool_executor.permission_checker, PermissionChecker)
     connections = application.settings.device_connection_pool
     assert isinstance(connections, DeviceConnectionPool)
-    assert connections.lease_manager is application.pipeline.resource_manager
+    assert connections.lease_manager is application.tool_executor.resource_manager
     assert application.resource_scope.get("device-connection-pool").resource is connections
 
 
-def test_factory_wires_configured_sensitive_values_into_runtime_settings() -> None:
-    catalog, profile = _catalog_and_profile()
+def test_factory_does_not_collect_configured_secrets_into_runtime_settings() -> None:
+    registry = _registry()
     config = HomeMasterConfig.model_validate(
         {
             "providers": {
@@ -255,23 +244,18 @@ def test_factory_wires_configured_sensitive_values_into_runtime_settings() -> No
 
     application = create_application(
         config=config,
-        profiles={"test": profile},
-        catalog=catalog,
+        registry=registry,
     )
 
-    assert set(application.settings.public_sensitive_values) == {
-        "provider-secret",
-        "Bearer mcp-secret",
-    }
+    assert not hasattr(application.settings, "public_sensitive_values")
 
 
 @pytest.mark.asyncio
 async def test_factory_owns_and_closes_default_device_connection_pool() -> None:
-    catalog, profile = _catalog_and_profile()
+    registry = _registry()
     application = create_application(
         config=HomeMasterConfig(),
-        profiles={"test": profile},
-        catalog=catalog,
+        registry=registry,
     )
     connections = application.settings.device_connection_pool
 
@@ -282,7 +266,7 @@ async def test_factory_owns_and_closes_default_device_connection_pool() -> None:
 
 @pytest.mark.asyncio
 async def test_factory_runtime_pins_borrowed_backend_to_first_tenant(tmp_path) -> None:
-    catalog, profile = _catalog_and_profile()
+    registry = _registry()
     transports = {
         "first": _TextTransport("first done"),
         "second": _TextTransport("second done"),
@@ -311,8 +295,7 @@ async def test_factory_runtime_pins_borrowed_backend_to_first_tenant(tmp_path) -
         config=HomeMasterConfig.model_validate(
             {"observability": {"session_dir": str(tmp_path / "sessions")}}
         ),
-        profiles={"test": profile},
-        catalog=catalog,
+        registry=registry,
         provider_factory=provider_factory,
         context_assembler_factory=context_factory,
     )
@@ -356,32 +339,24 @@ async def test_factory_runtime_pins_borrowed_backend_to_first_tenant(tmp_path) -
     assert backend.close_count == 0
 
 
-def test_factory_rejects_profile_catalog_mismatch() -> None:
-    catalog, profile = _catalog_and_profile()
-    other_catalog = ToolCatalog()
+def test_factory_rejects_executor_registry_mismatch() -> None:
+    registry = _registry()
+    other_registry = ToolRegistry()
 
-    try:
+    with pytest.raises(ValueError, match="executor must use the application ToolRegistry"):
         create_application(
             config=HomeMasterConfig(),
-            profiles={"test": profile},
-            catalog=other_catalog,
+            registry=registry,
+            tool_executor=ToolExecutor(other_registry),
         )
-    except ValueError as exc:
-        assert str(exc) == "profiles must use the supplied application ToolCatalog"
-    else:
-        raise AssertionError("profile/catalog mismatch must be rejected")
-
-
-def test_factory_requires_profiles_from_outer_composition_root() -> None:
-    with pytest.raises(ValueError, match="profiles must be composed and supplied"):
-        create_application(config=HomeMasterConfig())
 
 
 def test_importing_application_factory_does_not_load_benchmark_modules() -> None:
     command = (
         "import json, sys; import homemaster.application.factory; "
-        "print(json.dumps(sorted(name for name in sys.modules "
-        "if name.startswith('homemaster.benchmarking'))))"
+        "print(json.dumps(sorted(name for name in sys.modules if "
+        "name.startswith('homemaster.benchmarking') or name in "
+        "{'homemaster.tools.catalog', 'homemaster.tools.pipeline'})))"
     )
     completed = subprocess.run(
         [sys.executable, "-c", command],

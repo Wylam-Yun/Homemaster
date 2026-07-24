@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_alfworld_profile
+from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.application import (
     ResourceBinding,
     ResourceLifetime,
@@ -34,7 +34,7 @@ class AlfworldApplicationEntry:
         transport_factory: Callable[[], Any] | None,
         event_sink: Any,
     ) -> None:
-        profile = build_alfworld_profile(
+        registry = build_universal_tool_registry(
             memory_mode=memory_mode,
             runtime_memory_root=runtime_root / "memory",
         )
@@ -51,8 +51,7 @@ class AlfworldApplicationEntry:
         )
         self.application = create_application(
             config=config,
-            profiles={"alfworld": profile},
-            catalog=profile.catalog,
+            registry=registry,
             event_bus=bus,
             session_manager=SessionManager(session_root=session_root),
             provider_factory=(

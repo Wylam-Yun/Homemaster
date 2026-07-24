@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.application import RunRequest
 from homemaster.cli.composition import create_home_application
 from homemaster.config import HomeMasterConfig
 from homemaster.mcp.client import McpConnection
-from homemaster.tools.catalog import ToolCatalogError, ToolLookupStatus
+from homemaster.tools.base import ToolRegistryError
 
 
 @dataclass
@@ -119,7 +118,7 @@ async def test_start_connects_once_refreezes_home_without_gating_skills(tmp_path
 
     assert bundle.application.started is True
     assert calls == ["demo", "bad"]
-    names = bundle.application.profiles["home"].model_tool_names
+    names = bundle.application.registry.all_names()
     assert "mcp__demo__nested_query" in names
     assert "list_mcp_resources" in names
     assert "read_mcp_resource" in names
@@ -127,22 +126,19 @@ async def test_start_connects_once_refreezes_home_without_gating_skills(tmp_path
     statuses = {status.name: status for status in bundle.mcp_manager.list_statuses()}
     assert statuses["demo"].state == "connected"
     assert statuses["bad"].state == "failed"
-    assert "bad-secret" not in statuses["bad"].detail
-
-    builtin_only = bundle.application._view(
-        RunRequest(text="query", enabled_tool_ids=("core.observe.v1",)),
-        bundle.application.profiles["home"],
-    )
-    assert builtin_only.lookup("mcp__demo__nested_query").status is ToolLookupStatus.TOOL_DISABLED
+    assert "bad-secret" in statuses["bad"].detail
+    assert "mcp__demo__nested_query" in {
+        schema["name"] for schema in bundle.application.registry.to_api_schema()
+    }
 
     await bundle.application.aclose()
     assert closed == ["demo"]
-    assert "server-secret" not in bundle.mcp_audit_path.read_text(encoding="utf-8")
-    assert "bad-secret" not in bundle.mcp_audit_path.read_text(encoding="utf-8")
+    audit = bundle.mcp_audit_path.read_text(encoding="utf-8")
+    assert "bad-secret" in audit
 
 
 @pytest.mark.asyncio
-async def test_alias_conflict_rolls_back_connected_manager_without_catalog_mutation(
+async def test_alias_conflict_rolls_back_connected_manager_without_registry_mutation(
     tmp_path,
 ) -> None:
     closed = 0
@@ -168,11 +164,11 @@ async def test_alias_conflict_rolls_back_connected_manager_without_catalog_mutat
     payload["mcp"]["servers"] = {"demo": payload["mcp"]["servers"]["demo"]}
     config = HomeMasterConfig.model_validate(payload)
     bundle = create_home_application(config=config, mcp_connector=connector)
-    before = bundle.application.catalog.list_tools()
+    before = bundle.application.registry.list_tools()
 
-    with pytest.raises(ToolCatalogError, match="alias conflict"):
+    with pytest.raises(ToolRegistryError, match="duplicate tool name"):
         await bundle.application.start()
 
-    assert bundle.application.catalog.list_tools() == before
+    assert bundle.application.registry.list_tools() == before
     assert bundle.application.resource_scope.closed is True
     assert closed == 1

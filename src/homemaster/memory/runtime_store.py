@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from homemaster.events.trace import sanitize_for_log
+from homemaster.events.trace import json_compatible_copy
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,7 @@ class RuntimeMemoryStore:
         self.root.mkdir(parents=True, exist_ok=True)
         self.object_memory_path.write_text(
             json.dumps(
-                sanitize_for_log(updated_payload),
+                json_compatible_copy(updated_payload),
                 ensure_ascii=False,
                 indent=2,
                 sort_keys=True,

@@ -8,12 +8,13 @@ typed tenant principals and device/MCP capabilities.
 from __future__ import annotations
 
 import fnmatch
+from pathlib import Path
 from typing import Any
 
 from homemaster.permissions.config import PermissionMode, PermissionSettingsConfig
-from homemaster.tools.contracts import ExecutionBackend, ToolDefinition, ToolExecutionContext
-from homemaster.tools.paths import ToolPathError, resolve_context_tool_path
-from homemaster.tools.pipeline import PermissionDecision
+from homemaster.tools.base import ToolExecutionContext as UniversalToolExecutionContext
+from homemaster.tools.contracts import ExecutionBackend, ToolDefinition
+from homemaster.tools.executor import PermissionDecision as UniversalPermissionDecision
 
 _SENSITIVE_PATH_PATTERNS = (
     "*/.ssh/*",
@@ -41,112 +42,92 @@ _PATH_ARGUMENTS = (
 )
 
 
-class HomePermissionPolicy:
-    """Evaluate every tool call against immutable subject capabilities and rules."""
+class PermissionChecker:
+    """OpenHarness-style permission checks keyed by ordinary tool name."""
 
     def __init__(self, settings: PermissionSettingsConfig) -> None:
         if not isinstance(settings, PermissionSettingsConfig):
             raise TypeError("settings must be PermissionSettingsConfig")
         self._settings = settings
 
-    def evaluate(
+    def evaluate_tool(
         self,
-        definition: ToolDefinition,
-        arguments: Any,
-        context: ToolExecutionContext,
-    ) -> PermissionDecision:
-        subject = context.permission_subject
-        evidence_ref = f"permission/{context.run_id}/{context.tool_call_id}"
+        *,
+        tool_name: str,
+        is_read_only: bool,
+        required_capabilities: tuple[str, ...],
+        arguments: dict[str, Any],
+        context: UniversalToolExecutionContext,
+    ) -> UniversalPermissionDecision:
         path_denial = self._path_denial(arguments, context)
         if path_denial:
-            return PermissionDecision(False, reason=path_denial, evidence_ref=evidence_ref)
-        command_denial = self._command_denial(arguments)
-        if command_denial:
-            return PermissionDecision(False, reason=command_denial, evidence_ref=evidence_ref)
-        if definition.internal_id in self._settings.denied_tools:
-            return PermissionDecision(
+            return UniversalPermissionDecision(False, reason=path_denial)
+        command = arguments.get("command")
+        if isinstance(command, str):
+            for pattern in self._settings.denied_commands:
+                if fnmatch.fnmatch(command, pattern):
+                    return UniversalPermissionDecision(
+                        False,
+                        reason=f"access denied: command matches deny rule {pattern}",
+                    )
+        if tool_name in self._settings.denied_tools:
+            return UniversalPermissionDecision(
                 False,
-                reason=f"{definition.internal_id} is explicitly denied",
-                evidence_ref=evidence_ref,
+                reason=f"{tool_name} is explicitly denied",
             )
-
-        exact = f"tool:{definition.internal_id}"
-        base_capability = required_capability(definition)
-        required = tuple(dict.fromkeys(definition.required_capabilities))
-        missing_base = (
-            (base_capability,)
-            if base_capability not in subject.capabilities and exact not in subject.capabilities
-            else ()
-        )
-        missing = missing_base + tuple(
+        subject = context.metadata.get("permission_subject")
+        capabilities = tuple(getattr(subject, "capabilities", ()))
+        missing = tuple(
             capability
-            for capability in required
-            if capability != base_capability and capability not in subject.capabilities
+            for capability in required_capabilities
+            if capability not in capabilities
         )
         if missing:
-            return PermissionDecision(
+            return UniversalPermissionDecision(
                 False,
                 reason=f"principal lacks required capability: {', '.join(missing)}",
-                evidence_ref=evidence_ref,
             )
-
-        plan_mode = getattr(context, "services", {}).get("plan_mode")
+        plan_mode = context.services.get("plan_mode")
         if (
             plan_mode is not None
             and callable(getattr(plan_mode, "enabled", None))
-            and plan_mode.enabled(getattr(context, "session_id", ""))
-            and _is_mutating(definition)
-            and definition.internal_id != "openharness.exit_plan_mode.v1"
+            and plan_mode.enabled(str(context.metadata.get("session_id", "")))
+            and not is_read_only
+            and tool_name != "exit_plan_mode"
         ):
-            return PermissionDecision(
+            return UniversalPermissionDecision(
                 False,
                 reason="plan mode blocks mutating tools",
-                evidence_ref=evidence_ref,
             )
-
-        if definition.internal_id in self._settings.allowed_tools:
-            return PermissionDecision(
-                True,
-                reason=f"{definition.internal_id} is explicitly allowed",
-                evidence_ref=evidence_ref,
-            )
-        mutating = _is_mutating(definition)
-        if self._settings.mode is PermissionMode.PLAN and mutating:
-            return PermissionDecision(
-                False,
-                reason="plan mode blocks mutating tools",
-                evidence_ref=evidence_ref,
-            )
-        if (
-            self._settings.mode is PermissionMode.DEFAULT
-            and mutating
-            and "tool.auto" not in subject.capabilities
-        ):
-            return PermissionDecision(
-                False,
-                requires_confirmation=True,
-                reason="mutating tools require explicit confirmation in default mode",
-                evidence_ref=evidence_ref,
-            )
-        return PermissionDecision(
-            True,
-            reason="permission policy allowed",
-            evidence_ref=evidence_ref,
+        if tool_name in self._settings.allowed_tools:
+            return UniversalPermissionDecision(True, reason=f"{tool_name} is explicitly allowed")
+        if self._settings.mode is PermissionMode.FULL_AUTO or is_read_only:
+            return UniversalPermissionDecision(True, reason="permission policy allowed")
+        if self._settings.mode is PermissionMode.PLAN:
+            return UniversalPermissionDecision(False, reason="plan mode blocks mutating tools")
+        if "tool.auto" in capabilities:
+            return UniversalPermissionDecision(True, reason="principal may auto-run tools")
+        return UniversalPermissionDecision(
+            False,
+            requires_confirmation=True,
+            reason="mutating tools require explicit confirmation in default mode",
         )
 
-    def _path_denial(self, arguments: Any, context: ToolExecutionContext) -> str:
-        if not isinstance(arguments, dict):
-            return ""
+    def _path_denial(
+        self,
+        arguments: dict[str, Any],
+        context: UniversalToolExecutionContext,
+    ) -> str:
         for key in _PATH_ARGUMENTS:
             value = arguments.get(key)
             values = value if isinstance(value, list) else [value]
             for item in values:
                 if not isinstance(item, str) or not item.strip():
                     continue
-                try:
-                    path = str(resolve_context_tool_path(context, item))
-                except ToolPathError as exc:
-                    return f"access denied: invalid path: {exc}"
+                candidate_path = Path(item).expanduser()
+                if not candidate_path.is_absolute():
+                    candidate_path = context.cwd / candidate_path
+                path = str(candidate_path.resolve(strict=False))
                 candidates = (path.rstrip("/"), path.rstrip("/") + "/")
                 for candidate in candidates:
                     for pattern in _SENSITIVE_PATH_PATTERNS:
@@ -155,17 +136,6 @@ class HomePermissionPolicy:
                     for rule in self._settings.path_rules:
                         if fnmatch.fnmatch(candidate, rule.pattern) and not rule.allow:
                             return f"access denied: path matches deny rule {rule.pattern}"
-        return ""
-
-    def _command_denial(self, arguments: Any) -> str:
-        if not isinstance(arguments, dict):
-            return ""
-        command = arguments.get("command")
-        if not isinstance(command, str):
-            return ""
-        for pattern in self._settings.denied_commands:
-            if fnmatch.fnmatch(command, pattern):
-                return f"access denied: command matches deny rule {pattern}"
         return ""
 
 
@@ -185,7 +155,7 @@ def _is_mutating(definition: ToolDefinition) -> bool:
 
 
 __all__ = [
-    "HomePermissionPolicy",
+    "PermissionChecker",
     "PermissionMode",
     "PermissionSettingsConfig",
     "required_capability",

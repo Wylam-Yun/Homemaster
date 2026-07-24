@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 from pydantic import (
@@ -20,7 +19,7 @@ from pydantic import (
 )
 
 from homemaster.config.observability import ObservabilityConfig
-from homemaster.mcp.types import McpSettingsConfig, mcp_secret_values
+from homemaster.mcp.types import McpSettingsConfig
 from homemaster.permissions.config import PermissionSettingsConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -122,14 +121,14 @@ class ProviderProfileConfig(BaseModel):
     def public_summary(self) -> dict[str, Any]:
         return {
             "name": self.name,
-            "base_url": _redact_url_userinfo(self.base_url),
+            "base_url": self.base_url,
             "model": self.model,
             "api_format": self.api_format,
             "transport": self.transport,
             "kind": self.kind,
             "auth_type": self.auth_type,
-            "embedding_url": _redact_url_userinfo(self.embedding_url),
-            "api_key_count": len(self.api_keys),
+            "embedding_url": self.embedding_url,
+            "api_keys": list(self.api_keys),
             "context_window_tokens": self.context_window_tokens,
             "max_output_tokens": self.max_output_tokens,
         }
@@ -530,68 +529,3 @@ def _config_leaf_paths(value: Any, prefix: str = "") -> list[str]:
         child_prefix = f"{prefix}.{key}" if prefix else str(key)
         paths.extend(_config_leaf_paths(child, child_prefix))
     return paths
-
-
-_SECRET_KEY_PARTS = (
-    "api_key",
-    "apikey",
-    "auth_token",
-    "access_token",
-    "refresh_token",
-    "token",
-    "secret",
-    "password",
-    "authorization",
-    "credential",
-    "private_key",
-)
-
-
-def configured_sensitive_values(config: HomeMasterConfig) -> tuple[str, ...]:
-    """Return configured secret values for public-output sanitizers without logging them."""
-
-    values = [key for provider in config.providers.items for key in provider.api_keys if key]
-    values.extend(mcp_secret_values(config.mcp.servers))
-    feishu_secret = config.gateway.feishu.app_secret.get_secret_value().strip()
-    if feishu_secret:
-        values.append(feishu_secret)
-    return tuple(sorted(set(values), key=len, reverse=True))
-
-
-def redact_config_value(value: Any, *, key: object | None = None) -> Any:
-    """Recursively redact config values for diagnostics and structured logs."""
-
-    if key is not None:
-        normalized = str(key).lower().replace("-", "_")
-        if any(part in normalized for part in _SECRET_KEY_PARTS):
-            return "[REDACTED]"
-    if isinstance(value, dict):
-        return {
-            item_key: redact_config_value(item_value, key=item_key)
-            for item_key, item_value in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [redact_config_value(item) for item in value]
-    if isinstance(value, str) and value.lower().startswith(("bearer ", "basic ")):
-        return "[REDACTED]"
-    if isinstance(value, str):
-        return _redact_url_userinfo(value)
-    return value
-
-
-def _redact_url_userinfo(value: str | None) -> str | None:
-    if value is None:
-        return None
-    try:
-        parsed = urlsplit(value)
-        if parsed.username is None and parsed.password is None:
-            return value
-        host = parsed.hostname or ""
-        if ":" in host and not host.startswith("["):
-            host = f"[{host}]"
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return urlunsplit(
-            (parsed.scheme, f"[REDACTED]@{host}{port}", parsed.path, parsed.query, parsed.fragment)
-        )
-    except ValueError:
-        return "[REDACTED_URL]"

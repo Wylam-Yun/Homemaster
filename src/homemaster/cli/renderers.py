@@ -9,8 +9,8 @@ from enum import StrEnum
 from typing import Any
 
 from homemaster.application import RunResult, RunStatus
+from homemaster.events.event_payloads import bounded_event_payload
 from homemaster.events.public_projection import PublicEventProjection
-from homemaster.events.sanitizer import sanitize_event_payload
 
 
 class OutputFormat(StrEnum):
@@ -29,13 +29,11 @@ def parse_output_format(value: str | None) -> OutputFormat:
 def render_run_result(
     result: RunResult,
     output_format: OutputFormat,
-    *,
-    sensitive_values: tuple[str, ...] = (),
 ) -> str:
-    envelope = run_result_envelope(result, sensitive_values=sensitive_values)
-    projection = PublicEventProjection(sensitive_values=sensitive_values)
+    envelope = run_result_envelope(result)
+    projection = PublicEventProjection()
     if output_format is OutputFormat.TEXT:
-        return projection.sanitize_content(result.final_reply)
+        return projection.project_content(result.final_reply)
     if output_format is OutputFormat.JSON:
         return json.dumps(envelope, ensure_ascii=False, indent=2, sort_keys=True)
     lines = [
@@ -76,18 +74,16 @@ def render_dry_run(preview: Mapping[str, object], output_format: OutputFormat) -
 
 def run_result_envelope(
     result: RunResult,
-    *,
-    sensitive_values: tuple[str, ...] = (),
 ) -> dict[str, object]:
-    projection = PublicEventProjection(sensitive_values=sensitive_values)
+    projection = PublicEventProjection()
     return {
         "type": "result",
         "run_id": result.run_id,
         "session_id": result.session_id,
         "status": str(result.status),
-        "final_reply": projection.sanitize_content(result.final_reply),
+        "final_reply": projection.project_content(result.final_reply),
         "error_code": result.error_code,
-        "metadata": projection.sanitize_value(result.metadata_dict()),
+        "metadata": projection.copy_value(result.metadata_dict()),
     }
 
 
@@ -105,7 +101,7 @@ def result_exit_code(result: RunResult) -> int:
 
 def _event_value(event: object) -> object:
     value: Any = asdict(event) if is_dataclass(event) else event
-    return sanitize_event_payload(value)
+    return bounded_event_payload(value)
 
 
 __all__ = [

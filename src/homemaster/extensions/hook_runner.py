@@ -27,7 +27,7 @@ class HookRunner:
         self._closing = False
         self._closed = False
         self._cleaned_generation_ids: set[int] = set()
-        self._sanitizer = PublicEventProjection()
+        self._projection = PublicEventProjection()
 
     @property
     def generation(self) -> ExtensionGeneration:
@@ -271,7 +271,7 @@ class HookRunner:
         return result
 
     def _safe_text(self, value: str) -> str:
-        return self._sanitizer.sanitize_content(value)[:4000]
+        return self._projection.project_content(value)[:4000]
 
 
 def _matches(hook: HookSpec, payload: Mapping[str, object]) -> bool:

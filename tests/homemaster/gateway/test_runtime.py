@@ -39,7 +39,7 @@ from homemaster.gateway.auth import AuthenticatedPrincipal
 from homemaster.gateway.runtime import (
     GatewayRuntime,
     build_gateway_assembly,
-    sanitize_recovered_messages,
+    repair_recovered_messages,
 )
 
 
@@ -176,7 +176,7 @@ async def test_bridge_submits_only_application_run_request_with_authoritative_pr
     assert request.permission_subject.tenant_id == "tenant-a"
     assert request.permission_subject.subject_id == "operator-a"
     assert request.session_id.startswith("gw-")
-    assert request.enabled_tool_ids is None
+    assert "enabled_tool_ids" not in request.__dataclass_fields__
     assert request.metadata["gateway_generation"] == 1
     assert outbound.kind is ChannelEventKind.FINAL
     assert outbound.content == "done"
@@ -237,12 +237,12 @@ async def test_bridge_metadata_cannot_enable_catalog_or_plugin_tools(tmp_path) -
 
     await bridge.handle(inbound, generation=1, is_current=lambda: True)
 
-    assert app.requests[0].enabled_tool_ids is None
+    assert "enabled_tool_ids" not in app.requests[0].__dataclass_fields__
     assert "enabled_tool_ids" not in app.requests[0].metadata
 
 
 @pytest.mark.asyncio
-async def test_bridge_sanitizes_terminal_free_text_before_egress(tmp_path) -> None:
+async def test_bridge_preserves_terminal_free_text_before_egress(tmp_path) -> None:
     app = _FakeApplication()
     app.release.set()
     bus = BoundedPriorityBus()
@@ -264,8 +264,7 @@ async def test_bridge_sanitizes_terminal_free_text_before_egress(tmp_path) -> No
     await bridge.handle(_inbound(), generation=1, is_current=lambda: True)
 
     content = (await bus.receive_outbound()).content
-    assert "raw-secret" not in content
-    assert "/home/operator" not in content
+    assert content == "token=raw-secret /home/operator/private.txt"
 
 
 @pytest.mark.asyncio
@@ -328,7 +327,7 @@ async def test_gateway_updates_feishu_group_binding_on_submit_and_cancel(tmp_pat
         ("gateway.generation.submit", 1),
         ("gateway.generation.cancel", 2),
     ]
-    assert session_id not in caplog.text
+    assert [record["target"] for record in records] == [session_id, session_id]
 
 
 def test_restart_sanitizer_removes_unpaired_assistant_tool_tail() -> None:
@@ -344,7 +343,7 @@ def test_restart_sanitizer_removes_unpaired_assistant_tool_tail() -> None:
         AssistantMessage(tool_calls=[ToolCall(id="orphan", name="mutate")]),
     ]
 
-    sanitized = sanitize_recovered_messages(messages)
+    sanitized = repair_recovered_messages(messages)
 
     assert [message.role for message in sanitized] == ["user", "assistant", "tool", "user"]
 
@@ -361,15 +360,14 @@ def test_gateway_assembly_reuses_supplied_application_runtime(tmp_path) -> None:
     assembly = build_gateway_assembly(
         application,
         config,
-        sensitive_values=("configured-provider-secret",),
     )
 
     assert assembly.runtime.bridge.application is application
     assert assembly.channel.bus is assembly.bus
     assert assembly.channel.name == "feishu"
     assert (
-        assembly.runtime.bridge.public_projection.sanitize_content("configured-provider-secret")
-        == "[REDACTED]"
+        assembly.runtime.bridge.public_projection.project_content("configured-provider-secret")
+        == "configured-provider-secret"
     )
 
 

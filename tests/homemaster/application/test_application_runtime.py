@@ -9,13 +9,13 @@ import threading
 import time
 import weakref
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from PIL import Image
 
-from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
 from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequest, RunStatus
@@ -42,7 +42,8 @@ from homemaster.providers.attempts import (
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.tools import make_task_progress_check_tool
-from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
     ExecutionProof,
     PermissionSubject,
@@ -56,9 +57,9 @@ from homemaster.tools.contracts import (
     VerificationRecord,
     VerificationStatus,
 )
+from homemaster.tools.executor import ToolExecutor
 from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
 from homemaster.tools.observe import ScreenshotTool
-from homemaster.tools.pipeline import ToolExecutionPipeline
 
 
 class _FakeTransport:
@@ -216,11 +217,12 @@ class _WaitingUserExecutor:
 
 
 class _BlockingTaskStateExecutor:
-    def __init__(self) -> None:
+    def __init__(self, terminal_path: Path) -> None:
         self.entered = threading.Event()
         self.release = threading.Event()
+        self.terminal_path = terminal_path
 
-    async def __call__(self, *, arguments, run_context) -> ToolExecutionResult:
+    def __call__(self, *, arguments, run_context) -> ToolExecutionResult:
         del arguments
         store = run_context.deps["task_state_store"]
         store.create_or_replace_plan(
@@ -228,7 +230,8 @@ class _BlockingTaskStateExecutor:
             subtasks=[{"id": "a", "description": "A"}],
         )
         self.entered.set()
-        await asyncio.to_thread(self.release.wait, 5)
+        self.release.wait(5)
+        self.terminal_path.write_text("late-mutation-finished", encoding="utf-8")
         store.mark_completed(final_summary="late")
         return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
 
@@ -385,14 +388,9 @@ def _application(
     extension_runner: HookRunner | None = None,
     artifact_publisher: ArtifactPublisher | None = None,
 ) -> ApplicationRuntime:
-    catalog = ToolCatalog()
-    for tool in tools:
-        catalog.register(tool)
-    profile = EnvironmentToolProfile(
-        profile_name,
-        catalog,
-        catalog.freeze([tool.definition.internal_id for tool in tools]),
-    )
+    del profile_name
+    registry = ToolRegistry()
+    registry.register_many([from_registered_tool(tool) for tool in tools])
     bus = EventBus()
     provider_profile = ProviderProfileConfig(
         name="fake",
@@ -430,12 +428,8 @@ def _application(
         return transports[request.text]
 
     return ApplicationRuntime(
-        catalog=catalog,
-        profiles={profile_name: profile},
-        pipeline=ToolExecutionPipeline(
-            catalog,
-            public_event_sink=bus,
-        ),
+        registry=registry,
+        tool_executor=ToolExecutor(registry),
         event_bus=bus,
         session_manager=SessionManager(session_root=tmp_path),
         provider_factory=provider_factory,
@@ -718,7 +712,7 @@ async def test_run_end_executes_once_for_provider_failure_and_cancellation(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_request_tool_ids_can_only_narrow_profile_not_catalog(tmp_path) -> None:
+async def test_profile_and_request_tool_ids_do_not_filter_registry(tmp_path) -> None:
     first = _echo_tool()
     second = RegisteredTool(
         definition=replace(
@@ -728,64 +722,24 @@ async def test_request_tool_ids_can_only_narrow_profile_not_catalog(tmp_path) ->
         ),
         executor=first.executor,
     )
-    hook_calls = 0
-
-    async def run_start(context: HookContext) -> None:
-        nonlocal hook_calls
-        del context
-        hook_calls += 1
-
-    hook = HookSpec(
-        "test.extensions",
-        "run-start",
-        HookEvent.RUN_START,
-        run_start,
-        "hook.lifecycle",
-    )
-    runner = HookRunner(
-        ExtensionGeneration(
-            generation=1,
-            extensions=(),
-            hooks=(hook,),
-            tools=(),
-            enabled_tool_ids=(),
-            tool_plane_digest="0" * 64,
-        )
-    )
+    transport = _FakeTransport([_text("ok")])
     app = _application(
         tmp_path,
         [first, second],
-        {"spoof": _FakeTransport([_text("ok")])},
-        extension_runner=runner,
+        {"spoof": transport},
     )
-    profile = app.profiles["test"]
-    app.profiles["test"] = EnvironmentToolProfile(
-        "test",
-        app.catalog,
-        app.catalog.freeze((first.definition.internal_id,)),
-    )
-
-    with pytest.raises(ValueError, match="only narrow"):
-        await app.run(
-            RunRequest(
-                text="spoof",
-                profile="test",
-                enabled_tool_ids=(second.definition.internal_id,),
-            )
+    result = await app.run(
+        RunRequest(
+            text="spoof",
+            profile="alfworld",
         )
-    assert hook_calls == 0
-    assert profile.catalog is app.catalog
-
-
-@pytest.mark.asyncio
-async def test_explicit_empty_tool_override_disables_entire_profile(tmp_path) -> None:
-    transport = _FakeTransport([_text("ok")])
-    app = _application(tmp_path, [_echo_tool()], {"empty": transport})
-
-    result = await app.run(RunRequest(text="empty", profile="test", enabled_tool_ids=()))
+    )
 
     assert result.status is RunStatus.REPLIED
-    assert transport.calls[0]["tools"] is None
+    assert {tool["name"] for tool in transport.calls[0]["tools"]} == {
+        "echo",
+        "other",
+    }
 
 
 @pytest.mark.asyncio
@@ -832,7 +786,7 @@ async def test_runtime_binds_untyped_backend_to_authoritative_tenant_once(tmp_pa
     manager = DeviceLeaseManager()
     pool = DeviceConnectionPool(manager)
     app.settings.device_connection_pool = pool
-    app.pipeline.resource_manager = manager
+    app.tool_executor.resource_manager = manager
     backend = _Backend()
 
     def subject(tenant_id: str) -> PermissionSubject:
@@ -866,12 +820,12 @@ async def test_runtime_binds_untyped_backend_to_authoritative_tenant_once(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_disabled_tool_call_is_rejected_by_frozen_view(tmp_path) -> None:
+async def test_every_registered_tool_is_callable_without_request_filtering(tmp_path) -> None:
     enabled = _echo_tool()
     disabled = _echo_tool("test.disabled.v1", "disabled")
     transport = _FakeTransport(
         [
-            _tool("call-disabled", "test.disabled.v1", {}),
+            _tool("call-disabled", "disabled", {"value": "works"}),
             _text("stopped"),
         ]
     )
@@ -881,15 +835,14 @@ async def test_disabled_tool_call_is_rejected_by_frozen_view(tmp_path) -> None:
         RunRequest(
             text="request",
             profile="test",
-            enabled_tool_ids=(enabled.definition.internal_id,),
         )
     )
 
     messages = app.session_manager.get(result.session_id).session.messages
     tool_result = next(message for message in messages if message.role == "tool")
-    assert tool_result.is_error is True
+    assert tool_result.is_error is False
     assert tool_result.data is not None
-    assert tool_result.data["error"]["code"] == "tool_disabled"
+    assert tool_result.data["value"] == "works"
 
 
 @pytest.mark.asyncio
@@ -951,7 +904,7 @@ async def test_action_does_not_block_task_completion_without_observe(tmp_path) -
         if message.role == "tool" and message.name == "task_progress_check"
     )
     assert completion_result.data is not None
-    assert completion_result.data["status"] == "success"
+    assert completion_result.data["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -995,7 +948,7 @@ async def test_external_terminal_rule_blocks_model_completion_claim(tmp_path) ->
     blocked = next(message for message in runtime.session.messages if message.role == "tool")
     assert blocked.data is not None
     assert blocked.data["status"] == "verification_pending"
-    assert blocked.data["error"]["code"] == "external_terminal_pending"
+    assert blocked.data["error_code"] == "external_terminal_pending"
 
 
 @pytest.mark.asyncio
@@ -1065,7 +1018,8 @@ async def test_blocked_native_provider_does_not_block_another_session(tmp_path) 
 async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_state(
     tmp_path,
 ) -> None:
-    blocking = _BlockingTaskStateExecutor()
+    terminal_path = tmp_path / "cancelled-tool-terminal.txt"
+    blocking = _BlockingTaskStateExecutor(terminal_path)
     adapted = adapt_legacy_tool_spec(
         make_task_progress_check_tool(),
         internal_id="test.blocking_state.v1",
@@ -1073,7 +1027,10 @@ async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_s
         executor=blocking,
         output_schema={"type": "object"},
     ).registered_tool
-    tool = adapted
+    tool = RegisteredTool(
+        definition=replace(adapted.definition, state_effects=("external.write",)),
+        executor=adapted.executor,
+    )
     transport = _FakeTransport(
         [
             _tool("call-block", tool.definition.model_alias, {"updates": []}),
@@ -1089,15 +1046,24 @@ async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_s
     started = time.monotonic()
     assert app.cancel("tool-cancel") is True
     assert time.monotonic() - started < 0.2
-    blocking.release.set()
-    result = await run_task
+    result = await asyncio.wait_for(run_task, timeout=0.5)
 
     runtime = app.session_manager.get("tool-cancel")
     assert result.status is RunStatus.CANCELLED
+    failed_event = next(event for event in result.events if event.type == "tool.call_failed")
+    assert failed_event.payload["data"]["status"] == "outcome_unknown"
+    assert failed_event.payload["data"]["backend_attempted"] is True
+    assert not terminal_path.exists()
     assert runtime.task_state_store.snapshot is None
     assert runtime.last_result is None
     async with app.session_manager.turn("tool-cancel"):
         pass
+    blocking.release.set()
+    for _ in range(100):
+        if terminal_path.exists():
+            break
+        await asyncio.sleep(0.01)
+    assert terminal_path.read_text(encoding="utf-8") == "late-mutation-finished"
 
 
 @pytest.mark.asyncio
@@ -1234,7 +1200,6 @@ async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path
                 session_id="session-first",
                 profile="test",
                 environment=first_backend,
-                enabled_tool_ids=(first_tool.definition.internal_id,),
             )
         )
     )
@@ -1245,7 +1210,6 @@ async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path
                 session_id="session-second",
                 profile="test",
                 environment=second_backend,
-                enabled_tool_ids=(second_tool.definition.internal_id,),
             )
         )
     )
@@ -1262,8 +1226,8 @@ async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path
 
     assert first_result.status is RunStatus.CANCELLED
     assert second_result.status is RunStatus.REPLIED
-    assert [tool["name"] for tool in first_transport.calls[0]["tools"]] == ["echo"]
-    assert [tool["name"] for tool in second_transport.calls[0]["tools"]] == ["second"]
+    assert [tool["name"] for tool in first_transport.calls[0]["tools"]] == ["echo", "second"]
+    assert [tool["name"] for tool in second_transport.calls[0]["tools"]] == ["echo", "second"]
     assert first_backend.close_count == second_backend.close_count == 0
     assert [
         message.role for message in app.session_manager.get("session-first").session.messages
@@ -1408,7 +1372,7 @@ async def test_incomplete_verification_blocks_completion(
         if message.role == "tool" and message.name == "task_progress_check"
     )
     assert completion.data is not None
-    assert completion.data["error"]["code"] == "verification_pending"
+    assert completion.data["error_code"] == "verification_pending"
 
 
 @pytest.mark.asyncio

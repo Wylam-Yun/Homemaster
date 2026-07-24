@@ -1,6 +1,5 @@
-"""Home adapters for the locked OpenHarness web tools.
+"""HomeMaster web fetch and search tools.
 
-The model-facing names and arguments remain compatible with OpenHarness.  The
 HTTP boundary is deliberately stricter: it records identity wire bytes,
 refuses implicit proxy credentials, and never turns a truncated body into
 successful text.
@@ -31,8 +30,8 @@ from homemaster.tools.contracts import (
     VerificationPolicy,
 )
 
-_UPSTREAM_REFERENCE: Final = "OpenHarness@9b2efd7:src/openharness/tools"
-_USER_AGENT: Final = "OpenHarness/0.1"
+_IMPLEMENTATION_REFERENCE: Final = "homemaster.tools.web_tools"
+_USER_AGENT: Final = "HomeMaster/2.0"
 _MAX_REDIRECTS: Final = 5
 _FETCH_TIMEOUT_SECONDS: Final = 15.0
 _SEARCH_TIMEOUT_SECONDS: Final = 20.0
@@ -119,7 +118,7 @@ class WebSearchExecutor:
         query = _string(arguments, "query")
         max_results = _integer(arguments, "max_results", default=5)
         configured = _optional_string(arguments, "search_url")
-        endpoint = configured or os.environ.get("OPENHARNESS_WEB_SEARCH_URL") or (
+        endpoint = configured or os.environ.get("HOMEMASTER_WEB_SEARCH_URL") or (
             "https://html.duckduckgo.com/html/"
         )
         try:
@@ -407,7 +406,7 @@ def _integer(arguments: Mapping[str, object], name: str, *, default: int) -> int
 
 
 def build_web_tools() -> tuple[RegisteredTool, ...]:
-    """Create Home registrations for OpenHarness web_fetch and web_search."""
+    """Create the HomeMaster web_fetch and web_search registrations."""
 
     return (
         RegisteredTool(_web_fetch_definition(), WebFetchExecutor()),
@@ -468,15 +467,15 @@ def _web_search_definition() -> ToolDefinition:
 
 def _definition(name: str, description: str, input_schema: Mapping[str, object]) -> ToolDefinition:
     return ToolDefinition(
-        internal_id=f"openharness.{name}.v1",
+        internal_id=f"homemaster.{name}.v1",
         model_alias=name,
         description=description,
         input_schema=input_schema,
         output_schema={"type": "object"},
         verification_policy=VerificationPolicy(execution_proof=ExecutionProof.NONE),
         provenance=ToolProvenance(
-            source="openharness",
-            reference=f"{_UPSTREAM_REFERENCE}/{name}_tool.py",
+            source="homemaster",
+            reference=f"{_IMPLEMENTATION_REFERENCE}:{name}",
         ),
         version="2.0.0",
         required_capabilities=("network.http",),

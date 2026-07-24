@@ -14,15 +14,28 @@ from homemaster.extensions.contracts import (
     LoadedExtension,
 )
 from homemaster.extensions.hook_runner import HookRunner
-from homemaster.extensions.loader import (
-    ExtensionLoadError,
-    dispose_extension_generation,
-    extension_content_sha256,
-    load_extension_generation,
-    load_extension_generation_async,
-    register_extension_tools_atomically,
-)
-from homemaster.extensions.reloader import ExtensionReloader, ReloadResult, ReloadStatus
+
+_LOADER_EXPORTS = {
+    "ExtensionLoadError",
+    "dispose_extension_generation",
+    "extension_content_sha256",
+    "load_extension_generation",
+    "load_extension_generation_async",
+    "register_extension_tools_atomically",
+}
+_RELOADER_EXPORTS = {"ExtensionReloader", "ReloadResult", "ReloadStatus"}
+
+
+def __getattr__(name: str):
+    if name in _LOADER_EXPORTS:
+        from homemaster.extensions import loader
+
+        return getattr(loader, name)
+    if name in _RELOADER_EXPORTS:
+        from homemaster.extensions import reloader
+
+        return getattr(reloader, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 __all__ = [
     "AggregatedHookResult",

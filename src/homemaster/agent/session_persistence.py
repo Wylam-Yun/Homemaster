@@ -14,7 +14,7 @@ from homemaster.agent.messages import AssistantMessage, Message
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.events.trace import sanitize_for_log
+from homemaster.events.trace import json_compatible_copy
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 
@@ -207,12 +207,12 @@ class SessionPersistenceManager:
         return list(self._events)
 
     def emit(self, event: RuntimeEvent) -> None:
-        """Append a full debug event payload, redacted but not truncated."""
+        """Append a full debug event payload without rewriting values."""
 
         self._events.append(event)
         self._rotate_trace_if_needed()
         entry = asdict(event)
-        entry["payload"] = sanitize_for_log(event.payload)
+        entry["payload"] = json_compatible_copy(event.payload)
         with self.trace_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 

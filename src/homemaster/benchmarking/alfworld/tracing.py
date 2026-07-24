@@ -106,7 +106,7 @@ class AlfworldTraceWriter:
 
     def write_event(self, event: dict[str, Any]) -> str:
         encoded = json.dumps(
-            _redact(event),
+            _copy_trace_value(event),
             ensure_ascii=False,
             sort_keys=True,
         )
@@ -118,7 +118,7 @@ class AlfworldTraceWriter:
 
     def write_model_event(self, event: dict[str, Any]) -> None:
         with self.model_trace_path.open("a", encoding="utf-8") as writer:
-            writer.write(json.dumps(_redact(event), ensure_ascii=False, sort_keys=True))
+            writer.write(json.dumps(_copy_trace_value(event), ensure_ascii=False, sort_keys=True))
             writer.write("\n")
 
     def write_session_messages(self, session: Any) -> None:
@@ -159,7 +159,7 @@ class AlfworldTraceWriter:
 
     def write_summary(self, summary: dict[str, Any]) -> None:
         self.summary_path.write_text(
-            json.dumps(_redact(summary), ensure_ascii=False, indent=2, sort_keys=True),
+            json.dumps(_copy_trace_value(summary), ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
 
@@ -273,23 +273,14 @@ def write_readable_trajectories(run_dir: Path) -> Path:
     return output
 
 
-def _redact(value: Any, key: str | None = None) -> Any:
-    if key is not None and _is_secret_key(key):
-        return "[REDACTED]"
+def _copy_trace_value(value: Any) -> Any:
     if isinstance(value, dict):
-        return {str(k): _redact(v, str(k)) for k, v in value.items()}
+        return {str(k): _copy_trace_value(v) for k, v in value.items()}
     if isinstance(value, list):
-        return [_redact(item) for item in value]
+        return [_copy_trace_value(item) for item in value]
     if isinstance(value, tuple):
-        return [_redact(item) for item in value]
+        return [_copy_trace_value(item) for item in value]
     return value
-
-
-def _is_secret_key(key: str) -> bool:
-    lower = key.lower()
-    if lower in USAGE_TOKEN_KEYS:
-        return False
-    return any(fragment in lower for fragment in SECRET_KEY_FRAGMENTS)
 
 
 def _content_trace_payload(blocks: list[Any]) -> list[dict[str, Any]]:

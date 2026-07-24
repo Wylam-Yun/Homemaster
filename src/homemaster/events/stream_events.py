@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from homemaster.agent.messages import AssistantMessage, ContentBlock, ToolCall
+from homemaster.events.event_payloads import bounded_event_payload
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.events.sanitizer import sanitize_event_payload
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ _USAGE_FIELDS = frozenset(
 
 def project_stream_event(event: RuntimeEvent) -> StreamEvent | None:
     """Map allowlisted private runtime events to the public stream DTOs."""
-    payload = sanitize_event_payload(event.payload)
+    payload = bounded_event_payload(event.payload)
     if event.type == "transport.delta":
         text = payload.get("text_delta")
         return AssistantTextDelta(text=str(text)) if text else None

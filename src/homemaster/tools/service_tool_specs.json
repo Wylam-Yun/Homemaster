@@ -1,0 +1,1099 @@
+[
+  {
+    "defaults": {},
+    "description": "Ask the interactive user a follow-up question and return the answer.",
+    "input_schema": {
+      "description": "Arguments for asking the user a question.",
+      "properties": {
+        "question": {
+          "description": "The exact question to ask the user",
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "AskUserQuestionToolInput",
+      "type": "object"
+    },
+    "name": "ask_user_question"
+  },
+  {
+    "defaults": {
+      "character": null,
+      "file_path": null,
+      "line": null,
+      "query": null,
+      "symbol": null
+    },
+    "description": "Inspect Python code symbols, definitions, references, and hover information across the current workspace.",
+    "input_schema": {
+      "description": "Arguments for code intelligence queries.",
+      "properties": {
+        "character": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based character offset for position-based lookups",
+          "title": "Character"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Path to the source file for file-based operations",
+          "title": "File Path"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "1-based line number for position-based lookups",
+          "title": "Line"
+        },
+        "operation": {
+          "description": "The code intelligence operation to perform",
+          "enum": [
+            "document_symbol",
+            "workspace_symbol",
+            "go_to_definition",
+            "find_references",
+            "hover"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Substring query for workspace_symbol",
+          "title": "Query"
+        },
+        "symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Explicit symbol name to look up",
+          "title": "Symbol"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "LspToolInput",
+      "type": "object"
+    },
+    "name": "lsp"
+  },
+  {
+    "defaults": {
+      "key": null
+    },
+    "description": "Configure auth for an MCP server and reconnect active sessions when possible.",
+    "input_schema": {
+      "description": "Arguments for MCP auth updates.",
+      "properties": {
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Header or env key override",
+          "title": "Key"
+        },
+        "mode": {
+          "description": "Auth mode: bearer, header, or env",
+          "title": "Mode",
+          "type": "string"
+        },
+        "server_name": {
+          "description": "Configured MCP server name",
+          "title": "Server Name",
+          "type": "string"
+        },
+        "value": {
+          "description": "Secret value to persist",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_name",
+        "mode",
+        "value"
+      ],
+      "title": "McpAuthToolInput",
+      "type": "object"
+    },
+    "name": "mcp_auth"
+  },
+  {
+    "defaults": {
+      "image_data": null,
+      "image_path": null,
+      "max_tokens": 2048,
+      "media_type": "image/png",
+      "prompt": "You are an image description assistant. Describe the image in detail, including any text, objects, people, colors, layout, and context. If the image contains code, UI screenshots, diagrams, or data visualizations, describe them precisely so that a text-only AI model can understand the content."
+    },
+    "description": "Convert an image to a detailed text description using a vision-capable model. Use this when you need to understand the content of an image but your current model does not support image input.",
+    "input_schema": {
+      "description": "Arguments for converting an image to text.",
+      "properties": {
+        "image_data": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base64-encoded image data. Provide either image_data or image_path.",
+          "title": "Image Data"
+        },
+        "image_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Local file path to the image. Provide either image_data or image_path.",
+          "title": "Image Path"
+        },
+        "max_tokens": {
+          "default": 2048,
+          "description": "Maximum tokens for the vision model response.",
+          "maximum": 16384,
+          "minimum": 256,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "media_type": {
+          "default": "image/png",
+          "description": "MIME type of the image (e.g. image/png, image/jpeg, image/webp). Only used when image_data is provided.",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "prompt": {
+          "default": "You are an image description assistant. Describe the image in detail, including any text, objects, people, colors, layout, and context. If the image contains code, UI screenshots, diagrams, or data visualizations, describe them precisely so that a text-only AI model can understand the content.",
+          "description": "Custom instruction for describing the image. Defaults to a general-purpose description prompt.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "ImageToTextToolInput",
+      "type": "object"
+    },
+    "name": "image_to_text"
+  },
+  {
+    "defaults": {
+      "background": null,
+      "image_paths": [],
+      "input_fidelity": null,
+      "mask_path": null,
+      "model": null,
+      "moderation": null,
+      "n": 1,
+      "output_compression": null,
+      "output_dir": "generated_images",
+      "output_format": "png",
+      "output_path": null,
+      "overwrite": false,
+      "prompt": "Create a high-quality raster image that satisfies the user's request. Avoid watermarks, unintended text, and unrelated logos.",
+      "provider": "auto",
+      "quality": "medium",
+      "size": "auto"
+    },
+    "description": "Generate or edit raster images using a configurable image generation provider. Use this for bitmap assets such as photos, illustrations, sprites, mockups, transparent cutouts, or edited local images. Supports provider='codex' for Codex hosted image_generation with Codex subscription auth, and provider='openai' for OpenAI-compatible key/base_url image APIs.",
+    "input_schema": {
+      "description": "Arguments for image generation or editing.",
+      "properties": {
+        "background": {
+          "anyOf": [
+            {
+              "enum": [
+                "transparent",
+                "opaque",
+                "auto"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional OpenAI background mode when supported by the provider.",
+          "title": "Background"
+        },
+        "image_paths": {
+          "description": "Local image paths to edit or use as references. OpenAI provider uses image edit mode. Codex hosted generation currently treats these as visual context.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Image Paths",
+          "type": "array"
+        },
+        "input_fidelity": {
+          "anyOf": [
+            {
+              "enum": [
+                "low",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional OpenAI edit input fidelity when supported by the provider.",
+          "title": "Input Fidelity"
+        },
+        "mask_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional PNG mask path for OpenAI edit mode.",
+          "title": "Mask Path"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenAI image model override.",
+          "title": "Model"
+        },
+        "moderation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional OpenAI moderation setting.",
+          "title": "Moderation"
+        },
+        "n": {
+          "default": 1,
+          "description": "Number of images to generate.",
+          "maximum": 10,
+          "minimum": 1,
+          "title": "N",
+          "type": "integer"
+        },
+        "output_compression": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional OpenAI compression level for lossy output formats when supported.",
+          "title": "Output Compression"
+        },
+        "output_dir": {
+          "default": "generated_images",
+          "description": "Output directory used when output_path is not provided.",
+          "title": "Output Dir",
+          "type": "string"
+        },
+        "output_format": {
+          "default": "png",
+          "description": "Output image format.",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "title": "Output Format",
+          "type": "string"
+        },
+        "output_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional output path. For multiple images, numeric suffixes are added.",
+          "title": "Output Path"
+        },
+        "overwrite": {
+          "default": false,
+          "description": "Whether to overwrite existing output files.",
+          "title": "Overwrite",
+          "type": "boolean"
+        },
+        "prompt": {
+          "default": "Create a high-quality raster image that satisfies the user's request. Avoid watermarks, unintended text, and unrelated logos.",
+          "description": "Image generation or edit prompt.",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "provider": {
+          "default": "auto",
+          "description": "Image generation provider: auto, openai, or codex.",
+          "enum": [
+            "auto",
+            "openai",
+            "codex"
+          ],
+          "title": "Provider",
+          "type": "string"
+        },
+        "quality": {
+          "default": "medium",
+          "description": "OpenAI image quality, e.g. low, medium, high, auto.",
+          "title": "Quality",
+          "type": "string"
+        },
+        "size": {
+          "default": "auto",
+          "description": "OpenAI image size, e.g. auto, 1024x1024, 1536x1024.",
+          "title": "Size",
+          "type": "string"
+        }
+      },
+      "title": "ImageGenerationToolInput",
+      "type": "object"
+    },
+    "name": "image_generation"
+  },
+  {
+    "defaults": {
+      "action": "show",
+      "key": null,
+      "value": null
+    },
+    "description": "Read or update OpenHarness settings.",
+    "input_schema": {
+      "description": "Arguments for config access.",
+      "properties": {
+        "action": {
+          "default": "show",
+          "description": "show or set",
+          "title": "Action",
+          "type": "string"
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Key"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "title": "ConfigToolInput",
+      "type": "object"
+    },
+    "name": "config"
+  },
+  {
+    "defaults": {},
+    "description": "Switch permission mode to plan.",
+    "input_schema": {
+      "description": "No-op input model.",
+      "properties": {},
+      "title": "EnterPlanModeToolInput",
+      "type": "object"
+    },
+    "name": "enter_plan_mode"
+  },
+  {
+    "defaults": {},
+    "description": "Switch permission mode back to default.",
+    "input_schema": {
+      "description": "No-op input model.",
+      "properties": {},
+      "title": "ExitPlanModeToolInput",
+      "type": "object"
+    },
+    "name": "exit_plan_mode"
+  },
+  {
+    "defaults": {
+      "command": null,
+      "cwd": null,
+      "enabled": true,
+      "message": null,
+      "notify": null,
+      "payload": null,
+      "timezone": null
+    },
+    "description": "Create or replace a local cron job with a standard cron expression. Use 'oh cron start' to run the scheduler daemon.",
+    "input_schema": {
+      "description": "Arguments for cron job creation.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shell command to run when triggered",
+          "title": "Command"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional working directory override",
+          "title": "Cwd"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Whether the job is active",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Instruction for an agent_turn cron job",
+          "title": "Message"
+        },
+        "name": {
+          "description": "Unique cron job name",
+          "title": "Name",
+          "type": "string"
+        },
+        "notify": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional notification target. Example: {'type': 'feishu_dm', 'user_open_id': 'ou_xxx'} to send job output to a Feishu private chat.",
+          "title": "Notify"
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional nanobot-style payload. Example: {'kind': 'agent_turn', 'message': 'check GitHub', 'deliver': True, 'channel': 'feishu', 'to': 'ou_xxx'}.",
+          "title": "Payload"
+        },
+        "schedule": {
+          "description": "Cron schedule expression (e.g. '*/5 * * * *' for every 5 minutes, '0 9 * * 1-5' for weekdays at 9am)",
+          "title": "Schedule",
+          "type": "string"
+        },
+        "timezone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "IANA timezone for interpreting cron schedule",
+          "title": "Timezone"
+        }
+      },
+      "required": [
+        "name",
+        "schedule"
+      ],
+      "title": "CronCreateToolInput",
+      "type": "object"
+    },
+    "name": "cron_create"
+  },
+  {
+    "defaults": {},
+    "description": "List configured local cron jobs with schedule, status, and next run time.",
+    "input_schema": {
+      "description": "Arguments for cron listing.",
+      "properties": {},
+      "title": "CronListToolInput",
+      "type": "object"
+    },
+    "name": "cron_list"
+  },
+  {
+    "defaults": {},
+    "description": "Delete a local cron-style job by name.",
+    "input_schema": {
+      "description": "Arguments for deleting a cron job.",
+      "properties": {
+        "name": {
+          "description": "Cron job name",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CronDeleteToolInput",
+      "type": "object"
+    },
+    "name": "cron_delete"
+  },
+  {
+    "defaults": {},
+    "description": "Enable or disable a local cron job by name.",
+    "input_schema": {
+      "description": "Arguments for toggling a cron job.",
+      "properties": {
+        "enabled": {
+          "description": "True to enable, False to disable",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Cron job name",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "enabled"
+      ],
+      "title": "CronToggleToolInput",
+      "type": "object"
+    },
+    "name": "cron_toggle"
+  },
+  {
+    "defaults": {
+      "timeout_seconds": 120
+    },
+    "description": "Trigger a configured local cron-style job immediately.",
+    "input_schema": {
+      "description": "Arguments for triggering a local named job.",
+      "properties": {
+        "name": {
+          "description": "Cron job name",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "maximum": 600,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "RemoteTriggerToolInput",
+      "type": "object"
+    },
+    "name": "remote_trigger"
+  },
+  {
+    "defaults": {
+      "command": null,
+      "model": null,
+      "prompt": null,
+      "type": "local_bash"
+    },
+    "description": "Create a background shell or local-agent task.",
+    "input_schema": {
+      "description": "Arguments for task creation.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shell command for local_bash",
+          "title": "Command"
+        },
+        "description": {
+          "description": "Short task description",
+          "title": "Description",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Prompt for local_agent",
+          "title": "Prompt"
+        },
+        "type": {
+          "default": "local_bash",
+          "description": "Task type: local_bash or local_agent",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "TaskCreateToolInput",
+      "type": "object"
+    },
+    "name": "task_create"
+  },
+  {
+    "defaults": {},
+    "description": "Get details for a background task.",
+    "input_schema": {
+      "description": "Arguments for task lookup.",
+      "properties": {
+        "task_id": {
+          "description": "Task identifier",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskGetToolInput",
+      "type": "object"
+    },
+    "name": "task_get"
+  },
+  {
+    "defaults": {
+      "status": null
+    },
+    "description": "List background tasks.",
+    "input_schema": {
+      "description": "Arguments for task listing.",
+      "properties": {
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional status filter",
+          "title": "Status"
+        }
+      },
+      "title": "TaskListToolInput",
+      "type": "object"
+    },
+    "name": "task_list"
+  },
+  {
+    "defaults": {},
+    "description": "Stop a background task.",
+    "input_schema": {
+      "description": "Arguments for stopping a task.",
+      "properties": {
+        "task_id": {
+          "description": "Task identifier",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskStopToolInput",
+      "type": "object"
+    },
+    "name": "task_stop"
+  },
+  {
+    "defaults": {
+      "max_bytes": 12000
+    },
+    "description": "Read the output log for a background task.",
+    "input_schema": {
+      "description": "Arguments for task output retrieval.",
+      "properties": {
+        "max_bytes": {
+          "default": 12000,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "task_id": {
+          "description": "Task identifier",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskOutputToolInput",
+      "type": "object"
+    },
+    "name": "task_output"
+  },
+  {
+    "defaults": {
+      "description": null,
+      "progress": null,
+      "status_note": null
+    },
+    "description": "Update a task description, progress, or status note.",
+    "input_schema": {
+      "description": "Arguments for task updates.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Updated task description",
+          "title": "Description"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Progress percentage",
+          "title": "Progress"
+        },
+        "status_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short human-readable task note",
+          "title": "Status Note"
+        },
+        "task_id": {
+          "description": "Task identifier",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "title": "TaskUpdateToolInput",
+      "type": "object"
+    },
+    "name": "task_update"
+  },
+  {
+    "defaults": {
+      "command": null,
+      "mode": "local_agent",
+      "model": null,
+      "subagent_type": null,
+      "team": null
+    },
+    "description": "Spawn a local background agent task.",
+    "input_schema": {
+      "description": "Arguments for local agent spawning.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Override spawn command",
+          "title": "Command"
+        },
+        "description": {
+          "description": "Short description of the delegated work",
+          "title": "Description",
+          "type": "string"
+        },
+        "mode": {
+          "default": "local_agent",
+          "description": "Agent mode: local_agent, remote_agent, or in_process_teammate",
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "prompt": {
+          "description": "Full prompt for the local agent",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "subagent_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Agent type for definition lookup (e.g. 'general-purpose', 'Explore', 'worker')",
+          "title": "Subagent Type"
+        },
+        "team": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional team to attach the agent to",
+          "title": "Team"
+        }
+      },
+      "required": [
+        "description",
+        "prompt"
+      ],
+      "title": "AgentToolInput",
+      "type": "object"
+    },
+    "name": "agent"
+  },
+  {
+    "defaults": {},
+    "description": "Send a follow-up message to a running local agent task.",
+    "input_schema": {
+      "description": "Arguments for sending a follow-up message to a task.",
+      "properties": {
+        "message": {
+          "description": "Message to write to the task stdin",
+          "title": "Message",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "Target local agent task id or swarm agent_id (name@team)",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "message"
+      ],
+      "title": "SendMessageToolInput",
+      "type": "object"
+    },
+    "name": "send_message"
+  },
+  {
+    "defaults": {
+      "description": ""
+    },
+    "description": "Create a lightweight in-memory team for agent tasks.",
+    "input_schema": {
+      "description": "Arguments for creating a team.",
+      "properties": {
+        "description": {
+          "default": "",
+          "description": "Team description",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "description": "Team name",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TeamCreateToolInput",
+      "type": "object"
+    },
+    "name": "team_create"
+  },
+  {
+    "defaults": {},
+    "description": "Delete an in-memory team.",
+    "input_schema": {
+      "description": "Arguments for deleting a team.",
+      "properties": {
+        "name": {
+          "description": "Team name",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "TeamDeleteToolInput",
+      "type": "object"
+    },
+    "name": "team_delete"
+  }
+]

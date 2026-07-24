@@ -640,7 +640,7 @@ def test_same_response_observe_plus_mutation_executes_independently(
     )
     assert action_result.is_error is False
     assert action_result.data is not None
-    assert action_result.data["status"] == "success"
+    assert action_result.data["success"] is True
 
 
 def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(

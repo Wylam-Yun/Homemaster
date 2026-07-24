@@ -9,12 +9,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from homemaster.events.event_payloads import bounded_event_payload, trace_event_payload
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.events.sanitizer import sanitize_event_payload, sanitize_for_trace
 
 
 class JsonlTraceSink:
-    """Append RuntimeEvents to JSONL with redacted but untruncated payloads."""
+    """Append RuntimeEvents to JSONL with exact, untruncated payloads."""
 
     def __init__(self, output_dir: Path, *, filename: str = "runtime_events.jsonl") -> None:
         self._output_dir = output_dir
@@ -221,15 +221,15 @@ class FanoutEventSink:
 
 
 def _event_to_dict(event: RuntimeEvent) -> dict[str, Any]:
-    """Serialize RuntimeEvent to dict with all fields and sanitized payload."""
+    """Serialize RuntimeEvent to dict with all fields and bounded payload metadata."""
     entry = asdict(event)
-    entry["payload"] = sanitize_event_payload(event.payload)
+    entry["payload"] = bounded_event_payload(event.payload)
     return entry
 
 
 def _event_to_trace_dict(event: RuntimeEvent) -> dict[str, Any]:
     entry = asdict(event)
-    entry["payload"] = sanitize_for_trace(event.payload)
+    entry["payload"] = trace_event_payload(event.payload)
     return entry
 
 
@@ -244,9 +244,9 @@ def _compact_json(value: Any, *, max_chars: int) -> str:
     if value in (None, "", {}, []):
         return ""
     try:
-        rendered = json.dumps(sanitize_event_payload(value), ensure_ascii=False, sort_keys=True)
+        rendered = json.dumps(bounded_event_payload(value), ensure_ascii=False, sort_keys=True)
     except TypeError:
-        rendered = str(sanitize_event_payload(value))
+        rendered = str(bounded_event_payload(value))
     if len(rendered) <= max_chars:
         return rendered
     return rendered[:max_chars] + "..."

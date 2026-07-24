@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from homemaster.tools.openharness_runtime import HomeCronStore
+from homemaster.tools.runtime_services import HomeCronStore
 
 cron_app = typer.Typer(add_completion=False, help="Manage the HomeMaster Cron scheduler.")
 

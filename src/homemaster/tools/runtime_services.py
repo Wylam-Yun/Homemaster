@@ -1,4 +1,4 @@
-"""Application-owned runtime services for OpenHarness-compatible tools."""
+"""Application-owned runtime services for HomeMaster tools."""
 
 from __future__ import annotations
 
@@ -7,28 +7,34 @@ import json
 import os
 import sys
 import time
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
 import yaml
 from croniter import croniter
 
-from homemaster.config import (
-    HomeMasterConfig,
-    configured_sensitive_values,
-    load_config,
-    redact_config_value,
-)
+from homemaster.config import HomeMasterConfig, load_config
 from homemaster.mcp.types import (
     McpHttpServerConfig,
     McpServerConfig,
     McpStdioServerConfig,
     McpWebSocketServerConfig,
 )
-from openharness.coordinator.coordinator_mode import TeamRecord
-from openharness.tasks.manager import BackgroundTaskManager, _task_id
-from openharness.tasks.types import TaskRecord, TaskType
+from homemaster.tools.task_runtime import (
+    BackgroundTaskManager,
+    TaskRecord,
+    TaskType,
+    task_id,
+)
+
+
+@dataclass
+class TeamRecord:
+    name: str
+    description: str = ""
+    agents: list[str] = field(default_factory=list)
+    messages: list[str] = field(default_factory=list)
 
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -40,19 +46,6 @@ def _atomic_json(path: Path, value: object) -> None:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
-
-
-def _replace_sensitive_values(value: Any, secrets: tuple[str, ...]) -> Any:
-    if isinstance(value, dict):
-        return {key: _replace_sensitive_values(item, secrets) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_replace_sensitive_values(item, secrets) for item in value]
-    if isinstance(value, str):
-        sanitized = value
-        for secret in secrets:
-            sanitized = sanitized.replace(secret, "[REDACTED]")
-        return sanitized
-    return value
 
 
 class HomeTaskManager(BackgroundTaskManager):
@@ -78,10 +71,10 @@ class HomeTaskManager(BackgroundTaskManager):
             raise ValueError("create_shell_task requires either command or argv")
         if command is not None and argv is not None:
             raise ValueError("create_shell_task accepts only one of command or argv")
-        task_id = _task_id(task_type)
-        output_path = self.tasks_dir / f"{task_id}.log"
+        task_id_value = task_id(task_type)
+        output_path = self.tasks_dir / f"{task_id_value}.log"
         record = TaskRecord(
-            id=task_id,
+            id=task_id_value,
             type=task_type,
             status="running",
             description=description,
@@ -94,10 +87,10 @@ class HomeTaskManager(BackgroundTaskManager):
             argv=list(argv) if argv is not None else None,
         )
         output_path.write_text("", encoding="utf-8")
-        self._tasks[task_id] = record
-        self._output_locks[task_id] = asyncio.Lock()
-        self._input_locks[task_id] = asyncio.Lock()
-        await self._start_process(task_id)
+        self._tasks[task_id_value] = record
+        self._output_locks[task_id_value] = asyncio.Lock()
+        self._input_locks[task_id_value] = asyncio.Lock()
+        await self._start_process(task_id_value)
         self._persist()
         return record
 
@@ -294,9 +287,13 @@ class HomeConfigService:
         self.path = config.config_path
 
     def show(self) -> str:
-        public = redact_config_value(self.config.model_dump(mode="json"))
-        public = _replace_sensitive_values(public, configured_sensitive_values(self.config))
-        return json.dumps(public, ensure_ascii=False, indent=2, sort_keys=True)
+        payload = self.config.model_dump(mode="json")
+        gateway = payload.get("gateway")
+        if isinstance(gateway, dict) and isinstance(gateway.get("feishu"), dict):
+            gateway["feishu"]["app_secret"] = (
+                self.config.gateway.feishu.app_secret.get_secret_value()
+            )
+        return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
 
     def set(self, key: str, raw_value: str) -> Path:
         if self.path is None:
@@ -368,7 +365,7 @@ class HomeConfigService:
         return updated
 
 
-class HomeOpenHarnessServices:
+class HomeToolServices:
     """All mutable services owned by one Home application."""
 
     def __init__(self, config: HomeMasterConfig, *, state_root: Path | None = None) -> None:
@@ -388,7 +385,7 @@ class HomeOpenHarnessServices:
 __all__ = [
     "HomeConfigService",
     "HomeCronStore",
-    "HomeOpenHarnessServices",
+    "HomeToolServices",
     "HomePlanModeService",
     "HomeTaskManager",
     "HomeTeamRegistry",

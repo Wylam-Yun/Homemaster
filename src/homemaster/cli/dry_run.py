@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from homemaster.adapters.profiles import build_home_profile
+from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.cli.composition import load_home_skills
 from homemaster.config import ConfigError, HomeMasterConfig, load_config
 from homemaster.mcp.audit import McpAuditLog
@@ -22,7 +22,7 @@ def build_dry_run_preview(
     model: str | None = None,
     probe: bool = False,
 ) -> dict[str, object]:
-    """Resolve local config and the Home ToolView without creating clients."""
+    """Resolve local config and the universal tool Registry without creating clients."""
 
     overrides = (
         {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
@@ -46,11 +46,11 @@ def build_dry_run_preview(
             "protocol": "unknown_until_configured",
             "base_url": "",
         }
-    profile = build_home_profile(
+    registry = build_universal_tool_registry(
         world_path=world_path,
         memory_path=memory_path,
     )
-    skill_registry = load_home_skills(resolved, profile)
+    skill_registry = load_home_skills(resolved)
     mcp_statuses: list[dict[str, object]] = []
     external_io = False
     if probe and resolved.mcp.servers:
@@ -71,7 +71,7 @@ def build_dry_run_preview(
             "max_tool_iterations": resolved.runtime.max_tool_iterations,
             "session_dir": str(Path(resolved.observability.session_dir).expanduser()),
         },
-        "tools": list(profile.manifests()),
+        "tools": registry.to_api_schema(),
         "skills": [
             {
                 "name": skill.name,

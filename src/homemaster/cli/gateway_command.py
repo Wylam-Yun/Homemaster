@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.channels.feishu_groups import FeishuGroupOperations
 from homemaster.channels.impl.feishu import FeishuApiService
 from homemaster.cli.composition import create_home_application
-from homemaster.config import HomeMasterConfig, configured_sensitive_values
+from homemaster.config import HomeMasterConfig
 from homemaster.gateway.runtime import build_gateway_assembly
 
 
@@ -24,19 +23,9 @@ async def serve_gateway(config: HomeMasterConfig) -> None:
         quiet=True,
         feishu_group_operations=group_operations,
     )
-    sensitive_values = list(configured_sensitive_values(config))
-    for env_name in (
-        config.gateway.feishu.app_secret_env,
-        config.gateway.feishu.encrypt_key_env,
-        config.gateway.feishu.verification_token_env,
-    ):
-        secret = os.environ.get(env_name, "").strip()
-        if secret:
-            sensitive_values.append(secret)
     assembly = build_gateway_assembly(
         bundle.application,
         config.gateway,
-        sensitive_values=tuple(sensitive_values),
         api_service=api_service,
         group_operations=group_operations,
     )

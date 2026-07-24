@@ -358,7 +358,6 @@ def _run_runtime(
         client,
         run_id,
         transcript_path=transcript_path,
-        sensitive_values=tuple(provider.api_keys),
     )
     event_sink = FanoutEventSink([trace_sink, ConsoleEventSink(show_replies=False)])
     skill_registry = load_coworker_skills()

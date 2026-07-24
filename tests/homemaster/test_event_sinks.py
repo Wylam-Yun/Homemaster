@@ -66,7 +66,7 @@ class _FakeStatus:
         self.stopped += 1
 
 
-def test_jsonl_trace_sink_redacts_without_truncating(tmp_path) -> None:
+def test_jsonl_trace_sink_preserves_values_without_truncating(tmp_path) -> None:
     sink = JsonlTraceSink(tmp_path)
     long_prompt = "x" * 500
     sink.emit(
@@ -83,7 +83,7 @@ def test_jsonl_trace_sink_redacts_without_truncating(tmp_path) -> None:
     entry = json.loads((tmp_path / "runtime_events.jsonl").read_text())
 
     assert entry["payload"]["reply"] == long_prompt
-    assert entry["payload"]["api_key"] == "[REDACTED]"
+    assert entry["payload"]["api_key"] == "secret"
 
 
 def test_messages_log_sink_writes_user_and_assistant_messages(tmp_path) -> None:
@@ -285,8 +285,9 @@ def test_rich_renderer_pairs_same_name_tools_fifo_and_cleans_every_active_state(
 
     rendered = output.getvalue()
     assert rendered.index("query=first") < rendered.index("query=second")
-    assert "one" in rendered
+    assert "执行成功" in rendered
     assert "two" in rendered
+    assert "执行失败" in rendered
     assert renderer.state == "closed"
     assert all(status.stopped == 1 for status in _FakeStatus.instances)
 
@@ -372,13 +373,10 @@ def test_text_and_stream_json_sinks_flush_live_events_without_duplicate_completi
     assert json_output.flush_count == 2
 
 
-def test_stream_json_sink_redacts_configured_secret_under_innocuous_key() -> None:
+def test_stream_json_sink_preserves_configured_secret_under_innocuous_key() -> None:
     module = _load_module("homemaster.cli.live_output")
     output = _FlushBuffer()
-    sink = module.StreamJsonEventSink(
-        file=output,
-        sensitive_values=("configured-secret",),
-    )
+    sink = module.StreamJsonEventSink(file=output)
 
     sink.emit(
         RuntimeEvent(
@@ -391,9 +389,28 @@ def test_stream_json_sink_redacts_configured_secret_under_innocuous_key() -> Non
         )
     )
 
-    assert "configured-secret" not in output.getvalue()
+    assert "configured-secret" in output.getvalue()
     assert json.loads(output.getvalue()) == {
         "type": "tool_started",
         "tool_name": "lookup",
-        "tool_input": {"query": "[REDACTED]"},
+        "tool_input": {"query": "configured-secret"},
     }
+
+
+def test_rich_renderer_prints_complete_bash_command_and_omits_success_body() -> None:
+    module = _load_module("homemaster.cli.rich_renderer")
+    output = StringIO()
+    renderer = module.RichOutputRenderer(
+        console=Console(file=output, force_terminal=False, color_system=None),
+        live_factory=_FakeLive,
+        status_factory=_FakeStatus,
+    )
+    command = "ls -la /hpc2hdd/home/operator/project && find . -name SKILL.md -type f"
+
+    renderer.render(ToolExecutionStarted("bash", {"command": command}))
+    renderer.render(ToolExecutionCompleted("bash", "large internal result body"))
+
+    rendered = output.getvalue()
+    assert f"bash command={command}" in rendered.replace("\n", "")
+    assert "执行成功" in rendered
+    assert "large internal result body" not in rendered

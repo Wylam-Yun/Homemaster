@@ -16,19 +16,9 @@ from homemaster.application.runtime import _GenerationFencedEventSink
 from homemaster.application.session import SessionGenerationError, SessionManager
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.tools.catalog import ToolCatalog
-from homemaster.tools.contracts import (
-    ConcurrencyPolicy,
-    PermissionSubject,
-    RegisteredTool,
-    ToolDefinition,
-    ToolExecutionContext,
-    ToolExecutionResult,
-    ToolExecutionStatus,
-    ToolProvenance,
-    VerificationPolicy,
-)
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.contracts import PermissionSubject
+from homemaster.tools.executor import ToolExecutor
 
 
 def _event(index: int, *, session_id: str = "stress") -> RuntimeEvent:
@@ -123,31 +113,21 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
                 if call_index == 1:
                     self.first_entered.set()
                     await self.release_first.wait()
-                return ToolExecutionResult(
-                    status=ToolExecutionStatus.SUCCESS,
-                    backend_attempted=True,
-                )
+                return ToolResult("ok", metadata={"status": "success", "backend_attempted": True})
             finally:
                 self.active -= 1
 
     executor = Executor()
-    definition = ToolDefinition(
-        internal_id="stress.mutate.v1",
-        model_alias="mutate",
+    registry = ToolRegistry()
+    registry.register(FunctionTool(
+        name="mutate",
         description="Mutate one shared stress backend.",
         input_schema={"type": "object"},
-        output_schema={"type": "object"},
-        verification_policy=VerificationPolicy(),
-        provenance=ToolProvenance(source="test", reference="stress"),
-        version="1.9.0",
-        concurrency_policy=ConcurrencyPolicy.RESOURCE_KEY,
+        execute=executor.execute,
+        concurrency_policy="resource_key",
         resource_key="stress:backend",
-        state_effects=("backend.advance",),
-    )
-    catalog = ToolCatalog()
-    catalog.register(RegisteredTool(definition=definition, executor=executor))
-    view = catalog.freeze((definition.internal_id,))
-    pipeline = ToolExecutionPipeline(catalog, resource_manager=resources)
+    ))
+    tool_executor = ToolExecutor(registry, resource_manager=resources)
 
     for index in range(32):
         await manager.open_or_resume(f"session-{index}")
@@ -159,24 +139,24 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
             await barrier.wait()
             entered += 1
             context = ToolExecutionContext(
-                session_id=session_id,
-                run_id=f"run-{index}",
-                turn_index=0,
-                tool_call_id=f"call-{index}",
-                internal_tool_id=definition.internal_id,
-                tool_view=view,
-                permission_subject=PermissionSubject(subject_id="stress", channel="test"),
-                backend=backend,
-                deadline=None,
-                cancellation=cancellation,
-                domain_observer=None,
-                working_directory=Path.cwd(),
+                Path.cwd(),
+                metadata={
+                    "session_id": session_id,
+                    "run_id": f"run-{index}",
+                    "turn_index": 0,
+                    "tool_call_id": f"call-{index}",
+                    "permission_subject": PermissionSubject(
+                        subject_id="stress", channel="test"
+                    ),
+                    "backend": backend,
+                    "cancellation": cancellation,
+                },
             )
-            result = await pipeline.execute(
+            result = await tool_executor.execute(
                 ToolCall(id=f"call-{index}", name="mutate", arguments={}),
                 context,
             )
-            assert result.status is ToolExecutionStatus.SUCCESS
+            assert result.is_error is False
             manager.append_message(
                 session_id,
                 generation,

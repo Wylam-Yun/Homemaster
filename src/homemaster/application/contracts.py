@@ -9,7 +9,7 @@ or deployment controller and must not be closed by the application runtime.
 from __future__ import annotations
 
 import math
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
@@ -152,7 +152,6 @@ class RunRequest:
     resume: bool = False
     continuous_taskset: bool = False
     environment: EnvironmentBackend | ResourceBinding | None = None
-    enabled_tool_ids: tuple[str, ...] | None = None
     run_policy: RunPolicy = field(default_factory=RunPolicy)
     terminal_policy: TerminalPolicy | None = None
     permission_subject: PermissionSubject = field(
@@ -214,9 +213,6 @@ class RunRequest:
             raise TypeError("terminal_policy must provide before_execute() or check()")
         if not isinstance(self.permission_subject, PermissionSubject):
             raise TypeError("permission_subject must be PermissionSubject")
-        if self.enabled_tool_ids is not None:
-            ids = _freeze_tool_ids(self.enabled_tool_ids)
-            object.__setattr__(self, "enabled_tool_ids", ids)
         object.__setattr__(self, "dependencies", _freeze_dependency_mapping(self.dependencies))
         metadata = _freeze_json_mapping(self.metadata)
         object.__setattr__(self, "metadata", metadata)
@@ -277,17 +273,6 @@ class RunResult:
 
     def metadata_dict(self) -> dict[str, object]:
         return _thaw_json(self.metadata)
-
-
-def _freeze_tool_ids(value: Sequence[str]) -> tuple[str, ...]:
-    if isinstance(value, (str, bytes)):
-        raise TypeError("enabled_tool_ids must be a sequence of strings")
-    ids = tuple(value)
-    if any(not isinstance(item, str) or not item.strip() for item in ids):
-        raise ValueError("enabled_tool_ids must contain non-empty strings")
-    if len(ids) != len(set(ids)):
-        raise ValueError("enabled_tool_ids must be unique")
-    return ids
 
 
 def _freeze_dependency_mapping(value: Mapping[str, object]) -> Mapping[str, object]:

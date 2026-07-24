@@ -1,15 +1,15 @@
 ---
 name: skill-creator
 description: >
-  Create, improve, and verify OpenHarness skills. Use this whenever the user
+  Create, improve, install, and verify HomeMaster Skills. Use this whenever the user
   asks to create a new skill, convert a workflow into a skill, update an
-  existing SKILL.md, add skills for oh/ohmo, design skill trigger behavior,
+  existing SKILL.md, add Skills for HomeMaster, design trigger behavior,
   or test whether a skill loads and works correctly.
 ---
 
 # skill-creator
 
-Create or improve OpenHarness skills in the directory-based `SKILL.md` format.
+Create or improve HomeMaster Skills in the directory-based `SKILL.md` format.
 
 ## When to use
 
@@ -18,25 +18,25 @@ Use this skill when the user wants to:
 - create a new skill from a workflow, repeated task, domain guide, or tool process
 - convert existing notes, prompts, or instructions into a reusable skill
 - modify or harden an existing skill
-- make a skill available to `oh`, `ohmo`, or a plugin
+- make a Skill available to HomeMaster or a trusted plugin
 - debug why the `skill` tool cannot find or load a skill
 - test trigger wording, skill metadata, or skill behavior
 
-## OpenHarness skill locations
+## HomeMaster Skill locations
 
 Choose the target deliberately:
 
-- Built-in OpenHarness skills live in `src/openharness/skills/bundled/content/*.md`.
-- User skills for `oh` live in `~/.openharness/skills/<skill-dir>/SKILL.md`.
-- Private `ohmo` skills live in `~/.ohmo/skills/<skill-dir>/SKILL.md`.
+- Built-in HomeMaster Skills live in `src/homemaster/skills/bundled/content/*.md`.
+- User Skills live in `~/.homemaster/skills/<skill-dir>/SKILL.md`.
+- Project Skills live in `<git-root>/.homemaster/skills/<skill-dir>/SKILL.md`.
 - Plugin skills live in `<plugin-root>/skills/<skill-dir>/SKILL.md`.
 
-OpenHarness user and plugin skills use a directory layout. Do not create flat
-`*.md` user skills under `skills/`; they will not be loaded by the normal loader.
+HomeMaster user, project, and plugin Skills use a directory layout. Do not copy
+Skills to `<git-root>/skills`; that directory is not scanned by the Registry.
 
 ## Skill anatomy
 
-Use this structure for user, ohmo, and plugin skills:
+Use this structure for user, project, and plugin Skills:
 
 ```text
 my-skill/
@@ -82,7 +82,7 @@ Important boundaries, verification, and failure handling.
 
 2. Inspect existing examples.
    Read nearby skills and loader behavior before choosing a layout. For
-   OpenHarness, confirm whether the target is bundled, user, ohmo-private, or
+   HomeMaster, confirm whether the target is bundled, user-global, project, or
    plugin-provided.
 
 3. Write the metadata first.
@@ -102,24 +102,23 @@ Important boundaries, verification, and failure handling.
    model regenerate it every time.
 
 6. Verify loading.
-   Run a local loader check for the chosen target. For bundled skills, use:
+   A successful `git clone`, `cp`, or `mv` proves only that files exist. Installation
+   is complete only after the live HomeMaster Registry resolves every expected name.
+   From the target project, use:
 
    ```bash
    PYTHONPATH=src python - <<'PY'
-   from openharness.skills import load_skill_registry
-   for skill in load_skill_registry().list_skills():
-       print(skill.name, skill.source, skill.path)
-   PY
-   ```
+   from pathlib import Path
+   from homemaster.skills.loader import load_skill_registry
 
-   For ohmo-private skills, include the extra skill directory:
-
-   ```bash
-   PYTHONPATH=src python - <<'PY'
-   from openharness.skills import load_skill_registry
-   from ohmo.workspace import get_skills_dir
-   for skill in load_skill_registry(extra_skill_dirs=[get_skills_dir()]).list_skills():
-       print(skill.name, skill.source, skill.path)
+   registry = load_skill_registry(cwd=Path.cwd())
+   expected = {"my-skill"}
+   missing = sorted(name for name in expected if registry.get(name) is None)
+   if missing:
+       raise SystemExit(f"Registry did not load: {missing}")
+   for name in sorted(expected):
+       skill = registry.get(name)
+       print(name, skill.source, skill.base_dir)
    PY
    ```
 

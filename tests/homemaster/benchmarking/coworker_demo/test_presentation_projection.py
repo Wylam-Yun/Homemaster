@@ -12,7 +12,6 @@ from homemaster.benchmarking.coworker_demo.correlation import action_id_for
 from homemaster.benchmarking.coworker_demo.presentation import (
     ProjectionError,
     project_runtime_event,
-    reject_secret_text,
     summarize_tool_result,
 )
 from homemaster.benchmarking.coworker_demo.tracing import CoworkerTraceSink
@@ -238,7 +237,6 @@ def test_successful_task_snapshot_projects_bounded_plan() -> None:
             "next_focus": "x" * 241,
         },
         {"subtasks": [{"id": "step", "description": "unsafe\x00title"}]},
-        {"subtasks": [{"id": "step", "description": "sk-abcdefghijklmnopqrstuvwxyz"}]},
     ],
 )
 def test_unsafe_or_oversized_plan_field_rejects_plan_projection(mutation: dict) -> None:
@@ -251,6 +249,22 @@ def test_unsafe_or_oversized_plan_field_rejects_plan_projection(mutation: dict) 
                 payload={"data": mutation},
             )
         )
+
+
+def test_secret_shaped_plan_text_is_preserved() -> None:
+    secret = "sk-abcdefghijklmnopqrstuvwxyz"
+    projected = project_runtime_event(
+        event(
+            "tool.call_completed",
+            name="task_progress_check",
+            tool_call_id="call-plan-raw-value",
+            payload={"data": {"subtasks": [{"id": "step", "description": secret}]}},
+        )
+    )
+
+    assert projected["plan"]["items"] == [
+        {"id": "step", "title": secret, "status": "pending"}
+    ]
 
 
 def test_exact_plan_and_reply_limits_are_accepted() -> None:
@@ -395,16 +409,11 @@ def test_assistant_reply_projects_bounded_public_text_but_thinking_does_not() ->
         "high-entropy-value",
     ],
 )
-def test_free_text_secret_patterns_are_rejected_without_logging_source(secret: str) -> None:
-    configured = ("actual-configured-provider-secret",)
-    assert reject_secret_text(secret, sensitive_values=configured) is True
-    assert (
-        project_runtime_event(
-            event("assistant.reply", payload={"reply": f"Result {secret}"}),
-            sensitive_values=configured,
-        )
-        is None
+def test_free_text_secret_patterns_are_preserved(secret: str) -> None:
+    projected = project_runtime_event(
+        event("assistant.reply", payload={"reply": f"Result {secret}"}),
     )
+    assert projected["public_model_output"]["text"] == f"Result {secret}"
 
 
 def test_unallowlisted_payload_regions_never_reach_projection() -> None:
@@ -570,7 +579,7 @@ class RecordingClient:
         return {"success": True}
 
 
-def test_trace_sink_redacts_secrets_locally_and_posts_only_safe_projection(
+def test_trace_sink_preserves_local_values_and_posts_structural_projection(
     tmp_path: Path,
 ) -> None:
     client = RecordingClient()
@@ -595,7 +604,7 @@ def test_trace_sink_redacts_secrets_locally_and_posts_only_safe_projection(
     local_transcript = transcript.read_text(encoding="utf-8")
     assert "full private thought" in local_trace
     assert "full assistant reply" in local_trace
-    assert "full secret" not in local_trace
+    assert "full secret" in local_trace
     assert "MODEL: working through the change procedure" in local_transcript
     assert "MODEL: full assistant reply" in local_transcript
     assert len(client.presented) == 2
@@ -604,7 +613,7 @@ def test_trace_sink_redacts_secrets_locally_and_posts_only_safe_projection(
     assert "secret" not in json.dumps(client.presented)
 
 
-def test_trace_sink_never_logs_or_mirrors_configured_secret_in_reply(tmp_path: Path) -> None:
+def test_trace_sink_preserves_configured_secret_in_reply(tmp_path: Path) -> None:
     secret = "actual-configured-provider-secret"
     client = RecordingClient()
     trace = tmp_path / "trace.jsonl"
@@ -614,15 +623,14 @@ def test_trace_sink_never_logs_or_mirrors_configured_secret_in_reply(tmp_path: P
         client,
         "run-a",
         transcript_path=transcript,
-        sensitive_values=(secret,),
     )
 
     sink.emit(event("assistant.reply", payload={"reply": f"Result: {secret}"}))
 
-    assert secret not in trace.read_text(encoding="utf-8")
-    assert secret not in transcript.read_text(encoding="utf-8")
-    assert client.presented == []
-    assert sink.mirror_failure_total == 1
+    assert secret in trace.read_text(encoding="utf-8")
+    assert secret in transcript.read_text(encoding="utf-8")
+    assert client.presented[0][1]["public_model_output"]["text"] == f"Result: {secret}"
+    assert sink.mirror_failure_total == 0
 
 
 def test_trace_sink_records_projection_mirror_failures_without_raising(tmp_path: Path) -> None:

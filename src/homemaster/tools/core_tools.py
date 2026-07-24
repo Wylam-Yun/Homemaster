@@ -1,4 +1,4 @@
-"""Adapters for OpenHarness core tools without application service dependencies."""
+"""HomeMaster core tools without application service dependencies."""
 
 # ruff: noqa: E501
 
@@ -29,7 +29,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.paths import path_resource_key, resolve_context_tool_path
 
-_UPSTREAM_REFERENCE = "OpenHarness@9b2efd7:src/openharness/tools"
+_IMPLEMENTATION_REFERENCE = "homemaster.tools.core_tools"
 
 
 class BriefExecutor:
@@ -60,7 +60,7 @@ class ToolSearchExecutor:
         query = _string(arguments, "query").lower()
         matches = [
             manifest
-            for manifest in context.tool_view.manifests()
+            for manifest in context.tool_registry.manifests()
             if query in str(manifest["name"]).lower()
             or query in str(manifest["description"]).lower()
         ]
@@ -425,7 +425,7 @@ def _definition(
     concurrency: ConcurrencyPolicy = ConcurrencyPolicy.PARALLEL,
 ) -> ToolDefinition:
     return ToolDefinition(
-        internal_id=f"openharness.{name}.v1",
+        internal_id=f"homemaster.{name}.v1",
         model_alias=name,
         description=description,
         input_schema=schema,
@@ -434,7 +434,8 @@ def _definition(
             execution_proof=ExecutionProof.EXTERNAL_STATE if mutating else ExecutionProof.NONE
         ),
         provenance=ToolProvenance(
-            source="openharness", reference=f"{_UPSTREAM_REFERENCE}/{name}_tool.py"
+            source="homemaster",
+            reference=f"{_IMPLEMENTATION_REFERENCE}:{name}",
         ),
         version="2.0.0",
         concurrency_policy=concurrency,

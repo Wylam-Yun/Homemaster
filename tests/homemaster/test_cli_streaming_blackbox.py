@@ -313,7 +313,8 @@ def test_real_stream_json_partial_failure_has_one_error_and_terminal_result() ->
     assert [row["type"] for row in rows].count("assistant_complete") == 0
     assert rows[-1]["type"] == "result"
     assert rows[-1]["status"] == "failed"
-    assert b"provider-failure-secret" not in stdout + stderr
+    assert b"provider-failure-secret" in stdout
+    assert stderr == b""
 
 
 def test_real_stream_json_sigint_during_provider_wait_is_clean_cancellation() -> None:
@@ -339,7 +340,7 @@ def test_real_stream_json_sigint_during_provider_wait_is_clean_cancellation() ->
     assert b"Traceback" not in stderr
 
 
-def test_real_stream_json_redacts_split_config_secret_path_and_url() -> None:
+def test_real_stream_json_preserves_split_config_secret_path_and_url() -> None:
     with _blocked_anthropic_server(
         first_text="safe blackbox-provider-",
         second_text="secret /home/user/private https://host/path?token=value",
@@ -350,12 +351,13 @@ def test_real_stream_json_redacts_split_config_secret_path_and_url() -> None:
         stdout, stderr = process.communicate(timeout=20)
 
     assert process.returncode == 0, stderr.decode(errors="replace")
-    combined = stdout + stderr
-    assert b"blackbox-provider-secret" not in combined
-    assert b"/home/user/private" not in combined
-    assert b"token=value" not in combined
     rows = [json.loads(line) for line in stdout.splitlines()]
     assert rows[-1]["type"] == "result"
+    assert rows[-1]["final_reply"] == (
+        "safe blackbox-provider-secret /home/user/private "
+        "https://host/path?token=value"
+    )
+    assert stderr == b""
 
 
 def test_real_stream_json_tool_failure_is_one_failed_completion() -> None:

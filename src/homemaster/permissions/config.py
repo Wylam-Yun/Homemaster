@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import warnings
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+_LEGACY_TOOL_PREFIXES = frozenset(
+    {"openharness", "home", "core", "alfworld", "coworker", "legacy"}
+)
 
 
 class PermissionMode(StrEnum):
@@ -36,5 +42,41 @@ class PermissionSettingsConfig(BaseModel):
     path_rules: tuple[PathRuleConfig, ...] = ()
     denied_commands: tuple[str, ...] = ()
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_tool_ids(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        migrated = dict(value)
+        for field in ("allowed_tools", "denied_tools"):
+            raw = migrated.get(field, ())
+            if isinstance(raw, str):
+                raw = (raw,)
+            converted = tuple(dict.fromkeys(_ordinary_tool_name(str(item)) for item in raw))
+            migrated[field] = converted
+        overlap = set(migrated.get("allowed_tools", ())) & set(
+            migrated.get("denied_tools", ())
+        )
+        if overlap:
+            raise ValueError(f"tools cannot be both allowed and denied: {sorted(overlap)}")
+        return migrated
 
-__all__ = ["PathRuleConfig", "PermissionMode", "PermissionSettingsConfig"]
+
+def _ordinary_tool_name(value: str) -> str:
+    parts = value.split(".")
+    if len(parts) == 3 and parts[0] in _LEGACY_TOOL_PREFIXES and parts[2] == "v1":
+        ordinary = parts[1]
+        warnings.warn(
+            f"legacy tool id {value!r} migrated to ordinary name {ordinary!r}",
+            FutureWarning,
+            stacklevel=3,
+        )
+        return ordinary
+    return value
+
+
+__all__ = [
+    "PathRuleConfig",
+    "PermissionMode",
+    "PermissionSettingsConfig",
+]

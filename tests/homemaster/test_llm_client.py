@@ -8,7 +8,7 @@ import pytest
 
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.config import ProviderProfileConfig
-from homemaster.events.trace import sanitize_for_log
+from homemaster.events.trace import json_compatible_copy
 from homemaster.providers.attempts import ListProviderAttemptSink
 from homemaster.providers.errors import LLMProviderError, LLMRateLimitError
 from homemaster.providers.llm_client import (
@@ -313,8 +313,8 @@ async def test_llm_client_treats_thinking_only_provider_token_stop_as_truncation
     assert "reasoning budget" in (exc_info.value.raw_content or "")
 
 
-def test_sanitize_for_log_redacts_secret_fields() -> None:
-    sanitized = sanitize_for_log(
+def test_json_compatible_copy_preserves_secret_shaped_fields() -> None:
+    copied = json_compatible_copy(
         {
             "api_key": "secret-one",
             "headers": {
@@ -324,10 +324,10 @@ def test_sanitize_for_log_redacts_secret_fields() -> None:
             "safe": "visible",
         }
     )
-    encoded = json.dumps(sanitized, ensure_ascii=False)
+    encoded = json.dumps(copied, ensure_ascii=False)
 
-    assert "secret-one" not in encoded
-    assert sanitized["safe"] == "visible"
+    assert encoded.count("secret-one") == 3
+    assert copied["safe"] == "visible"
 
 
 @pytest.mark.asyncio

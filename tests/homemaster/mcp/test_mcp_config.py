@@ -34,9 +34,13 @@ def test_mcp_config_parses_stdio_http_and_explicit_unsupported_websocket() -> No
     assert isinstance(config.mcp.servers["remote"], McpHttpServerConfig)
     assert isinstance(config.mcp.servers["future"], McpWebSocketServerConfig)
     summary = config.mcp.public_summary()
-    assert "secret" not in str(summary)
-    assert "opaque-value" not in str(summary)
-    assert "user:pass" not in str(summary)
+    assert summary["servers"]["local"]["config"]["env"] == {
+        "TOKEN": "secret",
+        "DATABASE_URL": "opaque-value",
+    }
+    assert summary["servers"]["remote"]["config"]["url"] == (
+        "https://user:pass@example.test/mcp"
+    )
     assert summary["servers"]["future"]["status"] == "unsupported"
 
 

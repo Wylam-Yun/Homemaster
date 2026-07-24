@@ -1,13 +1,12 @@
 """Application-owned MCP transport manager.
 
 Protocol flow adapted from OpenHarness 9b2efd7 ``src/openharness/mcp/client.py``;
-ownership, typed status, redaction, disconnect fencing, and cleanup are HomeMaster deltas.
+ownership, typed status, raw output, disconnect fencing, and cleanup are HomeMaster deltas.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -172,7 +171,7 @@ class McpClientManager:
         except Exception as exc:
             if connection is not None:
                 await _best_effort_close(connection)
-            detail = self._redact(str(exc) or type(exc).__name__)
+            detail = str(exc) or type(exc).__name__
             self._statuses[name] = McpConnectionStatus(
                 name=name,
                 state="failed",
@@ -248,7 +247,7 @@ class McpClientManager:
         except Exception as exc:
             if _is_disconnect_error(exc):
                 await self._mark_disconnected(server_name, connection, exc)
-            detail = self._redact(str(exc) or type(exc).__name__)
+            detail = str(exc) or type(exc).__name__
             await self._audit(
                 "mcp.tool.failed",
                 server=server_name,
@@ -273,24 +272,23 @@ class McpClientManager:
     async def read_resource(self, server_name: str, uri: str) -> McpPayload:
         connection = self._require_connection(server_name)
         started = time.perf_counter()
-        resource_ref = _resource_ref(uri)
-        await self._audit("mcp.resource.started", server=server_name, resource_ref=resource_ref)
+        await self._audit("mcp.resource.started", server=server_name, uri=uri)
         try:
             async with asyncio.timeout(self._call_timeout_s):
                 result = await connection.session.read_resource(uri)
         except asyncio.CancelledError:
             await self._audit(
-                "mcp.resource.cancelled", server=server_name, resource_ref=resource_ref
+                "mcp.resource.cancelled", server=server_name, uri=uri
             )
             raise
         except Exception as exc:
             if _is_disconnect_error(exc):
                 await self._mark_disconnected(server_name, connection, exc)
-            detail = self._redact(str(exc) or type(exc).__name__)
+            detail = str(exc) or type(exc).__name__
             await self._audit(
                 "mcp.resource.failed",
                 server=server_name,
-                resource_ref=resource_ref,
+                uri=uri,
                 error_type=type(exc).__name__,
                 detail=detail,
             )
@@ -298,7 +296,7 @@ class McpClientManager:
         await self._audit(
             "mcp.resource.completed",
             server=server_name,
-            resource_ref=resource_ref,
+            uri=uri,
             elapsed_ms=_elapsed_ms(started),
         )
         return McpPayload(payload=_model_dump(result))
@@ -315,13 +313,13 @@ class McpClientManager:
             except BaseException as exc:
                 if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                     raise
-                sanitized = RuntimeError(self._redact(str(exc) or type(exc).__name__))
-                errors.append(sanitized)
+                failure = RuntimeError(str(exc) or type(exc).__name__)
+                errors.append(failure)
                 await self._audit(
                     "mcp.close.failed",
                     server=name,
                     error_type=type(exc).__name__,
-                    detail=str(sanitized),
+                    detail=str(failure),
                 )
         self._connections.clear()
         if errors:
@@ -337,7 +335,7 @@ class McpClientManager:
         status = self._statuses.get(server_name)
         detail = status.detail if status is not None else "unknown server"
         raise McpServerNotConnectedError(
-            f"MCP server {server_name!r} is not connected: {self._redact(detail)}"
+            f"MCP server {server_name!r} is not connected: {detail}"
         )
 
     async def _mark_disconnected(
@@ -356,32 +354,22 @@ class McpClientManager:
             status,
             state="failed",
             error_code="disconnected",
-            detail=self._redact(str(exc) or type(exc).__name__),
+            detail=str(exc) or type(exc).__name__,
             tools=(),
             resources=(),
         )
 
-    def _redact(self, value: str) -> str:
-        result = value
-        for secret in self.secret_values:
-            result = result.replace(secret, "[REDACTED]")
-        return result
-
     async def _audit(self, event_type: str, **payload: object) -> None:
         if self._audit_sink is None:
             return
-        safe = {
-            key: self._redact(value) if isinstance(value, str) else value
-            for key, value in payload.items()
-        }
         try:
-            await _maybe_await(self._audit_sink({"type": event_type, **safe}))
+            await _maybe_await(self._audit_sink({"type": event_type, **payload}))
         except Exception as exc:
             self._audit_failures.append(
                 McpAuditFailure(
                     event_type=event_type,
                     error_type=type(exc).__name__,
-                    detail=self._redact(str(exc) or type(exc).__name__),
+                    detail=str(exc) or type(exc).__name__,
                 )
             )
 
@@ -496,10 +484,6 @@ async def _maybe_await(value: Any) -> Any:
 
 def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 3)
-
-
-def _resource_ref(uri: str) -> str:
-    return f"sha256:{hashlib.sha256(uri.encode('utf-8')).hexdigest()}"
 
 
 def _connection_error_code(exc: BaseException) -> str:

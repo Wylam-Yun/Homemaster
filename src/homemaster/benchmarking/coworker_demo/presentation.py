@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import re
 import shlex
-from collections.abc import Iterable
 from datetime import datetime, timezone
-from math import log2
 from typing import Any
 
 from homemaster.benchmarking.coworker_demo.correlation import action_id_for
@@ -197,68 +195,24 @@ _PEM_PATTERN = re.compile(r"-----BEGIN [A-Z0-9 ]*(?:PRIVATE KEY|CERTIFICATE)----
 _SIGNED_URL_PATTERN = re.compile(
     r"(?i)https?://\S+[?&](?:x-amz-signature|signature|sig|token)=[^&\s]+"
 )
-_SK_TOKEN_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
-_TOKEN_CANDIDATE = re.compile(r"\b[A-Za-z0-9_+/=-]{24,}\b")
-
-
 class ProjectionError(RuntimeError):
     """Raised when a runtime event cannot cross the presentation trust boundary."""
-
-
-def _entropy(value: str) -> float:
-    counts = {character: value.count(character) for character in set(value)}
-    length = len(value)
-    return -sum((count / length) * log2(count / length) for count in counts.values())
-
-
-def reject_secret_text(value: Any, *, sensitive_values: Iterable[str] = ()) -> bool:
-    """Return True for credential-like free text without logging the source value."""
-
-    if not isinstance(value, str):
-        return True
-    if any(secret and secret in value for secret in sensitive_values):
-        return True
-    if any(
-        pattern.search(value)
-        for pattern in (
-            _CREDENTIAL_PATTERN,
-            _JWT_PATTERN,
-            _PEM_PATTERN,
-            _SIGNED_URL_PATTERN,
-            _SK_TOKEN_PATTERN,
-        )
-    ):
-        return True
-    for match in _TOKEN_CANDIDATE.finditer(value):
-        token = match.group(0)
-        classes = sum(
-            any(predicate(character) for character in token)
-            for predicate in (str.islower, str.isupper, str.isdigit)
-        )
-        if classes >= 3 and _entropy(token) >= 4.0:
-            return True
-    return False
 
 
 def _safe_display_text(
     value: Any,
     *,
     limit: int,
-    sensitive_values: Iterable[str],
 ) -> str | None:
     if not isinstance(value, str) or not value or len(value) > limit:
         return None
     if any(ord(character) < 32 and character not in "\n\r\t" for character in value):
-        return None
-    if reject_secret_text(value, sensitive_values=sensitive_values):
         return None
     return value.strip()
 
 
 def _safe_plan_snapshot(
     value: Any,
-    *,
-    sensitive_values: Iterable[str],
 ) -> dict[str, Any] | None:
     source = _dict(value)
     subtasks = source.get("subtasks")
@@ -268,9 +222,7 @@ def _safe_plan_snapshot(
     for raw_item in subtasks:
         item = _dict(raw_item)
         item_id = item.get("id")
-        title = _safe_display_text(
-            item.get("description"), limit=160, sensitive_values=sensitive_values
-        )
+        title = _safe_display_text(item.get("description"), limit=160)
         status = item.get("status", "pending")
         if (
             not isinstance(item_id, str)
@@ -288,7 +240,7 @@ def _safe_plan_snapshot(
     next_focus = source.get("next_focus")
     safe_focus = None
     if next_focus is not None:
-        safe_focus = _safe_display_text(next_focus, limit=240, sensitive_values=sensitive_values)
+        safe_focus = _safe_display_text(next_focus, limit=240)
         if safe_focus is None:
             return None
     return {"items": items, "current_id": current, "next_focus": safe_focus}
@@ -586,11 +538,7 @@ def _tool_status(event_type: str, data: dict[str, Any]) -> str:
     return "rejected" if backend == "rejected" else "failed"
 
 
-def project_runtime_event(
-    event: RuntimeEvent,
-    *,
-    sensitive_values: Iterable[str] = (),
-) -> dict[str, Any] | None:
+def project_runtime_event(event: RuntimeEvent) -> dict[str, Any] | None:
     """Project a runtime event into the presentation API's safe lifecycle schema."""
     if event.type == "assistant.reply":
         timestamp = _safe_timestamp(event.timestamp)
@@ -599,7 +547,6 @@ def project_runtime_event(
         reply = _safe_display_text(
             _dict(event.payload).get("reply"),
             limit=1_200,
-            sensitive_values=sensitive_values,
         )
         if reply is None:
             return None
@@ -659,7 +606,7 @@ def project_runtime_event(
             "task_planner",
             "task_progress_check",
         }:
-            plan = _safe_plan_snapshot(data, sensitive_values=sensitive_values)
+            plan = _safe_plan_snapshot(data)
             if plan is None:
                 raise ProjectionError("unsafe planner snapshot")
             projected["plan"] = plan

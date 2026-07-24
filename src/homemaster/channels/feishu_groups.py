@@ -280,7 +280,7 @@ def build_feishu_group_tools(
 def _group_tool(operations: FeishuGroupOperations, action: str) -> RegisteredTool:
     capability = f"channel.feishu.group.{action}"
     definition = ToolDefinition(
-        internal_id=f"home.channel_feishu_group_{action}.v1",
+        internal_id=f"homemaster.feishu_group_{action}.v1",
         model_alias=f"feishu_group_{action}",
         description=f"{action.title()} the authenticated Feishu group route.",
         input_schema={

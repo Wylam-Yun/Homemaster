@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from homemaster.config import ProviderProfileConfig
-from homemaster.events.trace import sanitize_for_log
+from homemaster.events.trace import json_compatible_copy
 from homemaster.providers.embedding_client import (
     BGEEmbeddingClient,
     EmbeddingProviderResponseError,
@@ -75,7 +75,10 @@ def test_embedding_client_posts_to_embeddings_endpoint_and_redacts_secret() -> N
             "input": ["水杯", "药盒"],
         }
     ]
-    encoded_summary = json.dumps(sanitize_for_log(response.public_summary()), ensure_ascii=False)
+    encoded_summary = json.dumps(
+        json_compatible_copy(response.public_summary()),
+        ensure_ascii=False,
+    )
     assert "secret-one" not in encoded_summary
 
 

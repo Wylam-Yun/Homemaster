@@ -8,15 +8,15 @@ from homemaster.permissions.config import (
 
 
 def __getattr__(name: str):
-    if name == "HomePermissionPolicy":
-        from homemaster.permissions.policy import HomePermissionPolicy
+    if name == "PermissionChecker":
+        from homemaster.permissions.policy import PermissionChecker
 
-        return HomePermissionPolicy
+        return PermissionChecker
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
-    "HomePermissionPolicy",
+    "PermissionChecker",
     "PathRuleConfig",
     "PermissionMode",
     "PermissionSettingsConfig",

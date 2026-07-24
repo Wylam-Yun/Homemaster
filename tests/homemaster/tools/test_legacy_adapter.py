@@ -28,13 +28,6 @@ from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
 
 
-class ToolView:
-    view_id = "legacy-view"
-
-    def is_enabled(self, internal_id: str) -> bool:
-        return bool(internal_id)
-
-
 def _run_context(**deps: Any) -> RunContext:
     return RunContext(
         session_id="session-1",
@@ -63,7 +56,6 @@ def _canonical_context(
         turn_index=run_context.turn_index,
         tool_call_id=tool_call_id,
         internal_tool_id=internal_tool_id,
-        tool_view=ToolView(),
         permission_subject=PermissionSubject(subject_id="subject-1", channel="cli"),
         backend=legacy_context,
         deadline=None,

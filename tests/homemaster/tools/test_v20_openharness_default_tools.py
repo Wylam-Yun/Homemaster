@@ -1,6 +1,6 @@
 """Red baseline for the OpenHarness default-tool port in the Home profile."""
 
-from homemaster.adapters.profiles import build_home_profile
+from tests.homemaster.tools.universal_harness import registry
 
 OPENHARNESS_DEFAULT_TOOL_NAMES = (
     "bash",
@@ -45,7 +45,7 @@ OPENHARNESS_DEFAULT_TOOL_NAMES = (
 )
 
 
-def test_home_profile_exposes_every_locked_openharness_default_tool() -> None:
-    available = set(build_home_profile().model_tool_names)
+def test_universal_registry_exposes_every_locked_default_tool() -> None:
+    available = set(registry().all_names())
 
     assert set(OPENHARNESS_DEFAULT_TOOL_NAMES) <= available

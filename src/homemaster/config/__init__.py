@@ -29,9 +29,7 @@ from homemaster.config.config import (
     SkillSourcesConfig,
     TelegramChannelConfig,
     TransportName,
-    configured_sensitive_values,
     load_config,
-    redact_config_value,
 )
 from homemaster.config.observability import SCHEMA_VERSION, ObservabilityConfig
 
@@ -66,7 +64,5 @@ __all__ = [
     "TelegramChannelConfig",
     "SCHEMA_VERSION",
     "TransportName",
-    "configured_sensitive_values",
     "load_config",
-    "redact_config_value",
 ]

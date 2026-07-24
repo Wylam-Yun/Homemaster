@@ -1,15 +1,31 @@
-"""Home execution adapters for OpenHarness service-backed default tools."""
+"""HomeMaster execution adapters for service-backed default tools."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
 import hashlib
+import inspect
+import json
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from importlib.resources import files
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from croniter import croniter
+
+from homemaster.services.lsp import (
+    find_references,
+    go_to_definition,
+    hover,
+    list_document_symbols,
+    workspace_symbol_search,
+)
+from homemaster.tools.base import ToolExecutionContext as BaseToolExecutionContext
+from homemaster.tools.base import ToolResult
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
@@ -25,13 +41,11 @@ from homemaster.tools.contracts import (
     VerificationRecord,
     VerificationStatus,
 )
-from homemaster.tools.openharness_runtime import HomeOpenHarnessServices
-from openharness.services.cron import validate_cron_expression, validate_timezone
-from openharness.tools import create_default_tool_registry
-from openharness.tools.base import BaseTool as OpenHarnessTool
-from openharness.tools.base import ToolExecutionContext as OpenHarnessContext
+from homemaster.tools.image_generation import ImageGenerationTool
+from homemaster.tools.image_to_text import ImageToTextTool
+from homemaster.tools.runtime_services import HomeToolServices
 
-_UPSTREAM_REFERENCE = "OpenHarness@9b2efd7:src/openharness/tools"
+_IMPLEMENTATION_REFERENCE = "homemaster.tools.service_tools"
 
 _SERVICE_TOOL_NAMES = (
     "ask_user_question",
@@ -99,11 +113,33 @@ _SPAWN_TOOLS = {
 }
 
 
-class OpenHarnessServiceExecutor:
-    """Run an unchanged upstream tool behind Home's execution pipeline."""
+def validate_cron_expression(expression: str) -> bool:
+    return croniter.is_valid(expression)
 
-    def __init__(self, tool: OpenHarnessTool) -> None:
-        self._tool = tool
+
+def validate_timezone(timezone: str | None) -> bool:
+    if not timezone:
+        return True
+    try:
+        ZoneInfo(timezone)
+    except Exception:
+        return False
+    return True
+
+
+@dataclass(frozen=True)
+class ServiceToolSpec:
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    defaults: dict[str, Any]
+
+
+class HomeServiceExecutor:
+    """Run a service-backed tool behind HomeMaster's execution contract."""
+
+    def __init__(self, spec: ServiceToolSpec) -> None:
+        self._spec = spec
 
     async def execute(
         self,
@@ -111,9 +147,11 @@ class OpenHarnessServiceExecutor:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         try:
-            parsed = self._tool.input_model.model_validate(dict(arguments))
+            parsed = SimpleNamespace(
+                **_arguments_with_defaults(self._spec, arguments)
+            )
             metadata: dict[str, Any] = dict(context.services)
-            if self._tool.name == "ask_user_question" and not callable(
+            if self._spec.name == "ask_user_question" and not callable(
                 metadata.get("ask_user_prompt")
             ):
                 return ToolExecutionResult(
@@ -126,21 +164,16 @@ class OpenHarnessServiceExecutor:
                     },
                     backend_attempted=True,
                 )
-            services = metadata.get("openharness_services")
-            if isinstance(services, HomeOpenHarnessServices) and self._tool.name in _HOME_OWNED:
-                return await _execute_home_owned(self._tool.name, parsed, context, services)
-            upstream_context = OpenHarnessContext(
-                cwd=context.working_directory,
-                metadata=metadata,
-                hook_executor=metadata.get("openharness_hook_executor"),
-            )
-            result = await self._tool.execute(parsed, upstream_context)
+            services = metadata.get("tool_services")
+            if isinstance(services, HomeToolServices) and self._spec.name in _HOME_OWNED:
+                return await _execute_home_owned(self._spec.name, parsed, context, services)
+            result = await _execute_ported_tool(self._spec.name, parsed, context, metadata)
         except Exception as exc:
             return ToolExecutionResult(
                 status=ToolExecutionStatus.FAILURE,
                 error=ToolExecutionError(
-                    "openharness_service_error",
-                    f"{self._tool.name} failed: {type(exc).__name__}: {exc}",
+                    "homemaster_service_error",
+                    f"{self._spec.name} failed: {type(exc).__name__}: {exc}",
                 ),
                 backend_attempted=True,
             )
@@ -149,12 +182,12 @@ class OpenHarnessServiceExecutor:
                 status=ToolExecutionStatus.FAILURE,
                 text=result.output,
                 data=result.metadata,
-                error=ToolExecutionError("openharness_tool_error", result.output),
+                error=ToolExecutionError("homemaster_tool_error", result.output),
                 backend_attempted=True,
             )
         images: tuple[ResultImage, ...] = ()
         data = dict(result.metadata)
-        if self._tool.name == "image_generation":
+        if self._spec.name == "image_generation":
             try:
                 images, receipts = _generated_image_receipts(data)
             except (OSError, ValueError) as exc:
@@ -283,11 +316,110 @@ _HOME_OWNED = {
 }
 
 
+async def _execute_ported_tool(
+    name: str,
+    arguments: Any,
+    context: ToolExecutionContext,
+    metadata: dict[str, Any],
+) -> Any:
+    if name == "ask_user_question":
+        prompt = metadata.get("ask_user_prompt")
+        if not callable(prompt):
+            return ToolResult(arguments.question)
+        answer = prompt(arguments.question)
+        return ToolResult(str(await answer if inspect.isawaitable(answer) else answer))
+    if name == "lsp":
+        return _execute_lsp(arguments, context.working_directory)
+    tool_context = BaseToolExecutionContext(
+        cwd=context.working_directory,
+        metadata=metadata,
+    )
+    if name == "image_to_text":
+        return await ImageToTextTool().execute(arguments, tool_context)
+    if name == "image_generation":
+        return await ImageGenerationTool().execute(arguments, tool_context)
+    raise ValueError(f"unsupported service tool: {name}")
+
+
+def _execute_lsp(arguments: Any, root: Path) -> ToolResult:
+    root = root.resolve()
+    if arguments.operation == "workspace_symbol":
+        if not arguments.query:
+            return ToolResult("workspace_symbol requires query", is_error=True)
+        return ToolResult(_format_symbols(workspace_symbol_search(root, arguments.query), root))
+    if not arguments.file_path:
+        return ToolResult(f"{arguments.operation} requires file_path", is_error=True)
+    path = Path(arguments.file_path).expanduser()
+    path = (root / path).resolve() if not path.is_absolute() else path.resolve()
+    if not path.exists():
+        return ToolResult(f"File not found: {path}", is_error=True)
+    if path.suffix != ".py":
+        return ToolResult("The lsp tool currently supports Python files only.", is_error=True)
+    if arguments.operation == "document_symbol":
+        return ToolResult(_format_symbols(list_document_symbols(path), root))
+    kwargs = {
+        "root": root,
+        "file_path": path,
+        "symbol": arguments.symbol,
+        "line": arguments.line,
+        "character": arguments.character,
+    }
+    if not arguments.symbol and arguments.line is None:
+        return ToolResult(
+            f"{arguments.operation} requires symbol or line",
+            is_error=True,
+        )
+    if arguments.operation == "go_to_definition":
+        return ToolResult(_format_symbols(go_to_definition(**kwargs), root))
+    if arguments.operation == "find_references":
+        refs = find_references(**kwargs)
+        output = "\n".join(
+            f"{_display_path(item_path, root)}:{line}:{text}"
+            for item_path, line, text in refs
+        )
+        return ToolResult(output or "(no results)")
+    result = hover(**kwargs)
+    if result is None:
+        return ToolResult("(no hover result)")
+    output = [
+        f"{result.kind} {result.name}",
+        f"path: {_display_path(result.path, root)}:{result.line}:{result.character}",
+    ]
+    if result.signature:
+        output.append(f"signature: {result.signature}")
+    if result.docstring:
+        output.append(f"docstring: {result.docstring.strip()}")
+    return ToolResult("\n".join(output))
+
+
+def _format_symbols(results: list[Any], root: Path) -> str:
+    if not results:
+        return "(no results)"
+    lines: list[str] = []
+    for item in results:
+        lines.append(
+            f"{item.kind} {item.name} - "
+            f"{_display_path(item.path, root)}:{item.line}:{item.character}"
+        )
+        if item.signature:
+            lines.append(f"  signature: {item.signature}")
+        if item.docstring:
+            lines.append(f"  docstring: {item.docstring.strip()}")
+    return "\n".join(lines)
+
+
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
+
+
 async def _execute_home_owned(
     name: str,
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     try:
         if name == "mcp_auth":
@@ -312,23 +444,23 @@ async def _execute_home_owned(
         if name in {"team_create", "team_delete"}:
             return _team(name, arguments, services)
     except ValueError as exc:
-        return _failure("openharness_tool_error", str(exc), backend_attempted=False)
+        return _failure("homemaster_tool_error", str(exc), backend_attempted=False)
     except Exception as exc:
         return ToolExecutionResult(
             status=ToolExecutionStatus.OUTCOME_UNKNOWN,
             error=ToolExecutionError(
-                "openharness_service_error",
+                "homemaster_service_error",
                 f"{name} failed: {type(exc).__name__}: {exc}",
             ),
             backend_attempted=True,
         )
-    return _failure("openharness_service_error", f"Unsupported Home service tool: {name}")
+    return _failure("homemaster_service_error", f"Unsupported Home service tool: {name}")
 
 
 async def _mcp_auth(
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     manager = context.services.get("mcp_manager")
     if manager is None:
@@ -363,7 +495,7 @@ async def _mcp_auth(
     )
 
 
-def _config(arguments: Any, services: HomeOpenHarnessServices) -> ToolExecutionResult:
+def _config(arguments: Any, services: HomeToolServices) -> ToolExecutionResult:
     if arguments.action == "show":
         return _success(services.config.show(), action="show")
     if arguments.action == "set" and arguments.key and arguments.value is not None:
@@ -375,7 +507,7 @@ def _config(arguments: Any, services: HomeOpenHarnessServices) -> ToolExecutionR
             config_path=str(path),
         )
     return _failure(
-        "openharness_tool_error",
+        "homemaster_tool_error",
         "Usage: action=show or action=set with key/value",
         backend_attempted=False,
     )
@@ -385,7 +517,7 @@ def _cron(
     name: str,
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     store = services.cron
     if name == "cron_list":
@@ -412,13 +544,13 @@ def _cron(
         return _success(f"Cron job '{arguments.name}' {state}", job=job)
     if not validate_cron_expression(arguments.schedule):
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             f"Invalid cron expression: {arguments.schedule!r}",
             backend_attempted=False,
         )
     if not validate_timezone(arguments.timezone):
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             f"Invalid timezone: {arguments.timezone!r}",
             backend_attempted=False,
         )
@@ -428,7 +560,7 @@ def _cron(
         payload.setdefault("message", arguments.message)
     if not arguments.command and not payload.get("message"):
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             "Cron job requires command or message.",
             backend_attempted=False,
         )
@@ -458,19 +590,19 @@ def _cron(
 async def _remote_trigger(
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     job = services.cron.get(arguments.name)
     if job is None:
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             f"No cron job named '{arguments.name}'",
             backend_attempted=False,
         )
     command = job.get("command")
     if not isinstance(command, str) or not command:
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             "Remote trigger currently requires a command cron job",
             backend_attempted=False,
         )
@@ -505,14 +637,14 @@ async def _task(
     name: str,
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     manager = services.tasks
     if name == "task_create":
         if arguments.type == "local_bash":
             if not arguments.command:
                 return _failure(
-                    "openharness_tool_error",
+                    "homemaster_tool_error",
                     "command is required for local_bash tasks",
                     backend_attempted=False,
                 )
@@ -524,7 +656,7 @@ async def _task(
         elif arguments.type == "local_agent":
             if not arguments.prompt:
                 return _failure(
-                    "openharness_tool_error",
+                    "homemaster_tool_error",
                     "prompt is required for local_agent tasks",
                     backend_attempted=False,
                 )
@@ -536,7 +668,7 @@ async def _task(
             )
         else:
             return _failure(
-                "openharness_tool_error",
+                "homemaster_tool_error",
                 f"unsupported task type: {arguments.type}",
                 backend_attempted=False,
             )
@@ -544,7 +676,7 @@ async def _task(
     task = manager.get_task(arguments.task_id) if name != "task_list" else None
     if name != "task_list" and task is None:
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             f"No task found with ID: {arguments.task_id}",
             backend_attempted=False,
         )
@@ -581,11 +713,11 @@ async def _task(
 async def _agent(
     arguments: Any,
     context: ToolExecutionContext,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     if arguments.mode not in {"local_agent", "remote_agent", "in_process_teammate"}:
         return _failure(
-            "openharness_tool_error",
+            "homemaster_tool_error",
             "Invalid mode. Use local_agent, remote_agent, or in_process_teammate.",
             backend_attempted=False,
         )
@@ -613,7 +745,7 @@ async def _agent(
 
 async def _send_message(
     arguments: Any,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     task_id = services.agent_tasks.get(arguments.task_id, arguments.task_id)
     await services.tasks.write_to_task(task_id, arguments.message)
@@ -627,7 +759,7 @@ async def _send_message(
 def _team(
     name: str,
     arguments: Any,
-    services: HomeOpenHarnessServices,
+    services: HomeToolServices,
 ) -> ToolExecutionResult:
     if name == "team_create":
         team = services.teams.create_team(arguments.name, arguments.description)
@@ -674,20 +806,35 @@ def _failure(
 
 
 def build_service_tools() -> tuple[RegisteredTool, ...]:
-    upstream = {tool.name: tool for tool in create_default_tool_registry().list_tools()}
+    specs = {spec.name: spec for spec in _load_service_specs()}
     tools: list[RegisteredTool] = []
     for name in _SERVICE_TOOL_NAMES:
         tools.append(
             RegisteredTool(
-                definition=_definition(upstream[name]),
-                executor=OpenHarnessServiceExecutor(upstream[name]),
+                definition=_definition(specs[name]),
+                executor=HomeServiceExecutor(specs[name]),
                 verifier=_ImageGenerationVerifier() if name == "image_generation" else None,
             )
         )
     return tuple(tools)
 
 
-def _definition(tool: OpenHarnessTool) -> ToolDefinition:
+def _load_service_specs() -> tuple[ServiceToolSpec, ...]:
+    resource = files("homemaster.tools").joinpath("service_tool_specs.json")
+    payload = json.loads(resource.read_text(encoding="utf-8"))
+    return tuple(ServiceToolSpec(**item) for item in payload)
+
+
+def _arguments_with_defaults(
+    spec: ServiceToolSpec,
+    arguments: Mapping[str, object],
+) -> dict[str, Any]:
+    values = dict(spec.defaults)
+    values.update(arguments)
+    return values
+
+
+def _definition(tool: ServiceToolSpec) -> ToolDefinition:
     mutating = tool.name not in _READ_ONLY
     capabilities = ["tool.read" if not mutating else "tool.mutate"]
     state_effects: tuple[str, ...] = ()
@@ -708,10 +855,10 @@ def _definition(tool: OpenHarnessTool) -> ToolDefinition:
     if tool.name in _SPAWN_TOOLS:
         capabilities.append("process.spawn")
     return ToolDefinition(
-        internal_id=f"openharness.{tool.name}.v1",
+        internal_id=f"homemaster.{tool.name}.v1",
         model_alias=tool.name,
         description=tool.description,
-        input_schema=tool.input_model.model_json_schema(),
+        input_schema=tool.input_schema,
         output_schema={"type": "object"},
         verification_policy=VerificationPolicy(
             execution_proof=(
@@ -723,8 +870,8 @@ def _definition(tool: OpenHarnessTool) -> ToolDefinition:
             )
         ),
         provenance=ToolProvenance(
-            source="openharness",
-            reference=f"{_UPSTREAM_REFERENCE}/{tool.name}_tool.py",
+            source="homemaster",
+            reference=f"{_IMPLEMENTATION_REFERENCE}:{tool.name}",
         ),
         version="2.0.0",
         concurrency_policy=ConcurrencyPolicy.SERIALIZED if mutating else ConcurrencyPolicy.PARALLEL,

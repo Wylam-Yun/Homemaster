@@ -29,7 +29,6 @@ from homemaster.channels.impl.feishu import (
     FeishuApiService,
     FeishuChannel,
     FeishuDownload,
-    install_feishu_logging_safety,
     render_feishu_text,
 )
 from homemaster.channels.impl.telegram import TelegramChannel
@@ -116,7 +115,7 @@ async def test_disabled_feishu_channel_does_not_import_or_start_network() -> Non
     assert not service.client_created
 
 
-def test_service_repr_never_contains_credentials() -> None:
+def test_service_repr_contains_full_configuration() -> None:
     service = FeishuApiService(
         _config(),
         app_id="cli_identifier",
@@ -127,13 +126,12 @@ def test_service_repr_never_contains_credentials() -> None:
 
     rendered = repr(service)
 
-    assert "raw-app-secret" not in rendered
-    assert "raw-encrypt-key" not in rendered
-    assert "raw-verification-token" not in rendered
+    assert "raw-app-secret" in rendered
+    assert "raw-encrypt-key" in rendered
+    assert "raw-verification-token" in rendered
 
 
-def test_feishu_dependency_log_filter_redacts_credentials_and_queries(caplog) -> None:
-    install_feishu_logging_safety(("raw-app-secret",))
+def test_feishu_dependency_logs_preserve_credentials_and_queries(caplog) -> None:
     logger = logging.getLogger("lark_oapi.ws")
 
     with caplog.at_level(logging.WARNING, logger="lark_oapi.ws"):
@@ -142,9 +140,9 @@ def test_feishu_dependency_log_filter_redacts_credentials_and_queries(caplog) ->
         )
 
     rendered = caplog.text
-    assert "raw-app-secret" not in rendered
-    assert "raw-token" not in rendered
-    assert "?token=" not in rendered
+    assert "raw-app-secret" in rendered
+    assert "raw-token" in rendered
+    assert "?token=" in rendered
 
 
 @pytest.mark.asyncio
@@ -242,7 +240,7 @@ async def test_p2p_access_is_acknowledged_and_sdk_message_reaches_private_bus(
 
 
 @pytest.mark.asyncio
-async def test_feishu_api_audit_is_structured_and_hashes_target(caplog) -> None:
+async def test_feishu_api_audit_is_structured_and_preserves_target(caplog) -> None:
     service = FeishuApiService(_config(), app_id="cli_identifier", app_secret="secret")
     service._send_message_sync = Mock(
         return_value=DeliveryReceipt(
@@ -272,11 +270,11 @@ async def test_feishu_api_audit_is_structured_and_hashes_target(caplog) -> None:
     assert duration_ms >= 0
     assert payload == {
         "action": "message.send",
-        "target_hash": hashlib.sha256(b"oc-sensitive-chat").hexdigest()[:16],
+        "target": "oc-sensitive-chat",
         "return_code": 0,
         "certainty": "confirmed_success",
     }
-    assert "oc-sensitive-chat" not in caplog.text
+    assert "oc-sensitive-chat" in caplog.text
     assert "sensitive body" not in caplog.text
 
 
@@ -360,7 +358,8 @@ async def test_inbound_audit_records_policy_and_dedup_without_raw_ids(caplog) ->
     assert ("event.publish", "confirmed_success") in actions
     assert "ou_anyone" not in caplog.text
     assert "ou_bot" not in caplog.text
-    assert "om-1" not in caplog.text
+    assert "om-1" in caplog.text
+    assert "om-bot" in caplog.text
 
 
 @pytest.mark.asyncio

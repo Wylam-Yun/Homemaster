@@ -24,7 +24,8 @@ from homemaster.extensions.contracts import (
     HookSpec,
     LoadedExtension,
 )
-from homemaster.tools.catalog import ToolCatalog, ToolCatalogError
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import ExecutionBackend, RegisteredTool
 
 _FACTORY_NAME = "build_extension"
@@ -78,7 +79,7 @@ def load_extension_generation(
     *,
     generation: int = 1,
 ) -> ExtensionGeneration:
-    """Build a complete immutable candidate without mutating a ToolCatalog."""
+    """Build a complete immutable candidate before Registry composition."""
 
     if generation < 0:
         raise ValueError("extension generation must be non-negative")
@@ -192,27 +193,19 @@ async def load_extension_generation_async(
 
 
 def register_extension_tools_atomically(
-    catalog: ToolCatalog,
+    registry: ToolRegistry,
     generation: ExtensionGeneration,
 ) -> tuple[str, ...]:
-    """Register a fully validated generation after checking every collision."""
+    """Atomically register the load-time-approved extension exports."""
 
-    existing = catalog.list_tools()
-    existing_ids = {tool.definition.internal_id for tool in existing}
-    existing_aliases = {tool.definition.model_alias for tool in existing}
-    staged_ids: set[str] = set()
-    staged_aliases: set[str] = set()
-    for tool in generation.tools:
-        definition = tool.definition
-        if definition.internal_id in existing_ids or definition.internal_id in staged_ids:
-            raise ToolCatalogError(f"extension internal id conflict: {definition.internal_id}")
-        if definition.model_alias in existing_aliases or definition.model_alias in staged_aliases:
-            raise ToolCatalogError(f"extension model alias conflict: {definition.model_alias}")
-        staged_ids.add(definition.internal_id)
-        staged_aliases.add(definition.model_alias)
-    for tool in generation.tools:
-        catalog.register(tool)
-    return generation.enabled_tool_ids
+    enabled_ids = set(generation.enabled_tool_ids)
+    approved = [
+        from_registered_tool(tool)
+        for tool in generation.tools
+        if tool.definition.internal_id in enabled_ids
+    ]
+    registry.register_many(approved)
+    return tuple(tool.name for tool in approved)
 
 
 def _load_one(approval: ExtensionApproval) -> LoadedExtension:
@@ -452,7 +445,7 @@ async def _dispose_contributions_async(
             raise
         except Exception as exc:
             diagnostics.append(
-                _DIAGNOSTIC_SANITIZER.sanitize_content(
+                _DIAGNOSTIC_SANITIZER.project_content(
                     f"{extension_id}: cleanup {type(exc).__name__}: {exc}"
                 )[:4000]
             )
@@ -460,7 +453,7 @@ async def _dispose_contributions_async(
 
 
 def _load_diagnostic(extension_id: str, exc: BaseException) -> str:
-    return _DIAGNOSTIC_SANITIZER.sanitize_content(f"{extension_id}: {type(exc).__name__}: {exc}")[
+    return _DIAGNOSTIC_SANITIZER.project_content(f"{extension_id}: {type(exc).__name__}: {exc}")[
         :4000
     ]
 

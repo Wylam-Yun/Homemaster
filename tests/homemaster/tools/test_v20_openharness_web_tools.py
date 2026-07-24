@@ -12,11 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.adapters.profiles import build_home_profile
-from homemaster.agent.messages import ToolCall
-from homemaster.permissions import HomePermissionPolicy, PermissionMode, PermissionSettingsConfig
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools.contracts import ToolExecutionStatus
+from tests.homemaster.tools.universal_harness import execute, registry
 
 _BODY = b"first line\nsecond line\n"
 
@@ -80,44 +77,18 @@ def _http_server() -> Iterator[str]:
         server.server_close()
 
 
-def _context(profile, root: Path, *, tool_id: str, call_id: str) -> ToolExecutionContext:
-    return ToolExecutionContext(
-        session_id="web-session",
-        run_id="web-run",
-        turn_index=0,
-        tool_call_id=call_id,
-        internal_tool_id=tool_id,
-        tool_view=profile.view,
-        permission_subject=PermissionSubject(
-            subject_id="operator",
-            channel="cli",
-            capabilities=("tool.read", "tool.mutate", "tool.auto", "network.http"),
-        ),
-        backend=None,
-        deadline=None,
-        cancellation=None,
-        domain_observer=None,
-        working_directory=root,
-    )
-
-
 async def _execute(profile, root: Path, name: str, arguments: dict[str, object]):
-    tool = profile.view.lookup(name).tool
-    assert tool is not None
-    pipeline = ToolExecutionPipeline(
-        profile.catalog,
-        permission_policy=HomePermissionPolicy(
-            PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO)
-        ),
-    )
-    return await pipeline.execute(
-        ToolCall(id=f"call-{name}", name=name, arguments=arguments),
-        _context(profile, root, tool_id=tool.definition.internal_id, call_id=f"call-{name}"),
+    return await execute(
+        profile,
+        root,
+        name,
+        arguments,
+        capabilities=("tool.read", "tool.mutate", "tool.auto", "network.http"),
     )
 
 
-def test_home_profile_registers_openharness_web_tools() -> None:
-    names = set(build_home_profile().model_tool_names)
+def test_universal_registry_registers_web_tools() -> None:
+    names = set(registry().all_names())
 
     assert {"web_fetch", "web_search"} <= names
 
@@ -126,7 +97,7 @@ def test_home_profile_registers_openharness_web_tools() -> None:
 async def test_web_fetch_follows_redirect_and_records_independent_identity_bytes(
     tmp_path: Path,
 ) -> None:
-    profile = build_home_profile()
+    profile = registry()
     with _http_server() as server:
         result = await _execute(profile, tmp_path, "web_fetch", {"url": f"{server}/redirect"})
 
@@ -153,7 +124,7 @@ async def test_web_fetch_follows_redirect_and_records_independent_identity_bytes
 
 @pytest.mark.asyncio
 async def test_web_fetch_rejects_encoded_and_oversized_responses(tmp_path: Path) -> None:
-    profile = build_home_profile()
+    profile = registry()
     with _http_server() as server:
         encoded = await _execute(profile, tmp_path, "web_fetch", {"url": f"{server}/encoded"})
         too_large = await _execute(
@@ -175,7 +146,7 @@ async def test_web_fetch_rejects_encoded_and_oversized_responses(tmp_path: Path)
 
 @pytest.mark.asyncio
 async def test_web_fetch_rejects_embedded_credentials_before_network_io(tmp_path: Path) -> None:
-    profile = build_home_profile()
+    profile = registry()
 
     result = await _execute(
         profile,
@@ -192,7 +163,7 @@ async def test_web_fetch_rejects_embedded_credentials_before_network_io(tmp_path
 
 @pytest.mark.asyncio
 async def test_web_search_parses_real_http_response(tmp_path: Path) -> None:
-    profile = build_home_profile()
+    profile = registry()
     with _http_server() as server:
         result = await _execute(
             profile,

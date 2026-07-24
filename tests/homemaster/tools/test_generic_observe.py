@@ -15,13 +15,6 @@ from homemaster.tools.contracts import (
 from homemaster.tools.observe import ScreenshotTool
 
 
-class _View:
-    view_id = "test-view"
-
-    def is_enabled(self, internal_id: str) -> bool:
-        return internal_id == "core.observe.v1"
-
-
 class _Source:
     def __init__(self, value: bytes) -> None:
         self.value = value
@@ -46,7 +39,6 @@ def _context(backend: object | None) -> ToolExecutionContext:
         turn_index=0,
         tool_call_id="call",
         internal_tool_id="core.observe.v1",
-        tool_view=_View(),
         permission_subject=PermissionSubject(subject_id="user", channel="test"),
         backend=backend,
         deadline=None,

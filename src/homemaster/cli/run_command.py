@@ -18,7 +18,7 @@ from homemaster.cli.renderers import (
     result_exit_code,
     run_result_envelope,
 )
-from homemaster.config import configured_sensitive_values, load_config
+from homemaster.config import load_config
 from homemaster.events.logger import setup_logging
 from homemaster.events.public_projection import PublicEventProjection
 from homemaster.skills.commands import resolve_skill_command
@@ -34,7 +34,6 @@ class OneShotExecution:
     trace_path: Path
     run_dir: Path
     live_rendered: bool = False
-    sensitive_values: tuple[str, ...] = ()
 
 
 def execute_one_shot(
@@ -61,17 +60,16 @@ def execute_one_shot(
         {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
     )
     config = load_config(config_path=config_path, cli_overrides=overrides)
-    sensitive_values = configured_sensitive_values(config) if hasattr(config, "providers") else ()
     live_sink = None
     if output_format is OutputFormat.TEXT:
         import sys
 
-        live_sink = TextStreamEventSink(file=sys.stdout, sensitive_values=sensitive_values)
+        live_sink = TextStreamEventSink(file=sys.stdout)
     elif output_format is OutputFormat.STREAM_JSON:
         import sys
 
-        live_sink = StreamJsonEventSink(file=sys.stdout, sensitive_values=sensitive_values)
-    projection = PublicEventProjection(sensitive_values=sensitive_values)
+        live_sink = StreamJsonEventSink(file=sys.stdout)
+    projection = PublicEventProjection()
     try:
         bundle = create_home_application(
             config=config,
@@ -84,7 +82,7 @@ def execute_one_shot(
             event_sink=live_sink,
         )
     except Exception as exc:
-        raise _PublicCliError(projection.sanitize_content(str(exc))) from exc
+        raise _PublicCliError(projection.project_content(str(exc))) from exc
 
     async def execute() -> RunResult:
         try:
@@ -122,17 +120,16 @@ def execute_one_shot(
     try:
         result = asyncio.run(execute())
     except Exception as exc:
-        raise _PublicCliError(projection.sanitize_content(str(exc))) from exc
+        raise _PublicCliError(projection.project_content(str(exc))) from exc
     if isinstance(live_sink, TextStreamEventSink):
         live_sink.finish(result.final_reply)
     elif isinstance(live_sink, StreamJsonEventSink):
-        live_sink.write_envelope(run_result_envelope(result, sensitive_values=sensitive_values))
+        live_sink.write_envelope(run_result_envelope(result))
     return OneShotExecution(
         result=result,
         trace_path=bundle.trace_path,
         run_dir=bundle.run_dir,
         live_rendered=live_sink is not None or getattr(bundle, "live_rendered", False),
-        sensitive_values=sensitive_values,
     )
 
 
@@ -202,7 +199,7 @@ def handle_print(
         )
     except Exception as exc:
         if output_format is OutputFormat.STREAM_JSON:
-            message = PublicEventProjection().sanitize_content(str(exc))
+            message = PublicEventProjection().project_content(str(exc))
             typer.echo(
                 json.dumps(
                     {"type": "error", "message": message, "recoverable": False},
@@ -214,11 +211,7 @@ def handle_print(
         raise
     if not execution.live_rendered:
         typer.echo(
-            render_run_result(
-                execution.result,
-                output_format,
-                sensitive_values=execution.sensitive_values,
-            )
+            render_run_result(execution.result, output_format)
         )
     code = result_exit_code(execution.result)
     if code:

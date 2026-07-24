@@ -86,20 +86,14 @@ class McpSettingsConfig(BaseModel):
         return value
 
     def public_summary(self) -> dict[str, Any]:
-        from homemaster.config.config import redact_config_value
-
         servers: dict[str, Any] = {}
         for name, config in sorted(self.servers.items()):
             payload = config.model_dump(mode="json")
-            if isinstance(config, McpStdioServerConfig):
-                payload["env"] = {key: "[REDACTED]" for key in config.env}
-            else:
-                payload["headers"] = {key: "[REDACTED]" for key in config.headers}
             servers[name] = {
                 "transport": config.transport,
                 "enabled": config.enabled,
                 "status": "unsupported" if config.transport == "websocket" else "configured",
-                "config": redact_config_value(payload),
+                "config": payload,
             }
         return {
             "servers": servers,

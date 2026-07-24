@@ -19,11 +19,11 @@ Provider 只负责 yield delta；通用运行时负责在 provider 完成前发�
 元数据、密钥、主机路径和资源 URI 均不进入七事件 UI 协议。
 
 CLI、Interactive、ALFWorld 和 Coworker 通过同一个 `ApplicationRuntime` 执行。application 持有
-Catalog、无 session 状态的执行链、EventBus、SessionManager、config/plan/Cron/task/team/child 服务、
-device connection pool、physical-device lease manager 和可选 MCP manager；每个 run
-冻结自己的 ToolView、provider request、generation 和 borrowed environment binding。
+ordinary-name `ToolRegistry`、无 session 状态的 `ToolExecutor`、EventBus、SessionManager、
+config/plan/Cron/task/team/child 服务、device connection pool、physical-device lease manager 和可选
+MCP manager；每个 run 冻结 provider request、generation 和 borrowed environment binding，不冻结工具子集。
 
-`core.observe.v1` 是普通的 canonical tool。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
+`observe` 是普通的 canonical tool，隐藏 stable id 为 `homemaster.observe.v1`。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
 以 `ResultProjection.IMAGE_ONLY` 交给 provider；模型消息恰好只有一个 image block。截图不进入 action
 执行链的授权、freshness、completion 或 provider-binding 状态，因此不会影响 Coworker DOM 或 ALFWorld
 动作是否可执行。
@@ -52,7 +52,7 @@ typed defaults
 Bearer credential (remote only)
   -> configured AuthenticatedPrincipal(tenant, principal, roles, capabilities)
   -> immutable RunRequest.permission_subject
-  -> ToolExecutionPipeline permission policy
+  -> ToolExecutor ordinary-name lookup + PermissionChecker
   -> application connection pool binds borrowed backend to authoritative tenant
   -> physical-device FIFO lease (tenant/device/backend + normalized backend domain)
   -> locked generation/state recheck immediately before backend
@@ -92,8 +92,8 @@ OpenHarness bundled < Home builtin < user root < git-bounded project roots < exp
 ```
 
 Skill 是 OpenHarness-compatible instruction document，不拥有 executor、permission 或 robot capability；
-`tool_names` 即使存在也只是未解释扩展元数据。一个 Skill 不能把 ToolView 中 disabled 的工具变为
-enabled。自动来源只扫描 HomeMaster 自己的 user/project 目录；外部 agent 目录需显式迁入或配置。
+`tool_names` 即使存在也只是未解释扩展元数据。一个 Skill 不能修改 Registry 或授予能力。
+自动来源只扫描 HomeMaster 自己的 user/project 目录；外部 agent 目录需显式迁入或配置。
 自动来源的单项失败记录为 secret-safe issue，显式来源 fail-closed，所有替换保留 provenance chain。
 Plugin 来源是 data-only adapter：只解析 `plugin.json`/`.claude-plugin/plugin.json` 与受 containment
 保护的 `skills_dir`，不调用 executable extension loader、不导入 Python、不注册 tools/hooks/MCP。
@@ -101,28 +101,30 @@ Plugin 来源是 data-only adapter：只解析 `plugin.json`/`.claude-plugin/plu
 
 Home one-shot、Interactive 与 Gateway 在 composition root 创建同一 registry handle。标准 `skill` 与
 兼容 `skill_view` 每次读取前刷新，因此新写入的 Skill 在同一进程立即可见；slash resolver 复用同一
-索引并把已配置的 Skill model 写入 run 级 override。MCP 只改变 MCP ToolView，不重载或验证 Skills。
+索引并把已配置的 Skill model 写入 run 级 override。MCP 只向 application Registry 原子追加工具，
+不重载或验证 Skills。
 八份 bundled Markdown 使用 package data 进入安装 wheel，不能依赖源码 checkout 路径。
-隔离 wheel 门会安装核心依赖并在源码 checkout 外构造 Home profile、逐项核对 39 个默认工具。Pillow
+隔离 wheel 门会安装核心依赖并在源码 checkout 外构造 universal Registry、逐项核对 ordinary-name 工具。Pillow
 属于默认 `observe` 的核心依赖；MCP-only adapter 使用 manager 分支内 lazy import，未安装 `mcp` extra
-时不得阻断默认 profile 构造。
+时不得阻断 Registry 构造。
 
-## OpenHarness Tool 与 Service Flow
+## Universal Tool 与 Service Flow
 
 ```text
-39 default Home tools + optional MCP dynamic tools + Home domain tools
-  -> frozen per-run ToolView
-  -> canonical Home Permission / immutable working_directory
+Home + ALFWorld + Coworker tools + optional MCP dynamic tools
+  -> one application ToolRegistry keyed by ordinary name
+  -> PermissionChecker / immutable working_directory
   -> application-owned config/plan/Cron/task/team/child/MCP service
   -> executor and external return-code check
   -> verifier inside the same per-resource lease
   -> typed result / JSONL audit / session snapshot
 ```
 
-39 项 OpenHarness 默认工具只进入 Home profile。文件路径由 composition 时锁定的 working directory
+所有入口看到相同 Registry；环境只提供 Backend，缺失能力返回明确错误。文件路径由 composition 时锁定的 working directory
 统一解析；写入的 lease 覆盖 executor 和独立 readback verifier。默认 child worker argv 显式包含父应用
 config path，避免子进程退回仓库默认 provider。Cron scheduler 由 `homemaster cron start/status/stop`
-管理；task/team/plan/config 均使用 application-owned store，不依赖 process-global OpenHarness 状态。
+管理；task/team/plan/config 均使用 application-owned store。后台 shell/agent 任务在独立进程组中运行，
+stop、close 和超时必须终止整个进程组并等待真实子进程退出。
 管理面除 `tool.mutate` 外按职责独立要求 `process.spawn`、`scheduler.manage`、`config.mutate` 或
 `mcp.manage`。`config(action="show")` 使用 public structured projection，递归遮盖 secret-shaped 字段、
 URL userinfo 和所有已配置敏感字面值后，才允许进入模型消息或 JSONL trace。
@@ -132,8 +134,8 @@ URL userinfo 和所有已配置敏感字面值后，才允许进入模型消息�
 ChannelBridge 结束当前 run 且不发送重复 terminal。下一条 inbound 自动设置 `resume=True`，恢复同一
 session 后把用户答案追加到完整历史。停止判据解析实际序列化 envelope，而不是 executor 的中间 dict。
 
-ALFWorld 没有公开 `skill_view`，Coworker 继续使用固定的两份 benchmark skill 和严格十一项
-ToolView；CL-17 不改变这两个 release profile 的 manifest 或 scorer 输入。
+ALFWorld 和 Coworker 不再创建环境 ToolView，也不缩窄模型可见工具；它们只绑定各自 Backend。
+固定 benchmark skill、manifest 与 scorer 输入仍由 benchmark owner 管理，不参与运行时工具授权。
 
 ## MCP Lifecycle And Data Flow
 
@@ -142,17 +144,15 @@ sync build (no provider/MCP connection)
   -> first ApplicationRuntime.start() on owner event loop
   -> connect each configured stdio/streamable-HTTP server independently
   -> preserve full discovered JSON Schema + server provenance
-  -> preflight all internal-id/model-alias conflicts
-  -> atomically register into canonical Catalog
-  -> refreeze Home profile with builtin + connected MCP ids
-  -> revalidate SkillRegistry against final aliases
-  -> every run freezes its own requested subset
+  -> preflight all ordinary-name conflicts
+  -> atomically register into the application ToolRegistry
+  -> every run uses the same Registry handle
   -> application close: artifact/store -> MCP manager -> event resources
 ```
 
 `start()` 使用 application-owned lock 幂等化，并发首个 run 不会重复创建 MCP subprocess/session。
-单个 server 初始化失败只更新该 server typed status；Catalog 仍保留 builtin 与其他成功 server。
-注册失败会在 run/provider 创建前关闭整个 application scope，且预检保证 Catalog 不出现部分注册。
+单个 server 初始化失败只更新该 server typed status；Registry 仍保留 builtin 与其他成功 server。
+注册失败会在 run/provider 创建前关闭整个 application scope，且原子注册保证 Registry 不出现部分写入。
 断线会移除 active connection、清空其 discovery 状态并 fence 后续调用；timeout 与 caller cancellation
 保留不同语义。
 
@@ -195,7 +195,7 @@ Feishu SDK WebSocket subprocess
 ```
 
 Gateway assembly 接收 composition root 已创建的同一个 `ApplicationRuntime`；不创建 per-session
-QueryEngine、provider client、ToolView 或 backend。CLI、benchmark 与 Gateway 因此共享 Catalog、
+QueryEngine、provider client、工具视图或 backend。CLI、benchmark 与 Gateway 因此共享 Registry、
 permission boundary、SessionManager 和 application-owned resources。session key 只由 typed identity 的
 canonical JSON 哈希产生；group/thread 路由始终包含 sender，不能用 metadata 中的 tenant、sender 或
 `session_key_override` 覆盖。
@@ -215,7 +215,7 @@ owner boundary：任意非 bot sender 都得到同一个固定 principal/capabil
 Gateway restart 通过 application `SessionBackend` 恢复纯数据 snapshot，删除没有配对结果的
 assistant tool-call tail 与 orphan tool result；下一次 application turn 增加 generation。取消会先请求
 application cancellation、join worker，再增加 Gateway generation；旧 worker 即使吞掉 cancellation，
-其 final 也因 generation 不匹配被拒绝。live backend、ToolView 和 provider client 从不进入 snapshot。
+其 final 也因 generation 不匹配被拒绝。live backend、Registry 和 provider client 从不进入 snapshot。
 
 `RuntimeEvent` 在任何投影前先进入 application ledger。Gateway generation 在 ChannelBridge 创建
 RunRequest 时确定，并由 run event sink 写入每个 RuntimeEvent；public backlog 消费时只接受事件自带且
@@ -257,7 +257,7 @@ deployment extensions.approvals
   -> declared flat dependencies imported only from verified bytes
   -> synchronous factory(context) -> validated hooks/tools
   -> requested ∩ deployment grants ∩ run principal capabilities
-  -> atomic Catalog registration before final Home ToolView
+  -> approved contributions adapted and atomically registered by ordinary name
   -> application_start / run_start / run_end / application_stop hooks
   -> generation-fenced, redacted JSONL lifecycle events
 ```
@@ -265,12 +265,12 @@ deployment extensions.approvals
 The CL-21 MVP is an explicitly approved trusted local Python tier, not an OS sandbox for hostile code.
 Only async callbacks are accepted. A callback runs in a separately tracked task; deadline expiry fences its
 result immediately, while cancellation-resistant code remains active and blocks reload/cleanup. This still
-cannot revoke arbitrary side effects. `RunRequest.enabled_tool_ids=None` inherits the selected profile; an
-explicit empty tuple disables every tool, and validation happens before run hooks. Reload fixes extension
+cannot revoke arbitrary side effects. `RunRequest` has no tool-filter field; deployment approval determines which
+extension contributions enter the Registry, and validation happens before run hooks. Reload fixes extension
 id/version/requested/granted capabilities and the complete tool plane; only hook bytes may change without an
 application restart. Async reload awaits failed/partial candidate cleanup before returning; sync composition
 retains rollback ownership from factory success until ApplicationRuntime construction completes. Failed/partial
-candidates release cleanup ownership and never partially mutate Catalog or
+candidates release cleanup ownership and never partially mutate the Registry or
 the current generation. Close seals reload, quiesces active callbacks, runs `APPLICATION_STOP`, then extension
 cleanup before ordinary application resources; diagnostics are recorded without exposing raw free text.
 Real source paths are not exposed through module `__file__`, but this trusted-code tier does not prevent code that

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict, deque
 from collections.abc import Callable
 from typing import Any
@@ -141,21 +142,15 @@ class RichOutputRenderer:
         tool_input = queue.popleft() if queue else {}
         if queue is not None and not queue:
             self._tool_inputs.pop(event.tool_name, None)
-        summary = _summarize_tool_input(tool_input)
-        title = event.tool_name
+        del tool_input
         if event.is_error:
-            title += " error"
-        if summary:
-            title += f" ({summary})"
-        output = _truncate_output(event.output)
-        self.console.print(
-            Panel(
-                output,
-                title=title,
-                border_style="red" if event.is_error else "green",
-                padding=(0, 1),
-            )
-        )
+            marker = "x" if self._ascii_only else "✗"
+            detail = _failure_detail(event)
+            suffix = f": {detail}" if detail else ""
+            self.console.print(f"{marker} 执行失败{suffix}")
+        else:
+            marker = "+" if self._ascii_only else "✓"
+            self.console.print(f"{marker} 执行成功")
         if self._tool_inputs:
             self._state = "running-tools"
             self._start_spinner("Running tools...")
@@ -193,19 +188,19 @@ class RichOutputRenderer:
 def _summarize_tool_input(tool_input: dict[str, Any] | None) -> str:
     if not tool_input:
         return ""
-    key, value = next(iter(tool_input.items()))
-    return f"{key}={str(value)[:80]}"
+    if len(tool_input) == 1:
+        key, value = next(iter(tool_input.items()))
+        return f"{key}={value}"
+    return json.dumps(tool_input, ensure_ascii=False, separators=(",", ":"), default=str)
 
 
-def _truncate_output(output: str, *, max_chars: int = 2000, max_lines: int = 15) -> str:
-    lines = output.splitlines()
-    if len(lines) > max_lines:
-        output = (
-            "\n".join(lines[: max_lines - 3]) + f"\n... ({len(lines) - max_lines + 3} more lines)"
-        )
-    if len(output) > max_chars:
-        return output[:max_chars] + "..."
-    return output
+def _failure_detail(event: ToolExecutionCompleted) -> str:
+    metadata = event.metadata or {}
+    return_code = metadata.get("returncode", metadata.get("return_code"))
+    parts = [f"returncode={return_code}"] if return_code is not None else []
+    if event.output:
+        parts.append(event.output)
+    return " ".join(parts)
 
 
 def _compact_label(event: CompactProgressEvent) -> str:

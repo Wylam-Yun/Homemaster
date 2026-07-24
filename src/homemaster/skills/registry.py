@@ -1,4 +1,4 @@
-"""OpenHarness-compatible Skill registry with HomeMaster source diagnostics."""
+"""HomeMaster Skill registry with source diagnostics."""
 
 from __future__ import annotations
 
@@ -28,11 +28,7 @@ class SkillLoadIssue:
 
 
 class SkillRegistry:
-    """Store Skills under all OpenHarness lookup names.
-
-    The definition follows OpenHarness exactly. Provenance, diagnostics, and
-    replacement authorization stay in this HomeMaster-only adapter.
-    """
+    """Store HomeMaster Skills under every declared lookup name."""
 
     def __init__(self) -> None:
         self._skills: dict[str, SkillDefinition] = {}

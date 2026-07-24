@@ -5,7 +5,7 @@ Responsibility boundary:
   Dispatcher:   validates + invokes executor; does not mutate AgentState
   ToolRegistry: stores ToolSpec by name; returns selectable manifests
   ToolResult:   typed execution outcome; no state_patch
-  EventSink:    append-only redacted events
+  EventSink:    append-only exact events
 """
 
 from __future__ import annotations

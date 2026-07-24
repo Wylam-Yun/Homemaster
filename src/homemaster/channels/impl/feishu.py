@@ -35,14 +35,12 @@ from homemaster.channels.contracts import (
 )
 from homemaster.channels.impl.base import BaseChannel
 from homemaster.config.config import FeishuChannelConfig
-from homemaster.events.public_projection import PublicEventProjection
 from homemaster.gateway.auth import AuthenticatedPrincipal
 
 _DOMAIN_URLS = {
     "feishu": "https://open.feishu.cn",
     "lark": "https://open.larksuite.com",
 }
-_FEISHU_LOGGERS = ("lark_oapi", "websockets", "urllib3")
 _FEISHU_AUDIT_LOGGER = logging.getLogger("homemaster.feishu.audit")
 _TRUSTED_OWNER_CAPABILITIES = (
     "tool.read",
@@ -62,11 +60,6 @@ _TRUSTED_OWNER_CAPABILITIES = (
     "channel.feishu.group.create",
     "channel.feishu.group.rename",
 )
-_feishu_sensitive_values: tuple[str, ...] = ()
-_original_log_record_factory = logging.getLogRecordFactory()
-_log_record_factory_installed = False
-
-
 def _emit_feishu_audit(
     action: str,
     target: str,
@@ -76,48 +69,12 @@ def _emit_feishu_audit(
 ) -> None:
     payload = {
         "action": action,
-        "target_hash": hashlib.sha256(target.encode("utf-8")).hexdigest()[:16],
+        "target": target,
         "duration_ms": round((time.monotonic() - started) * 1000, 3),
         "return_code": return_code,
         "certainty": certainty,
     }
     _FEISHU_AUDIT_LOGGER.info(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
-
-
-class _SanitizingLogFilter(logging.Filter):
-    def __init__(self, sensitive_values: tuple[str, ...]) -> None:
-        super().__init__()
-        self._projection = PublicEventProjection(sensitive_values=sensitive_values)
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = self._projection.sanitize_content(record.getMessage())
-        record.args = ()
-        return True
-
-
-def install_feishu_logging_safety(sensitive_values: tuple[str, ...]) -> None:
-    global _feishu_sensitive_values, _log_record_factory_installed
-    _feishu_sensitive_values = tuple(value for value in sensitive_values if value)
-    if not _log_record_factory_installed:
-
-        def sanitizing_record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
-            record = _original_log_record_factory(*args, **kwargs)
-            if record.name.startswith(_FEISHU_LOGGERS):
-                _SanitizingLogFilter(_feishu_sensitive_values).filter(record)
-            return record
-
-        logging.setLogRecordFactory(sanitizing_record_factory)
-        _log_record_factory_installed = True
-
-    for name in _FEISHU_LOGGERS:
-        logger = logging.getLogger(name)
-        logger.setLevel(logging.WARNING)
-        logger.filters[:] = [
-            existing
-            for existing in logger.filters
-            if not isinstance(existing, _SanitizingLogFilter)
-        ]
-        logger.addFilter(_SanitizingLogFilter(sensitive_values))
 
 
 def _build_feishu_event_handler(
@@ -172,7 +129,6 @@ def _feishu_ws_worker(
 ) -> None:
     started = time.monotonic()
     try:
-        install_feishu_logging_safety((app_secret, encrypt_key, verification_token))
         import lark_oapi as lark
 
         handler = _build_feishu_event_handler(
@@ -323,7 +279,10 @@ class FeishuApiService:
         return (
             f"FeishuApiService(domain={self.config.domain!r}, "
             f"credential_source={self.credential_source!r}, "
-            f"app_id_configured={bool(self.app_id)!r}, client_created={self.client_created!r})"
+            f"app_id={self.app_id!r}, app_secret={self._app_secret!r}, "
+            f"encrypt_key={self._encrypt_key!r}, "
+            f"verification_token={self._verification_token!r}, "
+            f"client_created={self.client_created!r})"
         )
 
     @property
@@ -349,9 +308,6 @@ class FeishuApiService:
             raise RuntimeError(
                 "Feishu app id and app secret must be configured in YAML or environment"
             )
-        install_feishu_logging_safety(
-            (self._app_secret, self._encrypt_key, self._verification_token)
-        )
         try:
             import lark_oapi as lark
         except ImportError as exc:
@@ -1277,6 +1233,5 @@ __all__ = [
     "FeishuChannel",
     "FeishuDownload",
     "FeishuRenderedMessage",
-    "install_feishu_logging_safety",
     "render_feishu_text",
 ]

@@ -5,7 +5,8 @@ import asyncio
 from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
 from homemaster.providers.transports.types import TransportDelta
-from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
     RegisteredTool,
     ToolDefinition,
@@ -32,8 +33,7 @@ class _Executor:
         return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
 
 
-def test_agent_runtime_uses_explicit_frozen_tool_view() -> None:
-    catalog = ToolCatalog()
+def test_agent_runtime_uses_explicit_universal_registry() -> None:
     tool = RegisteredTool(
         definition=ToolDefinition(
             internal_id="test.explicit.v1",
@@ -47,18 +47,18 @@ def test_agent_runtime_uses_explicit_frozen_tool_view() -> None:
         ),
         executor=_Executor(),
     )
-    catalog.register(tool)
-    view = catalog.freeze((tool.definition.internal_id,))
+    registry = ToolRegistry()
+    registry.register(from_registered_tool(tool))
     transport = _Transport()
     runtime = AgentRuntime(transport=transport, tool_executor=lambda *_args: {})
 
     result = asyncio.run(
         runtime.run(
-            AgentSession("tool-view"),
+            AgentSession("tool-registry"),
             "hello",
-            tool_view=view,
+            tool_registry=registry,
         )
     )
 
     assert result.final_reply == "done"
-    assert transport.tools == list(view.manifests())
+    assert transport.tools == registry.to_api_schema()

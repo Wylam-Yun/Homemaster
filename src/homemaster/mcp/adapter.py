@@ -1,4 +1,4 @@
-"""Canonical ToolCatalog adapters for discovered MCP tools and resources."""
+"""Universal Registry adapters for discovered MCP tools and resources."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from homemaster.artifacts.tool_output_store import ArtifactStoreError, ToolOutputStore
-from homemaster.config.config import redact_config_value
 from homemaster.mcp.client import McpCallError, McpClientError
 from homemaster.mcp.types import McpPayload, McpResourceInfo, McpToolInfo
-from homemaster.tools.catalog import ToolCatalog, ToolCatalogError
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
     ExecutionBackend,
     OutcomeCertainty,
@@ -160,19 +160,17 @@ def build_mcp_registered_tools(
 ) -> tuple[RegisteredTool, ...]:
     tools: list[RegisteredTool] = []
     for info in manager.list_tools():
-        server = _segment(info.server_name)
-        name = _segment(info.name)
         alias = _alias(info.server_name, info.name)
         definition = ToolDefinition(
-            internal_id=f"mcp.{server}.{name}.v1",
+            internal_id=f"homemaster.{alias}.v1",
             model_alias=alias,
             description=info.description or f"MCP tool {info.name}",
             input_schema=info.input_schema,
             output_schema=_OUTPUT_SCHEMA,
             verification_policy=VerificationPolicy(),
             provenance=ToolProvenance(
-                source="mcp",
-                reference=f"{info.server_name}:{info.name}",
+                source="homemaster",
+                reference=f"mcp:{info.server_name}:{info.name}",
             ),
             version="1.9.0",
             execution_backend=ExecutionBackend.MCP,
@@ -200,20 +198,20 @@ def _resource_tools(
 ) -> tuple[RegisteredTool, RegisteredTool]:
     by_id = {_resource_id(item): item for item in resources}
     if len(by_id) != len(resources):
-        raise ToolCatalogError("duplicate MCP resource identity")
+        raise ValueError("duplicate MCP resource identity")
     list_definition = ToolDefinition(
-        internal_id="mcp.list_resources.v1",
+        internal_id="homemaster.list_mcp_resources.v1",
         model_alias="list_mcp_resources",
         description="List MCP resources available from connected servers.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         output_schema=_OUTPUT_SCHEMA,
         verification_policy=VerificationPolicy(),
-        provenance=ToolProvenance(source="mcp", reference="connected-resources"),
+        provenance=ToolProvenance(source="homemaster", reference="mcp:connected-resources"),
         version="1.9.0",
         execution_backend=ExecutionBackend.MCP,
     )
     read_definition = ToolDefinition(
-        internal_id="mcp.read_resource.v1",
+        internal_id="homemaster.read_mcp_resource.v1",
         model_alias="read_mcp_resource",
         description="Read an MCP resource by its HomeMaster opaque resource id.",
         input_schema={
@@ -226,7 +224,7 @@ def _resource_tools(
         },
         output_schema=_OUTPUT_SCHEMA,
         verification_policy=VerificationPolicy(),
-        provenance=ToolProvenance(source="mcp", reference="connected-resources"),
+        provenance=ToolProvenance(source="homemaster", reference="mcp:connected-resources"),
         version="1.9.0",
         execution_backend=ExecutionBackend.MCP,
     )
@@ -243,24 +241,12 @@ def _resource_tools(
 
 
 def register_mcp_tools_atomically(
-    catalog: ToolCatalog,
+    registry: ToolRegistry,
     tools: Sequence[RegisteredTool],
 ) -> tuple[str, ...]:
-    existing_ids = {tool.definition.internal_id for tool in catalog.list_tools()}
-    existing_aliases = {tool.definition.model_alias for tool in catalog.list_tools()}
-    staged_ids: set[str] = set()
-    staged_aliases: set[str] = set()
-    for tool in tools:
-        definition = tool.definition
-        if definition.internal_id in existing_ids or definition.internal_id in staged_ids:
-            raise ToolCatalogError(f"MCP internal id conflict: {definition.internal_id}")
-        if definition.model_alias in existing_aliases or definition.model_alias in staged_aliases:
-            raise ToolCatalogError(f"MCP model alias conflict: {definition.model_alias}")
-        staged_ids.add(definition.internal_id)
-        staged_aliases.add(definition.model_alias)
-    for tool in tools:
-        catalog.register(tool)
-    return tuple(tool.definition.internal_id for tool in tools)
+    adapted = [from_registered_tool(tool) for tool in tools]
+    registry.register_many(adapted)
+    return tuple(tool.name for tool in adapted)
 
 
 def _persisted_result(
@@ -296,18 +282,13 @@ def _persisted_result(
     except ArtifactStoreError as exc:
         return _failure(exc, backend_attempted=True)
 
-    redacted = redact_config_value(payload.payload)
-    if hide_resource_uris:
-        redacted = _redact_resource_uris(redacted)
+    del secrets, hide_resource_uris
     preview = json.dumps(
-        redacted,
+        payload.payload,
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     )
-    for secret in secrets:
-        if secret:
-            preview = preview.replace(secret, "[REDACTED]")
     truncated = len(preview) > preview_chars
     data = {
         "preview": preview[:preview_chars],
@@ -335,23 +316,6 @@ def _persisted_result(
         data=data,
         backend_attempted=True,
     )
-
-
-def _redact_resource_uris(value: object) -> object:
-    if isinstance(value, Mapping):
-        return {
-            key: (
-                "[REDACTED]"
-                if isinstance(key, str) and key.casefold() == "uri"
-                else _redact_resource_uris(item)
-            )
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_resource_uris(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_redact_resource_uris(item) for item in value)
-    return value
 
 
 def _failure(exc: BaseException, *, backend_attempted: bool) -> ToolExecutionResult:

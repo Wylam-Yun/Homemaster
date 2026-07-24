@@ -9,7 +9,7 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_coworker_profile
+from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import AssistantMessage
 from homemaster.application import (
@@ -88,11 +88,11 @@ def build_coworker_transport_factory(
     return build
 
 
-def build_coworker_stream_projector(*, sensitive_values: tuple[str, ...] = ()):
+def build_coworker_stream_projector():
     """Adapt the Coworker trust-boundary projection to public stream DTOs."""
 
     def project(event):
-        safe = project_runtime_event(event, sensitive_values=sensitive_values)
+        safe = project_runtime_event(event)
         if safe is None:
             return None
         event_type = safe.get("runtime_event_type")
@@ -137,13 +137,8 @@ class CoworkerApplicationEntry:
         event_sink: Any,
         sync_backend_adapter: Any,
     ) -> None:
-        profile = build_coworker_profile()
-        sensitive_values = tuple(getattr(event_sink, "sensitive_values", ()))
-        bus = EventBus(
-            public_projector=build_coworker_stream_projector(
-                sensitive_values=sensitive_values,
-            )
-        )
+        registry = build_universal_tool_registry()
+        bus = EventBus(public_projector=build_coworker_stream_projector())
         scope = RunResourceScope()
         if not callable(getattr(sync_backend_adapter, "submit", None)):
             raise TypeError("Coworker entry requires a thread-owned sync backend adapter")
@@ -181,8 +176,7 @@ class CoworkerApplicationEntry:
 
         self.application = create_application(
             config=config,
-            profiles={"coworker": profile},
-            catalog=profile.catalog,
+            registry=registry,
             event_bus=bus,
             session_manager=SessionManager(session_root=run_root / "agent/session"),
             provider_factory=provider_factory,

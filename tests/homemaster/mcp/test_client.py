@@ -38,7 +38,7 @@ class FakeSession:
 
 
 @pytest.mark.asyncio
-async def test_partial_connect_and_close_failures_are_isolated_and_redacted() -> None:
+async def test_partial_connect_and_close_failures_are_isolated_and_raw() -> None:
     closed: list[str] = []
 
     async def connector(name, config):
@@ -64,12 +64,12 @@ async def test_partial_connect_and_close_failures_are_isolated_and_redacted() ->
     statuses = {status.name: status for status in manager.list_statuses()}
     assert statuses["good"].state == "connected"
     assert statuses["bad"].state == "failed"
-    assert "secret-bad" not in statuses["bad"].detail
+    assert "secret-bad" in statuses["bad"].detail
 
     with pytest.raises(McpCleanupError) as error:
         await manager.aclose()
     assert closed == ["close-bad", "good"]
-    assert "secret-close-bad" not in str(error.value)
+    assert "secret-close-bad" in str(error.value)
 
 
 @pytest.mark.asyncio
@@ -128,13 +128,14 @@ async def test_manager_lists_calls_and_reads_connected_session() -> None:
     resource = await manager.read_resource("fixture", "fixture://readme?token=resource-secret")
     assert called.payload["content"][0]["text"] == "echo:ok"
     assert resource.payload["contents"][0]["text"] == "resource-body"
-    assert "fixture://readme" not in str(audit_events)
-    assert "resource-secret" not in str(audit_events)
+    assert "fixture://readme?token=resource-secret" in str(audit_events)
     resource_events = [
         event for event in audit_events if str(event["type"]).startswith("mcp.resource")
     ]
     assert resource_events
-    assert all(str(event["resource_ref"]).startswith("sha256:") for event in resource_events)
+    assert all(
+        event["uri"] == "fixture://readme?token=resource-secret" for event in resource_events
+    )
 
     await manager.aclose()
 
@@ -253,7 +254,7 @@ async def test_transport_disconnect_fences_future_calls_and_closes_once() -> Non
 
     with pytest.raises(McpCallError) as error:
         await manager.call_tool("fixture", "disconnect", {})
-    assert "server-secret" not in str(error.value)
+    assert "server-secret" in str(error.value)
     status = manager.list_statuses()[0]
     assert status.state == "failed"
     assert status.error_code == "disconnected"

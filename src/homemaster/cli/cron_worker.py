@@ -12,7 +12,7 @@ from pathlib import Path
 
 from croniter import croniter
 
-from homemaster.tools.openharness_runtime import HomeCronStore
+from homemaster.tools.runtime_services import HomeCronStore
 
 
 async def run_scheduler(state_root: Path, *, poll_interval: float = 0.25) -> int:

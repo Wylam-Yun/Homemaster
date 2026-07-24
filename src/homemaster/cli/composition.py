@@ -8,9 +8,11 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from homemaster.adapters.profiles import EnvironmentToolProfile, build_home_profile
+from homemaster.adapters.profiles import (
+    build_universal_tool_registry,
+)
 from homemaster.application import ApplicationRuntime, ResourceBinding, ResourceLifetime
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
@@ -18,27 +20,26 @@ from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feishu_group_tools
 from homemaster.cli.live_output import RichStreamEventSink
 from homemaster.cli.rich_renderer import RichOutputRenderer
-from homemaster.config import HomeMasterConfig, configured_sensitive_values, load_config
+from homemaster.config import HomeMasterConfig, load_config
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import (
     FanoutEventSink,
     JsonlTraceSink,
     MessagesLogSink,
 )
-from homemaster.extensions import (
-    ExtensionApproval,
-    ExtensionReloader,
-    HookRunner,
-    dispose_extension_generation,
-    load_extension_generation,
-    register_extension_tools_atomically,
-)
+from homemaster.extensions.contracts import ExtensionApproval
+from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
-from homemaster.tools.openharness_runtime import HomeOpenHarnessServices
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolRegistry
+from homemaster.tools.runtime_services import HomeToolServices
+
+if TYPE_CHECKING:
+    from homemaster.extensions.reloader import ExtensionReloader
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,7 @@ class HomeApplicationBundle:
     extension_runner: HookRunner | None = None
     extension_reloader: ExtensionReloader | None = None
     live_rendered: bool = False
-    tool_services: HomeOpenHarnessServices | None = None
+    tool_services: HomeToolServices | None = None
 
 
 class HomeCliBackend:
@@ -115,38 +116,31 @@ def create_home_application(
     resolved = config or load_config()
     label = run_label or f"cli-{uuid.uuid4().hex[:12]}"
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
-    profile = build_home_profile(
+    registry = build_universal_tool_registry(
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
     )
     if feishu_group_operations is not None:
         group_tools = build_feishu_group_tools(feishu_group_operations)
-        for tool in group_tools:
-            profile.catalog.register(tool)
-        profile = EnvironmentToolProfile(
-            environment="home",
-            catalog=profile.catalog,
-            view=profile.catalog.freeze(
-                (*profile.enabled_tool_ids, *(tool.definition.internal_id for tool in group_tools))
-            ),
-        )
+        registry.register_many([from_registered_tool(tool) for tool in group_tools])
     extension_runner: HookRunner | None = None
     extension_reloader: ExtensionReloader | None = None
     extension_generation = None
+    extension_disposer = None
     if resolved.extensions.approvals:
+        from homemaster.extensions.loader import (
+            dispose_extension_generation,
+            load_extension_generation,
+            register_extension_tools_atomically,
+        )
+        from homemaster.extensions.reloader import ExtensionReloader
+
+        extension_disposer = dispose_extension_generation
         approvals = _extension_approvals(resolved)
         extension_generation = load_extension_generation(approvals, generation=1)
         try:
-            enabled_extension_ids = register_extension_tools_atomically(
-                profile.catalog,
-                extension_generation,
-            )
-            profile = EnvironmentToolProfile(
-                environment="home",
-                catalog=profile.catalog,
-                view=profile.catalog.freeze((*profile.enabled_tool_ids, *enabled_extension_ids)),
-            )
+            register_extension_tools_atomically(registry, extension_generation)
         except BaseException:
             dispose_extension_generation(extension_generation)
             raise
@@ -156,7 +150,7 @@ def create_home_application(
         return _finish_home_application(
             resolved=resolved,
             label=label,
-            profile=profile,
+            registry=registry,
             extension_runner=extension_runner,
             extension_reloader=extension_reloader,
             progress=progress,
@@ -168,8 +162,8 @@ def create_home_application(
             feishu_group_operations=feishu_group_operations,
         )
     except BaseException:
-        if extension_generation is not None:
-            dispose_extension_generation(extension_generation)
+        if extension_generation is not None and extension_disposer is not None:
+            extension_disposer(extension_generation)
         raise
 
 
@@ -177,7 +171,7 @@ def _finish_home_application(
     *,
     resolved: HomeMasterConfig,
     label: str,
-    profile: EnvironmentToolProfile,
+    registry: ToolRegistry,
     extension_runner: HookRunner | None,
     extension_reloader: ExtensionReloader | None,
     progress: bool,
@@ -192,7 +186,7 @@ def _finish_home_application(
 
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
     artifact_publisher: ArtifactPublisher | None = None
-    skill_registry = load_home_skills(resolved, profile)
+    skill_registry = load_home_skills(resolved)
     bus = EventBus()
     scope = RunResourceScope()
     if feishu_group_operations is not None:
@@ -231,10 +225,7 @@ def _finish_home_application(
         sinks.append(event_sink)
     if progress or verbose:
         if not quiet:
-            rich_sink = RichStreamEventSink(
-                RichOutputRenderer(),
-                sensitive_values=configured_sensitive_values(resolved),
-            )
+            rich_sink = RichStreamEventSink(RichOutputRenderer())
             sinks.append(rich_sink)
             live_rendered = True
             scope.bind(
@@ -257,10 +248,10 @@ def _finish_home_application(
     mcp_audit_path: Path | None = None
     application_starter = None
     service_state_root = Path(resolved.observability.session_dir).expanduser().resolve().parent
-    tool_services = HomeOpenHarnessServices(resolved, state_root=service_state_root)
+    tool_services = HomeToolServices(resolved, state_root=service_state_root)
     scope.bind(
         ResourceBinding.owned(
-            "openharness-tool-services",
+            "homemaster-tool-services",
             tool_services,
             lifetime=ResourceLifetime.APPLICATION,
         )
@@ -303,27 +294,19 @@ def _finish_home_application(
                 store,
                 preview_chars=resolved.mcp.preview_chars,
             )
-            mcp_ids = register_mcp_tools_atomically(application.catalog, registered)
-            current = application.profiles["home"]
-            final_profile = EnvironmentToolProfile(
-                environment="home",
-                catalog=application.catalog,
-                view=application.catalog.freeze((*current.enabled_tool_ids, *mcp_ids)),
-            )
-            application.profiles["home"] = final_profile
+            register_mcp_tools_atomically(application.registry, registered)
 
         application_starter = start_mcp
     application = create_application(
         config=resolved,
-        profiles={"home": profile},
-        catalog=profile.catalog,
+        registry=registry,
         event_bus=bus,
         resource_scope=scope,
         application_starter=application_starter,
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
         application_services={
-            "openharness_services": tool_services,
+            "tool_services": tool_services,
             "task_manager": tool_services.tasks,
             "cron_store": tool_services.cron,
             "team_registry": tool_services.teams,
@@ -390,7 +373,6 @@ def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, .
 
 def load_home_skills(
     config: HomeMasterConfig,
-    profile: Any,
     *,
     cwd: Path | None = None,
 ) -> SkillRegistry:

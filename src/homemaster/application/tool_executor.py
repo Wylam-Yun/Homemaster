@@ -1,0 +1,250 @@
+"""Application wrapper around the universal ordinary-name ToolExecutor."""
+
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
+from homemaster.agent.normalized import RunContext
+from homemaster.tools.base import ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.contracts import (
+    ToolExecutionError,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    VerificationRecord,
+    VerificationStatus,
+)
+from homemaster.tools.executor import ToolExecutor
+
+
+class ApplicationToolExecutor:
+    def __init__(
+        self,
+        *,
+        executor: ToolExecutor,
+        registry: ToolRegistry,
+        runtime: Any,
+        run_id: str,
+        backend: object | None,
+        request: Any,
+        agent_state: Any,
+        task_state_store: Any,
+        settings: Any,
+        event_sink: Any,
+        working_directory: Path,
+        completion_requires_external_owner: bool = False,
+        verification_required_tool_names: frozenset[str] = frozenset(),
+        artifact_publisher: Any | None = None,
+    ) -> None:
+        self._executor = executor
+        self._registry = registry
+        self._runtime = runtime
+        self._run_id = run_id
+        self._backend = backend
+        self._request = request
+        self._agent_state = agent_state
+        self._task_state_store = task_state_store
+        self._settings = settings
+        self._event_sink = event_sink
+        self._working_directory = working_directory
+        self._artifact_publisher = artifact_publisher
+        self._completion_guard = _CompletionGuard(
+            requires_external_owner=completion_requires_external_owner,
+            external_owner=request.dependencies.get("external_terminal_owner"),
+            verification_required_tool_names=verification_required_tool_names,
+        )
+        timeout = request.run_policy.deadline_s
+        self._expires_at = None if timeout is None else time.monotonic() + timeout
+        self.evidence_refs = runtime.canonical_evidence_refs
+
+    async def dispatch(
+        self,
+        *,
+        tool_calls: list[ToolCall],
+        run_context: RunContext | None = None,
+    ) -> list[ToolResultMessage]:
+        del run_context
+        observer = self._request.dependencies.get("tool_dispatch_observer")
+        calls: list[tuple[ToolCall, ToolExecutionContext]] = []
+        messages: list[ToolResultMessage | None] = []
+        for call in tool_calls:
+            if observer is not None:
+                observer.on_call(call)
+                terminal = observer.terminal_result(call)
+                if terminal is not None:
+                    messages.append(terminal)
+                    continue
+            messages.append(None)
+            calls.append((call, self._context_for(call)))
+
+        results = await self._executor.execute_many(calls)
+        result_index = 0
+        for index, message in enumerate(messages):
+            if message is not None:
+                continue
+            call, _context = calls[result_index]
+            result = results[result_index]
+            result_index += 1
+            if observer is not None:
+                observer.on_result(call, result)
+            self._completion_guard.record(call.name, result)
+            self._record_evidence(result)
+            messages[index] = self._message(call, result)
+        return [message for message in messages if message is not None]
+
+    def _context_for(self, call: ToolCall) -> ToolExecutionContext:
+        tool = self._registry.get(call.name)
+        stable_id = tool.stable_id if tool is not None else "homemaster.unknown.v1"
+        deps = dict(getattr(self._settings, "application_services", {}))
+        deps.update(self._request.dependencies)
+        deps["task_state_store"] = self._task_state_store
+        deps["task_completion_guard"] = self._completion_guard
+        deps["current_tool_call_id"] = call.id
+        _bind_backend(deps, self._request.profile, self._backend)
+        run_context = RunContext(
+            session_id=self._runtime.session.session_id,
+            run_id=self._run_id,
+            turn_index=self._agent_state.turn_index,
+            settings=self._settings,
+            event_sink=self._event_sink,
+            deps=deps,
+            cancellation_token=self._runtime.cancellation,
+        )
+        metadata = {
+            **deps,
+            "services": deps,
+            "tool_registry": self._registry,
+            "run_context": run_context,
+            "backend": self._backend,
+            "session_id": self._runtime.session.session_id,
+            "run_id": self._run_id,
+            "turn_index": self._agent_state.turn_index,
+            "tool_call_id": call.id,
+            "internal_tool_id": stable_id,
+            "permission_subject": self._request.permission_subject,
+            "cancellation": self._runtime.cancellation,
+            "domain_observer": self._request.dependencies.get("domain_observer"),
+            "deadline": self,
+        }
+        return ToolExecutionContext(self._working_directory, metadata=metadata)
+
+    def remaining_s(self) -> float | None:
+        if self._expires_at is None:
+            return None
+        return max(0.0, self._expires_at - time.monotonic())
+
+    @property
+    def deadline(self) -> ApplicationToolExecutor:
+        return self
+
+    def _message(self, call: ToolCall, result: ToolResult) -> ToolResultMessage:
+        data = dict(result.metadata)
+        content = [ContentBlock(text=result.output)] if result.output else []
+        for image in data.get("images", []):
+            if isinstance(image, dict) and image.get("data_base64"):
+                content.append(
+                    ContentBlock(
+                        type="image",
+                        source={
+                            "type": "base64",
+                            "media_type": image.get("media_type", "image/png"),
+                            "data": image["data_base64"],
+                        },
+                    )
+                )
+        data.pop("images", None)
+        data.pop("attachments", None)
+        if self._artifact_publisher is not None:
+            artifacts = self._artifact_publisher.publish(
+                result,
+                tenant_id=self._request.permission_subject.tenant_id,
+                session_id=self._runtime.session.session_id,
+                run_id=self._run_id,
+            )
+            if artifacts:
+                data["artifacts"] = [dict(item) for item in artifacts]
+        return ToolResultMessage(
+            tool_call_id=call.id,
+            name=call.name,
+            content=content,
+            is_error=result.is_error,
+            data=data,
+        )
+
+    def _record_evidence(self, result: ToolResult) -> None:
+        raw = result.metadata.get("evidence_refs", ())
+        refs = [raw] if isinstance(raw, str) else list(raw) if isinstance(raw, list | tuple) else []
+        if refs:
+            self.evidence_refs = tuple(dict.fromkeys((*self.evidence_refs, *refs)))
+
+
+def _bind_backend(deps: dict[str, object], profile: str, backend: object | None) -> None:
+    if backend is None:
+        return
+    deps.setdefault("backend", backend)
+    if profile == "alfworld":
+        deps.setdefault("alfworld_env", backend)
+    elif profile == "coworker":
+        deps.setdefault("coworker_backend", backend)
+
+
+class _CompletionGuard:
+    """Application-owned terminal policy exposed to the legacy task-state tool."""
+
+    def __init__(
+        self,
+        *,
+        requires_external_owner: bool,
+        external_owner: object | None,
+        verification_required_tool_names: frozenset[str],
+    ) -> None:
+        self._requires_external_owner = requires_external_owner
+        self._external_owner = external_owner
+        self._verification_required_tool_names = verification_required_tool_names
+        self._verification: dict[str, bool] = {}
+
+    def record(self, tool_name: str, result: ToolResult) -> None:
+        if tool_name not in self._verification_required_tool_names:
+            return
+        self._verification[tool_name] = result.metadata.get("verification_status") == "passed"
+
+    def __call__(self) -> ToolExecutionResult | None:
+        if any(not passed for passed in self._verification.values()):
+            message = "task completion is waiting for required verification"
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.VERIFICATION_PENDING,
+                error=ToolExecutionError(code="verification_pending", message=message),
+                backend_attempted=False,
+                verification=VerificationRecord(
+                    status=VerificationStatus.PENDING,
+                    detail=message,
+                ),
+            )
+        if not self._requires_external_owner or _external_owner_succeeded(self._external_owner):
+            return None
+        message = "the external terminal owner has not reported success"
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.VERIFICATION_PENDING,
+            error=ToolExecutionError(code="external_terminal_pending", message=message),
+            backend_attempted=False,
+            verification=VerificationRecord(
+                status=VerificationStatus.PENDING,
+                detail=message,
+            ),
+        )
+
+
+def _external_owner_succeeded(owner: object | None) -> bool:
+    if owner is None:
+        return False
+    value = getattr(owner, "succeeded", None)
+    if callable(value):
+        value = value()
+    if value is None:
+        value = getattr(owner, "success", False)
+    return bool(value)
+
+
+__all__ = ["ApplicationToolExecutor"]

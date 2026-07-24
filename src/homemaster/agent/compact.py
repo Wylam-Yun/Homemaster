@@ -123,21 +123,21 @@ def summarize_tool_result(
     return f"[{tool_name}] {len(lines)} lines output, last 10:\n{tail}"
 
 
-def sanitize_tool_pairs(messages: list[Message]) -> list[Message]:
+def repair_tool_pairs(messages: list[Message]) -> list[Message]:
     result_ids = {
         msg.tool_call_id
         for msg in messages
         if isinstance(msg, ToolResultMessage)
     }
-    sanitized: list[Message] = []
+    repaired: list[Message] = []
     for msg in messages:
         if isinstance(msg, AssistantMessage) and msg.tool_calls:
             kept_calls = [tool_call for tool_call in msg.tool_calls if tool_call.id in result_ids]
             if kept_calls or msg.content:
-                sanitized.append(msg.model_copy(update={"tool_calls": kept_calls}))
+                repaired.append(msg.model_copy(update={"tool_calls": kept_calls}))
         else:
-            sanitized.append(msg)
-    return sanitized
+            repaired.append(msg)
+    return repaired
 
 
 def split_preserving_tool_pairs(

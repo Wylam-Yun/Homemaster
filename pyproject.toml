@@ -52,9 +52,11 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["homemaster*"]
 
 [tool.setuptools.package-data]
 homemaster = [
+  "tools/*.json",
   "prompts/*.md",
   "prompts/*.txt",
   "benchmarking/coworker_demo/skills/*/SKILL.md",

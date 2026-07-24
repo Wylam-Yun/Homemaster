@@ -99,7 +99,7 @@ class ChannelBridge:
             content = result.error_code or "gateway_run_failed"
         if not content and kind is ChannelEventKind.CANCEL:
             content = result.error_code or "cancelled"
-        content = self.public_projection.sanitize_content(content)
+        content = self.public_projection.project_content(content)
         return OutboundMessage(
             identity=message.identity,
             session_id=route.session_id,

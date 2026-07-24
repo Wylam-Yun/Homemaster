@@ -49,7 +49,7 @@ class StoredToolOutput:
 
 
 class ToolOutputStore:
-    """Persist raw bytes before any model-facing redaction is performed."""
+    """Persist raw bytes independently from model-facing text projection."""
 
     def __init__(
         self,

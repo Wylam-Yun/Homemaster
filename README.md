@@ -69,9 +69,9 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 
 ## 配置与 Skills
 
-Home profile 支持 bundled、builtin、用户目录、Git root 内的项目目录、显式目录和显式配置的
+HomeMaster SkillRegistry 支持 bundled、builtin、用户目录、Git root 内的项目目录、显式目录和显式配置的
 data-only plugin 六类 Skill 来源。每个 `SKILL.md` 使用 OpenHarness YAML frontmatter；加载时会核对
-真实路径、来源优先级和 builtin 覆盖授权。Skill 不要求 `tool_names`，也不能扩大 ToolView 或权限。
+真实路径、来源优先级和 builtin 覆盖授权。Skill 不要求 `tool_names`，也不能修改 universal Registry 或权限。
 Plugin adapter 只读取 JSON manifest 与 `SKILL.md`，绝不导入 plugin Python、tools、hooks 或 MCP。
 可先运行：
 
@@ -84,8 +84,8 @@ uv run homemaster --dry-run -p '检查药盒状态' --output-format json
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)，owner 与数据流见
 [Application Runtime 架构](docs/architecture/application-runtime.md)。
 
-Pillow 是默认 `observe` 工具的核心运行依赖；MCP SDK 仍属于 `mcp` optional extra。未安装该 extra 时
-Home 的 39 个默认工具仍可构造，只是不连接或注册 MCP resource/dynamic tool 入口。
+Pillow 是默认 `observe` 工具的核心运行依赖；MCP SDK 仍属于 `mcp` optional extra。未安装该 extra 时，
+universal Registry 仍可构造，只是不连接或注册 MCP resource/dynamic tool 入口。
 
 ## MCP 工具与资源
 
@@ -99,8 +99,8 @@ uv run homemaster --dry-run -p '检查外部工具' --output-format json
 普通 `--dry-run` 只审计脱敏静态配置，不连接 server；显式增加 `--probe` 才会产生外部 I/O、
 执行 discovery 并立即关闭临时连接，同时写入 `trace_dir/mcp_probe_audit.jsonl`。真实
 one-shot/Interactive application 在首次 run 前只启动一次
-MCP manager，连接成功的工具会加入 Home ToolView，失败 server 不影响 builtin。MCP nested JSON
-Schema 保真进入 Catalog；resource URI 仅在 adapter 内部保存，模型只见 opaque `resource_id`。
+MCP manager，连接成功的工具会按普通名称原子加入 application Registry，失败 server 不影响 builtin。
+MCP nested JSON Schema 保真进入 Registry；resource URI 仅在 adapter 内部保存，模型只见 opaque `resource_id`。
 所有 tool/resource 原始结果先按 tenant/session/run 写入 ACL artifact，模型和事件只接收脱敏、限长
 preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audit 写入故障不会阻断连接清理。
 在 MCP SDK 的 mutation/read-only annotation 经真环境核对前，普通 discovered tool 一律按可能修改
@@ -111,7 +111,7 @@ preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audi
 
 ## 权限、设备租约与急停
 
-每次工具执行都经过同一条 `ToolExecutionPipeline` 权限门。远程 Bearer credential 只能映射到预先
+每次工具执行都经过同一条 `ToolExecutor -> PermissionChecker` 权限门。远程 Bearer credential 只能映射到预先
 配置的 typed principal、tenant 和 capability；prompt、metadata、skill、slash command 与附件都不能
 扩权。机器人读操作要求 `device.read`，写操作要求 `device.control`，MCP 调用要求 `mcp.call`。
 后台任务/子 agent、Cron、配置修改和 MCP 凭证管理还分别要求 `process.spawn`、`scheduler.manage`、
@@ -293,9 +293,9 @@ hooks，不是 hostile-code sandbox；硬编码任意外部绝对路径仍属于
 timeout/cancel 会按 deadline 立即 fence 结果；抗取消 task 仍计入 active 并阻止 reload/cleanup，但不撤销
 任意副作用。hook
 不能成为 permission、device safety、terminal、verifier 或 scorer 的唯一 owner。reload 只允许
-hooks-only candidate；extension version、tool/provenance/capability/profile 变化返回 `restart_required`，
-活动 callback 存在时返回 `busy`。省略 request `enabled_tool_ids` 使用 profile；显式空 tuple 禁用全部工具，
-任何越界 id 在 lifecycle hook 前拒绝。所有 hook result 和 lifecycle trace 都经过统一脱敏。CL-21 当前只在 HPC2 做
+hooks-only candidate；extension version、tool/provenance/capability 变化返回 `restart_required`，
+活动 callback 存在时返回 `busy`。部署 approval 决定哪些 extension contributions 被注册；`RunRequest`
+不再携带工具筛选字段。所有 hook result 和 lifecycle trace 都经过统一投影。CL-21 当前只在 HPC2 做
 non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测试等待用户指导。
 
 ## 当前边界
@@ -308,28 +308,28 @@ non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测�
 ## 架构
 
 默认入口是 **ApplicationRuntime**（`src/homemaster/application/`），其内部使用统一
-AgentRuntime 和无 session 状态的 ToolExecutionPipeline。CLI、Interactive、ALFWorld 与
-Coworker 共享这条控制流，每个 run 单独冻结 ToolView、provider request、generation 和环境绑定。
+AgentRuntime 和 application-owned ToolExecutor。CLI、Interactive、ALFWorld 与 Coworker 共享同一个
+ordinary-name Registry；每个 run 只冻结 provider request、generation 和环境绑定，不再冻结工具子集。
 
 **Tool 系统**：Home 正式 alias 包括 `robot_go_to` 与显式 `observe`。`observe({})` 是 Home、ALFWorld
 和 Coworker 共用的当前画面截图工具：成功时模型只收到一张 PNG，不含文字、DOM、状态或审计元数据；它只用于
-确认画面，不授权、阻塞或使其他动作失效。canonical Catalog 以 stable internal id 注册工具，ToolView
-决定每个 run 的可见与可执行集合。
+确认画面，不授权、阻塞或使其他动作失效。universal Registry 以普通模型名称注册工具；
+`homemaster.<name>.v1` 只作为隐藏诊断元数据，不参与模型选择或执行路由。
 
 **Skills**：Skill 是 OpenHarness 兼容的按需 instruction document，不是工具授权声明，不要求
-`tool_names`，也不能修改 ToolView 或扩大 permission。来源优先级为 OpenHarness bundled < Home builtin
+`tool_names`，也不能修改 Registry 或扩大 permission。来源优先级为 OpenHarness bundled < Home builtin
 < `~/.homemaster/skills` < Git 项目内 `.homemaster/skills` < 显式目录；不会自动扫描 `.codex`、
 `.claude` 或 `.agents`。模型先看 Available Skills 摘要，再用标准 `skill(name=...)` 或兼容
 `skill_view(skill_name=...)` 读取完整 `SKILL.md`；`/<skill-name>` 支持参数和已配置模型覆盖。
 
-**OpenHarness 默认工具**：Home profile 提供锁定上游的 39 项默认工具，覆盖文件、`bash`、联网、
+**默认工具**：universal Registry 提供文件、`bash`、联网、
 LSP、图片、计划、配置、Cron、后台任务、子 agent 和团队。后台 Cron 用
 `homemaster cron start|status|stop` 管理；child worker 显式继承父应用配置。远程
 `ask_user_question` 会把 session 置为等待态，并在下一条 channel 消息到达后恢复，而不是占住 webhook。
-这些工具只进入 Home profile，ALFWorld 与 Coworker 的固定工具面不变。
+Home、ALFWorld 与 Coworker 入口看到相同普通名称集合；环境只注入 Backend，不筛选工具。
 
 **MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
-结果并重新冻结 Home ToolView；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、
+结果并加入 application Registry；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、
 `read_mcp_resource`，动态工具为 `mcp__<server>__<tool>`。连接、调用、断线和关闭写入脱敏 JSONL
 audit；WebSocket 配置会明确报告 unsupported，不会静默降级。
 
@@ -355,10 +355,10 @@ uv run homemaster gateway --config config/homemaster.yaml
 ```text
 application/ ApplicationRuntime、SessionManager 与资源 ownership
 agent/      AgentRuntime、context 与 provider turn
-tools/      canonical contracts、Catalog/ToolView 与统一执行链
+tools/      BaseTool、universal Registry、权限检查与统一执行链
 domain/     Home domain tools and contracts
 skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
-mcp/        MCP config/status、stdio/HTTP client、Catalog adapter 与 audit
+mcp/        MCP config/status、stdio/HTTP client、Registry adapter 与 audit
 artifacts/  tenant/session/run 分区的 opaque tool-output store
 permissions/ typed 配置、capability policy 与路径/命令规则
 devices/    connection pool、generation lease、emergency stop 与 JSONL audit

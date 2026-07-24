@@ -271,7 +271,6 @@ class EventBus:
             payload={
                 "attempt_index": attempt_index,
                 "result": result.to_dict(),
-                "tool_view_id": context.tool_view.view_id,
             },
         )
         await self.aemit_guarded(event, guard)

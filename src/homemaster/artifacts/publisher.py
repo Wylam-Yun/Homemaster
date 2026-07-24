@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from homemaster.artifacts.tool_output_store import ArtifactStoreError, ToolOutputStore
 from homemaster.channels.contracts import OutboundArtifactRef
+from homemaster.tools.base import ToolResult
 from homemaster.tools.contracts import ToolExecutionResult
 
 
@@ -55,36 +56,50 @@ class ArtifactPublisher:
 
     def publish(
         self,
-        result: ToolExecutionResult,
+        result: ToolExecutionResult | ToolResult,
         *,
         tenant_id: str,
         session_id: str,
         run_id: str,
     ) -> tuple[dict[str, str], ...]:
         artifacts: list[dict[str, str]] = []
-        for index, image in enumerate(result.images):
-            extension = image.media_type.removeprefix("image/").split("+", 1)[0] or "bin"
+        images = (
+            result.metadata.get("images", [])
+            if isinstance(result, ToolResult)
+            else result.images
+        )
+        attachments = (
+            result.metadata.get("attachments", [])
+            if isinstance(result, ToolResult)
+            else result.attachments
+        )
+        for index, image in enumerate(images):
+            media_type = _field(image, "media_type")
+            data_base64 = _field(image, "data_base64")
+            content_sha256 = _field(image, "content_sha256")
+            extension = media_type.removeprefix("image/").split("+", 1)[0] or "bin"
             artifacts.append(
                 self._store(
                     tenant_id=tenant_id,
                     session_id=session_id,
                     run_id=run_id,
-                    content=base64.b64decode(image.data_base64, validate=True),
+                    content=base64.b64decode(data_base64, validate=True),
                     filename=f"image-{index}.{extension}",
-                    media_type=image.media_type,
-                    content_sha256=image.content_sha256,
+                    media_type=media_type,
+                    content_sha256=content_sha256,
                 )
             )
-        for attachment in result.attachments:
+        for attachment in attachments:
+            data_base64 = _field(attachment, "data_base64")
             artifacts.append(
                 self._store(
                     tenant_id=tenant_id,
                     session_id=session_id,
                     run_id=run_id,
-                    content=base64.b64decode(attachment.data_base64, validate=True),
-                    filename=attachment.filename,
-                    media_type=attachment.media_type,
-                    content_sha256=attachment.content_sha256,
+                    content=base64.b64decode(data_base64, validate=True),
+                    filename=_field(attachment, "filename"),
+                    media_type=_field(attachment, "media_type"),
+                    content_sha256=_field(attachment, "content_sha256"),
                 )
             )
         if not artifacts:
@@ -118,6 +133,13 @@ class ArtifactPublisher:
             "media_type": media_type,
             "content_sha256": stored.content_sha256,
         }
+
+
+def _field(value: object, name: str) -> str:
+    item = value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+    if not isinstance(item, str) or not item:
+        raise ArtifactStoreError(f"tool artifact is missing {name}")
+    return item
 
 
 __all__ = ["ArtifactPublisher", "ResolvedArtifact", "ToolOutputArtifactResolver"]

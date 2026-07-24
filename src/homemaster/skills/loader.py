@@ -162,7 +162,7 @@ def load_skill_registry(
     if cwd is not None and allow_project_plugin_skills:
         project_root = _find_git_root(cwd.expanduser().resolve(strict=True))
         if project_root is not None:
-            roots.append(project_root / ".openharness" / "plugins")
+            roots.append(project_root / ".homemaster" / "plugins")
     _load_plugin_skill_sources(
         registry,
         roots,

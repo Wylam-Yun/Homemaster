@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from homemaster.config import load_config
-from homemaster.tools.openharness_runtime import HomeOpenHarnessServices
+from homemaster.tools.runtime_services import HomeToolServices
 
 
 def _event(name: str, payload: dict[str, object]) -> bytes:
@@ -120,7 +120,7 @@ observability:
 """,
             encoding="utf-8",
         )
-        services = HomeOpenHarnessServices(
+        services = HomeToolServices(
             load_config(config_path),
             state_root=tmp_path / "state",
         )

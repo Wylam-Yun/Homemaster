@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -9,7 +8,7 @@ from homemaster.artifacts.tool_output_store import ToolOutputStore
 from homemaster.mcp.adapter import build_mcp_registered_tools
 from homemaster.mcp.client import McpCallError, McpServerNotConnectedError
 from homemaster.mcp.types import McpPayload, McpResourceInfo, McpToolInfo
-from homemaster.tools.catalog import ToolCatalog
+from homemaster.tools import ToolRegistry
 from homemaster.tools.contracts import (
     PermissionSubject,
     ToolExecutionContext,
@@ -83,7 +82,6 @@ def _context(internal_id: str) -> ToolExecutionContext:
         turn_index=0,
         tool_call_id="call-a",
         internal_tool_id=internal_id,
-        tool_view=SimpleNamespace(view_id="view", is_enabled=lambda _value: True),
         permission_subject=PermissionSubject(
             subject_id="principal-a",
             tenant_id="tenant-a",
@@ -98,7 +96,7 @@ def _context(internal_id: str) -> ToolExecutionContext:
 
 
 @pytest.mark.asyncio
-async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(tmp_path) -> None:
+async def test_adapter_preserves_schema_and_returns_raw_preview(tmp_path) -> None:
     manager = FakeManager()
     store = ToolOutputStore(tmp_path / "artifacts", quota_bytes=4096, ttl_seconds=60)
     tools = build_mcp_registered_tools(manager, store, preview_chars=40)
@@ -120,8 +118,7 @@ async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(t
 
     assert result.success is True
     assert result.data["truncated"] is True
-    assert "server-secret" not in result.data["preview"]
-    assert "[REDACTED]" in result.data["preview"]
+    assert "server-secret" in result.data["preview"]
     raw = store.read(
         result.data["artifact_handle"],
         tenant_id="tenant-a",
@@ -157,7 +154,7 @@ async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(t
     )
     assert "resource" in read.data["preview"]
     assert "demo://readme" not in read.text
-    assert "resource-secret" not in read.data["preview"]
+    assert read.data["preview"] == read.text
     read_raw = store.read(
         read.data["artifact_handle"],
         tenant_id="tenant-a",
@@ -169,18 +166,18 @@ async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(t
     assert read_resource.definition.state_effects == ()
 
 
-def test_catalog_registration_is_atomic_on_alias_conflict(tmp_path) -> None:
+def test_registry_registration_is_atomic_on_name_conflict(tmp_path) -> None:
     manager = FakeManager()
     store = ToolOutputStore(tmp_path / "artifacts", quota_bytes=4096, ttl_seconds=60)
-    catalog = ToolCatalog()
+    registry = ToolRegistry()
     tools = build_mcp_registered_tools(manager, store)
     duplicate = [tools[0], *tools]
 
     from homemaster.mcp.adapter import register_mcp_tools_atomically
 
-    with pytest.raises(ValueError, match="conflict"):
-        register_mcp_tools_atomically(catalog, duplicate)
-    assert catalog.list_tools() == ()
+    with pytest.raises(ValueError, match="duplicate tool name"):
+        register_mcp_tools_atomically(registry, duplicate)
+    assert registry.list_tools() == []
 
 
 @pytest.mark.asyncio

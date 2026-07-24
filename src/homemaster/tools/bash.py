@@ -1,4 +1,4 @@
-"""Home adapter for the locked OpenHarness ``bash`` tool.
+"""HomeMaster Bash tool with process-tree ownership and terminal-state receipts.
 
 Commands run in a separate process group.  The executor therefore owns the
 complete process tree on timeout or cancellation instead of leaving an
@@ -28,7 +28,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.paths import ToolPathError, resolve_context_tool_path
 
-_UPSTREAM_REFERENCE = "OpenHarness@9b2efd7:src/openharness/tools/bash_tool.py"
+_IMPLEMENTATION_REFERENCE = "homemaster.tools.bash"
 _MAX_OUTPUT_CHARS = 12_000
 _MAX_CAPTURED_OUTPUT_BYTES = 1_000_000
 _PROCESS_GRACE_SECONDS = 2.0
@@ -358,10 +358,10 @@ def _integer(arguments: Mapping[str, object], name: str, *, default: int) -> int
 
 
 def build_bash_tool() -> RegisteredTool:
-    """Create the Home registration for the OpenHarness bash tool."""
+    """Create the HomeMaster Bash registration."""
 
     definition = ToolDefinition(
-        internal_id="openharness.bash.v1",
+        internal_id="homemaster.bash.v1",
         model_alias="bash",
         description="Run a shell command in the local repository.",
         input_schema={
@@ -384,7 +384,10 @@ def build_bash_tool() -> RegisteredTool:
         },
         output_schema={"type": "object"},
         verification_policy=VerificationPolicy(execution_proof=ExecutionProof.NONE),
-        provenance=ToolProvenance(source="openharness", reference=_UPSTREAM_REFERENCE),
+        provenance=ToolProvenance(
+            source="homemaster",
+            reference=_IMPLEMENTATION_REFERENCE,
+        ),
         version="2.0.0",
         concurrency_policy=ConcurrencyPolicy.SERIALIZED,
         state_effects=("process.exec",),

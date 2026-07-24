@@ -4,13 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.adapters.profiles import build_home_profile
-from homemaster.agent.messages import ToolCall
+from homemaster.adapters import build_universal_tool_registry
 from homemaster.agent.normalized import RunContext
 from homemaster.skills.loader import load_skill_registry
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
-from homemaster.tools.legacy_adapter import LegacyToolExecutionContext
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools.contracts import ToolExecutionStatus
+from tests.homemaster.tools.universal_harness import execute
 
 _STANDARD_SKILL = """---
 name: standard-fixture
@@ -70,9 +68,7 @@ async def test_standard_skill_tool_refreshes_then_returns_complete_content(tmp_p
     registry.set_refresher(discover)
     path = _write_skill(root)
 
-    profile = build_home_profile()
-    tool = profile.view.lookup("skill").tool
-    assert tool is not None
+    tool_registry = build_universal_tool_registry()
     run_context = RunContext(
         session_id="session",
         run_id="run",
@@ -81,32 +77,14 @@ async def test_standard_skill_tool_refreshes_then_returns_complete_content(tmp_p
         event_sink=None,
         deps={"skill_registry": registry},
     )
-    context = ToolExecutionContext(
-        session_id="session",
-        run_id="run",
-        turn_index=0,
-        tool_call_id="call-1",
-        internal_tool_id=tool.definition.internal_id,
-        tool_view=profile.view,
-        permission_subject=PermissionSubject(
-            subject_id="operator",
-            channel="test",
-            capabilities=("tool.read",),
-        ),
-        backend=LegacyToolExecutionContext(
-            run_context=run_context,
-            tool_call_id="call-1",
-            internal_tool_id=tool.definition.internal_id,
-        ),
-        deadline=None,
-        cancellation=None,
-        domain_observer=None,
-        working_directory=Path.cwd(),
-    )
-
-    result = await ToolExecutionPipeline(profile.catalog).execute(
-        ToolCall(id="call-1", name="skill", arguments={"name": "standard-fixture"}),
-        context,
+    result = await execute(
+        tool_registry,
+        Path.cwd(),
+        "skill",
+        {"name": "standard-fixture"},
+        capabilities=("tool.read",),
+        run_context=run_context,
+        call_id="call-1",
     )
 
     assert result.status is ToolExecutionStatus.SUCCESS

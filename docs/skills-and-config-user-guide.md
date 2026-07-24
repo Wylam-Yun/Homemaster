@@ -89,7 +89,7 @@ Home profile 按以下顺序发现 `SKILL.md`：
 
 Plugin 来源支持根目录下 `<plugin>/plugin.json` 或 `<plugin>/.claude-plugin/plugin.json`。adapter
 只读取 manifest 的 `name`、`enabled_by_default`、`skills_dir` 和其中的 `SKILL.md`，不会导入 Python、
-tools、hooks、commands、agents 或 MCP。项目 `<git-root>/.openharness/plugins` 默认关闭：
+tools、hooks、commands、agents 或 MCP。项目 `<git-root>/.homemaster/plugins` 默认关闭：
 
 ```yaml
 skills:
@@ -123,7 +123,7 @@ Use a fresh observation before reporting inventory state.
 ```
 
 Skill 是给模型按需读取的说明文档，不是 capability 声明；`tool_names` 不是必填字段，旧文件中的该
-字段只作为未解释的扩展元数据保留。Skill 正文提到某个工具不会让该工具进入 ToolView，也不会授予
+字段只作为未解释的扩展元数据保留。Skill 正文提到某个工具不会修改 universal Registry，也不会授予
 权限。自动 user/project 来源若格式不兼容或路径越界，会被拒绝并出现在 dry-run 的
 `skill_diagnostics`，builtin 仍保持可用；`explicit_dirs` 的错误则直接失败。
 
@@ -346,9 +346,9 @@ extensions:
 
 `expected_sha256` 由 HomeMaster 对 canonical manifest JSON、entrypoint 和声明依赖精确字节重新计算；不信任
 扩展自报 hash。plugin tool 必须声明 `required_capabilities`，实际调用能力是 manifest requested、
-部署 grant 与当前 principal capabilities 的交集。request 中的 `enabled_tool_ids` 只能从 profile
-已有集合中删减，CLI/Gateway metadata 不能扩张工具面；省略该字段继承 profile，显式空集合禁用全部
-工具。exact tool/hook token 不能替代 plugin/hook 的 canonical required capability。
+部署 grant 与当前 principal capabilities 的交集。deployment approval 中的 `enabled_tool_ids` 只决定
+哪些已验证 extension contributions 被注册；`RunRequest`、CLI 和 Gateway metadata 都不能筛选或扩张
+工具面。exact tool/hook token 不能替代 plugin/hook 的 canonical required capability。
 
 manifest 可选声明 flat dependency files：
 

@@ -12,7 +12,7 @@ from homemaster.benchmarking.alfworld.tracing import (
 )
 
 
-def test_trace_writer_writes_jsonl_and_redacts_secret_keys(tmp_path: Path) -> None:
+def test_trace_writer_writes_jsonl_with_exact_values(tmp_path: Path) -> None:
     writer = AlfworldTraceWriter(tmp_path / "episode-1")
     writer.write_event({
         "event": "tool_step",
@@ -24,12 +24,12 @@ def test_trace_writer_writes_jsonl_and_redacts_secret_keys(tmp_path: Path) -> No
     payload = json.loads((tmp_path / "episode-1" / "trace.jsonl").read_text().strip())
 
     assert payload["event"] == "tool_step"
-    assert payload["api_key"] == "[REDACTED]"
-    assert payload["nested"]["auth_token"] == "[REDACTED]"
+    assert payload["api_key"] == "secret"
+    assert payload["nested"]["auth_token"] == "secret"
     assert payload["nested"]["safe"] == "ok"
 
 
-def test_model_trace_redacts_and_trajectory_is_written(tmp_path: Path) -> None:
+def test_model_trace_preserves_values_and_trajectory_is_written(tmp_path: Path) -> None:
     writer = AlfworldTraceWriter(tmp_path / "run-1" / "episode-0001")
     writer.write_model_event({
         "event": "episode_started",
@@ -77,8 +77,7 @@ def test_model_trace_redacts_and_trajectory_is_written(tmp_path: Path) -> None:
     aggregate = write_readable_trajectories(tmp_path / "run-1")
 
     model_trace = writer.model_trace_path.read_text(encoding="utf-8")
-    assert "secret" not in model_trace
-    assert "[REDACTED]" in model_trace
+    assert '"api_key": "secret"' in model_trace
     assert '"input_tokens": 1' in model_trace
     assert '"output_tokens": 2' in model_trace
     trajectory = writer.trajectory_path.read_text(encoding="utf-8")

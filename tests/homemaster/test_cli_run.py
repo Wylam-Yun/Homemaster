@@ -121,7 +121,7 @@ def test_live_print_delegates_stdout_to_execution_without_post_run_echo(
     assert result.stdout == "live-answer"
 
 
-def test_stream_json_fatal_error_emits_one_safe_error_and_no_result(monkeypatch) -> None:
+def test_stream_json_fatal_error_emits_one_raw_error_and_no_result(monkeypatch) -> None:
     def fail(**_kwargs):
         raise RuntimeError("api_key=top-secret")
 
@@ -137,23 +137,19 @@ def test_stream_json_fatal_error_emits_one_safe_error_and_no_result(monkeypatch)
     assert rows == [
         {
             "type": "error",
-            "message": "api_key=[REDACTED]",
+            "message": "api_key=top-secret",
             "recoverable": False,
         }
     ]
-    assert "top-secret" not in result.stdout
+    assert "top-secret" in result.stdout
     assert all(row["type"] != "result" for row in rows)
 
 
-def test_stream_json_composition_error_redacts_bare_configured_literal(monkeypatch) -> None:
+def test_stream_json_composition_error_preserves_bare_configured_literal(monkeypatch) -> None:
     secret = "bare-configured-literal"
     monkeypatch.setattr(
         "homemaster.cli.run_command.load_config",
         lambda **_kwargs: SimpleNamespace(providers=object()),
-    )
-    monkeypatch.setattr(
-        "homemaster.cli.run_command.configured_sensitive_values",
-        lambda _config: (secret,),
     )
 
     def fail_composition(**_kwargs):
@@ -174,11 +170,11 @@ def test_stream_json_composition_error_redacts_bare_configured_literal(monkeypat
     assert rows == [
         {
             "type": "error",
-            "message": "composition exposed [REDACTED]",
+            "message": f"composition exposed {secret}",
             "recoverable": False,
         }
     ]
-    assert secret not in result.stdout
+    assert secret in result.stdout
 
 
 def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_path: Path) -> None:
@@ -204,10 +200,6 @@ def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_pa
         lambda **_kwargs: SimpleNamespace(providers=object()),
     )
     monkeypatch.setattr(
-        "homemaster.cli.run_command.configured_sensitive_values",
-        lambda _config: (secret,),
-    )
-    monkeypatch.setattr(
         "homemaster.cli.run_command.create_home_application",
         lambda **_kwargs: bundle,
     )
@@ -222,11 +214,11 @@ def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_pa
     assert rows == [
         {
             "type": "error",
-            "message": "close exposed [REDACTED]",
+            "message": f"close exposed {secret}",
             "recoverable": False,
         }
     ]
-    assert secret not in result.stdout
+    assert secret in result.stdout
 
 
 def test_top_level_print_forwards_resume_and_continue(monkeypatch, tmp_path: Path) -> None:
@@ -286,14 +278,16 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     assert preview["settings"]["profile"] == "home"
     assert preview["mcp_discovery"] == "not_configured"
     assert preview["external_io"] is False
-    assert [tool["name"] for tool in preview["tools"]][:6] == [
-        "task_interpreter",
-        "memory_retriever",
-        "target_grounder",
+    tool_names = [tool["name"] for tool in preview["tools"]]
+    assert tool_names[:6] == [
         "bash",
         "brief",
         "sleep",
+        "tool_search",
+        "todo_write",
+        "notebook_edit",
     ]
+    assert {"robot_go_to", "browser_navigate", "task_planner"} <= set(tool_names)
     assert {skill["name"] for skill in preview["skills"]} >= {
         "fetch_object",
         "check_object_state",

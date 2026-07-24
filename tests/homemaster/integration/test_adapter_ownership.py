@@ -48,7 +48,7 @@ def test_all_four_entries_have_no_legacy_model_runtime_assembly() -> None:
         assert not called_names & FORBIDDEN_CONSTRUCTORS, relative
 
 
-def test_profiles_own_model_facing_projection_without_legacy_registry_builders() -> None:
+def test_profiles_use_only_the_universal_registry_builder() -> None:
     tree = _tree("src/homemaster/adapters/profiles.py")
     imported = {
         alias.name
@@ -62,7 +62,6 @@ def test_profiles_own_model_facing_projection_without_legacy_registry_builders()
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert not {
-        "ToolRegistry",
         "build_alfworld_tool_registry",
         "build_coworker_tool_registry",
         "build_home_tool_registry",
@@ -88,18 +87,27 @@ def test_agent_and_dispatcher_have_no_private_run_context_or_runtime_tool_spec()
     )
 
 
-def test_application_factory_is_the_only_production_execution_constructor() -> None:
-    constructors = []
+def test_removed_execution_modules_are_absent_from_production() -> None:
+    removed_modules = {
+        "homemaster.tools.catalog",
+        "homemaster.tools.pipeline",
+    }
+    imported_modules = []
     for path in (REPO_ROOT / "src/homemaster").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        if any(
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "ToolExecutionPipeline"
-            for node in ast.walk(tree)
-        ):
-            constructors.append(path.relative_to(REPO_ROOT).as_posix())
-    assert constructors == ["src/homemaster/application/factory.py"]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module in removed_modules:
+                imported_modules.append((path.relative_to(REPO_ROOT).as_posix(), node.module))
+            if isinstance(node, ast.Import):
+                imported_modules.extend(
+                    (path.relative_to(REPO_ROOT).as_posix(), alias.name)
+                    for alias in node.names
+                    if alias.name in removed_modules
+                )
+
+    assert not (REPO_ROOT / "src/homemaster/tools/catalog.py").exists()
+    assert not (REPO_ROOT / "src/homemaster/tools/pipeline.py").exists()
+    assert imported_modules == []
 
 
 def _tree(relative: str) -> ast.Module:

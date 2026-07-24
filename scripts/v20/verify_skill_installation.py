@@ -16,21 +16,16 @@ import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
-from homemaster.adapters.profiles import build_home_profile
+from homemaster.adapters import build_universal_tool_registry
 from homemaster.agent.messages import ToolCall
 from homemaster.agent.normalized import RunContext
-from homemaster.permissions import HomePermissionPolicy, PermissionMode, PermissionSettingsConfig
+from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
 from homemaster.skills.loader import load_skill_registry
-from homemaster.tools.contracts import (
-    PermissionSubject,
-    ToolExecutionContext,
-    ToolExecutionResult,
-    ToolExecutionStatus,
-    VerificationStatus,
-)
-from homemaster.tools.legacy_adapter import LegacyToolExecutionContext
-from homemaster.tools.pipeline import ToolExecutionPipeline
+from homemaster.tools import ToolExecutionContext, ToolResult
+from homemaster.tools.contracts import PermissionSubject, ToolExecutionStatus, VerificationStatus
+from homemaster.tools.executor import ToolExecutor
 
 COMMIT = "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
 REPOSITORY = "https://github.com/HKUDS/OpenHarness.git"
@@ -45,10 +40,10 @@ class Gate:
         self.root = root
         self.home = home
         self.skill_root = home / ".homemaster" / "skills"
-        self.profile = build_home_profile()
-        self.pipeline = ToolExecutionPipeline(
-            self.profile.catalog,
-            permission_policy=HomePermissionPolicy(
+        self.tool_registry = build_universal_tool_registry()
+        self.executor = ToolExecutor(
+            self.tool_registry,
+            permission_checker=PermissionChecker(
                 PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO)
             ),
         )
@@ -63,9 +58,8 @@ class Gate:
             allowed_builtin_overrides=("skill-creator", "commit"),
         )
 
-    async def execute(self, name: str, arguments: dict[str, object]) -> ToolExecutionResult:
-        lookup = self.profile.view.lookup(name)
-        assert lookup.tool is not None, name
+    async def execute(self, name: str, arguments: dict[str, object]) -> _GateResult:
+        assert self.tool_registry.get(name) is not None, name
         run_context = RunContext(
             session_id="v20-install",
             run_id="v20-install",
@@ -75,43 +69,41 @@ class Gate:
             deps={"skill_registry": self.registry},
         )
         context = ToolExecutionContext(
-            session_id="v20-install",
-            run_id="v20-install",
-            turn_index=0,
-            tool_call_id=f"call-{name}",
-            internal_tool_id=lookup.tool.definition.internal_id,
-            tool_view=self.profile.view,
-            permission_subject=PermissionSubject(
-                subject_id="v20-verifier",
-                channel="cli",
-                roles=("local_operator",),
-                capabilities=(
-                    "tool.read",
-                    "tool.mutate",
-                    "tool.auto",
-                    "filesystem.read",
-                    "filesystem.write",
-                    "network.http",
-                    "process.exec",
+            self.root,
+            metadata={
+                "session_id": "v20-install",
+                "run_id": "v20-install",
+                "turn_index": 0,
+                "tool_call_id": f"call-{name}",
+                "internal_tool_id": f"homemaster.{name}.v1",
+                "tool_registry": self.tool_registry,
+                "permission_subject": PermissionSubject(
+                    subject_id="v20-verifier",
+                    channel="cli",
+                    roles=("local_operator",),
+                    capabilities=(
+                        "tool.read",
+                        "tool.mutate",
+                        "tool.auto",
+                        "filesystem.read",
+                        "filesystem.write",
+                        "network.http",
+                        "process.exec",
+                    ),
                 ),
-            ),
-            backend=LegacyToolExecutionContext(
-                run_context=run_context,
-                tool_call_id=f"call-{name}",
-                internal_tool_id=lookup.tool.definition.internal_id,
-            ),
-            deadline=None,
-            cancellation=None,
-            domain_observer=None,
-            working_directory=self.root,
-            services={"skill_registry": self.registry},
+                "run_context": run_context,
+                "services": {"skill_registry": self.registry},
+                "skill_registry": self.registry,
+            },
         )
-        return await self.pipeline.execute(
-            ToolCall(id=f"call-{name}", name=name, arguments=arguments),
-            context,
+        return _GateResult(
+            await self.executor.execute(
+                ToolCall(id=f"call-{name}", name=name, arguments=arguments),
+                context,
+            )
         )
 
-    async def bash(self, command: str, *, timeout: int = 600) -> ToolExecutionResult:
+    async def bash(self, command: str, *, timeout: int = 600) -> _GateResult:
         result = await self.execute(
             "bash",
             {"command": command, "cwd": str(self.root), "timeout_seconds": timeout},
@@ -119,6 +111,23 @@ class Gate:
         assert result.status is ToolExecutionStatus.SUCCESS, result.to_dict()
         assert result.data["returncode"] == 0
         return result
+
+
+class _GateResult:
+    def __init__(self, result: ToolResult) -> None:
+        self._result = result
+        self.text = result.output
+        self.data = result.metadata
+        self.status = ToolExecutionStatus(result.metadata.get("status", "failure"))
+        verification = result.metadata.get("verification_status", "not_requested")
+        self.verification = SimpleNamespace(status=VerificationStatus(verification))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "output": self.text,
+            "is_error": self._result.is_error,
+            "metadata": dict(self.data),
+        }
 
 
 async def verify(source_skill: Path, *, keep: bool) -> dict[str, object]:

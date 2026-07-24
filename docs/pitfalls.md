@@ -1,5 +1,23 @@
 # Engineering Pitfalls
 
+## 2026-07-24 - `/tmp` 顶层文件遮蔽 wheel 依赖，制造隔离安装假失败
+
+### 症状与根因
+
+wheel 在新虚拟环境中连同全部声明依赖安装成功，但从 `/tmp` 作为当前目录导入 Registry 时，`attrs` 最终
+加载了无关的 `/tmp/attr.py`，并因该文件访问另一用户的受限路径而报 `PermissionError`。Python 把当前目录
+放在依赖解析前面；“位于 checkout 外”并不等于导入环境干净。
+
+### 修法与教训
+
+不修改外部 `/tmp/attr.py`，而是在专用的新建空目录中重跑同一 installed-wheel 门。CLI、58 个唯一普通名
+工具、旧模块不可导入及 Bash 外部文件终态随后全部通过。installed-wheel 验证必须同时使用独立虚拟环境和
+空工作目录，不能直接把共享 `/tmp` 顶层当作 cwd。
+
+### 参考
+
+- `plan/V2.0/homemaster-skill-identity-raw-output-remediation-handoff.md`
+
 ## 2026-07-24 - 飞书真实私聊 `p2p` 被内部 `private` 校验静默拒绝
 
 ### 症状与根因

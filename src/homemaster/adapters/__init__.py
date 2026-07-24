@@ -1,19 +1,11 @@
-"""Canonical environment adapters and model-facing tool profiles."""
+"""Environment adapters and universal tool composition."""
 
 from homemaster.adapters.profiles import (
     CoworkerScreenshotBackend,
-    EnvironmentToolProfile,
-    build_alfworld_profile,
-    build_coworker_profile,
-    build_environment_profiles,
-    build_home_profile,
+    build_universal_tool_registry,
 )
 
 __all__ = [
     "CoworkerScreenshotBackend",
-    "EnvironmentToolProfile",
-    "build_alfworld_profile",
-    "build_coworker_profile",
-    "build_environment_profiles",
-    "build_home_profile",
+    "build_universal_tool_registry",
 ]

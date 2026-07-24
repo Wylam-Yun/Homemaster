@@ -143,7 +143,7 @@ skills:
   # Each plugin root contains OpenHarness plugin directories with plugin.json manifests.
   plugin_roots: []
   enabled_plugins: {}
-  # Project .openharness/plugins Skills are data-only and disabled unless explicitly trusted.
+  # Project .homemaster/plugins Skills are data-only and disabled unless explicitly trusted.
   allow_project_plugin_skills: false
   allowed_builtin_overrides: []
 
@@ -217,4 +217,4 @@ extensions:
   #   version: 1.0.0
   #   expected_sha256: <64-lowercase-hex-host-computed-digest>
   #   granted_capabilities: [hook.lifecycle]
-  #   enabled_tool_ids: []
+  #   enabled_tool_ids: []  # deployment registration approval, not a per-run filter

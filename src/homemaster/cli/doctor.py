@@ -50,7 +50,7 @@ class DoctorReport(BaseModel):
 
 
 def run_doctor(*, live: bool = False) -> DoctorReport:
-    """Run local checks, and optional provider smoke checks, without exposing secrets."""
+    """Run local checks and optional provider smoke checks with authoritative details."""
 
     checks: list[DoctorCheck] = []
     config_source = _config_source()

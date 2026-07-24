@@ -1,4 +1,4 @@
-"""OpenHarness-compatible Skill discovery for HomeMaster."""
+"""HomeMaster Skill discovery and Registry types."""
 
 from homemaster.skills.types import SkillDefinition
 

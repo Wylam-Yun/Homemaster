@@ -36,11 +36,11 @@ def test_dry_run_reports_static_mcp_config_without_connecting(monkeypatch) -> No
     assert preview["mcp_discovery"] == "unknown_until_connect"
     assert preview["external_io"] is False
     assert preview["mcp_statuses"] == []
-    assert "password" not in str(preview)
-    assert "opaque-secret" not in str(preview)
+    assert "https://user:password@example.test/mcp" in str(preview)
+    assert "opaque-secret" in str(preview)
 
 
-def test_explicit_probe_records_external_io_and_redacted_status(monkeypatch) -> None:
+def test_explicit_probe_records_external_io_and_status(monkeypatch) -> None:
     async def probe(_config):
         return [
             {

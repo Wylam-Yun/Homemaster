@@ -44,7 +44,7 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "expected={'commit.md','debug.md','diagnose.md','plan.md','review.md',"
                 "'simplify.md','skill-creator.md','test.md'}; "
                 "assert {p.name for p in b.iterdir() if p.is_file()} == expected; "
-                "from homemaster.adapters.profiles import build_home_profile; "
+                "from homemaster.adapters import build_universal_tool_registry; "
                 "tools=set('bash ask_user_question read_file write_file edit_file notebook_edit "
                 "lsp mcp_auth glob grep image_to_text image_generation skill tool_search "
                 "web_fetch web_search config brief sleep enter_worktree exit_worktree todo_write "
@@ -52,7 +52,7 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "remote_trigger task_create task_get task_list task_stop task_output task_update "
                 "agent send_message team_create team_delete'.split()); "
                 "assert len(tools) == 39; "
-                "assert tools <= set(build_home_profile().model_tool_names); "
+                "assert tools <= set(build_universal_tool_registry().all_names()); "
                 "print('PASS')"
             ),
         ],

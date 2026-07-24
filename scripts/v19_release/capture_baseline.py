@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import os
 import platform
 import re
@@ -17,7 +18,6 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from homemaster.adapters import build_environment_profiles
 from homemaster.config import load_config
 from homemaster.providers.attempts import (
     AttemptCommitState,
@@ -217,36 +217,10 @@ def capture_baseline(
 
 
 def _tool_surfaces() -> dict[str, Any]:
-    profiles = {}
-    for name, profile in build_environment_profiles().items():
-        tools = []
-        for registered in profile.view.list_tools():
-            definition = registered.definition
-            snapshot = definition.to_dict()
-            tools.append(
-                {
-                    "name": definition.model_alias,
-                    "selectable_by_model": True,
-                    "executor_mode": definition.execution_backend.value,
-                    "requires_verification": (
-                        definition.verification_policy.execution_proof.value != "none"
-                    ),
-                    "input_schema_sha256": sha256_bytes(
-                        canonical_json_bytes(snapshot["input_schema"])
-                    ),
-                    "output_schema_sha256": sha256_bytes(
-                        canonical_json_bytes(snapshot["output_schema"])
-                    ),
-                    "model_manifest_sha256": sha256_bytes(
-                        canonical_json_bytes(definition.to_model_manifest())
-                    ),
-                }
-            )
-        profiles[name] = {
-            "ordered_tool_names": list(profile.model_tool_names),
-            "tools": tools,
-        }
-    return {"schema_version": "homemaster-v1.9-baseline-tool-surfaces-v1", "profiles": profiles}
+    """Return the immutable V1.9 artifact, not the current V2 tool surface."""
+
+    path = Path(__file__).resolve().parents[2] / "plan/V1.9/baseline/tool-surfaces.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _provider_attempt_contract() -> dict[str, Any]:

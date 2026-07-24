@@ -135,7 +135,7 @@ def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> 
 
     assert isinstance(projected[0], AssistantTextDelta)
     assert isinstance(projected[1], ToolExecutionStarted)
-    assert projected[1].tool_input == {"api_key": "[REDACTED]", "safe": "value"}
+    assert projected[1].tool_input == {"api_key": "secret", "safe": "value"}
     assert isinstance(projected[2], ToolExecutionCompleted)
     assert isinstance(projected[3], AssistantTurnComplete)
     assert isinstance(projected[4], ErrorEvent)
@@ -144,18 +144,18 @@ def test_openharness_consumer_branches_map_from_allowlisted_runtime_events() -> 
     assert project_stream_event(private) is None
 
 
-def test_gateway_projection_redacts_secrets_queries_and_host_paths_in_free_text() -> None:
-    projection = PublicEventProjection(sensitive_values=("configured-secret",))
+def test_gateway_projection_preserves_secrets_queries_and_host_paths_in_free_text() -> None:
+    projection = PublicEventProjection()
 
-    sanitized = projection.sanitize_content(
+    content = projection.project_content(
         "token=raw-token configured-secret /home/operator/private.txt "
         "https://example.test/file?signature=raw"
     )
 
-    assert "raw-token" not in sanitized
-    assert "configured-secret" not in sanitized
-    assert "/home/operator" not in sanitized
-    assert "signature" not in sanitized
+    assert content == (
+        "token=raw-token configured-secret /home/operator/private.txt "
+        "https://example.test/file?signature=raw"
+    )
 
 
 @pytest.mark.asyncio
@@ -310,19 +310,20 @@ async def test_public_stream_requires_explicit_trust_boundary() -> None:
     await bus.aclose()
 
 
-def test_coworker_projector_rejects_free_text_secrets_and_raw_outputs() -> None:
+def test_coworker_projector_preserves_free_text_and_structurally_summarizes_tools() -> None:
     secret = "configured-provider-secret"
-    project = build_coworker_stream_projector(sensitive_values=(secret,))
+    project = build_coworker_stream_projector()
 
-    assert project(_event("assistant.reply", payload={"reply": f"token={secret}"})) is None
-    assert (
-        project(
-            _event(
-                "assistant.reply",
-                payload={"reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"},
-            )
+    assert project(
+        _event("assistant.reply", payload={"reply": f"token={secret}"})
+    ) == AssistantTextDelta(text=f"token={secret}")
+    assert project(
+        _event(
+            "assistant.reply",
+            payload={"reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"},
         )
-        is None
+    ) == AssistantTextDelta(
+        text="https://example.invalid/file?X-Amz-Signature=deadbeef"
     )
 
     terminal = project(
@@ -347,16 +348,26 @@ def test_coworker_projector_rejects_free_text_secrets_and_raw_outputs() -> None:
     assert secret not in failure.message
 
 
-def test_gateway_projection_is_allowlisted_correlated_and_recursively_redacted() -> None:
+def test_gateway_projection_is_allowlisted_correlated_and_preserves_values() -> None:
     secret = "configured-provider-secret"
-    projection = PublicEventProjection(sensitive_values=(secret,))
+    projection = PublicEventProjection()
     event = _event(
         "tool.call_completed",
         name="observe",
         tool_call_id="call-1",
         payload={
             "result": "done",
-            "usage": {"nested": [{"api_key": "raw-key", "safe": "ready"}]},
+            "usage": {
+                "nested": [
+                    {
+                        "api_key": "raw-key",
+                        "token": secret,
+                        "path": "/private/work/result.png",
+                        "uri": "https://example.invalid/file?token=raw",
+                        "safe": "ready",
+                    }
+                ]
+            },
             "data": {
                 "token": secret,
                 "path": "/private/work/result.png",
@@ -373,10 +384,10 @@ def test_gateway_projection_is_allowlisted_correlated_and_recursively_redacted()
     assert public.turn_index == 0
     assert public.correlation_id == "call-1"
     encoded = json.dumps(public.to_dict())
-    assert secret not in encoded
-    assert "raw-key" not in encoded
-    assert "/private/work" not in encoded
-    assert "?token=" not in encoded
+    assert secret in encoded
+    assert "raw-key" in encoded
+    assert "/private/work" in encoded
+    assert "?token=" in encoded
 
 
 def test_gateway_projection_rejects_private_and_unknown_events() -> None:

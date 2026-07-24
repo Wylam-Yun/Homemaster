@@ -13,7 +13,7 @@ from typing import Any, Protocol
 from homemaster.agent.compact import (
     build_compaction_summary_message,
     microcompact_tool_results_by_type,
-    sanitize_tool_pairs,
+    repair_tool_pairs,
     split_preserving_recent_context,
     strip_old_images,
 )
@@ -617,7 +617,7 @@ class ContextAssembler:
             default_keep_recent=self._policy.default_keep_recent_tool_results,
         )
         if stripped_images or saved_tool_tokens:
-            stage1_messages = sanitize_tool_pairs(stage1_messages)
+            stage1_messages = repair_tool_pairs(stage1_messages)
             stage1_estimate = estimate_messages_tokens(
                 stage1_messages,
                 estimator=self._estimator,
@@ -664,7 +664,7 @@ class ContextAssembler:
         summary = self._build_summary(older=older, recent=recent)
         if summary is None:
             return False, "none", messages
-        compacted_messages = sanitize_tool_pairs([
+        compacted_messages = repair_tool_pairs([
             build_compaction_summary_message(summary),
             *recent,
         ])
@@ -723,7 +723,7 @@ class ContextAssembler:
             default_keep_recent=self._policy.default_keep_recent_tool_results,
         )
         if stripped_images or saved_tool_tokens:
-            stage1_messages = sanitize_tool_pairs(stage1_messages)
+            stage1_messages = repair_tool_pairs(stage1_messages)
             stage1_estimate = estimate_messages_tokens(
                 stage1_messages,
                 estimator=self._estimator,
@@ -774,7 +774,7 @@ class ContextAssembler:
         summary = await self._abuild_summary(older=older, recent=recent)
         if summary is None:
             return False, "none", messages
-        compacted_messages = sanitize_tool_pairs(
+        compacted_messages = repair_tool_pairs(
             [build_compaction_summary_message(summary), *recent]
         )
         compacted_messages, _ = strip_old_images(

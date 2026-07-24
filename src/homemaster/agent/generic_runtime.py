@@ -27,10 +27,6 @@ from homemaster.agent.runtime_contracts import RuntimeStopDecision
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
 from homemaster.agent.state import AgentState, ProviderUsage
-from homemaster.events.public_projection import (
-    PublicEventProjection,
-    StreamingPublicTextSanitizer,
-)
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.sinks import FanoutEventSink
 from homemaster.providers.attempts import (
@@ -44,7 +40,7 @@ from homemaster.task_state.store import TaskStateStore
 
 if TYPE_CHECKING:
     from homemaster.agent.context import ContextAssembler
-    from homemaster.tools.catalog import ToolView
+    from homemaster.tools.base import ToolRegistry
 
 _CONTEXT_LENGTH_KEYWORDS = (
     "context_length_exceeded",
@@ -119,7 +115,7 @@ class AgentRuntime:
         agent_state: AgentState | None = None,
         task_state_store: TaskStateStore | None = None,
         force_compact: str | bool | None = None,
-        tool_view: ToolView | None = None,
+        tool_registry: ToolRegistry | None = None,
         cancellation_token: Any = None,
         deadline: Any = None,
     ) -> GenericRunResult:
@@ -127,8 +123,6 @@ class AgentRuntime:
 
         run_id = run_id or uuid.uuid4().hex[:12]
         events: list[RuntimeEvent] = []
-        public_sensitive_values = tuple(getattr(settings, "public_sensitive_values", ()) or ())
-        public_projection = PublicEventProjection(sensitive_values=public_sensitive_values)
         observability = getattr(settings, "observability", None)
         interrupt = InterruptController(
             abort_llm_stream=bool(getattr(observability, "interrupt_abort_llm_stream", True))
@@ -143,24 +137,19 @@ class AgentRuntime:
                 signal_registered = False
 
         async def emit(event_type: str, **kwargs: Any) -> None:
+            local_only = bool(kwargs.pop("local_only", False))
             event = RuntimeEvent(
                 type=event_type,
                 session_id=session.session_id,
                 run_id=run_id,
                 turn_index=0,
                 tool_call_id=kwargs.pop("tool_call_id", None),
-                name=_redact_sensitive_values(
-                    kwargs.pop("name", None),
-                    public_sensitive_values,
-                ),
-                payload=_redact_sensitive_values(
-                    kwargs.pop("payload", {}),
-                    public_sensitive_values,
-                ),
+                name=kwargs.pop("name", None),
+                payload=kwargs.pop("payload", {}),
                 **{k: v for k, v in kwargs.items() if k != "payload"},
             )
             events.append(event)
-            if event_sink is not None:
+            if event_sink is not None and not local_only:
                 aemit = getattr(event_sink, "aemit", None)
                 if callable(aemit):
                     await aemit(event)
@@ -216,8 +205,8 @@ class AgentRuntime:
             },
         )
 
-        if tool_view is not None:
-            tool_schemas = [dict(manifest) for manifest in tool_view.manifests()]
+        if tool_registry is not None:
+            tool_schemas = list(tool_registry.to_api_schema())
         else:
             tool_schemas = []
 
@@ -295,9 +284,6 @@ class AgentRuntime:
                 frozen_system_prompt = context_system_prompt
 
                 try:
-                    stream_sanitizer = StreamingPublicTextSanitizer(
-                        sensitive_values=public_sensitive_values
-                    )
                     attempt_index = 0
                     first_request_sha256: str | None = None
                     successful_attempt: ProviderAttemptRecord | None = None
@@ -356,13 +342,8 @@ class AgentRuntime:
                                     deadline=deadline,
                                     on_delta=partial(
                                         self._publish_text_delta,
-                                        sanitizer=stream_sanitizer,
                                         emit=emit,
                                     ),
-                                )
-                                await self._finish_public_text(
-                                    stream_sanitizer,
-                                    emit=emit,
                                 )
                             finally:
                                 interrupt.clear_stream()
@@ -408,7 +389,6 @@ class AgentRuntime:
                         assistant_msg = aggregate_deltas(deltas)
                         break
                 except Exception as exc:
-                    await self._finish_public_text(stream_sanitizer, emit=emit)
                     if (
                         self._context_assembler is not None
                         and not deltas
@@ -473,7 +453,7 @@ class AgentRuntime:
                 await emit(
                     "assistant.reply",
                     payload={
-                        "reply": public_projection.sanitize_content(assistant_msg.text),
+                        "reply": assistant_msg.text,
                         "finish_reason": assistant_msg.finish_reason,
                         "usage": assistant_msg.usage or {},
                         "tool_calls": [
@@ -568,6 +548,26 @@ class AgentRuntime:
                         error_code="tool_result_id_mismatch",
                     )
 
+                if _cancelled(interrupt, cancellation_token):
+                    await self._publish_tool_results(
+                        tool_calls,
+                        tool_results,
+                        dispatch_ms=dispatch_ms,
+                        emit=emit,
+                        local_only=True,
+                    )
+                    return await self._cancel_result(
+                        session,
+                        run_id,
+                        events,
+                        emit=emit,
+                        phase="tool_execution",
+                        agent_state=agent_state,
+                        task_state_store=task_state_store,
+                        persistence=persistence,
+                        local_only=True,
+                    )
+
                 for result in tool_results:
                     session.append(result)
 
@@ -585,34 +585,12 @@ class AgentRuntime:
                     ]
                 )
 
-                call_args = {tool_call.id: tool_call.arguments for tool_call in tool_calls}
-                for result in tool_results:
-                    await emit(
-                        "tool.call_failed" if result.is_error else "tool.call_completed",
-                        tool_call_id=result.tool_call_id,
-                        name=result.name,
-                        payload={
-                            "is_error": result.is_error,
-                            "args": call_args.get(result.tool_call_id, {}),
-                            "result": "\n".join(
-                                block.text for block in result.content if block.text
-                            ),
-                            "data": result.data,
-                        },
-                        duration_ms=dispatch_ms,
-                    )
-
-                if _cancelled(interrupt, cancellation_token):
-                    return await self._cancel_result(
-                        session,
-                        run_id,
-                        events,
-                        emit=emit,
-                        phase="tool_execution",
-                        agent_state=agent_state,
-                        task_state_store=task_state_store,
-                        persistence=persistence,
-                    )
+                await self._publish_tool_results(
+                    tool_calls,
+                    tool_results,
+                    dispatch_ms=dispatch_ms,
+                    emit=emit,
+                )
 
                 save_snapshot()
 
@@ -706,24 +684,11 @@ class AgentRuntime:
     async def _publish_text_delta(
         delta: Any,
         *,
-        sanitizer: StreamingPublicTextSanitizer,
         emit: Callable[..., Awaitable[None]],
     ) -> None:
         text = getattr(delta, "text_delta", None)
         if text:
-            released = sanitizer.feed(text)
-            if released:
-                await emit("transport.delta", payload={"text_delta": released})
-
-    @staticmethod
-    async def _finish_public_text(
-        sanitizer: StreamingPublicTextSanitizer,
-        *,
-        emit: Callable[..., Awaitable[None]],
-    ) -> None:
-        released = sanitizer.finish()
-        if released:
-            await emit("transport.delta", payload={"text_delta": released})
+            await emit("transport.delta", payload={"text_delta": text})
 
     @staticmethod
     async def _record_usage(
@@ -761,8 +726,13 @@ class AgentRuntime:
         agent_state: AgentState | None = None,
         task_state_store: TaskStateStore | None = None,
         persistence: SessionPersistenceManager | None = None,
+        local_only: bool = False,
     ) -> GenericRunResult:
-        await emit("runtime.cancelled", payload={"phase": phase})
+        await emit(
+            "runtime.cancelled",
+            payload={"phase": phase},
+            local_only=local_only,
+        )
         snapshot = getattr(task_state_store, "snapshot", None)
         if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
             task_state_store.update_status(TaskStatus.PAUSED)
@@ -777,6 +747,31 @@ class AgentRuntime:
             events=events,
             error_code="user_interrupted",
         )
+
+    @staticmethod
+    async def _publish_tool_results(
+        tool_calls: list[ToolCall],
+        tool_results: list[ToolResultMessage],
+        *,
+        dispatch_ms: float,
+        emit: Callable[..., Awaitable[None]],
+        local_only: bool = False,
+    ) -> None:
+        call_args = {tool_call.id: tool_call.arguments for tool_call in tool_calls}
+        for result in tool_results:
+            await emit(
+                "tool.call_failed" if result.is_error else "tool.call_completed",
+                tool_call_id=result.tool_call_id,
+                name=result.name,
+                payload={
+                    "is_error": result.is_error,
+                    "args": call_args.get(result.tool_call_id, {}),
+                    "result": "\n".join(block.text for block in result.content if block.text),
+                    "data": result.data,
+                },
+                duration_ms=dispatch_ms,
+                local_only=local_only,
+            )
 
     @staticmethod
     async def _check_loop_guards(
@@ -965,27 +960,6 @@ def _accepts_stream_parameter(stream: Any, name: str) -> bool:
 def _last_provider_attempt(sink: Any) -> ProviderAttemptRecord | None:
     record = getattr(sink, "last_record", None)
     return record if isinstance(record, ProviderAttemptRecord) else None
-
-
-def _redact_sensitive_values(value: Any, sensitive_values: tuple[str, ...]) -> Any:
-    """Remove configured literals before any RuntimeEvent or trace consumer sees them."""
-
-    if isinstance(value, dict):
-        return {
-            str(key): _redact_sensitive_values(item, sensitive_values)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_sensitive_values(item, sensitive_values) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_redact_sensitive_values(item, sensitive_values) for item in value)
-    if isinstance(value, str):
-        sanitized = value
-        for secret in sensitive_values:
-            if secret:
-                sanitized = sanitized.replace(secret, "[REDACTED]")
-        return sanitized
-    return value
 
 
 def _provider_retry_allowed(

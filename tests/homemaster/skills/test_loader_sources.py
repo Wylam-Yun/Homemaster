@@ -119,7 +119,7 @@ def test_project_plugin_skills_are_disabled_by_default_and_require_opt_in(
     cwd = repo / "package"
     cwd.mkdir(parents=True)
     (repo / ".git").mkdir()
-    _write_plugin(repo / ".openharness" / "plugins", "project-plugin", "project-skill")
+    _write_plugin(repo / ".homemaster" / "plugins", "project-plugin", "project-skill")
 
     disabled = load_skill_registry(cwd=cwd)
     enabled = load_skill_registry(cwd=cwd, allow_project_plugin_skills=True)
