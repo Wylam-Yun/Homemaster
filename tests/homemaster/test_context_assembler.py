@@ -13,6 +13,7 @@ from homemaster.agent.messages import (
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
+from homemaster.skills.loader import load_skill_registry
 from homemaster.task_state.store import TaskStateStore
 
 
@@ -98,6 +99,41 @@ def test_assembler_includes_runtime_budget_status() -> None:
         '"max_tool_iterations": 99' in block.text
         for message in context.messages for block in message.content
     )
+
+
+def test_assembler_lists_skill_summaries_without_inlining_full_instructions() -> None:
+    registry = load_skill_registry()
+    assembler = ContextAssembler(
+        provider=ProviderProfileConfig(
+            name="mimo_v25",
+            protocol="anthropic",
+            base_url="https://mimo.example",
+            model="MiMo-V2.5",
+            api_keys=["secret"],
+            context_window_tokens=None,
+            max_output_tokens=None,
+        ),
+        policy=ContextPolicyConfig(),
+        system_prompt="You are HomeMaster.",
+        skill_registry=registry,
+    )
+    session = AgentSession(session_id="s1")
+    session.append(UserMessage(content=[ContentBlock(text="help")]))
+
+    context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id="s1"),
+        task_state_store=None,
+        tools=[],
+    )
+
+    text = "\n".join(
+        block.text for message in context.messages for block in message.content if block.text
+    )
+    assert "# Available Skills" in text
+    assert "**skill-creator**" in text
+    assert "Use the `skill` tool" in text
+    assert "Read `references" not in text
 
 
 def test_assembler_estimates_tokens() -> None:

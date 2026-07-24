@@ -384,14 +384,7 @@ async def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash
 ) -> None:
     image_path = tmp_path / "frame.png"
     image_path.write_bytes(b"exact-image-bytes")
-    image_block = ContentBlock.from_image_path(image_path).model_copy(
-        update={
-            "metadata": {
-                "path": str(image_path),
-                "frame_binding_id": "frame-bound-exact",
-            }
-        }
-    )
+    image_block = ContentBlock.from_image_path(image_path)
     requests: list[dict[str, Any]] = []
     constructions: list[dict[str, Any]] = []
     sink = ListProviderAttemptSink()
@@ -448,11 +441,9 @@ async def test_llm_client_records_one_call_scoped_attempt_with_actual_image_hash
         ).hexdigest()
     )
     assert len(record.outbound_images) == 1
-    assert record.outbound_images[0].frame_binding_id == "frame-bound-exact"
     assert (
         record.outbound_images[0].content_sha256 == hashlib.sha256(b"exact-image-bytes").hexdigest()
     )
-    assert "frame-bound-exact" not in json.dumps(requests[0], ensure_ascii=False)
 
 
 @pytest.mark.asyncio

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from homemaster.artifacts import ToolOutputStore
+from homemaster.channels.feishu_groups import build_feishu_group_tools
 from homemaster.mcp.adapter import build_mcp_registered_tools
 from homemaster.mcp.types import McpToolInfo
 from homemaster.permissions import HomePermissionPolicy, PermissionMode, PermissionSettingsConfig
@@ -47,6 +50,7 @@ def context(capabilities: tuple[str, ...]):
     return SimpleNamespace(
         run_id="run",
         tool_call_id="call",
+        working_directory=Path.cwd(),
         permission_subject=PermissionSubject(
             subject_id="principal",
             channel="gateway",
@@ -180,3 +184,27 @@ def test_exact_tool_capability_does_not_grant_other_tools() -> None:
 
     assert policy.evaluate(first, {}, subject).allowed is True
     assert policy.evaluate(second, {}, subject).allowed is False
+
+
+def test_feishu_group_tools_require_exact_capability_before_any_api_call() -> None:
+    operations = Mock()
+    create, rename = build_feishu_group_tools(operations)
+    policy = HomePermissionPolicy(PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO))
+
+    denied = policy.evaluate(
+        create.definition,
+        {"name": "Operators"},
+        context(("tool.mutate", "channel.feishu.group.rename")),
+    )
+    allowed = policy.evaluate(
+        create.definition,
+        {"name": "Operators"},
+        context(("tool.mutate", "channel.feishu.group.create")),
+    )
+
+    assert denied.allowed is False
+    assert "channel.feishu.group.create" in denied.reason
+    assert allowed.allowed is True
+    operations.create.assert_not_called()
+    operations.rename.assert_not_called()
+    assert rename.definition.required_capabilities == ("channel.feishu.group.rename",)

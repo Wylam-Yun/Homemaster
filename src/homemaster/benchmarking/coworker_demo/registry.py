@@ -1,4 +1,4 @@
-"""Build the exact eleven-tool coworker registry in stable order."""
+"""Build the legacy ten-action-tool Coworker registry in stable order."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ EXPECTED_COWORKER_TOOLS = (
     "task_progress_check",
     "skill_view",
     "browser_navigate",
-    "observe",
     "browser_click",
     "browser_fill",
     "browser_select",

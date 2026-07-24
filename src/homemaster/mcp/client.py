@@ -202,6 +202,34 @@ class McpClientManager:
     def list_audit_failures(self) -> tuple[McpAuditFailure, ...]:
         return tuple(self._audit_failures)
 
+    def get_server_config(self, name: str) -> McpServerConfig | None:
+        return self._server_configs.get(name)
+
+    def update_server_config(self, name: str, config: McpServerConfig) -> None:
+        if name not in self._server_configs:
+            raise KeyError(f"unknown MCP server: {name}")
+        self._server_configs[name] = config
+        self.secret_values = mcp_secret_values(self._server_configs)
+
+    async def reconnect_all(self) -> None:
+        if self._closed:
+            raise RuntimeError("MCP manager is closed")
+        connections = tuple(self._connections.items())
+        self._connections.clear()
+        for name, connection in reversed(connections):
+            await _maybe_await(connection.close())
+            await self._audit("mcp.close.completed", server=name)
+        self._statuses = {
+            name: McpConnectionStatus(
+                name=name,
+                state="disabled" if not config.enabled else "pending",
+                transport=config.transport,
+                auth_configured=_auth_configured(config),
+            )
+            for name, config in self._server_configs.items()
+        }
+        await self.connect_all()
+
     async def call_tool(
         self,
         server_name: str,

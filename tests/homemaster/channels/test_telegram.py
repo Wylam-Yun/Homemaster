@@ -7,6 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from homemaster.channels.bus import BoundedPriorityBus
+from homemaster.channels.contracts import (
+    ChannelEventKind,
+    ChannelIdentity,
+    DeliveryStatus,
+    OutboundMessage,
+)
 from homemaster.channels.impl.telegram import (
     TelegramChannel,
     silence_telegram_token_url_loggers,
@@ -76,6 +82,26 @@ async def test_disabled_telegram_channel_does_not_import_or_start_network() -> N
     channel = TelegramChannel(_config(enabled=False), BoundedPriorityBus())
     await channel.start()
     assert not channel.is_running
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_returns_typed_success_receipt() -> None:
+    channel = TelegramChannel(_config(), BoundedPriorityBus())
+    bot = SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(message_id=42)))
+    channel._application = SimpleNamespace(bot=bot)
+    message = OutboundMessage(
+        identity=ChannelIdentity("tenant-a", "telegram", "123", "1001"),
+        session_id="session-a",
+        generation=1,
+        kind=ChannelEventKind.FINAL,
+        content="done",
+        correlation_id="corr-a",
+    )
+
+    receipt = await channel.send(message)
+
+    assert receipt.status is DeliveryStatus.CONFIRMED_SUCCESS
+    assert receipt.platform_ids == ("42",)
 
 
 @pytest.mark.asyncio

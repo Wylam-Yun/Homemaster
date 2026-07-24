@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,10 +15,7 @@ from homemaster.benchmarking.alfworld.gateway import (
     ExternalEventRead,
     GatewayActionResult,
 )
-from homemaster.benchmarking.alfworld.model_view import (
-    CommittedModelView,
-    VisibleObjectView,
-)
+from homemaster.benchmarking.alfworld.object_view import CurrentObjectView
 from homemaster.benchmarking.alfworld.pose_snapshot import OraclePose
 
 DRAWER = "Drawer|+00.00|+00.50|+00.00"
@@ -135,7 +131,6 @@ def _executor(
     fail: bool = False,
 ) -> tuple[OracleManipulationExecutor, Gateway]:
     raw = _event(is_open=is_open)
-    pixel_hash = hashlib.sha256(raw.frame.tobytes()).hexdigest()
     holder = {"event": raw}
     gateway = Gateway(holder, fail=fail)
     index = SceneObjectIndex.from_objects(
@@ -145,17 +140,9 @@ def _executor(
     )
     executor = OracleManipulationExecutor(
         scene_index=index,
-        visible_object_view=VisibleObjectView(
+        object_view=CurrentObjectView(
             event=raw,
             event_sequence=6,
-            committed_view=CommittedModelView(
-                model_attempt_id="attempt-1",
-                request_sha256="9" * 64,
-                frame_binding_id="frame-1",
-                frame_content_sha256="a" * 64,
-                frame_pixel_sha256=pixel_hash,
-                event_sequence=6,
-            ),
         ),
         current_event=_external(action="TeleportFull"),
         raw_event=raw,

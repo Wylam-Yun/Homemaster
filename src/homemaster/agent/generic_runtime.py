@@ -96,8 +96,6 @@ class AgentRuntime:
         stop_condition: StopCondition | None = None,
         context_assembler: ContextAssembler | None = None,
         system_prompt: str = "",
-        model_view_observer: Any = None,
-        provider_commit_observer: Any = None,
         provider_attempt_sink_factory: Callable[[], Any] | None = None,
     ) -> None:
         self._transport = transport
@@ -106,8 +104,6 @@ class AgentRuntime:
         self._stop_condition = stop_condition
         self._context_assembler = context_assembler
         self._system_prompt = system_prompt
-        self._model_view_observer = model_view_observer
-        self._provider_commit_observer = provider_commit_observer
         self._provider_attempt_sink_factory = provider_attempt_sink_factory
 
     async def run(
@@ -293,24 +289,6 @@ class AgentRuntime:
                         )
                         save_snapshot()
 
-                if self._model_view_observer is not None:
-                    bind_messages = getattr(
-                        self._model_view_observer,
-                        "bind_messages",
-                        None,
-                    )
-                    if callable(bind_messages):
-                        try:
-                            context_messages = bind_messages(context_messages)
-                        except Exception as exc:
-                            invalidate = getattr(
-                                self._model_view_observer,
-                                "invalidate",
-                                None,
-                            )
-                            if callable(invalidate):
-                                invalidate(f"{type(exc).__name__}: {exc}")
-
                 # Freeze provider inputs once so retry cannot recapture or rebuild media.
                 frozen_messages = [message.model_copy(deep=True) for message in context_messages]
                 frozen_tools = deepcopy(context_tools)
@@ -487,27 +465,6 @@ class AgentRuntime:
                     tool_dispatch_committed=False,
                     external_action_committed=False,
                 )
-                if assistant_msg.tool_calls:
-                    dependency_observer = (
-                        run_context.deps.get("provider_commit_observer")
-                        if run_context is not None
-                        else None
-                    )
-                    for observer in (
-                        self._model_view_observer,
-                        self._provider_commit_observer,
-                        dependency_observer,
-                    ):
-                        if observer is None:
-                            continue
-                        try:
-                            if successful_attempt is None:
-                                raise ValueError("provider attempt record is unavailable")
-                            observer.commit_successful_response(attempt=successful_attempt)
-                        except Exception as exc:
-                            invalidate = getattr(observer, "invalidate", None)
-                            if callable(invalidate):
-                                invalidate(f"{type(exc).__name__}: {exc}")
                 if assistant_msg.reasoning_content:
                     await emit(
                         "assistant.thinking",
@@ -666,7 +623,7 @@ class AgentRuntime:
                     if decision is not None:
                         await emit(
                             "runtime.turn_completed"
-                            if decision.status == "replied"
+                            if decision.status in {"replied", "waiting_user"}
                             else "runtime.turn_failed",
                             payload={"error_code": decision.error_code, **decision.payload},
                         )

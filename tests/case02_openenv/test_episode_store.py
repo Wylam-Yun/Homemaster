@@ -251,74 +251,16 @@ def test_browser_action_requires_real_progress_event_after_pre_decision(
     assert record.action_id == "allowed-browser"
 
 
-def test_operational_browser_action_requires_real_plan_after_ticket_read(
-    store: EpisodeStore,
-) -> None:
-    run_id = "plan-gate"
+def test_browser_actions_do_not_depend_on_screenshot_state(store: EpisodeStore) -> None:
+    run_id = "screenshot-independent"
     store.create(run_id, "normal")
-    store.record(
+    allowed, _version = reserve(
+        store,
         run_id,
-        source="runtime",
-        kind="tool_result",
-        status="succeeded",
-        arguments={"tool_name": "observe"},
-        node_id="TICKET_READ",
-        mutate_version=False,
+        "browser_navigate",
+        "navigate-without-screenshot",
     )
-    state = store.state(run_id)
-    observed = store.reserve_action(
-        run_id,
-        ActionReservation(
-            action_id="read-ticket",
-            tool_name="observe",
-            page_state_version=state.state_version,
-        ),
-    )
-    assert observed.action_id == "read-ticket"
-    with pytest.raises(EpisodeError, match="task_planner.*PLAN_CREATED"):
-        reserve(store, run_id, "browser_navigate", "monitor-too-early")
-
-    store.record(
-        run_id,
-        source="runtime",
-        kind="tool_result",
-        status="succeeded",
-        arguments={"tool_name": "skill_view"},
-        node_id="PLAN_CREATED",
-        mutate_version=False,
-    )
-    with pytest.raises(EpisodeError, match="task_planner.*PLAN_CREATED"):
-        reserve(store, run_id, "browser_click", "spoofed-plan")
-
-    store.record(
-        run_id,
-        source="runtime",
-        kind="tool_result",
-        status="succeeded",
-        arguments={"tool_name": "task_planner"},
-        node_id="PLAN_CREATED",
-        mutate_version=False,
-    )
-    allowed, _version = reserve(store, run_id, "browser_navigate", "after-plan")
-    assert allowed == "after-plan"
-
-
-def test_plan_requires_ticket_read_first(store: EpisodeStore) -> None:
-    run_id = "ticket-before-plan"
-    store.create(run_id, "normal")
-
-    with pytest.raises(EpisodeError, match="open and read the ticket"):
-        store.validate_runtime_node(run_id, "PLAN_CREATED")
-
-    store.record(
-        run_id,
-        source="runtime",
-        kind="tool_result",
-        status="succeeded",
-        arguments={"tool_name": "observe"},
-        node_id="TICKET_READ",
-        mutate_version=False,
-    )
+    assert allowed == "navigate-without-screenshot"
     store.validate_runtime_node(run_id, "PLAN_CREATED")
 
 

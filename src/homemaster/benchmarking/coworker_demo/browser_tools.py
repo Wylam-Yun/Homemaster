@@ -71,21 +71,6 @@ def make_browser_navigate() -> ToolSpec:
     )
 
 
-def make_browser_observe() -> ToolSpec:
-    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
-        return _execute(
-            "browser_observe", run_context, lambda driver, action_id: driver.observe(action_id)
-        )
-
-    return ToolSpec(
-        name="observe",
-        description="Read visible text, controls, values and results on the current Agent page.",
-        input_schema={"type": "object", "properties": {}},
-        executor_mode="programmatic",
-        executor=executor,
-    )
-
-
 def make_browser_click() -> ToolSpec:
     def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResult:
         return _execute(
@@ -185,7 +170,6 @@ def make_browser_wait() -> ToolSpec:
 def browser_tool_specs() -> list[ToolSpec]:
     return [
         make_browser_navigate(),
-        make_browser_observe(),
         make_browser_click(),
         make_browser_fill(),
         make_browser_select(),

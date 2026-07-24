@@ -148,6 +148,7 @@ class RunRequest:
     session_id: str | None = None
     profile: str = "home"
     provider_name: str | None = None
+    model_override: str | None = None
     resume: bool = False
     continuous_taskset: bool = False
     environment: EnvironmentBackend | ResourceBinding | None = None
@@ -166,7 +167,15 @@ class RunRequest:
                 "tool.auto",
                 "device.read",
                 "device.control",
+                "filesystem.read",
+                "filesystem.write",
+                "network.http",
+                "process.exec",
+                "process.spawn",
+                "scheduler.manage",
+                "config.mutate",
                 "mcp.call",
+                "mcp.manage",
             ),
         )
     )
@@ -186,6 +195,10 @@ class RunRequest:
             not isinstance(self.provider_name, str) or not self.provider_name.strip()
         ):
             raise ValueError("provider_name must be a non-empty string or None")
+        if self.model_override is not None and (
+            not isinstance(self.model_override, str) or not self.model_override.strip()
+        ):
+            raise ValueError("model_override must be a non-empty string or None")
         if not isinstance(self.resume, bool) or not isinstance(self.continuous_taskset, bool):
             raise TypeError("resume and continuous_taskset must be booleans")
         if self.resume and self.session_id is None:

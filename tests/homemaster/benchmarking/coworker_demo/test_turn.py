@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import json
 import threading
 from pathlib import Path
@@ -9,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from homemaster.adapters.coworker_entry import CoworkerApplicationEntry, DeadlineAwareTransport
-from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.adapters.profiles import CoworkerScreenshotBackend
 from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
 from homemaster.application import ResourceCleanupError, RunPolicy, RunRequest
 from homemaster.benchmarking.coworker_demo.browser_driver import PlaywrightBrowserDriver
@@ -103,13 +102,21 @@ class BorrowedBackend:
 class FakePage:
     url = "about:blank"
 
+    def __init__(self) -> None:
+        self.screenshot_calls: list[dict[str, object]] = []
+
     def goto(self, url: str, **_kwargs) -> None:
         self.url = url
+
+    def screenshot(self, **kwargs) -> bytes:
+        self.screenshot_calls.append(kwargs)
+        return b"current-page-png"
 
 
 class FakeBrowserClient:
     def __init__(self) -> None:
         self.runtime_events: list[dict] = []
+        self.recorded_actions: list[dict] = []
 
     def state(self, _run_id: str) -> dict:
         return {"state_version": 3}
@@ -117,7 +124,8 @@ class FakeBrowserClient:
     def reserve(self, *_args, **_kwargs) -> None:
         return None
 
-    def record_action(self, *_args, **_kwargs) -> dict:
+    def record_action(self, *_args, **kwargs) -> dict:
+        self.recorded_actions.append(kwargs)
         return {"event": {"event_id": "ev-navigate"}}
 
     def runtime_event(self, _run_id: str, **kwargs) -> dict:
@@ -125,15 +133,9 @@ class FakeBrowserClient:
         return {"event": {"event_id": "ev-observe"}}
 
 
-class FakeObservationDriver:
-    def observe(self, _action_id: str) -> dict:
-        return {
-            "route": "ticket",
-            "url": "http://case02.test/ticket/domain-run",
-            "dom": {"title": "Locked procedure"},
-            "page_state_version": 3,
-            "evidence_refs": ["ev-browser-observe"],
-        }
+class FakeScreenshotDriver:
+    def screenshot(self) -> bytes:
+        return b"current-page-png"
 
 
 def test_run_ids_are_unique_and_prefixed() -> None:
@@ -170,6 +172,33 @@ def test_navigate_returns_receipt_only_without_dom() -> None:
         "evidence_refs": ["ev-navigate"],
     }
     assert "dom" not in receipt and "html" not in receipt
+    assert client.recorded_actions == [
+        {
+            "action_id": "navigate-1",
+            "tool_name": "browser_navigate",
+            "version": 3,
+            "arguments": {"route": "ticket", "url": "http://case02.test/ticket/domain-run"},
+            "node_id": "TICKET_READ",
+        }
+    ]
+
+
+def test_screenshot_uses_viewport_pixels_without_browser_action_or_dom_capture() -> None:
+    client = FakeBrowserClient()
+    page = FakePage()
+    driver = object.__new__(PlaywrightBrowserDriver)
+    driver._owner_thread_id = threading.get_ident()
+    driver.run_id = "domain-run"
+    driver.base_url = "http://case02.test"
+    driver.client = client
+    driver.page = page
+    page.url = "http://case02.test/ticket/domain-run"
+
+    screenshot = driver.screenshot()
+
+    assert screenshot == b"current-page-png"
+    assert page.screenshot_calls == [{"type": "png", "full_page": False}]
+    assert client.runtime_events == []
 
 
 def test_playwright_driver_rejects_cross_thread_calls() -> None:
@@ -192,38 +221,16 @@ def test_playwright_driver_rejects_cross_thread_calls() -> None:
     assert "owner thread" in str(failures[0])
 
 
-def test_observe_records_ticket_read_with_canonical_content_hash() -> None:
-    client = FakeBrowserClient()
-    backend = CoworkerObservationBackend(
-        driver=FakeObservationDriver(),
-        client=client,
+def test_screenshot_backend_delegates_without_dom_read_or_runtime_event() -> None:
+    backend = CoworkerScreenshotBackend(
+        driver=FakeScreenshotDriver(),
         domain_run_id="domain-run",
     )
     backend.bind_application_run("application-run", 2)
 
-    capture = backend.capture()
-
-    expected = json.dumps(
-        capture.content,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    assert client.runtime_events == [
-        {
-            "action_id": "observe-0001",
-            "tool_name": "observe",
-            "arguments": {
-                "content_sha256": hashlib.sha256(expected).hexdigest(),
-                "page_state_version": 3,
-            },
-            "node_id": "TICKET_READ",
-            "evidence_refs": ["ev-browser-observe"],
-        }
-    ]
-    assert capture.run_id == "application-run"
-    assert capture.evidence_ref == "ev-observe"
+    assert backend.screenshot() == b"current-page-png"
+    assert backend.backend_id == "coworker:domain-run"
+    assert backend.generation == 2
 
 
 def test_configured_bundle_root_must_match_the_routed_root(tmp_path: Path) -> None:

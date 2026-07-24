@@ -8,8 +8,22 @@ from homemaster.channels.bus import BoundedPriorityBus, BusClosedError
 from homemaster.channels.contracts import (
     ChannelEventKind,
     ChannelIdentity,
+    OutboundArtifactRef,
     OutboundMessage,
 )
+
+
+@pytest.mark.parametrize("prefix", ["_", "-"])
+def test_outbound_artifact_accepts_urlsafe_store_token_prefixes(prefix) -> None:
+    artifact = OutboundArtifactRef(
+        artifact_handle=f"hm-artifact:{prefix}{'a' * 42}",
+        run_id="run-a",
+        filename="result.bin",
+        media_type="application/octet-stream",
+        content_sha256="0" * 64,
+    )
+
+    assert artifact.artifact_handle.startswith(f"hm-artifact:{prefix}")
 
 
 def _out(
@@ -47,6 +61,38 @@ async def test_progress_flood_is_coalesced_and_critical_events_are_retained() ->
     assert ChannelEventKind.FINAL in kinds
     assert ChannelEventKind.ERROR in kinds
     assert ChannelEventKind.CANCEL in kinds
+
+
+@pytest.mark.asyncio
+async def test_media_is_never_coalesced_or_evicted_and_each_artifact_is_retained() -> None:
+    bus = BoundedPriorityBus(capacity=4, per_session_capacity=4)
+    for index in range(20):
+        assert await bus.publish_outbound(_out(ChannelEventKind.PROGRESS, index))
+    for index in range(2):
+        artifact = OutboundArtifactRef(
+            artifact_handle=f"hm-artifact:{'a' * 31}{index}",
+            run_id="run-media",
+            filename=f"file-{index}.bin",
+            media_type="application/octet-stream",
+            content_sha256="b" * 64,
+        )
+        message = _out(ChannelEventKind.FINAL, 100 + index)
+        message = OutboundMessage(
+            identity=message.identity,
+            session_id=message.session_id,
+            generation=message.generation,
+            kind=ChannelEventKind.MEDIA,
+            content=message.content,
+            correlation_id=message.correlation_id,
+            attachments=(artifact,),
+        )
+        assert await bus.publish_outbound(message)
+
+    items = [await bus.receive_outbound() for _ in range(bus.outbound_size)]
+    media = [item for item in items if item.kind is ChannelEventKind.MEDIA]
+
+    assert len(media) == 2
+    assert [item.attachments[0].filename for item in media] == ["file-0.bin", "file-1.bin"]
 
 
 @pytest.mark.asyncio

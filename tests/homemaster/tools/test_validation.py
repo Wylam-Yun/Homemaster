@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 
@@ -52,8 +53,8 @@ class Context:
             backend=None,
             deadline=None,
             cancellation=None,
-            observation=None,
             domain_observer=None,
+            working_directory=Path.cwd(),
         )
 
 

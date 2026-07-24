@@ -1,25 +1,13 @@
 from __future__ import annotations
 
-import base64
-import hashlib
+import io
+from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from homemaster.adapters import build_alfworld_profile
-from homemaster.agent.messages import ContentBlock, UserMessage
-from homemaster.observations import (
-    ObservationCapture,
-    ObservationLedger,
-    ObservationService,
-    ObservationState,
-)
-from homemaster.providers.llm_client import _attempt_record
-from homemaster.tools.contracts import (
-    PermissionSubject,
-    ToolExecutionContext,
-    ToolExecutionResult,
-    ToolExecutionStatus,
-)
+from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
 
 
 class Backend:
@@ -29,109 +17,53 @@ class Backend:
     def __init__(self) -> None:
         self.state_sequence = 0
         self.event_sequence = 0
-        self.capture_count = 0
+        self.screenshot_count = 0
 
-    def capture(self) -> ObservationCapture:
-        self.capture_count += 1
-        self.event_sequence += 1
-        return ObservationCapture(
-            backend_id=self.backend_id,
-            run_id="run-1",
-            generation=self.generation,
-            state_sequence=self.state_sequence,
-            capture_event_sequence=self.event_sequence,
-            media_type="image/png",
-            content=f"frame-{self.state_sequence}".encode(),
-            pixel_bytes=f"pixels-{self.state_sequence}".encode(),
-            evidence_ref=f"frame/{self.capture_count}",
-        )
+    async def screenshot(self) -> bytes:
+        self.screenshot_count += 1
+        image = Image.new("RGB", (4, 3), color=(18, 52, 86))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
 
     def advance(self) -> None:
         self.state_sequence += 1
         self.event_sequence += 1
 
 
-def _context(profile, backend, ledger, internal_id, call_id):
+def _context(profile, backend: Backend) -> ToolExecutionContext:
     return ToolExecutionContext(
         session_id="session-1",
         run_id="run-1",
         turn_index=0,
-        tool_call_id=call_id,
-        internal_tool_id=internal_id,
+        tool_call_id="observe-1",
+        internal_tool_id="core.observe.v1",
         tool_view=profile.view,
         permission_subject=PermissionSubject(subject_id="user", channel="test"),
         backend=backend,
         deadline=None,
         cancellation=None,
-        observation=ledger,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
 
 
 @pytest.mark.asyncio
-async def test_explicit_observation_binding_and_action_debt_transcript() -> None:
-    service = ObservationService(id_factory=iter(("obs-1", "obs-2")).__next__)
-    profile = build_alfworld_profile(observation_service=service)
+async def test_explicit_screenshot_is_image_only_and_creates_no_action_debt() -> None:
+    profile = build_alfworld_profile()
     backend = Backend()
-    ledger = ObservationLedger("run-1", backend.backend_id, backend.generation)
     observe = profile.view.lookup("observe").tool
     action = profile.view.lookup("robot_go_to").tool
     assert observe is not None and action is not None
-    observe_context = _context(profile, backend, ledger, "alfworld.observe.v1", "observe-1")
-    action_context = _context(profile, backend, ledger, "alfworld.robot_go_to.v1", "action-1")
 
-    initial_request = [ContentBlock(text="task")]
-    assert all(block.type != "image" for block in initial_request)
-    first = await observe.executor.execute({}, observe_context)
-    assert first.images[0].observation_id == "obs-1"
-    assert ledger.state is ObservationState.OBSERVED_UNBOUND
+    result = await observe.executor.execute({}, _context(profile, backend))
 
-    # observe+action in one assistant response is rejected until the next
-    # successful frozen provider request binds the exact observation bytes.
-    assert await service.before_action(action.definition, action_context) is False
-    request_hash = hashlib.sha256(b"request-with-obs-1").hexdigest()
-    record = ledger.current_record
-    assert record is not None
-    block = record.to_content_block()
-    attempt = _attempt_record(
-        messages=[UserMessage(content=[block])],
-        request_body={
-            "messages": [
-                {
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "data": base64.b64encode(record.content_bytes).decode("ascii"),
-                            },
-                        }
-                    ]
-                }
-            ]
-        },
-        model_attempt_id="attempt-bind",
-        request_sha256=request_hash,
-        stripped_images=False,
-        response_completed=True,
-        error=None,
-    )
-    binding = ledger.bind_provider_request(record, attempt)
-    assert binding.request_sha256 == request_hash
-    assert await service.before_action(action.definition, action_context) is True
-
-    backend.advance()
-    receipt = ToolExecutionResult(
-        status=ToolExecutionStatus.SUCCESS,
-        data={"ok": True},
-        backend_attempted=True,
-    )
-    await service.after_action(action.definition, receipt, action_context)
-    assert ledger.state is ObservationState.NEEDS_OBSERVE
-    assert await service.before_action(action.definition, action_context) is False
-
-    fresh = await observe.executor.execute({}, observe_context)
-    assert fresh.images[0].observation_id == "obs-2"
-    assert backend.capture_count == 2
-    assert ledger.current_record is not None
-    assert ledger.current_record.state_sequence == 1
+    assert result.status is ToolExecutionStatus.SUCCESS
+    assert backend.screenshot_count == 1
+    assert backend.state_sequence == 0
+    assert backend.event_sequence == 0
+    message = result.to_message(tool_call_id="observe-1", name="observe")
+    assert len(message.content) == 1
+    assert message.content[0].type == "image"
+    assert message.content[0].metadata == {}
+    assert action.definition.model_alias == "robot_go_to"

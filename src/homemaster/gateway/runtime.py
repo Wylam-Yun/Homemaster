@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import json
+import logging
+import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -11,17 +15,45 @@ from typing import Any, Protocol
 
 from homemaster.agent.compact import sanitize_tool_pairs
 from homemaster.agent.messages import Message
+from homemaster.artifacts import ToolOutputArtifactResolver
 from homemaster.channels.bridge import ChannelBridge
 from homemaster.channels.bus import BoundedPriorityBus, BusClosedError
-from homemaster.channels.contracts import ChannelEventKind, InboundMessage, OutboundMessage
-from homemaster.channels.impl.base import BaseChannel
-from homemaster.channels.impl.telegram import TelegramChannel
+from homemaster.channels.contracts import (
+    ChannelEventKind,
+    DeliveryReceipt,
+    DeliveryStatus,
+    InboundMessage,
+    OutboundArtifactRef,
+    OutboundMessage,
+)
+from homemaster.channels.impl.base import BaseChannel, ChannelDeliveryError
+from homemaster.channels.impl.feishu import FeishuApiService, FeishuChannel
 from homemaster.channels.router import AttachmentPolicy, ChannelRouter
 from homemaster.config.config import GatewayConfig
 from homemaster.events.public_projection import (
     PublicEventProjection,
     public_gateway_stream,
 )
+
+_GATEWAY_AUDIT_LOGGER = logging.getLogger("homemaster.feishu.audit")
+
+
+def _audit_gateway_generation(
+    action: str, session_id: str, generation: int, started: float
+) -> None:
+    _GATEWAY_AUDIT_LOGGER.info(
+        json.dumps(
+            {
+                "action": action,
+                "target_hash": hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:16],
+                "duration_ms": round((time.monotonic() - started) * 1000, 3),
+                "return_code": generation,
+                "certainty": "confirmed_success",
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+        )
+    )
 
 
 class GatewayApplication(Protocol):
@@ -36,7 +68,7 @@ class GatewayApplication(Protocol):
 class GatewayAssembly:
     runtime: GatewayRuntime
     bus: BoundedPriorityBus
-    channel: TelegramChannel
+    channel: BaseChannel
 
 
 class GatewayRuntime:
@@ -47,6 +79,7 @@ class GatewayRuntime:
         bus: BoundedPriorityBus,
         public_projection: PublicEventProjection | None = None,
         shutdown_deadline_s: float = 5.0,
+        group_operations: Any | None = None,
     ) -> None:
         self.bridge = bridge
         self.bus = bus
@@ -54,6 +87,7 @@ class GatewayRuntime:
         self._generations: dict[str, int] = {}
         self._active: dict[str, asyncio.Task[None]] = {}
         self._identities: dict[str, object] = {}
+        self._delivery_contexts: dict[str, object] = {}
         self._known_sessions: set[str] = set()
         self._lock = asyncio.Lock()
         self._closed = False
@@ -66,6 +100,7 @@ class GatewayRuntime:
         if shutdown_deadline_s <= 0:
             raise ValueError("shutdown_deadline_s must be positive")
         self._shutdown_deadline_s = shutdown_deadline_s
+        self._group_operations = group_operations
 
     async def serve(self, channel: BaseChannel) -> None:
         if self._service_tasks:
@@ -99,6 +134,7 @@ class GatewayRuntime:
             raise TimeoutError("gateway shutdown deadline expired before outbound drain")
 
     async def submit(self, message: InboundMessage) -> str:
+        started = time.monotonic()
         if self._closed:
             raise RuntimeError("gateway is closed")
         route = self.bridge.router.route(message)
@@ -109,15 +145,30 @@ class GatewayRuntime:
             generation = self._generations.get(route.session_id, 0) + 1
             self._generations[route.session_id] = generation
             self._identities[route.session_id] = message.identity
+            if message.delivery_context is not None:
+                self._delivery_contexts[route.session_id] = message.delivery_context
+            else:
+                self._delivery_contexts.pop(route.session_id, None)
+            if self._group_operations is not None and message.identity.channel == "feishu":
+                self._group_operations.bind(
+                    route.session_id,
+                    message.identity,
+                    generation=generation,
+                )
             resume = await self._prepare_resume(route.session_id)
             task = asyncio.create_task(
                 self._run(message, route.session_id, generation, resume),
                 name=f"gateway:{route.session_id}:{generation}",
             )
             self._active[route.session_id] = task
+            if message.identity.channel == "feishu":
+                _audit_gateway_generation(
+                    "gateway.generation.submit", route.session_id, generation, started
+                )
         return route.session_id
 
     async def cancel(self, session_id: str, *, reason: str = "cancelled") -> bool:
+        started = time.monotonic()
         async with self._lock:
             task = self._active.get(session_id)
             if task is None or task.done():
@@ -125,6 +176,13 @@ class GatewayRuntime:
             identity = getattr(task, "_homemaster_identity", None)
             generation = self._generations.get(session_id, 0) + 1
             self._generations[session_id] = generation
+            audit_identity = self._identities.get(session_id)
+            if getattr(audit_identity, "channel", None) == "feishu":
+                _audit_gateway_generation(
+                    "gateway.generation.cancel", session_id, generation, started
+                )
+            if self._group_operations is not None:
+                self._group_operations.clear(session_id, generation=generation)
             self.bridge.application.cancel(session_id)
             await self._cancel_locked(session_id, task)
             if identity is not None:
@@ -136,6 +194,7 @@ class GatewayRuntime:
                         kind=ChannelEventKind.CANCEL,
                         content=self._public_projection.sanitize_content(reason),
                         correlation_id=f"cancel-{uuid.uuid4().hex[:12]}",
+                        delivery_context=self._delivery_contexts.get(session_id),
                     )
                 )
             return True
@@ -158,6 +217,14 @@ class GatewayRuntime:
                 if task.done():
                     continue
                 self._generations[session_id] = self._generations.get(session_id, 0) + 1
+                identity = self._identities.get(session_id)
+                if getattr(identity, "channel", None) == "feishu":
+                    _audit_gateway_generation(
+                        "gateway.generation.close",
+                        session_id,
+                        self._generations[session_id],
+                        time.monotonic(),
+                    )
                 self.bridge.application.cancel(session_id)
                 task.cancel()
                 active_tasks.append(task)
@@ -166,8 +233,10 @@ class GatewayRuntime:
             discard = asyncio.create_task(self._discard_inbound(), name="gateway:discard-inbound")
             try:
                 remaining = _remaining(deadline)
+                stop_reserve = min(0.25, remaining / 2)
+                drain_budget = max(0.0, remaining - stop_reserve)
                 self._drained = (
-                    await self.bus.aclose(deadline_s=remaining) if remaining > 0 else False
+                    await self.bus.aclose(deadline_s=drain_budget) if drain_budget > 0 else False
                 )
             finally:
                 discard.cancel()
@@ -176,7 +245,7 @@ class GatewayRuntime:
             channel_error: BaseException | None = None
             channel_complete = self._channel is None
             service_complete = not tasks
-            if self._drained and self._channel is not None:
+            if self._channel is not None:
                 if self._channel_stop_task is None:
                     self._channel_stop_task = asyncio.create_task(
                         self._channel.stop(), name="gateway:channel-stop"
@@ -187,17 +256,14 @@ class GatewayRuntime:
                         self._channel_stop_task.result()
                     except BaseException as exc:
                         channel_error = exc
-            if self._drained and channel_complete:
+            if channel_complete:
                 for task in tasks:
                     if not task.done():
                         task.cancel()
                 service_complete = await _wait_until(tasks, deadline)
 
             self._close_complete = (
-                active_complete
-                and self._drained
-                and channel_complete
-                and service_complete
+                active_complete and self._drained and channel_complete and service_complete
             )
             if self._close_complete:
                 self._service_tasks = ()
@@ -226,7 +292,14 @@ class GatewayRuntime:
                 return
             if not self._is_current_outbound(message):
                 continue
-            await channel.send(message)
+            receipt = await channel.send(message)
+            if not isinstance(receipt, DeliveryReceipt):
+                raise TypeError("BaseChannel.send() must return DeliveryReceipt")
+            if receipt.status is DeliveryStatus.CONFIRMED_SUCCESS:
+                continue
+            if message.kind is ChannelEventKind.PROGRESS:
+                continue
+            raise ChannelDeliveryError(receipt)
 
     async def _public_event_loop(self) -> None:
         event_bus = getattr(self.bridge.application, "event_bus", None)
@@ -252,17 +325,35 @@ class GatewayRuntime:
             ):
                 continue
             try:
-                await self.bus.publish_outbound(
-                    OutboundMessage(
-                        identity=identity,
-                        session_id=event.session_id,
-                        generation=generation,
-                        kind=ChannelEventKind.PROGRESS,
-                        content=event.content or event.event_type,
-                        correlation_id=event.correlation_id,
-                        metadata=event.metadata,
+                if event.artifacts:
+                    for index, raw in enumerate(event.artifacts):
+                        artifact = OutboundArtifactRef(**raw)
+                        await self.bus.publish_outbound(
+                            OutboundMessage(
+                                identity=identity,
+                                session_id=event.session_id,
+                                generation=generation,
+                                kind=ChannelEventKind.MEDIA,
+                                content=artifact.filename,
+                                correlation_id=f"{event.correlation_id}-{index}",
+                                attachments=(artifact,),
+                                delivery_context=self._delivery_contexts.get(event.session_id),
+                                metadata=event.metadata,
+                            )
+                        )
+                else:
+                    await self.bus.publish_outbound(
+                        OutboundMessage(
+                            identity=identity,
+                            session_id=event.session_id,
+                            generation=generation,
+                            kind=ChannelEventKind.PROGRESS,
+                            content=event.content or event.event_type,
+                            correlation_id=event.correlation_id,
+                            delivery_context=self._delivery_contexts.get(event.session_id),
+                            metadata=event.metadata,
+                        )
                     )
-                )
             except BusClosedError:
                 return
 
@@ -309,6 +400,7 @@ class GatewayRuntime:
                         kind=ChannelEventKind.ERROR,
                         content=type(exc).__name__,
                         correlation_id=message.correlation_id or f"error-{uuid.uuid4().hex[:12]}",
+                        delivery_context=message.delivery_context,
                     )
                 )
         finally:
@@ -377,6 +469,8 @@ def build_gateway_assembly(
     config: GatewayConfig,
     *,
     sensitive_values: tuple[str, ...] = (),
+    api_service: FeishuApiService | None = None,
+    group_operations: Any | None = None,
 ) -> GatewayAssembly:
     """Wire remote ingress around the exact application-factory runtime instance."""
 
@@ -385,7 +479,7 @@ def build_gateway_assembly(
         per_tenant_capacity=config.per_tenant_capacity,
         per_session_capacity=config.per_session_capacity,
     )
-    attachment_root = config.telegram.attachment_root.expanduser()
+    attachment_root = config.feishu.attachment_root.expanduser()
     attachment_root.mkdir(parents=True, exist_ok=True)
     projection = PublicEventProjection(sensitive_values=sensitive_values)
     bridge = ChannelBridge(
@@ -400,11 +494,21 @@ def build_gateway_assembly(
         bus=bus,
         public_projection=projection,
         shutdown_deadline_s=config.shutdown_deadline_s,
+        group_operations=group_operations,
+    )
+    publisher = getattr(application, "artifact_publisher", None)
+    artifact_resolver = (
+        ToolOutputArtifactResolver(publisher.store) if publisher is not None else None
     )
     return GatewayAssembly(
         runtime=runtime,
         bus=bus,
-        channel=TelegramChannel(config.telegram, bus),
+        channel=FeishuChannel(
+            config.feishu,
+            bus,
+            api_service=api_service or FeishuApiService.from_config(config.feishu),
+            artifact_resolver=artifact_resolver,
+        ),
     )
 
 

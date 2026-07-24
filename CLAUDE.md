@@ -2,6 +2,26 @@
 
 ## Gateway 远程边界纪律
 
+- 飞书部署订阅的每个事件都必须有准确 dispatcher 注册：业务事件进入 typed ingress，非业务访问事件使用
+  显式 no-op ACK，未知事件 fail closed。用锁定真实 SDK payload 逐事件断言 ACK 和副作用；一个消息事件
+  `SUCCESS` 不能证明其他订阅也会 ACK，更不能证明 Runtime 或出站终态。
+- 飞书 SDK 枚举必须在 transport normalize 边界确定性映射为内部枚举；例如真实私聊 `p2p` 只能映射为
+  canonical `private`，不能要求 SDK 发内部值。回归必须把真实 SDK payload 连续送过 dispatcher、normalize、
+  Channel 和 inbound bus，禁止从 normalize 后手造 `private/group` fixture 代替跨边界验证。
+- 飞书群 mention 只接受 SDK 结构化 mention 中准确 bot `open_id`；bot name 和纯文本 `@name` 只能用于
+  展示清理，不能授权。`group_policy=open` 也不能绕过 exact sender principal。
+- 飞书事件顺序固定为 sender/bot reject、exact principal、mention policy、message-id dedup、外部资源、
+  安全落盘、reaction、publish；未授权和重复事件的下载、reaction、Runtime 次数都必须为零。
+- SDK WebSocket 没有真环境验证的 public stop API 时必须隔离到可终止子进程并回传 fatal/completion；
+  设置本地 running flag、daemon thread 或 mock join 不能作为 deadline shutdown 证据。
+- logger filter 不能只挂在依赖父 logger 上并假设 propagation 会执行；所有现有/后续 handler 收到 record
+  前都必须完成配置 secret、Authorization、URL query 脱敏，结构化 API audit 只记录目标 hash。
+- reply/receive target 只来自认证 SDK envelope 的 immutable `ChannelDeliveryContext`；renderer metadata、
+  chat id 前缀和模型参数不能覆盖。群 create/rename 的 member/chat target 同样只从可信 route 派生。
+- Tool image/attachment 可在 dispatch 后写入 tenant/session/run ACL store，但 artifact 投影不得改写
+  canonical result 或 provider-facing content；模型消息保留所需媒体，公共事件只携带 opaque ref，每个
+  媒体独立进入不可 coalesce/evict 的 MEDIA outbound。必须在同一集成测试中分别断言模型图片和 Gateway ref。
+
 - Outbound 消息在 egress 消费时必须再次核对 session generation 与 authoritative identity；只在 producer
   入队时检查不能阻止 reconnect 后发送已排队旧消息。
 - Channel 必须先完成 exact principal/authentication，再进行任何外部 attachment 查询、下载或落盘；未授权
@@ -33,9 +53,27 @@
 - 外部工具没有经真环境核对的 read-only contract 时一律按 mutating fail closed。连接后已经尝试的
   timeout/call failure 若无法证明外部未变更，必须返回 `outcome_unknown` 且禁止自动重试；外部
   annotation 存在但未验证时继续标 `UNVERIFIED`。
+- 去重必须区分处理中占位与成功完成记录：副作用前 reserve，只有权威 publish/commit 成功才保留；
+  解析、下载、落盘、队列拒绝、异常或取消都 rollback，并测试同 ID 失败后重投成功、成功后重投拒绝。
 
 ## 测试工作区纪律
 
+- Service-backed tool 必须通过真实 `ApplicationRuntime` dispatch 边界测试；直接调用 executor 或 pipeline
+  不能证明 composition 注入和 session runtime 接线成立。
+- Parser、stop condition 和 resume 逻辑必须断言组件间实际序列化 envelope；禁止按 executor 的中间 dict
+  猜测 canonical message 形状。
+- Package-data 功能必须构建并安装 wheel，再逐项枚举资源；源码 checkout 的 import/resource 测试不能
+  证明发布包完整。
+- 默认 profile 的 wheel 门必须安装 wheel 声明的核心依赖，并在源码 checkout 外真实 import、构造 profile、
+  逐项核对默认工具；只用 `--no-deps` 枚举 package data 会掩盖默认工具缺失运行依赖和 optional extra
+  的 eager import。
+- Spawned worker 必须通过 argv 或等价 typed contract 显式接收父应用 authoritative config path；只透传
+  model、依赖 ambient cwd 或重新加载默认配置都不算配置复用。
+- 上游兼容移植必须保留锁定 commit 的原始 fixture/test，并增加一条未经改写的真实上游格式黑盒门；
+  Home 自造等价 fixture 与同源 parser 单测不能证明兼容。
+- 检查/截图/read 工具只能提供模型确认信息，不能成为无关动作的 authorization、freshness 或 completion
+  状态机。多模态 tool result 必须在实际 provider request 边界断言模型可见 block 的类型与数量；内部 trace
+  或 image hash 不能替代该断言。
 - monkeypatch、fake 和 callback 收到相对路径时，必须显式锚定 `tmp_path` 或 fixture root，禁止默认相对
   当前仓库目录写文件。测试 gate 后、final review 前检查新增 untracked 文件；pytest 通过不证明测试无
   工作区副作用。
@@ -102,6 +140,14 @@
   override 回归，并断言最终值与 provenance。
 - 真实配置必须保持 gitignored mode-0600，同时提交字段完整、只含占位值的 `.example`。doctor、
   dry-run、异常、日志和事件只能输出递归脱敏后的值与 `default/file/env/cli` 来源标签。
+- 任何用户、模型或事件可见的配置展示必须使用 public structured summary，并同时遮盖 secret-shaped
+  字段、URL userinfo 和所有已配置敏感字面值；禁止直接序列化 authoritative config。回归必须分别检查
+  工具返回、模型消息和实际 JSONL 落盘。
+- Cron、配置、MCP 管理和 task/agent/team 等管理工具必须声明并检查各自独立 capability；通用
+  `tool.mutate`、Catalog 注册或 profile enable 不能替代 `scheduler.manage`、`config.mutate`、
+  `mcp.manage` 或 `process.spawn`。
+- data-only Plugin Skill 发现只能解析 manifest 与受 containment 保护的 `SKILL.md`，不得调用 executable
+  plugin loader 或导入 Python/tools/hooks/MCP；project plugin 默认关闭，builtin 覆盖仍需精确授权。
 
 ## Coworker 外部编排纪律
 

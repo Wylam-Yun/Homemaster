@@ -66,6 +66,9 @@ _STREAM_CREDENTIAL_KEYS = (
 _STREAM_URL_PREFIXES = ("http://", "https://")
 _STREAM_DELIMITERS = frozenset(" \t\r\n,;")
 _DEFAULT_STREAM_CARRY_LIMIT = 8192
+_ARTIFACT_HANDLE_RE = re.compile(r"^hm-artifact:[A-Za-z0-9_-]{32,128}$")
+_ARTIFACT_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,7 @@ class PublicGatewayEvent:
     correlation_id: str
     content: str
     metadata: Mapping[str, object]
+    artifacts: tuple[Mapping[str, str], ...] = ()
     gateway_generation: int | None = None
 
     def to_dict(self) -> dict[str, object]:
@@ -88,6 +92,7 @@ class PublicGatewayEvent:
             "correlation_id": self.correlation_id,
             "content": self.content,
             "metadata": _thaw(self.metadata),
+            "artifacts": [_thaw(item) for item in self.artifacts],
             "gateway_generation": self.gateway_generation,
         }
 
@@ -108,6 +113,7 @@ class PublicEventProjection:
             for key, value in payload.items()
             if key in _SAFE_METADATA_KEYS
         }
+        artifacts = self._artifact_refs(payload) if event.type == "tool.call_completed" else ()
         if event.name and event.type.startswith("tool.call_"):
             metadata["tool_name"] = self._sanitize(event.name)
         return PublicGatewayEvent(
@@ -118,8 +124,42 @@ class PublicEventProjection:
             correlation_id=event.tool_call_id or event.event_id,
             content=self.sanitize_content(content),
             metadata=metadata,
+            artifacts=artifacts,
             gateway_generation=event.gateway_generation,
         )
+
+    @staticmethod
+    def _artifact_refs(payload: Mapping[str, object]) -> tuple[Mapping[str, str], ...]:
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            return ()
+        raw_refs = data.get("artifacts")
+        if not isinstance(raw_refs, (list, tuple)):
+            return ()
+        valid: list[Mapping[str, str]] = []
+        required = {
+            "artifact_handle",
+            "run_id",
+            "filename",
+            "media_type",
+            "content_sha256",
+        }
+        for raw in raw_refs:
+            if not isinstance(raw, Mapping) or set(raw) != required:
+                continue
+            ref = {key: str(raw[key]) for key in required}
+            if (
+                _ARTIFACT_HANDLE_RE.fullmatch(ref["artifact_handle"]) is None
+                or _ARTIFACT_TOKEN_RE.fullmatch(ref["run_id"]) is None
+                or not ref["filename"]
+                or "/" in ref["filename"]
+                or "\\" in ref["filename"]
+                or not ref["media_type"].strip()
+                or _SHA256_RE.fullmatch(ref["content_sha256"]) is None
+            ):
+                continue
+            valid.append(ref)
+        return tuple(valid)
 
     def sanitize_content(self, content: object) -> str:
         """Sanitize untrusted free text before it crosses the Gateway boundary."""

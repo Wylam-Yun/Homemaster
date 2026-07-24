@@ -88,24 +88,6 @@ class NoopResourceManager:
         yield
 
 
-class NoopObservationService:
-    async def before_action(
-        self,
-        definition: ToolDefinition,
-        context: ToolExecutionContext,
-    ) -> bool | ToolExecutionResult | None:
-        del definition, context
-        return True
-
-    async def after_action(
-        self,
-        definition: ToolDefinition,
-        result: ToolExecutionResult,
-        context: ToolExecutionContext,
-    ) -> None:
-        del definition, result, context
-
-
 class NoopAuthoritativeLedger:
     async def record_permission(
         self,
@@ -249,7 +231,6 @@ class ToolExecutionPipeline:
     catalog: ToolCatalog
     permission_policy: PermissionPolicy = field(default_factory=AllowAllPermissionPolicy)
     resource_manager: ResourceManager = field(default_factory=NoopResourceManager)
-    observation_service: Any = field(default_factory=NoopObservationService)
     authoritative_ledger: Any = field(default_factory=NoopAuthoritativeLedger)
     public_event_sink: Any = field(default_factory=NoopPublicEventSink)
     retry_policy: RetryPolicy = field(default_factory=RetryPolicy)
@@ -362,42 +343,7 @@ class ToolExecutionPipeline:
                 )
                 return early
 
-            gate = await _call(
-                self.observation_service,
-                "before_action",
-                definition,
-                context,
-                default=True,
-            )
-            blocked = _observation_block(gate)
-            if blocked is not None:
-                await self._record_and_publish(
-                    tool_call,
-                    blocked,
-                    context,
-                    attempt,
-                    decision,
-                )
-                return blocked
-
             result = await self._execute_once(registered, tool_call, context)
-            output_error = self._validator.validate_output(definition, result)
-            if output_error is not None:
-                result = _result(
-                    ToolExecutionStatus.FAILURE,
-                    "invalid_tool_result",
-                    output_error,
-                    backend_attempted=result.backend_attempted,
-                )
-            if registered.verifier is not None and _verifier_applies(definition, result):
-                result = await self._verify(registered, result, context)
-            await _call(
-                self.observation_service,
-                "after_action",
-                definition,
-                result,
-                context,
-            )
             await self._record_and_publish(tool_call, result, context, attempt, decision)
             if not self.retry_policy.should_retry(definition, result, attempt, context):
                 return result
@@ -415,7 +361,7 @@ class ToolExecutionPipeline:
 
         grouped: dict[tuple[str, str | int], list[tuple[int, ToolCall, ToolExecutionContext]]] = {}
         for index, (tool_call, context) in enumerate(calls):
-            key = self._execution_conflict_key(context, index)
+            key = self._execution_conflict_key(tool_call, context, index)
             grouped.setdefault(key, []).append((index, tool_call, context))
 
         async def run_group(
@@ -492,6 +438,7 @@ class ToolExecutionPipeline:
 
     def _execution_conflict_key(
         self,
+        tool_call: ToolCall,
         context: ToolExecutionContext,
         index: int,
     ) -> tuple[str, str | int]:
@@ -499,7 +446,7 @@ class ToolExecutionPipeline:
             ToolCall(
                 id=context.tool_call_id,
                 name=context.internal_tool_id,
-                arguments={},
+                arguments=tool_call.arguments,
             ),
             context,
         )
@@ -507,7 +454,12 @@ class ToolExecutionPipeline:
             return ("parallel", index)
         definition = registered.definition
         if definition.concurrency_policy.value == "resource_key":
-            return ("resource", definition.resource_key or definition.internal_id)
+            try:
+                return ("resource", _resource_key(registered, tool_call.arguments, context))
+            except Exception:
+                # execute() produces the typed resolver failure. A malformed
+                # key must not serialize an unrelated sibling by accident.
+                return ("parallel", index)
         if definition.concurrency_policy.value == "serialized":
             return ("serialized", definition.internal_id)
         return ("parallel", index)
@@ -552,26 +504,54 @@ class ToolExecutionPipeline:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         definition = registered.definition
-        resource_key = _resource_key(definition)
+        try:
+            resource_key = _resource_key(registered, tool_call.arguments, context)
+        except ValueError as exc:
+            return _result(
+                ToolExecutionStatus.INVALID,
+                "resource_key_resolution_failed",
+                str(exc),
+            )
         acquired = False
 
         async def execute_with_lease() -> ToolExecutionResult:
             nonlocal acquired
-            async with _lease(self.resource_manager, resource_key, context):
-                acquired = True
-                return await self._invoke_executor(registered, tool_call, context)
-
-        try:
+            lease = _lease(self.resource_manager, resource_key, context)
             remaining = _remaining_s(context)
-            if remaining is None:
-                return await execute_with_lease()
-            if remaining <= 0:
+            if remaining is not None and remaining <= 0:
                 return _result(
                     ToolExecutionStatus.CANCELLED,
                     "deadline_exceeded",
                     "tool execution deadline expired before resource acquisition",
                 )
-            return await asyncio.wait_for(execute_with_lease(), timeout=remaining)
+            try:
+                if remaining is None:
+                    await lease.__aenter__()
+                else:
+                    await asyncio.wait_for(lease.__aenter__(), timeout=remaining)
+                acquired = True
+                result = await self._invoke_executor(registered, tool_call, context)
+                output_error = self._validator.validate_output(definition, result)
+                if output_error is not None:
+                    result = _result(
+                        ToolExecutionStatus.FAILURE,
+                        "invalid_tool_result",
+                        output_error,
+                        backend_attempted=result.backend_attempted,
+                    )
+                if registered.verifier is not None and _verifier_applies(definition, result):
+                    result = await self._verify(registered, result, context)
+            except BaseException as exc:
+                if acquired:
+                    await lease.__aexit__(type(exc), exc, exc.__traceback__)
+                raise
+            else:
+                if acquired:
+                    await lease.__aexit__(None, None, None)
+                return result
+
+        try:
+            return await execute_with_lease()
         except TimeoutError:
             if acquired:
                 return _timeout_result(definition)
@@ -822,8 +802,18 @@ def _is_mutating(definition: ToolDefinition) -> bool:
     return any(effect not in {"none", "read", "read_only"} for effect in definition.state_effects)
 
 
-def _resource_key(definition: ToolDefinition) -> str | None:
+def _resource_key(
+    registered: RegisteredTool,
+    arguments: Mapping[str, object],
+    context: ToolExecutionContext,
+) -> str | None:
+    definition = registered.definition
     if definition.concurrency_policy.value == "resource_key":
+        if registered.resource_key_resolver is not None:
+            value = registered.resource_key_resolver(arguments, context)
+            if not isinstance(value, str) or not value or "\x00" in value:
+                raise ValueError("resource key resolver must return a non-empty string")
+            return value
         return definition.resource_key
     if definition.concurrency_policy.value == "serialized":
         return f"tool:{definition.internal_id}"
@@ -845,20 +835,6 @@ def _verifier_applies(definition: ToolDefinition, result: ToolExecutionResult) -
         }
         and definition.verification_policy.execution_proof.value != "none"
     )
-
-
-def _observation_block(value: object) -> ToolExecutionResult | None:
-    if value is None or value is True:
-        return None
-    if isinstance(value, ToolExecutionResult):
-        return value
-    if value is False:
-        return _result(
-            ToolExecutionStatus.OBSERVATION_REQUIRED,
-            "observation_required",
-            "a fresh bound observation is required before this action",
-        )
-    raise TypeError("observation before_action must return bool, result, or None")
 
 
 async def _maybe_await(value: object) -> object:
@@ -911,7 +887,6 @@ def _schema_formats(schema: Mapping[str, object]) -> set[str]:
 __all__ = [
     "AllowAllPermissionPolicy",
     "NoopAuthoritativeLedger",
-    "NoopObservationService",
     "NoopPublicEventSink",
     "NoopResourceManager",
     "PermissionDecision",

@@ -1,0 +1,1023 @@
+{
+  "bundled_skills": [
+    {
+      "path": "src/openharness/skills/bundled/content/commit.md",
+      "sha256": "db58ae9b4bc03a8bd17181ab1dafda2e294aada9d9f753dc747533d2145a5345"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/debug.md",
+      "sha256": "c4d28a7c603aa5fba3eea0d90b10ce8ac460129a0516a774f54a1ffdf9dabb53"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/diagnose.md",
+      "sha256": "50e0837158d77566f52960ef703fcb6da07969aae311e12c0bbd67b538bd86ca"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/plan.md",
+      "sha256": "d7a3ae6b7a6332ae78f773a29e311a231fd44d9ea3805065ad9ad75bb1f0b0ce"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/review.md",
+      "sha256": "b7bcb84ef6216cc314a1129417711e60fadb644e6053e42398175bf6feaf3176"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/simplify.md",
+      "sha256": "33f66482e5baf8381e7e4c0af191199e4439119da9bc4f6e16acf414df2b9b79"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/skill-creator.md",
+      "sha256": "f133eb0d9b7ab1312348fa43c30a32efb8f0385a45ede0e63d760615518bc839"
+    },
+    {
+      "path": "src/openharness/skills/bundled/content/test.md",
+      "sha256": "079329f25fb99f8197112a41804fe5265507edb3bde0efdcd202150af1db52d9"
+    }
+  ],
+  "completion_rule": "No default tool is complete until its manifest port record names the copied upstream test or a test gap, Home adapter deltas, and its per-target black-box gate.",
+  "default_tool_order": [
+    {
+      "name": "bash",
+      "path": "src/openharness/tools/bash_tool.py",
+      "sha256": "a75ab060c6ffb8afd2dd9ed255c175346b6498b70e486bf596591e8e997a1fb3"
+    },
+    {
+      "name": "ask_user_question",
+      "path": "src/openharness/tools/ask_user_question_tool.py",
+      "sha256": "6f89053b3f0858f640459103d3293da4a9afb38fac5d8f56beaf4d9501d6bd87"
+    },
+    {
+      "name": "read_file",
+      "path": "src/openharness/tools/file_read_tool.py",
+      "sha256": "a30bd4bc1793e2e002be1d66c28d8c3a38348974690555e0362d922471924608"
+    },
+    {
+      "name": "write_file",
+      "path": "src/openharness/tools/file_write_tool.py",
+      "sha256": "b065600978b0df9ae46ad442ab8db30f40fe2fd02fe6eff90e6ce8a2764eef66"
+    },
+    {
+      "name": "edit_file",
+      "path": "src/openharness/tools/file_edit_tool.py",
+      "sha256": "72b48afcb9218086071f161ddbe57666fd889b3c749771fd289e3540241681ac"
+    },
+    {
+      "name": "notebook_edit",
+      "path": "src/openharness/tools/notebook_edit_tool.py",
+      "sha256": "0968eb116fa0d3aa5eaacee579b8cf061f10072cd34094bfd97eaa4927228e19"
+    },
+    {
+      "name": "lsp",
+      "path": "src/openharness/tools/lsp_tool.py",
+      "sha256": "6338be3f9f4ea16b7c26b241b56ad00b6afb890c3d64cbf74b5403b466f6612a"
+    },
+    {
+      "name": "mcp_auth",
+      "path": "src/openharness/tools/mcp_auth_tool.py",
+      "sha256": "1aecbbccb179fce2ea9506e6e69d828409f24863508186dd76fe4012471d3a39"
+    },
+    {
+      "name": "glob",
+      "path": "src/openharness/tools/glob_tool.py",
+      "sha256": "379b58b21d73a1b53f9dcce5eafbe87e86c063b2811f87793af49fa7200d9d79"
+    },
+    {
+      "name": "grep",
+      "path": "src/openharness/tools/grep_tool.py",
+      "sha256": "63931f9f01e234d1414127ab50c895fe263effc606f5f76a42cbcb668ac142bd"
+    },
+    {
+      "name": "image_to_text",
+      "path": "src/openharness/tools/image_to_text_tool.py",
+      "sha256": "ddd69949d0e828f959e250f8c6d91d0600149da2f10bdedd6157bc8707fa53a3"
+    },
+    {
+      "name": "image_generation",
+      "path": "src/openharness/tools/image_generation_tool.py",
+      "sha256": "8286721e0f780549f82f432dd5e7e0fd082fe97537c8f0216a630694a52e16f3"
+    },
+    {
+      "name": "skill",
+      "path": "src/openharness/tools/skill_tool.py",
+      "sha256": "6e7a0cb1b1a81b58cbcd13b83617f901f8cea5e10a9224ac06958972e7ec6a78"
+    },
+    {
+      "name": "tool_search",
+      "path": "src/openharness/tools/tool_search_tool.py",
+      "sha256": "0d2d90f15585a90fa4d3177fb672e5882944153fe9471441fc85b12bcf8d691b"
+    },
+    {
+      "name": "web_fetch",
+      "path": "src/openharness/tools/web_fetch_tool.py",
+      "sha256": "ab34077ac39c39e477d7d90cc6357c897e74dede547f86412edc7a89880ab53c"
+    },
+    {
+      "name": "web_search",
+      "path": "src/openharness/tools/web_search_tool.py",
+      "sha256": "a71afa9f64e3d7c3c07fd50c9885f6645a7d238cd7fa0d5d840791161f960364"
+    },
+    {
+      "name": "config",
+      "path": "src/openharness/tools/config_tool.py",
+      "sha256": "c01c0aa78cee59d085b15497f12127bdb2f16f94da3f2c9d44a97ffd7d9ffdf4"
+    },
+    {
+      "name": "brief",
+      "path": "src/openharness/tools/brief_tool.py",
+      "sha256": "e0818e14b3dc63d2a1b40a9a43e9367d65b5a4d34e637b8d45175c20c242798c"
+    },
+    {
+      "name": "sleep",
+      "path": "src/openharness/tools/sleep_tool.py",
+      "sha256": "e803ab167648022839afb692c918543b2f753a6302cbd8e2a045552c116346a6"
+    },
+    {
+      "name": "enter_worktree",
+      "path": "src/openharness/tools/enter_worktree_tool.py",
+      "sha256": "93f711d3320186f32ec5533e19dccfcbdfa5307e84295c9f528aec29de61a2d5"
+    },
+    {
+      "name": "exit_worktree",
+      "path": "src/openharness/tools/exit_worktree_tool.py",
+      "sha256": "a2e7e841017dfcf10307e6bdbe127bf30c26ebb48576acaccf17d3e80e4a8665"
+    },
+    {
+      "name": "todo_write",
+      "path": "src/openharness/tools/todo_write_tool.py",
+      "sha256": "2500521bd9855c4dcd3c0ee12ed4db5c4058cf16a8507e292dbd61c1519fb588"
+    },
+    {
+      "name": "enter_plan_mode",
+      "path": "src/openharness/tools/enter_plan_mode_tool.py",
+      "sha256": "f3da9b7006a04845915276f436c77556faf2fa60b9b7097cdc2277de303d053d"
+    },
+    {
+      "name": "exit_plan_mode",
+      "path": "src/openharness/tools/exit_plan_mode_tool.py",
+      "sha256": "a6ea9abb6e3a150135ae63b40848d4c39f87bd19f215adddc552fe788d6a804c"
+    },
+    {
+      "name": "cron_create",
+      "path": "src/openharness/tools/cron_create_tool.py",
+      "sha256": "5f64942c2fac4a43e837741620c1403334833dababff5afda3682b7703613846"
+    },
+    {
+      "name": "cron_list",
+      "path": "src/openharness/tools/cron_list_tool.py",
+      "sha256": "06637c2b000959f3b9efb93a51e353189f989fbe62d7c41d78a2f4ca224f620f"
+    },
+    {
+      "name": "cron_delete",
+      "path": "src/openharness/tools/cron_delete_tool.py",
+      "sha256": "518c83d0894bac095c75b1083c5b99e1984142353bc2aaad76b96bfef6b351e8"
+    },
+    {
+      "name": "cron_toggle",
+      "path": "src/openharness/tools/cron_toggle_tool.py",
+      "sha256": "b0c2e00a4ce1bfe598b0aad98e45f336cda8715765dbf276ab8ded5faca906ae"
+    },
+    {
+      "name": "remote_trigger",
+      "path": "src/openharness/tools/remote_trigger_tool.py",
+      "sha256": "6cf21078e88ef099d707c24b5d39feaca824bd7c4402006bed27f7b632e32876"
+    },
+    {
+      "name": "task_create",
+      "path": "src/openharness/tools/task_create_tool.py",
+      "sha256": "a386a6a33ff57bd7a0c4415ac82bb356f6ec3d3efaa41814bb0b9145d74cc5fe"
+    },
+    {
+      "name": "task_get",
+      "path": "src/openharness/tools/task_get_tool.py",
+      "sha256": "56e425de4a2681d930b6bf626611eb5dd43ec9ecbe1662423831af8353632dfc"
+    },
+    {
+      "name": "task_list",
+      "path": "src/openharness/tools/task_list_tool.py",
+      "sha256": "748200e1416289d9c8a07b07d6cc840abe9174aef971f8ae42ba18f6c0bdde3a"
+    },
+    {
+      "name": "task_stop",
+      "path": "src/openharness/tools/task_stop_tool.py",
+      "sha256": "ebe1494e92ec2fdabeda64461c115299a03ff05459c57e36ca1564e2ec42d4aa"
+    },
+    {
+      "name": "task_output",
+      "path": "src/openharness/tools/task_output_tool.py",
+      "sha256": "aba1f70128efabed82335fb514e46dbfa69b654bd1e9a398b4db252fcd8a03e1"
+    },
+    {
+      "name": "task_update",
+      "path": "src/openharness/tools/task_update_tool.py",
+      "sha256": "2803698450f76d54cce32d6a7a9213157323653ea43545461fe23d818f85ca15"
+    },
+    {
+      "name": "agent",
+      "path": "src/openharness/tools/agent_tool.py",
+      "sha256": "156b0ca533410b1e1a049ae7b1cbe6f51d796f0d84f132b0ea2e9f745fb2eac4"
+    },
+    {
+      "name": "send_message",
+      "path": "src/openharness/tools/send_message_tool.py",
+      "sha256": "07b8b4bdafc11e03bead1b0d9bf13443aad0c66ef055b4ad1f6762cccefdf1b6"
+    },
+    {
+      "name": "team_create",
+      "path": "src/openharness/tools/team_create_tool.py",
+      "sha256": "5b79d3c2f37c1fbea7856e1f3f21fede27d68bbb263f42ba42d5ce359923e339"
+    },
+    {
+      "name": "team_delete",
+      "path": "src/openharness/tools/team_delete_tool.py",
+      "sha256": "a00c03cd520443fca4a7e7b52e5d52508e6462fb4850f54fa8b88b0b1d08aa88"
+    }
+  ],
+  "schema_version": "homemaster-v2.0-upstream-port-manifest-v1",
+  "source_roots": [
+    {
+      "path": "src/openharness/tools/bash_tool.py",
+      "sha256": "a75ab060c6ffb8afd2dd9ed255c175346b6498b70e486bf596591e8e997a1fb3"
+    },
+    {
+      "path": "src/openharness/tools/ask_user_question_tool.py",
+      "sha256": "6f89053b3f0858f640459103d3293da4a9afb38fac5d8f56beaf4d9501d6bd87"
+    },
+    {
+      "path": "src/openharness/tools/file_read_tool.py",
+      "sha256": "a30bd4bc1793e2e002be1d66c28d8c3a38348974690555e0362d922471924608"
+    },
+    {
+      "path": "src/openharness/tools/file_write_tool.py",
+      "sha256": "b065600978b0df9ae46ad442ab8db30f40fe2fd02fe6eff90e6ce8a2764eef66"
+    },
+    {
+      "path": "src/openharness/tools/file_edit_tool.py",
+      "sha256": "72b48afcb9218086071f161ddbe57666fd889b3c749771fd289e3540241681ac"
+    },
+    {
+      "path": "src/openharness/tools/notebook_edit_tool.py",
+      "sha256": "0968eb116fa0d3aa5eaacee579b8cf061f10072cd34094bfd97eaa4927228e19"
+    },
+    {
+      "path": "src/openharness/tools/lsp_tool.py",
+      "sha256": "6338be3f9f4ea16b7c26b241b56ad00b6afb890c3d64cbf74b5403b466f6612a"
+    },
+    {
+      "path": "src/openharness/tools/mcp_auth_tool.py",
+      "sha256": "1aecbbccb179fce2ea9506e6e69d828409f24863508186dd76fe4012471d3a39"
+    },
+    {
+      "path": "src/openharness/tools/glob_tool.py",
+      "sha256": "379b58b21d73a1b53f9dcce5eafbe87e86c063b2811f87793af49fa7200d9d79"
+    },
+    {
+      "path": "src/openharness/tools/grep_tool.py",
+      "sha256": "63931f9f01e234d1414127ab50c895fe263effc606f5f76a42cbcb668ac142bd"
+    },
+    {
+      "path": "src/openharness/tools/image_to_text_tool.py",
+      "sha256": "ddd69949d0e828f959e250f8c6d91d0600149da2f10bdedd6157bc8707fa53a3"
+    },
+    {
+      "path": "src/openharness/tools/image_generation_tool.py",
+      "sha256": "8286721e0f780549f82f432dd5e7e0fd082fe97537c8f0216a630694a52e16f3"
+    },
+    {
+      "path": "src/openharness/tools/skill_tool.py",
+      "sha256": "6e7a0cb1b1a81b58cbcd13b83617f901f8cea5e10a9224ac06958972e7ec6a78"
+    },
+    {
+      "path": "src/openharness/tools/tool_search_tool.py",
+      "sha256": "0d2d90f15585a90fa4d3177fb672e5882944153fe9471441fc85b12bcf8d691b"
+    },
+    {
+      "path": "src/openharness/tools/web_fetch_tool.py",
+      "sha256": "ab34077ac39c39e477d7d90cc6357c897e74dede547f86412edc7a89880ab53c"
+    },
+    {
+      "path": "src/openharness/tools/web_search_tool.py",
+      "sha256": "a71afa9f64e3d7c3c07fd50c9885f6645a7d238cd7fa0d5d840791161f960364"
+    },
+    {
+      "path": "src/openharness/tools/config_tool.py",
+      "sha256": "c01c0aa78cee59d085b15497f12127bdb2f16f94da3f2c9d44a97ffd7d9ffdf4"
+    },
+    {
+      "path": "src/openharness/tools/brief_tool.py",
+      "sha256": "e0818e14b3dc63d2a1b40a9a43e9367d65b5a4d34e637b8d45175c20c242798c"
+    },
+    {
+      "path": "src/openharness/tools/sleep_tool.py",
+      "sha256": "e803ab167648022839afb692c918543b2f753a6302cbd8e2a045552c116346a6"
+    },
+    {
+      "path": "src/openharness/tools/enter_worktree_tool.py",
+      "sha256": "93f711d3320186f32ec5533e19dccfcbdfa5307e84295c9f528aec29de61a2d5"
+    },
+    {
+      "path": "src/openharness/tools/exit_worktree_tool.py",
+      "sha256": "a2e7e841017dfcf10307e6bdbe127bf30c26ebb48576acaccf17d3e80e4a8665"
+    },
+    {
+      "path": "src/openharness/tools/todo_write_tool.py",
+      "sha256": "2500521bd9855c4dcd3c0ee12ed4db5c4058cf16a8507e292dbd61c1519fb588"
+    },
+    {
+      "path": "src/openharness/tools/enter_plan_mode_tool.py",
+      "sha256": "f3da9b7006a04845915276f436c77556faf2fa60b9b7097cdc2277de303d053d"
+    },
+    {
+      "path": "src/openharness/tools/exit_plan_mode_tool.py",
+      "sha256": "a6ea9abb6e3a150135ae63b40848d4c39f87bd19f215adddc552fe788d6a804c"
+    },
+    {
+      "path": "src/openharness/tools/cron_create_tool.py",
+      "sha256": "5f64942c2fac4a43e837741620c1403334833dababff5afda3682b7703613846"
+    },
+    {
+      "path": "src/openharness/tools/cron_list_tool.py",
+      "sha256": "06637c2b000959f3b9efb93a51e353189f989fbe62d7c41d78a2f4ca224f620f"
+    },
+    {
+      "path": "src/openharness/tools/cron_delete_tool.py",
+      "sha256": "518c83d0894bac095c75b1083c5b99e1984142353bc2aaad76b96bfef6b351e8"
+    },
+    {
+      "path": "src/openharness/tools/cron_toggle_tool.py",
+      "sha256": "b0c2e00a4ce1bfe598b0aad98e45f336cda8715765dbf276ab8ded5faca906ae"
+    },
+    {
+      "path": "src/openharness/tools/remote_trigger_tool.py",
+      "sha256": "6cf21078e88ef099d707c24b5d39feaca824bd7c4402006bed27f7b632e32876"
+    },
+    {
+      "path": "src/openharness/tools/task_create_tool.py",
+      "sha256": "a386a6a33ff57bd7a0c4415ac82bb356f6ec3d3efaa41814bb0b9145d74cc5fe"
+    },
+    {
+      "path": "src/openharness/tools/task_get_tool.py",
+      "sha256": "56e425de4a2681d930b6bf626611eb5dd43ec9ecbe1662423831af8353632dfc"
+    },
+    {
+      "path": "src/openharness/tools/task_list_tool.py",
+      "sha256": "748200e1416289d9c8a07b07d6cc840abe9174aef971f8ae42ba18f6c0bdde3a"
+    },
+    {
+      "path": "src/openharness/tools/task_stop_tool.py",
+      "sha256": "ebe1494e92ec2fdabeda64461c115299a03ff05459c57e36ca1564e2ec42d4aa"
+    },
+    {
+      "path": "src/openharness/tools/task_output_tool.py",
+      "sha256": "aba1f70128efabed82335fb514e46dbfa69b654bd1e9a398b4db252fcd8a03e1"
+    },
+    {
+      "path": "src/openharness/tools/task_update_tool.py",
+      "sha256": "2803698450f76d54cce32d6a7a9213157323653ea43545461fe23d818f85ca15"
+    },
+    {
+      "path": "src/openharness/tools/agent_tool.py",
+      "sha256": "156b0ca533410b1e1a049ae7b1cbe6f51d796f0d84f132b0ea2e9f745fb2eac4"
+    },
+    {
+      "path": "src/openharness/tools/send_message_tool.py",
+      "sha256": "07b8b4bdafc11e03bead1b0d9bf13443aad0c66ef055b4ad1f6762cccefdf1b6"
+    },
+    {
+      "path": "src/openharness/tools/team_create_tool.py",
+      "sha256": "5b79d3c2f37c1fbea7856e1f3f21fede27d68bbb263f42ba42d5ce359923e339"
+    },
+    {
+      "path": "src/openharness/tools/team_delete_tool.py",
+      "sha256": "a00c03cd520443fca4a7e7b52e5d52508e6462fb4850f54fa8b88b0b1d08aa88"
+    },
+    {
+      "path": "src/openharness/tools/__init__.py",
+      "sha256": "52a1594c01090f7826c3ff11b3297b63c2dda12fcbf183850f5d06b4d74a3b1d"
+    },
+    {
+      "path": "src/openharness/tools/base.py",
+      "sha256": "30402d4c8f4530455c621bcdd7b5a243c1f8aaa039f1daf4af9749481e7bb7a7"
+    },
+    {
+      "path": "src/openharness/skills/_frontmatter.py",
+      "sha256": "668a128511d47e172d9cfc785917e2e52d03914a2f982df7f273a4329f4a5920"
+    },
+    {
+      "path": "src/openharness/skills/types.py",
+      "sha256": "c4cd32af6b987c6a152c03d988e0c6ea9f986dad0c108083d42cd199d5b5e4c3"
+    },
+    {
+      "path": "src/openharness/skills/registry.py",
+      "sha256": "93c9068a41e56297c74bbc742b3c7fd55658c2302b4597ca96c82055e05126e1"
+    },
+    {
+      "path": "src/openharness/skills/loader.py",
+      "sha256": "f8981e8f900fdec99dc48af9680190c7a0fc8ac25c1ef6a5b9c2245e1a16ee11"
+    },
+    {
+      "path": "src/openharness/skills/bundled/__init__.py",
+      "sha256": "5d23b0b392557aee102c1a7f6e8f28f137f6ae3123be5a8a0de6c3bcb683fc66"
+    },
+    {
+      "path": "src/openharness/prompts/context.py",
+      "sha256": "a6b3fdc9480925ffcde7b5a8b48e6ceda3f4d9bc0458c68fe6ace864630faf60"
+    }
+  ],
+  "static_import_closure": [
+    {
+      "path": "src/openharness/api/client.py",
+      "sha256": "c46e69705d5ad717afb150a5113ce1987dbf75976ffef0d623dcfaabf1212062"
+    },
+    {
+      "path": "src/openharness/api/codex_client.py",
+      "sha256": "3184e43135fc4e868e1a2fc0457dd6f71e60cd19ff19eac2b9907591670b089e"
+    },
+    {
+      "path": "src/openharness/api/copilot_auth.py",
+      "sha256": "16c3f70fdaf9da46bf0c561a1f1970b6324ef3a8b1564928c2a3c1dc6a5ef762"
+    },
+    {
+      "path": "src/openharness/api/errors.py",
+      "sha256": "bc1a6a9fad4acae4d6a95851dd64c6e479adf21958254a0fab487cf520576faa"
+    },
+    {
+      "path": "src/openharness/api/openai_client.py",
+      "sha256": "1133ee17d845fbfbfd846a4615a7aaaf0c9288e161cf831a16f9adbe1ce9f748"
+    },
+    {
+      "path": "src/openharness/api/provider.py",
+      "sha256": "747ead072af04152d73ff816fa6e9b88bb3584f3a91e413be3b44025e358e44d"
+    },
+    {
+      "path": "src/openharness/api/registry.py",
+      "sha256": "d23adf41a133b2c11f8b8d578e0eacf5d3523a9f375dbeacde9ac4dd8572c22f"
+    },
+    {
+      "path": "src/openharness/api/usage.py",
+      "sha256": "895968e070be7d25fc4a41724e323032d53c0f647a12d5f660a9bacd2888b1e1"
+    },
+    {
+      "path": "src/openharness/auth/external.py",
+      "sha256": "63bf2609e350d878e10c622dee4059aab252a277e6d222b2df67fe9191b97a17"
+    },
+    {
+      "path": "src/openharness/auth/storage.py",
+      "sha256": "607e5b0c971c6d7dc8af8d61bd96a957965c2ba23db9927794a91011455f97bc"
+    },
+    {
+      "path": "src/openharness/config/__init__.py",
+      "sha256": "234c3ac5a1bf0e06e24d4a9b1d7dda693a905e2ade779a0e81eb49bacee9fa2f"
+    },
+    {
+      "path": "src/openharness/config/paths.py",
+      "sha256": "71ef3bf99de4c645314b9db43c406d28ef46c271ee2278ee8c83e5f5fea1a06b"
+    },
+    {
+      "path": "src/openharness/config/settings.py",
+      "sha256": "4c9095e1fa7364686949214ba61c874fbe1d2aca5abba14d93b44e909a466faa"
+    },
+    {
+      "path": "src/openharness/coordinator/agent_definitions.py",
+      "sha256": "4f7b144d6d547499234898c810e8bf569a31fc29e71c6d41c56be0dcd30ec21b"
+    },
+    {
+      "path": "src/openharness/coordinator/coordinator_mode.py",
+      "sha256": "a5df28230fdd02c614fb53ccfda831260648a810c3645ab6f39932431fd101bd"
+    },
+    {
+      "path": "src/openharness/engine/messages.py",
+      "sha256": "2ab3a5e895333946857e31fdaaf81b43d6eff6d3b12bb580d312ebaf4d92be7f"
+    },
+    {
+      "path": "src/openharness/engine/query.py",
+      "sha256": "bc923c7aa6af63bf1d9d79ddf73946be6e882e8cf99672ee5b25d04035e5a2da"
+    },
+    {
+      "path": "src/openharness/engine/stream_events.py",
+      "sha256": "813917fc2f5e25bdb5d99a1c0d52d34221584c32cabbeebf426e5f580fe3852d"
+    },
+    {
+      "path": "src/openharness/hooks/__init__.py",
+      "sha256": "20cf9fa1e48d62e3b365160c5a082c07ea118eb0fb82f86db910106509f61098"
+    },
+    {
+      "path": "src/openharness/hooks/events.py",
+      "sha256": "0c991e2da2a5db0c4bebb8b7894111fb6ed4a2769bb571318e6f0dafaf3b2e91"
+    },
+    {
+      "path": "src/openharness/hooks/executor.py",
+      "sha256": "8d498d1fe705b8b048e8003e1df7c27c9ececbdf2d96d3a7fa8c4d37723a8223"
+    },
+    {
+      "path": "src/openharness/hooks/loader.py",
+      "sha256": "83ba0e59b1a7768f4086a64e430e8b7e214844cb03d06a1a39df4cc01f2bff5c"
+    },
+    {
+      "path": "src/openharness/hooks/schemas.py",
+      "sha256": "22a575a84d7a2f3999548ab5e616646dabae525fc145e694329811bee41b1cc7"
+    },
+    {
+      "path": "src/openharness/hooks/types.py",
+      "sha256": "4336d96d2ca575a3044e3fa37ebc3018660351a2f378890e03c5147a23aece8d"
+    },
+    {
+      "path": "src/openharness/mcp/client.py",
+      "sha256": "aec08106645fa7fa84c9c8a5d425e9ccc6f9cdfdae7bb0156418ce9f491d223d"
+    },
+    {
+      "path": "src/openharness/mcp/config.py",
+      "sha256": "df249f6f4976759a9981ad71ea9867e54007813dafe30097fdd405e253756e23"
+    },
+    {
+      "path": "src/openharness/mcp/types.py",
+      "sha256": "4be40eb6813d8660e2de69b5251f9e4d817f802b446bb4a80b70f0c3b253e6ea"
+    },
+    {
+      "path": "src/openharness/memory/__init__.py",
+      "sha256": "ef8aa2a2c2ad94c1b49a0490a29c1e1d370cac27501a013572715a946ebde21f"
+    },
+    {
+      "path": "src/openharness/memory/manager.py",
+      "sha256": "3a8d2d16b028ce287cda3157382e6a414add0f40706178140b05c139aa5ee15b"
+    },
+    {
+      "path": "src/openharness/memory/memdir.py",
+      "sha256": "0b5ea9bba9e40e705f46814ddcec1b96575f89bc1ca594937a26a987889aae2d"
+    },
+    {
+      "path": "src/openharness/memory/migrate.py",
+      "sha256": "cacd2436f3fb29ca210da38348cc755c5a1656dfd1b4635d118e30c2db33ca24"
+    },
+    {
+      "path": "src/openharness/memory/paths.py",
+      "sha256": "5bfb5679f4468892609b33002311f9f301818f5c9b6eb46799f526e5683b87a4"
+    },
+    {
+      "path": "src/openharness/memory/relevance.py",
+      "sha256": "40d00a11fdc2bcfb3ad3711cbbf4f7c501139e4a1dd8b848f6cc10d71e3db63d"
+    },
+    {
+      "path": "src/openharness/memory/scan.py",
+      "sha256": "937d18a265412a43051e4e68ff56ccc79bcd4d7053d4fd2a47fe67a4d7c7964f"
+    },
+    {
+      "path": "src/openharness/memory/schema.py",
+      "sha256": "8ff62418979fdf75fc58ef104ea8880891114b06b5ff659290a94ea92e8c7db8"
+    },
+    {
+      "path": "src/openharness/memory/search.py",
+      "sha256": "5c8da84e9aa9e7e2088296fd55b6335d57e44e8f1a77a2fe8f1d06f5b486c452"
+    },
+    {
+      "path": "src/openharness/memory/team.py",
+      "sha256": "3d68707d36a4903622d8c2ba5765b1a1384dce2e34928b6a12b883fe3ca20568"
+    },
+    {
+      "path": "src/openharness/memory/types.py",
+      "sha256": "32791f4a2b00e562b43dd4f3d18cda2989e62ae7d9dc3969131e0118422e158d"
+    },
+    {
+      "path": "src/openharness/memory/usage.py",
+      "sha256": "b10a7859423b676a7764b55b226cc820767b0e24882b884d5183264f832dc067"
+    },
+    {
+      "path": "src/openharness/permissions/__init__.py",
+      "sha256": "b20a02d445e3fc7f8861b2907144d8d746facc1a975ebe96911088eac6031d23"
+    },
+    {
+      "path": "src/openharness/permissions/checker.py",
+      "sha256": "a3db71b3170d3cf04ad11fbaad633d74af509c78a6a38967011403c1063f80cf"
+    },
+    {
+      "path": "src/openharness/permissions/modes.py",
+      "sha256": "504058ae6d00a98ca59cdf26266c75876d4bc4a5a9580a2f2d743479c3ff401c"
+    },
+    {
+      "path": "src/openharness/personalization/rules.py",
+      "sha256": "ccce0b7d9a60e95d8c76bc9f5230d8db0f993441d44971d57f233b8bcec2fd40"
+    },
+    {
+      "path": "src/openharness/platforms.py",
+      "sha256": "8c51262d5c7951ffd3db52f4e9bf6cef30d487573f0c63c9f85e8ef538788390"
+    },
+    {
+      "path": "src/openharness/plugins/loader.py",
+      "sha256": "230e7274799990535231bb1c33f9f032e893c7a7f2b3a488805fb322310950b5"
+    },
+    {
+      "path": "src/openharness/plugins/schemas.py",
+      "sha256": "64809b859f463e428c5e348dd6a8eb20b445242e29e3731c34ddcaa11e6e1548"
+    },
+    {
+      "path": "src/openharness/plugins/types.py",
+      "sha256": "b4b6f8435d5541f33e4a064198a421c3c2a7a5cd88fc8b165d9c79f80b41d2cb"
+    },
+    {
+      "path": "src/openharness/prompts/claudemd.py",
+      "sha256": "06d9695c9d2e8a4935bf97e9d724f569951d5b9604a10d831cde12ed544f7d5f"
+    },
+    {
+      "path": "src/openharness/prompts/context.py",
+      "sha256": "a6b3fdc9480925ffcde7b5a8b48e6ceda3f4d9bc0458c68fe6ace864630faf60"
+    },
+    {
+      "path": "src/openharness/prompts/environment.py",
+      "sha256": "419091686dabc8b45cce2421b7411f52621a0bd340fdbbc6e5cc60400c5566ae"
+    },
+    {
+      "path": "src/openharness/prompts/system_prompt.py",
+      "sha256": "169f04d473c5821da40e2650aa74af5502dabbbb0cc8a05622723b1e6d58dd97"
+    },
+    {
+      "path": "src/openharness/sandbox/__init__.py",
+      "sha256": "8b3cd3a7accd0b21138254102fa66bc6ac26e40a15c4d3c22cd5a966cc3e96bf"
+    },
+    {
+      "path": "src/openharness/sandbox/adapter.py",
+      "sha256": "5b4da7012265429e71c0fe4d01833293291aa8bd96f1e24d8960a1e69e7cd4e9"
+    },
+    {
+      "path": "src/openharness/sandbox/docker_backend.py",
+      "sha256": "851b480407906b11d6d8140b92072f5a1cd4ff703a325bf3a05fb9811a69e943"
+    },
+    {
+      "path": "src/openharness/sandbox/docker_image.py",
+      "sha256": "15985a61c994c3fbefa57ddce617a6aa0f7514bdcc784ce96be57af211f549af"
+    },
+    {
+      "path": "src/openharness/sandbox/path_validator.py",
+      "sha256": "f8a9d526cc78cb646c701e357084717c92bc364a5c8fae303fe31767d8af004e"
+    },
+    {
+      "path": "src/openharness/sandbox/session.py",
+      "sha256": "ae9a6b46c1eee0df60a0acc8da84cd30be2107d05495131682fb71280e5eab96"
+    },
+    {
+      "path": "src/openharness/services/compact/__init__.py",
+      "sha256": "2cd02e5dc2b8d2b14d5bfdee6c1b4054b231ee26eeb777ce6f349cd9e2d43ae0"
+    },
+    {
+      "path": "src/openharness/services/cron.py",
+      "sha256": "cb5431693b7b5a154871342a118236660aca2957ef4aeb552c431e0455d3f51b"
+    },
+    {
+      "path": "src/openharness/services/cron_scheduler.py",
+      "sha256": "5f8a5deb44473b182af5a4877662340ce51163bc07e19082a2b088fb28f99c33"
+    },
+    {
+      "path": "src/openharness/services/lsp/__init__.py",
+      "sha256": "e218ecf6076548646b7581d0edd54b6ec9dc7825ecd2b66dd9b7f6ce868206ee"
+    },
+    {
+      "path": "src/openharness/services/session_memory/__init__.py",
+      "sha256": "5f50bb9a4e44a6aa326873da5133530064c9550c2278c400838ba23a568b0b97"
+    },
+    {
+      "path": "src/openharness/services/token_estimation.py",
+      "sha256": "4bac59874435564576b31e81831744786e4119bf139b62f11e8966ea910d214c"
+    },
+    {
+      "path": "src/openharness/services/tool_outputs.py",
+      "sha256": "be07f3b019d987343f0bd4e0c8f0a1ee6d4c7ebe03fa21dbfffcf95744b95564"
+    },
+    {
+      "path": "src/openharness/skills/__init__.py",
+      "sha256": "0e518dd3582f85be32c39da08ba8a203f7369db6dff0a018c8c0b873eab7cd90"
+    },
+    {
+      "path": "src/openharness/skills/_frontmatter.py",
+      "sha256": "668a128511d47e172d9cfc785917e2e52d03914a2f982df7f273a4329f4a5920"
+    },
+    {
+      "path": "src/openharness/skills/bundled/__init__.py",
+      "sha256": "5d23b0b392557aee102c1a7f6e8f28f137f6ae3123be5a8a0de6c3bcb683fc66"
+    },
+    {
+      "path": "src/openharness/skills/loader.py",
+      "sha256": "f8981e8f900fdec99dc48af9680190c7a0fc8ac25c1ef6a5b9c2245e1a16ee11"
+    },
+    {
+      "path": "src/openharness/skills/registry.py",
+      "sha256": "93c9068a41e56297c74bbc742b3c7fd55658c2302b4597ca96c82055e05126e1"
+    },
+    {
+      "path": "src/openharness/skills/types.py",
+      "sha256": "c4cd32af6b987c6a152c03d988e0c6ea9f986dad0c108083d42cd199d5b5e4c3"
+    },
+    {
+      "path": "src/openharness/swarm/in_process.py",
+      "sha256": "2eef6b9754492db8315c6fc6b33f9bbad9d568ecbf5b24154f019e73525dad19"
+    },
+    {
+      "path": "src/openharness/swarm/lockfile.py",
+      "sha256": "25565f588bcb40d2e2c5ec92f50467a9b4c42333b15fcdc5fb5ccfaecc23508a"
+    },
+    {
+      "path": "src/openharness/swarm/mailbox.py",
+      "sha256": "015c91d4947d283c83fa68502d94d8d5590ae7a0cc0493d60dc1681cf201735e"
+    },
+    {
+      "path": "src/openharness/swarm/registry.py",
+      "sha256": "178c8f440198e2f00d2ca1e15e7447ab3c0196e5993ff82c86cfafa38a678461"
+    },
+    {
+      "path": "src/openharness/swarm/spawn_utils.py",
+      "sha256": "eb7cbb85127414f4d0e94dcd27647cd39ebc13e850a90dddf9210a45ef986331"
+    },
+    {
+      "path": "src/openharness/swarm/subprocess_backend.py",
+      "sha256": "9265f18433ef27a0dde7666b8b25fb760acf478626841de65853792a5bcc1b79"
+    },
+    {
+      "path": "src/openharness/swarm/types.py",
+      "sha256": "319fa7549d685d67d0a17ac5f248e43a4d20d5f26010838068894f3225ee3b19"
+    },
+    {
+      "path": "src/openharness/tasks/__init__.py",
+      "sha256": "181edc217c36cb486664b67c31c3461990a3492ecb274e4db6b3298c09a25abe"
+    },
+    {
+      "path": "src/openharness/tasks/local_agent_task.py",
+      "sha256": "198f3073755d117b687d40a57f2f7ff8c4540260d8d76de6f8566acd36e3477a"
+    },
+    {
+      "path": "src/openharness/tasks/local_shell_task.py",
+      "sha256": "76f2b2cc3cf54743883b548bce77d22cd21bc6c132b7ece787b7f79aa760c2c5"
+    },
+    {
+      "path": "src/openharness/tasks/manager.py",
+      "sha256": "3940f7d18507a954a5e50b3271d988add511ad6677869f93f41ca1b30504e146"
+    },
+    {
+      "path": "src/openharness/tasks/stop_task.py",
+      "sha256": "e86df6d13707fe96e609502389f6ca50b894dd400dc66cce9d568635fe57e707"
+    },
+    {
+      "path": "src/openharness/tasks/types.py",
+      "sha256": "44c6524276ccf8814f6cfd66488740ed1c633e2807f006f0cd1c4cb3258debcb"
+    },
+    {
+      "path": "src/openharness/tools/__init__.py",
+      "sha256": "52a1594c01090f7826c3ff11b3297b63c2dda12fcbf183850f5d06b4d74a3b1d"
+    },
+    {
+      "path": "src/openharness/tools/agent_tool.py",
+      "sha256": "156b0ca533410b1e1a049ae7b1cbe6f51d796f0d84f132b0ea2e9f745fb2eac4"
+    },
+    {
+      "path": "src/openharness/tools/ask_user_question_tool.py",
+      "sha256": "6f89053b3f0858f640459103d3293da4a9afb38fac5d8f56beaf4d9501d6bd87"
+    },
+    {
+      "path": "src/openharness/tools/base.py",
+      "sha256": "30402d4c8f4530455c621bcdd7b5a243c1f8aaa039f1daf4af9749481e7bb7a7"
+    },
+    {
+      "path": "src/openharness/tools/bash_tool.py",
+      "sha256": "a75ab060c6ffb8afd2dd9ed255c175346b6498b70e486bf596591e8e997a1fb3"
+    },
+    {
+      "path": "src/openharness/tools/brief_tool.py",
+      "sha256": "e0818e14b3dc63d2a1b40a9a43e9367d65b5a4d34e637b8d45175c20c242798c"
+    },
+    {
+      "path": "src/openharness/tools/config_tool.py",
+      "sha256": "c01c0aa78cee59d085b15497f12127bdb2f16f94da3f2c9d44a97ffd7d9ffdf4"
+    },
+    {
+      "path": "src/openharness/tools/cron_create_tool.py",
+      "sha256": "5f64942c2fac4a43e837741620c1403334833dababff5afda3682b7703613846"
+    },
+    {
+      "path": "src/openharness/tools/cron_delete_tool.py",
+      "sha256": "518c83d0894bac095c75b1083c5b99e1984142353bc2aaad76b96bfef6b351e8"
+    },
+    {
+      "path": "src/openharness/tools/cron_list_tool.py",
+      "sha256": "06637c2b000959f3b9efb93a51e353189f989fbe62d7c41d78a2f4ca224f620f"
+    },
+    {
+      "path": "src/openharness/tools/cron_toggle_tool.py",
+      "sha256": "b0c2e00a4ce1bfe598b0aad98e45f336cda8715765dbf276ab8ded5faca906ae"
+    },
+    {
+      "path": "src/openharness/tools/enter_plan_mode_tool.py",
+      "sha256": "f3da9b7006a04845915276f436c77556faf2fa60b9b7097cdc2277de303d053d"
+    },
+    {
+      "path": "src/openharness/tools/enter_worktree_tool.py",
+      "sha256": "93f711d3320186f32ec5533e19dccfcbdfa5307e84295c9f528aec29de61a2d5"
+    },
+    {
+      "path": "src/openharness/tools/exit_plan_mode_tool.py",
+      "sha256": "a6ea9abb6e3a150135ae63b40848d4c39f87bd19f215adddc552fe788d6a804c"
+    },
+    {
+      "path": "src/openharness/tools/exit_worktree_tool.py",
+      "sha256": "a2e7e841017dfcf10307e6bdbe127bf30c26ebb48576acaccf17d3e80e4a8665"
+    },
+    {
+      "path": "src/openharness/tools/file_edit_tool.py",
+      "sha256": "72b48afcb9218086071f161ddbe57666fd889b3c749771fd289e3540241681ac"
+    },
+    {
+      "path": "src/openharness/tools/file_read_tool.py",
+      "sha256": "a30bd4bc1793e2e002be1d66c28d8c3a38348974690555e0362d922471924608"
+    },
+    {
+      "path": "src/openharness/tools/file_write_tool.py",
+      "sha256": "b065600978b0df9ae46ad442ab8db30f40fe2fd02fe6eff90e6ce8a2764eef66"
+    },
+    {
+      "path": "src/openharness/tools/glob_tool.py",
+      "sha256": "379b58b21d73a1b53f9dcce5eafbe87e86c063b2811f87793af49fa7200d9d79"
+    },
+    {
+      "path": "src/openharness/tools/grep_tool.py",
+      "sha256": "63931f9f01e234d1414127ab50c895fe263effc606f5f76a42cbcb668ac142bd"
+    },
+    {
+      "path": "src/openharness/tools/image_generation_tool.py",
+      "sha256": "8286721e0f780549f82f432dd5e7e0fd082fe97537c8f0216a630694a52e16f3"
+    },
+    {
+      "path": "src/openharness/tools/image_to_text_tool.py",
+      "sha256": "ddd69949d0e828f959e250f8c6d91d0600149da2f10bdedd6157bc8707fa53a3"
+    },
+    {
+      "path": "src/openharness/tools/list_mcp_resources_tool.py",
+      "sha256": "ba8118f4ca57f23db6d61728d29668281bbca9f87e7f1c2f2546abf5ce31f5f3"
+    },
+    {
+      "path": "src/openharness/tools/lsp_tool.py",
+      "sha256": "6338be3f9f4ea16b7c26b241b56ad00b6afb890c3d64cbf74b5403b466f6612a"
+    },
+    {
+      "path": "src/openharness/tools/mcp_auth_tool.py",
+      "sha256": "1aecbbccb179fce2ea9506e6e69d828409f24863508186dd76fe4012471d3a39"
+    },
+    {
+      "path": "src/openharness/tools/mcp_tool.py",
+      "sha256": "ae1c4aaea7f7e9d82bb6bb7ca5b3ebbc690ddda99d4e73548bc24a0bb0bf87a9"
+    },
+    {
+      "path": "src/openharness/tools/notebook_edit_tool.py",
+      "sha256": "0968eb116fa0d3aa5eaacee579b8cf061f10072cd34094bfd97eaa4927228e19"
+    },
+    {
+      "path": "src/openharness/tools/read_mcp_resource_tool.py",
+      "sha256": "a9abb05a349db9fd4dd111152c62194992e19d7aca8a0c07ebd8b4111b4cea44"
+    },
+    {
+      "path": "src/openharness/tools/remote_trigger_tool.py",
+      "sha256": "6cf21078e88ef099d707c24b5d39feaca824bd7c4402006bed27f7b632e32876"
+    },
+    {
+      "path": "src/openharness/tools/send_message_tool.py",
+      "sha256": "07b8b4bdafc11e03bead1b0d9bf13443aad0c66ef055b4ad1f6762cccefdf1b6"
+    },
+    {
+      "path": "src/openharness/tools/skill_tool.py",
+      "sha256": "6e7a0cb1b1a81b58cbcd13b83617f901f8cea5e10a9224ac06958972e7ec6a78"
+    },
+    {
+      "path": "src/openharness/tools/sleep_tool.py",
+      "sha256": "e803ab167648022839afb692c918543b2f753a6302cbd8e2a045552c116346a6"
+    },
+    {
+      "path": "src/openharness/tools/task_create_tool.py",
+      "sha256": "a386a6a33ff57bd7a0c4415ac82bb356f6ec3d3efaa41814bb0b9145d74cc5fe"
+    },
+    {
+      "path": "src/openharness/tools/task_get_tool.py",
+      "sha256": "56e425de4a2681d930b6bf626611eb5dd43ec9ecbe1662423831af8353632dfc"
+    },
+    {
+      "path": "src/openharness/tools/task_list_tool.py",
+      "sha256": "748200e1416289d9c8a07b07d6cc840abe9174aef971f8ae42ba18f6c0bdde3a"
+    },
+    {
+      "path": "src/openharness/tools/task_output_tool.py",
+      "sha256": "aba1f70128efabed82335fb514e46dbfa69b654bd1e9a398b4db252fcd8a03e1"
+    },
+    {
+      "path": "src/openharness/tools/task_stop_tool.py",
+      "sha256": "ebe1494e92ec2fdabeda64461c115299a03ff05459c57e36ca1564e2ec42d4aa"
+    },
+    {
+      "path": "src/openharness/tools/task_update_tool.py",
+      "sha256": "2803698450f76d54cce32d6a7a9213157323653ea43545461fe23d818f85ca15"
+    },
+    {
+      "path": "src/openharness/tools/team_create_tool.py",
+      "sha256": "5b79d3c2f37c1fbea7856e1f3f21fede27d68bbb263f42ba42d5ce359923e339"
+    },
+    {
+      "path": "src/openharness/tools/team_delete_tool.py",
+      "sha256": "a00c03cd520443fca4a7e7b52e5d52508e6462fb4850f54fa8b88b0b1d08aa88"
+    },
+    {
+      "path": "src/openharness/tools/todo_write_tool.py",
+      "sha256": "2500521bd9855c4dcd3c0ee12ed4db5c4058cf16a8507e292dbd61c1519fb588"
+    },
+    {
+      "path": "src/openharness/tools/tool_search_tool.py",
+      "sha256": "0d2d90f15585a90fa4d3177fb672e5882944153fe9471441fc85b12bcf8d691b"
+    },
+    {
+      "path": "src/openharness/tools/web_fetch_tool.py",
+      "sha256": "ab34077ac39c39e477d7d90cc6357c897e74dede547f86412edc7a89880ab53c"
+    },
+    {
+      "path": "src/openharness/tools/web_search_tool.py",
+      "sha256": "a71afa9f64e3d7c3c07fd50c9885f6645a7d238cd7fa0d5d840791161f960364"
+    },
+    {
+      "path": "src/openharness/utils/file_lock.py",
+      "sha256": "bbcdd3892d9537fc202d37be019a3cb55f33909a2e8dabe70046dacced6afeb1"
+    },
+    {
+      "path": "src/openharness/utils/fs.py",
+      "sha256": "d1f7ae6dce6b3fe5bf3c6ece641dea4973249c05d6f272ab626a5cef65b1d10e"
+    },
+    {
+      "path": "src/openharness/utils/network_guard.py",
+      "sha256": "6f1fcd31647841f0b1d84956f43208e4cbbb23fd912914c5349ab7921afb378d"
+    },
+    {
+      "path": "src/openharness/utils/shell.py",
+      "sha256": "221118b817a31e0e1cde2c74ff75122f89f218e06a07aa1349322fabcdd5272f"
+    }
+  ],
+  "upstream": {
+    "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
+    "repo": "https://github.com/HKUDS/OpenHarness.git"
+  },
+  "upstream_test_files": [
+    {
+      "path": "tests/test_skills/test_loader.py",
+      "sha256": "64cce9fb9fc6a3e74dce81b06bc0a8f545ff2a5b69a3c6fd36f99e2d2dd6e541"
+    },
+    {
+      "path": "tests/test_tools/test_bash_tool.py",
+      "sha256": "918005c2ad428346c55503b1dd106e3dff97a4000425e33ff7abce2f6d8a8c24"
+    },
+    {
+      "path": "tests/test_tools/test_core_tools.py",
+      "sha256": "e53a943583bce62f8849c8e274f062ddc7113fb0cad9893d355986ff61c8a15b"
+    },
+    {
+      "path": "tests/test_tools/test_grep_tool.py",
+      "sha256": "886afed94fcd696b92c402264ece88fad386446984652a33bc1d316c3e5f4774"
+    },
+    {
+      "path": "tests/test_tools/test_image_generation_tool.py",
+      "sha256": "eb9907ee3fa214a0ec4ac625fb0a0f973b95229eab80453445930cfc1f6c3255"
+    },
+    {
+      "path": "tests/test_tools/test_image_to_text_tool.py",
+      "sha256": "e5ec614217d5496eab8847e061c3112da9b1673b8f3bb9c1595b2d193b333768"
+    },
+    {
+      "path": "tests/test_tools/test_integration_flows.py",
+      "sha256": "c31e14bc042ad9cca2a2823aa5e9d530503f579b2c1b15b860d5cb83d2627f0f"
+    },
+    {
+      "path": "tests/test_tools/test_mcp_auth_tool.py",
+      "sha256": "db25e1cbfd72e465c4efc3b4c25d6a7c6cff4b15d6a4ee8a6f8473a17aec3ac1"
+    },
+    {
+      "path": "tests/test_tools/test_mcp_tool.py",
+      "sha256": "59f60fc1f16aa25a5410b0489f51666c99169bf5fe4478458f885173e3e58d08"
+    },
+    {
+      "path": "tests/test_tools/test_task_tools.py",
+      "sha256": "fd9bb50673bfa9d0b132ff0d3a35032b2c52c3be8b26696fa13274060e807f79"
+    },
+    {
+      "path": "tests/test_tools/test_web_fetch_tool.py",
+      "sha256": "f6778fab2b481d852221791b4a1185ae85ca36a8441da08a742e2c282ae347a2"
+    },
+    {
+      "path": "tests/test_mcp/test_stdio_flow.py",
+      "sha256": "c52feeccac94ba26638a5b840eb9053bb1746f36fa58d904d4842608d5793e64"
+    },
+    {
+      "path": "tests/test_mcp/test_http_flow.py",
+      "sha256": "ab9fd68329f9758a41a1df240810482d919b277d0f466674752b14aff47ce621"
+    },
+    {
+      "path": "tests/test_mcp/test_integration.py",
+      "sha256": "d3d080ec15274bef7e976ed1cb350585c2dc5154a993e53ba34a50d0b93580a7"
+    },
+    {
+      "path": "tests/test_swarm/test_imports.py",
+      "sha256": "59c8c640d7f7a1954908034791e3eca5bbf33e703ad829567818d1dabd9f874b"
+    }
+  ],
+  "upstream_test_support_files": [
+    {
+      "path": "tests/fixtures/fake_mcp_server.py",
+      "sha256": "b1ef1e2389d8382470bcdfaed7402641b7c894a0e4f65131b8009b7a82bc22ba"
+    }
+  ]
+}

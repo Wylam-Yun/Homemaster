@@ -13,6 +13,7 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
+    SecretStr,
     ValidationError,
     field_validator,
     model_validator,
@@ -161,7 +162,7 @@ class ContextPolicyConfig(BaseModel):
     keep_recent_images: int = 2
     keep_recent_tool_results_per_type: dict[str, int] = Field(
         default_factory=lambda: {
-            "robot_observe": 2,
+            "observe": 2,
             "memory_retriever": 1,
             "robot_verify": 2,
         }
@@ -240,18 +241,13 @@ class RuntimeDefaultsConfig(BaseModel):
 
 
 class SkillSourcesConfig(BaseModel):
-    user_dirs: tuple[Path, ...] = (
-        Path("~/.homemaster/skills"),
-        Path("~/.agents/skills"),
-        Path("~/.claude/skills"),
-    )
-    project_dirs: tuple[str, ...] = (
-        ".homemaster/skills",
-        ".agents/skills",
-        ".claude/skills",
-    )
+    user_dirs: tuple[Path, ...] = (Path("~/.homemaster/skills"),)
+    project_dirs: tuple[str, ...] = (".homemaster/skills",)
     explicit_dirs: tuple[Path, ...] = ()
     allow_project: bool = True
+    plugin_roots: tuple[Path, ...] = ()
+    enabled_plugins: dict[str, bool] = Field(default_factory=dict)
+    allow_project_plugin_skills: bool = False
     allowed_builtin_overrides: tuple[str, ...] = ()
 
     @field_validator("project_dirs")
@@ -287,13 +283,41 @@ class TelegramChannelConfig(BaseModel):
         return self
 
 
+class FeishuChannelConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    app_id: str = ""
+    app_secret: SecretStr = SecretStr("")
+    app_id_env: str = "HOMEMASTER_FEISHU_APP_ID"
+    app_secret_env: str = "HOMEMASTER_FEISHU_APP_SECRET"
+    encrypt_key_env: str = "HOMEMASTER_FEISHU_ENCRYPT_KEY"
+    verification_token_env: str = "HOMEMASTER_FEISHU_VERIFICATION_TOKEN"
+    tenant_id: str = "local"
+    domain: Literal["feishu", "lark"] = "feishu"
+    react_emoji: str = "EYES"
+    attachment_root: Path = Path("~/.homemaster/attachments/feishu")
+
+    @field_validator("app_id")
+    @classmethod
+    def _strip_app_id(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def _enabled_channel_is_exactly_configured(self) -> FeishuChannelConfig:
+        direct_secret = self.app_secret.get_secret_value().strip()
+        if bool(self.app_id) != bool(direct_secret):
+            raise ValueError("Feishu app_id and app_secret must be configured together")
+        return self
+
+
 class GatewayConfig(BaseModel):
     enabled: bool = False
     bus_capacity: int = Field(default=128, ge=1)
     per_tenant_capacity: int = Field(default=64, ge=1)
     per_session_capacity: int = Field(default=32, ge=1)
     shutdown_deadline_s: float = Field(default=5.0, gt=0)
-    telegram: TelegramChannelConfig = Field(default_factory=TelegramChannelConfig)
+    feishu: FeishuChannelConfig = Field(default_factory=FeishuChannelConfig)
 
     @model_validator(mode="after")
     def _capacity_is_consistent(self) -> GatewayConfig:
@@ -303,8 +327,8 @@ class GatewayConfig(BaseModel):
             raise ValueError("per-tenant Gateway capacity cannot exceed total capacity")
         if self.per_session_capacity > self.per_tenant_capacity:
             raise ValueError("per-session Gateway capacity cannot exceed tenant capacity")
-        if self.telegram.enabled and not self.enabled:
-            raise ValueError("Telegram cannot be enabled while Gateway is disabled")
+        if self.feishu.enabled and not self.enabled:
+            raise ValueError("Feishu cannot be enabled while Gateway is disabled")
         return self
 
 
@@ -528,6 +552,9 @@ def configured_sensitive_values(config: HomeMasterConfig) -> tuple[str, ...]:
 
     values = [key for provider in config.providers.items for key in provider.api_keys if key]
     values.extend(mcp_secret_values(config.mcp.servers))
+    feishu_secret = config.gateway.feishu.app_secret.get_secret_value().strip()
+    if feishu_secret:
+        values.append(feishu_secret)
     return tuple(sorted(set(values), key=len, reverse=True))
 
 

@@ -37,11 +37,7 @@ from homemaster.benchmarking.alfworld.gateway import (
     ExternalEventRead,
     OracleActionGateway,
 )
-from homemaster.benchmarking.alfworld.model_view import (
-    AlfworldModelViewObserver,
-    FrameLedger,
-    VisibleObjectView,
-)
+from homemaster.benchmarking.alfworld.object_view import CurrentObjectView
 from homemaster.benchmarking.alfworld.pose_snapshot import (
     FrozenOraclePoseStore,
     OraclePose,
@@ -66,7 +62,6 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldStepResult,
     make_execution_feedback,
 )
-from homemaster.observations import ObservationCapture
 
 
 class _NavigationResult(SimpleNamespace):
@@ -251,10 +246,6 @@ class AlfworldEnvAdapter:
         self._snapshot_sha256: str | None = None
         self._trial_selection: TrialSelectionEntry | None = None
         self._pose_store = FrozenOraclePoseStore()
-        self._frame_ledger = FrameLedger()
-        self._model_view_observer = AlfworldModelViewObserver(
-            frame_ledger=self._frame_ledger
-        )
         self._lifecycle = "not_started"
         self._last_reset_result: AlfworldResetResult | None = None
         self._navigation_budget = SimpleNamespace(
@@ -309,27 +300,11 @@ class AlfworldEnvAdapter:
     def last_reset_result(self) -> AlfworldResetResult | None:
         return self._last_reset_result
 
-    @property
-    def model_view_observer(self) -> AlfworldModelViewObserver:
-        return self._model_view_observer
-
-    def capture(self) -> ObservationCapture:
+    async def screenshot(self) -> bytes:
         state = self.current_state
         if not state.frame_path:
-            raise RuntimeError("ALFWorld raster observation has no current frame")
-        path = Path(state.frame_path)
-        self._event_sequence += 1
-        self._frame_ledger.record_frame(path, event_sequence=self._event_sequence)
-        return ObservationCapture(
-            backend_id=self.backend_id,
-            run_id=self._application_run_id,
-            generation=self.generation,
-            state_sequence=self.state_sequence,
-            capture_event_sequence=self._event_sequence,
-            media_type="image/png",
-            content=path.read_bytes(),
-            evidence_ref=f"alfworld/{state.episode_id}/frame/{self._event_sequence}",
-        )
+            raise RuntimeError("ALFWorld current state has no frame")
+        return Path(state.frame_path).read_bytes()
 
     def bind_application_run(self, run_id: str, generation: int) -> None:
         del generation
@@ -520,10 +495,6 @@ class AlfworldEnvAdapter:
 
     def _reset_state(self) -> AlfworldEnvState:
         obs, infos = self._env.reset()
-        self._frame_ledger = FrameLedger()
-        self._model_view_observer = AlfworldModelViewObserver(
-            frame_ledger=self._frame_ledger
-        )
         self._scene_generation += 1
         self._goal_generation = 0
         self._event_sequence = 0
@@ -1342,10 +1313,9 @@ class AlfworldEnvAdapter:
             result = OracleNavigationExecutor(
                 scene_index=self._scene_object_index,
                 public_object_types=load_public_object_vocabulary().object_types,
-                visible_object_view=VisibleObjectView(
+                object_view=CurrentObjectView(
                     event=raw_event,
                     event_sequence=self._event_sequence,
-                    committed_view=self._model_view_observer.current_view,
                 ),
                 current_event=current_event,
                 pose_store=self._pose_store,
@@ -1838,10 +1808,9 @@ class AlfworldEnvAdapter:
             ).strip() or None
             result = OracleManipulationExecutor(
                 scene_index=self._scene_object_index,
-                visible_object_view=VisibleObjectView(
+                object_view=CurrentObjectView(
                     event=raw_event,
                     event_sequence=self._event_sequence,
-                    committed_view=self._model_view_observer.current_view,
                 ),
                 current_event=current_event,
                 raw_event=raw_event,
@@ -2461,7 +2430,6 @@ class AlfworldEnvAdapter:
             self._frame_dir.mkdir(parents=True, exist_ok=True)
             path = self._frame_dir / f"frame-{step_index:04d}.png"
             Image.fromarray(frame).save(path)
-            self._frame_ledger.record_frame(path, event_sequence=self._event_sequence)
             return str(path)
         except Exception:
             return None

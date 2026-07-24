@@ -75,6 +75,10 @@ The shell prints the final reply, three scores, formal success, run root, and vi
 
 The run automatically starts a localhost-only TigerVNC display, then records the full 1920x1080 display with FFmpeg/libx264. The left region is the real Agent Chrome and the right region is a read-only executive observer; the persistent stage strip remains visible above the Agent window. No manual observer is needed.
 
+The Agent can call `observe({})` at any point to receive one current Chrome viewport PNG. The result has no model-visible
+text, DOM data, state metadata, or action receipt. It is only visual confirmation: `browser_navigate`, `browser_click`,
+`browser_fill`, `browser_select`, and `browser_wait` keep their existing DOM behavior whether or not a screenshot was taken.
+
 The observer has five fixed regions: current locked SOP; model-authored Planner; model-selected
 tool or bounded public reply; environment result plus deterministic decision summary; and
 expanded open incident, one-line resolved incidents, and critical history.

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import gc
 import hashlib
+import io
 import threading
 import time
 import weakref
@@ -11,6 +13,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PIL import Image
 
 from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
@@ -19,6 +22,7 @@ from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequ
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import ApplicationRuntime
 from homemaster.application.session import SessionManager
+from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError, DeviceLeaseManager
 from homemaster.events.bus import EventBus
@@ -32,9 +36,7 @@ from homemaster.extensions import (
     HookSpec,
     LoadedExtension,
 )
-from homemaster.observations import ObservationCapture, ObservationService, ObservationState
 from homemaster.providers.attempts import (
-    OutboundObservationBinding,
     ProviderAttemptRecord,
 )
 from homemaster.providers.transports.types import TransportDelta
@@ -43,9 +45,7 @@ from homemaster.task_state.tools import make_task_progress_check_tool
 from homemaster.tools.catalog import ToolCatalog
 from homemaster.tools.contracts import (
     ExecutionProof,
-    ObservationReference,
     PermissionSubject,
-    PostActionObservation,
     RegisteredTool,
     TerminalRule,
     ToolDefinition,
@@ -57,6 +57,7 @@ from homemaster.tools.contracts import (
     VerificationStatus,
 )
 from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
+from homemaster.tools.observe import ScreenshotTool
 from homemaster.tools.pipeline import ToolExecutionPipeline
 
 
@@ -173,62 +174,6 @@ class _FailingSaveBackend:
         raise FileNotFoundError(session_id)
 
 
-class _ObservationAwareTransport(_FakeTransport):
-    async def stream(
-        self,
-        messages,
-        *,
-        tools=None,
-        attempt_sink=None,
-        model_attempt_id="attempt",
-        **kwargs,
-    ):
-        del kwargs
-        with self._lock:
-            response = self._responses.pop(0)
-            self.calls.append({"messages": messages, "tools": tools})
-        observations: list[OutboundObservationBinding] = []
-        for message_index, message in enumerate(messages):
-            for block_index, block in enumerate(message.content):
-                metadata = block.metadata
-                if "observation_id" not in metadata:
-                    continue
-                content = block.text.encode()
-                observations.append(
-                    OutboundObservationBinding(
-                        message_index=message_index,
-                        block_index=block_index,
-                        content_sha256=hashlib.sha256(content).hexdigest(),
-                        media_type=str(metadata["media_type"]),
-                        observation_id=str(metadata["observation_id"]),
-                        observation_content_sha256=str(metadata["observation_content_sha256"]),
-                        observation_pixel_sha256=None,
-                        observation_backend_id=str(metadata["observation_backend_id"]),
-                        observation_run_id=str(metadata["observation_run_id"]),
-                        observation_generation=int(metadata["observation_generation"]),
-                        observation_state_sequence=int(metadata["observation_state_sequence"]),
-                        observation_capture_event_sequence=int(
-                            metadata["observation_capture_event_sequence"]
-                        ),
-                    )
-                )
-        if attempt_sink is not None:
-            attempt_sink.record_attempt(
-                ProviderAttemptRecord(
-                    model_attempt_id=model_attempt_id,
-                    request_sha256=hashlib.sha256(repr((messages, tools)).encode()).hexdigest(),
-                    outbound_images=(),
-                    stripped_images=False,
-                    response_completed=True,
-                    error_type=None,
-                    cause_code=None,
-                    outbound_observations=tuple(observations),
-                )
-            )
-        for delta in response:
-            yield delta
-
-
 class _Backend:
     backend_id = "backend-test"
     generation = 1
@@ -253,6 +198,20 @@ class _EchoExecutor:
             status=ToolExecutionStatus.SUCCESS,
             data={"value": str(arguments["value"])},
             backend_attempted=False,
+        )
+
+
+class _WaitingUserExecutor:
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text=str(arguments["question"]),
+            data={
+                "waiting_user": True,
+                "question": str(arguments["question"]),
+                "tool_call_id": context.tool_call_id,
+            },
+            backend_attempted=True,
         )
 
 
@@ -291,7 +250,6 @@ class _OrderedActionExecutor:
 
     async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments
-        assert context.observation.state is ObservationState.BOUND_READY
         self.order.append("action")
         return ToolExecutionResult(
             status=ToolExecutionStatus.SUCCESS,
@@ -300,58 +258,12 @@ class _OrderedActionExecutor:
         )
 
 
-class _ObservationExecutor:
-    def __init__(self, service: ObservationService) -> None:
-        self.service = service
-
-    async def execute(self, arguments, context) -> ToolExecutionResult:
-        del arguments
-        record = await self.service.capture_for_model(context)
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS,
-            text=record.content_bytes.decode(),
-            data=record.to_dict(),
-            observations=(
-                ObservationReference(
-                    observation_id=record.observation_id,
-                    evidence_ref=record.evidence_ref,
-                    content_sha256=record.content_sha256,
-                ),
-            ),
-            evidence_refs=(record.evidence_ref,),
-            backend_attempted=False,
-        )
-
-
-class _ObservationBackend(_Backend):
-    def __init__(self) -> None:
-        super().__init__()
-        self.run_id = ""
-
-    def capture(self) -> ObservationCapture:
-        self.event_sequence += 1
-        return ObservationCapture(
-            backend_id=self.backend_id,
-            run_id=self.run_id,
-            generation=self.generation,
-            state_sequence=self.state_sequence,
-            capture_event_sequence=self.event_sequence,
-            media_type="application/json",
-            content={"state": self.state_sequence},
-            evidence_ref=f"observation/{self.event_sequence}",
-        )
-
-
-class _TrackingObservationService(ObservationService):
-    def __init__(self, order: list[str]) -> None:
-        super().__init__()
-        self.order = order
-
-    def commit_provider_attempt(self, ledger, attempt):
-        binding = super().commit_provider_attempt(ledger, attempt)
-        if binding is not None:
-            self.order.append("provider_commit")
-        return binding
+class _ScreenshotBackend(_Backend):
+    async def screenshot(self) -> bytes:
+        image = Image.new("RGB", (2, 2), color=(3, 5, 7))
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
 
 
 class _StatusVerifier:
@@ -413,6 +325,23 @@ def _echo_tool(internal_id: str = "test.echo.v1", alias: str = "echo") -> Regist
     )
 
 
+def _waiting_user_tool() -> RegisteredTool:
+    return RegisteredTool(
+        definition=_definition(
+            "test.ask_user.v1",
+            "ask_user_question",
+            input_schema={
+                "type": "object",
+                "properties": {"question": {"type": "string"}},
+                "required": ["question"],
+                "additionalProperties": False,
+            },
+            output_schema={"type": "object"},
+        ),
+        executor=_WaitingUserExecutor(),
+    )
+
+
 def _progress_tool(*, external: bool = False) -> RegisteredTool:
     adapted = adapt_legacy_tool_spec(
         make_task_progress_check_tool(),
@@ -453,8 +382,8 @@ def _application(
     transports: dict[str, Any],
     *,
     profile_name: str = "test",
-    observation_service: ObservationService | None = None,
     extension_runner: HookRunner | None = None,
+    artifact_publisher: ArtifactPublisher | None = None,
 ) -> ApplicationRuntime:
     catalog = ToolCatalog()
     for tool in tools:
@@ -464,7 +393,6 @@ def _application(
         catalog,
         catalog.freeze([tool.definition.internal_id for tool in tools]),
     )
-    observation = observation_service or ObservationService()
     bus = EventBus()
     provider_profile = ProviderProfileConfig(
         name="fake",
@@ -496,9 +424,7 @@ def _application(
     )
 
     def provider_factory(request, run_id):
-        backend = request.borrowed_environment
-        if isinstance(backend, _ObservationBackend):
-            backend.run_id = run_id
+        del run_id
         if request.text == "internal compact control":
             return next(iter(transports.values()))
         return transports[request.text]
@@ -508,17 +434,58 @@ def _application(
         profiles={profile_name: profile},
         pipeline=ToolExecutionPipeline(
             catalog,
-            observation_service=observation,
             public_event_sink=bus,
         ),
-        observation_service=observation,
         event_bus=bus,
         session_manager=SessionManager(session_root=tmp_path),
         provider_factory=provider_factory,
         context_assembler_factory=context_factory,
         settings=settings,
         extension_runner=extension_runner,
+        artifact_publisher=artifact_publisher,
     )
+
+
+@pytest.mark.asyncio
+async def test_waiting_user_result_persists_and_resumes_with_answer_in_history(tmp_path) -> None:
+    first_transport = _FakeTransport(
+        [_tool("call-question", "ask_user_question", {"question": "Which room?"})]
+    )
+    answer_transport = _FakeTransport([_text("I will use the kitchen.")])
+    app = _application(
+        tmp_path,
+        [_waiting_user_tool()],
+        {"start": first_transport, "kitchen": answer_transport},
+    )
+
+    first = await app.run(RunRequest(text="start", session_id="remote-wait", profile="test"))
+
+    assert first.status is RunStatus.WAITING_USER
+    assert first.final_reply == "Which room?"
+    assert app.status("remote-wait").status == "waiting_user"
+    restored = await SessionManager(session_root=tmp_path).resume("remote-wait")
+    assert restored.agent_state.status == "waiting_user"
+
+    second = await app.run(
+        RunRequest(
+            text="kitchen",
+            session_id="remote-wait",
+            profile="test",
+            resume=True,
+        )
+    )
+
+    assert second.status is RunStatus.REPLIED
+    assert second.final_reply == "I will use the kitchen."
+    messages = answer_transport.calls[0]["messages"]
+    assert [message.role for message in messages[-4:]] == [
+        "user",
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert messages[-1].content[0].text == "kitchen"
+    await app.aclose()
 
 
 @pytest.mark.asyncio
@@ -926,14 +893,12 @@ async def test_disabled_tool_call_is_rejected_by_frozen_view(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_action_debt_rejects_task_completion_without_writing_completed(tmp_path) -> None:
+async def test_action_does_not_block_task_completion_without_observe(tmp_path) -> None:
     action = RegisteredTool(
         definition=_definition(
             "test.action.v1",
             "action",
-            policy=VerificationPolicy(
-                post_action_observation=PostActionObservation.FRESH_AFTER_BACKEND_ADVANCE
-            ),
+            policy=VerificationPolicy(),
             state_effects=("backend.advance",),
             output_schema={
                 "type": "object",
@@ -977,16 +942,16 @@ async def test_action_debt_rejects_task_completion_without_writing_completed(tmp
         )
     )
 
-    assert result.status is RunStatus.REPLIED
+    assert result.status is RunStatus.COMPLETED
     assert runtime.task_state_store.snapshot is not None
-    assert runtime.task_state_store.snapshot.status is TaskStatus.ACTIVE
+    assert runtime.task_state_store.snapshot.status is TaskStatus.COMPLETED
     completion_result = next(
         message
         for message in runtime.session.messages
         if message.role == "tool" and message.name == "task_progress_check"
     )
     assert completion_result.data is not None
-    assert completion_result.data["status"] == "observation_required"
+    assert completion_result.data["status"] == "success"
 
 
 @pytest.mark.asyncio
@@ -1160,40 +1125,87 @@ async def test_provider_that_swallows_cancellation_cannot_publish_late_events(
 
 
 @pytest.mark.asyncio
-async def test_successful_observation_attempt_commits_before_action(tmp_path) -> None:
+async def test_screenshot_does_not_authorize_or_block_the_next_action(tmp_path) -> None:
     order: list[str] = []
-    service = _TrackingObservationService(order)
     observe = RegisteredTool(
-        definition=_definition("test.observe.v1", "observe"),
-        executor=_ObservationExecutor(service),
+        definition=_definition(
+            "core.observe.v1",
+            "observe",
+            input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            output_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            policy=VerificationPolicy(),
+        ),
+        executor=ScreenshotTool(),
     )
     action = RegisteredTool(
         definition=_definition(
             "test.bound_action.v1",
             "bound_action",
-            policy=VerificationPolicy(requires_pre_observation="current_bound"),
+            policy=VerificationPolicy(),
         ),
         executor=_OrderedActionExecutor(order),
     )
-    transport = _ObservationAwareTransport(
+    transport = _FakeTransport(
         [
             _tool("call-observe", "observe", {}),
             _tool("call-action", "bound_action", {}),
             _text("done"),
         ]
     )
-    backend = _ObservationBackend()
+    backend = _ScreenshotBackend()
+    store = ToolOutputStore(tmp_path / "gateway-artifacts", quota_bytes=4096, ttl_seconds=60)
     app = _application(
         tmp_path,
         [observe, action],
         {"observe then act": transport},
-        observation_service=service,
+        artifact_publisher=ArtifactPublisher(store),
     )
 
-    result = await app.run(RunRequest(text="observe then act", profile="test", environment=backend))
+    result = await app.run(
+        RunRequest(
+            text="observe then act",
+            profile="test",
+            environment=backend,
+            permission_subject=PermissionSubject(
+                subject_id="operator",
+                tenant_id="tenant-a",
+                channel="gateway",
+            ),
+        )
+    )
 
     assert result.status is RunStatus.REPLIED
-    assert order == ["provider_commit", "action"]
+    assert order == ["action"]
+    observe_result = next(
+        message
+        for message in app.session_manager.get(result.session_id).session.messages
+        if message.role == "tool" and message.name == "observe"
+    )
+    assert len(observe_result.content) == 1
+    assert observe_result.content[0].type == "image"
+    next_request = transport.calls[1]["messages"]
+    outbound_observe = next(
+        message for message in next_request if message.role == "tool" and message.name == "observe"
+    )
+    assert len(outbound_observe.content) == 1
+    assert outbound_observe.content[0].type == "image"
+    image_bytes = base64.b64decode(outbound_observe.content[0].source["data"], validate=True)
+    completed = next(
+        event
+        for event in app.event_bus.events
+        if event.type == "tool.call_completed" and event.name == "observe"
+    )
+    assert outbound_observe.content[0].source["data"] not in repr(completed.payload)
+    artifact = completed.payload["data"]["artifacts"][0]
+    assert (
+        store.read(
+            artifact["artifact_handle"],
+            tenant_id="tenant-a",
+            session_id=result.session_id,
+            run_id=result.run_id,
+        )
+        == image_bytes
+    )
     action_result = next(
         message
         for message in app.session_manager.get(result.session_id).session.messages

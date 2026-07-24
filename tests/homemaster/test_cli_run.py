@@ -290,9 +290,9 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
         "task_interpreter",
         "memory_retriever",
         "target_grounder",
-        "skill_view",
-        "robot_go_to",
-        "observe",
+        "bash",
+        "brief",
+        "sleep",
     ]
     assert {skill["name"] for skill in preview["skills"]} >= {
         "fetch_object",

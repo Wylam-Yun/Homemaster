@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 
@@ -105,8 +106,8 @@ def setup(policy, *, ledger=None):
         backend=None,
         deadline=None,
         cancellation=None,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
     pipeline = ToolExecutionPipeline(
         catalog,

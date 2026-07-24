@@ -1,6 +1,8 @@
 # HomeMaster V1.9 实施计划
 
-状态：V1.9 执行基线。本文是
+状态：历史 V1.9 执行基线。本文中的 `ObservationService`、provider/model-view binding、freshness/debt 和
+环境专用 observation variants 已被 `generic-screenshot-observe-implementation-plan.md` 取代，不再描述
+当前 observation 架构。本文其余内容是
 [`openharness-homemaster-comparison-spec.md`](./openharness-homemaster-comparison-spec.md) 的实施
 配套文档；冲突时以 comparison spec 的规范性契约和测试 gate 为准。
 

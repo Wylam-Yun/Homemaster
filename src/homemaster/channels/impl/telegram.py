@@ -13,7 +13,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from homemaster.channels.contracts import ChannelIdentity, InboundMessage, OutboundMessage
+from homemaster.channels.contracts import (
+    ChannelIdentity,
+    DeliveryReceipt,
+    DeliveryStatus,
+    InboundMessage,
+    OutboundMessage,
+)
 from homemaster.channels.impl.base import BaseChannel
 from homemaster.config.config import TelegramChannelConfig
 from homemaster.gateway.auth import AuthenticatedPrincipal
@@ -151,16 +157,44 @@ class TelegramChannel(BaseChannel):
         await application.stop()
         await application.shutdown()
 
-    async def send(self, message: OutboundMessage) -> None:
+    async def send(self, message: OutboundMessage) -> DeliveryReceipt:
         if self._application is None:
-            raise RuntimeError("Telegram channel is not running")
-        thread_id = message.identity.thread_id
-        for chunk in _split_message(message.content, TELEGRAM_MAX_MESSAGE_LEN):
-            await self._application.bot.send_message(
-                chat_id=int(message.identity.chat_id),
-                text=chunk,
-                message_thread_id=int(thread_id) if thread_id is not None else None,
+            return DeliveryReceipt(
+                status=DeliveryStatus.CONFIRMED_FAILURE,
+                operation="telegram.send",
+                api_message="Telegram channel is not running",
+                failed_count=1,
             )
+        thread_id = message.identity.thread_id
+        platform_ids: list[str] = []
+        chunks = _split_message(message.content, TELEGRAM_MAX_MESSAGE_LEN)
+        for chunk in chunks:
+            try:
+                sent = await self._application.bot.send_message(
+                    chat_id=int(message.identity.chat_id),
+                    text=chunk,
+                    message_thread_id=int(thread_id) if thread_id is not None else None,
+                )
+            except Exception as exc:
+                return DeliveryReceipt(
+                    status=(
+                        DeliveryStatus.PARTIAL_SUCCESS
+                        if platform_ids
+                        else DeliveryStatus.OUTCOME_UNKNOWN
+                    ),
+                    operation="telegram.send",
+                    platform_ids=tuple(platform_ids),
+                    api_message=type(exc).__name__,
+                    sent_count=len(platform_ids),
+                    failed_count=max(1, len(chunks) - len(platform_ids)),
+                )
+            platform_ids.append(str(getattr(sent, "message_id", "unknown")))
+        return DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="telegram.send",
+            platform_ids=tuple(platform_ids),
+            sent_count=len(platform_ids),
+        )
 
     async def _on_message(self, update: Any, _context: Any) -> None:
         message = getattr(update, "message", None)

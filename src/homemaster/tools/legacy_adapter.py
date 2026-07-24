@@ -481,7 +481,6 @@ def _normalize_message(
                 data=normalized.result.data,
                 images=tuple(images) or normalized.result.images,
                 attachments=normalized.result.attachments,
-                observations=normalized.result.observations,
                 evidence_refs=normalized.result.evidence_refs,
                 error=normalized.result.error,
                 retryable=normalized.result.retryable,
@@ -552,7 +551,6 @@ def _image_from_block(block: ContentBlock) -> tuple[ResultImage | None, tuple[st
             data_base64=encoded,
             content_sha256=computed,
             pixel_sha256=metadata.get("pixel_sha256"),
-            observation_id=metadata.get("observation_id"),
         ),
         debt,
     )
@@ -580,7 +578,6 @@ def _images_from_data(data: Mapping[str, Any]) -> tuple[tuple[ResultImage, ...],
                     data_base64=encoded,
                     content_sha256=hashlib.sha256(decoded).hexdigest(),
                     pixel_sha256=raw.get("pixel_sha256"),
-                    observation_id=raw.get("observation_id"),
                 )
             )
         except Exception:

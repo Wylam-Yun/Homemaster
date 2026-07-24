@@ -58,8 +58,6 @@ def _is_recovery(incident: PresentationIncident, event: PresentationEvent) -> bo
         return False
     if code == "wait_required":
         return event.tool_name == "browser_wait" and _matches_target(incident, event)
-    if code == "plan_required":
-        return event.tool_name == "task_planner" and event.plan is not None
     if code == "progress_required":
         return event.tool_name == "task_progress_check"
     if code in {
@@ -250,7 +248,7 @@ def derive_decision_summary(
         return DecisionSummary(
             state="planning",
             fact=_summary_term("ticket_opened", FACT_LABELS_ZH),
-            judgment=_summary_term("plan_required", JUDGMENT_LABELS_ZH),
+            judgment=_summary_term("plan_recommended", JUDGMENT_LABELS_ZH),
             next_action=_summary_term("create_plan", NEXT_ACTION_LABELS_ZH),
         )
     latest = events[-1] if events else None

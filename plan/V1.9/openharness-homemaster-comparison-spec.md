@@ -2,7 +2,10 @@
 
 配套执行文档：[`openharness-homemaster-implementation-plan.md`](./openharness-homemaster-implementation-plan.md)。
 
-状态：Draft v3（规范文档）
+状态：历史 V1.9 基线。本文中的 `ObservationService`、provider/model-view binding、freshness/debt 和
+环境专用 observation variants 已被
+[`generic-screenshot-observe-implementation-plan.md`](./generic-screenshot-observe-implementation-plan.md)
+取代，不再描述当前 observation 架构；其余 V1.9 迁移记录按历史证据保留。
 
 日期：2026-07-20
 

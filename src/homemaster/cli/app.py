@@ -12,6 +12,8 @@ from homemaster.cli.benchmark_alfworld import (
     handle_benchmark_alfworld,
     handle_benchmark_alfworld_taskset,
 )
+from homemaster.cli.child_worker import run_child_worker
+from homemaster.cli.cron_command import cron_app
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.dry_run import build_dry_run_preview
 from homemaster.cli.errors import render_error_and_exit
@@ -28,6 +30,14 @@ app = typer.Typer(
     help="HomeMaster V1.9 - Generic agent loop CLI.",
 )
 app.add_typer(session_app, name="session")
+app.add_typer(cron_app, name="cron")
+
+
+@app.command("child-worker", hidden=True)
+def child_worker_command(
+    model: Annotated[str | None, typer.Option("--model")] = None,
+) -> None:
+    raise typer.Exit(code=run_child_worker(model=model))
 
 
 @app.callback(invoke_without_command=True)

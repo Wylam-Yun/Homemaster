@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -16,10 +15,7 @@ from homemaster.benchmarking.alfworld.gateway import (
     ExternalEventRead,
     GatewayActionResult,
 )
-from homemaster.benchmarking.alfworld.model_view import (
-    CommittedModelView,
-    VisibleObjectView,
-)
+from homemaster.benchmarking.alfworld.object_view import CurrentObjectView
 from homemaster.benchmarking.alfworld.pose_snapshot import (
     OraclePose,
     OraclePoseLookup,
@@ -116,20 +112,8 @@ def _current_event(
     )
 
 
-def _view(*, visible: tuple[str, ...], committed: bool = True) -> VisibleObjectView:
-    event = _raw_event(visible=visible)
-    pixel_hash = hashlib.sha256(event.frame.tobytes()).hexdigest()
-    model_view = None
-    if committed:
-        model_view = CommittedModelView(
-            model_attempt_id="attempt-1",
-            request_sha256="b" * 64,
-            frame_binding_id="frame-1",
-            frame_content_sha256="c" * 64,
-            frame_pixel_sha256=pixel_hash,
-            event_sequence=12,
-        )
-    return VisibleObjectView(event=event, event_sequence=12, committed_view=model_view)
+def _view(*, visible: tuple[str, ...]) -> CurrentObjectView:
+    return CurrentObjectView(event=_raw_event(visible=visible), event_sequence=12)
 
 
 def _lookup(status: str = "ok", *, anchor: str = MUG_1) -> OraclePoseLookup:
@@ -206,7 +190,6 @@ def _executor(
     store: PoseStoreSpy,
     parent: ParentResolverSpy,
     gateway: GatewaySpy,
-    committed: bool = True,
     held: str | None = None,
     control_sha256: str | None = CONTROL,
 ) -> OracleNavigationExecutor:
@@ -217,7 +200,7 @@ def _executor(
             snapshot_event_sequence=0,
         ),
         public_object_types=("Desk", "Mug"),
-        visible_object_view=_view(visible=visible, committed=committed),
+        object_view=_view(visible=visible),
         current_event=_current_event(
             visible=visible,
             held=held,
@@ -278,7 +261,7 @@ def test_offscreen_target_without_direct_pose_does_not_use_hidden_parent() -> No
     assert gateway.navigation_calls == []
 
 
-def test_missing_committed_frame_is_terminal_uncertainty_with_zero_downstream_calls() -> None:
+def test_navigation_does_not_require_a_provider_bound_screenshot() -> None:
     store = PoseStoreSpy({MUG_1: _lookup()})
     parent = ParentResolverSpy()
     gateway = GatewaySpy()
@@ -289,15 +272,14 @@ def test_missing_committed_frame_is_terminal_uncertainty_with_zero_downstream_ca
             store=store,
             parent=parent,
             gateway=gateway,
-            committed=False,
         )
     )
 
-    assert result.error == "execution_state_uncertain"
-    assert result.terminal is True
-    assert store.calls == []
+    assert result.success is True
+    assert result.error is None
+    assert store.calls == [MUG_1]
     assert parent.calls == []
-    assert gateway.navigation_calls == []
+    assert len(gateway.navigation_calls) == 1
 
 
 def test_generic_selects_first_current_visible_in_frozen_full_set_order() -> None:

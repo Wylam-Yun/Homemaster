@@ -69,9 +69,11 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 
 ## 配置与 Skills
 
-Home profile 支持 builtin、用户目录、Git root 内的项目目录和显式目录四类 skill 来源。每个
-`SKILL.md` 使用标准 YAML frontmatter；加载时会核对真实路径、来源优先级、builtin 覆盖授权，
-并确保 `tool_names` 只能引用当前 frozen ToolView 中的 model alias。可先运行：
+Home profile 支持 bundled、builtin、用户目录、Git root 内的项目目录、显式目录和显式配置的
+data-only plugin 六类 Skill 来源。每个 `SKILL.md` 使用 OpenHarness YAML frontmatter；加载时会核对
+真实路径、来源优先级和 builtin 覆盖授权。Skill 不要求 `tool_names`，也不能扩大 ToolView 或权限。
+Plugin adapter 只读取 JSON manifest 与 `SKILL.md`，绝不导入 plugin Python、tools、hooks 或 MCP。
+可先运行：
 
 ```bash
 uv run homemaster --dry-run -p '检查药盒状态' --output-format json
@@ -81,6 +83,9 @@ uv run homemaster --dry-run -p '检查药盒状态' --output-format json
 不会创建 provider client 或执行工具。完整配置和 skill 示例见
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)，owner 与数据流见
 [Application Runtime 架构](docs/architecture/application-runtime.md)。
+
+Pillow 是默认 `observe` 工具的核心运行依赖；MCP SDK 仍属于 `mcp` optional extra。未安装该 extra 时
+Home 的 39 个默认工具仍可构造，只是不连接或注册 MCP resource/dynamic tool 入口。
 
 ## MCP 工具与资源
 
@@ -100,7 +105,7 @@ Schema 保真进入 Catalog；resource URI 仅在 adapter 内部保存，模型�
 preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audit 写入故障不会阻断连接清理。
 在 MCP SDK 的 mutation/read-only annotation 经真环境核对前，普通 discovered tool 一律按可能修改
 远端状态处理：PLAN 拒绝、DEFAULT 要求确认；已连接且调用失败返回不可自动重试的
-`outcome_unknown`。`mcp_list_resources` 与 `mcp_read_resource` 保持只读。
+`outcome_unknown`。`list_mcp_resources` 与 `read_mcp_resource` 保持只读。
 配置示例和 skill 引用方式见
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。
 
@@ -109,6 +114,8 @@ preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audi
 每次工具执行都经过同一条 `ToolExecutionPipeline` 权限门。远程 Bearer credential 只能映射到预先
 配置的 typed principal、tenant 和 capability；prompt、metadata、skill、slash command 与附件都不能
 扩权。机器人读操作要求 `device.read`，写操作要求 `device.control`，MCP 调用要求 `mcp.call`。
+后台任务/子 agent、Cron、配置修改和 MCP 凭证管理还分别要求 `process.spawn`、`scheduler.manage`、
+`config.mutate` 和 `mcp.manage`，不能只凭通用 `tool.mutate` 调用。
 
 application 在每个 run 边界把 borrowed backend 绑定为 tenant-pinned connection handle，并与
 generation-aware FIFO lease 共用一个单调 generation owner。同一设备的写动作串行，不同设备可并发；
@@ -119,6 +126,35 @@ disconnect、fence 和 stop 事件追加到
 `observability.trace_dir/device_audit.jsonl`，文件权限为 `0600`。
 audit sink 是旁路镜像；写入失败会形成 typed `DeviceAuditFailure`，authoritative 内存事件、lease
 释放和 emergency-stop 后端调用仍继续。
+
+## 飞书 Gateway
+
+Gateway 现在只装配一个飞书/Lark channel，不提供 Telegram selector 或多通道 registry。它支持私聊、
+无需 @ 的群消息、thread/root 回复，基础 text/share 与简化 post/interactive 解析，图片、音频、视频和文件收发，
+以及飞书建群/改名。该部署把飞书 transport 整体视为 trusted owner boundary：所有非 bot sender 都映射
+为同一个内置 `feishu-owner`，无需配置 bot/user `open_id` 或 principal。
+
+```bash
+uv sync --extra dev --extra gateway
+cp config/homemaster.example.yaml config/homemaster.yaml
+chmod 600 config/homemaster.yaml
+
+# 在 ignored config/homemaster.yaml 的 gateway.feishu 中填写：
+# app_id: cli_xxx
+# app_secret: ...
+export HOMEMASTER_FEISHU_ENCRYPT_KEY='...'
+export HOMEMASTER_FEISHU_VERIFICATION_TOKEN='...'
+
+uv run homemaster gateway --config config/homemaster.yaml
+```
+
+`app_id/app_secret` 优先从 mode 0600、Git ignored 的真实 YAML 读取；旧环境变量配置仍兼容但不会与
+YAML 单项混拼。`gateway.feishu.domain` 只允许 `feishu` 或 `lark`；完整配置见
+[Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。WebSocket 使用可终止的
+子进程，关闭、outbound drain、active run 和 service join 共用一个 deadline。代码与 non-live 门已
+覆盖 typed contract；真实租户 API、消息、媒体、reaction、群状态和两个 domain 的 Phase 9 验收仍须
+逐项执行。当前 app credential endpoint 返回码与 Feishu WebSocket 握手已通过，但不宣称其余外部终态通过。
+localized post、真实 card `header/elements` 入站解析及 Markdown 链接/多表格完整 renderer 尚未迁移完成。
 
 ## 跑一个任务
 
@@ -275,31 +311,42 @@ non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测�
 AgentRuntime 和无 session 状态的 ToolExecutionPipeline。CLI、Interactive、ALFWorld 与
 Coworker 共享这条控制流，每个 run 单独冻结 ToolView、provider request、generation 和环境绑定。
 
-**Tool 系统**：Home 正式 alias 包括 `robot_go_to` 与显式 `observe`；canonical Catalog 以 stable
-internal id 注册环境 variant，ToolView 决定每个 run 的可见与可执行集合。
+**Tool 系统**：Home 正式 alias 包括 `robot_go_to` 与显式 `observe`。`observe({})` 是 Home、ALFWorld
+和 Coworker 共用的当前画面截图工具：成功时模型只收到一张 PNG，不含文字、DOM、状态或审计元数据；它只用于
+确认画面，不授权、阻塞或使其他动作失效。canonical Catalog 以 stable internal id 注册工具，ToolView
+决定每个 run 的可见与可执行集合。
 
-**Skills**：通过 `skill_view` 实现 progressive disclosure。builtin/user/project/explicit 来源在
-composition 时完成路径和 capability 校验，运行中不能修改 frozen ToolView 或扩大 permission。
+**Skills**：Skill 是 OpenHarness 兼容的按需 instruction document，不是工具授权声明，不要求
+`tool_names`，也不能修改 ToolView 或扩大 permission。来源优先级为 OpenHarness bundled < Home builtin
+< `~/.homemaster/skills` < Git 项目内 `.homemaster/skills` < 显式目录；不会自动扫描 `.codex`、
+`.claude` 或 `.agents`。模型先看 Available Skills 摘要，再用标准 `skill(name=...)` 或兼容
+`skill_view(skill_name=...)` 读取完整 `SKILL.md`；`/<skill-name>` 支持参数和已配置模型覆盖。
+
+**OpenHarness 默认工具**：Home profile 提供锁定上游的 39 项默认工具，覆盖文件、`bash`、联网、
+LSP、图片、计划、配置、Cron、后台任务、子 agent 和团队。后台 Cron 用
+`homemaster cron start|status|stop` 管理；child worker 显式继承父应用配置。远程
+`ask_user_question` 会把 session 置为等待态，并在下一条 channel 消息到达后恢复，而不是占住 webhook。
+这些工具只进入 Home profile，ALFWorld 与 Coworker 的固定工具面不变。
 
 **MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
-结果并重新冻结 Home ToolView；连接、调用、断线和关闭写入脱敏 JSONL audit。WebSocket 配置会
-明确报告 unsupported，不会静默降级。
+结果并重新冻结 Home ToolView；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、
+`read_mcp_resource`，动态工具为 `mcp__<server>__<tool>`。连接、调用、断线和关闭写入脱敏 JSONL
+audit；WebSocket 配置会明确报告 unsupported，不会静默降级。
 
-**Permissions/Devices**：Gateway credential 产生 immutable principal/capabilities；统一 execution chain 在
+**Permissions/Devices**：飞书 Gateway 产生固定 trusted owner principal/capabilities；统一 execution chain 在
 每次调用前授权。application-owned connection pool 与 physical-device FIFO lease 共用 generation，
 disconnect/emergency-stop fencing 阻止等待动作，并把已开始动作标为不可自动重试的未知结果。
 
-**Gateway/Channels**：首个 remote channel 为 Telegram long polling。Gateway 从 exact sender mapping
-产生 typed tenant/channel/chat/thread/sender identity，确定性路由到 application-owned session，并只向
-现有 `ApplicationRuntime.run(RunRequest)` 提交请求。bounded priority bus 对 progress 合并/淘汰，
-final/error/cancel 保留并反压；远程 progress 只能来自严格 allowlist/redaction 的公共事件投影，终态
-`RunResult` 只发送一次 final。每条 outbound 在 egress 重新核对 generation，shutdown 在 deadline 内先
-排空 outbound 再停止 channel；未认证 sender 在任何附件下载前即被拒绝。
-默认配置关闭 Gateway，安装 `gateway` extra、配置环境变量 token 与 sender principal 后运行：
+**Gateway/Channels**：唯一 remote channel 为飞书/Lark WebSocket。Gateway 把所有非 bot sender 映射为
+固定 `feishu-owner`，同时保留 typed tenant/channel/chat/thread/sender identity 与 delivery context，确定性路由到
+application-owned session，并只向现有 `ApplicationRuntime.run(RunRequest)` 提交请求。bounded priority
+bus 对 progress 合并/淘汰，MEDIA/final/error/cancel 保留并反压；远程 progress 只能来自严格
+allowlist/redaction 的公共事件投影，终态 `RunResult` 只发送一次 final。每条 outbound 在 egress 重新
+核对 generation；shutdown 在一个 deadline 内处理 drain、子进程 channel 和 service join。默认配置关闭
+Gateway。安装 `gateway` extra，在 ignored、mode-0600 的真实 YAML 中填写 `app_id/app_secret` 后运行：
 
 ```bash
 uv sync --extra dev --extra gateway
-export HOMEMASTER_TELEGRAM_BOT_TOKEN='...'
 uv run homemaster gateway --config config/homemaster.yaml
 ```
 
@@ -315,7 +362,7 @@ mcp/        MCP config/status、stdio/HTTP client、Catalog adapter 与 audit
 artifacts/  tenant/session/run 分区的 opaque tool-output store
 permissions/ typed 配置、capability policy 与路径/命令规则
 devices/    connection pool、generation lease、emergency stop 与 JSONL audit
-channels/   typed channel DTO、bounded priority bus、router 与 Telegram adapter
+channels/   typed channel DTO、bounded priority bus、router、飞书 adapter 与群操作
 gateway/    credential、ApplicationRuntime bridge、cancel/recovery 与公共事件边界
 memory/     RAG retrieval / index / tokenizer / runtime memory store
 events/     RuntimeEvent schema, sinks, sanitizer 与 remote public projection

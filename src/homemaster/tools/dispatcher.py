@@ -183,8 +183,8 @@ class ToolDispatcher:
                     payload["retryable"] = tool_result.retryable
 
                 content_text = json.dumps(payload, ensure_ascii=False)
-                # A legacy frame_path is internal evidence only. Model media is
-                # created exclusively by the explicit ObservationService.
+                # A legacy frame_path is internal evidence only. Canonical
+                # screenshot media is created exclusively by ScreenshotTool.
                 content_blocks = [ContentBlock(text=content_text)]
                 results.append(
                     ToolResultMessage(

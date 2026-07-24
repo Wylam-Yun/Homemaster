@@ -48,11 +48,20 @@ class ChannelBridge:
         route = self.router.route(message)
         attachments = self.attachment_policy.resolve_all(message.attachments)
         correlation_id = message.correlation_id or f"msg-{uuid.uuid4().hex[:16]}"
+        should_resume = resume
+        if not should_resume:
+            status = getattr(self.application, "status", None)
+            if callable(status):
+                try:
+                    current_status = status(route.session_id).status
+                    should_resume = str(current_status) == "waiting_user"
+                except (KeyError, FileNotFoundError):
+                    should_resume = False
         request = RunRequest(
             text=message.content,
             session_id=route.session_id,
             profile=self.profile,
-            resume=resume,
+            resume=should_resume,
             permission_subject=message.principal.to_permission_subject(),
             dependencies={"channel_attachments": attachments},
             metadata={
@@ -98,6 +107,7 @@ class ChannelBridge:
             kind=kind,
             content=content,
             correlation_id=correlation_id,
+            delivery_context=message.delivery_context,
             metadata={"run_id": result.run_id, "status": str(result.status)},
         )
 

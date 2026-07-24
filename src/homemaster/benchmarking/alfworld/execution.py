@@ -15,9 +15,9 @@ from homemaster.benchmarking.alfworld.gateway import (
     GatewayActionResult,
     OracleActionGateway,
 )
-from homemaster.benchmarking.alfworld.model_view import (
+from homemaster.benchmarking.alfworld.object_view import (
+    CurrentObjectView,
     ObjectObservationRead,
-    VisibleObjectView,
 )
 from homemaster.benchmarking.alfworld.pose_snapshot import (
     OraclePose,
@@ -420,7 +420,7 @@ class OracleNavigationExecutor:
         *,
         scene_index: SceneObjectIndex,
         public_object_types: tuple[str, ...],
-        visible_object_view: VisibleObjectView,
+        object_view: CurrentObjectView,
         current_event: ExternalEventRead,
         pose_store: OraclePoseStore,
         parent_resolver: NavigationAnchorResolver,
@@ -429,7 +429,7 @@ class OracleNavigationExecutor:
     ) -> None:
         self._scene_index = scene_index
         self._public_type_keys = {_object_type_key(item) for item in public_object_types}
-        self._view = visible_object_view
+        self._view = object_view
         self._current_event = current_event
         self._pose_store = pose_store
         self._parent_resolver = parent_resolver
@@ -789,7 +789,7 @@ class OracleManipulationExecutor:
         self,
         *,
         scene_index: SceneObjectIndex,
-        visible_object_view: VisibleObjectView,
+        object_view: CurrentObjectView,
         current_event: ExternalEventRead,
         raw_event: Any,
         raw_event_reader: Callable[[], Any],
@@ -799,7 +799,7 @@ class OracleManipulationExecutor:
         goal_generation: int,
     ) -> None:
         self._scene_index = scene_index
-        self._view = visible_object_view
+        self._view = object_view
         self._current_event = current_event
         self._raw_event = raw_event
         self._raw_event_reader = raw_event_reader

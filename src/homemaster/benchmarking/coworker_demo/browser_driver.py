@@ -14,7 +14,7 @@ from homemaster.benchmarking.coworker_demo.environment_client import Environment
 class BrowserDriver(Protocol):
     def navigate(self, route: str, action_id: str) -> dict[str, Any]: ...
 
-    def observe(self, action_id: str) -> dict[str, Any]: ...
+    def screenshot(self) -> bytes: ...
 
     def click(self, bid: str, action_id: str) -> dict[str, Any]: ...
 
@@ -85,6 +85,7 @@ class PlaywrightBrowserDriver:
             tool_name="browser_navigate",
             version=version,
             arguments={"route": route, "url": url},
+            node_id="TICKET_READ" if route == "ticket" else None,
         )
         return {
             "url": url,
@@ -93,23 +94,10 @@ class PlaywrightBrowserDriver:
             "evidence_refs": [recorded["event"]["event_id"]],
         }
 
-    def observe(self, action_id: str) -> dict[str, Any]:
+    def screenshot(self) -> bytes:
         self._assert_owner_thread()
         self._require_agent_page()
-        version = self.client.state(self.run_id)["state_version"]
-        self.client.reserve(self.run_id, action_id, "browser_observe", version)
-        recorded = self.client.record_action(
-            self.run_id,
-            action_id=action_id,
-            tool_name="browser_observe",
-            version=version,
-            arguments={"url": self.page.url},
-        )
-        observation = self._observation()
-        observation["route"] = self.page.url.rstrip("/").split("/")[-2]
-        observation["page_state_version"] = self.client.state(self.run_id)["state_version"]
-        observation["evidence_refs"] = [recorded["event"]["event_id"]]
-        return observation
+        return self.page.screenshot(type="png", full_page=False)
 
     def click(self, bid: str, action_id: str) -> dict[str, Any]:
         self._assert_owner_thread()

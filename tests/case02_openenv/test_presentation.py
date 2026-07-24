@@ -1035,7 +1035,7 @@ def test_presentation_verifier_rejects_orphan_incident_and_unknown_history(store
             action_id="action-failed",
             tool_name="browser_click",
             status="rejected",
-            failure_code="plan_required",
+            failure_code="progress_required",
         ),
     )
     snapshot = store.presentation_snapshot(run_id)

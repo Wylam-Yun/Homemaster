@@ -15,34 +15,7 @@ from typing import Protocol
 class OutboundImageBinding:
     message_index: int
     block_index: int
-    frame_binding_id: str | None
     content_sha256: str
-    observation_id: str | None = None
-    observation_content_sha256: str | None = None
-    observation_pixel_sha256: str | None = None
-    observation_backend_id: str | None = None
-    observation_run_id: str | None = None
-    observation_generation: int | None = None
-    observation_state_sequence: int | None = None
-    observation_capture_event_sequence: int | None = None
-
-
-@dataclass(frozen=True)
-class OutboundObservationBinding:
-    """Metadata proving a model-visible observation survived serialization."""
-
-    message_index: int
-    block_index: int
-    content_sha256: str
-    media_type: str
-    observation_id: str
-    observation_content_sha256: str
-    observation_pixel_sha256: str | None
-    observation_backend_id: str
-    observation_run_id: str
-    observation_generation: int
-    observation_state_sequence: int
-    observation_capture_event_sequence: int
 
 
 @dataclass(frozen=True)
@@ -54,7 +27,6 @@ class ProviderAttemptRecord:
     response_completed: bool
     error_type: str | None
     cause_code: str | None
-    outbound_observations: tuple[OutboundObservationBinding, ...] = ()
 
 
 @dataclass(frozen=True)

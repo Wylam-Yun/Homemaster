@@ -17,9 +17,9 @@ from homemaster.adapters.coworker_entry import (
     CoworkerApplicationEntry,
     build_coworker_transport_factory,
 )
-from homemaster.adapters.profiles import CoworkerObservationBackend
+from homemaster.adapters.profiles import CoworkerScreenshotBackend
 from homemaster.adapters.thread_owned_sync import (
-    ThreadOwnedObservationBackend,
+    ThreadOwnedScreenshotBackend,
     ThreadOwnedSyncBackendAdapter,
 )
 from homemaster.application import (
@@ -362,8 +362,8 @@ def _run_runtime(
     )
     event_sink = FanoutEventSink([trace_sink, ConsoleEventSink(show_replies=False)])
     skill_registry = load_coworker_skills()
-    backend = ThreadOwnedObservationBackend(
-        CoworkerObservationBackend(driver=driver, client=client, domain_run_id=run_id),
+    backend = ThreadOwnedScreenshotBackend(
+        CoworkerScreenshotBackend(driver=driver, domain_run_id=run_id),
         sync_backend,
     )
 

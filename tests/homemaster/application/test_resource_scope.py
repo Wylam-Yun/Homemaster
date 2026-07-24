@@ -112,7 +112,7 @@ def test_run_request_rejects_owned_environment_and_freezes_metadata() -> None:
         )
     request = RunRequest(
         text="hello",
-        enabled_tool_ids=("home.observe.v1",),
+        enabled_tool_ids=("core.observe.v1",),
         run_policy=RunPolicy(max_turns=2),
         metadata={"nested": {"items": [1, 2]}},
     )

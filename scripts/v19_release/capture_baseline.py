@@ -22,7 +22,6 @@ from homemaster.config import load_config
 from homemaster.providers.attempts import (
     AttemptCommitState,
     OutboundImageBinding,
-    OutboundObservationBinding,
     ProviderAttemptRecord,
 )
 from scripts.v19_release._common import (
@@ -49,7 +48,7 @@ ALFWORLD_CONTRACT_PATHS = (
     "config/alfworld_v18_regression_trials.json",
     "src/homemaster/benchmarking/alfworld/execution.py",
     "src/homemaster/benchmarking/alfworld/gateway.py",
-    "src/homemaster/benchmarking/alfworld/model_view.py",
+    "src/homemaster/benchmarking/alfworld/object_view.py",
     "src/homemaster/benchmarking/alfworld/reset_transaction.py",
     "src/homemaster/benchmarking/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/alfworld/tracing.py",
@@ -254,7 +253,6 @@ def _provider_attempt_contract() -> dict[str, Any]:
     contracts = {}
     for model in (
         OutboundImageBinding,
-        OutboundObservationBinding,
         ProviderAttemptRecord,
         AttemptCommitState,
     ):

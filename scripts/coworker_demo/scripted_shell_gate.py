@@ -225,7 +225,6 @@ class ScriptedConversation:
         ]
         steps: list[tuple[str, dict[str, Any]]] = [
             ("browser_navigate", {"route": "ticket"}),
-            ("browser_observe", {}),
             (
                 "task_planner",
                 {

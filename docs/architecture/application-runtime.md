@@ -19,9 +19,14 @@ Provider 只负责 yield delta；通用运行时负责在 provider 完成前发�
 元数据、密钥、主机路径和资源 URI 均不进入七事件 UI 协议。
 
 CLI、Interactive、ALFWorld 和 Coworker 通过同一个 `ApplicationRuntime` 执行。application 持有
-Catalog、无 session 状态的执行链、ObservationService、EventBus、SessionManager、device connection
-pool、physical-device lease manager 和可选 MCP manager；每个 run
+Catalog、无 session 状态的执行链、EventBus、SessionManager、config/plan/Cron/task/team/child 服务、
+device connection pool、physical-device lease manager 和可选 MCP manager；每个 run
 冻结自己的 ToolView、provider request、generation 和 borrowed environment binding。
+
+`core.observe.v1` 是普通的 canonical tool。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
+以 `ResultProjection.IMAGE_ONLY` 交给 provider；模型消息恰好只有一个 image block。截图不进入 action
+执行链的授权、freshness、completion 或 provider-binding 状态，因此不会影响 Coworker DOM 或 ALFWorld
+动作是否可执行。
 
 环境 adapter 继续拥有领域 schema、executor、verifier 和 scorer。通用 runtime 不导入 benchmark
 实现，也不把 public event 或模型声明当作领域成功证据。
@@ -76,24 +81,56 @@ result、authoritative event 和 JSONL。外部 SDK enum/常量到内部类型�
 ## Skill Data Flow
 
 ```text
-package builtin + user roots + git-bounded project roots + explicit roots
+OpenHarness bundled < Home builtin < user root < git-bounded project roots < explicit roots < plugin roots
   -> YAML frontmatter parser
   -> resolved-path containment
   -> source precedence / named builtin override authorization
-  -> MCP discovery 完成后的 final Home ToolView alias capability gate
-  -> immutable run dependency: SkillRegistry
-  -> skill_view progressive disclosure
+  -> dynamic SkillRegistry handle（不等待 MCP，不校验 tool_names）
+  -> Available Skills name/description summary
+  -> skill(name) / compatible skill_view(skill_name) / slash invocation
+  -> complete original content + base_dir
 ```
 
-Skill 只声明元数据和 prompt fragment，不拥有 executor、permission 或 robot capability。一个 skill
-不能把 ToolView 中 disabled 的工具变为 enabled。自动来源的单项失败记录为 secret-safe issue，避免
-破坏 builtin；显式来源 fail-closed。所有替换保留完整 provenance chain。
+Skill 是 OpenHarness-compatible instruction document，不拥有 executor、permission 或 robot capability；
+`tool_names` 即使存在也只是未解释扩展元数据。一个 Skill 不能把 ToolView 中 disabled 的工具变为
+enabled。自动来源只扫描 HomeMaster 自己的 user/project 目录；外部 agent 目录需显式迁入或配置。
+自动来源的单项失败记录为 secret-safe issue，显式来源 fail-closed，所有替换保留 provenance chain。
+Plugin 来源是 data-only adapter：只解析 `plugin.json`/`.claude-plugin/plugin.json` 与受 containment
+保护的 `skills_dir`，不调用 executable extension loader、不导入 Python、不注册 tools/hooks/MCP。
+项目 plugin 默认关闭；plugin 即使优先级最后也不能绕过 builtin 精确覆盖授权。
 
-Home one-shot 与 Interactive 在 composition root 创建同一 registry handle。未配置 MCP 时立即装载；
-配置 MCP 时在 application start 完成 discovery、Catalog 注册和 final ToolView freeze 后原子替换其
-validated snapshot，再经 `RunRequest.dependencies`
-传给 legacy-compatible `skill_view` executor。`disable-model-invocation` 在读取时再次执行，防止仅靠
-候选列表过滤后被模型按名称绕过。
+Home one-shot、Interactive 与 Gateway 在 composition root 创建同一 registry handle。标准 `skill` 与
+兼容 `skill_view` 每次读取前刷新，因此新写入的 Skill 在同一进程立即可见；slash resolver 复用同一
+索引并把已配置的 Skill model 写入 run 级 override。MCP 只改变 MCP ToolView，不重载或验证 Skills。
+八份 bundled Markdown 使用 package data 进入安装 wheel，不能依赖源码 checkout 路径。
+隔离 wheel 门会安装核心依赖并在源码 checkout 外构造 Home profile、逐项核对 39 个默认工具。Pillow
+属于默认 `observe` 的核心依赖；MCP-only adapter 使用 manager 分支内 lazy import，未安装 `mcp` extra
+时不得阻断默认 profile 构造。
+
+## OpenHarness Tool 与 Service Flow
+
+```text
+39 default Home tools + optional MCP dynamic tools + Home domain tools
+  -> frozen per-run ToolView
+  -> canonical Home Permission / immutable working_directory
+  -> application-owned config/plan/Cron/task/team/child/MCP service
+  -> executor and external return-code check
+  -> verifier inside the same per-resource lease
+  -> typed result / JSONL audit / session snapshot
+```
+
+39 项 OpenHarness 默认工具只进入 Home profile。文件路径由 composition 时锁定的 working directory
+统一解析；写入的 lease 覆盖 executor 和独立 readback verifier。默认 child worker argv 显式包含父应用
+config path，避免子进程退回仓库默认 provider。Cron scheduler 由 `homemaster cron start/status/stop`
+管理；task/team/plan/config 均使用 application-owned store，不依赖 process-global OpenHarness 状态。
+管理面除 `tool.mutate` 外按职责独立要求 `process.spawn`、`scheduler.manage`、`config.mutate` 或
+`mcp.manage`。`config(action="show")` 使用 public structured projection，递归遮盖 secret-shaped 字段、
+URL userinfo 和所有已配置敏感字面值后，才允许进入模型消息或 JSONL trace。
+
+远程 `ask_user_question` 不保持 webhook task：executor 返回嵌套在 canonical `ToolResultMessage` 中的
+`waiting_user` marker，ApplicationRuntime 持久化包含 assistant tool call 与 tool result 的 snapshot，
+ChannelBridge 结束当前 run 且不发送重复 terminal。下一条 inbound 自动设置 `resume=True`，恢复同一
+session 后把用户答案追加到完整历史。停止判据解析实际序列化 envelope，而不是 executor 的中间 dict。
 
 ALFWorld 没有公开 `skill_view`，Coworker 继续使用固定的两份 benchmark skill 和严格十一项
 ToolView；CL-17 不改变这两个 release profile 的 manifest 或 scorer 输入。
@@ -141,9 +178,12 @@ venv，并从源码 checkout 外使用 `importlib.resources` 读取文件；源�
 ## Gateway、Channel 与公共事件流
 
 ```text
-Telegram numeric sender id
-  -> exact configured principal (tenant/roles/capabilities)
+Feishu SDK WebSocket subprocess
+  -> typed IPC event envelope
+  -> reject malformed / best-effort sender_type=bot
+  -> fixed trusted feishu-owner principal (admin + canonical capabilities)
   -> ChannelIdentity(tenant/channel/chat/thread/sender)
+  -> immutable ChannelDeliveryContext(source message/reply target)
   -> deterministic gw-<sha256> session id (metadata is never authority)
   -> attachment realpath containment
   -> Gateway generation + cancel-and-join
@@ -151,7 +191,7 @@ Telegram numeric sender id
   -> private RuntimeEvent appended to application EventBus ledger
   -> events.public_gateway_stream / PublicEventProjection
   -> bounded priority outbound bus
-  -> Telegram send
+  -> Feishu REST send/upload/reply
 ```
 
 Gateway assembly 接收 composition root 已创建的同一个 `ApplicationRuntime`；不创建 per-session
@@ -165,8 +205,12 @@ channel bus 同时限制 global、per-tenant 和 per-session occupancy。progres
 producer，丢弃尚未开始处理的 inbound，并在 deadline 内保留 egress 排空 outbound，之后才 stop channel。
 同一个 absolute deadline 覆盖 active-run cancel/join、bus drain、channel stop 和全部 service-task join；
 join 使用 `asyncio.wait` hard bound，抗取消 worker 只会让 close 返回 false，不会把 deadline 拖成无界。
-后台 service task 任一真实异常都会让 supervisor fail-fast。附件必须先通过 exact principal mapping，随后
-才允许下载；下载后与 bridge 消费前都做 realpath containment，`..` 与 symlink escape 都 fail closed。
+后台 service task 任一真实异常都会让 supervisor fail-fast。飞书 transport 是部署者明确选择的 trusted
+owner boundary：任意非 bot sender 都得到同一个固定 principal/capabilities，sender `open_id` 只用于回复、
+建群成员和 sender-isolated session，不参与授权。Feishu 的顺序固定为 malformed/bot best-effort reject、
+固定 principal、message-id dedup、外部资源、安全落盘、reaction、入站 publish；群消息无需 mention。
+下载后与 bridge 消费前仍做 realpath containment，`..` 与 symlink escape 都 fail closed。真实平台是否回投
+机器人自身消息以及回投时 `sender_type` 的值仍为 `UNVERIFIED`，不能把合成测试当作无循环证明。
 
 Gateway restart 通过 application `SessionBackend` 恢复纯数据 snapshot，删除没有配对结果的
 assistant tool-call tail 与 orphan tool result；下一次 application turn 增加 generation。取消会先请求
@@ -181,9 +225,28 @@ RunRequest 时确定，并由 run event sink 写入每个 RuntimeEvent；public 
 宿主路径和 URL query 做脱敏。`assistant.reply` 不作为 Gateway progress 转发；terminal outbound 由
 generation-fenced `RunResult` 统一发布，且与 cancel/error 共用 projection，因此不会 duplicate final。
 
-Telegram 使用可选 `python-telegram-bot` long polling，不要求公网 webhook。token 只从
-`token_env` 指向的环境变量读取，配置与 repr 不保存值；默认 disabled 且禁止 wildcard principal。
-具体 python-telegram-bot 运行时调用在 hkust4 用户指导的真环境核对前保持 `UNVERIFIED`。
+`ChannelDeliveryContext` 只从认证后的 SDK envelope 构造，并复制到 progress、MEDIA、final、error 和
+cancel；renderer metadata 不能覆盖 receive/reply target。thread 分区仍包含 sender，Reply API 使用
+准确 source message id，私聊不会因 chat id 猜测而误创建 thread。ArtifactPublisher 在 tool dispatch 后
+把 image/attachment bytes 写入 tenant/session/run ACL store，但不改写 canonical result 或模型消息；
+provider-facing content 保留模型需要的图片，opaque artifact refs 只进入 `tool.call_completed` 公共投影，
+Gateway 将每个 ref 独立变成不可合并 MEDIA。
+
+composition root 先创建唯一 application-owned `FeishuApiService` 和 `FeishuGroupOperations`，注册两个
+typed 群工具，再让 application、channel 和 Gateway 借用同一资源。群 create 从当前 route sender 派生
+成员，rename 只作用于当前 group chat；operation id 锁定 target，timeout 为 `outcome_unknown`，外部成功
+还必须经独立 chat/member read 验证。
+
+`lark-oapi` 没有已验证的 public stop/close API，因此 WebSocket client 被隔离到 spawn 子进程；stop 在
+同一 deadline 内 terminate/join，必要时 kill/join，不交付残留线程。子进程 completion/fatal 通过 typed
+queue 回传 `channel.start()`。REST 与 SDK logger 在使用凭证前安装全局 record sanitizer；结构化调用日志
+只包含 action、message/chat hash、耗时、return code 和 certainty。`app_id/app_secret` 优先来自 ignored、
+mode-0600 的真实 YAML，旧环境变量仅作兼容回退；配置 repr、事件、异常、URL query 和公开终态均不保留
+secret 原值。
+
+内部 fake/subprocess 测试只能证明 HomeMaster contract 与可终止策略。实际 request builder、API return
+code、消息/媒体/reaction/群最终状态、重连和 `feishu|lark` domain 在真实测试租户完成 Phase 0/9 之前
+继续标记 `UNVERIFIED`，不能由 import 成功或 helper receipt 替代。
 
 ## Trusted Extension Data Flow
 

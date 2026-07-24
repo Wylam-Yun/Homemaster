@@ -18,6 +18,7 @@ def grounded(
     action_id: str,
     *,
     tool_name: str = "task_progress_check",
+    arguments: dict[str, object] | None = None,
 ) -> None:
     store.record(
         run_id,
@@ -25,7 +26,7 @@ def grounded(
         kind="tool_result",
         status="succeeded",
         action_id=action_id,
-        arguments={"tool_name": tool_name},
+        arguments={"tool_name": tool_name, **(arguments or {})},
         node_id=node_id,
     )
 
@@ -77,7 +78,14 @@ def test_formal_success_rejects_presentation_failure() -> None:
 def test_full_normal_run_freezes_24_nodes_and_14_results(store: EpisodeStore) -> None:
     run_id = "score-normal"
     store.create(run_id, "normal")
-    grounded(store, run_id, "TICKET_READ", "observe", tool_name="observe")
+    grounded(
+        store,
+        run_id,
+        "TICKET_READ",
+        "navigate-ticket",
+        tool_name="browser_navigate",
+        arguments={"route": "ticket"},
+    )
     grounded(store, run_id, "PLAN_CREATED", "planner", tool_name="task_planner")
     complete_prechecks(store, run_id)
     grounded(store, run_id, "PRE_PROGRESS", "progress-pre")

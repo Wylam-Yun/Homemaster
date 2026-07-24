@@ -18,6 +18,7 @@ from homemaster.application.runtime import (
     ToolProfile,
 )
 from homemaster.application.session import SessionManager
+from homemaster.artifacts import ArtifactPublisher
 from homemaster.config import HomeMasterConfig, configured_sensitive_values, load_config
 from homemaster.devices import (
     DeviceAuditLog,
@@ -27,7 +28,6 @@ from homemaster.devices import (
 )
 from homemaster.events.bus import EventBus
 from homemaster.extensions import HookRunner
-from homemaster.observations import ObservationService
 from homemaster.permissions import HomePermissionPolicy
 from homemaster.prompts.loader import load_prompt
 from homemaster.providers.llm_client import LLMClient
@@ -42,7 +42,6 @@ def create_application(
     profiles: Mapping[str, ToolProfile] | None = None,
     catalog: ToolCatalog | None = None,
     pipeline: ToolExecutionPipeline | None = None,
-    observation_service: ObservationService | None = None,
     event_bus: EventBus | None = None,
     session_manager: SessionManager | None = None,
     provider_factory: ProviderFactory | None = None,
@@ -51,11 +50,12 @@ def create_application(
     application_starter: ApplicationStarter | None = None,
     device_connection_pool: DeviceConnectionPool | None = None,
     extension_runner: HookRunner | None = None,
+    artifact_publisher: ArtifactPublisher | None = None,
+    application_services: Mapping[str, object] | None = None,
 ) -> ApplicationRuntime:
     """Build all application-owned services without opening environment resources."""
 
     resolved_config = config or load_config(config_path)
-    service = observation_service or ObservationService()
     if profiles is None:
         raise ValueError(
             "application tool profiles must be composed and supplied by the outer entry point"
@@ -83,7 +83,6 @@ def create_application(
             catalog,
             permission_policy=HomePermissionPolicy(resolved_config.permissions),
             resource_manager=ApplicationResourceManager(event_store=device_events),
-            observation_service=service,
             public_event_sink=bus,
         )
     else:
@@ -122,12 +121,13 @@ def create_application(
         device_connection_pool=connections,
         device_lease_manager=execution_pipeline.resource_manager,
         public_sensitive_values=configured_sensitive_values(resolved_config),
+        working_directory=Path.cwd().resolve(strict=True),
+        application_services=dict(application_services or {}),
     )
     return ApplicationRuntime(
         catalog=catalog,
         profiles=resolved_profiles,
         pipeline=execution_pipeline,
-        observation_service=service,
         event_bus=bus,
         session_manager=sessions,
         provider_factory=providers,
@@ -136,15 +136,13 @@ def create_application(
         resource_scope=scope,
         application_starter=application_starter,
         extension_runner=extension_runner,
+        artifact_publisher=artifact_publisher,
     )
 
 
 def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
     def build(request: RunRequest, run_id: str) -> ResourceBinding:
-        profile = config.get_provider(
-            request.provider_name or config.runtime_defaults.default_provider_name,
-            kind="chat",
-        )
+        profile = _resolve_chat_provider(config, request)
         return ResourceBinding.owned(
             f"provider:{run_id}",
             LLMClient(
@@ -162,18 +160,44 @@ def _context_factory(config: HomeMasterConfig) -> ContextAssemblerFactory:
     system_prompt = load_prompt(config.prompts.agent_system_prompt)
 
     def build(request: RunRequest, provider: Any) -> ContextAssembler:
-        profile = config.get_provider(
-            request.provider_name or config.runtime_defaults.default_provider_name,
-            kind="chat",
-        )
+        profile = _resolve_chat_provider(config, request)
         return ContextAssembler(
             provider=profile,
             policy=config.context,
             system_prompt=system_prompt,
             summary_client=provider,
+            skill_registry=request.dependencies.get("skill_registry"),
         )
 
     return build
+
+
+def _resolve_chat_provider(config: HomeMasterConfig, request: RunRequest) -> Any:
+    if request.model_override is None:
+        return config.get_provider(
+            request.provider_name or config.runtime_defaults.default_provider_name,
+            kind="chat",
+        )
+    target = request.model_override.casefold()
+    matches = [
+        profile
+        for profile in config.providers.items
+        if profile.kind == "chat"
+        and (profile.name.casefold() == target or profile.model.casefold() == target)
+    ]
+    unique = {profile.name.casefold(): profile for profile in matches}
+    if len(unique) != 1:
+        raise ValueError(
+            f"skill model {request.model_override!r} must map to exactly one "
+            "configured chat provider"
+        )
+    profile = next(iter(unique.values()))
+    if (
+        request.provider_name is not None
+        and profile.name.casefold() != request.provider_name.casefold()
+    ):
+        raise ValueError("skill model override conflicts with the explicitly selected provider")
+    return profile
 
 
 __all__ = ["create_application"]

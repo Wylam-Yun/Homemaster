@@ -90,7 +90,6 @@ ATTEMPT_KEYS = {
     "error_type",
     "model_attempt_id",
     "outbound_images",
-    "outbound_observations",
     "request_sha256",
     "response_completed",
     "stripped_images",
@@ -278,17 +277,15 @@ def _verify_episode(
             raise ValueError("provider attempt IDs must be non-empty and globally unique")
         seen_attempt_ids.add(attempt_id)
         _sha256(attempt["request_sha256"], label="provider request hash")
-        if not isinstance(attempt["outbound_images"], list) or not isinstance(
-            attempt["outbound_observations"], list
-        ):
-            raise ValueError("provider attempt bindings must be arrays")
+        if not isinstance(attempt["outbound_images"], list):
+            raise ValueError("provider outbound image bindings must be an array")
         if not isinstance(attempt["response_completed"], bool) or not isinstance(
             attempt["stripped_images"], bool
         ):
             raise ValueError("provider attempt completion fields must be booleans")
         successful_attempts += int(attempt["response_completed"])
-    if attempts[0]["outbound_images"] or attempts[0]["outbound_observations"]:
-        raise ValueError("initial ALFWorld provider request must not contain an observation")
+    if attempts[0]["outbound_images"]:
+        raise ValueError("initial ALFWorld provider request must not contain a screenshot")
 
     runtime_events = _read_jsonl(
         _artifact_path(root, refs["runtime_events_ref"]),

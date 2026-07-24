@@ -13,6 +13,7 @@ from homemaster.benchmarking.coworker_demo.types import CoworkerAttemptError, Ti
 from homemaster.cli.composition import HomeCliBackend, create_home_application
 from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.cli.doctor import render_doctor_text, run_doctor
+from homemaster.skills.commands import resolve_skill_command
 
 
 def run_interactive_shell(
@@ -39,6 +40,9 @@ def run_interactive_shell(
     last_run_id: str | None = None
 
     with asyncio.Runner() as runner:
+        async def ask_user(question: str) -> str:
+            return await asyncio.to_thread(input, f"{question}\nanswer> ")
+
         try:
             if continue_latest:
                 session_ids = application.session_manager.list_session_ids()
@@ -114,6 +118,17 @@ def run_interactive_shell(
                     typer.echo(f"Trace: {bundle.trace_path}")
                     continue
 
+                try:
+                    resolved_skill = resolve_skill_command(
+                        utterance,
+                        bundle.skill_registry,
+                        session_id=session_id,
+                    )
+                except ValueError as exc:
+                    last_status = "failed"
+                    typer.echo(f"Skill invocation failed: {exc}")
+                    continue
+
                 ticket_route = route_coworker_ticket(utterance)
                 if ticket_route.kind == TicketRouteKind.INVALID_TICKET_INTENT:
                     last_status = "failed"
@@ -132,11 +147,23 @@ def run_interactive_shell(
                     result = runner.run(
                         application.run(
                             RunRequest(
-                                text=utterance,
+                                text=(
+                                    resolved_skill.prompt
+                                    if resolved_skill is not None
+                                    else utterance
+                                ),
                                 session_id=session_id,
                                 profile="home",
+                                model_override=(
+                                    resolved_skill.model_override
+                                    if resolved_skill is not None
+                                    else None
+                                ),
                                 resume=session_open,
-                                dependencies={"skill_registry": bundle.skill_registry},
+                                dependencies={
+                                    "skill_registry": bundle.skill_registry,
+                                    "ask_user_prompt": ask_user,
+                                },
                                 environment=backend,
                             )
                         )

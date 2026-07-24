@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import pytest
 
@@ -131,8 +132,8 @@ def make(
         backend=None,
         deadline=deadline,
         cancellation=cancellation,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
     ledger = Ledger()
     events = Events()

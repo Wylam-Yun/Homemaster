@@ -188,8 +188,7 @@ def build_mcp_registered_tools(
         )
 
     resources = tuple(manager.list_resources())
-    if resources:
-        tools.extend(_resource_tools(manager, store, resources, preview_chars))
+    tools.extend(_resource_tools(manager, store, resources, preview_chars))
     return tuple(tools)
 
 
@@ -204,8 +203,8 @@ def _resource_tools(
         raise ToolCatalogError("duplicate MCP resource identity")
     list_definition = ToolDefinition(
         internal_id="mcp.list_resources.v1",
-        model_alias="mcp_list_resources",
-        description="List resources discovered from connected MCP servers.",
+        model_alias="list_mcp_resources",
+        description="List MCP resources available from connected servers.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         output_schema=_OUTPUT_SCHEMA,
         verification_policy=VerificationPolicy(),
@@ -215,8 +214,8 @@ def _resource_tools(
     )
     read_definition = ToolDefinition(
         internal_id="mcp.read_resource.v1",
-        model_alias="mcp_read_resource",
-        description="Read one resource from a connected MCP server.",
+        model_alias="read_mcp_resource",
+        description="Read an MCP resource by its HomeMaster opaque resource id.",
         input_schema={
             "type": "object",
             "properties": {

@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 from homemaster.adapters import build_environment_profiles
-from homemaster.tools.contracts import ConcurrencyPolicy, PostActionObservation
+from homemaster.tools.contracts import ConcurrencyPolicy
 
 
 def test_each_environment_profile_exposes_exactly_one_observe_variant() -> None:
     profiles = build_environment_profiles()
 
-    for environment, profile in profiles.items():
+    for _environment, profile in profiles.items():
         assert profile.model_tool_names.count("observe") == 1
-        assert [
+        observe_ids = [
             internal_id
             for internal_id in profile.enabled_tool_ids
             if internal_id.endswith(".observe.v1")
-        ] == [f"{environment}.observe.v1"]
+        ]
+        assert observe_ids == [
+            "core.observe.v1"
+        ]
         assert "robot_observe" not in profile.model_tool_names
-        assert "browser_observe" not in profile.model_tool_names
 
 
 def test_home_and_alfworld_navigation_surface_uses_only_robot_go_to() -> None:
@@ -46,25 +48,19 @@ def test_coworker_profile_remains_exactly_eleven_tools_in_order() -> None:
     )
 
 
-def test_environment_profiles_execute_typed_observation_policies() -> None:
+def test_environment_actions_are_not_gated_by_screenshots() -> None:
     profiles = build_environment_profiles()
     home = profiles["home"].view.lookup("robot_manipulate").tool
     alfworld = profiles["alfworld"].view.lookup("robot_go_to").tool
     coworker = profiles["coworker"].view.lookup("browser_navigate").tool
     assert home is not None and alfworld is not None and coworker is not None
 
-    assert home.definition.verification_policy.requires_pre_observation == "current_bound"
-    assert (
-        alfworld.definition.verification_policy.post_action_observation
-        is PostActionObservation.FRESH_AFTER_BACKEND_ADVANCE
-    )
-    assert (
-        coworker.definition.verification_policy.post_action_observation
-        is PostActionObservation.FRESH_AFTER_BACKEND_ADVANCE
-    )
+    assert home.definition.model_alias == "robot_manipulate"
+    assert alfworld.definition.model_alias == "robot_go_to"
+    assert coworker.definition.model_alias == "browser_navigate"
 
 
-def test_coworker_planner_mutations_and_sop_require_current_observation() -> None:
+def test_coworker_action_tools_remain_available() -> None:
     view = build_environment_profiles()["coworker"].view
 
     for name in (
@@ -77,7 +73,6 @@ def test_coworker_planner_mutations_and_sop_require_current_observation() -> Non
     ):
         tool = view.lookup(name).tool
         assert tool is not None
-        assert tool.definition.verification_policy.requires_pre_observation == "current_bound"
 
 
 def test_physical_mutations_use_typed_backend_resource_keys() -> None:

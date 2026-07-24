@@ -7,10 +7,10 @@ import json
 import pytest
 
 from homemaster.tools.contracts import (
-    ObservationReference,
     OutcomeCertainty,
     ResultAttachment,
     ResultImage,
+    ResultProjection,
     TerminalInfo,
     ToolExecutionError,
     ToolExecutionResult,
@@ -24,7 +24,7 @@ def _encoded(value: bytes) -> tuple[str, str]:
     return base64.b64encode(value).decode("ascii"), hashlib.sha256(value).hexdigest()
 
 
-def test_full_result_projects_losslessly_to_tool_result_message() -> None:
+def test_full_result_projects_public_data_and_lossless_provider_image() -> None:
     image_data, image_sha = _encoded(b"png-image-bytes")
     attachment_data, attachment_sha = _encoded(b"attachment-bytes")
     result = ToolExecutionResult(
@@ -37,7 +37,6 @@ def test_full_result_projects_losslessly_to_tool_result_message() -> None:
                 data_base64=image_data,
                 content_sha256=image_sha,
                 pixel_sha256="a" * 64,
-                observation_id="obs-1",
             ),
         ),
         attachments=(
@@ -46,13 +45,6 @@ def test_full_result_projects_losslessly_to_tool_result_message() -> None:
                 media_type="application/json",
                 data_base64=attachment_data,
                 content_sha256=attachment_sha,
-            ),
-        ),
-        observations=(
-            ObservationReference(
-                observation_id="obs-1",
-                evidence_ref="observations/obs-1.json",
-                content_sha256=image_sha,
             ),
         ),
         evidence_refs=("ledger/tool-call-1.json",),
@@ -74,61 +66,73 @@ def test_full_result_projects_losslessly_to_tool_result_message() -> None:
     assert message.tool_call_id == "call-1"
     assert message.name == "robot_go_to"
     assert message.is_error is False
-    assert message.data == result.to_dict()
-    assert json.loads(message.content[0].text) == result.to_dict()
+    assert message.data == result.to_public_dict()
+    assert json.loads(message.content[0].text) == result.to_public_dict()
     assert message.content[1].type == "image"
     assert message.content[1].source == {
         "type": "base64",
         "media_type": "image/png",
         "data": image_data,
     }
-    assert message.content[1].metadata["observation_id"] == "obs-1"
-    assert message.data["attachments"][0]["data_base64"] == attachment_data
+    assert message.content[1].metadata == {
+        "content_sha256": image_sha,
+        "pixel_sha256": "a" * 64,
+    }
+    assert "data_base64" not in message.data["attachments"][0]
+    assert attachment_data not in message.content[0].text
     assert message.data["terminal"]["classification"] == "agent_success"
 
 
-def test_structured_observation_projects_exact_bindable_content() -> None:
-    observation_text = '{"room":"kitchen"}'
-    content_sha256 = hashlib.sha256(observation_text.encode()).hexdigest()
+def test_image_only_projection_emits_no_result_json_or_text() -> None:
+    image_data, image_sha = _encoded(b"png-image-bytes")
     result = ToolExecutionResult(
         status=ToolExecutionStatus.SUCCESS,
-        text=observation_text,
-        data={
-            "observation_id": "obs-structured",
-            "backend_id": "backend-home",
-            "run_id": "run-home",
-            "generation": 3,
-            "state_sequence": 7,
-            "capture_event_sequence": 9,
-            "media_type": "application/json",
-            "content_sha256": content_sha256,
-            "pixel_sha256": None,
-            "evidence_ref": "observations/structured.json",
-        },
-        observations=(
-            ObservationReference(
-                observation_id="obs-structured",
-                evidence_ref="observations/structured.json",
-                content_sha256=content_sha256,
+        images=(
+            ResultImage(
+                media_type="image/png",
+                data_base64=image_data,
+                content_sha256=image_sha,
             ),
         ),
-        backend_attempted=False,
+        model_projection=ResultProjection.IMAGE_ONLY,
     )
 
-    message = result.to_message(tool_call_id="call-observe", name="observe")
+    message = result.to_message(tool_call_id="call-image", name="observe")
 
-    observation = message.content[1]
-    assert observation.text == observation_text
-    assert observation.metadata == {
-        "observation_id": "obs-structured",
-        "observation_content_sha256": content_sha256,
-        "observation_backend_id": "backend-home",
-        "observation_run_id": "run-home",
-        "observation_generation": 3,
-        "observation_state_sequence": 7,
-        "observation_capture_event_sequence": 9,
-        "media_type": "application/json",
-    }
+    assert len(message.content) == 1
+    assert message.content[0].type == "image"
+    assert message.content[0].text == ""
+    assert message.content[0].metadata == {}
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        {"text": "not allowed"},
+        {"images": ()},
+        {
+            "images": (
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=_encoded(b"first")[0],
+                    content_sha256=_encoded(b"first")[1],
+                ),
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=_encoded(b"second")[0],
+                    content_sha256=_encoded(b"second")[1],
+                ),
+            )
+        },
+    ],
+)
+def test_image_only_projection_rejects_any_shape_except_one_image(values) -> None:
+    with pytest.raises(ValueError, match="image_only projection"):
+        ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            model_projection=ResultProjection.IMAGE_ONLY,
+            **values,
+        )
 
 
 def test_result_data_is_deeply_immutable_and_serializable() -> None:
@@ -211,14 +215,6 @@ def test_result_data_is_deeply_immutable_and_serializable() -> None:
                 "verification": VerificationRecord(status=VerificationStatus.PENDING),
             },
             "pending verification requires",
-        ),
-        (
-            {
-                "status": ToolExecutionStatus.OBSERVATION_REQUIRED,
-                "error": ToolExecutionError("observation_required", "observe first"),
-                "terminal": TerminalInfo("agent_model_failure", True),
-            },
-            "terminal information",
         ),
         (
             {

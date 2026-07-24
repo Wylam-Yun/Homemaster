@@ -18,12 +18,15 @@ def _skill(root: Path, *, tool: str = "observe") -> Path:
     return path
 
 
-def test_skill_cannot_enable_tool_outside_frozen_view(tmp_path: Path) -> None:
+def test_skill_text_cannot_change_the_runtime_tool_view(tmp_path: Path) -> None:
     root = tmp_path / "skills"
     _skill(root, tool="robot_admin")
 
-    with pytest.raises(ValueError, match="outside the frozen ToolView"):
-        load_skill_registry(explicit_dirs=(root,), allowed_tool_names=("observe",))
+    registry = load_skill_registry(explicit_dirs=(root,))
+
+    skill = registry.get("demo")
+    assert skill is not None
+    assert "robot_admin" in skill.content
 
 
 def test_skill_resource_rejects_absolute_parent_and_symlink_escape(tmp_path: Path) -> None:

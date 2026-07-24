@@ -9,7 +9,11 @@ import pytest
 from homemaster.adapters.profiles import EnvironmentToolProfile
 from homemaster.agent.context import ContextAssembler
 from homemaster.application.contracts import RunRequest, RunStatus
-from homemaster.application.factory import create_application
+from homemaster.application.factory import (
+    _provider_factory,
+    _resolve_chat_provider,
+    create_application,
+)
 from homemaster.application.resources import ApplicationResourceManager
 from homemaster.application.session import SessionManager
 from homemaster.config import (
@@ -19,7 +23,6 @@ from homemaster.config import (
 )
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError
 from homemaster.events.bus import EventBus
-from homemaster.observations import ObservationService
 from homemaster.permissions import HomePermissionPolicy
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.tools.catalog import ToolCatalog
@@ -75,16 +78,96 @@ def _catalog_and_profile() -> tuple[ToolCatalog, EnvironmentToolProfile]:
     )
 
 
+def _model_override_config() -> HomeMasterConfig:
+    return HomeMasterConfig.model_validate(
+        {
+            "providers": {
+                "default": "primary",
+                "items": [
+                    {
+                        "name": "primary",
+                        "api_format": "openai",
+                        "base_url": "https://primary.example.test/v1",
+                        "model": "model-a",
+                    },
+                    {
+                        "name": "secondary",
+                        "api_format": "openai",
+                        "base_url": "https://secondary.example.test/v1",
+                        "model": "shared-model",
+                    },
+                    {
+                        "name": "tertiary",
+                        "api_format": "openai",
+                        "base_url": "https://tertiary.example.test/v1",
+                        "model": "shared-model",
+                    },
+                ],
+            }
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("override", "expected_name"),
+    (("MODEL-A", "primary"), ("PRIMARY", "primary")),
+)
+def test_skill_model_override_resolves_unique_model_or_provider_name(
+    override: str,
+    expected_name: str,
+) -> None:
+    profile = _resolve_chat_provider(
+        _model_override_config(),
+        RunRequest(text="run skill", model_override=override),
+    )
+
+    assert profile.name == expected_name
+
+
+@pytest.mark.parametrize("override", ("missing-model", "shared-model"))
+def test_skill_model_override_rejects_zero_or_ambiguous_matches(override: str) -> None:
+    with pytest.raises(ValueError, match="must map to exactly one"):
+        _resolve_chat_provider(
+            _model_override_config(),
+            RunRequest(text="run skill", model_override=override),
+        )
+
+
+def test_skill_model_override_rejects_explicit_provider_conflict() -> None:
+    with pytest.raises(ValueError, match="conflicts with the explicitly selected provider"):
+        _resolve_chat_provider(
+            _model_override_config(),
+            RunRequest(
+                text="run skill",
+                provider_name="secondary",
+                model_override="model-a",
+            ),
+        )
+
+
+def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch) -> None:
+    constructor_calls = 0
+
+    def forbidden_client(*args, **kwargs):
+        nonlocal constructor_calls
+        del args, kwargs
+        constructor_calls += 1
+        raise AssertionError("provider client must not be constructed")
+
+    monkeypatch.setattr("homemaster.application.factory.LLMClient", forbidden_client)
+    build = _provider_factory(_model_override_config())
+
+    with pytest.raises(ValueError, match="must map to exactly one"):
+        build(RunRequest(text="run skill", model_override="shared-model"), "run-1")
+
+    assert constructor_calls == 0
+
+
 def test_factory_composes_injected_application_services_without_connecting(tmp_path) -> None:
     catalog, profile = _catalog_and_profile()
-    service = ObservationService()
     bus = EventBus()
     sessions = SessionManager(session_root=tmp_path)
-    pipeline = ToolExecutionPipeline(
-        catalog,
-        observation_service=service,
-        public_event_sink=bus,
-    )
+    pipeline = ToolExecutionPipeline(catalog, public_event_sink=bus)
     provider_calls = 0
 
     def provider_factory(request, run_id):
@@ -102,7 +185,6 @@ def test_factory_composes_injected_application_services_without_connecting(tmp_p
         profiles={"test": profile},
         catalog=catalog,
         pipeline=pipeline,
-        observation_service=service,
         event_bus=bus,
         session_manager=sessions,
         provider_factory=provider_factory,
@@ -111,7 +193,6 @@ def test_factory_composes_injected_application_services_without_connecting(tmp_p
 
     assert application.catalog is catalog
     assert application.pipeline is pipeline
-    assert application.observation_service is service
     assert application.event_bus is bus
     assert application.session_manager is sessions
     assert application.profiles == {"test": profile}

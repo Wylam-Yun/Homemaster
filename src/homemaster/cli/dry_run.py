@@ -10,7 +10,6 @@ from homemaster.cli.composition import load_home_skills
 from homemaster.config import ConfigError, HomeMasterConfig, load_config
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
-from homemaster.observations import ObservationService
 
 
 def build_dry_run_preview(
@@ -48,7 +47,6 @@ def build_dry_run_preview(
             "base_url": "",
         }
     profile = build_home_profile(
-        observation_service=ObservationService(),
         world_path=world_path,
         memory_path=memory_path,
     )
@@ -78,9 +76,10 @@ def build_dry_run_preview(
             {
                 "name": skill.name,
                 "description": skill.description,
-                "tool_names": list(skill.tool_names),
                 "source": skill.source,
-                "provenance": [item.source for item in skill.provenance],
+                "provenance": [
+                    item.source for item in skill_registry.provenance_for(skill)
+                ],
                 "user_invocable": skill.user_invocable,
                 "model_invocable": not skill.disable_model_invocation,
             }

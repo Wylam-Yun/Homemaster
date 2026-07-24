@@ -1,5 +1,193 @@
 # Engineering Pitfalls
 
+## 2026-07-24 - 飞书真实私聊 `p2p` 被内部 `private` 校验静默拒绝
+
+### 症状与根因
+
+真实用户消息在飞书后台显示 `im.message.receive_v1 SUCCESS`，WebSocket 连接也保持 `ESTABLISHED`，但没有
+HomeMaster session/trace 或回复。SDK dispatcher 已把消息放入 IPC；下一层只接受内部
+`chat_type in {private, group}`，而飞书真实私聊字段是 `p2p`，normalize 又原样透传，消息因此在 Runtime 前
+返回 `False`。旧测试全部从 normalize 下游手造 `private`，所以 49 条通道/Gateway 测试全绿仍未覆盖真实边界。
+
+### 修法与教训
+
+在唯一 SDK normalize 边界把准确外部值 `p2p` 确定性映射为 canonical `private`，`group` 保持不变，未知值
+继续拒绝。回归直接把锁定 `lark-oapi==1.7.1` 的真实 JSON payload 依次送过 dispatcher、normalize、
+`accept_event()` 和 inbound bus，并断言最终 reply route 使用 `open_id`。平台消息 ACK 不是应用处理终态；还要
+核对新 session/trace、provider 返回和飞书出站回执。
+
+### 参考
+
+- `src/homemaster/channels/impl/feishu.py`
+- `tests/homemaster/channels/test_feishu.py`
+
+## 2026-07-24 - 飞书消息成功但未注册的访问/已读事件持续返回 500
+
+### 症状与根因
+
+飞书后台显示 `im.message.receive_v1` 已 `SUCCESS`，但同一时段
+`im.chat.access_event.bot_p2p_chat_entered_v1` 按原始投递和两次重试持续 `FAIL`。Gateway dispatcher 只注册
+了消息事件；锁定的 `lark-oapi==1.7.1` 对未注册事件抛 `processor not found`，WebSocket 层随后向平台回写
+500。修复访问事件后，真实回复又触发了同样未注册的 `im.message.message_read_v1` 并重复失败。消息 ACK 只
+证明该 handler 返回，既不能代表其他订阅，也不能证明 IPC、Runtime 或回复发送完成。
+
+### 修法与教训
+
+为用户进入机器人单聊和消息已读事件分别注册显式 no-op ACK，不把非业务事件伪装成用户消息，也不写 IPC
+队列。用真实 SDK 格式在同一 dispatcher 上分别断言：两个 no-op 事件成功且零 packet，消息事件成功且准确
+产生一个 packet；再以真实租户核对 endpoint 业务码、WebSocket handshake/close 和生产子进程 deadline
+stop。最终后台事件 `SUCCESS` 仍必须由新的真实事件确认，不能用 SDK payload 自验替代。
+
+### 参考
+
+- `src/homemaster/channels/impl/feishu.py`
+- `tests/homemaster/channels/test_feishu.py`
+
+## 2026-07-23 - installed wheel 缺少默认工具运行依赖
+
+### 症状与根因
+
+源码与 installed-wheel Markdown 测试均通过，但从 wheel 安装核心依赖后实例化 Home profile 先后因
+Pillow 和 MCP SDK 缺失而失败。`observe` 已成为默认 Home 工具，Pillow 却仍只声明在 Coworker extra；
+同时上游工具包在没有 MCP manager 时仍 eager import MCP-only adapters。旧 wheel 门使用 `--no-deps`
+且只枚举资源，因此从未执行默认 profile import。
+
+### 修法与教训
+
+把 Pillow 声明为核心依赖，并把 MCP-only imports 移到 manager 存在的分支。隔离 wheel 门安装声明依赖，
+再从源码 checkout 外实例化 Home profile 并逐项断言 39 个默认工具。Package-data 枚举只能证明文件入包，
+不能证明安装后的默认入口可导入和构造。
+
+### 参考
+
+- `pyproject.toml`
+- `src/openharness/tools/__init__.py`
+- `tests/homemaster/skills/test_installed_package.py`
+
+## 2026-07-23 - config show 直接序列化真实配置会向模型泄露凭证
+
+### 症状与根因
+
+最终评审发现 application-owned `config(action="show")` 直接调用完整配置的 JSON serializer。Provider
+API key、任意名称的 MCP env/header credential 和 URL userinfo 因而进入工具结果，并可继续进入模型消息
+与 JSONL trace。原测试只覆盖配置持久化，没有把“管理工具可调用”和“公开结果可展示”分开验证。
+
+### 修法与教训
+
+配置展示先做结构化 public projection：递归遮盖 secret-shaped key 和 URL userinfo，再替换所有已配置的
+敏感字面值；同一回归分别检查工具结果、模型消息和真实 JSONL 文件。任何 user/model/event-visible 配置
+都必须走 public summary，禁止直接序列化 authoritative config。
+
+### 参考
+
+- `src/homemaster/tools/openharness_runtime.py`
+- `tests/homemaster/tools/test_v20_openharness_service_tools.py`
+
+## 2026-07-23 - Gateway artifact 投影在模型前删除多模态工具结果
+
+### 症状与根因
+
+启用 Gateway/飞书后，`ArtifactPublisher` 在 `ToolExecutionResult.to_message()` 前把 image/attachment
+写入 store，并用无媒体的结果替换 canonical result。`observe` 已成功截图，却因 `IMAGE_ONLY` 结果变成
+零图片而抛错；其他需要模型读取媒体的工具也会静默退化为 artifact handle。原测试分别验证 Publisher
+脱敏和 observe 图片，却没有在启用 Publisher 的真实 ApplicationRuntime 调用链中同时断言两个出口。
+
+### 修法与教训
+
+把模型投影与 Gateway 公共投影分开：canonical result 原样生成 provider-facing content；Publisher 只
+返回 tenant/session/run-bound refs，refs 进入内部事件数据并由公共投影发往 Gateway。任何 artifact、日志、
+审计或 channel 旁路都不得改写模型消息；同一集成测试必须同时断言 provider 收到的媒体和 Gateway 可回读
+handle。
+
+### 参考
+
+- `src/homemaster/artifacts/publisher.py`
+- `src/homemaster/application/runtime.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
+## 2026-07-23 - 截图 freshness 状态机让浏览器动作全部被拒绝
+
+### 症状与根因
+
+真实 Coworker 已正常启动浏览器、页面和 provider，但 observation ledger/provider binding 把一次截图变成
+后续业务动作的 freshness 前置条件。截图不是当前画面的普通模型输入，而成为 benchmark 专属授权状态；因此
+所有业务 DOM 动作都可能在实际执行前被拒绝。旧的 unit test 只验证 service 内部状态转换，无法证明浏览器动作
+在不截图、截图后或 provider 请求之间都仍可执行。
+
+### 修法与教训
+
+截图统一为 `core.observe.v1`：只返回一张有效 PNG image block，不产生模型可见文本/DOM/状态元数据，也不接入
+权限、动作、completion 或 provider-binding 状态机。Coworker 保持 DOM 工具，ALFWorld 保持动作工具；分别在
+工具消息、provider request 和后续动作终态验证它们独立。不要把 inspection/read 工具当作无关动作的授权。
+
+### 参考
+
+- `src/homemaster/tools/observe.py`
+- `src/homemaster/tools/contracts.py`
+- `src/homemaster/application/runtime.py`
+
+## 2026-07-22 - 飞书失败尝试提前占用 dedup 导致重投消息被吞一小时
+
+### 症状与根因
+
+飞书消息在正文解析、附件下载和 inbound bus publish 前就写入一小时 dedup 表。首次下载 503、落盘失败
+或 bus 拒绝后函数返回 False，但 claim 没有释放；平台重投相同 message ID 会被判 duplicate，临时故障
+变成永久无响应。原测试只覆盖“成功后重投被拒绝”，没有覆盖失败后重投。
+
+### 修法与教训
+
+dedup 使用 reserve/commit/rollback 语义：并发处理前先占位，只有 inbound publish 成功才保留 completed
+记录；解析、下载、落盘、reaction、publish 失败或取消都释放占位，并删除尚未交付的本轮附件。分别用
+首次下载失败和首次 bus reject 证明同 ID 第二次可成功，成功后的第三次仍被拒绝。
+
+### 参考
+
+- `src/homemaster/channels/impl/feishu.py`
+- `tests/homemaster/channels/test_feishu.py`
+
+## 2026-07-22 - HPC 冷缓存下 lark-oapi 导入超时会伪装成飞书连接失败
+
+### 症状与根因
+
+一次性 SDK probe 在 20/30 秒内无输出，看起来像 endpoint 或 WebSocket 卡住。faulthandler 证明进程尚在
+`import lark_oapi`：SDK 顶层导入会扫描大量自动生成的 API model，HPC 文件系统冷缓存下本次耗时约
+48.2 秒，网络 POST 尚未开始。短超时因此同时误杀了导入和后续连接证据。
+
+### 修法与教训
+
+外部探测必须在配置加载、SDK import、endpoint POST、业务返回码、WebSocket handshake 和 socket close
+分别立即输出无敏感信息的阶段状态，并给冷导入独立预算。只有 endpoint HTTP 200/业务码 0 与 WebSocket
+connected 才证明飞书可连；“进程超时”不能直接归因于网络或凭证。
+
+### 参考
+
+- `plan/feishu-trusted-entry-policy-change-plan.md`
+- `src/homemaster/channels/impl/feishu.py`
+
+## 2026-07-22 - SDK 能建连不代表 Gateway 能在 deadline 内停止
+
+### 症状与根因
+
+`lark-oapi` 1.7.1 的 WebSocket `Client.start()` 是阻塞入口，已安装对象没有可依赖的 public
+`stop/close/shutdown/disconnect`。仅在线程外层设置 `_running=false` 不会中断 SDK 内部连接，测试中的
+mock worker 能结束也不能证明真实 SDK worker 可 join。另一个易漏点是 Python logger 的 filter 不会在
+子 logger 向父 logger propagation 时自动运行；只给 `lark_oapi` 父 logger 加 filter，子 logger 仍可能
+把 Authorization 或带 query 的 URL 交给 root handler。
+
+### 修法与教训
+
+把 WebSocket client 隔离到 spawn 子进程，通过 typed queue 只传规范化事件和 fatal/completion；stop
+在同一个 absolute deadline 内 terminate/join，必要时 kill/join，并把残留 worker 视为关闭失败。SDK
+logger 设为 WARNING，同时在 LogRecord factory 层对已知依赖 logger 做统一脱敏，确保现有和后续 handler
+都只能收到清理后的 record。import、builder 存在、mock stop 和 helper success 都不是外部终态证据；
+真实租户仍须分别证明建连、停止、发送返回码和客户端/REST 独立回读。
+
+### 参考
+
+- `plan/feishu-single-channel-openharness-migration-plan.md`
+- `src/homemaster/channels/impl/feishu.py`
+- `tests/homemaster/channels/test_feishu.py`
+
 ## 2026-07-22 - Provider 流式测试全绿但 CLI 仍在完成后批量输出
 
 ### 症状与根因
@@ -24,6 +212,33 @@ UI 层 pre-completion first-byte 证明。
 - `tests/homemaster/test_generic_agent_runtime.py`
 
 最新记录放在最上方。
+
+## 2026-07-23 - Skills V2.0 跨边界验证的四个假绿点
+
+### 症状与根因
+
+- service tool 直接 pipeline 测试通过，但真实 ApplicationRuntime dispatch 崩溃：composition 从不存在的
+  `SessionRuntime.settings` 取 application services，测试绕过了这个边界。
+- executor 已返回 `waiting_user`，远程 run 却没有停止：canonical `ToolResultMessage` 把 marker 序列化在
+  `data["data"]["waiting_user"]`，stop condition 按中间 dict 形状读取。
+- 源码 checkout 中八份 bundled Skill 测试全绿，但安装 wheel 缺 Markdown：package-data 只列了 Python，
+  测试也没有枚举安装产物。
+- child agent 单测声称复用父配置，真实子进程却总加载仓库默认配置：argv 只透传 model，没有透传父应用
+  config path。
+
+### 修法与教训
+
+service-backed 工具必须通过真实 ApplicationRuntime dispatch 复验；跨组件停止条件以实际序列化 envelope
+写回归；资源型功能必须安装 wheel 后逐文件枚举；spawn worker argv 显式携带 authoritative config path。
+本次分别增加 application/Gateway 恢复历史测试、installed-wheel 八文件断言和 loopback provider 的真实
+child-worker 进程门。
+
+### 参考
+
+- `src/homemaster/application/runtime.py`
+- `src/homemaster/gateway/runtime.py`
+- `src/homemaster/cli/child_worker.py`
+- `tests/homemaster/skills/test_installed_package.py`
 
 ## 2026-07-22 - 临时候选只同步 dev/mcp extra，Coworker 到浏览器创建才缺 Playwright
 
@@ -449,7 +664,7 @@ channel stop”；旧 generation 已入队消息、未认证附件、重复 fina
 ### 症状
 
 - 一个真实 normal run 达到 result 100，但因 `PLAN_CREATED` 晚于 prechecks，trajectory 只有 12.5。
-- 另一个 run 用 `browser_observe` 看到 job 已成功而没有调用 `browser_wait`；缺失 `ADD_WAIT` 让 `ADD_GREP` 及后续节点按 DAG 级联失配，trajectory 只有 45.8。
+- 另一个 run 在确认页面结果后没有调用 `browser_wait`；缺失 `ADD_WAIT` 让 `ADD_GREP` 及后续节点按 DAG 级联失配，trajectory 只有 45.8。
 - 模型在只完成 post alarm 后过早写入 `NORMAL_PROGRESS`。即使后来补齐四项检查并再次调用 progress，首个错序有效动作仍不能被事后覆盖。
 
 ### 根因链

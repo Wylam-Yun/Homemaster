@@ -116,7 +116,7 @@ def summarize_tool_result(
         return f"[navigate] {text[:300]}"
     if tool_name == "robot_verify":
         return f"[verify] {text[:300]}"
-    if tool_name == "robot_observe":
+    if tool_name == "observe":
         return f"[observe] {text[:300]}"
     lines = text.splitlines()
     tail = "\n".join(lines[-10:]) if lines else text[-500:]

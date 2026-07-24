@@ -19,7 +19,6 @@ from homemaster.application import (
 from homemaster.application.factory import create_application
 from homemaster.config import HomeMasterConfig
 from homemaster.events.bus import EventBus
-from homemaster.observations import ObservationService
 
 
 class AlfworldApplicationEntry:
@@ -35,9 +34,7 @@ class AlfworldApplicationEntry:
         transport_factory: Callable[[], Any] | None,
         event_sink: Any,
     ) -> None:
-        observation = ObservationService()
         profile = build_alfworld_profile(
-            observation_service=observation,
             memory_mode=memory_mode,
             runtime_memory_root=runtime_root / "memory",
         )
@@ -56,7 +53,6 @@ class AlfworldApplicationEntry:
             config=config,
             profiles={"alfworld": profile},
             catalog=profile.catalog,
-            observation_service=observation,
             event_bus=bus,
             session_manager=SessionManager(session_root=session_root),
             provider_factory=(

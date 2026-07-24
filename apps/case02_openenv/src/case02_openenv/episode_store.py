@@ -402,7 +402,7 @@ class EpisodeStore:
             state = episode.state
             self._require_active(state)
             if reservation.tool_name.startswith("browser_"):
-                self._require_browser_gate(episode, reservation.tool_name)
+                self._require_browser_gate(episode)
             if reservation.page_state_version != state.state_version:
                 raise EpisodeError("stale_state_version", "page state version is stale")
             if reservation.action_id in state.action_ledger:
@@ -743,13 +743,6 @@ class EpisodeStore:
         episode = self._episode(run_id)
         with episode.lock:
             self._require_active(episode.state)
-            if node_id == "PLAN_CREATED" and not self._has_event_node(
-                episode, "TICKET_READ", source="runtime", kind="tool_result"
-            ):
-                raise EpisodeError(
-                    "ticket_read_required",
-                    "open and read the ticket before calling task_planner",
-                )
             if node_id == "NORMAL_PROGRESS":
                 required = {"alarm", "probe", "capacity", "runtime_metrics", "traffic"}
                 missing = sorted(required.difference(episode.state.postchecks))
@@ -973,25 +966,8 @@ class EpisodeStore:
             raise EpisodeError("terminal_outcome", "run has already reached a terminal outcome")
 
     @classmethod
-    def _require_browser_gate(cls, episode: Episode, tool_name: str) -> None:
+    def _require_browser_gate(cls, episode: Episode) -> None:
         state = episode.state
-        ticket_read = any(
-            event.source == "runtime"
-            and event.kind == "tool_result"
-            and event.status == "succeeded"
-            and event.arguments.get("tool_name") == "observe"
-            and event.node_id == "TICKET_READ"
-            for event in episode.audit
-        )
-        if (
-            ticket_read
-            and tool_name not in {"observe", "browser_observe"}
-            and not cls._has_task_node(episode, "PLAN_CREATED", "task_planner")
-        ):
-            raise EpisodeError(
-                "plan_required",
-                "call task_planner to record PLAN_CREATED before operational browser actions",
-            )
         if state.phase == EpisodePhase.CHANGE_SUBMITTED and state.add_grep_evidence_id:
             raise EpisodeError(
                 "implementation_decision_required",

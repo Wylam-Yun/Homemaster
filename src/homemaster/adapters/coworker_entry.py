@@ -32,7 +32,6 @@ from homemaster.events.stream_events import (
     ToolExecutionCompleted,
     ToolExecutionStarted,
 )
-from homemaster.observations import ObservationService
 from homemaster.providers.llm_client import LLMClient
 
 
@@ -138,8 +137,7 @@ class CoworkerApplicationEntry:
         event_sink: Any,
         sync_backend_adapter: Any,
     ) -> None:
-        observation = ObservationService()
-        profile = build_coworker_profile(observation_service=observation)
+        profile = build_coworker_profile()
         sensitive_values = tuple(getattr(event_sink, "sensitive_values", ()))
         bus = EventBus(
             public_projector=build_coworker_stream_projector(
@@ -185,7 +183,6 @@ class CoworkerApplicationEntry:
             config=config,
             profiles={"coworker": profile},
             catalog=profile.catalog,
-            observation_service=observation,
             event_bus=bus,
             session_manager=SessionManager(session_root=run_root / "agent/session"),
             provider_factory=provider_factory,

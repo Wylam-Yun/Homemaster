@@ -66,7 +66,7 @@ Runtime intent and model narration are not external evidence. An effective actio
 
 The environment rejects invalid ordering before the successor side effect or audit append:
 
-- Ticket read precedes a real planner event; operational browser work cannot start without `PLAN_CREATED`.
+- `observe` may be used to inspect the ticket visually; neither it nor a planner event authorizes or blocks browser actions.
 - All seven prechecks precede precheck proceed; `PRE_PROGRESS` precedes change submission.
 - The exact add job wait precedes terminal grep; add+grep precede implementation proceed; `IMPLEMENT_PROGRESS` precedes postchecks.
 - Normal progress requires all five postchecks plus the exact business job wait.

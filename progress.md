@@ -1,6 +1,191 @@
 # Current V1.9 Recovery Progress
 
+## 2026-07-24 Feishu P2P access-event ACK repair
+
+- Status: implementation and available self-verification are complete. The supplied Feishu delivery history was
+  traced to an exact boundary mismatch: HomeMaster registered only `im.message.receive_v1`, while subscribed
+  `im.chat.access_event.bot_p2p_chat_entered_v1` deliveries reached `lark-oapi==1.7.1` with no processor; the SDK
+  returned 500 and the platform retried each event twice.
+- The access event now has an explicit no-op ACK with hashed structured audit. It never enters the IPC queue or
+  Runtime. The first post-fix real user message then exposed a second boundary defect: SDK private messages use
+  `chat_type=p2p`, but the channel accepted only canonical `private/group`, so the platform ACK succeeded while the
+  application silently rejected the packet before Runtime and produced no new session/trace.
+- The sole normalize boundary now maps exact external `p2p` to internal `private`; unknown values remain rejected.
+  A locked real-SDK payload regression passes access-event ACK, message dispatch, normalization, channel acceptance,
+  private bus identity and `open_id` reply routing in one chain. The focused Feishu/Gateway slice passes (`49 passed`).
+- A fresh real message then created Gateway session `gw-25d72ed7d051d61c3b9eba18ea0db8f6`, persisted two
+  `replied` revisions, completed two model calls with zero consecutive tool errors, and kept the fail-fast egress
+  service healthy after a confirmed-success Feishu send. That reply exposed another subscribed non-business event,
+  `im.message.message_read_v1`; it now also has a real-SDK-tested no-op ACK and zero IPC packets.
+- Real ignored-config verification on current bytes passed endpoint business code `0`, WebSocket handshake/close,
+  and the production spawn-worker start/deadline-stop gate with return code `0` and no residual worker. Ruff,
+  format and diff checks pass for the changed source/test files.
+- Final private-text black-box gate passed on current bytes. The user confirmed the Feishu reply was visible, then a
+  third message produced revision 3 with `session_status=agent_status=replied`, three total model calls, three ordered
+  user/assistant pairs, all assistant `finish_reason=stop`, and zero consecutive tool errors. No
+  `message_read_v1 processor not found` or retry appeared during the subsequent 30-second retry window; Gateway and
+  its WebSocket worker remain healthy and online. Full media/reaction/group/reconnect/domain Phase 9 coverage is
+  still `UNVERIFIED` and is not claimed by this repair.
+
+## 2026-07-23 V2.0 completed after final review remediation
+
+- Status: `COMPLETED`. The plan-mandated single read-only final review found config-show credential exposure,
+  missing independent management capabilities, and a missing data-only Plugin Skill adapter. All three were fixed;
+  remediation covers user/model/JSONL redaction, capability declaration and denial, manifest enablement, project
+  opt-in, traversal/symlink rejection, builtin override authorization, and no executable plugin import. Per policy,
+  no second final review was started.
+- Post-review targeted evidence: remediation regression `30 passed`; expanded Skills/service/config/factory/
+  permission/Feishu/Telegram/child/Cron/installed-package slice `132 passed`; focused Ruff and format, compileall,
+  `uv lock --check`, upstream port-manifest check and `git diff --check` pass.
+- The reviewer residual wheel risk was closed with a stronger isolated gate. It initially exposed missing core
+  Pillow and an eager MCP-extra import; Pillow is now core, MCP-only adapters lazy-load only with a manager, and the
+  rebuilt wheel installs declared dependencies and constructs 39/39 tools outside the checkout (`1 passed`). Related
+  upstream default-registry and MCP tests pass (`28 passed`).
+- Verification on current implementation bytes: locked upstream `151 passed`; non-live suite
+  `1405 passed, 7 deselected, 1 warning`; installed wheel and real child-worker/provider gates pass; manifest,
+  `uv lock --check`, compileall, focused Ruff/format and diff checks pass. Full-repo format reports 85 inherited/
+  unrelated files and was not used to rewrite them.
+- Real installation gate reports `status=PASS`: exact Git HEAD
+  `9b2efd795c6aa09f88b0c257d269a9e518da6ae7`, 9-file server `skill-creator` migration, real create/validate,
+  zip/tar plus traversal rejection, Python/Shell sentinels, `packaging==24.2`, `is-number@7.0.0`, HTTPS/curl raw
+  SHA-256 `db58ae9b4bc03a8bd17181ab1dafda2e294aada9d9f753dc747533d2145a5345`, and second CLI process discovery.
+- Known unrelated dirty-state limitation: pre-existing Coworker source changes make
+  `plan/V1.9/baseline/coworker-contract-hashes.json` stale. The V2.0 run excluded only
+  `tests/homemaster/test_v19_baseline_artifacts.py` rather than overwriting that user-owned baseline.
+
+## 2026-07-23 V2.0 OpenHarness Skills and default tools (historical implementation log)
+
+- Historical status at the time: `IMPLEMENTING`. The user-approved plan is
+  `plan/V2.0/Skills兼容与联网安装能力计划.md`; its recorded plan review remains the only plan-review
+  gate. No final-code review is allowed until all 39 tools, service dependencies, black-box gates and
+  documentation are complete.
+- Current continuation baseline: the 15 unchanged upstream test modules pass (`151 passed`) and the
+  Home parity/Skill-command/CLI/factory compatibility slice passes (`31 passed`). The upstream task
+  suite still emits one `BaseSubprocessTransport` unraisable warning after the event loop closes; this
+  is an open lifecycle defect, not an accepted warning.
+- The 23 service-backed tool names are registered and the shared slash-Skill resolver/model override
+  path is implemented. Service ownership is not complete: the first adapter revision forwards Home
+  services as metadata, while several upstream tools still call process-global OpenHarness managers or
+  `~/.openharness` settings directly. Those tools remain incomplete until they use application-owned
+  Home services, close cleanly, and pass per-tool external terminal-state gates.
+- Application-owned task/Cron/team/config/plan services are now wired through the composition root.
+  Cron create/list/toggle/manual-trigger/delete, task output/update/list/process-stop, team registry
+  persistence, and enter-plan/write-denial/exit-plan/write-success black-box gates pass. Upstream global
+  task cleanup is awaited by the test harness; all `151` locked upstream tests now pass without the
+  prior subprocess-transport warning.
+- A clean checkout of `OpenHarness@9b2efd795c6aa09f88b0c257d269a9e518da6ae7` exists at
+  `/tmp/homemaster-v20-openharness-9b2efd7` for this session. The generated V2.0 manifest locks 39
+  default tools, 130 static reachable source files, eight bundled Skill Markdown files and 15 upstream
+  test files. Regenerate/check it with
+  `uv run python scripts/v20/generate_upstream_port_manifest.py --upstream /tmp/homemaster-v20-openharness-9b2efd7 [--check]`.
+- Root-cause baseline: HomeMaster's former `SkillSpec` required `tool_names`, so the real Codex
+  `skill-creator/SKILL.md` was rejected despite existing unit tests passing. Home profile initially had
+  12 tools, not the upstream 39. New RED tests captured both failures before product changes.
+- Completed core Skills migration: OpenHarness `SkillDefinition`, frontmatter parser and eight bundled
+  Skills are present; Home builtin Skills remain after them. Home-only source containment, override
+  authorization, provenance and diagnostics are adapters, no longer fields or capability gates on the
+  Skill definition. Automatic discovery is only `~/.homemaster/skills` and project
+  `.homemaster/skills`; Codex/Claude/Agents directories are not scanned.
+- Completed entry wiring: `skill(name=...)` is in the Home ToolView as `openharness.skill.v1`, requires
+  `tool.read`, refreshes the registry per call and returns complete original Markdown plus `base_dir`.
+  Legacy `skill_view(skill_name=...)` shares that behavior. Context now exposes only an Available Skills
+  summary. Coworker remains its exact 11-tool profile.
+- Focused verification on current bytes: 49 Skills/context/profile/domain/factory tests passed, the
+  standard `skill` pipeline refresh/read test passed, Ruff and `git diff --check` passed. The V2.0
+  39-tool parity test intentionally remains RED until the remaining tool port is implemented.
+- Completed shared execution/path transaction foundation: `ToolExecutionContext` now captures an existing
+  canonical immutable working directory at construction; application composition passes its locked directory into
+  each canonical tool executor. Permission path checks and dynamic filesystem resource keys use the same resolver,
+  so execution-time `cwd` changes cannot split policy from execution. A resource lease now covers executor, output
+  validation and verifier instead of being released before independent terminal-state verification.
+- Focused current-byte evidence for this stage: 73 application/runtime/Pipeline/permission/Skills/V2 path tests
+  passed. The V2 regression changes the real process working directory, proves a relative denied path stays anchored
+  to the composition directory, and proves a second same-path transaction cannot enter its executor while the first
+  verifier holds the lease. Ruff, compileall, `git diff --check`, and locked upstream manifest validation passed.
+- First core-file tranche is now present in the Home profile: `read_file`, `write_file`, `edit_file`, `glob`, and
+  `grep`, with OpenHarness names and schemas. Mutation uses a target-directory temporary file, flush/fsync and
+  atomic replace; its verifier independently reopens the final file and checks byte count plus SHA-256 before the
+  per-path lease releases. The filesystem gate wrote, reread, searched, globbed and edited actual temporary files;
+  focused file/path/Pipeline/application tests passed (`47 passed`). The full 39-tool parity test remains intentionally
+  RED because unported tools are still absent.
+- Completed the network/process and portable-core tranche: `web_fetch`/`web_search` use an identity-only,
+  strict-UTF-8, streaming HTTP adapter with `trust_env=False`, redirect limits, credential rejection and raw byte
+  receipts; the HTTP black-box fixture independently rereads the response and matches the SHA-256. `bash` resolves
+  cwd from the immutable working directory, preserves real return codes, merges stdout/stderr, and kills its full
+  process group on timeout and cancellation; real `git --version`, nonzero stdout/stderr, timeout and cancellation
+  process-table gates passed. `brief`, `sleep`, `tool_search`, `todo_write`, `notebook_edit`, and Git worktree
+  create/remove are now present. TODO/notebook/worktree mutations require independent byte/JSON/Git-porcelain
+  readback. Current combined V2 core evidence is `17 passed` plus Ruff, compileall and diff checks.
+- Next: add explicit runtime-service injection, then port `ask_user_question`, session plan mode, config/MCP,
+  provider image, LSP, Cron, persistent background task, agent/team and remaining default-tool interfaces. The
+  complete 39-tool parity assertion remains intentionally RED; no live Skill install, Cron, MCP or provider
+  black-box gate has been claimed yet.
+
+## 2026-07-23 Generic screenshot observe
+
+- 用户锁定新契约：`observe({})` 是与 benchmark 无关的通用截图工具，只向模型返回一张当前画面的
+  PNG；Coworker 继续用既有 DOM 工具操作，ALFWorld 继续用既有动作工具，截图只用于模型主动确认。
+- 根因已定位：旧三个同别名环境工具把显式截图与 observation ledger/provider binding/freshness
+  动作门禁耦合，真实 Coworker 运行因此在浏览器正常时仍拒绝全部业务动作。
+- 正式实施计划已写入 `plan/V1.9/generic-screenshot-observe-implementation-plan.md`。唯一一次计划只读评审
+  已完成，5 项发现全部采纳：锁定 canonical `IMAGE_ONLY` 结果投影及运行时不变量、空 data schema、
+  provider transport 真 API 接收矩阵、ALFWorld 每 episode 成功动作外部终态门，并把 Playwright/X 截图
+  API 标为真环境通过前 `UNVERIFIED`。`ObservationService`、旧 benchmark observe registry、ALFWorld
+  `FrameLedger`/model-view 绑定和 provider attempt 中的绑定字段已删除；Coworker 的截图/plan action gate
+  及其死 failure-code 投影也已清理。`TICKET_READ` 现只由 `browser_navigate(route=ticket)` 的真实导航收据
+  产生，截图不会生成 benchmark 专属评分事件。当前状态：`FINAL_REVIEW_REMEDIATION_VERIFYING`。
+- 最终只读评审的三个 P1 已逐项整改：provider attempt 只记录实际序列化的图片；Coworker 的 ticket 节点只由
+  导航动作计分并重锁 dataset manifest；ALFWorld 动作改读当前 THOR event，不再依赖 provider-bound 截图。
+  整改后聚焦 `134 passed`，Ruff、compileall、diff、legacy-term guard 与 Coworker dataset verifier 均 PASS。
+  `tests/homemaster/test_v19_baseline_artifacts.py` 仍有一项已存在的 V2 Skills 工具面快照漂移，未在本次
+  observe 收口中修改；真实 Chrome/X/ALFWorld/provider 接收门仍为 `UNVERIFIED`。
+- 追加最终评审发现 Gateway/飞书启用时 `ArtifactPublisher` 会在 provider message 前清空所有 image/
+  attachment，`IMAGE_ONLY` observe 因此直接抛错。根因是飞书公共 artifact 投影与模型投影共用了同一份
+  被改写结果。现已拆成两个投影：canonical result 原样生成模型消息，Publisher 只返回公共 artifact refs；
+  集成回归同时断言第二次模型请求含准确截图、`tool.call_completed` 只携带可按 tenant/session/run 回读的
+  handle。最终扩展回归 `92 passed`；本轮直接相关回归 `3 passed`，相关 Ruff lint/format、compileall 与
+  `git diff --check` 均 PASS。真实 Chrome/X/ALFWorld/provider/飞书图片终态门仍为 `UNVERIFIED`。
+
 ## 2026-07-22
+
+### Single-Feishu OpenHarness migration
+
+- The deployment owner supplied `app_id/app_secret` and required direct ignored-YAML storage. The real
+  `config/homemaster.yaml` now contains the pair with mode 0600; product config resolves a complete YAML pair before
+  the legacy environment pair, rejects partial/cross-source credentials, and keeps the secret in `SecretStr` plus
+  public sanitizer registration. The deployment owner then explicitly selected a fully trusted Feishu entry, so
+  no bot/user open IDs or principal mapping are required and the real Gateway config is enabled.
+- All non-bot senders now map to one fixed `feishu-owner` with canonical Home and Feishu group capabilities; sender
+  IDs remain reply/session routing data only, and all group messages are accepted without mention. Focused config,
+  Feishu, and group-operation regression passes (`50 passed`).
+- Gateway composition now has one active Feishu/Lark channel and no selector/registry. `lark-oapi==1.7.1` replaces
+  the Telegram optional dependency; Telegram source and focused tests remain but are outside active composition,
+  public config, and docs.
+- Implemented fixed trusted-owner mapping, sender-isolated private/group/thread routing,
+  message-id dedup, typed delivery context, safe inbound files, reaction timing, static rich/card rendering,
+  outbound media receipts, application-owned API/group resources, typed group tools, and independent group-state
+  verification.
+- ArtifactPublisher now persists image/attachment bytes without rewriting provider-facing content and returns only
+  tenant/session/run-bound opaque refs for the public projection; Gateway emits each ref as an independent critical
+  MEDIA item while the model retains media it needs to interpret.
+- The installed SDK has no verified public WebSocket stop API, so the client runs in a spawn subprocess with typed
+  fatal/completion IPC and terminate/join/kill cleanup. One absolute deadline covers active workers, drain,
+  channel stop, and services. Dependency logs are record-level sanitized; API audit JSONL contains only action,
+  target hash, duration, return code, and certainty.
+- Post-change external probe on the real ignored YAML passed endpoint HTTP 200/business code 0, WebSocket connected,
+  and clean socket close. Cold `lark-oapi` import took about 48.2 seconds on the HPC filesystem; the complete probe
+  took about 48.8 seconds. Full non-live regression passes (`1386 passed, 7 deselected`), focused Gateway/security/
+  artifact regression passes (`110 passed`), and CLI streaming regression passes (`39 passed`).
+- The sole final reviewer found one high dedup rollback bug and the two already-known rich-content migration gaps.
+  Dedup now uses reserve/commit/rollback; transient download and bus rejection redeliveries pass, followed by
+  `52 passed` Feishu/config and `92 passed` channel/Gateway/permission/artifact targeted verification. The rich-content
+  gaps were not expanded into this trusted-entry change; public docs now describe the simplified supported payloads.
+- Final internal evidence on the current bytes: non-live suite `1386 passed, 1 skipped, 3 deselected`; the three
+  deselections are `live_coworker` browser tests requiring absent `/usr/bin/google-chrome`. Full Ruff lint,
+  changed-file format-check, compileall, `uv lock --check`, `git diff --check`, interface audit, and worktree
+  side-effect audit pass. The inherited Starlette/httpx deprecation warning is unchanged. Real `lark-oapi` endpoint
+  discovery returned code 0 and the WebSocket handshake connected; remaining message/media/reaction/group terminal
+  states and bot self-event semantics stay `UNVERIFIED` pending Phase 9.
 
 ### Realtime Rich streaming CLI
 

@@ -21,6 +21,7 @@ from homemaster.cli.renderers import (
 from homemaster.config import configured_sensitive_values, load_config
 from homemaster.events.logger import setup_logging
 from homemaster.events.public_projection import PublicEventProjection
+from homemaster.skills.commands import resolve_skill_command
 
 
 class _PublicCliError(RuntimeError):
@@ -50,6 +51,7 @@ def execute_one_shot(
     provider_name: str | None = None,
     model: str | None = None,
     output_format: OutputFormat | None = None,
+    config_path: Path | None = None,
 ) -> OneShotExecution:
     if not prompt.strip():
         raise ValueError("a non-empty prompt is required")
@@ -58,7 +60,7 @@ def execute_one_shot(
     overrides = (
         {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
     )
-    config = load_config(cli_overrides=overrides)
+    config = load_config(config_path=config_path, cli_overrides=overrides)
     sensitive_values = configured_sensitive_values(config) if hasattr(config, "providers") else ()
     live_sink = None
     if output_format is OutputFormat.TEXT:
@@ -92,12 +94,20 @@ def execute_one_shot(
                 if not session_ids:
                     raise FileNotFoundError("no persisted session is available to continue")
                 session_id = session_ids[0]
+            resolved_skill = resolve_skill_command(
+                prompt,
+                bundle.skill_registry,
+                session_id=session_id,
+            )
             return await bundle.application.run(
                 RunRequest(
-                    text=prompt,
+                    text=resolved_skill.prompt if resolved_skill is not None else prompt,
                     session_id=session_id,
                     profile="home",
                     provider_name=provider_name,
+                    model_override=(
+                        resolved_skill.model_override if resolved_skill is not None else None
+                    ),
                     resume=session_id is not None,
                     dependencies={"skill_registry": bundle.skill_registry},
                     environment=HomeCliBackend(

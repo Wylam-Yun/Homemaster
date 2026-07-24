@@ -36,9 +36,8 @@ from homemaster.benchmarking.alfworld.types import (
     Taskset,
     TasksetRunConfig,
 )
-from homemaster.observations import ObservationCapture
 from homemaster.providers.attempts import (
-    OutboundObservationBinding,
+    OutboundImageBinding,
     ProviderAttemptRecord,
 )
 from homemaster.providers.transports import TransportDelta
@@ -51,52 +50,31 @@ def _record_provider_attempt(
     attempt_sink: Any,
     model_attempt_id: str,
 ) -> None:
-    observations: list[OutboundObservationBinding] = []
+    images: list[OutboundImageBinding] = []
     for message_index, message in enumerate(messages):
         for block_index, block in enumerate(message.content):
             if block.type != "image" or not isinstance(block.source, dict):
-                continue
-            metadata = block.metadata
-            if "observation_id" not in metadata:
                 continue
             encoded = block.source.get("data")
             if not isinstance(encoded, str):
                 continue
             content_sha256 = hashlib.sha256(base64.b64decode(encoded)).hexdigest()
-            observations.append(
-                OutboundObservationBinding(
+            images.append(
+                OutboundImageBinding(
                     message_index=message_index,
                     block_index=block_index,
                     content_sha256=content_sha256,
-                    media_type=str(block.source["media_type"]),
-                    observation_id=str(metadata["observation_id"]),
-                    observation_content_sha256=str(
-                        metadata["observation_content_sha256"]
-                    ),
-                    observation_pixel_sha256=str(
-                        metadata["observation_pixel_sha256"]
-                    ),
-                    observation_backend_id=str(metadata["observation_backend_id"]),
-                    observation_run_id=str(metadata["observation_run_id"]),
-                    observation_generation=int(metadata["observation_generation"]),
-                    observation_state_sequence=int(
-                        metadata["observation_state_sequence"]
-                    ),
-                    observation_capture_event_sequence=int(
-                        metadata["observation_capture_event_sequence"]
-                    ),
                 )
             )
     attempt_sink.record_attempt(
         ProviderAttemptRecord(
             model_attempt_id=model_attempt_id,
             request_sha256=hashlib.sha256(repr((messages, tools)).encode()).hexdigest(),
-            outbound_images=(),
+            outbound_images=tuple(images),
             stripped_images=False,
             response_completed=True,
             error_type=None,
             cause_code=None,
-            outbound_observations=tuple(observations),
         )
     )
 
@@ -346,34 +324,20 @@ def _provider_config(tmp_path: Path) -> Path:
     return path
 
 
-def _attach_fake_raster_capture(
+def _attach_fake_screenshot(
     adapter: AlfworldEnvAdapter,
     tmp_path: Path,
 ) -> dict[str, int]:
     image = __import__("PIL.Image", fromlist=["Image"])
     frame_path = tmp_path / "fake-alfworld-frame.png"
     image.new("RGB", (2, 2), (32, 96, 160)).save(frame_path)
-    counts = {"capture": 0}
+    counts = {"screenshot": 0}
 
-    def capture() -> ObservationCapture:
-        counts["capture"] += 1
-        adapter._event_sequence += 1  # noqa: SLF001 - mirrors explicit capture identity
-        adapter._frame_ledger.record_frame(  # noqa: SLF001 - test fixture
-            frame_path,
-            event_sequence=adapter.event_sequence,
-        )
-        return ObservationCapture(
-            backend_id=adapter.backend_id,
-            run_id=adapter._application_run_id,  # noqa: SLF001 - test fixture
-            generation=adapter.generation,
-            state_sequence=adapter.state_sequence,
-            capture_event_sequence=adapter.event_sequence,
-            media_type="image/png",
-            content=frame_path.read_bytes(),
-            evidence_ref=f"test/frame/{adapter.event_sequence}",
-        )
+    async def screenshot() -> bytes:
+        counts["screenshot"] += 1
+        return frame_path.read_bytes()
 
-    adapter.capture = capture  # type: ignore[method-assign]
+    adapter.screenshot = screenshot  # type: ignore[method-assign]
     return counts
 
 
@@ -491,7 +455,7 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
         episode_prefix="fake",
         seed=42,
     )
-    counts = _attach_fake_raster_capture(adapter, tmp_path)
+    counts = _attach_fake_screenshot(adapter, tmp_path)
     config = AlfworldBenchmarkConfig(
         alfworld_root=tmp_path / "alfworld",
         alfworld_config=tmp_path / "base_config.yaml",
@@ -512,7 +476,7 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
     assert transport.call_count == 6
-    assert counts["capture"] == 3
+    assert counts["screenshot"] == 3
     assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
     assert any(
         block.type == "image"
@@ -557,13 +521,10 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
     assert len(attempts) == transport.call_count
     assert attempts[0]["outbound_images"] == []
-    assert attempts[0]["outbound_observations"] == []
-    assert attempts[1]["outbound_observations"][-1][
-        "observation_capture_event_sequence"
-    ] == 1
+    assert len(attempts[1]["outbound_images"]) == 1
 
 
-def test_consecutive_explicit_observes_get_distinct_bindings_for_same_frame(
+def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     tmp_path: Path,
 ) -> None:
     class ConsecutiveObserveTransport(FakeTransport):
@@ -586,7 +547,7 @@ def test_consecutive_explicit_observes_get_distinct_bindings_for_same_frame(
 
     transport = ConsecutiveObserveTransport()
     adapter = AlfworldEnvAdapter(env=FakeBatchEnv(), episode_prefix="fake", seed=42)
-    counts = _attach_fake_raster_capture(adapter, tmp_path)
+    counts = _attach_fake_screenshot(adapter, tmp_path)
     runner = AlfworldBenchmarkRunner(
         config=AlfworldBenchmarkConfig(
             alfworld_root=tmp_path / "alfworld",
@@ -611,18 +572,13 @@ def test_consecutive_explicit_observes_get_distinct_bindings_for_same_frame(
         / "provider_attempts.jsonl"
     )
     attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
-    first = attempts[1]["outbound_observations"][-1]
-    second = attempts[2]["outbound_observations"][-1]
-    assert counts["capture"] == 2
-    assert first["observation_id"] != second["observation_id"]
-    assert first["observation_capture_event_sequence"] < second[
-        "observation_capture_event_sequence"
-    ]
+    first = attempts[1]["outbound_images"][-1]
+    second = attempts[2]["outbound_images"][-1]
+    assert counts["screenshot"] == 2
     assert first["content_sha256"] == second["content_sha256"]
-    assert first["observation_pixel_sha256"] == second["observation_pixel_sha256"]
 
 
-def test_same_response_observe_plus_mutation_does_not_reach_backend(
+def test_same_response_observe_plus_mutation_executes_independently(
     tmp_path: Path,
 ) -> None:
     class BatchTransport(FakeTransport):
@@ -658,7 +614,7 @@ def test_same_response_observe_plus_mutation_does_not_reach_backend(
     transport = BatchTransport()
     env = CountingEnv()
     adapter = AlfworldEnvAdapter(env=env, episode_prefix="fake", seed=42)
-    counts = _attach_fake_raster_capture(adapter, tmp_path)
+    counts = _attach_fake_screenshot(adapter, tmp_path)
     runner = AlfworldBenchmarkRunner(
         config=AlfworldBenchmarkConfig(
             alfworld_root=tmp_path / "alfworld",
@@ -675,16 +631,16 @@ def test_same_response_observe_plus_mutation_does_not_reach_backend(
     summary = runner.run()
 
     assert summary.episodes[0].success is False
-    assert env.step_count == 0
-    assert counts["capture"] == 1
+    assert env.step_count == 1
+    assert counts["screenshot"] == 1
     action_result = next(
         message
         for message in transport.seen_messages[1]
         if isinstance(message, ToolResultMessage) and message.tool_call_id == "action-batch"
     )
-    assert action_result.is_error is True
+    assert action_result.is_error is False
     assert action_result.data is not None
-    assert action_result.data["error"]["code"] == "observation_required"
+    assert action_result.data["status"] == "success"
 
 
 def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(
@@ -709,15 +665,13 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
 
     class TasksetAdapter:
         backend_id = "alfworld:taskset-entry"
-        model_view_observer = None
-
         def __init__(self) -> None:
             self.current_state = initial_state
             self.generation = 0
             self.state_sequence = 0
             self.event_sequence = 0
             self.application_run_id = ""
-            self.capture_count = 0
+            self.screenshot_count = 0
             self.close_count = 0
 
         def bind_application_run(self, run_id: str, generation: int) -> None:
@@ -787,22 +741,11 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
                 evidence_ref=None,
             )
 
-        def capture(self) -> ObservationCapture:
-            self.capture_count += 1
-            png = base64.b64decode(
+        async def screenshot(self) -> bytes:
+            self.screenshot_count += 1
+            return base64.b64decode(
                 "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGNUSFjAwMDA"
                 "xMDAwMDAAAANKgEkX1CfuAAAAABJRU5ErkJggg=="
-            )
-            return ObservationCapture(
-                backend_id=self.backend_id,
-                run_id=self.application_run_id,
-                generation=self.generation,
-                state_sequence=self.state_sequence,
-                capture_event_sequence=self.event_sequence,
-                media_type="image/png",
-                content=png,
-                pixel_bytes=f"pixels-{self.capture_count}".encode(),
-                evidence_ref=f"frame/{self.capture_count}",
             )
 
         def is_current_goal_satisfied(self) -> bool:
@@ -889,7 +832,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
 
     result = summary.taskset_results[0]
     assert [subtask.success for subtask in result.subtasks] == [True, True]
-    assert adapter.capture_count == 2
+    assert adapter.screenshot_count == 2
     assert adapter.close_count == 1
     taskset_dir = runner.run_dir / "taskset-entry-sharing"
     session_dirs = list((taskset_dir / "sessions").iterdir())
@@ -901,17 +844,16 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
         assert rows
         ledgers.append(rows)
     attempt_ids = [{row["model_attempt_id"] for row in rows} for rows in ledgers]
-    observation_run_ids = [
+    image_hashes = [
         {
-            binding["observation_run_id"]
+            binding["content_sha256"]
             for row in rows
-            for binding in row["outbound_observations"]
+            for binding in row["outbound_images"]
         }
         for rows in ledgers
     ]
     assert attempt_ids[0].isdisjoint(attempt_ids[1])
-    assert all(observation_run_ids)
-    assert observation_run_ids[0].isdisjoint(observation_run_ids[1])
+    assert all(image_hashes)
 
 
 def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
@@ -922,7 +864,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
         episode_prefix="fake",
         seed=42,
     )
-    _attach_fake_raster_capture(adapter, tmp_path)
+    _attach_fake_screenshot(adapter, tmp_path)
     config = AlfworldBenchmarkConfig(
         alfworld_root=tmp_path / "alfworld",
         alfworld_config=tmp_path / "base_config.yaml",
@@ -1020,8 +962,6 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     )
 
     class FakeTasksetAdapter:
-        model_view_observer = None
-
         def __init__(self) -> None:
             self.current_state = state
             self.reset_calls = 0
@@ -1319,8 +1259,6 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
     )
 
     class GoalTerminalAdapter:
-        model_view_observer = None
-
         def __init__(self) -> None:
             self.current_state = state
             self.advance_goal_calls = 0

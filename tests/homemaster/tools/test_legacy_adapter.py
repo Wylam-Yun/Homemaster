@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -67,8 +68,8 @@ def _canonical_context(
         backend=legacy_context,
         deadline=None,
         cancellation=None,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
 
 
@@ -234,7 +235,7 @@ def test_tool_result_message_preserves_envelope_and_hashes_image_content() -> No
             ContentBlock(
                 type="image",
                 source={"type": "base64", "media_type": "image/png", "data": encoded},
-                metadata={"content_sha256": "0" * 64, "observation_id": "obs-1"},
+                metadata={"content_sha256": "0" * 64},
             ),
         ],
         data={"success": True, "frame": "fresh"},
@@ -251,7 +252,6 @@ def test_tool_result_message_preserves_envelope_and_hashes_image_content() -> No
     assert normalized.name == "observe"
     assert normalized.result.text == "captured"
     assert normalized.result.images[0].content_sha256 == hashlib.sha256(raw).hexdigest()
-    assert normalized.result.images[0].observation_id == "obs-1"
     assert normalized.debt.has("image_content_hash_recomputed")
     projected = normalized.to_message()
     assert projected.tool_call_id == "recorded-call"

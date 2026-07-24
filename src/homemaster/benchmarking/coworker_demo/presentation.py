@@ -131,7 +131,6 @@ _TOOL_PRESENTATION = {
     "sop_decide": ("提交流程决策", "gate"),
 }
 _SAFE_FAILURE_CODES = {
-    "plan_required",
     "missing_precheck_evidence",
     "progress_required",
     "wait_required",
@@ -170,7 +169,6 @@ _FAILURE_CODE_ALIASES = {
     "missing_precheck_evidence": "missing_precheck_evidence",
     "missing_rollback_evidence": "missing_rollback_evidence",
     "parameter_mismatch": "parameter_mismatch",
-    "plan_required": "plan_required",
     "postchecks_required": "postchecks_required",
     "pre_gate_not_satisfied": "missing_precheck_evidence",
     "presentation_consistency_error": "unclassified_failure",
@@ -182,7 +180,6 @@ _FAILURE_CODE_ALIASES = {
     "run_exists": "action_replay",
     "script_operation_mismatch": "parameter_mismatch",
     "stale_state_version": "stale_state_version",
-    "ticket_read_required": "missing_precheck_evidence",
     "target_mismatch": "parameter_mismatch",
     "terminal_outcome": "terminal_outcome",
     "unknown_evidence_ref": "parameter_mismatch",

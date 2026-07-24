@@ -1,5 +1,10 @@
 """Application-owned artifact storage."""
 
+from homemaster.artifacts.publisher import (
+    ArtifactPublisher,
+    ResolvedArtifact,
+    ToolOutputArtifactResolver,
+)
 from homemaster.artifacts.tool_output_store import (
     ArtifactAccessDeniedError,
     ArtifactExpiredError,
@@ -14,6 +19,9 @@ __all__ = [
     "ArtifactExpiredError",
     "ArtifactNotFoundError",
     "ArtifactQuotaExceededError",
+    "ArtifactPublisher",
+    "ResolvedArtifact",
     "StoredToolOutput",
+    "ToolOutputArtifactResolver",
     "ToolOutputStore",
 ]

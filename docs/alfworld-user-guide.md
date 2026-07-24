@@ -11,9 +11,13 @@ robot_go_to(target)
 robot_manipulate(action=..., ...)
 robot_verify(...)
 task_progress_check(...)
+observe()
 ```
 
 `robot_inspect_view` 已删除。`robot_go_to` 不执行探索或多候选搜索，但可以把 frozen scene index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝试一次导航；返回后仍必须看到准确目标。
+
+`observe({})` 返回当前 frame 的一张 PNG，供模型自行确认画面；没有文字或状态 payload，也不会步进环境、改变
+评分状态，或成为 `robot_go_to` / `robot_manipulate` / `robot_verify` 的前置条件。
 
 ## 环境与输入
 

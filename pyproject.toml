@@ -6,10 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
   "anthropic>=0.40,<1.0",
   "bm25s>=0.2",
+  "croniter>=2.0.0",
   "httpx>=0.27",
   "jieba>=0.42",
   "jsonschema>=4.23,<5",
   "openai>=1.50,<3.0",
+  "pillow>=10,<13",
   "pydantic>=2.7",
   "pyyaml>=6.0",
   "rich>=13.7",
@@ -26,7 +28,6 @@ coworker = [
   "fastapi>=0.115,<1.0",
   "httpx>=0.27,<1.0",
   "jinja2>=3.1,<4.0",
-  "pillow>=10,<13",
   "playwright>=1.45,<2.0",
   "pydantic>=2.7,<3.0",
   "pyyaml>=6,<7",
@@ -39,7 +40,7 @@ mcp = [
     "mcp>=1.0,<2",
 ]
 gateway = [
-  "python-telegram-bot>=21,<23",
+  "lark-oapi>=1.7.1,<2",
 ]
 
 [project.scripts]
@@ -60,6 +61,7 @@ homemaster = [
   "benchmarking/alfworld/*.json",
   "skills/builtin/*/SKILL.md",
   "skills/builtin/*/**/*",
+  "skills/bundled/content/*.md",
 ]
 
 [tool.pytest.ini_options]
@@ -77,6 +79,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["src/openharness"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

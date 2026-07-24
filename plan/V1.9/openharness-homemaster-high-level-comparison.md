@@ -1,6 +1,7 @@
 # HomeMaster 与 OpenHarness：不读源码也能理解的高层架构对比
 
-状态：Draft（说明性文档；规范以 `openharness-homemaster-comparison-spec.md` 为唯一 normative source）
+状态：历史说明文档。本文中的 `ObservationService`、provider/model-view binding 和 freshness/debt 已被
+`generic-screenshot-observe-implementation-plan.md` 取代，不再描述当前 observation 架构。
 日期：2026-07-20
 评审基线：HomeMaster `5b150a9671bb087b32ed57971a39fa472e8ff1e1`；OpenHarness `9b2efd795c6aa09f88b0c257d269a9e518da6ae7`
 适合读者：准备决定 HomeMaster 下一阶段架构，但尚未通读两个项目源码的人

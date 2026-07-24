@@ -57,43 +57,6 @@ def _env_type(run_context: RunContext) -> str:
     return str(getattr(config, "env_type", "AlfredThorEnv"))
 
 
-def make_alfworld_observe() -> ToolSpec:
-    """Compatibility entry for explicit model observation before CL-13."""
-
-    def executor(*, arguments: dict[str, Any], run_context: RunContext) -> ToolResultMessage:
-        del arguments
-        state = _adapter(run_context).current_state
-        payload = {
-            "success": True,
-            "episode_id": state.episode_id,
-            "state_sequence": state.step_index,
-            "observation_kind": "raster" if state.frame_path else "structured",
-        }
-        content = [ContentBlock(text=_json_dumps(payload))]
-        if state.frame_path:
-            content.append(ContentBlock.from_image_path(state.frame_path))
-        else:
-            content.append(ContentBlock(text=_json_dumps(state.to_model_visible_dict())))
-        return ToolResultMessage(
-            tool_call_id="",
-            name="observe",
-            content=content,
-            data=payload,
-        )
-
-    return ToolSpec(
-        name="observe",
-        description="Capture the current ALFWorld view explicitly for model inspection.",
-        input_schema={
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-        executor_mode="programmatic",
-        executor=executor,
-    )
-
-
 def _feedback_action(tool_name: str, arguments: dict[str, Any]) -> Any:
     action = str(arguments.get("action") or "").strip().lower()
     if action in {"take", "open", "close", "put", "use", "slice", "heat", "cool", "clean"}:

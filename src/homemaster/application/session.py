@@ -8,7 +8,7 @@ import json
 import os
 import threading
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,25 +104,11 @@ class SessionRuntime:
         self.cancellation: CancellationSource | None = None
         self.last_result: Any = None
         self._compaction_request: CompactionRequest | None = None
-        self._observation_reset: Callable[[str], Any] | None = None
-        self._needs_observe = True
         self._save_in_progress = False
         self._cancel_after_save = False
 
-    def set_observation_reset(self, callback: Callable[[str], Any] | None) -> None:
-        self._observation_reset = callback
-        if callback is not None and self._needs_observe:
-            callback("session requires a fresh observe")
-
-    def mark_observed(self, generation: int) -> None:
-        self.assert_generation(generation)
-        self._needs_observe = False
-
     def rebind_environment(self, environment_ref: str | None) -> None:
         self.environment_ref = environment_ref
-        self._needs_observe = True
-        if self._observation_reset is not None:
-            self._observation_reset("session environment rebind requires a fresh observe")
 
     def assert_generation(self, generation: int) -> None:
         with self.state_lock:

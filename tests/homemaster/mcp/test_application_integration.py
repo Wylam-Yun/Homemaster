@@ -78,7 +78,7 @@ def _config(tmp_path: Path, *, explicit_skill: bool = False) -> HomeMasterConfig
 
 
 @pytest.mark.asyncio
-async def test_start_connects_once_refreezes_home_and_revalidates_skills(tmp_path) -> None:
+async def test_start_connects_once_refreezes_home_without_gating_skills(tmp_path) -> None:
     calls: list[str] = []
     closed: list[str] = []
 
@@ -112,21 +112,25 @@ async def test_start_connects_once_refreezes_home_and_revalidates_skills(tmp_pat
         mcp_connector=connector,
     )
     assert bundle.application.started is False
-    assert bundle.skill_registry.get("mcp-query") is None
+    skill_before_mcp = bundle.skill_registry.get("mcp-query")
+    assert skill_before_mcp is not None
 
     await asyncio.gather(bundle.application.start(), bundle.application.start())
 
     assert bundle.application.started is True
     assert calls == ["demo", "bad"]
-    assert "mcp__demo__nested_query" in bundle.application.profiles["home"].model_tool_names
-    assert bundle.skill_registry.get("mcp-query") is not None
+    names = bundle.application.profiles["home"].model_tool_names
+    assert "mcp__demo__nested_query" in names
+    assert "list_mcp_resources" in names
+    assert "read_mcp_resource" in names
+    assert bundle.skill_registry.get("mcp-query") is skill_before_mcp
     statuses = {status.name: status for status in bundle.mcp_manager.list_statuses()}
     assert statuses["demo"].state == "connected"
     assert statuses["bad"].state == "failed"
     assert "bad-secret" not in statuses["bad"].detail
 
     builtin_only = bundle.application._view(
-        RunRequest(text="query", enabled_tool_ids=("home.observe.v1",)),
+        RunRequest(text="query", enabled_tool_ids=("core.observe.v1",)),
         bundle.application.profiles["home"],
     )
     assert builtin_only.lookup("mcp__demo__nested_query").status is ToolLookupStatus.TOOL_DISABLED

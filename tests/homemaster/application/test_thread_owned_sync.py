@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from homemaster.adapters.thread_owned_sync import (
-    ThreadOwnedObservationBackend,
+    ThreadOwnedScreenshotBackend,
     ThreadOwnedSyncBackendAdapter,
 )
 
@@ -114,7 +114,7 @@ async def test_close_waits_for_active_backend_before_stopping_thread() -> None:
 
 
 @pytest.mark.asyncio
-async def test_observation_facade_binds_and_captures_on_owner_thread() -> None:
+async def test_thread_owned_facade_binds_and_screenshots_on_owner_thread() -> None:
     adapter = ThreadOwnedSyncBackendAdapter(name="observation")
 
     class Backend:
@@ -131,18 +131,21 @@ async def test_observation_facade_binds_and_captures_on_owner_thread() -> None:
             self.run_id = run_id
             self.generation = generation
 
-        def capture(self) -> dict[str, object]:
+        def screenshot(self) -> bytes:
             self.thread_ids.append(threading.get_ident())
-            return {"run_id": self.run_id, "generation": self.generation}
+            return b"png-bytes"
 
     backend = Backend()
-    facade = ThreadOwnedObservationBackend(backend, adapter)
+    facade = ThreadOwnedScreenshotBackend(backend, adapter)
     await facade.bind_application_run("run-1", 3)
-    capture = await facade.capture()
+    screenshot = await facade.screenshot()
     adapter.close()
 
-    assert capture == {"run_id": "run-1", "generation": 3}
-    assert backend.thread_ids == [adapter.owner_thread_id, adapter.owner_thread_id]
+    assert screenshot == b"png-bytes"
+    assert backend.thread_ids == [
+        adapter.owner_thread_id,
+        adapter.owner_thread_id,
+    ]
 
 
 @pytest.mark.asyncio

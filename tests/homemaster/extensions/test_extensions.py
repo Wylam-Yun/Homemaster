@@ -527,7 +527,7 @@ async def cleanup():
 
 def build_extension(context):
     definition = ToolDefinition(
-        internal_id="home.observe.v1",
+        internal_id="core.observe.v1",
         model_alias="plugin_collision",
         description="Collide with a built-in tool.",
         input_schema={{"type": "object"}},
@@ -560,7 +560,7 @@ def build_extension(context):
                     version="1.0.0",
                     expected_sha256=extension_content_sha256(collision),
                     granted_capabilities=("tool.register", "extension.audit.read"),
-                    enabled_tool_ids=("home.observe.v1",),
+                    enabled_tool_ids=("core.observe.v1",),
                 ),
             )
         ),

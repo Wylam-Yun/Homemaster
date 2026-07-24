@@ -8,6 +8,7 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.domain.tool_registry import build_home_tool_registry
+from homemaster.domain.tools import make_skill
 from homemaster.tools.results import ToolResult
 
 
@@ -43,7 +44,6 @@ def test_home_tool_registry_exposes_robot_tools() -> None:
         "target_grounder",
         "skill_view",
         "robot_navigate",
-        "robot_observe",
         "robot_manipulate",
         "robot_verify",
         "memory_writer",
@@ -130,7 +130,7 @@ def test_skill_view_requires_skill_registry_in_deps(tmp_path: Path) -> None:
     assert "skill_registry" in (result.failure_reason or "")
 
 
-def test_skill_view_returns_skill_metadata(tmp_path: Path) -> None:
+def test_skill_view_returns_full_skill_content(tmp_path: Path) -> None:
     from homemaster.skills.loader import load_builtin_skills
     from homemaster.skills.registry import SkillRegistry
 
@@ -145,7 +145,27 @@ def test_skill_view_returns_skill_metadata(tmp_path: Path) -> None:
     )
     assert result.success is True
     assert result.data["name"] == "fetch_object"
-    assert "tool_names" in result.data
+    assert result.data["content"].startswith("---")
+    assert result.data["base_dir"]
+
+
+def test_standard_skill_entry_returns_the_same_complete_content(tmp_path: Path) -> None:
+    from homemaster.skills.loader import load_builtin_skills
+    from homemaster.skills.registry import SkillRegistry
+
+    skill_registry = SkillRegistry()
+    load_builtin_skills(skill_registry)
+
+    spec = make_skill()
+    result = spec.executor(
+        arguments={"name": "fetch_object"},
+        run_context=_make_run_context(tmp_path, deps={"skill_registry": skill_registry}),
+    )
+
+    assert result.success is True
+    assert result.tool_name == "skill"
+    assert result.data["content"] == skill_registry.get("fetch_object").content
+    assert result.data["base_dir"]
 
 
 def test_robot_navigate_simulated(tmp_path: Path) -> None:
@@ -159,15 +179,11 @@ def test_robot_navigate_simulated(tmp_path: Path) -> None:
     assert result.data["location"] == "kitchen"
 
 
-def test_robot_observe_simulated(tmp_path: Path) -> None:
+def test_home_legacy_registry_has_no_textual_observe_variant(tmp_path: Path) -> None:
     registry = build_home_tool_registry()
-    spec = registry.get("robot_observe")
-    result = spec.executor(
-        arguments={"target_object": "水杯"},
-        run_context=_make_run_context(tmp_path),
-    )
-    assert result.success is True
-    assert result.data["object"] == "水杯"
+    del tmp_path
+    assert registry.get("robot_observe") is None
+    assert registry.get("observe") is None
 
 
 def test_robot_manipulate_simulated(tmp_path: Path) -> None:

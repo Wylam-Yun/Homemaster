@@ -10,7 +10,6 @@ from homemaster.application.session import (
     SessionGenerationError,
     SessionManager,
 )
-from homemaster.observations.service import ObservationLedger, ObservationState
 
 
 @pytest.mark.asyncio
@@ -77,26 +76,16 @@ async def test_current_generation_can_commit_all_state(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rebind_and_resume_force_observation_ledger_to_needs_observe(tmp_path) -> None:
+async def test_rebind_and_resume_do_not_create_observation_state(tmp_path) -> None:
     manager = SessionManager(session_root=tmp_path)
     runtime = await manager.open_or_resume("observe", environment_ref="backend-a")
-    ledger = ObservationLedger(run_id="run", backend_id="backend-a", generation=0)
-    ledger.state = ObservationState.BOUND_READY
-    runtime.set_observation_reset(ledger.invalidate)
-    assert ledger.state is ObservationState.NEEDS_OBSERVE
-
-    ledger.state = ObservationState.BOUND_READY
     runtime.rebind_environment("backend-b")
-    assert ledger.state is ObservationState.NEEDS_OBSERVE
+    assert runtime.environment_ref == "backend-b"
     await manager.save("observe")
 
     resumed_manager = SessionManager(session_root=tmp_path)
     resumed = await resumed_manager.resume("observe")
-    resumed_ledger = ObservationLedger(run_id="run-2", backend_id="backend-b", generation=1)
-    resumed_ledger.state = ObservationState.BOUND_READY
-    resumed.set_observation_reset(resumed_ledger.invalidate)
-
-    assert resumed_ledger.state is ObservationState.NEEDS_OBSERVE
+    assert resumed.environment_ref == "backend-b"
 
 
 @pytest.mark.asyncio

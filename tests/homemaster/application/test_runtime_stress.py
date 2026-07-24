@@ -4,6 +4,7 @@ import asyncio
 import threading
 from collections.abc import Callable
 from contextlib import nullcontext, suppress
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -168,8 +169,8 @@ async def test_32_fake_sessions_reach_the_same_barrier_without_leaks() -> None:
                 backend=backend,
                 deadline=None,
                 cancellation=cancellation,
-                observation=None,
                 domain_observer=None,
+                working_directory=Path.cwd(),
             )
             result = await pipeline.execute(
                 ToolCall(id=f"call-{index}", name="mutate", arguments={}),

@@ -199,8 +199,8 @@ class ThreadOwnedSyncBackendAdapter:
                 self._closed = True
 
 
-class ThreadOwnedObservationBackend:
-    """Async observation facade over a synchronous thread-affine backend."""
+class ThreadOwnedScreenshotBackend:
+    """Async screenshot facade over a synchronous thread-affine backend."""
 
     def __init__(self, backend: Any, adapter: ThreadOwnedSyncBackendAdapter) -> None:
         self._backend = backend
@@ -209,8 +209,8 @@ class ThreadOwnedObservationBackend:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._backend, name)
 
-    async def capture(self) -> Any:
-        return await self._adapter.run(self._backend.capture)
+    async def screenshot(self) -> bytes:
+        return await self._adapter.run(self._backend.screenshot)
 
     async def bind_application_run(self, run_id: str, generation: int) -> None:
         await self._adapter.run(
@@ -220,4 +220,4 @@ class ThreadOwnedObservationBackend:
         )
 
 
-__all__ = ["ThreadOwnedObservationBackend", "ThreadOwnedSyncBackendAdapter"]
+__all__ = ["ThreadOwnedScreenshotBackend", "ThreadOwnedSyncBackendAdapter"]

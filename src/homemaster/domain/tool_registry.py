@@ -9,7 +9,6 @@ from homemaster.domain.tools import (
     make_memory_writer,
     make_robot_manipulate,
     make_robot_navigate,
-    make_robot_observe,
     make_robot_verify,
     make_skill_view,
     make_target_grounder,
@@ -34,7 +33,6 @@ def build_home_tool_registry(
         make_target_grounder(world_path=world_path),
         make_skill_view(),
         make_robot_navigate(),
-        make_robot_observe(),
         make_robot_manipulate(),
         make_robot_verify(),
         make_memory_writer(runtime_memory_root=runtime_memory_root),
@@ -48,9 +46,6 @@ def build_home_tool_registry(
             # provider-facing surface uses the canonical CL-07 alias.
             registry.register(spec.model_copy(update={"selectable_by_model": False}))
             registry.register(spec.model_copy(update={"name": "robot_go_to"}))
-        elif spec.name == "robot_observe":
-            registry.register(spec.model_copy(update={"selectable_by_model": False}))
-            registry.register(spec.model_copy(update={"name": "observe"}))
         else:
             registry.register(spec)
     return registry

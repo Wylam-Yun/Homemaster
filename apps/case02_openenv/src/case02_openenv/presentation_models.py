@@ -53,7 +53,6 @@ TOOL_PRESENTATION: dict[str, tuple[str, ToolKind]] = {
 }
 
 FAILURE_LABELS_ZH: dict[str, str] = {
-    "plan_required": "尚未创建执行计划",
     "missing_precheck_evidence": "变更前检查证据不完整",
     "progress_required": "当前阶段进度尚未记录",
     "wait_required": "尚未等待准确任务完成",
@@ -84,7 +83,7 @@ FACT_LABELS_ZH: dict[str, str] = {
     "terminal_outcome": "运行已达到终态",
 }
 JUDGMENT_LABELS_ZH: dict[str, str] = {
-    "plan_required": "必须先创建可审计计划",
+    "plan_recommended": "建议先创建可审计计划",
     "observe_result": "必须读取并核对环境返回",
     "recovery_required": "必须先完成匹配恢复",
     "continue_sop": "允许继续锁定流程",

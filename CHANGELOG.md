@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+### V1.9 Generic screenshot observe
+
+- Replaced environment-specific observation state machines with one `core.observe.v1` tool shared by Home,
+  ALFWorld, and Coworker. `observe({})` returns exactly one current PNG image to the model with no text, DOM,
+  state, or observation-binding metadata, and screenshot calls no longer authorize or gate actions.
+- Removed the retired `ObservationService`, legacy benchmark observe registry factories, ALFWorld
+  `FrameLedger`/model-view authorization path, provider-attempt binding fields, and inactive Coworker
+  failure/presentation compatibility paths. Generic image transport hashes remain available for internal validation
+  and audit; Coworker `TICKET_READ` is now grounded only by ticket navigation, never by a screenshot.
+- Fixed the Feishu artifact path so media persistence no longer rewrites provider-facing tool results. An `observe`
+  screenshot remains the single image sent to the model while the Gateway public event independently receives a
+  tenant/session/run-scoped artifact reference for Feishu delivery.
+
+### V2.0 OpenHarness Skills and default tools
+
+- Replaced HomeMaster's capability-bearing Skill model with OpenHarness-compatible instruction documents. Skills
+  no longer require `tool_names`, cannot grant tools or permissions, dynamically discover Home-owned user/project
+  roots, and expose complete Markdown through standard `skill`, compatible `skill_view`, Available Skills context,
+  and slash invocation. Eight upstream bundled Skills are included in installed wheels.
+- Ported the locked OpenHarness 39/39 default tool surface into the Home profile, including files, process, network,
+  LSP, images, config/plan, Cron, tasks, child agents, teams and MCP configuration. Application-owned services,
+  immutable path resolution, per-resource verification leases, real return codes and structured audits preserve
+  Home's permission and terminal-state boundaries; ALFWorld and Coworker tool surfaces remain unchanged.
+- Added durable remote `ask_user_question` waiting/resume without duplicate terminal output, Cron lifecycle CLI,
+  and a default child worker that explicitly inherits the parent config path. Added a real installation gate for
+  Git clone/checkout, `skill-creator`, archives, Python/Shell scripts, isolated Python/npm dependencies, HTTPS plus
+  independent curl hash, dynamic same-process discovery, and second CLI process discovery.
+- Fixed package data so all bundled Markdown survives wheel installation, and retained the locked upstream source,
+  Skills, tools and tests at commit `9b2efd795c6aa09f88b0c257d269a9e518da6ae7` with a checkable port manifest.
+- Final-review remediation made config display safe for users, models and JSONL traces by recursively redacting
+  provider/MCP credentials, URL userinfo and configured sensitive literals. Cron, config, MCP management and
+  task/agent/team tools now require independent `scheduler.manage`, `config.mutate`, `mcp.manage` and
+  `process.spawn` capabilities in addition to generic tool permissions.
+- Added explicit data-only Plugin Skill discovery for `plugin.json` and `.claude-plugin/plugin.json`, including
+  enablement overrides, project opt-in, contained `skills_dir`, symlink/traversal rejection and named builtin
+  override authorization. Plugin Python, tools, hooks and MCP are never imported by this adapter.
+- Fixed installed-wheel Home profile startup by promoting Pillow from the Coworker extra to a core dependency and
+  loading MCP-only upstream adapters only when an MCP manager exists. The isolated wheel gate now installs declared
+  runtime dependencies and instantiates all 39 OpenHarness default tools outside the checkout.
+
+### Single-Feishu OpenHarness Gateway migration
+
+- Added direct `gateway.feishu.app_id/app_secret` loading from the ignored mode-0600 YAML requested by the
+  deployment owner. The pair is file-first, cannot be mixed across YAML/environment sources, uses `SecretStr`,
+  and is registered with public-output sanitizers; tracked examples contain placeholders only.
+- Migrated the Gateway composition from Telegram to one Feishu/Lark channel using `lark-oapi`, with deterministic
+  message dedup, typed reply/thread context, safe inbound attachments, static text/post/card/table rendering, and
+  image/audio/video/file delivery. Per deployment-owner decision, the Feishu transport is a fully trusted entry:
+  every non-bot sender receives one fixed owner principal, and no bot/user ID, allowlist, or mention is configured.
+  Localized post/real card inbound parsing and OpenHarness-complete Markdown link/multi-table rendering remain known
+  migration gaps; current support is limited to the tested simplified payloads.
+- Added application-owned `FeishuApiService` and typed create/rename group operations. Exact group capabilities
+  are checked by the canonical permission policy; member/chat targets come only from the authenticated route,
+  operation ids lock targets, timeouts remain `outcome_unknown`, and success requires an independent state read.
+- Added typed delivery receipts and MEDIA artifacts. Tool bytes are persisted without modifying provider-facing
+  content; public events expose only tenant/session/run-bound opaque handles, and each media item remains an
+  independent non-coalescing outbound event.
+- Fixed Feishu dedup to reserve before processing but commit only after inbound publish; parse/download/persist/
+  reaction/bus failures now release the claim and clean uncommitted attachments so platform redelivery can recover.
+- Fixed repeated Feishu `bot_p2p_chat_entered_v1` and `message_read_v1` delivery failures by registering both
+  subscribed non-business events with explicit no-op ACKs. Entering a bot chat or reading a message now succeeds at
+  the platform dispatcher without creating an inbound message, invoking HomeMaster Runtime, or sending an
+  unsolicited response; ordinary message events keep their existing single-packet ingress path.
+- Fixed real Feishu private messages being silently discarded after platform ACK because the SDK emits
+  `chat_type=p2p` while HomeMaster's channel contract uses `private`. The transport now normalizes the exact external
+  value at its boundary, keeps unknown chat types rejected, and proves a real SDK-format message reaches the private
+  inbound bus and `open_id` reply route.
+- Isolated the SDK WebSocket client in a terminable subprocess because the installed SDK exposes no verified
+  public stop API. Fatal/completion state reaches the supervisor, and one shutdown deadline covers active runs,
+  outbound drain, channel termination, and service joins. SDK logs and structured API audit records exclude
+  credentials, queries, raw content, and paths.
+- Breaking configuration migration: `gateway.telegram` and the `python-telegram-bot` gateway extra are replaced
+  by the sole active `gateway.feishu` configuration and `lark-oapi`. Telegram source/tests remain for historical
+  compatibility but are not composed, documented, or installed by the Gateway extra.
+- Internal non-live contracts are covered and local credentials are configured, but full Phase 9 acceptance has not
+  run. The installed SDK returned endpoint HTTP 200/business code 0 and completed a real Feishu WebSocket
+  handshake/close. A real private text message now passes platform ACK, SDK dispatch, canonical routing, session
+  persistence, provider completion, confirmed Feishu send and user-confirmed client visibility. Media, reaction,
+  group terminal state, reconnect behavior, bot self-event semantics, remaining API symbols, and the `lark` domain
+  remain `UNVERIFIED` until their per-target acceptance is recorded.
+
 ### Realtime CLI streaming
 
 - Changed the generic agent runtime to publish statefully sanitized text deltas before

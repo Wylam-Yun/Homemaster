@@ -267,6 +267,50 @@ class ConversationProvider:
         ]
 
 
+class AvailableSkillsProvider:
+    """Render the OpenHarness progressive-disclosure Skill index."""
+
+    name = "skills"
+
+    def __init__(self, registry: Any | None) -> None:
+        self._registry = registry
+
+    def collect(self) -> list[ContextItem]:
+        if self._registry is None:
+            return []
+        refresh = getattr(self._registry, "refresh", None)
+        if callable(refresh):
+            refresh()
+        list_skills = getattr(self._registry, "list_skills", None)
+        if not callable(list_skills):
+            return []
+        skills = [skill for skill in list_skills() if not skill.disable_model_invocation]
+        if not skills:
+            return []
+        lines = [
+            "# Available Skills",
+            "",
+            "Use the `skill` tool to read a Skill's full instructions before acting on it.",
+            "",
+        ]
+        for skill in skills:
+            command_name = skill.command_name or skill.name
+            display = f" ({skill.display_name})" if skill.display_name else ""
+            lines.append(f"- **{command_name}**{display}: {skill.description}")
+        text = "\n".join(lines)
+        return [
+            ContextItem(
+                id="available_skills",
+                kind="available_skills",
+                priority=ContextPriority.IMPORTANT,
+                freshness=ContextFreshness.CURRENT,
+                placement=ContextPlacement.CONTEXT_PRELUDE,
+                token_estimate=estimate_text_tokens(text),
+                render=lambda _mode, text=text: text,
+            )
+        ]
+
+
 @dataclass
 class ContextMetrics:
     estimated_tokens: int
@@ -290,12 +334,14 @@ class ContextAssembler:
         policy: ContextPolicyConfig,
         system_prompt: str,
         summary_client: Any = None,
+        skill_registry: Any | None = None,
     ) -> None:
         self._provider = provider
         self._policy = policy
         self._system_prompt = system_prompt
         self._estimator = make_default_estimator(provider)
         self._summary_client = summary_client
+        self._skill_registry = skill_registry
 
     def _budget(self) -> ContextBudget:
         return ContextBudget(
@@ -523,6 +569,7 @@ class ContextAssembler:
             TaskStateSnapshotProvider.name: TaskStateSnapshotProvider(task_state_store),
             RuntimeBudgetStatusProvider.name: RuntimeBudgetStatusProvider(agent_state),
             FailureSummaryProvider.name: FailureSummaryProvider(agent_state),
+            AvailableSkillsProvider.name: AvailableSkillsProvider(self._skill_registry),
         }
         return [
             provider

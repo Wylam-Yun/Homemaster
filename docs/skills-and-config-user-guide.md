@@ -77,11 +77,32 @@ uv run homemaster --dry-run -p '检查药盒状态' \
 
 Home profile 按以下顺序发现 `SKILL.md`：
 
-1. 安装包内 builtin。
-2. `~/.homemaster/skills`、`~/.agents/skills`、`~/.claude/skills`。
-3. 从 Git root 到当前目录逐层发现 `.homemaster/skills`、`.agents/skills`、
-   `.claude/skills`，越靠近当前目录优先级越高。
-4. `skills.explicit_dirs` 中显式配置的目录。
+1. 安装包内八份 OpenHarness bundled Skills。
+2. HomeMaster builtin Skills。
+3. `~/.homemaster/skills`。
+4. 从 Git root 到当前目录逐层发现 `.homemaster/skills`，越靠近当前目录优先级越高。
+5. `skills.explicit_dirs` 中显式配置的目录。
+6. `skills.plugin_roots` 中显式配置的 data-only plugin，以及明确启用的项目 plugin。
+
+`.codex/skills`、`.claude/skills` 和 `.agents/skills` 都不会被自动扫描。要使用其中的 Skill，迁移
+完整目录到 `~/.homemaster/skills`，或把受信目录显式加入 `skills.explicit_dirs`。
+
+Plugin 来源支持根目录下 `<plugin>/plugin.json` 或 `<plugin>/.claude-plugin/plugin.json`。adapter
+只读取 manifest 的 `name`、`enabled_by_default`、`skills_dir` 和其中的 `SKILL.md`，不会导入 Python、
+tools、hooks、commands、agents 或 MCP。项目 `<git-root>/.openharness/plugins` 默认关闭：
+
+```yaml
+skills:
+  plugin_roots:
+    - ~/.homemaster/plugins
+  enabled_plugins:
+    disabled-by-default-plugin: true
+    unwanted-plugin: false
+  allow_project_plugin_skills: false
+```
+
+`skills_dir` 必须是 plugin 内的相对目录；绝对路径、`..` 和 symlink 逃逸会被拒绝。Plugin 来源优先级
+最后，但替换 bundled/builtin 仍需在 `allowed_builtin_overrides` 中精确授权。
 
 一个 skill 目录的最小格式如下：
 
@@ -94,7 +115,6 @@ Home profile 按以下顺序发现 `SKILL.md`：
 ---
 name: check_inventory
 description: Check current inventory and report it.
-tool_names: [observe, robot_verify]
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -102,9 +122,10 @@ disable-model-invocation: false
 Use a fresh observation before reporting inventory state.
 ```
 
-`tool_names` 必须全部存在于当前 Home frozen ToolView。自动 user/project 来源若格式不兼容、
-路径越界或引用 disabled tool，会被拒绝并出现在 dry-run 的 `skill_diagnostics`，builtin 仍保持
-可用；`explicit_dirs` 的错误则直接失败。
+Skill 是给模型按需读取的说明文档，不是 capability 声明；`tool_names` 不是必填字段，旧文件中的该
+字段只作为未解释的扩展元数据保留。Skill 正文提到某个工具不会让该工具进入 ToolView，也不会授予
+权限。自动 user/project 来源若格式不兼容或路径越界，会被拒绝并出现在 dry-run 的
+`skill_diagnostics`，builtin 仍保持可用；`explicit_dirs` 的错误则直接失败。
 
 同名 builtin 默认不可覆盖。确需替换时，同时配置目录和精确名称授权：
 
@@ -117,8 +138,37 @@ skills:
 ```
 
 Skill 文件和它引用的资源在读取前都会解析真实路径，并要求仍位于授权 root。绝对路径、`..`
-以及通过 symlink 逃出 root 的资源都会被拒绝。`disable-model-invocation: true` 的 skill 可保留为
-用户元数据，但 `skill_view` 不会向模型返回它。
+以及通过 symlink 逃出 root 的资源都会被拒绝。模型上下文只列名称和简介；标准
+`skill(name="check_inventory")` 和兼容 `skill_view(skill_name="check_inventory")` 都会在调用时重新
+发现并返回完整原文与 `base_dir`。用户也可输入 `/check_inventory 参数`；`user-invocable`、
+`disable-model-invocation`、`argument-hint` 和已配置的 `model` 覆盖按 OpenHarness 调用语义生效。
+
+## 安装和运行外部 Skill
+
+外部 Skill 必须完整迁入，不能只复制 `SKILL.md` 而遗漏 `references/`、`scripts/` 或 `assets/`：
+
+```bash
+git clone https://github.com/OWNER/REPO.git /tmp/skill-repo
+cp -a /tmp/skill-repo/path/to/example-skill ~/.homemaster/skills/
+uv run homemaster --dry-run -p '列出 Skills' --output-format json
+```
+
+新增或修改 `SKILL.md` 后会动态发现，不需要重启。Home profile 的 `bash`、文件和联网工具可以按 Skill
+说明执行非交互脚本、解压、Git 以及项目隔离依赖安装，但必须遵守项目依赖管理：Python 使用临时/项目
+虚拟环境和 lock 工具，禁止裸全局 `pip install -U`；npm 安装在目标项目或 Skill 自己的隔离目录。
+命令返回码为 0 只证明进程成功，工作流还必须用独立文件、版本或外部状态读取确认终态。
+
+后台 Cron scheduler 由以下命令管理：
+
+```bash
+uv run homemaster cron start
+uv run homemaster cron status
+uv run homemaster cron stop
+```
+
+远程入口调用 `ask_user_question` 时，本轮返回等待态并持久化问题；用户下一条消息会恢复同一 session
+及完整工具历史。子 agent 的默认 worker 会显式继承父应用使用的 config path，因此 provider/model/
+endpoint 与父进程保持同源。
 
 ## MCP 配置与诊断
 
@@ -169,18 +219,18 @@ probe 生命周期写入 mode-0600 `observability.trace_dir/mcp_probe_audit.json
 `mcp_audit.jsonl` 分开。Resource audit 只记录 URI 的 opaque SHA-256 引用，不记录 URI、query token
 或本地路径。
 
-发现的工具 alias 形如 `mcp__<server>__<tool>`，连字符会规范化为下划线。MCP skill 必须引用该
-最终 alias；application 会在 discovery 和 Home ToolView 冻结完成后再校验 skill。每个 run 仍可
-通过自己的 enabled tool ids 禁用 MCP 工具。
+发现的工具 alias 形如 `mcp__<server>__<tool>`，连字符会规范化为下划线。Skill 可以在正文中说明
+该 alias，但不会因此获得该工具；Skills 的发现和读取也不等待 MCP discovery。每个 run 仍可通过
+自己的 enabled tool ids 禁用 MCP 工具。
 
 在 MCP SDK read-only/mutation annotation 完成真环境核对前，discovered tool 默认视为 mutating：
 PLAN 模式拒绝，DEFAULT 模式要求确认，连接后 timeout/call failure 返回 `outcome_unknown` 且不自动
-重试。只有 host 提供的 `mcp_list_resources`、`mcp_read_resource` 明确保持只读；相关外部 annotation
+重试。只有 host 提供的 `list_mcp_resources`、`read_mcp_resource` 明确保持只读；相关外部 annotation
 当前为 `UNVERIFIED`。
 
 MCP tool/resource 返回的原始 JSON 会先写入 `artifact_root`，按 tenant/session/run 精确 ACL、
 tenant quota 和 TTL 管理。模型只看脱敏且最多 `preview_chars` 的 preview、内容哈希和 opaque handle；
-resource URI 字段不进入模型上下文，`mcp_list_resources` 返回的 opaque `resource_id` 用于后续读取。
+resource URI 字段不进入模型上下文，`list_mcp_resources` 返回的 opaque `resource_id` 用于后续读取。
 同一 tenant 的不同 principal 使用同一个 tenant quota/ACL domain，但仍受各自的权限策略约束。
 
 ## 权限模式与远程身份
@@ -204,9 +254,11 @@ permissions:
 benchmark 拥有完整本地能力；远程入口必须由 Bearer credential 映射到配置中的 tenant、principal、
 roles 和 capabilities，不能从请求 metadata 或 prompt 读取这些字段。
 
-常用 capability 为 `tool.read`、`tool.mutate`、`tool.auto`、`device.read`、`device.control` 和
-`mcp.call`。`allowed_tools` 也不能绕过缺失 capability；`denied_tools`、受保护 credential 路径、
-显式 path deny 和 command deny 始终先拒绝。
+常用 capability 为 `tool.read`、`tool.mutate`、`tool.auto`、`device.read`、`device.control`、
+`filesystem.read`、`filesystem.write`、`network.http`、`process.exec` 和 `mcp.call`。任务/agent/team、
+Cron、配置修改和 MCP 凭证管理还分别要求 `process.spawn`、`scheduler.manage`、`config.mutate`、
+`mcp.manage`；`allowed_tools` 不能绕过其中任何一项。`denied_tools`、受保护 credential 路径、显式
+path deny 和 command deny 始终先拒绝。
 
 设备连接属于 application。每个 `RunRequest.environment` 在 provider 执行前自动绑定到首次调用者的
 tenant；同一个 physical backend 不能被另一个 tenant 重新绑定。断线、重复断线、急停和 application
@@ -219,16 +271,18 @@ return code 都写入结果与完成事件。具体机器人 SDK 的 enum/状态
 `UNVERIFIED`。审计位于
 `observability.trace_dir/device_audit.jsonl`，包含 lease/fence/stop 状态，不记录 credential。
 
-## Telegram Gateway
+## 飞书 Gateway
 
-Gateway 默认关闭。先安装可选依赖，并把真实 token 放在 ignored 配置之外的环境变量：
+Gateway 默认关闭且只支持一个飞书/Lark channel。先安装依赖；`app_id/app_secret` 可以直接放在
+mode 0600、Git ignored 的真实 YAML 中，加密键和验证 token 仍可来自环境变量：
 
 ```bash
 uv sync --extra dev --extra gateway
-export HOMEMASTER_TELEGRAM_BOT_TOKEN='真实 token'
+export HOMEMASTER_FEISHU_ENCRYPT_KEY='...'
+export HOMEMASTER_FEISHU_VERIFICATION_TOKEN='...'
 ```
 
-在 `config/homemaster.yaml` 中只填写 sender 的 numeric Telegram id 与 capability：
+真实 `config/homemaster.yaml` 保持 mode 0600。飞书入口完全信任，无需配置任何 bot/user `open_id`：
 
 ```yaml
 gateway:
@@ -236,34 +290,44 @@ gateway:
   bus_capacity: 128
   per_tenant_capacity: 64
   per_session_capacity: 32
-  telegram:
+  shutdown_deadline_s: 5.0
+  feishu:
     enabled: true
-    token_env: HOMEMASTER_TELEGRAM_BOT_TOKEN
-    tenant_id: home
-    attachment_root: ~/.homemaster/attachments/telegram
-    principals:
-      "123456789":
-        principal_id: operator
-        roles: [operator]
-        capabilities: [tool.read, tool.mutate, device.read]
+    app_id: cli_xxx
+    app_secret: replace_with_real_secret
+    app_id_env: HOMEMASTER_FEISHU_APP_ID
+    app_secret_env: HOMEMASTER_FEISHU_APP_SECRET
+    encrypt_key_env: HOMEMASTER_FEISHU_ENCRYPT_KEY
+    verification_token_env: HOMEMASTER_FEISHU_VERIFICATION_TOKEN
+    tenant_id: local
+    domain: feishu
+    react_emoji: EYES
+    attachment_root: ~/.homemaster/attachments/feishu
 ```
 
-每个 sender 必须显式列出；不支持 `"*"` wildcard。Telegram bot 通过 long polling 启动，不需要
-公网 webhook：
+YAML 中的 `app_id/app_secret` 必须成对填写并优先使用。两项都省略时才回退到旧的 `*_env`；任一来源
+只有一项，或试图用 YAML 一项加环境变量一项拼接，都会启动失败。`app_secret` 在配置 repr、公共事件和
+日志中保持脱敏，真实文件不得提交到 Git。
+
+`domain` 只允许 `feishu|lark`。所有非 bot sender 自动映射为内置 `feishu-owner`，拥有 Home 通用能力和
+飞书建群/改名能力；私聊、群聊均不检查 allowlist 或 mention。创建群只接受群名并从当前 sender route
+派生成员；改名目标只取当前群 route，模型不能传 chat/member id 覆盖。
 
 ```bash
 uv run homemaster gateway --config config/homemaster.yaml
 ```
 
-Gateway 把 private/group/thread 消息按 tenant、channel、chat、thread、sender 生成稳定 session；
-消息 metadata 不能覆盖这些字段。sender 必须先命中 exact principal mapping，未授权消息不会触发
-Telegram 文件查询或下载。通过认证后的图片/文件必须落在 `attachment_root`，symlink 或 `..`
-逃逸会被拒绝。progress 可能合并，终态 final 只发送一次，error/cancel 会保留；关闭时会在
-`shutdown_deadline_s` 内 drain。普通 `homemaster --dry-run` 不启动 Telegram、不读取 token、
-不产生网络 I/O。
+私聊、群聊和 thread 按 tenant/channel/chat/thread/sender 生成稳定 session；权限相同但会话仍按 sender
+隔离。malformed、合成 bot sender 和重复消息在附件下载/reaction 前拒绝。媒体先写入受 containment、
+no-follow 和非零 regular-file 校验的根目录。出站媒体使用 opaque artifact handle，base64 在形成公开
+tool message 前移除，多文件逐个形成不可合并 MEDIA。
 
-当前 Telegram 运行时库的具体 API 返回语义仍标记为 `UNVERIFIED`，需在用户指导的 hkust4 真机门
-核对；HPC2 non-live 测试只证明 HomeMaster typed boundary、queue、routing、recovery 与 redaction。
+WebSocket worker 运行在可终止子进程，fatal/completion 会回传 supervisor；shutdown 的 active run、
+outbound drain、channel stop 和 service join 共用一个 absolute deadline。SDK HTTP/WS 日志只保留
+WARNING 并经过凭证/query 脱敏，业务外部调用只记录 action、目标 hash、耗时、返回码和 certainty。
+当前 app credential endpoint 返回码与 Feishu WebSocket 握手已通过，但代码与 non-live 测试不能代替
+其余真实飞书终态；消息、媒体、reaction、群状态、断线恢复和 `feishu|lark` 两个 domain 仍须逐项完成
+Phase 9 验收。真实平台是否回投机器人自身消息及其 `sender_type` 值仍为 `UNVERIFIED`。
 
 ## Trusted Extensions
 

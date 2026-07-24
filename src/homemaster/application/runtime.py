@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol
 
@@ -32,14 +33,10 @@ from homemaster.application.session import (
     SessionManager,
     SessionRuntime,
 )
+from homemaster.artifacts import ArtifactPublisher
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.extensions import AggregatedHookResult, HookEvent, HookRunner
-from homemaster.observations import (
-    ObservationLedger,
-    ObservationProviderCommitter,
-    ObservationService,
-)
 from homemaster.providers.attempts import ListProviderAttemptSink
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
@@ -54,6 +51,7 @@ from homemaster.tools.contracts import (
     VerificationStatus,
 )
 from homemaster.tools.legacy_adapter import LegacyExecutorAdapter, LegacyToolExecutionContext
+from homemaster.tools.paths import resolve_working_directory
 from homemaster.tools.pipeline import ToolExecutionPipeline
 
 
@@ -210,11 +208,9 @@ class _CompletionGuard:
     def __init__(
         self,
         *,
-        ledger: ObservationLedger,
         view: ToolView,
         external_owner: object | None,
     ) -> None:
-        self._ledger = ledger
         self._external_owner = external_owner
         self._external_required = any(
             tool.definition.verification_policy.terminal_rule
@@ -223,32 +219,11 @@ class _CompletionGuard:
         )
         self._external_succeeded = False
         self._verification: dict[str, bool] = {}
-        self._batch_has_mutation = False
 
     def begin_batch(self, calls: list[ToolCall], view: ToolView) -> None:
-        mutating = 0
-        has_completion = False
-        for call in calls:
-            lookup = view.lookup(call.name)
-            tool = lookup.tool if lookup.status is ToolLookupStatus.ENABLED else None
-            if tool is None:
-                continue
-            if tool.definition.state_effects:
-                mutating += 1
-            if (
-                tool.definition.model_alias == "task_progress_check"
-                and call.arguments.get("task_status") == "completed"
-            ):
-                has_completion = True
-        self._batch_has_mutation = has_completion and mutating > 0
+        del calls, view
 
     def __call__(self) -> ToolExecutionResult | None:
-        if self._ledger.observation_debt or self._batch_has_mutation:
-            return _blocked_completion(
-                ToolExecutionStatus.OBSERVATION_REQUIRED,
-                "observation_required",
-                "task completion requires a fresh explicit observation",
-            )
         if any(not passed for passed in self._verification.values()):
             return _blocked_completion(
                 ToolExecutionStatus.VERIFICATION_PENDING,
@@ -298,9 +273,10 @@ class _CanonicalToolExecutor:
         request: RunRequest,
         agent_state: AgentState,
         task_state_store: TaskStateStore,
-        ledger: ObservationLedger,
         settings: Any,
         event_sink: EventBus,
+        artifact_publisher: ArtifactPublisher | None,
+        working_directory: Path,
     ) -> None:
         self._pipeline = pipeline
         self._view = view
@@ -310,13 +286,13 @@ class _CanonicalToolExecutor:
         self._request = request
         self._agent_state = agent_state
         self._task_state_store = task_state_store
-        self._ledger = ledger
         self.evidence_refs = runtime.canonical_evidence_refs
         self._settings = settings
         self._event_sink = event_sink
+        self._artifact_publisher = artifact_publisher
+        self._working_directory = working_directory
         self._deadline = Deadline(request.run_policy.deadline_s)
         self._completion = _CompletionGuard(
-            ledger=ledger,
             view=view,
             external_owner=request.dependencies.get("external_terminal_owner"),
         )
@@ -347,15 +323,35 @@ class _CanonicalToolExecutor:
                     continue
                 observer.on_result(call, result)
                 self._record_result(context, result)
-                messages.append(result.to_message(tool_call_id=call.id, name=call.name))
+                messages.append(self._message_for_result(call, result))
             return messages
         results = await self._pipeline.execute_many(list(zip(tool_calls, contexts, strict=True)))
         for _call, context, result in zip(tool_calls, contexts, results, strict=True):
             self._record_result(context, result)
         return [
-            result.to_message(tool_call_id=call.id, name=call.name)
+            self._message_for_result(call, result)
             for call, result in zip(tool_calls, results, strict=True)
         ]
+
+    def _message_for_result(
+        self,
+        call: ToolCall,
+        result: ToolExecutionResult,
+    ) -> ToolResultMessage:
+        message = result.to_message(tool_call_id=call.id, name=call.name)
+        if self._artifact_publisher is None:
+            return message
+        artifacts = self._artifact_publisher.publish(
+            result,
+            tenant_id=self._request.permission_subject.tenant_id,
+            session_id=self._runtime.session.session_id,
+            run_id=self._run_id,
+        )
+        if not artifacts:
+            return message
+        event_data = dict(message.data or {})
+        event_data["artifacts"] = [dict(artifact) for artifact in artifacts]
+        return message.model_copy(update={"data": event_data})
 
     def _record_result(
         self,
@@ -382,10 +378,10 @@ class _CanonicalToolExecutor:
         else:
             registered = None
             internal_id = call.name if "." in call.name else "runtime.unknown.v1"
-        deps = dict(self._request.dependencies)
+        deps = dict(getattr(self._settings, "application_services", {}))
+        deps.update(self._request.dependencies)
         deps["task_state_store"] = self._task_state_store
         deps["task_completion_guard"] = self._completion
-        deps["observation_ledger"] = self._ledger
         deps["current_tool_call_id"] = call.id
         _bind_profile_backend(deps, self._request.profile, self._backend)
         legacy_run_context = RunContext(
@@ -416,8 +412,9 @@ class _CanonicalToolExecutor:
             backend=context_backend,
             deadline=self._deadline,
             cancellation=self._runtime.cancellation,
-            observation=self._ledger,
             domain_observer=self._request.dependencies.get("domain_observer"),
+            working_directory=self._working_directory,
+            services=deps,
         )
 
     def _record_evidence(self, result: ToolExecutionResult) -> None:
@@ -442,7 +439,6 @@ class ApplicationRuntime:
         catalog: ToolCatalog,
         profiles: Mapping[str, ToolProfile],
         pipeline: ToolExecutionPipeline,
-        observation_service: ObservationService,
         event_bus: EventBus,
         session_manager: SessionManager,
         provider_factory: ProviderFactory,
@@ -451,11 +447,11 @@ class ApplicationRuntime:
         resource_scope: RunResourceScope | None = None,
         application_starter: ApplicationStarter | None = None,
         extension_runner: HookRunner | None = None,
+        artifact_publisher: ArtifactPublisher | None = None,
     ) -> None:
         self.catalog = catalog
         self.profiles = dict(profiles)
         self.pipeline = pipeline
-        self.observation_service = observation_service
         self.event_bus = event_bus
         self.session_manager = session_manager
         self.provider_factory = provider_factory
@@ -464,6 +460,10 @@ class ApplicationRuntime:
         self.resource_scope = resource_scope or RunResourceScope()
         self._application_starter = application_starter
         self.extension_runner = extension_runner
+        self.artifact_publisher = artifact_publisher
+        self._working_directory = resolve_working_directory(
+            getattr(self.settings, "working_directory", Path.cwd())
+        )
         self._start_lock = asyncio.Lock()
         self._started = False
         self._extension_stop_lock = asyncio.Lock()
@@ -569,12 +569,6 @@ class ApplicationRuntime:
             if callable(bind_run):
                 await _maybe_await(bind_run(run_id, generation))
             runtime.application_control = _control_request(request, session_id)
-            ledger = ObservationLedger(
-                run_id=run_id,
-                backend_id=_backend_id(backend, request.profile),
-                generation=_backend_generation(backend, generation),
-            )
-            runtime.set_observation_reset(ledger.invalidate)
             provider_value = await _maybe_await(self.provider_factory(request, run_id))
             provider_scope = RunResourceScope()
             async with provider_scope:
@@ -601,11 +595,11 @@ class ApplicationRuntime:
                     request=request,
                     agent_state=agent_state,
                     task_state_store=task_state_store,
-                    ledger=ledger,
                     settings=self.settings,
                     event_sink=run_event_sink,
+                    artifact_publisher=self.artifact_publisher,
+                    working_directory=self._working_directory,
                 )
-                committer = ObservationProviderCommitter(self.observation_service, ledger)
                 fenced_session = _FencedAgentSession(
                     self.session_manager,
                     runtime,
@@ -618,8 +612,6 @@ class ApplicationRuntime:
                     stop_condition=_stop_condition(request),
                     context_assembler=assembler,
                     system_prompt=getattr(assembler, "_system_prompt", ""),
-                    model_view_observer=request.dependencies.get("model_view_observer"),
-                    provider_commit_observer=committer,
                     provider_attempt_sink_factory=request.dependencies.get(
                         "provider_attempt_sink_factory",
                         ListProviderAttemptSink,
@@ -1019,10 +1011,23 @@ def _run_status(value: str) -> RunStatus:
 
 def _stop_condition(request: RunRequest):
     condition = request.run_policy.stop_condition
-    if condition is None:
-        return None
 
     async def stop(session, results):
+        for result in results:
+            data = getattr(result, "data", {})
+            marker = data.get("data") if isinstance(data.get("data"), Mapping) else data
+            if marker.get("waiting_user") is True:
+                question = str(marker.get("question") or "Input required")
+                return RuntimeStopDecision(
+                    status="waiting_user",
+                    final_reply=question,
+                    payload={
+                        "question": question,
+                        "tool_call_id": marker.get("tool_call_id"),
+                    },
+                )
+        if condition is None:
+            return None
         value = condition({"session": session, "tool_results": results})
         if inspect.isawaitable(value):
             value = await value

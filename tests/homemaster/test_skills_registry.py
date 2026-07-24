@@ -1,63 +1,61 @@
-"""Tests for the rewritten skills registry and loader."""
+"""Tests for OpenHarness-compatible Skill discovery and summaries."""
 
 from __future__ import annotations
 
-from homemaster.skills.loader import load_builtin_skills
+from homemaster.skills.loader import load_builtin_skills, load_bundled_skills
 from homemaster.skills.registry import SkillRegistry
 
 
-def test_builtin_skills_register_as_metadata_packages() -> None:
+def test_bundled_and_home_builtin_skills_register_as_full_markdown_packages() -> None:
     registry = SkillRegistry()
+    load_bundled_skills(registry)
     load_builtin_skills(registry)
+
     names = set(registry.all_names())
-    assert "fetch_object" in names
-    assert "check_object_state" in names
+    assert {"skill-creator", "commit", "fetch_object", "check_object_state"} <= names
     skill = registry.get("fetch_object")
-    assert skill.tool_names
-    assert hasattr(skill, "metadata")
-    assert hasattr(skill, "system_prompt_fragment")
+    assert skill is not None
+    assert skill.content.startswith("---")
+    assert skill.base_dir is not None
+    assert not hasattr(skill, "tool_names")
 
 
-def test_skills_do_not_define_runtime_modes() -> None:
+def test_skills_are_instructions_not_capability_declarations() -> None:
     registry = SkillRegistry()
     load_builtin_skills(registry)
+
     for skill in registry.all():
-        text = (skill.description or "") + " " + " ".join(skill.tool_names)
-        assert "mock_skills" not in text
-        assert "deterministic" not in text
+        assert isinstance(skill.content, str)
+        assert skill.content
+        assert not hasattr(skill, "tool_names")
 
 
-def test_skill_view_uses_progressive_disclosure() -> None:
+def test_registry_indexes_command_name_display_name_and_aliases() -> None:
     registry = SkillRegistry()
-    load_builtin_skills(registry)
-    skill = registry.get("fetch_object")
-    assert "full_prompt" not in skill.metadata
-    assert set(skill.tool_names)
+    load_bundled_skills(registry)
+
+    skill = registry.get("skill-creator")
+    assert skill is not None
+    assert registry.get(skill.name) is skill
+    assert registry.get(skill.command_name or "") is skill
 
 
-def test_skill_spec_uses_tool_names_not_allowed_tools() -> None:
+def test_skill_registry_all_returns_a_deterministic_list() -> None:
     registry = SkillRegistry()
-    load_builtin_skills(registry)
-    for skill in registry.all():
-        assert hasattr(skill, "tool_names")
-        assert isinstance(skill.tool_names, list)
-        assert len(skill.tool_names) > 0
+    load_bundled_skills(registry)
+
+    skills = registry.all()
+    assert [skill.command_name for skill in skills] == sorted(
+        skill.command_name for skill in skills
+    )
 
 
-def test_skill_registry_all_returns_list() -> None:
+def test_skill_registry_candidate_summaries_do_not_leak_full_bodies() -> None:
     registry = SkillRegistry()
-    load_builtin_skills(registry)
-    all_skills = registry.all()
-    assert isinstance(all_skills, list)
-    assert len(all_skills) >= 2
+    load_bundled_skills(registry)
 
-
-def test_skill_registry_candidate_summaries() -> None:
-    registry = SkillRegistry()
-    load_builtin_skills(registry)
     summaries = registry.candidate_summaries()
-    assert len(summaries) >= 2
+    assert summaries
     for summary in summaries:
-        assert "name" in summary
-        assert "description" in summary
-        assert "tool_names" in summary
+        assert {"name", "command_name", "description", "model_invocable"} <= set(summary)
+        assert "content" not in summary

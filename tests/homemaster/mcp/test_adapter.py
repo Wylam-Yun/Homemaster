@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -91,8 +92,8 @@ def _context(internal_id: str) -> ToolExecutionContext:
         backend=None,
         deadline=None,
         cancellation=None,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
 
 
@@ -130,7 +131,7 @@ async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(t
     assert b"server-secret" in raw
 
     list_resources = next(
-        tool for tool in tools if tool.definition.model_alias == "mcp_list_resources"
+        tool for tool in tools if tool.definition.model_alias == "list_mcp_resources"
     )
     listed = await list_resources.executor.execute(
         {},
@@ -147,7 +148,7 @@ async def test_adapter_preserves_schema_and_stores_raw_before_redacted_preview(t
     assert b"mcp-resource:" in listed_raw
 
     read_resource = next(
-        tool for tool in tools if tool.definition.model_alias == "mcp_read_resource"
+        tool for tool in tools if tool.definition.model_alias == "read_mcp_resource"
     )
     resource_id = read_resource.definition.input_schema["properties"]["resource_id"]["enum"][0]
     read = await read_resource.executor.execute(

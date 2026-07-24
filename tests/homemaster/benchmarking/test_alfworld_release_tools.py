@@ -382,7 +382,6 @@ def _release_fixture(
                     "error_type": None,
                     "model_attempt_id": f"attempt-{index}",
                     "outbound_images": [],
-                    "outbound_observations": [],
                     "request_sha256": hashlib.sha256(f"request-{index}".encode()).hexdigest(),
                     "response_completed": True,
                     "stripped_images": False,

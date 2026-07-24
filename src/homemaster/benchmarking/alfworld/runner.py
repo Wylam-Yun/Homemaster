@@ -207,7 +207,6 @@ class AlfworldBenchmarkRunner:
                             / "configs"
                             / "semantic_judge_agnes.yaml"
                         ),
-                        "model_view_observer": adapter.model_view_observer,
                         "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                         "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
                             episode_dir / "provider_attempts.jsonl"
@@ -851,7 +850,6 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                                 / "configs"
                                 / "semantic_judge_agnes.yaml"
                             ),
-                            "model_view_observer": adapter.model_view_observer,
                             "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                             "provider_attempt_sink_factory": lambda path=(
                                 subtask_dir / "provider_attempts.jsonl"

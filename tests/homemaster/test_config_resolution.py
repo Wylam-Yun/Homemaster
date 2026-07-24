@@ -3,11 +3,121 @@
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
+import pytest
+
 import homemaster.config as config_module
-from homemaster.config import ProviderProfileConfig, load_config
-from homemaster.config.config import redact_config_value
+from homemaster.channels.impl.feishu import FeishuApiService
+from homemaster.config import (
+    FeishuChannelConfig,
+    GatewayConfig,
+    ProviderProfileConfig,
+    load_config,
+)
+from homemaster.config.config import REPO_ROOT, redact_config_value
+
+
+def test_feishu_config_exposes_only_locked_domain_and_trusted_entry_fields() -> None:
+    config = FeishuChannelConfig(enabled=True, domain="lark")
+
+    assert config.domain == "lark"
+    assert config.attachment_root.as_posix().endswith("attachments/feishu")
+    assert not hasattr(config, "bot_open_id")
+    assert not hasattr(config, "bot_names")
+    assert not hasattr(config, "group_policy")
+    assert not hasattr(config, "principals")
+
+    with pytest.raises(ValueError):
+        FeishuChannelConfig(domain="https://attacker.example")
+
+
+def test_enabled_feishu_requires_no_bot_or_sender_ids() -> None:
+    config = FeishuChannelConfig(enabled=True)
+
+    assert config.enabled
+
+
+def test_feishu_yaml_credentials_are_preferred_secret_safe_and_sanitized(monkeypatch) -> None:
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_ID", "cli-env")
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_SECRET", "env-secret")
+    config = FeishuChannelConfig(app_id="cli-file", app_secret="file-secret")
+
+    service = FeishuApiService.from_config(config)
+
+    assert service.app_id == "cli-file"
+    assert service.credential_source == "file"
+    assert "file-secret" in config_module.configured_sensitive_values(
+        config_module.HomeMasterConfig(gateway={"feishu": config})
+    )
+    rendered = (
+        repr(config),
+        str(config),
+        repr(config.model_dump(mode="python")),
+        repr(config.model_dump(mode="json")),
+        config.model_dump_json(),
+        repr(service),
+    )
+    assert all("file-secret" not in value for value in rendered)
+    assert all("env-secret" not in value for value in rendered)
+
+
+def test_feishu_environment_credentials_remain_pairwise_fallback(monkeypatch) -> None:
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_ID", "cli-env")
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_SECRET", "env-secret")
+
+    service = FeishuApiService.from_config(FeishuChannelConfig())
+
+    assert service.app_id == "cli-env"
+    assert service.credential_source == "env"
+    assert "env-secret" not in repr(service)
+
+
+def test_feishu_credentials_reject_partial_or_cross_source_pairs(monkeypatch) -> None:
+    with pytest.raises(ValueError, match="app_id and app_secret must be configured together"):
+        FeishuChannelConfig(app_id="cli-file")
+    with pytest.raises(ValueError, match="app_id and app_secret must be configured together"):
+        FeishuChannelConfig(app_secret="file-secret")
+
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_ID", "cli-env")
+    monkeypatch.delenv("HOMEMASTER_FEISHU_APP_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="environment app id and app secret"):
+        FeishuApiService.from_config(FeishuChannelConfig())
+
+    monkeypatch.setenv("HOMEMASTER_FEISHU_APP_SECRET", "env-secret")
+    service = FeishuApiService.from_config(
+        FeishuChannelConfig(app_id="cli-file", app_secret="file-secret")
+    )
+    assert service.app_id == "cli-file"
+    assert service.credential_source == "file"
+
+
+def test_gateway_has_single_feishu_channel_configuration() -> None:
+    config = GatewayConfig(
+        enabled=True,
+        feishu={"enabled": True},
+    )
+
+    assert config.feishu.enabled
+    assert not hasattr(config, "telegram")
+    with pytest.raises(ValueError, match="Feishu cannot be enabled"):
+        GatewayConfig(feishu={"enabled": True})
+
+
+def test_gateway_extra_and_example_expose_only_feishu() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    gateway_dependencies = pyproject["project"]["optional-dependencies"]["gateway"]
+    example = (REPO_ROOT / "config" / "homemaster.example.yaml").read_text(encoding="utf-8")
+
+    assert gateway_dependencies == ["lark-oapi>=1.7.1,<2"]
+    assert "python-telegram-bot" not in gateway_dependencies
+    assert "  feishu:" in example
+    assert "HOMEMASTER_FEISHU_APP_SECRET" in example
+    assert "bot_open_id" not in example
+    assert "group_policy" not in example
+    assert "principals:" not in example
+    assert "  telegram:" not in example
 
 
 def test_configured_sensitive_values_collect_provider_and_mcp_secrets_without_logging(

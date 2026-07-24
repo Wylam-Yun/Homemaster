@@ -283,7 +283,6 @@ def test_unsafe_or_oversized_reply_is_rejected(reply: str) -> None:
 @pytest.mark.parametrize(
     "failure_code",
     [
-        "plan_required",
         "missing_precheck_evidence",
         "progress_required",
         "wait_required",

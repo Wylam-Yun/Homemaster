@@ -13,8 +13,9 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel
@@ -32,11 +33,6 @@ class ExecutionProof(StrEnum):
     NONE = "none"
     STRUCTURED_RECEIPT = "structured_receipt"
     EXTERNAL_STATE = "external_state"
-
-
-class PostActionObservation(StrEnum):
-    NONE = "none"
-    FRESH_AFTER_BACKEND_ADVANCE = "fresh_after_backend_advance"
 
 
 class TerminalRule(StrEnum):
@@ -64,8 +60,14 @@ class ToolExecutionStatus(StrEnum):
     DENIED = "denied"
     CANCELLED = "cancelled"
     OUTCOME_UNKNOWN = "outcome_unknown"
-    OBSERVATION_REQUIRED = "observation_required"
     VERIFICATION_PENDING = "verification_pending"
+
+
+class ResultProjection(StrEnum):
+    """Control the model-visible shape of a successful tool result."""
+
+    STANDARD = "standard"
+    IMAGE_ONLY = "image_only"
 
 
 class OutcomeCertainty(StrEnum):
@@ -84,25 +86,17 @@ class VerificationStatus(StrEnum):
 @dataclass(frozen=True)
 class VerificationPolicy:
     execution_proof: ExecutionProof = ExecutionProof.NONE
-    requires_pre_observation: Literal[False, "current_bound"] = False
-    post_action_observation: PostActionObservation = PostActionObservation.NONE
     terminal_rule: TerminalRule = TerminalRule.NORMAL
 
     def __post_init__(self) -> None:
         if not isinstance(self.execution_proof, ExecutionProof):
             raise TypeError("execution_proof must be ExecutionProof")
-        if not isinstance(self.post_action_observation, PostActionObservation):
-            raise TypeError("post_action_observation must be PostActionObservation")
         if not isinstance(self.terminal_rule, TerminalRule):
             raise TypeError("terminal_rule must be TerminalRule")
-        if self.requires_pre_observation not in {False, "current_bound"}:
-            raise ValueError("requires_pre_observation must be false or current_bound")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "execution_proof": self.execution_proof.value,
-            "requires_pre_observation": self.requires_pre_observation,
-            "post_action_observation": self.post_action_observation.value,
             "terminal_rule": self.terminal_rule.value,
         }
 
@@ -292,8 +286,9 @@ class ToolExecutionContext:
     backend: object | None
     deadline: DeadlineHandle | None
     cancellation: CancellationHandle | None
-    observation: object | None
     domain_observer: object | None
+    working_directory: Path
+    services: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -316,6 +311,20 @@ class ToolExecutionContext:
             raise TypeError("deadline must implement DeadlineHandle")
         if self.cancellation is not None and not isinstance(self.cancellation, CancellationHandle):
             raise TypeError("cancellation must implement CancellationHandle")
+        if not isinstance(self.working_directory, Path):
+            raise TypeError("working_directory must be a pathlib.Path")
+        if not self.working_directory.is_absolute():
+            raise ValueError("working_directory must be absolute")
+        try:
+            working_directory = self.working_directory.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ValueError("working_directory must exist") from exc
+        if not working_directory.is_dir():
+            raise ValueError("working_directory must be a directory")
+        object.__setattr__(self, "working_directory", working_directory)
+        if not isinstance(self.services, Mapping):
+            raise TypeError("services must be a mapping")
+        object.__setattr__(self, "services", MappingProxyType(dict(self.services)))
 
 
 @dataclass(frozen=True)
@@ -343,7 +352,6 @@ class ResultImage:
     data_base64: str
     content_sha256: str
     pixel_sha256: str | None = None
-    observation_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.media_type.startswith("image/"):
@@ -355,8 +363,6 @@ class ResultImage:
             raise ValueError("result image content hash mismatch")
         if self.pixel_sha256 is not None:
             _require_sha256(self.pixel_sha256, label="result image pixel hash")
-        if self.observation_id is not None:
-            _require_nonempty(self.observation_id, label="result image observation id")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -364,7 +370,6 @@ class ResultImage:
             "data_base64": self.data_base64,
             "content_sha256": self.content_sha256,
             "pixel_sha256": self.pixel_sha256,
-            "observation_id": self.observation_id,
         }
 
 
@@ -391,25 +396,6 @@ class ResultAttachment:
             "filename": self.filename,
             "media_type": self.media_type,
             "data_base64": self.data_base64,
-            "content_sha256": self.content_sha256,
-        }
-
-
-@dataclass(frozen=True)
-class ObservationReference:
-    observation_id: str
-    evidence_ref: str
-    content_sha256: str
-
-    def __post_init__(self) -> None:
-        _require_nonempty(self.observation_id, label="observation id")
-        _require_nonempty(self.evidence_ref, label="observation evidence ref")
-        _require_sha256(self.content_sha256, label="observation content hash")
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "observation_id": self.observation_id,
-            "evidence_ref": self.evidence_ref,
             "content_sha256": self.content_sha256,
         }
 
@@ -469,7 +455,6 @@ class ToolExecutionResult:
     data: Mapping[str, object] = field(default_factory=dict)
     images: tuple[ResultImage, ...] = ()
     attachments: tuple[ResultAttachment, ...] = ()
-    observations: tuple[ObservationReference, ...] = ()
     evidence_refs: tuple[str, ...] = ()
     error: ToolExecutionError | None = None
     retryable: bool = False
@@ -477,10 +462,13 @@ class ToolExecutionResult:
     verification: VerificationRecord = field(default_factory=VerificationRecord)
     terminal: TerminalInfo | None = None
     backend_attempted: bool = False
+    model_projection: ResultProjection = ResultProjection.STANDARD
 
     def __post_init__(self) -> None:
         if not isinstance(self.status, ToolExecutionStatus):
             raise TypeError("status must be ToolExecutionStatus")
+        if not isinstance(self.model_projection, ResultProjection):
+            raise TypeError("model_projection must be ResultProjection")
         if not isinstance(self.outcome_certainty, OutcomeCertainty):
             raise TypeError("outcome_certainty must be OutcomeCertainty")
         if not isinstance(self.verification, VerificationRecord):
@@ -498,19 +486,17 @@ class ToolExecutionResult:
         object.__setattr__(self, "data", _freeze_json_object(self.data, "result data"))
         object.__setattr__(self, "images", tuple(self.images))
         object.__setattr__(self, "attachments", tuple(self.attachments))
-        object.__setattr__(self, "observations", tuple(self.observations))
         if any(not isinstance(image, ResultImage) for image in self.images):
             raise TypeError("images must contain ResultImage values")
         if any(not isinstance(item, ResultAttachment) for item in self.attachments):
             raise TypeError("attachments must contain ResultAttachment values")
-        if any(not isinstance(item, ObservationReference) for item in self.observations):
-            raise TypeError("observations must contain ObservationReference values")
         object.__setattr__(
             self,
             "evidence_refs",
             _validated_refs(self.evidence_refs, label="result evidence"),
         )
         self._validate_status()
+        self._validate_model_projection()
 
     @property
     def success(self) -> bool:
@@ -545,7 +531,6 @@ class ToolExecutionResult:
             ToolExecutionStatus.INVALID,
             ToolExecutionStatus.DENIED,
             ToolExecutionStatus.CANCELLED,
-            ToolExecutionStatus.OBSERVATION_REQUIRED,
         }
         if self.status in pre_backend_statuses and self.backend_attempted:
             raise ValueError(f"{self.status.value} cannot claim a backend attempt")
@@ -565,6 +550,18 @@ class ToolExecutionResult:
         }:
             raise ValueError("terminal information is invalid for a pre-execution result")
 
+    def _validate_model_projection(self) -> None:
+        if self.model_projection is not ResultProjection.IMAGE_ONLY:
+            return
+        if self.status is not ToolExecutionStatus.SUCCESS:
+            raise ValueError("image_only projection requires a successful result")
+        if self.text:
+            raise ValueError("image_only projection requires empty text")
+        if len(self.images) != 1:
+            raise ValueError("image_only projection requires exactly one image")
+        if self.attachments:
+            raise ValueError("image_only projection cannot include attachments")
+
     def to_dict(self) -> dict[str, object]:
         return {
             "status": self.status.value,
@@ -573,7 +570,6 @@ class ToolExecutionResult:
             "data": _thaw_json(self.data),
             "images": [image.to_dict() for image in self.images],
             "attachments": [attachment.to_dict() for attachment in self.attachments],
-            "observations": [observation.to_dict() for observation in self.observations],
             "evidence_refs": list(self.evidence_refs),
             "error": self.error.to_dict() if self.error is not None else None,
             "failure_reason": self.failure_reason,
@@ -582,38 +578,66 @@ class ToolExecutionResult:
             "verification": self.verification.to_dict(),
             "terminal": self.terminal.to_dict() if self.terminal is not None else None,
             "backend_attempted": self.backend_attempted,
+            "model_projection": self.model_projection.value,
         }
+
+    def to_public_dict(self) -> dict[str, object]:
+        payload = self.to_dict()
+        payload["images"] = [
+            {
+                "media_type": image.media_type,
+                "content_sha256": image.content_sha256,
+                "pixel_sha256": image.pixel_sha256,
+            }
+            for image in self.images
+        ]
+        payload["attachments"] = [
+            {
+                "filename": attachment.filename,
+                "media_type": attachment.media_type,
+                "content_sha256": attachment.content_sha256,
+            }
+            for attachment in self.attachments
+        ]
+        public_data = payload.get("data")
+        if isinstance(public_data, dict) and "artifacts" in public_data:
+            payload["artifacts"] = public_data["artifacts"]
+        return payload
 
     def to_message(self, *, tool_call_id: str, name: str) -> ToolResultMessage:
         _require_nonempty(tool_call_id, label="tool call id")
         _require_nonempty(name, label="tool result name")
-        payload = self.to_dict()
-        content = [
-            ContentBlock(
-                text=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-            )
-        ]
-        if self.text and self.observations:
-            metadata = _observation_content_metadata(self.observations[0], self.data)
-            if _has_complete_observation_identity(metadata):
-                content.append(
+        payload = self.to_public_dict()
+        if self.model_projection is ResultProjection.IMAGE_ONLY:
+            image = self.images[0]
+            return ToolResultMessage(
+                tool_call_id=tool_call_id,
+                name=name,
+                content=[
                     ContentBlock(
-                        text=self.text,
-                        metadata={**metadata, "media_type": self.data.get("media_type")},
+                        type="image",
+                        source={
+                            "type": "base64",
+                            "media_type": image.media_type,
+                            "data": image.data_base64,
+                        },
                     )
+                ],
+                is_error=False,
+                data=payload,
+            )
+        content: list[ContentBlock] = []
+        content.append(
+            ContentBlock(
+                text=json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
                 )
+            )
+        )
         for image in self.images:
-            reference = next(
-                (
-                    observation
-                    for observation in self.observations
-                    if observation.observation_id == image.observation_id
-                ),
-                None,
-            )
-            metadata = (
-                _observation_content_metadata(reference, self.data) if reference is not None else {}
-            )
             content.append(
                 ContentBlock(
                     type="image",
@@ -625,8 +649,6 @@ class ToolExecutionResult:
                     metadata={
                         "content_sha256": image.content_sha256,
                         "pixel_sha256": image.pixel_sha256,
-                        "observation_id": image.observation_id,
-                        **metadata,
                     },
                 )
             )
@@ -637,48 +659,6 @@ class ToolExecutionResult:
             is_error=self.is_error,
             data=payload,
         )
-
-
-def _observation_content_metadata(
-    reference: ObservationReference,
-    data: Mapping[str, object],
-) -> dict[str, object]:
-    metadata: dict[str, object] = {
-        "observation_id": reference.observation_id,
-        "observation_content_sha256": reference.content_sha256,
-    }
-    if data.get("observation_id") != reference.observation_id:
-        return metadata
-    names = {
-        "backend_id": "observation_backend_id",
-        "run_id": "observation_run_id",
-        "generation": "observation_generation",
-        "state_sequence": "observation_state_sequence",
-        "capture_event_sequence": "observation_capture_event_sequence",
-        "pixel_sha256": "observation_pixel_sha256",
-    }
-    for source, target in names.items():
-        value = data.get(source)
-        if value is not None:
-            metadata[target] = value
-    return metadata
-
-
-def _has_complete_observation_identity(metadata: Mapping[str, object]) -> bool:
-    return all(
-        name in metadata
-        for name in (
-            "observation_id",
-            "observation_content_sha256",
-            "observation_backend_id",
-            "observation_run_id",
-            "observation_generation",
-            "observation_state_sequence",
-            "observation_capture_event_sequence",
-        )
-    )
-
-
 class ToolExecutor(Protocol):
     def execute(
         self,
@@ -700,6 +680,7 @@ class RegisteredTool:
     definition: ToolDefinition
     executor: ToolExecutor
     verifier: ToolVerifier | None = None
+    resource_key_resolver: Any | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.definition, ToolDefinition):
@@ -710,6 +691,11 @@ class RegisteredTool:
             getattr(self.verifier, "verify", None)
         ):
             raise TypeError("verifier must implement async verify")
+        if self.resource_key_resolver is not None:
+            if self.definition.concurrency_policy is not ConcurrencyPolicy.RESOURCE_KEY:
+                raise ValueError("resource_key_resolver requires concurrency_policy=resource_key")
+            if not callable(self.resource_key_resolver):
+                raise TypeError("resource_key_resolver must be callable or None")
         if (
             self.definition.verification_policy.execution_proof is ExecutionProof.EXTERNAL_STATE
             and self.verifier is None

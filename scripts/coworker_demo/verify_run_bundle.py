@@ -35,7 +35,6 @@ REQUIRED_MANIFEST_ARTIFACTS = (
     "video/video_manifest.json",
 )
 PRESENTATION_FAILURE_CODES = {
-    "plan_required",
     "missing_precheck_evidence",
     "progress_required",
     "wait_required",

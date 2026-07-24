@@ -19,7 +19,6 @@ ATTEMPT_KEYS = {
     "error_type",
     "model_attempt_id",
     "outbound_images",
-    "outbound_observations",
     "request_sha256",
     "response_completed",
     "stripped_images",
@@ -27,30 +26,7 @@ ATTEMPT_KEYS = {
 OUTBOUND_IMAGE_KEYS = {
     "block_index",
     "content_sha256",
-    "frame_binding_id",
     "message_index",
-    "observation_backend_id",
-    "observation_capture_event_sequence",
-    "observation_content_sha256",
-    "observation_generation",
-    "observation_id",
-    "observation_pixel_sha256",
-    "observation_run_id",
-    "observation_state_sequence",
-}
-OUTBOUND_OBSERVATION_KEYS = {
-    "block_index",
-    "content_sha256",
-    "media_type",
-    "message_index",
-    "observation_backend_id",
-    "observation_capture_event_sequence",
-    "observation_content_sha256",
-    "observation_generation",
-    "observation_id",
-    "observation_pixel_sha256",
-    "observation_run_id",
-    "observation_state_sequence",
 }
 ROOT_KEYS = {
     "artifacts",
@@ -375,7 +351,7 @@ def _verify_canary(
     attempts = _read_jsonl(_artifact_path(root, attempts_ref), label="provider attempts")
     if not attempts:
         raise ValueError("provider attempt ledger is empty")
-    outbound_observation_count = 0
+    outbound_image_count = 0
     for index, attempt in enumerate(attempts):
         _exact_keys(attempt, ATTEMPT_KEYS, label=f"provider attempt {index}")
         _sha256(attempt["request_sha256"], label=f"provider attempt {index} request hash")
@@ -384,32 +360,14 @@ def _verify_canary(
         if not isinstance(attempt["response_completed"], bool):
             raise ValueError("provider response completion flag is invalid")
         if not isinstance(attempt["outbound_images"], list):
-            raise ValueError("provider outbound image bindings are invalid")
+            raise ValueError("provider outbound images are invalid")
         for image in attempt["outbound_images"]:
             binding = _object(image, label="provider outbound image")
             _exact_keys(binding, OUTBOUND_IMAGE_KEYS, label="provider outbound image")
             _sha256(binding["content_sha256"], label="provider outbound image hash")
-        observations = attempt["outbound_observations"]
-        if not isinstance(observations, list):
-            raise ValueError("provider outbound observation bindings are invalid")
-        for observation in observations:
-            binding = _object(observation, label="provider outbound observation")
-            _exact_keys(
-                binding,
-                OUTBOUND_OBSERVATION_KEYS,
-                label="provider outbound observation",
-            )
-            content_hash = _sha256(
-                binding["content_sha256"],
-                label="provider outbound observation hash",
-            )
-            if binding["observation_content_sha256"] != content_hash:
-                raise ValueError("provider observation content hash drifted")
-            if binding["media_type"] != "image/png":
-                raise ValueError("canary outbound observation is not PNG")
-            outbound_observation_count += 1
-    if outbound_observation_count <= 0:
-        raise ValueError("provider attempts contain no explicit outbound observation binding")
+            outbound_image_count += 1
+    if outbound_image_count <= 0:
+        raise ValueError("provider attempts contain no outbound screenshot image")
     declared_count = canary["provider_attempt_count"]
     if not isinstance(declared_count, int) or isinstance(declared_count, bool):
         raise ValueError("provider attempt count must be an integer")

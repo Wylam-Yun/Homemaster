@@ -171,7 +171,6 @@ def test_wait_incident_resolves_only_for_same_job() -> None:
 @pytest.mark.parametrize(
     ("failure_code", "failed_tool", "recovery_tool"),
     [
-        ("plan_required", "browser_navigate", "task_planner"),
         ("missing_precheck_evidence", "sop_decide", "sop_decide"),
         ("progress_required", "browser_navigate", "task_progress_check"),
         ("wait_required", "browser_wait", "browser_wait"),
@@ -218,11 +217,6 @@ def test_every_safe_failure_code_has_an_exact_incident_recovery_rule(
     events = [failed]
     if recovery_tool is not None:
         recovery_result = dict(target)
-        recovery_plan = None
-        if failure_code == "plan_required":
-            recovery_plan = ObservablePlan(
-                items=(ObservablePlanItem(id="recover", title="Recover", status="in_progress"),)
-            )
         events.append(
             presentation_event(
                 2,
@@ -233,7 +227,7 @@ def test_every_safe_failure_code_has_an_exact_incident_recovery_rule(
                 tool_call_id=f"recovery-call-{failure_code}",
                 arguments=target,
                 result=recovery_result,
-                plan=recovery_plan,
+                plan=None,
             )
         )
 

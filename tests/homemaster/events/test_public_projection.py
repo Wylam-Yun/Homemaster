@@ -385,3 +385,38 @@ def test_gateway_projection_rejects_private_and_unknown_events() -> None:
     assert (
         projection.project(_event("provider.private_payload", payload={"raw": "private"})) is None
     )
+
+
+def test_tool_completed_projects_only_valid_opaque_artifact_refs() -> None:
+    valid = {
+        "artifact_handle": f"hm-artifact:{'a' * 32}",
+        "run_id": "run-media",
+        "filename": "result.png",
+        "media_type": "image/png",
+        "content_sha256": "b" * 64,
+    }
+    event = RuntimeEvent(
+        type="tool.call_completed",
+        session_id="session-a",
+        run_id="run-media",
+        turn_index=1,
+        tool_call_id="call-media",
+        name="render",
+        payload={
+            "result": "must-not-be-public",
+            "data": {
+                "artifacts": [
+                    valid,
+                    {**valid, "artifact_handle": "/tmp/raw.png"},
+                    {**valid, "filename": "../escape.png"},
+                ]
+            },
+        },
+        gateway_generation=3,
+    )
+
+    projected = PublicEventProjection().project(event)
+
+    assert projected is not None
+    assert projected.artifacts == (valid,)
+    assert "must-not-be-public" not in projected.content

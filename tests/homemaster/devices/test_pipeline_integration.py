@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -108,8 +109,8 @@ def setup(backend: Backend):
             backend=backend,
             deadline=None,
             cancellation=None,
-            observation=None,
             domain_observer=None,
+            working_directory=Path.cwd(),
         )
 
     return pipeline, manager, executor, entered, release, context

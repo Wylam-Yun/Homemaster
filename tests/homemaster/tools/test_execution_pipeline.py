@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -106,23 +107,6 @@ class Permission:
         return PermissionDecision(allowed=self.allowed, reason="policy decision")
 
 
-class Observation:
-    def __init__(self, order, before=True) -> None:
-        self.order = order
-        self.before = before
-        self.after_calls = 0
-
-    async def before_action(self, definition, context):
-        del definition, context
-        self.order.append("pre_observation")
-        return self.before
-
-    async def after_action(self, definition, result, context):
-        del definition, result, context
-        self.order.append("post_observation_debt")
-        self.after_calls += 1
-
-
 class Resources:
     def __init__(self, order) -> None:
         self.order = order
@@ -201,7 +185,6 @@ def build_pipeline(
     executor=None,
     verifier=None,
     permission=None,
-    observation=None,
     terminal=None,
 ):
     tool_definition = tool_definition or definition()
@@ -221,7 +204,6 @@ def build_pipeline(
         catalog,
         permission_policy=permission or Permission(order),
         resource_manager=resources,
-        observation_service=observation or Observation(order),
         authoritative_ledger=ledger,
         public_event_sink=Events(order),
         terminal_policy=terminal or Terminal(order),
@@ -239,8 +221,8 @@ def build_pipeline(
         backend=None,
         deadline=None,
         cancellation=None,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
     return pipeline, context, executor, verifier, resources, ledger
 
@@ -261,13 +243,11 @@ async def test_pipeline_runs_policy_stages_in_fixed_order() -> None:
         "terminal",
         "input_validation",
         "permission",
-        "pre_observation",
         "lock",
         "execute",
-        "unlock",
         "result_validation",
         "verify",
-        "post_observation_debt",
+        "unlock",
         "permission_evidence",
         "authoritative_ledger",
         "public_event",
@@ -322,25 +302,22 @@ async def test_invalid_input_short_circuits_permission_lock_and_executor() -> No
 
 
 @pytest.mark.asyncio
-async def test_pre_observation_failure_does_not_lock_or_execute() -> None:
+async def test_actions_execute_without_an_observation_stage() -> None:
     order = []
-    observation = Observation(order, before=False)
-    pipeline, context, executor, verifier, resources, ledger = build_pipeline(
-        order,
-        observation=observation,
-    )
+    pipeline, context, executor, verifier, resources, ledger = build_pipeline(order)
 
     result = await pipeline.execute(
         ToolCall(id="call-1", name="action", arguments={"value": 1}),
         context,
     )
 
-    assert result.status is ToolExecutionStatus.OBSERVATION_REQUIRED
-    assert executor.calls == 0
-    assert verifier.calls == 0
-    assert resources.keys == []
+    assert result.status is ToolExecutionStatus.SUCCESS
+    assert executor.calls == 1
+    assert verifier.calls == 1
+    assert resources.keys == ["device:typed"]
     assert ledger.results == [result]
-    assert order[-2:] == ["authoritative_ledger", "public_event"]
+    assert "pre_observation" not in order
+    assert "post_observation_debt" not in order
 
 
 @pytest.mark.asyncio
@@ -443,8 +420,8 @@ async def test_frozen_view_keeps_original_executor_after_catalog_override() -> N
         backend=None,
         deadline=None,
         cancellation=None,
-        observation=None,
         domain_observer=None,
+        working_directory=Path.cwd(),
     )
     result = await pipeline.execute(
         ToolCall(id="call-old", name="action", arguments={"value": 1}),
@@ -492,7 +469,7 @@ async def test_exception_releases_resource_and_mutating_outcome_is_unknown() -> 
     assert result.backend_attempted is True
     assert verifier.calls == 0
     assert resources.active == 0
-    assert order.index("unlock") < order.index("post_observation_debt")
+    assert "post_observation_debt" not in order
 
 
 @pytest.mark.asyncio
@@ -534,8 +511,8 @@ async def test_query_engine_synthesizes_tool_result_when_parallel_tool_raises() 
             backend=None,
             deadline=None,
             cancellation=None,
-            observation=None,
             domain_observer=None,
+            working_directory=Path.cwd(),
         )
 
     calls = [

@@ -1,65 +1,117 @@
-"""SkillRegistry — stores SkillSpec, returns compact summaries."""
+"""OpenHarness-compatible Skill registry with HomeMaster source diagnostics."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
 
-from homemaster.skills.spec import SkillSource, SkillSpec
+from homemaster.skills.types import SkillDefinition
+
+
+@dataclass(frozen=True)
+class SkillProvenance:
+    """HomeMaster-owned source metadata kept outside SkillDefinition."""
+
+    source: str
+    path: Path
+    root: Path
 
 
 @dataclass(frozen=True)
 class SkillLoadIssue:
-    """Secret-safe diagnostic for one rejected automatic skill source."""
+    """Secret-safe diagnostic for one rejected skill source."""
 
-    source: SkillSource
+    source: str
     code: str
     detail: str
 
 
 class SkillRegistry:
-    """Registry of available skills.
+    """Store Skills under all OpenHarness lookup names.
 
-    Stores SkillSpec by name. Returns compact summaries for candidate
-    selection. Validates that tool_names exist in a ToolRegistry.
+    The definition follows OpenHarness exactly. Provenance, diagnostics, and
+    replacement authorization stay in this HomeMaster-only adapter.
     """
 
     def __init__(self) -> None:
-        self._specs: dict[str, SkillSpec] = {}
-        self._lookup: dict[str, str] = {}
+        self._skills: dict[str, SkillDefinition] = {}
+        self._provenance: dict[int, tuple[SkillProvenance, ...]] = {}
         self._issues: list[SkillLoadIssue] = []
+        self._refresher: Callable[[], SkillRegistry] | None = None
 
-    def register(self, spec: SkillSpec, *, allow_builtin_override: bool = False) -> None:
-        existing = self._specs.get(spec.name)
+    def register(
+        self,
+        skill: SkillDefinition,
+        *,
+        provenance: SkillProvenance,
+        allow_builtin_override: bool = False,
+    ) -> None:
+        if not isinstance(skill, SkillDefinition):
+            raise TypeError("skill must be a SkillDefinition")
+        existing = self._skills.get(skill.name)
         if existing is not None:
-            if existing.source == "builtin" and spec.source != "explicit":
-                if not allow_builtin_override:
-                    raise ValueError(
-                        f"skill {spec.name!r} cannot override builtin without named authorization"
-                    )
-            if existing.source == "builtin" and not allow_builtin_override:
+            existing_source = self.provenance_for(existing)[-1].source
+            if (
+                existing_source in {"bundled", "builtin"}
+                and provenance.source not in {"bundled", "builtin"}
+                and not allow_builtin_override
+            ):
                 raise ValueError(
-                    f"skill {spec.name!r} cannot override builtin without named authorization"
+                    f"skill {skill.name!r} cannot override builtin without named authorization"
                 )
-            if _SOURCE_PRIORITY[spec.source] < _SOURCE_PRIORITY[existing.source]:
-                return
-            prior = existing.provenance
-            spec = spec.model_copy(update={"provenance": (*prior, *spec.provenance)})
-        candidate = dict(self._specs)
-        candidate[spec.name] = spec
-        lookup = _build_lookup(candidate)
-        self._specs = candidate
-        self._lookup = lookup
+            inherited = self.provenance_for(existing)
+        else:
+            inherited = ()
 
-    def get(self, name: str) -> SkillSpec | None:
-        canonical = self._lookup.get(name, name)
-        return self._specs.get(canonical)
+        for key in self._keys(skill):
+            conflict = self._skills.get(key)
+            if conflict is not None and conflict is not existing:
+                raise ValueError(f"skill lookup name {key!r} conflicts with {conflict.name!r}")
+        if existing is not None:
+            self._remove(existing)
+        for key in self._keys(skill):
+            self._skills[key] = skill
+        self._provenance[id(skill)] = (*inherited, provenance)
 
-    def get_model_visible(self, name: str) -> SkillSpec | None:
-        spec = self.get(name)
-        if spec is not None and spec.disable_model_invocation:
+    def get(self, name: str) -> SkillDefinition | None:
+        return self._skills.get(name)
+
+    def get_model_visible(self, name: str) -> SkillDefinition | None:
+        """Compatibility accessor that enforces the invocation flag."""
+
+        skill = self.get(name)
+        if skill is None or skill.disable_model_invocation:
             return None
-        return spec
+        return skill
+
+    def list_skills(self) -> list[SkillDefinition]:
+        unique: dict[tuple[str, str | None], SkillDefinition] = {}
+        for skill in self._skills.values():
+            unique[(skill.source, skill.path or skill.name)] = skill
+        return sorted(unique.values(), key=lambda skill: skill.command_name or skill.name)
+
+    def all(self) -> list[SkillDefinition]:
+        return self.list_skills()
+
+    def all_names(self) -> list[str]:
+        return sorted(self._skills)
+
+    def provenance_for(self, skill: SkillDefinition) -> tuple[SkillProvenance, ...]:
+        return self._provenance.get(id(skill), ())
+
+    def candidate_summaries(self, task_hint: str = "") -> list[dict[str, object]]:
+        del task_hint
+        return [
+            {
+                "name": skill.name,
+                "command_name": skill.command_name,
+                "description": skill.description,
+                "user_invocable": skill.user_invocable,
+                "model_invocable": not skill.disable_model_invocation,
+            }
+            for skill in self.list_skills()
+        ]
 
     @property
     def issues(self) -> tuple[SkillLoadIssue, ...]:
@@ -69,52 +121,38 @@ class SkillRegistry:
         self._issues.append(issue)
 
     def replace_with(self, registry: SkillRegistry) -> None:
-        """Atomically replace this handle with an already validated registry snapshot."""
-
         if not isinstance(registry, SkillRegistry):
             raise TypeError("registry must be a SkillRegistry")
-        self._specs = dict(registry._specs)
-        self._lookup = dict(registry._lookup)
+        self._skills = dict(registry._skills)
+        self._provenance = dict(registry._provenance)
         self._issues = list(registry._issues)
 
-    def all(self) -> list[SkillSpec]:
-        """Return all registered specs."""
-        return list(self._specs.values())
+    def set_refresher(self, refresher: Callable[[], SkillRegistry]) -> None:
+        if not callable(refresher):
+            raise TypeError("skill registry refresher must be callable")
+        self._refresher = refresher
 
-    def all_names(self) -> list[str]:
-        return list(self._specs.keys())
+    def refresh(self) -> SkillRegistry:
+        """Atomically publish a newly discovered complete Skill snapshot."""
 
-    def candidate_summaries(self, task_hint: str = "") -> list[dict[str, Any]]:
-        """Return compact skill summaries for model selection.
+        if self._refresher is None:
+            return self
+        snapshot = self._refresher()
+        self.replace_with(snapshot)
+        return self
 
-        Does NOT return full SKILL.md body — only name, description,
-        and tool_names.
-        """
-        return [
-            {
-                "name": spec.name,
-                "description": spec.description,
-                "tool_names": spec.tool_names,
-            }
-            for spec in self._specs.values()
-            if not spec.disable_model_invocation
-        ]
+    def _remove(self, skill: SkillDefinition) -> None:
+        for key, value in tuple(self._skills.items()):
+            if value is skill:
+                del self._skills[key]
+
+    @staticmethod
+    def _keys(skill: SkillDefinition) -> tuple[str, ...]:
+        return tuple(
+            key
+            for key in (skill.name, skill.command_name, skill.display_name, *skill.aliases)
+            if key
+        )
 
 
-_SOURCE_PRIORITY = {"builtin": 0, "user": 1, "project": 2, "explicit": 3}
-
-
-def _build_lookup(specs: dict[str, SkillSpec]) -> dict[str, str]:
-    lookup: dict[str, str] = {}
-    for spec in specs.values():
-        keys = (spec.name, spec.command_name, spec.display_name, *spec.aliases)
-        for key in keys:
-            if not key:
-                continue
-            owner = lookup.get(key)
-            if owner is not None and owner != spec.name:
-                raise ValueError(
-                    f"skill lookup alias {key!r} is ambiguous between {owner!r} and {spec.name!r}"
-                )
-            lookup[key] = spec.name
-    return lookup
+__all__ = ["SkillLoadIssue", "SkillProvenance", "SkillRegistry"]

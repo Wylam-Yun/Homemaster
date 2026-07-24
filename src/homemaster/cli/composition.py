@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import io
+import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +14,8 @@ from homemaster.adapters.profiles import EnvironmentToolProfile, build_home_prof
 from homemaster.application import ApplicationRuntime, ResourceBinding, ResourceLifetime
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
-from homemaster.artifacts import ToolOutputStore
+from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
+from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feishu_group_tools
 from homemaster.cli.live_output import RichStreamEventSink
 from homemaster.cli.rich_renderer import RichOutputRenderer
 from homemaster.config import HomeMasterConfig, configured_sensitive_values, load_config
@@ -32,9 +36,9 @@ from homemaster.extensions import (
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
-from homemaster.observations import ObservationCapture, ObservationService
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
+from homemaster.tools.openharness_runtime import HomeOpenHarnessServices
 
 
 @dataclass(frozen=True)
@@ -49,10 +53,11 @@ class HomeApplicationBundle:
     extension_runner: HookRunner | None = None
     extension_reloader: ExtensionReloader | None = None
     live_rendered: bool = False
+    tool_services: HomeOpenHarnessServices | None = None
 
 
 class HomeCliBackend:
-    """Borrowed structured state backend for Home's explicit observe tool."""
+    """Borrowed Home backend, including the current desktop screenshot source."""
 
     def __init__(
         self,
@@ -76,23 +81,19 @@ class HomeCliBackend:
         self.state_sequence += 1
         self.event_sequence += 1
 
-    def capture(self) -> ObservationCapture:
-        self.event_sequence += 1
-        return ObservationCapture(
-            backend_id=self.backend_id,
-            run_id=self.run_id,
-            generation=self.generation,
-            state_sequence=self.state_sequence,
-            capture_event_sequence=self.event_sequence,
-            media_type="application/json",
-            content={
-                "environment": "home",
-                "state_sequence": self.state_sequence,
-                "world_path": str(self.world_path) if self.world_path else None,
-                "memory_path": str(self.memory_path) if self.memory_path else None,
-            },
-            evidence_ref=f"home/{self.run_id}/observation/{self.event_sequence}",
-        )
+    async def screenshot(self) -> bytes:
+        return await asyncio.to_thread(self._capture_display_png)
+
+    @staticmethod
+    def _capture_display_png() -> bytes:
+        from PIL import ImageGrab
+
+        display = os.environ.get("DISPLAY")
+        kwargs = {"xdisplay": display} if display else {}
+        image = ImageGrab.grab(**kwargs)
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
 
 
 def create_home_application(
@@ -107,19 +108,29 @@ def create_home_application(
     console_show_replies: bool = True,
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
+    feishu_group_operations: FeishuGroupOperations | None = None,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
     resolved = config or load_config()
     label = run_label or f"cli-{uuid.uuid4().hex[:12]}"
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
-    observation = ObservationService()
     profile = build_home_profile(
-        observation_service=observation,
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
     )
+    if feishu_group_operations is not None:
+        group_tools = build_feishu_group_tools(feishu_group_operations)
+        for tool in group_tools:
+            profile.catalog.register(tool)
+        profile = EnvironmentToolProfile(
+            environment="home",
+            catalog=profile.catalog,
+            view=profile.catalog.freeze(
+                (*profile.enabled_tool_ids, *(tool.definition.internal_id for tool in group_tools))
+            ),
+        )
     extension_runner: HookRunner | None = None
     extension_reloader: ExtensionReloader | None = None
     extension_generation = None
@@ -146,7 +157,6 @@ def create_home_application(
             resolved=resolved,
             label=label,
             profile=profile,
-            observation=observation,
             extension_runner=extension_runner,
             extension_reloader=extension_reloader,
             progress=progress,
@@ -155,6 +165,7 @@ def create_home_application(
             console_show_replies=console_show_replies,
             mcp_connector=mcp_connector,
             event_sink=event_sink,
+            feishu_group_operations=feishu_group_operations,
         )
     except BaseException:
         if extension_generation is not None:
@@ -167,7 +178,6 @@ def _finish_home_application(
     resolved: HomeMasterConfig,
     label: str,
     profile: EnvironmentToolProfile,
-    observation: ObservationService,
     extension_runner: HookRunner | None,
     extension_reloader: ExtensionReloader | None,
     progress: bool,
@@ -176,15 +186,37 @@ def _finish_home_application(
     console_show_replies: bool,
     mcp_connector: Connector | None,
     event_sink: Any | None,
+    feishu_group_operations: FeishuGroupOperations | None,
 ) -> HomeApplicationBundle:
     """Finish composition while the caller retains extension rollback ownership."""
 
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
-    skill_registry = (
-        SkillRegistry() if resolved.mcp.servers else load_home_skills(resolved, profile)
-    )
+    artifact_publisher: ArtifactPublisher | None = None
+    skill_registry = load_home_skills(resolved, profile)
     bus = EventBus()
     scope = RunResourceScope()
+    if feishu_group_operations is not None:
+        scope.bind(
+            ResourceBinding.owned(
+                "feishu-api-service",
+                feishu_group_operations.api_service,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+    if resolved.gateway.enabled and resolved.gateway.feishu.enabled:
+        gateway_store = ToolOutputStore(
+            run_dir / "gateway-artifacts",
+            quota_bytes=256 * 1024 * 1024,
+            ttl_seconds=3600,
+        )
+        scope.bind(
+            ResourceBinding.owned(
+                "gateway-tool-output-store",
+                gateway_store,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+        artifact_publisher = ArtifactPublisher(gateway_store)
     trace = JsonlTraceSink(run_dir)
     scope.bind(
         ResourceBinding.owned(
@@ -224,6 +256,15 @@ def _finish_home_application(
     mcp_manager: McpClientManager | None = None
     mcp_audit_path: Path | None = None
     application_starter = None
+    service_state_root = Path(resolved.observability.session_dir).expanduser().resolve().parent
+    tool_services = HomeOpenHarnessServices(resolved, state_root=service_state_root)
+    scope.bind(
+        ResourceBinding.owned(
+            "openharness-tool-services",
+            tool_services,
+            lifetime=ResourceLifetime.APPLICATION,
+        )
+    )
     if resolved.mcp.servers:
         mcp_audit_path = run_dir / "mcp_audit.jsonl"
         audit_log = McpAuditLog(mcp_audit_path)
@@ -270,18 +311,27 @@ def _finish_home_application(
                 view=application.catalog.freeze((*current.enabled_tool_ids, *mcp_ids)),
             )
             application.profiles["home"] = final_profile
-            skill_registry.replace_with(load_home_skills(resolved, final_profile))
 
         application_starter = start_mcp
     application = create_application(
         config=resolved,
         profiles={"home": profile},
         catalog=profile.catalog,
-        observation_service=observation,
         event_bus=bus,
         resource_scope=scope,
         application_starter=application_starter,
         extension_runner=extension_runner,
+        artifact_publisher=artifact_publisher,
+        application_services={
+            "openharness_services": tool_services,
+            "task_manager": tool_services.tasks,
+            "cron_store": tool_services.cron,
+            "team_registry": tool_services.teams,
+            "plan_mode": tool_services.plan_mode,
+            "home_config": tool_services.config,
+            **_image_provider_services(resolved),
+            **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
+        },
     )
     return HomeApplicationBundle(
         application=application,
@@ -294,7 +344,28 @@ def _finish_home_application(
         extension_runner=extension_runner,
         extension_reloader=extension_reloader,
         live_rendered=live_rendered,
+        tool_services=tool_services,
     )
+
+
+def _image_provider_services(config: HomeMasterConfig) -> dict[str, object]:
+    try:
+        provider = config.get_provider(
+            config.runtime_defaults.default_provider_name,
+            kind="chat",
+        )
+    except Exception:
+        return {}
+    api_key = provider.api_keys[0] if provider.api_keys else ""
+    common = {
+        "model": provider.model,
+        "api_key": api_key,
+        "base_url": provider.base_url,
+    }
+    return {
+        "vision_model_config": dict(common),
+        "image_generation_config": {**common, "provider": "openai"},
+    }
 
 
 def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, ...]:
@@ -323,18 +394,27 @@ def load_home_skills(
     *,
     cwd: Path | None = None,
 ) -> SkillRegistry:
-    """Load only skills whose tool names resolve in the frozen Home ToolView."""
+    """Load HomeMaster's independent, dynamically refreshable Skill sources."""
 
     sources = config.skills
-    return load_skill_registry(
-        cwd=cwd or Path.cwd(),
-        user_dirs=sources.user_dirs,
-        project_dirs=sources.project_dirs,
-        explicit_dirs=sources.explicit_dirs,
-        allowed_tool_names=profile.model_tool_names,
-        allow_project=sources.allow_project,
-        allowed_builtin_overrides=sources.allowed_builtin_overrides,
-    )
+    discovery_cwd = cwd or Path.cwd()
+
+    def discover() -> SkillRegistry:
+        return load_skill_registry(
+            cwd=discovery_cwd,
+            user_dirs=sources.user_dirs,
+            project_dirs=sources.project_dirs,
+            explicit_dirs=sources.explicit_dirs,
+            allow_project=sources.allow_project,
+            plugin_roots=sources.plugin_roots,
+            enabled_plugins=sources.enabled_plugins,
+            allow_project_plugin_skills=sources.allow_project_plugin_skills,
+            allowed_builtin_overrides=sources.allowed_builtin_overrides,
+        )
+
+    registry = discover()
+    registry.set_refresher(discover)
+    return registry
 
 
 __all__ = [

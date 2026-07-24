@@ -136,14 +136,15 @@ observability:
 skills:
   user_dirs:
     - ~/.homemaster/skills
-    - ~/.agents/skills
-    - ~/.claude/skills
   project_dirs:
     - .homemaster/skills
-    - .agents/skills
-    - .claude/skills
   explicit_dirs: []
   allow_project: true
+  # Each plugin root contains OpenHarness plugin directories with plugin.json manifests.
+  plugin_roots: []
+  enabled_plugins: {}
+  # Project .openharness/plugins Skills are data-only and disabled unless explicitly trusted.
+  allow_project_plugin_skills: false
   allowed_builtin_overrides: []
 
 # Optional MCP support requires installing the project with the `mcp` extra.
@@ -171,8 +172,8 @@ mcp:
   artifact_ttl_seconds: 604800
   preview_chars: 4000
 
-# Permission mode never grants a capability. Remote capabilities must come from
-# a configured credential-to-principal mapping at the Gateway boundary.
+# Permission mode never grants a capability. The Feishu Gateway deliberately maps every
+# non-bot sender to its built-in trusted owner principal.
 permissions:
   mode: full_auto
   allowed_tools: []
@@ -187,27 +188,26 @@ permissions:
   denied_commands:
     - "rm -rf *"
 
-# Optional Telegram long polling requires installing the `gateway` extra.
-# The real bot token belongs only in HOMEMASTER_TELEGRAM_BOT_TOKEN (or the
-# configured token_env); never put it in this file.
+# Optional Feishu/Lark WebSocket Gateway requires installing the `gateway` extra.
+# Put real credentials only in the ignored mode-0600 config/homemaster.yaml.
 gateway:
   enabled: false
   bus_capacity: 128
   per_tenant_capacity: 64
   per_session_capacity: 32
   shutdown_deadline_s: 5.0
-  telegram:
+  feishu:
     enabled: false
-    token_env: HOMEMASTER_TELEGRAM_BOT_TOKEN
+    # app_id: cli_replace_with_app_id
+    # app_secret: replace_with_app_secret
+    app_id_env: HOMEMASTER_FEISHU_APP_ID
+    app_secret_env: HOMEMASTER_FEISHU_APP_SECRET
+    encrypt_key_env: HOMEMASTER_FEISHU_ENCRYPT_KEY
+    verification_token_env: HOMEMASTER_FEISHU_VERIFICATION_TOKEN
     tenant_id: local
-    bot_name: HomeMaster
-    attachment_root: ~/.homemaster/attachments/telegram
-    principals:
-      # Telegram numeric sender id -> immutable HomeMaster principal.
-      "123456789":
-        principal_id: operator-name
-        roles: [operator]
-        capabilities: [tool.read]
+    domain: feishu
+    react_emoji: EYES
+    attachment_root: ~/.homemaster/attachments/feishu
 
 # Trusted local Python extensions are disabled unless every approval field is pinned.
 extensions:

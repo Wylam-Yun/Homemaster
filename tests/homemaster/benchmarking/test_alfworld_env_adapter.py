@@ -441,6 +441,43 @@ def test_adapter_saves_thor_frames_when_available(tmp_path: Path) -> None:
     assert Path(step_result.state.frame_path).exists()
 
 
+@pytest.mark.asyncio
+async def test_screenshot_returns_the_exact_current_frame_without_advancing_state(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("PIL")
+    numpy = pytest.importorskip("numpy")
+
+    class Event:
+        frame = numpy.full((4, 4, 3), 91, dtype=numpy.uint8)
+
+    class ThorEnv:
+        last_event = Event()
+
+    class InnerEnv:
+        env = ThorEnv()
+
+    env = FakeBatchEnv()
+    env.envs = [InnerEnv()]
+    adapter = AlfworldEnvAdapter(
+        env=env,
+        episode_prefix="episode",
+        seed=123,
+        frame_dir=tmp_path / "frames",
+    )
+    reset = adapter.reset()
+    assert reset.state is not None and reset.state.frame_path is not None
+    frame_path = Path(reset.state.frame_path)
+    event_sequence = adapter.event_sequence
+    state_sequence = adapter.state_sequence
+
+    screenshot = await adapter.screenshot()
+
+    assert screenshot == frame_path.read_bytes()
+    assert adapter.event_sequence == event_sequence
+    assert adapter.state_sequence == state_sequence
+
+
 def test_virtual_navigate_teleports_until_target_is_visible(tmp_path: Path) -> None:
     pytest.importorskip("PIL")
     numpy = pytest.importorskip("numpy")

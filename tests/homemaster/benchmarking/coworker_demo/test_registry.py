@@ -13,10 +13,10 @@ from homemaster.benchmarking.coworker_demo.types import CoworkerOutcome
 from homemaster.domain.tool_registry import build_home_tool_registry
 
 
-def test_registry_contains_exactly_eleven_tools_in_stable_order() -> None:
+def test_registry_contains_exactly_ten_action_tools_in_stable_order() -> None:
     registry = build_coworker_tool_registry()
     assert tuple(registry.all_names()) == EXPECTED_COWORKER_TOOLS
-    assert len(registry.all_names()) == 11
+    assert len(registry.all_names()) == 10
     skill_names = registry.get("skill_view").input_schema["properties"]["skill_name"]["enum"]
     assert skill_names == ["change_execution", "evidence_discipline"]
 

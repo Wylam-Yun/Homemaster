@@ -9,7 +9,6 @@ Tools:
   target_grounder   — assess memory hits and select grounded target
   skill_view        — retrieve skill metadata by name
   robot_navigate    — navigate robot to target location
-  robot_observe     — observe environment at current location
   robot_manipulate  — manipulate an object (pick up, put down, etc.)
   robot_verify      — verify task objective achieved
   memory_writer     — persist memory update proposal
@@ -154,6 +153,9 @@ def _exec_skill_view(
             failure_reason="no skill_registry in run_context.deps",
         )
 
+    refresh = getattr(skill_registry, "refresh", None)
+    if callable(refresh):
+        refresh()
     get_skill = getattr(skill_registry, "get_model_visible", skill_registry.get)
     spec = get_skill(skill_name)
     if spec is None:
@@ -164,6 +166,7 @@ def _exec_skill_view(
             failure_reason=f"skill not found: {skill_name}",
         )
 
+    base_dir = spec.base_dir
     return ToolResult(
         success=True,
         tool_name="skill_view",
@@ -171,12 +174,31 @@ def _exec_skill_view(
         data={
             "name": spec.name,
             "description": spec.description,
-            "tool_names": spec.tool_names,
-            "system_prompt_fragment": spec.system_prompt_fragment,
-            "constraints": spec.constraints,
-            "success_criteria": spec.success_criteria,
+            "content": spec.content,
+            "base_dir": base_dir,
+            "command_name": spec.command_name,
+            "argument_hint": spec.argument_hint,
         },
     )
+
+
+def _exec_skill(
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
+) -> ToolResult:
+    name = arguments.get("name", "")
+    if not isinstance(name, str) or not name.strip():
+        return ToolResult(
+            success=False,
+            tool_name="skill",
+            executor_mode="programmatic",
+            failure_reason="name is required",
+        )
+    return _exec_skill_view(
+        arguments={"skill_name": name},
+        run_context=run_context,
+    ).model_copy(update={"tool_name": "skill"})
 
 
 def _exec_robot_navigate(
@@ -191,21 +213,6 @@ def _exec_robot_navigate(
         executor_mode="simulated_skill",
         data={"location": room, "observation": f"navigated to {room}"},
         summary=f"Navigated to {room}",
-    )
-
-
-def _exec_robot_observe(
-    *,
-    arguments: dict[str, Any],
-    run_context: RunContext,
-) -> ToolResult:
-    target = arguments.get("target_object", "unknown")
-    return ToolResult(
-        success=True,
-        tool_name="robot_observe",
-        executor_mode="simulated_skill",
-        data={"object": target, "visible": True, "observation": f"observed {target}"},
-        summary=f"Observed {target}",
     )
 
 
@@ -409,6 +416,29 @@ def make_skill_view() -> ToolSpec:
     )
 
 
+def make_skill() -> ToolSpec:
+    """OpenHarness-compatible progressive disclosure entry point."""
+
+    return ToolSpec(
+        name="skill",
+        description="Read the complete instructions for one available Skill.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the Skill to read.",
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+        executor_mode="programmatic",
+        selectable_by_model=True,
+        executor=_exec_skill,
+    )
+
+
 def make_robot_navigate() -> ToolSpec:
     return ToolSpec(
         name="robot_navigate",
@@ -423,22 +453,6 @@ def make_robot_navigate() -> ToolSpec:
         executor_mode="simulated_skill",
         selectable_by_model=True,
         executor=_exec_robot_navigate,
-    )
-
-
-def make_robot_observe() -> ToolSpec:
-    return ToolSpec(
-        name="robot_observe",
-        description="Observe environment at current location for a target object.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "target_object": {"type": "string", "description": "Object to look for."},
-            },
-        },
-        executor_mode="simulated_skill",
-        selectable_by_model=True,
-        executor=_exec_robot_observe,
     )
 
 

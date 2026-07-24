@@ -19,7 +19,6 @@ load and verify complete trial manifest
   -> ChangeTimeScale(1.0)
   -> atomically publish immutable pose snapshot
   -> construct Provider/runtime only after reset is ready
-  -> commit successful Provider view
   -> dispatch public tool batch
   -> classify one terminal owner and close Adapter
 ```
@@ -28,24 +27,13 @@ load and verify complete trial manifest
 
 `AlfworldResetResult` 和 `AlfworldGoalAdvanceResult` 是 closed typed result。ready 与 terminal 字段组合互斥；终止记录保留 trigger、最终 failure、classification、恢复/清理状态、环境 disposition、计数和 evidence ref。
 
-## Snapshot 与当前视图
+## Snapshot 与当前物理视图
 
 reset scan 只生成 scene-generation 级 immutable snapshot。每个 addressable exact object row 最多给出一个 direct 或 unique-parent pose；lookup 不搜索、不枚举候选，也不会因一次失败选择另一个 pose。
 
-`robot_go_to` 首先验证模型当前 event 的 frame authority：
+`robot_go_to` 与 manipulation 从动作即将使用的当前 THOR event 读取 object metadata、visibility 和 2D bbox。这个物理校验与模型何时调用 `observe`、provider 是否收到图片、图片是否被历史 context 裁剪完全独立。
 
-```text
-successful Provider request
-  -> exact serialized request SHA-256
-  -> ordered outbound image binding
-  -> persisted frame bytes + decoded pixel SHA-256
-  -> event sequence
-  -> per-object visibility and exact bbox observation
-```
-
-frame authority 不要求请求的目标已经可见。目标解析使用 frozen full scene index：generic label 优先锁定当前 strict-visible peer，没有可见 peer 时稳定锁定冻结顺序中的第一个离屏实例；显式 ordinal 绑定 frozen full set，不允许 fallback。只有图片绑定失配、目标不存在或 snapshot pose 不可用时才会在发送前停止。
-
-`FrameLedger` 的 binding ID 只存在于本地 message metadata。Provider serializer 必须删除该字段。一次完整 assistant response append 后、工具 dispatch 前，runtime 用该次成功 attempt 提交 model view。同一 assistant response 中的多个工具共享同一个 committed view；前一个工具产生的新图片不能被同 batch 的后一个工具使用。
+目标解析使用 frozen full scene index：generic label 优先锁定当前 strict-visible peer，没有可见 peer 时稳定锁定冻结顺序中的第一个离屏实例；显式 ordinal 绑定 frozen full set，不允许 fallback。只有当前事件 malformed、目标不存在或 snapshot pose 不可用时才会在发送前停止。`observe({})` 只读取当前 frame PNG 供模型确认，绝不创建动作授权或 freshness 状态。
 
 ## 外部动作网关
 
