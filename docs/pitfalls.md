@@ -1,5 +1,65 @@
 # Engineering Pitfalls
 
+## 2026-07-24 - installed CLI 把配置路径硬绑源码根，非交互与 PTY 在 provider 前退出
+
+### 症状与根因
+
+源码 first-byte/Rich 黑盒全绿，clean wheel 的 CLI 却报 `provider 'Mimo' ... not found`；增加外部配置后
+interactive 又因 `HOMEMASTER_CONFIG_PATH.relative_to(REPO_ROOT)` 抛 `ValueError`。默认配置常量只指向
+源码 checkout，doctor 又假定任何合法配置都在该根下；原 doctor fixture 直接 monkeypatch 掉
+`_config_source()`，掩盖了真实路径分支。
+
+### 修法与教训
+
+允许 `HOMEMASTER_CONFIG_PATH` 显式选择部署配置，repo 内路径报告相对值，外部路径报告绝对值。installed
+黑盒从空 cwd、禁用仓库 pytest config、使用 wheel interpreter 和外部占位配置重跑 text/JSON/
+stream-JSON 与宽窄 PTY。源码可运行不等于 wheel 可部署；测试不得绕过负责路径格式化的真实函数。
+
+### 参考
+
+- `src/homemaster/config/config.py`
+- `src/homemaster/cli/doctor.py`
+- `tests/homemaster/test_config_resolution.py`
+- `tests/homemaster/test_cli_streaming_blackbox.py`
+
+## 2026-07-24 - canonical immutable nested data 在下一模型轮 deep copy 崩溃
+
+### 症状与根因
+
+真实 HomeMaster 的两个 `web_fetch` 都已返回 typed 结果，下一模型轮却报
+`cannot pickle 'mappingproxy' object`。canonical `ToolExecutionResult.data` 只在顶层转成普通 dict，嵌套
+`MappingProxyType` 继续进入 Pydantic session message；`model_copy(deep=True)` 因而在工具成功后才崩溃。
+
+### 修法与教训
+
+canonical result 进入 legacy/session/provider message 前递归 thaw 全部 Mapping/tuple 容器，并用嵌套 data
+做真实 deep-copy 回归。不可变 canonical 合同不能直接跨进要求可深拷贝 JSON 容器的边界。
+
+### 参考
+
+- `src/homemaster/tools/base.py`
+- `tests/homemaster/tools/test_execution_result.py`
+
+## 2026-07-24 - 配置报告无限工具预算，但 CLI 实际仍在第 12 轮终止
+
+### 症状与根因
+
+真实 HomeMaster 已下载并发布 Superpowers 的 14 个目录，却在处理第二个 URL 前以
+`max_tool_iterations_exceeded` 退出。配置中的 `runtime.max_tool_iterations=None` 正确，但 one-shot 和
+interactive CLI 构造 `RunRequest` 时没有把该值传入 `RunPolicy`，运行时静默使用默认 12。
+
+### 修法与教训
+
+所有 CLI 入口从同一 validated config 显式构造 `RunPolicy`，并在入口回归中断言请求携带真实预算。dry-run
+或配置输出声称的预算必须接入每个实际执行入口；报告正确不等于运行生效。
+
+### 参考
+
+- `src/homemaster/cli/run_command.py`
+- `src/homemaster/cli/interactive_shell.py`
+- `tests/homemaster/test_cli_run.py`
+- `tests/homemaster/test_cli_interactive.py`
+
 ## 2026-07-24 - `/tmp` 顶层文件遮蔽 wheel 依赖，制造隔离安装假失败
 
 ### 症状与根因
@@ -83,6 +143,9 @@ Pillow 和 MCP SDK 缺失而失败。`observe` 已成为默认 Home 工具，Pil
 - `tests/homemaster/skills/test_installed_package.py`
 
 ## 2026-07-23 - config show 直接序列化真实配置会向模型泄露凭证
+
+> 历史说明：本条记录当时采用的脱敏策略。2026-07-24 owner 已锁定 candidate 2，当前规则改为通过
+> permission/schema/ownership 后保持已选运行时文本原值；Git 占位、认证失败非回显和 binary/ACL 边界不变。
 
 ### 症状与根因
 

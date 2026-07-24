@@ -68,8 +68,8 @@ async def test_file_tools_write_verify_then_read_search_and_edit_real_bytes(tmp_
     assert read.status is ToolExecutionStatus.SUCCESS
     assert "needle line" in read.text
     assert searched.status is ToolExecutionStatus.SUCCESS
-    assert searched.data["matches"] == ("example.txt:2:needle line",)
-    assert matched.data["matches"] == ("example.txt",)
+    assert searched.data["matches"] == ["example.txt:2:needle line"]
+    assert matched.data["matches"] == ["example.txt"]
     assert edited.status is ToolExecutionStatus.SUCCESS
     assert edited.verification.status.value == "passed"
     assert target.read_text(encoding="utf-8") == "first line\nverified line\n"

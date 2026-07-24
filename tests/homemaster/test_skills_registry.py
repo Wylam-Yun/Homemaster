@@ -59,3 +59,16 @@ def test_skill_registry_candidate_summaries_do_not_leak_full_bodies() -> None:
     for summary in summaries:
         assert {"name", "command_name", "description", "model_invocable"} <= set(summary)
         assert "content" not in summary
+
+
+def test_skill_creator_documents_transactional_git_url_installation() -> None:
+    registry = SkillRegistry()
+    load_bundled_skills(registry)
+
+    skill = registry.get("skill-creator")
+    assert skill is not None
+    assert "git clone" in skill.content
+    assert "check every destination name" in skill.content
+    assert "report the conflict" in skill.content
+    assert "staging directory" in skill.content
+    assert "atomic rename" in skill.content

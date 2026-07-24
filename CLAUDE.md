@@ -1,5 +1,18 @@
 # HomeMaster Agent Rules
 
+## V2.0 精确运行时文本纪律
+
+- 已锁定 owner 决策为 candidate 2：经过现有认证、权限、tenant/session/run ownership、事件字段
+  allowlist 和 size/binary 边界后，运行时文本保持原值。不得按 key、credential 形状、配置字面值、
+  URL、路径或 chunk 重写 user/provider/tool/MCP/Feishu/config/doctor/dry-run/log/trace/audit/repr 文本。
+- 精确保真不扩大字段集合，也不授予权限。认证失败不得回显来访 credential；Git 中的配置、示例、源码、
+  文档和 fixture 只允许占位值；二进制及仅用于 transport 的宿主存储路径继续使用 tenant ACL artifact
+  或 opaque reference。
+- 任何外部 sink 只输出其 typed schema 已选择的字段，但已选择字段的文本值必须精确。不得新增可选
+  raw/redacted mode，也不得以收尾为由重建工具路由架构。
+- canonical immutable result 进入 Pydantic/session/provider message 前必须递归 thaw 为普通 JSON 容器；
+  回归要对包含 nested mapping 的真实 message 执行 deep copy，不能只断言顶层 dict。
+
 ## Gateway 远程边界纪律
 
 - 飞书部署订阅的每个事件都必须有准确 dispatcher 注册：业务事件进入 typed ingress，非业务访问事件使用
@@ -14,8 +27,8 @@
   安全落盘、reaction、publish；未授权和重复事件的下载、reaction、Runtime 次数都必须为零。
 - SDK WebSocket 没有真环境验证的 public stop API 时必须隔离到可终止子进程并回传 fatal/completion；
   设置本地 running flag、daemon thread 或 mock join 不能作为 deadline shutdown 证据。
-- logger filter 不能只挂在依赖父 logger 上并假设 propagation 会执行；所有现有/后续 handler 收到 record
-  前都必须完成配置 secret、Authorization、URL query 脱敏，结构化 API audit 只记录目标 hash。
+- logger filter 不能只挂在依赖父 logger 上并假设 propagation 会执行；依赖 SDK 与应用 logger 的 typed
+  字段和自由文本按 candidate 2 保持原值。结构化 API audit 仍只包含其既有 allowlist 字段，但字段值不改写。
 - reply/receive target 只来自认证 SDK envelope 的 immutable `ChannelDeliveryContext`；renderer metadata、
   chat id 前缀和模型参数不能覆盖。群 create/rename 的 member/chat target 同样只从可信 route 派生。
 - Tool image/attachment 可在 dispatch 后写入 tenant/session/run ACL store，但 artifact 投影不得改写
@@ -35,16 +48,16 @@
   `wait_for` 冒充总 deadline。未全部完成只返回 false，不能提前标 close complete。
 - Public progress 的 Gateway generation 必须在 RunRequest/event 生产时固化到 RuntimeEvent；消费 backlog
   时只核对事件携带的 generation 与 current generation，禁止读取 current 值后给旧事件重新贴标签。
-- 所有 progress、final、error、cancel 文本必须经过同一 public projection；自由文本也要脱敏配置 secret、
-  credential assignment、URL query 和宿主路径，不能只依赖 metadata key redaction。
+- 所有 progress、final、error、cancel 文本必须经过同一 public projection；projection 负责事件类型与字段
+  allowlist、ownership、generation 和 artifact 边界，不改写已选中的文本值。
 
 ## Tenant 与外部资源边界纪律
 
 - ACL、quota、artifact 和 connection ownership 必须使用 typed `tenant_id`，不得用 principal
   `subject_id` 代替；回归 fixture 必须让两个值不同，并从真实 tenant partition 验证读写。
-- 外部 resource URI 必须分别审计 discovery、read payload、model preview 和 audit。ACL raw artifact
-  可以保真，模型只见 opaque resource id，audit 只见不可逆 hash；query token、userinfo 和本地路径
-  不得进入 preview、事件或 audit。
+- 外部 resource URI 必须分别审计 discovery、read payload、model result、public event 和 audit。经过 MCP
+  权限及 tenant resource ownership 的文本 URI/content 在 typed result 中保持原值；二进制及仅用于存储或
+  transport 的路径继续使用 ACL artifact/opaque reference，public event 仍受字段 allowlist 约束。
 - Audit/trace sink 是可观测旁路，其失败必须 typed 留存并与业务生命周期隔离。用多实例 cleanup 测试
   逐个断言关闭，禁止 sink 异常改变连接状态、留下 connection 或中止后续清理。
 - Authoritative device event 必须先提交到控制面 store，再 best-effort 镜像到 audit sink；审计失败不得
@@ -121,7 +134,7 @@
   构建阶段之间的所有权窗口。
 - Application/run lifecycle 分开计数：application start/stop 各一次，run start/end 每 run 各一次；失败、
   blocking 和 cancel 都必须进入 best-effort run end。Application stop 后、普通 resources 关闭前执行
-  extension cleanup，并把 hook/cleanup 状态写入脱敏结构化 trace。
+  extension cleanup，并把 hook/cleanup 状态写入字段受限、文本精确的结构化 trace。
 
 ## Provider 外部门纪律
 
@@ -138,11 +151,16 @@
 - 把 file/env/CLI 值写入 Pydantic 配置后必须重新执行 `model_validate()`；不得用
   `model_copy(update=...)` 假定 validator 会重跑。对规范化、enum、URL 和认证类型各保留至少一条
   override 回归，并断言最终值与 provenance。
-- 真实配置必须保持 gitignored mode-0600，同时提交字段完整、只含占位值的 `.example`。doctor、
-  dry-run、异常、日志和事件只能输出递归脱敏后的值与 `default/file/env/cli` 来源标签。
-- 任何用户、模型或事件可见的配置展示必须使用 public structured summary，并同时遮盖 secret-shaped
-  字段、URL userinfo 和所有已配置敏感字面值；禁止直接序列化 authoritative config。回归必须分别检查
-  工具返回、模型消息和实际 JSONL 落盘。
+- 真实配置必须保持 gitignored mode-0600，同时提交字段完整、只含占位值的 `.example`。doctor、dry-run、
+  config tool、异常、日志和事件继续使用各自 typed schema；schema 已选择的配置值与来源标签保持原值，
+  包括 `SecretStr`、URL userinfo/query 和路径。
+- 用户、模型或事件可见的配置展示不得绕过现有 registered tool permission/capability、事件 allowlist 或
+  ownership 边界。通过这些边界后禁止对 authoritative config 的已选字段做内容脱敏或替换；回归必须
+  分别检查工具返回、模型消息和实际 JSONL 落盘。
+- dry-run/config 报告的运行预算必须显式接入 one-shot、interactive、Gateway 等每个实际入口的
+  `RunPolicy`；入口测试必须断言最终 request 值，不能用配置解析正确替代执行接线。
+- installed CLI 的默认配置路径必须可由显式部署值覆盖；doctor/report 不能假定配置位于源码
+  `REPO_ROOT`。wheel 黑盒必须从空 cwd 使用外部配置路径运行，禁止借 pytest `pythonpath=src` 假绿。
 - Cron、配置、MCP 管理和 task/agent/team 等管理工具必须声明并检查各自独立 capability；通用
   `tool.mutate`、Catalog 注册或 profile enable 不能替代 `scheduler.manage`、`config.mutate`、
   `mcp.manage` 或 `process.spawn`。

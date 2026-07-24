@@ -56,6 +56,20 @@ def test_source_precedence_and_provenance_are_deterministic(tmp_path: Path) -> N
     ]
 
 
+def test_legacy_project_skills_directory_is_not_automatically_discovered(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    cwd = repo / "package"
+    cwd.mkdir(parents=True)
+    (repo / ".git").mkdir()
+    _write_skill(repo / "skills", "legacy-root", "must be migrated explicitly")
+
+    registry = load_skill_registry(cwd=cwd)
+
+    assert registry.get("legacy-root") is None
+
+
 def _write_plugin(
     root: Path,
     plugin_name: str,

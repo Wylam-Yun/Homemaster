@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,7 +24,15 @@ from homemaster.mcp.types import McpSettingsConfig
 from homemaster.permissions.config import PermissionSettingsConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-HOMEMASTER_CONFIG_PATH = REPO_ROOT / "config" / "homemaster.yaml"
+
+
+def _default_config_path(environ: Mapping[str, str] | None = None) -> Path:
+    values = os.environ if environ is None else environ
+    configured = values.get("HOMEMASTER_CONFIG_PATH", "").strip()
+    return Path(configured).expanduser() if configured else REPO_ROOT / "config" / "homemaster.yaml"
+
+
+HOMEMASTER_CONFIG_PATH = _default_config_path()
 DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 DEFAULT_PROVIDER_NAME = "Mimo"
 DEFAULT_EMBEDDING_PROVIDER_NAME = "MemoryEmbedding"

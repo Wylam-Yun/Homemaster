@@ -24,6 +24,9 @@ from homemaster.events.stream_events import (
     ToolExecutionStarted,
 )
 
+_FAILURE_OUTPUT_LIMIT = 500
+_TRUNCATED_FAILURE_MARKER = "[truncated; complete output remains in machine events]"
+
 
 class RichOutputRenderer:
     """Own one model/tool spinner and one replaceable assistant Live region."""
@@ -74,15 +77,15 @@ class RichOutputRenderer:
             self._stop_spinner()
             self._stop_live()
             self.console.print(
-                Panel(event.message, title="Error", border_style="red", padding=(0, 1))
+                Panel(Text(event.message), title="Error", border_style="red", padding=(0, 1))
             )
             self._state = "idle"
         elif isinstance(event, StatusEvent):
             self._stop_spinner()
-            self.console.print(self._system_line(event.message))
+            self.console.print(Text(self._system_line(event.message)))
         elif isinstance(event, CompactProgressEvent):
             self._stop_spinner()
-            self.console.print(self._system_line(event.message or _compact_label(event)))
+            self.console.print(Text(self._system_line(event.message or _compact_label(event))))
 
     def close(self) -> None:
         if self._state == "closed":
@@ -132,7 +135,7 @@ class RichOutputRenderer:
         summary = _summarize_tool_input(event.tool_input)
         suffix = f" {summary}" if summary else ""
         marker = ">" if self._ascii_only else "▶"
-        self.console.print(f"  {marker} {event.tool_name}{suffix}")
+        self.console.print(Text(f"  {marker} {event.tool_name}{suffix}"))
         self._state = "running-tools"
         self._start_spinner(f"Running {event.tool_name}...")
 
@@ -147,10 +150,10 @@ class RichOutputRenderer:
             marker = "x" if self._ascii_only else "✗"
             detail = _failure_detail(event)
             suffix = f": {detail}" if detail else ""
-            self.console.print(f"{marker} 执行失败{suffix}")
+            self.console.print(Text(f"{marker} 执行失败{suffix}"))
         else:
             marker = "+" if self._ascii_only else "✓"
-            self.console.print(f"{marker} 执行成功")
+            self.console.print(Text(f"{marker} 执行成功"))
         if self._tool_inputs:
             self._state = "running-tools"
             self._start_spinner("Running tools...")
@@ -199,7 +202,10 @@ def _failure_detail(event: ToolExecutionCompleted) -> str:
     return_code = metadata.get("returncode", metadata.get("return_code"))
     parts = [f"returncode={return_code}"] if return_code is not None else []
     if event.output:
-        parts.append(event.output)
+        output = event.output
+        if len(output) > _FAILURE_OUTPUT_LIMIT:
+            output = f"{output[:_FAILURE_OUTPUT_LIMIT]} {_TRUNCATED_FAILURE_MARKER}"
+        parts.append(output)
     return " ".join(parts)
 
 

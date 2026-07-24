@@ -10,13 +10,46 @@ import pytest
 
 import homemaster.config as config_module
 from homemaster.channels.impl.feishu import FeishuApiService
+from homemaster.cli import doctor as doctor_module
 from homemaster.config import (
     FeishuChannelConfig,
     GatewayConfig,
     ProviderProfileConfig,
     load_config,
 )
+from homemaster.config import config as config_impl
 from homemaster.config.config import REPO_ROOT
+
+
+def test_default_config_path_accepts_installed_cli_environment_override(tmp_path: Path) -> None:
+    configured = tmp_path / "homemaster.yaml"
+
+    assert config_impl._default_config_path(
+        {"HOMEMASTER_CONFIG_PATH": str(configured)}
+    ) == configured
+    assert config_impl._default_config_path({}) == REPO_ROOT / "config" / "homemaster.yaml"
+
+
+def test_doctor_reports_external_config_path_without_repo_relative_assumption(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    configured = tmp_path / "homemaster.yaml"
+    monkeypatch.setattr(doctor_module, "HOMEMASTER_CONFIG_PATH", configured)
+
+    assert doctor_module._config_source() == str(configured)
+
+
+def test_doctor_does_not_fail_gitignore_check_outside_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(doctor_module, "REPO_ROOT", tmp_path)
+
+    check = doctor_module._ignored_paths_check()
+
+    assert check.status == "WARN"
+    assert check.details == {"missed": [], "not_applicable": True}
 
 
 def test_feishu_config_exposes_only_locked_domain_and_trusted_entry_fields() -> None:

@@ -9,6 +9,26 @@
   the V2.1 memory-system discussion. This checkpoint records the current tested working state; it is not a claim
   that every included line belongs to the universal-tools release boundary.
 
+### V2.0 Skills, exact output, and Rich closeout
+
+- Made HomeMaster install GitHub repository and `blob/.../SKILL.md` sources transactionally through bundled
+  `skill-creator`: clone once, preflight every conflict, stage on the target filesystem, atomically publish, roll
+  back failures, and verify every name in a fresh Registry. A real HomeMaster run installed the complete 14-Skill
+  Superpowers tree plus `find-skills`; independent relative-file/SHA-256 comparison and universal `skill` calls
+  passed for all 15 directories without changing `~/.codex/skills`.
+- Locked candidate 2 across CLI, events, Gateway, config, MCP, hooks/extensions, traces, Feishu SDK logs and service
+  representations: authenticated and authorized selected runtime text remains exact. Event allowlists, tenant ACLs,
+  invalid-auth non-echo, binary opaque references, and placeholder-only tracked config remain unchanged. Recursive
+  canonical result data is thawed before session/model copying, and CLI plus interactive entrypoints now honor the
+  configured tool-iteration budget.
+- Kept Rich concise without changing machine contracts: complete Bash commands render literally, success bodies are
+  omitted, and failure details are bounded to 500 characters with an explicit truncation marker. Focused raw/Rich
+  gates (`188` raw/event, `27` Rich matrix, `10` CLI/PTY), first-byte text/JSON/stream-JSON tests, and 48/120-column
+  PTY Bash runs pass; full `tests/homemaster` passes (`1158 passed, 1 skipped`). Real Feishu message create
+  returned business code 0 and an independent new-client message get read back the unique exact canary once.
+- Remaining external scope is explicit: Feishu media, reaction, group operations, reconnect and the `lark` domain,
+  plus real ALFWorld, remain `UNVERIFIED`; they are not part of the verified message/raw-output closeout claim.
+
 ### V2.0 universal tool execution
 
 - Replaced the active application `ToolProfile -> ToolView -> ToolCatalog -> ToolExecutionPipeline` route with one
@@ -58,8 +78,8 @@
   independent curl hash, dynamic same-process discovery, and second CLI process discovery.
 - Fixed package data so all bundled Markdown survives wheel installation, and retained the locked upstream source,
   Skills, tools and tests at commit `9b2efd795c6aa09f88b0c257d269a9e518da6ae7` with a checkable port manifest.
-- Final-review remediation made config display safe for users, models and JSONL traces by recursively redacting
-  provider/MCP credentials, URL userinfo and configured sensitive literals. Cron, config, MCP management and
+- Config display remains permission- and schema-bounded while candidate 2 preserves selected provider/MCP
+  credentials, URL userinfo and configured literals exactly. Cron, config, MCP management and
   task/agent/team tools now require independent `scheduler.manage`, `config.mutate`, `mcp.manage` and
   `process.spawn` capabilities in addition to generic tool permissions.
 - Added explicit data-only Plugin Skill discovery for `plugin.json` and `.claude-plugin/plugin.json`, including
@@ -73,7 +93,7 @@
 
 - Added direct `gateway.feishu.app_id/app_secret` loading from the ignored mode-0600 YAML requested by the
   deployment owner. The pair is file-first, cannot be mixed across YAML/environment sources, uses `SecretStr`,
-  and is registered with public-output sanitizers; tracked examples contain placeholders only.
+  and is stored as typed secret configuration; tracked examples contain placeholders only.
 - Migrated the Gateway composition from Telegram to one Feishu/Lark channel using `lark-oapi`, with deterministic
   message dedup, typed reply/thread context, safe inbound attachments, static text/post/card/table rendering, and
   image/audio/video/file delivery. Per deployment-owner decision, the Feishu transport is a fully trusted entry:
@@ -98,21 +118,20 @@
   inbound bus and `open_id` reply route.
 - Isolated the SDK WebSocket client in a terminable subprocess because the installed SDK exposes no verified
   public stop API. Fatal/completion state reaches the supervisor, and one shutdown deadline covers active runs,
-  outbound drain, channel termination, and service joins. SDK logs and structured API audit records exclude
-  credentials, queries, raw content, and paths.
+  outbound drain, channel termination, and service joins. SDK logs preserve exact runtime text under candidate 2;
+  structured API audit records remain field-allowlisted.
 - Breaking configuration migration: `gateway.telegram` and the `python-telegram-bot` gateway extra are replaced
   by the sole active `gateway.feishu` configuration and `lark-oapi`. Telegram source/tests remain for historical
   compatibility but are not composed, documented, or installed by the Gateway extra.
-- Internal non-live contracts are covered and local credentials are configured, but full Phase 9 acceptance has not
-  run. The installed SDK returned endpoint HTTP 200/business code 0 and completed a real Feishu WebSocket
-  handshake/close. A real private text message now passes platform ACK, SDK dispatch, canonical routing, session
-  persistence, provider completion, confirmed Feishu send and user-confirmed client visibility. Media, reaction,
-  group terminal state, reconnect behavior, bot self-event semantics, remaining API symbols, and the `lark` domain
-  remain `UNVERIFIED` until their per-target acceptance is recorded.
+- The installed SDK returned endpoint HTTP 200/business code 0 and completed a real Feishu WebSocket
+  handshake/close. A real private text message passes platform ACK, SDK dispatch, canonical routing, session
+  persistence and confirmed send. Closeout additionally verified message create with business code 0 and an
+  independent message get whose content exactly matched the unique canary. Media, reaction, group terminal state,
+  reconnect behavior, bot self-event semantics, remaining API symbols, and the `lark` domain remain `UNVERIFIED`.
 
 ### Realtime CLI streaming
 
-- Changed the generic agent runtime to publish statefully sanitized text deltas before
+- Changed the generic agent runtime to publish exact text deltas immediately before
   provider completion while retaining the same authoritative aggregate and persistence path.
 - Added the adapted OpenHarness Rich renderer plus live text and JSON-lines sinks over the
   existing exact seven-event public contract.
@@ -167,7 +186,7 @@
 - Gateway 复用 application factory 的同一个 `ApplicationRuntime`，通过 `RunRequest` 执行并用
   generation fencing、cancel-and-join、SessionBackend snapshot recovery 和 unpaired tool-tail 清洗
   拒绝 late result。progress 可合并/淘汰，final/error/cancel 保留并在满载 critical queue 时反压。
-  Gateway 只消费 events 层的 allowlist/redaction/correlation public projection。
+  Gateway 只消费 events 层的 allowlist/exact-text/correlation public projection。
 
 影响：新增 `gateway` optional extra 和 `homemaster gateway --config ...`；具体
 python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对，当前只宣称 HPC2 non-live gate。

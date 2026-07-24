@@ -118,7 +118,14 @@ class _GateResult:
         self._result = result
         self.text = result.output
         self.data = result.metadata
-        self.status = ToolExecutionStatus(result.metadata.get("status", "failure"))
+        status = result.metadata.get("status")
+        self.status = (
+            ToolExecutionStatus(status)
+            if status is not None
+            else ToolExecutionStatus.FAILURE
+            if result.is_error
+            else ToolExecutionStatus.SUCCESS
+        )
         verification = result.metadata.get("verification_status", "not_requested")
         self.verification = SimpleNamespace(status=VerificationStatus(verification))
 

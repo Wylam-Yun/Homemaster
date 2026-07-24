@@ -7,7 +7,7 @@ import asyncio
 import typer
 
 from homemaster.agent.turn import new_session_id
-from homemaster.application import RunRequest, RunStatus
+from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.benchmarking.coworker_demo.turn import run_coworker_turn
 from homemaster.benchmarking.coworker_demo.types import CoworkerAttemptError, TicketRouteKind
 from homemaster.cli.composition import HomeCliBackend, create_home_application
@@ -160,6 +160,11 @@ def run_interactive_shell(
                                     else None
                                 ),
                                 resume=session_open,
+                                run_policy=RunPolicy(
+                                    max_tool_iterations=(
+                                        bundle.config.runtime.max_tool_iterations
+                                    ),
+                                ),
                                 dependencies={
                                     "skill_registry": bundle.skill_registry,
                                     "ask_user_prompt": ask_user,

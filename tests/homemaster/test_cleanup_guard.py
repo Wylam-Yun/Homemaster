@@ -11,6 +11,7 @@ from scripts.guard_no_legacy_terms import _has_blocked_text, _should_skip_path
 @pytest.mark.parametrize(
     "path",
     [
+        ".homemaster/skills/example/SKILL.md",
         "findings.md",
         "progress.md",
         "task_plan.md",
@@ -64,6 +65,7 @@ def test_cleanup_guard_has_no_unclassified_violations() -> None:
         "BLOCKED TEXT ['scenario']: src/openharness/prompts/system_prompt.py",
         "BLOCKED TEXT ['scenario']: src/openharness/skills/bundled/content/test.md",
         "BLOCKED TEXT ['pipeline']: src/openharness/swarm/registry.py",
+        "BLOCKED TEXT ['pipeline']: tests/homemaster/tools/test_universal_registry.py",
         "BLOCKED TEXT ['pipeline']: tests/openharness_upstream/test_skills/test_loader.py",
     }
 

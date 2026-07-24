@@ -334,7 +334,7 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
         session_manager = Sessions()
 
         async def run(self, request):
-            captured.update(request.dependencies)
+            captured["request"] = request
             return _execution(tmp_path).result
 
         async def aclose(self):
@@ -346,7 +346,10 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
         run_dir = tmp_path
         skill_registry = object()
 
-    monkeypatch.setattr("homemaster.cli.run_command.load_config", lambda **kwargs: object())
+    monkeypatch.setattr(
+        "homemaster.cli.run_command.load_config",
+        lambda **kwargs: SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=None)),
+    )
     monkeypatch.setattr(
         "homemaster.cli.run_command.create_home_application",
         lambda **kwargs: Bundle(),
@@ -356,7 +359,9 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
 
     execute_one_shot(prompt="inspect")
 
-    assert captured["skill_registry"] is Bundle.skill_registry
+    request = captured["request"]
+    assert request.dependencies["skill_registry"] is Bundle.skill_registry
+    assert request.run_policy.max_tool_iterations is None
 
 
 def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:

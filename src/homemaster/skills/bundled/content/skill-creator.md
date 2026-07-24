@@ -34,6 +34,28 @@ Choose the target deliberately:
 HomeMaster user, project, and plugin Skills use a directory layout. Do not copy
 Skills to `<git-root>/skills`; that directory is not scanned by the Registry.
 
+## Install from a Git URL
+
+For a GitHub repository URL or a GitHub `blob/.../SKILL.md` URL, use Git directly
+instead of fetching the rendered web page:
+
+1. Convert a `blob/<ref>/<path>/SKILL.md` URL into its repository URL, ref, and
+   repository-relative Skill directory. Clone the repository once into a temporary
+   directory; check out the requested ref when one was supplied.
+2. For a repository URL, discover every directory containing `SKILL.md`. For a
+   single-file URL, select only that Skill directory. Preserve each complete
+   directory, including `scripts/`, `references/`, and `assets/`.
+3. Parse every selected `SKILL.md` and check every destination name before copying
+   any Skill. If any destination already exists, stop and report the conflict; do
+   not overwrite it or install only the remaining Skills.
+4. Copy all selected directories into a staging directory on the same filesystem
+   as `~/.homemaster/skills`. Validate the staged files, then publish each directory
+   with an atomic rename. Track published directories and move them back to staging
+   if any rename fails, so a failed request leaves no partial installation.
+5. Load a fresh HomeMaster Registry and resolve every installed Skill by name.
+   Treat any missing or invalid Skill as installation failure and roll back all
+   directories published by this request.
+
 ## Skill anatomy
 
 Use this structure for user, project, and plugin Skills:

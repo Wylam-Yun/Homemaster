@@ -77,6 +77,7 @@ def _install_shell(monkeypatch, tmp_path: Path):
     application = RecordingApplication()
     bundle = SimpleNamespace(
         application=application,
+        config=SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=None)),
         trace_path=tmp_path / "runtime_events.jsonl",
         skill_registry=object(),
     )
@@ -109,6 +110,7 @@ def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_
     assert application.requests[0].resume is False
     assert application.requests[1].resume is True
     assert application.requests[0].dependencies["skill_registry"] is bundle.skill_registry
+    assert application.requests[0].run_policy.max_tool_iterations is None
     assert "Assistant: reply-1" in result.stdout
     assert "Assistant: reply-2" in result.stdout
     assert application.closed == 1

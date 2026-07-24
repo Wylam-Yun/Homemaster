@@ -108,7 +108,10 @@ def _import_checks() -> list[DoctorCheck]:
 
 
 def _config_source() -> str:
-    return str(HOMEMASTER_CONFIG_PATH.relative_to(REPO_ROOT))
+    try:
+        return str(HOMEMASTER_CONFIG_PATH.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(HOMEMASTER_CONFIG_PATH)
 
 
 def _config_check(config_source: str) -> DoctorCheck:
@@ -180,6 +183,13 @@ def _embedding_endpoint_check() -> DoctorCheck:
 
 
 def _ignored_paths_check() -> DoctorCheck:
+    if not _is_git_checkout():
+        return DoctorCheck(
+            name="ignored_runtime_paths",
+            status="WARN",
+            message="gitignore check is not applicable outside a Git checkout",
+            details={"missed": [], "not_applicable": True},
+        )
     paths = [
         ".cache/homemaster/embeddings/example.json",
         "var/homemaster/memory/example.json",
@@ -196,6 +206,17 @@ def _ignored_paths_check() -> DoctorCheck:
         suggestion="Add missing runtime paths to .gitignore." if missed else None,
         details={"missed": missed},
     )
+
+
+def _is_git_checkout() -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def _git_check_ignore(path: str) -> bool:

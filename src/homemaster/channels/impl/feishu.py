@@ -1,7 +1,7 @@
 """Feishu/Lark channel boundary backed by the optional ``lark-oapi`` SDK.
 
-SDK request builders and live behavior remain UNVERIFIED until the Phase 0/9
-live gates run against the configured test applications.
+Feishu chat-list, message-create, and message-get are live-verified. Other API
+families and the Lark domain remain UNVERIFIED until their per-target gates run.
 """
 
 from __future__ import annotations

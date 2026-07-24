@@ -205,10 +205,10 @@ def normalize_tool_result(value: Any) -> ToolResult:
         output = "\n".join(
             str(getattr(block, "text", "")) for block in content if getattr(block, "text", "")
         )
-        metadata = dict(getattr(value, "data", None) or {})
+        metadata = _plain_json(dict(getattr(value, "data", None) or {}))
         return ToolResult(output, bool(getattr(value, "is_error", False)), metadata)
 
-    data = dict(getattr(value, "data", None) or {})
+    data = _plain_json(dict(getattr(value, "data", None) or {}))
     images = getattr(value, "images", ())
     attachments = getattr(value, "attachments", ())
     evidence_refs = getattr(value, "evidence_refs", ())

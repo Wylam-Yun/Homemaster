@@ -6,6 +6,8 @@ import json
 
 import pytest
 
+from homemaster.agent.messages import ContentBlock, ToolResultMessage
+from homemaster.tools.base import normalize_tool_result
 from homemaster.tools.contracts import (
     OutcomeCertainty,
     ResultAttachment,
@@ -81,6 +83,29 @@ def test_full_result_projects_public_data_and_lossless_provider_image() -> None:
     assert "data_base64" not in message.data["attachments"][0]
     assert attachment_data not in message.content[0].text
     assert message.data["terminal"]["classification"] == "agent_success"
+
+
+def test_canonical_result_adapter_thaws_nested_data_for_next_model_turn() -> None:
+    canonical = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="fetched",
+        data={"metadata": {"url": "https://example.test", "status_code": 200}},
+    )
+
+    normalized = normalize_tool_result(canonical)
+    message = ToolResultMessage(
+        tool_call_id="call-1",
+        name="web_fetch",
+        content=[ContentBlock(text=normalized.output)],
+        data=normalized.metadata,
+    )
+
+    copied = message.model_copy(deep=True)
+    assert copied.data == {
+        "metadata": {"url": "https://example.test", "status_code": 200},
+        "status": "success",
+        "backend_attempted": False,
+    }
 
 
 def test_image_only_projection_emits_no_result_json_or_text() -> None:

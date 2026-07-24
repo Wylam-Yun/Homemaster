@@ -706,7 +706,7 @@ async def test_runner_orders_matches_blocks_and_checks_run_capabilities() -> Non
 
 
 @pytest.mark.asyncio
-async def test_hook_result_free_text_is_redacted() -> None:
+async def test_hook_result_free_text_is_exact() -> None:
     async def leaking(context: HookContext) -> dict[str, object]:
         del context
         return {

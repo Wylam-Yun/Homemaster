@@ -174,11 +174,11 @@ async def test_web_search_parses_real_http_response(tmp_path: Path) -> None:
 
     assert result.status is ToolExecutionStatus.SUCCESS
     assert result.data["query"] == "home tools"
-    assert result.data["results"] == (
+    assert result.data["results"] == [
         {
             "title": "First result",
             "url": "https://example.test/one",
             "snippet": "A useful snippet.",
         },
-    )
+    ]
     assert result.data["metadata"]["status_code"] == 200

@@ -405,12 +405,42 @@ def test_rich_renderer_prints_complete_bash_command_and_omits_success_body() -> 
         live_factory=_FakeLive,
         status_factory=_FakeStatus,
     )
-    command = "ls -la /hpc2hdd/home/operator/project && find . -name SKILL.md -type f"
+    command = (
+        "printf '[exact-rich-canary]' && ls -la /hpc2hdd/home/operator/project "
+        "&& find . -name SKILL.md -type f"
+    )
 
     renderer.render(ToolExecutionStarted("bash", {"command": command}))
     renderer.render(ToolExecutionCompleted("bash", "large internal result body"))
 
     rendered = output.getvalue()
     assert f"bash command={command}" in rendered.replace("\n", "")
+    assert "[exact-rich-canary]" in rendered
     assert "执行成功" in rendered
     assert "large internal result body" not in rendered
+
+
+def test_rich_renderer_bounds_failure_detail_without_changing_machine_event() -> None:
+    module = _load_module("homemaster.cli.rich_renderer")
+    output = StringIO()
+    renderer = module.RichOutputRenderer(
+        console=Console(file=output, force_terminal=False, color_system=None, width=40),
+        live_factory=_FakeLive,
+        status_factory=_FakeStatus,
+    )
+    complete = "failure-head-" + ("x" * 2000) + "-failure-tail"
+    event = ToolExecutionCompleted(
+        "bash",
+        complete,
+        is_error=True,
+        metadata={"returncode": 19},
+    )
+
+    renderer.render(event)
+
+    rendered = output.getvalue()
+    assert "returncode=19" in rendered
+    assert "failure-head-" in rendered
+    assert "failure-tail" not in rendered
+    assert "[truncated; complete output remains in machine events]" in rendered.replace("\n", "")
+    assert event.output == complete

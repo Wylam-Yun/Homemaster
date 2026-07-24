@@ -3,7 +3,7 @@
 ## CLI 实时输出与管道
 
 `homemaster -p PROMPT` 默认实时输出纯文本。文本 delta 会立即 flush，进程结束时
-不会再回显完整答案，因此重定向文件就是一次完整、脱敏后的最终文本：
+不会再回显完整答案，因此重定向文件就是一次完整、精确保真的最终文本：
 
 ```bash
 homemaster -p "列出可用工具" > answer.txt
@@ -13,8 +13,9 @@ homemaster -p "列出可用工具" --output-format stream-json | jq -c .
 
 `json` 是结束后一次输出的单文档；`stream-json` 是 UTF-8 JSON Lines，事件逐行
 flush，最后恰好一行 `type=result`。若启动阶段无法形成 `RunResult`，则最多输出
-一行脱敏的 `type=error`，不伪造 result。交互模式使用 Rich 展示模型等待、助手
+一行 typed `type=error`，不伪造 result。交互模式使用 Rich 展示模型等待、助手
 Markdown、工具开始/结束、错误、状态与压缩进度；机器输出 stdout 不含 ANSI。
+Rich 完整显示 Bash command，成功只显示状态，失败详情最多 500 字符并带明确截断标记；机器结果不截断。
 
 ## Provider 配置
 
@@ -24,6 +25,9 @@ HomeMaster 只读取 YAML 真理源。新环境先创建被 Git 忽略的真实�
 cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/homemaster.yaml
 ```
+
+wheel 安装不依赖源码目录；用 `HOMEMASTER_CONFIG_PATH=/absolute/path/homemaster.yaml` 指向部署配置。
+未设置时保持源码 checkout 的 `config/homemaster.yaml` 默认值。
 
 每个 provider 必须声明 `name`、`kind`、`api_format`、`transport`、`base_url` 和
 `model`。Anthropic SDK provider 的认证类型显式写为 `api_key` 或 `auth_token`：
@@ -70,8 +74,9 @@ uv run homemaster --dry-run -p '检查药盒状态' \
   --output-format json
 ```
 
-`doctor`、dry-run、日志和事件只输出来源、有效性和认证数量；认证字段及 Bearer/Basic
-值会递归脱敏。
+`doctor`、dry-run、config tool、日志和事件各自只输出 typed schema 选中的字段；经过本地权限和 ownership
+边界后，这些字段的运行时文本按 candidate 2 保持原值，包括认证字段、URL userinfo/query 和路径。
+真实配置必须保持 mode 0600 且 Git ignored，仓库模板仍只能使用占位值。
 
 ## Skill 来源与优先级
 
@@ -153,6 +158,11 @@ cp -a /tmp/skill-repo/path/to/example-skill ~/.homemaster/skills/
 uv run homemaster --dry-run -p '列出 Skills' --output-format json
 ```
 
+也可以直接让 HomeMaster 使用 bundled `skill-creator` 处理 GitHub repository URL 或
+`blob/<ref>/<path>/SKILL.md` URL。它会 clone 一次、先枚举并校验全部目标冲突，再在
+`~/.homemaster/skills` 同文件系统 staging；任一冲突会在复制前阻塞，发布或 fresh Registry 验证失败会
+回滚本次目录。成功后仍应从新进程逐名调用 `skill(name=...)`，并按相对文件列表与 SHA-256 对比上游。
+
 新增或修改 `SKILL.md` 后会动态发现，不需要重启。Home profile 的 `bash`、文件和联网工具可以按 Skill
 说明执行非交互脚本、解压、Git 以及项目隔离依赖安装，但必须遵守项目依赖管理：Python 使用临时/项目
 虚拟环境和 lock 工具，禁止裸全局 `pip install -U`；npm 安装在目标项目或 Skill 自己的隔离目录。
@@ -202,7 +212,7 @@ mcp:
   preview_chars: 4000
 ```
 
-`env`、`headers` 和 URL userinfo 在 config summary、状态、异常和 audit 中都会脱敏。WebSocket
+`env`、`headers` 和 URL userinfo 在 config summary、状态、异常和 audit 的已选文本字段中保持原值。WebSocket
 配置当前只返回 `unsupported_transport`，不会尝试连接。普通 dry-run 不产生外部 I/O：
 
 ```bash
@@ -216,21 +226,21 @@ uv run homemaster --dry-run --probe -p '检查外部工具' --output-format json
 ```
 
 probe 生命周期写入 mode-0600 `observability.trace_dir/mcp_probe_audit.jsonl`，与真实 run 的
-`mcp_audit.jsonl` 分开。Resource audit 只记录 URI 的 opaque SHA-256 引用，不记录 URI、query token
-或本地路径。
+`mcp_audit.jsonl` 分开。Resource discovery 对模型使用 opaque `resource_id`；授权 read 的 URI/content 和
+audit 文本保持原值，binary 及仅用于 transport 的宿主路径仍只通过 ACL artifact/opaque reference 暴露。
 
 发现的工具 alias 形如 `mcp__<server>__<tool>`，连字符会规范化为下划线。Skill 可以在正文中说明
-该 alias，但不会因此获得该工具；Skills 的发现和读取也不等待 MCP discovery。每个 run 仍可通过
-自己的 enabled tool ids 禁用 MCP 工具。
+该 alias，但不会因此获得该工具；Skills 的发现和读取也不等待 MCP discovery。application Registry
+统一提供已批准工具，每次调用仍必须通过 PermissionChecker；run metadata 不能筛选或扩张工具面。
 
 在 MCP SDK read-only/mutation annotation 完成真环境核对前，discovered tool 默认视为 mutating：
 PLAN 模式拒绝，DEFAULT 模式要求确认，连接后 timeout/call failure 返回 `outcome_unknown` 且不自动
 重试。只有 host 提供的 `list_mcp_resources`、`read_mcp_resource` 明确保持只读；相关外部 annotation
 当前为 `UNVERIFIED`。
 
-MCP tool/resource 返回的原始 JSON 会先写入 `artifact_root`，按 tenant/session/run 精确 ACL、
-tenant quota 和 TTL 管理。模型只看脱敏且最多 `preview_chars` 的 preview、内容哈希和 opaque handle；
-resource URI 字段不进入模型上下文，`list_mcp_resources` 返回的 opaque `resource_id` 用于后续读取。
+MCP tool/resource 返回的原始 JSON 会写入 `artifact_root`，按 tenant/session/run 精确 ACL、tenant quota 和
+TTL 管理。授权文本 result/preview 在 `preview_chars` 边界内保持原值，并带内容哈希和 opaque handle；
+`list_mcp_resources` 返回 opaque `resource_id` 用于后续读取，binary 不直接进入文本上下文。
 同一 tenant 的不同 principal 使用同一个 tenant quota/ACL domain，但仍受各自的权限策略约束。
 
 ## 权限模式与远程身份
@@ -306,8 +316,8 @@ gateway:
 ```
 
 YAML 中的 `app_id/app_secret` 必须成对填写并优先使用。两项都省略时才回退到旧的 `*_env`；任一来源
-只有一项，或试图用 YAML 一项加环境变量一项拼接，都会启动失败。`app_secret` 在配置 repr、公共事件和
-日志中保持脱敏，真实文件不得提交到 Git。
+只有一项，或试图用 YAML 一项加环境变量一项拼接，都会启动失败。按锁定的 candidate 2，配置输出、
+SDK 日志和 `FeishuApiService.__repr__` 的已选字段保持原值；真实文件不得提交到 Git。
 
 `domain` 只允许 `feishu|lark`。所有非 bot sender 自动映射为内置 `feishu-owner`，拥有 Home 通用能力和
 飞书建群/改名能力；私聊、群聊均不检查 allowlist 或 mention。创建群只接受群名并从当前 sender route
@@ -324,10 +334,10 @@ tool message 前移除，多文件逐个形成不可合并 MEDIA。
 
 WebSocket worker 运行在可终止子进程，fatal/completion 会回传 supervisor；shutdown 的 active run、
 outbound drain、channel stop 和 service join 共用一个 absolute deadline。SDK HTTP/WS 日志只保留
-WARNING 并经过凭证/query 脱敏，业务外部调用只记录 action、目标 hash、耗时、返回码和 certainty。
-当前 app credential endpoint 返回码与 Feishu WebSocket 握手已通过，但代码与 non-live 测试不能代替
-其余真实飞书终态；消息、媒体、reaction、群状态、断线恢复和 `feishu|lark` 两个 domain 仍须逐项完成
-Phase 9 验收。真实平台是否回投机器人自身消息及其 `sender_type` 值仍为 `UNVERIFIED`。
+WARNING，文本值不改写；业务外部调用 audit 仍只记录既有 allowlist 字段。
+真实 `lark-oapi==1.7.1` 已验证 chat list、message create 与独立 message get，发送返回 code 0 且唯一
+canary 回读精确一致。媒体、reaction、群状态、断线恢复和 `lark` domain 仍须逐项验收；真实平台是否
+回投机器人自身消息及其 `sender_type` 值仍为 `UNVERIFIED`。
 
 ## Trusted Extensions
 

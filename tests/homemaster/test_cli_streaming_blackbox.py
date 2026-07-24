@@ -15,8 +15,11 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
+
+_EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "homemaster.example.yaml"
 
 
 class _SseState:
@@ -50,6 +53,7 @@ def _blocked_anthropic_server(
     tool_then_text: bool = False,
     gate_first_response: bool = False,
     tool_name: str = "observe",
+    tool_input: dict[str, object] | None = None,
 ) -> Iterator[tuple[str, _SseState]]:
     state = _SseState()
     if gate_first_response:
@@ -96,7 +100,7 @@ def _blocked_anthropic_server(
                                 "type": "tool_use",
                                 "id": "call_observe",
                                 "name": tool_name,
-                                "input": {},
+                                "input": tool_input or {},
                             },
                         },
                     ),
@@ -105,7 +109,10 @@ def _blocked_anthropic_server(
                         {
                             "type": "content_block_delta",
                             "index": 0,
-                            "delta": {"type": "input_json_delta", "partial_json": "{}"},
+                            "delta": {
+                                "type": "input_json_delta",
+                                "partial_json": json.dumps(tool_input or {}),
+                            },
                         },
                     ),
                     _event("content_block_stop", {"type": "content_block_stop", "index": 0}),
@@ -230,6 +237,7 @@ def _start_cli(base_url: str, output_format: str) -> subprocess.Popen[bytes]:
             "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
             "HOMEMASTER_MIMO_BASE_URL": base_url,
             "HOMEMASTER_MIMO_MODEL": "blackbox-model",
+            "HOMEMASTER_CONFIG_PATH": str(_EXAMPLE_CONFIG),
             "PYTHONUNBUFFERED": "1",
         }
     )
@@ -403,11 +411,18 @@ def _wait_until(predicate, timeout: float = 60) -> None:
 
 
 @pytest.mark.skipif(not os.path.exists("/usr/bin/tmux"), reason="tmux is required")
-def test_real_interactive_rich_final_screen_via_tmux() -> None:
+@pytest.mark.parametrize("terminal_width", [48, 120])
+def test_real_interactive_rich_bash_final_screen_via_tmux(terminal_width: int) -> None:
     session = f"hm-rich-{uuid.uuid4().hex[:10]}"
+    command = (
+        "printf 'RICH_HEAD_0123456789'; printf '%s' \"$RICH_HIDDEN_BODY\"; "
+        "printf 'RICH_TAIL_9876543210'"
+    )
     with _blocked_anthropic_server(
         tool_then_text=True,
         gate_first_response=True,
+        tool_name="bash",
+        tool_input={"command": command},
     ) as (base_url, state):
         env = os.environ.copy()
         env.update(
@@ -415,7 +430,9 @@ def test_real_interactive_rich_final_screen_via_tmux() -> None:
                 "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
                 "HOMEMASTER_MIMO_BASE_URL": base_url,
                 "HOMEMASTER_MIMO_MODEL": "blackbox-model",
+                "HOMEMASTER_CONFIG_PATH": str(_EXAMPLE_CONFIG),
                 "TERM": "xterm-256color",
+                "RICH_HIDDEN_BODY": "RICH_RESULT_BODY_MUST_BE_HIDDEN",
             }
         )
         command = shlex.join(
@@ -424,7 +441,9 @@ def test_real_interactive_rich_final_screen_via_tmux() -> None:
                 f"HOMEMASTER_MIMO_API_KEY={env['HOMEMASTER_MIMO_API_KEY']}",
                 f"HOMEMASTER_MIMO_BASE_URL={env['HOMEMASTER_MIMO_BASE_URL']}",
                 f"HOMEMASTER_MIMO_MODEL={env['HOMEMASTER_MIMO_MODEL']}",
+                f"HOMEMASTER_CONFIG_PATH={env['HOMEMASTER_CONFIG_PATH']}",
                 f"TERM={env['TERM']}",
+                f"RICH_HIDDEN_BODY={env['RICH_HIDDEN_BODY']}",
                 sys.executable,
                 "-m",
                 "homemaster.cli",
@@ -432,7 +451,18 @@ def test_real_interactive_rich_final_screen_via_tmux() -> None:
         )
         try:
             subprocess.run(
-                ["tmux", "new-session", "-d", "-x", "100", "-y", "30", "-s", session, command],
+                [
+                    "tmux",
+                    "new-session",
+                    "-d",
+                    "-x",
+                    str(terminal_width),
+                    "-y",
+                    "30",
+                    "-s",
+                    session,
+                    command,
+                ],
                 check=True,
                 env=env,
             )
@@ -442,13 +472,18 @@ def test_real_interactive_rich_final_screen_via_tmux() -> None:
             _wait_until(lambda: "Model working" in _capture_pane(session), timeout=10)
             state.allow_response.set()
             assert state.second_request.wait(60), _capture_pane(session)
-            _wait_until(lambda: "observe" in _capture_pane(session), timeout=10)
+            _wait_until(lambda: "bash" in _capture_pane(session), timeout=10)
             assert state.first_delta_sent.wait(60), _capture_pane(session)
             _wait_until(lambda: "hello" in _capture_pane(session), timeout=10)
             state.release.set()
             _wait_until(lambda: _capture_pane(session).count("homemaster>") >= 2)
             final_screen = _capture_pane(session)
-            assert "observe" in final_screen
+            unwrapped = final_screen.replace("\n", "")
+            assert "bash" in final_screen
+            assert "RICH_HEAD_0123456789" in unwrapped
+            assert "RICH_TAIL_9876543210" in unwrapped
+            assert "RICH_RESULT_BODY_MUST_BE_HIDDEN" not in final_screen
+            assert final_screen.count("执行成功") == 1
             assert final_screen.count("hello world") == 1
             assert "Model working" not in final_screen
             _tmux("send-keys", "-t", session, "/exit", "Enter")

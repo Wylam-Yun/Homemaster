@@ -168,7 +168,7 @@ class HookRunner:
                     diagnostics.append(f"{extension.manifest.extension_id}: cleanup cancelled")
                 except Exception as exc:
                     diagnostics.append(
-                        self._safe_text(
+                        self._bounded_text(
                             f"{extension.manifest.extension_id}: {type(exc).__name__}: {exc}"
                         )
                     )
@@ -212,8 +212,8 @@ class HookRunner:
                     hook_id=hook.hook_id,
                     success=success,
                     blocked=hook.block_on_failure and not success,
-                    output=self._safe_text(output),
-                    reason=self._safe_text(reason),
+                    output=self._bounded_text(output),
+                    reason=self._bounded_text(reason),
                 )
             except asyncio.CancelledError:
                 task.cancel()
@@ -235,7 +235,7 @@ class HookRunner:
                     hook_id=hook.hook_id,
                     success=False,
                     blocked=hook.block_on_failure,
-                    reason=self._safe_text(f"{type(exc).__name__}: {exc}"),
+                    reason=self._bounded_text(f"{type(exc).__name__}: {exc}"),
                 )
             return self._fence_result(hook, captured, result)
         except BaseException:
@@ -270,7 +270,7 @@ class HookRunner:
             )
         return result
 
-    def _safe_text(self, value: str) -> str:
+    def _bounded_text(self, value: str) -> str:
         return self._projection.project_content(value)[:4000]
 
 

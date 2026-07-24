@@ -45,6 +45,7 @@ BLOCKED_TEXT_PATTERNS = (
 SKIP_DIRS = frozenset(
     {
         ".git/",
+        ".homemaster/",
         ".pytest_cache/",
         ".venv/",
         "apps/case02_openenv/",

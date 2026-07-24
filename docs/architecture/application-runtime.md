@@ -6,7 +6,7 @@
 
 ```text
 Provider TransportDelta
-  -> Generic AgentRuntime（聚合原始最终消息；逐 delta 状态化脱敏）
+  -> Generic AgentRuntime（聚合原始最终消息；逐 delta 立即精确发布）
   -> private RuntimeEvent / EventBus（trace、审计、生命周期）
   -> exact seven StreamEvent projection（公开 UI 边界）
   -> Rich / text / stream-json sink
@@ -43,8 +43,8 @@ typed defaults
 
 每一层合并后重新经过 `ProviderProfileConfig.model_validate()`；不能用不执行 validator 的 copy
 路径写入 env/CLI 值。provenance 只保存 `default/file/env/cli` 标签，不保存 credential 或宿主机路径。
-诊断投影使用 provider public summary 和递归 redaction，真实 config 始终是 ignored mode-0600 文件，
-提交的 `.example` 只含占位值。
+诊断投影使用各入口的 typed schema；schema 选中的运行时值按 candidate 2 保持原值。真实 config 始终是
+ignored mode-0600 文件，提交的 `.example` 只含占位值。
 
 ## Permission And Device Control Flow
 
@@ -94,7 +94,7 @@ OpenHarness bundled < Home builtin < user root < git-bounded project roots < exp
 Skill 是 OpenHarness-compatible instruction document，不拥有 executor、permission 或 robot capability；
 `tool_names` 即使存在也只是未解释扩展元数据。一个 Skill 不能修改 Registry 或授予能力。
 自动来源只扫描 HomeMaster 自己的 user/project 目录；外部 agent 目录需显式迁入或配置。
-自动来源的单项失败记录为 secret-safe issue，显式来源 fail-closed，所有替换保留 provenance chain。
+自动来源的单项失败记录为 bounded typed issue，显式来源 fail-closed，所有替换保留 provenance chain。
 Plugin 来源是 data-only adapter：只解析 `plugin.json`/`.claude-plugin/plugin.json` 与受 containment
 保护的 `skills_dir`，不调用 executable extension loader、不导入 Python、不注册 tools/hooks/MCP。
 项目 plugin 默认关闭；plugin 即使优先级最后也不能绕过 builtin 精确覆盖授权。
@@ -126,8 +126,8 @@ config path，避免子进程退回仓库默认 provider。Cron scheduler 由 `h
 管理；task/team/plan/config 均使用 application-owned store。后台 shell/agent 任务在独立进程组中运行，
 stop、close 和超时必须终止整个进程组并等待真实子进程退出。
 管理面除 `tool.mutate` 外按职责独立要求 `process.spawn`、`scheduler.manage`、`config.mutate` 或
-`mcp.manage`。`config(action="show")` 使用 public structured projection，递归遮盖 secret-shaped 字段、
-URL userinfo 和所有已配置敏感字面值后，才允许进入模型消息或 JSONL trace。
+`mcp.manage`。`config(action="show")` 仍受 registered tool 权限和 typed schema 约束；进入模型消息与
+JSONL trace 的已选字段保持原值，不按 key、URL 或配置字面值改写。
 
 远程 `ask_user_question` 不保持 webhook task：executor 返回嵌套在 canonical `ToolResultMessage` 中的
 `waiting_user` marker，ApplicationRuntime 持久化包含 assistant tool call 与 tool result 的 snapshot，
@@ -162,12 +162,11 @@ MCP SDK 的 mutation annotation 在 hkust4 真环境核对前保持 `UNVERIFIED`
 不可证明，canonical result 必须是 `OUTCOME_UNKNOWN`，不能落成 confirmed failure 后自动重试。
 
 MCP input schema 不投影成浅层 Pydantic model，而是原样进入 `ToolDefinition` 的 canonical JSON
-Schema validator。原始 output 在任何 redaction 前写入 `ToolOutputStore`；store 用 opaque random handle、
-tenant/session/run 哈希分区、0600 原子文件、quota 和 TTL。模型投影只有 bounded preview、handle、
-hash 和 media type。Resource URI 只存在于 application adapter map，模型使用由 server+URI 派生的
-opaque `resource_id`。resource raw payload 中的 URI 保留在 tenant ACL artifact 内，但 model preview
-会递归移除 URI 字段。生命周期与协议边界另写 `mcp_audit.jsonl`，其中不包含 headers/env 值，
-resource 事件只记录 URI hash。Audit sink 故障累积为 typed `McpAuditFailure`，不得改变连接状态或
+Schema validator。原始 output 写入 `ToolOutputStore`；store 用 opaque random handle、tenant/session/run
+哈希分区、0600 原子文件、quota 和 TTL。授权文本 result/preview 保持原值，并带 handle、hash 和 media
+type；binary 只通过 artifact/opaque reference 投影。Resource discovery 使用由 server+URI 派生的 opaque
+`resource_id`，读取后的 URI/content 在授权 typed result 和 `mcp_audit.jsonl` 中保持原值。Audit sink
+故障累积为 typed `McpAuditFailure`，不得改变连接状态或
 中止其余连接清理；显式 dry-run probe 使用独立的 mode-0600 `mcp_probe_audit.jsonl`。
 
 ## Package Boundary
@@ -221,8 +220,7 @@ application cancellation、join worker，再增加 Gateway generation；旧 work
 RunRequest 时确定，并由 run event sink 写入每个 RuntimeEvent；public backlog 消费时只接受事件自带且
 仍为 current 的 generation，绝不把旧事件贴上当前代际。Gateway 本身不接收 private event；events
 模块只输出带 session/run/turn/tool-call correlation 的 `PublicGatewayEvent`。投影只允许已知事件，
-递归移除 credential/provider/private/raw/path/URI 字段，并对自由文本配置 secret、credential assignment、
-宿主路径和 URL query 做脱敏。`assistant.reply` 不作为 Gateway progress 转发；terminal outbound 由
+按 event type 及字段 allowlist 复制结构，并保持已选文本原值。`assistant.reply` 不作为 Gateway progress 转发；terminal outbound 由
 generation-fenced `RunResult` 统一发布，且与 cancel/error 共用 projection，因此不会 duplicate final。
 
 `ChannelDeliveryContext` 只从认证后的 SDK envelope 构造，并复制到 progress、MEDIA、final、error 和
@@ -239,14 +237,13 @@ typed 群工具，再让 application、channel 和 Gateway 借用同一资源。
 
 `lark-oapi` 没有已验证的 public stop/close API，因此 WebSocket client 被隔离到 spawn 子进程；stop 在
 同一 deadline 内 terminate/join，必要时 kill/join，不交付残留线程。子进程 completion/fatal 通过 typed
-queue 回传 `channel.start()`。REST 与 SDK logger 在使用凭证前安装全局 record sanitizer；结构化调用日志
-只包含 action、message/chat hash、耗时、return code 和 certainty。`app_id/app_secret` 优先来自 ignored、
-mode-0600 的真实 YAML，旧环境变量仅作兼容回退；配置 repr、事件、异常、URL query 和公开终态均不保留
-secret 原值。
+queue 回传 `channel.start()`。REST 与 SDK logger 及 `FeishuApiService.__repr__` 按 candidate 2 保持运行时
+文本原值；结构化调用日志仍只包含既有 allowlist 字段。`app_id/app_secret` 优先来自 ignored、mode-0600
+的真实 YAML，旧环境变量仅作兼容回退。
 
-内部 fake/subprocess 测试只能证明 HomeMaster contract 与可终止策略。实际 request builder、API return
-code、消息/媒体/reaction/群最终状态、重连和 `feishu|lark` domain 在真实测试租户完成 Phase 0/9 之前
-继续标记 `UNVERIFIED`，不能由 import 成功或 helper receipt 替代。
+真实 `lark-oapi==1.7.1` 已验证 chat list、message create 和独立 message get：业务返回 code 0，唯一
+canary 回读精确一致。媒体、reaction、群操作、重连和 `lark` domain 仍为 `UNVERIFIED`，不能由 import
+成功或 helper receipt 替代。
 
 ## Trusted Extension Data Flow
 
@@ -259,7 +256,7 @@ deployment extensions.approvals
   -> requested ∩ deployment grants ∩ run principal capabilities
   -> approved contributions adapted and atomically registered by ordinary name
   -> application_start / run_start / run_end / application_stop hooks
-  -> generation-fenced, redacted JSONL lifecycle events
+  -> generation-fenced, field-limited exact-text JSONL lifecycle events
 ```
 
 The CL-21 MVP is an explicitly approved trusted local Python tier, not an OS sandbox for hostile code.
@@ -272,6 +269,6 @@ application restart. Async reload awaits failed/partial candidate cleanup before
 retains rollback ownership from factory success until ApplicationRuntime construction completes. Failed/partial
 candidates release cleanup ownership and never partially mutate the Registry or
 the current generation. Close seals reload, quiesces active callbacks, runs `APPLICATION_STOP`, then extension
-cleanup before ordinary application resources; diagnostics are recorded without exposing raw free text.
+cleanup before ordinary application resources; diagnostics retain exact text with the existing length bound.
 Real source paths are not exposed through module `__file__`, but this trusted-code tier does not prevent code that
 hard-codes unrelated absolute paths and must not be described as an OS sandbox.

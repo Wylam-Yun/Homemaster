@@ -42,6 +42,9 @@ cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/homemaster.yaml
 ```
 
+wheel 安装或其他非源码部署可设置 `HOMEMASTER_CONFIG_PATH=/absolute/path/homemaster.yaml`；该文件仍须
+mode 0600 且不进入 Git。
+
 真实配置已加入 `.gitignore`，真实 key 只能保留在运行机器上，不能提交进 Git。仓库中的
 `config/homemaster.example.yaml` 是字段模板，只包含占位认证值。
 
@@ -79,8 +82,8 @@ Plugin adapter 只读取 JSON manifest 与 `SKILL.md`，绝不导入 plugin Pyth
 uv run homemaster --dry-run -p '检查药盒状态' --output-format json
 ```
 
-输出包含 provider/model 的 `default/file/env/cli` 来源、已加载 skill 及 secret-safe 拒绝计数，
-不会创建 provider client 或执行工具。完整配置和 skill 示例见
+输出包含 provider/model 的 `default/file/env/cli` 来源、已加载 Skill 和配置值；按锁定的 candidate 2，
+typed 输出中已选择的运行时文本保持原值。它不会创建 provider client 或执行工具。完整配置和 Skill 示例见
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)，owner 与数据流见
 [Application Runtime 架构](docs/architecture/application-runtime.md)。
 
@@ -96,13 +99,13 @@ uv sync --extra dev --extra mcp
 uv run homemaster --dry-run -p '检查外部工具' --output-format json
 ```
 
-普通 `--dry-run` 只审计脱敏静态配置，不连接 server；显式增加 `--probe` 才会产生外部 I/O、
+普通 `--dry-run` 只审计静态配置，不连接 server；显式增加 `--probe` 才会产生外部 I/O、
 执行 discovery 并立即关闭临时连接，同时写入 `trace_dir/mcp_probe_audit.jsonl`。真实
 one-shot/Interactive application 在首次 run 前只启动一次
 MCP manager，连接成功的工具会按普通名称原子加入 application Registry，失败 server 不影响 builtin。
-MCP nested JSON Schema 保真进入 Registry；resource URI 仅在 adapter 内部保存，模型只见 opaque `resource_id`。
-所有 tool/resource 原始结果先按 tenant/session/run 写入 ACL artifact，模型和事件只接收脱敏、限长
-preview 与 opaque handle；resource audit 只记录不可逆 hash 引用，audit 写入故障不会阻断连接清理。
+MCP nested JSON Schema 保真进入 Registry；resource discovery 用 opaque `resource_id`，读取后授权文本内容
+在 typed result、preview 和 audit 中保持原值。tool/resource 原始结果同时按 tenant/session/run 写入 ACL
+artifact；二进制和仅用于 transport 的宿主路径只投影 opaque handle。audit 写入故障不会阻断连接清理。
 在 MCP SDK 的 mutation/read-only annotation 经真环境核对前，普通 discovered tool 一律按可能修改
 远端状态处理：PLAN 拒绝、DEFAULT 要求确认；已连接且调用失败返回不可自动重试的
 `outcome_unknown`。`list_mcp_resources` 与 `read_mcp_resource` 保持只读。
@@ -152,8 +155,8 @@ uv run homemaster gateway --config config/homemaster.yaml
 YAML 单项混拼。`gateway.feishu.domain` 只允许 `feishu` 或 `lark`；完整配置见
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)。WebSocket 使用可终止的
 子进程，关闭、outbound drain、active run 和 service join 共用一个 deadline。代码与 non-live 门已
-覆盖 typed contract；真实租户 API、消息、媒体、reaction、群状态和两个 domain 的 Phase 9 验收仍须
-逐项执行。当前 app credential endpoint 返回码与 Feishu WebSocket 握手已通过，但不宣称其余外部终态通过。
+覆盖 typed contract；真实 chat-list、message-create 和独立 message-get readback 均已通过，业务返回码为
+0 且唯一 canary 精确匹配一次。媒体、reaction、群状态、reconnect 和 `lark` domain 仍为 `UNVERIFIED`。
 localized post、真实 card `header/elements` 入站解析及 Markdown 链接/多表格完整 renderer 尚未迁移完成。
 
 ## 跑一个任务
@@ -173,7 +176,8 @@ homemaster -p "检查客厅" --output-format stream-json
 
 交互 shell 与 `run --progress` 使用 Rich 实时区域；Rich/状态信息只写 stderr，
 不会污染 `json` 或 `stream-json` 的 stdout。公开实时协议只包含七种
-`StreamEvent`，`type=result` 是 HomeMaster 的终端扩展。
+`StreamEvent`，`type=result` 是 HomeMaster 的终端扩展。Rich 完整显示 Bash command，成功只显示状态，
+失败详情最多显示 500 字符及明确截断标记；机器事件和结果不截断。
 
 ```bash
 cd /Users/wylam/Documents/workspace/HomeMaster
@@ -272,9 +276,10 @@ See `src/homemaster/events/runtime_events.py` for the full `RuntimeEvent` defini
 
 Use `--progress` to stream a compact progress summary to stderr during the run.
 
-> **Security note:** Runtime event traces contain tool call names and result status codes
-> but never raw LLM prompts, responses, or API keys. The `sanitize_for_log()` function
-> strips sensitive content before writing to the trace sink.
+> **Runtime output note:** authenticated and authorized runtime text is exact under the locked candidate-2
+> policy, including selected config, trace, audit, SDK-log, and service-repr fields. Event field allowlists,
+> tenant/session/run ownership, invalid-auth non-echo, binary artifact isolation, and Git placeholders remain
+> mandatory; exact text does not grant authority or add fields.
 
 ## Trusted Extensions（CL-21）
 
@@ -330,8 +335,8 @@ Home、ALFWorld 与 Coworker 入口看到相同普通名称集合；环境只注
 
 **MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
 结果并加入 application Registry；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、
-`read_mcp_resource`，动态工具为 `mcp__<server>__<tool>`。连接、调用、断线和关闭写入脱敏 JSONL
-audit；WebSocket 配置会明确报告 unsupported，不会静默降级。
+`read_mcp_resource`，动态工具为 `mcp__<server>__<tool>`。连接、调用、断线和关闭写入字段受限、文本精确的
+JSONL audit；WebSocket 配置会明确报告 unsupported，不会静默降级。
 
 **Permissions/Devices**：飞书 Gateway 产生固定 trusted owner principal/capabilities；统一 execution chain 在
 每次调用前授权。application-owned connection pool 与 physical-device FIFO lease 共用 generation，
@@ -341,7 +346,7 @@ disconnect/emergency-stop fencing 阻止等待动作，并把已开始动作标�
 固定 `feishu-owner`，同时保留 typed tenant/channel/chat/thread/sender identity 与 delivery context，确定性路由到
 application-owned session，并只向现有 `ApplicationRuntime.run(RunRequest)` 提交请求。bounded priority
 bus 对 progress 合并/淘汰，MEDIA/final/error/cancel 保留并反压；远程 progress 只能来自严格
-allowlist/redaction 的公共事件投影，终态 `RunResult` 只发送一次 final。每条 outbound 在 egress 重新
+allowlist、文本不改写的公共事件投影，终态 `RunResult` 只发送一次 final。每条 outbound 在 egress 重新
 核对 generation；shutdown 在一个 deadline 内处理 drain、子进程 channel 和 service join。默认配置关闭
 Gateway。安装 `gateway` extra，在 ignored、mode-0600 的真实 YAML 中填写 `app_id/app_secret` 后运行：
 
@@ -365,7 +370,7 @@ devices/    connection pool、generation lease、emergency stop 与 JSONL audit
 channels/   typed channel DTO、bounded priority bus、router、飞书 adapter 与群操作
 gateway/    credential、ApplicationRuntime bridge、cancel/recovery 与公共事件边界
 memory/     RAG retrieval / index / tokenizer / runtime memory store
-events/     RuntimeEvent schema, sinks, sanitizer 与 remote public projection
+events/     RuntimeEvent schema、sinks 与 remote allowlist projection
 config/     RuntimeSettings 和 path/config helpers
 providers/  LLM/embedding provider clients
 cli/        CLI 入口（run, doctor, interactive shell）

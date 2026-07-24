@@ -9,7 +9,7 @@ from pathlib import Path
 
 import typer
 
-from homemaster.application import RunRequest, RunResult
+from homemaster.application import RunPolicy, RunRequest, RunResult
 from homemaster.cli.composition import HomeCliBackend, create_home_application
 from homemaster.cli.live_output import StreamJsonEventSink, TextStreamEventSink
 from homemaster.cli.renderers import (
@@ -107,6 +107,9 @@ def execute_one_shot(
                         resolved_skill.model_override if resolved_skill is not None else None
                     ),
                     resume=session_id is not None,
+                    run_policy=RunPolicy(
+                        max_tool_iterations=config.runtime.max_tool_iterations,
+                    ),
                     dependencies={"skill_registry": bundle.skill_registry},
                     environment=HomeCliBackend(
                         world_path=world_path,

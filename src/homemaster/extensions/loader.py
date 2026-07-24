@@ -29,7 +29,7 @@ from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import ExecutionBackend, RegisteredTool
 
 _FACTORY_NAME = "build_extension"
-_DIAGNOSTIC_SANITIZER = PublicEventProjection()
+_DIAGNOSTIC_PROJECTION = PublicEventProjection()
 
 
 class _Digest(Protocol):
@@ -445,7 +445,7 @@ async def _dispose_contributions_async(
             raise
         except Exception as exc:
             diagnostics.append(
-                _DIAGNOSTIC_SANITIZER.project_content(
+                _DIAGNOSTIC_PROJECTION.project_content(
                     f"{extension_id}: cleanup {type(exc).__name__}: {exc}"
                 )[:4000]
             )
@@ -453,7 +453,7 @@ async def _dispose_contributions_async(
 
 
 def _load_diagnostic(extension_id: str, exc: BaseException) -> str:
-    return _DIAGNOSTIC_SANITIZER.project_content(f"{extension_id}: {type(exc).__name__}: {exc}")[
+    return _DIAGNOSTIC_PROJECTION.project_content(f"{extension_id}: {type(exc).__name__}: {exc}")[
         :4000
     ]
 

@@ -439,7 +439,7 @@
       "characterization_test_ids": [
         "tests/homemaster/extensions/test_extensions.py::test_runner_timeout_is_cooperative_and_reload_is_busy",
         "tests/homemaster/extensions/test_extensions.py::test_hook_cancellation_propagates_and_releases_active_count",
-        "tests/homemaster/extensions/test_extensions.py::test_hook_result_free_text_is_redacted"
+        "tests/homemaster/extensions/test_extensions.py::test_hook_result_free_text_is_exact"
       ],
       "destination": "src/homemaster/extensions/hook_runner.py",
       "sync_policy": "Recompare locked matcher/priority/blocking behavior before future sync; preserve capability and generation fences."
