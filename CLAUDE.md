@@ -71,6 +71,14 @@
 
 ## 测试工作区纪律
 
+- 同一模型能力只允许一个公开工具名，名称必须表达模型要执行的动作。重命名时同步所有 Profile、上下文索引、
+  投影、安装门和文档，并断言旧名称不再出现在模型工具列表；不得用并列暴露同义工具维持兼容。
+- 工具输入校验失败只报告工具边界可观测事实：稳定错误码、工具名、收到的参数键、缺失字段、逐项问题和
+  `backend_attempted=false`。禁止在工具反馈中猜测 Provider/文本格式来源、解析模型叙述、推荐替代工具或
+  注入重试提示；错误文本与结构化 metadata 必须同源，并测试 backend/lease 调用次数为零。
+- 跨平台工具不得用 `os.name == "posix"` 推导 GNU/BSD 命令行兼容性。对 Linux 与 macOS 分别锁定最终
+  argv，并在对应真机执行至少一个成功命令和一个非零返回码命令；移植 OpenHarness 工具时同步其平台
+  分支及上游测试，禁止只复制主执行路径后另写简化判断。
 - Service-backed tool 必须通过真实 `ApplicationRuntime` dispatch 边界测试；直接调用 executor 或 pipeline
   不能证明 composition 注入和 session runtime 接线成立。
 - Parser、stop condition 和 resume 逻辑必须断言组件间实际序列化 envelope；禁止按 executor 的中间 dict

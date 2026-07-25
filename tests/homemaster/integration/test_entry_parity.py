@@ -93,6 +93,42 @@ def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider
     assert bundle.trace_path.is_file()
 
 
+def test_home_application_injects_skill_registry_without_entry_specific_dependencies(
+    tmp_path,
+) -> None:
+    bundle = create_home_application(config=_config(tmp_path), run_label="gateway-entry")
+    provider = FakeTransport(["hello"])
+    bundle.application.provider_factory = lambda request, run_id: provider
+    original_factory = bundle.application.context_assembler_factory
+    captured = {}
+
+    def capture_dependencies(request, transport):
+        captured["request_dependencies"] = dict(request.dependencies)
+        assembler = original_factory(request, transport)
+        captured["skill_registry"] = assembler._skill_registry
+        return assembler
+
+    bundle.application.context_assembler_factory = capture_dependencies
+
+    async def execute():
+        try:
+            return await bundle.application.run(
+                RunRequest(
+                    text="hello from gateway",
+                    session_id="gateway-entry",
+                    profile="home",
+                )
+            )
+        finally:
+            await bundle.application.aclose()
+
+    result = asyncio.run(execute())
+
+    assert result.status is RunStatus.REPLIED
+    assert captured["request_dependencies"] == {}
+    assert captured["skill_registry"] is bundle.skill_registry
+
+
 def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
     tmp_path,
 ) -> None:

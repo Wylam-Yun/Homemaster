@@ -18,13 +18,12 @@ from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
 from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
 from homemaster.domain.tools import (
+    make_load_skill,
     make_memory_retriever,
     make_memory_writer,
     make_robot_manipulate,
     make_robot_navigate,
     make_robot_verify,
-    make_skill,
-    make_skill_view,
     make_target_grounder,
     make_task_interpreter,
     make_task_summarizer,
@@ -54,7 +53,7 @@ from homemaster.tools.service_tools import build_service_tools
 from homemaster.tools.web_tools import build_web_tools
 
 _INTENTIONAL_COLLISIONS = {
-    "skill_view": ("home", frozenset({"home", "coworker"})),
+    "load_skill": ("home", frozenset({"home", "coworker"})),
     "robot_go_to": ("alfworld", frozenset({"home", "alfworld"})),
     "observe": ("home", frozenset({"home", "alfworld", "coworker"})),
     "robot_manipulate": ("alfworld", frozenset({"home", "alfworld"})),
@@ -198,8 +197,7 @@ def _home_tools(
             make_task_interpreter(),
             make_memory_retriever(memory_path=memory_path),
             make_target_grounder(world_path=world_path),
-            make_skill(),
-            make_skill_view(),
+            make_load_skill(),
             make_robot_navigate(),
             make_robot_manipulate(),
             make_robot_verify(),
@@ -213,8 +211,7 @@ def _home_tools(
         "task_interpreter",
         "memory_retriever",
         "target_grounder",
-        "skill",
-        "skill_view",
+        "load_skill",
         "robot_go_to",
         "observe",
         "robot_manipulate",
@@ -237,12 +234,12 @@ def _home_tools(
             _adapted_tool(
                 spec,
                 alias=name,
-                environment="homemaster" if name == "skill" else "home",
+                environment="homemaster" if name == "load_skill" else "home",
                 policy=_policy_for(name, environment="home"),
                 state_effects=("backend.advance",)
                 if name in {"robot_go_to", "robot_manipulate"}
                 else (),
-                required_capabilities=("tool.read",) if name == "skill" else (),
+                required_capabilities=("tool.read",) if name == "load_skill" else (),
             )
         )
     return tuple(tools)
@@ -290,7 +287,7 @@ def _coworker_tools() -> tuple[RegisteredTool, ...]:
     specs = (
         _coworker_task_tool(make_task_planner_tool(), planner=True),
         _coworker_task_tool(make_task_progress_check_tool(), planner=False),
-        _coworker_skill_view(make_skill_view()),
+        _coworker_load_skill(make_load_skill()),
         *browser_tool_specs(),
         make_terminal_execute(),
         make_sop_decide(),
@@ -390,18 +387,19 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
     return VerificationPolicy(execution_proof=ExecutionProof.NONE)
 
 
-def _coworker_skill_view(spec: Any) -> Any:
+def _coworker_load_skill(spec: Any) -> Any:
     original = spec.executor
     schema = {
         "type": "object",
         "properties": {
-            "skill_name": {
+            "name": {
                 "type": "string",
                 "enum": ["change_execution", "evidence_discipline"],
-                "description": "Name of one available coworker skill to view.",
+                "description": "Name of one available Coworker Skill to load.",
             }
         },
-        "required": ["skill_name"],
+        "required": ["name"],
+        "additionalProperties": False,
     }
 
     def executor(*, arguments: dict[str, Any], run_context: RunContext):

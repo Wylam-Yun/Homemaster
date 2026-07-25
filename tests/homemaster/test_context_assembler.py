@@ -132,7 +132,7 @@ def test_assembler_lists_skill_summaries_without_inlining_full_instructions() ->
     )
     assert "# Available Skills" in text
     assert "**skill-creator**" in text
-    assert "Use the `skill` tool" in text
+    assert "Use `load_skill(name=...)`" in text
     assert "Read `references" not in text
 
 

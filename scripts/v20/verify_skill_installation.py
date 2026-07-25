@@ -177,16 +177,14 @@ async def _migrate_skill_creator(gate: Gate, source: Path) -> None:
     target_hashes = _tree_hashes(target)
     assert target_hashes == source_hashes
 
-    skill = await gate.execute("skill", {"name": "skill-creator"})
-    view = await gate.execute("skill_view", {"skill_name": "skill-creator"})
+    skill = await gate.execute("load_skill", {"name": "skill-creator"})
     reference = await gate.execute(
         "read_file",
         {"path": str(target / "references" / "openai_yaml.md"), "limit": 20},
     )
-    for result in (skill, view, reference):
+    for result in (skill, reference):
         assert result.status is ToolExecutionStatus.SUCCESS, result.to_dict()
     assert skill.data["content"].encode() == source_content
-    assert view.data["content"] == skill.data["content"]
     assert Path(skill.data["base_dir"]).resolve() == target.resolve()
     assert "openai" in reference.text.lower()
     gate.evidence["skill_creator_files"] = len(target_hashes)
@@ -234,7 +232,7 @@ async def _clone_and_create(gate: Gate) -> None:
         f"{shlex.quote(sys.executable)} "
         f"{shlex.quote(str(creator / 'quick_validate.py'))} {shlex.quote(str(generated))}"
     )
-    generated_skill = await gate.execute("skill", {"name": "generated-skill"})
+    generated_skill = await gate.execute("load_skill", {"name": "generated-skill"})
     assert generated_skill.status is ToolExecutionStatus.SUCCESS
     assert generated_skill.data["content"].encode() == generated.joinpath("SKILL.md").read_bytes()
     gate.evidence["git_head"] = observed.stdout.strip()
@@ -382,7 +380,7 @@ async def _https_and_second_process(gate: Gate) -> None:
     assert written.status is ToolExecutionStatus.SUCCESS
     assert written.verification.status is VerificationStatus.PASSED
     assert installed.read_bytes() == curl_path.read_bytes()
-    loaded = await gate.execute("skill", {"name": "commit"})
+    loaded = await gate.execute("load_skill", {"name": "commit"})
     assert loaded.status is ToolExecutionStatus.SUCCESS
     assert loaded.data["content"] == content
 

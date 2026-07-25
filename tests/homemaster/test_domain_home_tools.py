@@ -8,7 +8,7 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.domain.tool_registry import build_home_tool_registry
-from homemaster.domain.tools import make_skill
+from homemaster.domain.tools import make_load_skill
 from homemaster.tools.results import ToolResult
 
 
@@ -42,13 +42,15 @@ def test_home_tool_registry_exposes_robot_tools() -> None:
         "task_interpreter",
         "memory_retriever",
         "target_grounder",
-        "skill_view",
+        "load_skill",
         "robot_navigate",
         "robot_manipulate",
         "robot_verify",
         "memory_writer",
         "task_summarizer",
     } <= names
+    assert "skill" not in names
+    assert "skill_view" not in names
 
 
 def test_task_interpreter_returns_structured_result(tmp_path: Path) -> None:
@@ -119,18 +121,18 @@ def test_target_grounder_returns_grounding_result(tmp_path: Path) -> None:
     assert result.data["grounded_location"] == "kitchen"
 
 
-def test_skill_view_requires_skill_registry_in_deps(tmp_path: Path) -> None:
+def test_load_skill_requires_skill_registry_in_deps(tmp_path: Path) -> None:
     registry = build_home_tool_registry()
-    spec = registry.get("skill_view")
+    spec = registry.get("load_skill")
     result = spec.executor(
-        arguments={"skill_name": "fetch_object"},
+        arguments={"name": "fetch_object"},
         run_context=_make_run_context(tmp_path),
     )
     assert result.success is False
     assert "skill_registry" in (result.failure_reason or "")
 
 
-def test_skill_view_returns_full_skill_content(tmp_path: Path) -> None:
+def test_load_skill_returns_full_skill_content(tmp_path: Path) -> None:
     from homemaster.skills.loader import load_builtin_skills
     from homemaster.skills.registry import SkillRegistry
 
@@ -138,9 +140,9 @@ def test_skill_view_returns_full_skill_content(tmp_path: Path) -> None:
     load_builtin_skills(skill_registry)
 
     registry = build_home_tool_registry()
-    spec = registry.get("skill_view")
+    spec = registry.get("load_skill")
     result = spec.executor(
-        arguments={"skill_name": "fetch_object"},
+        arguments={"name": "fetch_object"},
         run_context=_make_run_context(tmp_path, deps={"skill_registry": skill_registry}),
     )
     assert result.success is True
@@ -149,21 +151,21 @@ def test_skill_view_returns_full_skill_content(tmp_path: Path) -> None:
     assert result.data["base_dir"]
 
 
-def test_standard_skill_entry_returns_the_same_complete_content(tmp_path: Path) -> None:
+def test_load_skill_factory_returns_the_same_complete_content(tmp_path: Path) -> None:
     from homemaster.skills.loader import load_builtin_skills
     from homemaster.skills.registry import SkillRegistry
 
     skill_registry = SkillRegistry()
     load_builtin_skills(skill_registry)
 
-    spec = make_skill()
+    spec = make_load_skill()
     result = spec.executor(
         arguments={"name": "fetch_object"},
         run_context=_make_run_context(tmp_path, deps={"skill_registry": skill_registry}),
     )
 
     assert result.success is True
-    assert result.tool_name == "skill"
+    assert result.tool_name == "load_skill"
     assert result.data["content"] == skill_registry.get("fetch_object").content
     assert result.data["base_dir"]
 

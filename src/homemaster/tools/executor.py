@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -11,7 +12,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from homemaster.agent.messages import ToolCall
-from homemaster.tools.base import ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.base import BaseTool, ToolExecutionContext, ToolRegistry, ToolResult
 
 
 @dataclass(frozen=True)
@@ -83,11 +84,7 @@ class ToolExecutor:
         try:
             arguments = tool.input_model.model_validate(call.arguments)
         except ValidationError as exc:
-            return ToolResult(
-                f"invalid tool arguments: {exc}",
-                True,
-                {"status": "invalid_tool_arguments"},
-            )
+            return _invalid_arguments_result(tool, call, exc)
         is_read_only = tool.is_read_only(arguments)
         decision = self.permission_checker.evaluate_tool(
             tool_name=tool.name,
@@ -288,6 +285,45 @@ class ToolExecutor:
                 {"status": "resource_key_resolution_failed"},
             )
         return value, None
+
+
+def _invalid_arguments_result(
+    tool: BaseTool,
+    call: ToolCall,
+    error: ValidationError,
+) -> ToolResult:
+    schema = tool.input_model.model_json_schema()
+    required = schema.get("required", [])
+    missing_required = sorted(
+        name for name in required if isinstance(name, str) and name not in call.arguments
+    )
+    issues = []
+    for item in error.errors(include_url=False, include_context=False, include_input=False):
+        message = str(item.get("msg", "invalid value"))
+        for prefix in ("Value error, invalid tool arguments: ", "invalid tool arguments: "):
+            if message.startswith(prefix):
+                message = message.removeprefix(prefix)
+                break
+        issues.append(
+            {
+                "location": [
+                    part if isinstance(part, str | int) else str(part)
+                    for part in item.get("loc", ())
+                ],
+                "message": message,
+                "type": str(item.get("type", "value_error")),
+            }
+        )
+    payload = {
+        "status": "invalid_tool_arguments",
+        "error_code": "invalid_tool_arguments",
+        "tool": tool.name,
+        "backend_attempted": False,
+        "received_argument_keys": sorted(str(name) for name in call.arguments),
+        "missing_required_arguments": missing_required,
+        "issues": issues,
+    }
+    return ToolResult(json.dumps(payload, ensure_ascii=False, sort_keys=True), True, payload)
 
 
 @asynccontextmanager

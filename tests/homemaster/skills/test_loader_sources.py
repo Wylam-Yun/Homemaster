@@ -9,7 +9,7 @@ _HOME_TOOLS = (
     "task_interpreter",
     "memory_retriever",
     "target_grounder",
-    "skill_view",
+    "load_skill",
     "robot_go_to",
     "observe",
     "robot_manipulate",

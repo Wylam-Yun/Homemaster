@@ -7,7 +7,7 @@ Tools:
   task_interpreter  — parse user utterance into structured task card
   memory_retriever  — retrieve object memory candidates via RAG
   target_grounder   — assess memory hits and select grounded target
-  skill_view        — retrieve skill metadata by name
+  load_skill        — load complete skill instructions by name
   robot_navigate    — navigate robot to target location
   robot_manipulate  — manipulate an object (pick up, put down, etc.)
   robot_verify      — verify task objective achieved
@@ -130,25 +130,25 @@ def _exec_target_grounder(
     )
 
 
-def _exec_skill_view(
+def _exec_load_skill(
     *,
     arguments: dict[str, Any],
     run_context: RunContext,
 ) -> ToolResult:
-    skill_name = arguments.get("skill_name", "")
-    if not skill_name:
+    skill_name = arguments.get("name", "")
+    if not isinstance(skill_name, str) or not skill_name.strip():
         return ToolResult(
             success=False,
-            tool_name="skill_view",
+            tool_name="load_skill",
             executor_mode="programmatic",
-            failure_reason="skill_name is required",
+            failure_reason="name is required",
         )
 
     skill_registry = run_context.deps.get("skill_registry")
     if skill_registry is None:
         return ToolResult(
             success=False,
-            tool_name="skill_view",
+            tool_name="load_skill",
             executor_mode="programmatic",
             failure_reason="no skill_registry in run_context.deps",
         )
@@ -161,7 +161,7 @@ def _exec_skill_view(
     if spec is None:
         return ToolResult(
             success=False,
-            tool_name="skill_view",
+            tool_name="load_skill",
             executor_mode="programmatic",
             failure_reason=f"skill not found: {skill_name}",
         )
@@ -169,7 +169,7 @@ def _exec_skill_view(
     base_dir = spec.base_dir
     return ToolResult(
         success=True,
-        tool_name="skill_view",
+        tool_name="load_skill",
         executor_mode="programmatic",
         data={
             "name": spec.name,
@@ -180,25 +180,6 @@ def _exec_skill_view(
             "argument_hint": spec.argument_hint,
         },
     )
-
-
-def _exec_skill(
-    *,
-    arguments: dict[str, Any],
-    run_context: RunContext,
-) -> ToolResult:
-    name = arguments.get("name", "")
-    if not isinstance(name, str) or not name.strip():
-        return ToolResult(
-            success=False,
-            tool_name="skill",
-            executor_mode="programmatic",
-            failure_reason="name is required",
-        )
-    return _exec_skill_view(
-        arguments={"skill_name": name},
-        run_context=run_context,
-    ).model_copy(update={"tool_name": "skill"})
 
 
 def _exec_robot_navigate(
@@ -396,46 +377,24 @@ def make_target_grounder(*, world_path: Any = None) -> ToolSpec:
     )
 
 
-def make_skill_view() -> ToolSpec:
+def make_load_skill() -> ToolSpec:
     return ToolSpec(
-        name="skill_view",
-        description="Retrieve skill metadata and system prompt fragment by name.",
-        input_schema={
-            "type": "object",
-            "properties": {
-                "skill_name": {
-                    "type": "string",
-                    "description": "Name of the skill to view.",
-                },
-            },
-            "required": ["skill_name"],
-        },
-        executor_mode="programmatic",
-        selectable_by_model=True,
-        executor=_exec_skill_view,
-    )
-
-
-def make_skill() -> ToolSpec:
-    """OpenHarness-compatible progressive disclosure entry point."""
-
-    return ToolSpec(
-        name="skill",
-        description="Read the complete instructions for one available Skill.",
+        name="load_skill",
+        description="Load the complete instructions for one available Skill by name.",
         input_schema={
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Name of the Skill to read.",
-                }
+                    "description": "Name of the Skill to load.",
+                },
             },
             "required": ["name"],
             "additionalProperties": False,
         },
         executor_mode="programmatic",
         selectable_by_model=True,
-        executor=_exec_skill,
+        executor=_exec_load_skill,
     )
 
 

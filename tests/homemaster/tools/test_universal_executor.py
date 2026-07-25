@@ -1,4 +1,5 @@
 import asyncio
+import json
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -305,6 +306,22 @@ async def test_denial_and_invalid_input_never_acquire_or_execute(tmp_path: Path)
     )
 
     assert invalid.metadata["status"] == "invalid_tool_arguments"
+    assert invalid.metadata == {
+        "status": "invalid_tool_arguments",
+        "error_code": "invalid_tool_arguments",
+        "tool": "write_note",
+        "backend_attempted": False,
+        "received_argument_keys": [],
+        "missing_required_arguments": ["value"],
+        "issues": [
+            {
+                "location": [],
+                "message": "'value' is a required property",
+                "type": "value_error",
+            }
+        ],
+    }
+    assert json.loads(invalid.output) == invalid.metadata
     assert denied.metadata["status"] == "permission_denied"
     assert calls == 0
     assert acquires == 0

@@ -77,9 +77,9 @@ def test_started_tool_projects_only_allowlisted_arguments() -> None:
             {"update_count": 1, "has_current_subtask": True, "has_next_focus": True},
         ),
         (
-            "skill_view",
-            {"skill_name": "change_execution", "token": "no"},
-            {"skill_name": "change_execution"},
+            "load_skill",
+            {"name": "change_execution", "token": "no"},
+            {"name": "change_execution"},
         ),
         ("browser_navigate", {"route": "ticket", "url": "no"}, {"route": "ticket"}),
         ("observe", {"raw": "no"}, {}),
@@ -696,7 +696,7 @@ def test_free_text_allowlisted_arguments_are_summarized_without_values(
 @pytest.mark.parametrize(
     ("tool_name", "arguments"),
     [
-        ("skill_view", {"skill_name": "FORBIDDEN-CREDENTIAL"}),
+        ("load_skill", {"name": "FORBIDDEN-CREDENTIAL"}),
         ("browser_navigate", {"route": "https://signed.invalid/FORBIDDEN-CREDENTIAL"}),
         ("browser_click", {"bid": "FORBIDDEN-CREDENTIAL"}),
         ("browser_wait", {"job_id": "FORBIDDEN-CREDENTIAL", "target_status": "terminal"}),
@@ -785,7 +785,7 @@ def test_invalid_closed_argument_values_fail_projection(tool_name: str, argument
             },
         ),
         (
-            "skill_view",
+            "load_skill",
             {"name": "FORBIDDEN-CREDENTIAL", "description": "FORBIDDEN-CREDENTIAL"},
         ),
     ],

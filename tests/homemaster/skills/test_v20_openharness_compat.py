@@ -58,7 +58,7 @@ def test_reloading_discovers_a_complete_new_standard_skill(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_standard_skill_tool_refreshes_then_returns_complete_content(tmp_path: Path) -> None:
+async def test_load_skill_refreshes_then_returns_complete_content(tmp_path: Path) -> None:
     root = tmp_path / "skills"
 
     def discover():
@@ -80,7 +80,7 @@ async def test_standard_skill_tool_refreshes_then_returns_complete_content(tmp_p
     result = await execute(
         tool_registry,
         Path.cwd(),
-        "skill",
+        "load_skill",
         {"name": "standard-fixture"},
         capabilities=("tool.read",),
         run_context=run_context,

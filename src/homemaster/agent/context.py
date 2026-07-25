@@ -290,7 +290,7 @@ class AvailableSkillsProvider:
         lines = [
             "# Available Skills",
             "",
-            "Use the `skill` tool to read a Skill's full instructions before acting on it.",
+            "Use `load_skill(name=...)` to load a Skill's full instructions before acting on it.",
             "",
         ]
         for skill in skills:

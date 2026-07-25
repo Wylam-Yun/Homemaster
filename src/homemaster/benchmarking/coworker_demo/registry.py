@@ -10,7 +10,7 @@ from homemaster.benchmarking.coworker_demo.correlation import correlated_action_
 from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
 from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
-from homemaster.domain.tools import make_skill_view
+from homemaster.domain.tools import make_load_skill
 from homemaster.task_state.tools import make_task_planner_tool, make_task_progress_check_tool
 from homemaster.tools.registry import ToolRegistry
 from homemaster.tools.spec import ToolSpec
@@ -18,7 +18,7 @@ from homemaster.tools.spec import ToolSpec
 EXPECTED_COWORKER_TOOLS = (
     "task_planner",
     "task_progress_check",
-    "skill_view",
+    "load_skill",
     "browser_navigate",
     "browser_click",
     "browser_fill",
@@ -33,7 +33,7 @@ def build_coworker_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(_wrap_task_tool(make_task_planner_tool(), planner=True))
     registry.register(_wrap_task_tool(make_task_progress_check_tool(), planner=False))
-    registry.register(_coworker_skill_view())
+    registry.register(_coworker_load_skill())
     for spec in browser_tool_specs():
         registry.register(spec)
     registry.register(make_terminal_execute())
@@ -43,19 +43,20 @@ def build_coworker_tool_registry() -> ToolRegistry:
     return registry
 
 
-def _coworker_skill_view() -> ToolSpec:
-    spec = make_skill_view()
+def _coworker_load_skill() -> ToolSpec:
+    spec = make_load_skill()
     original = spec.executor
     schema = {
         "type": "object",
         "properties": {
-            "skill_name": {
+            "name": {
                 "type": "string",
                 "enum": ["change_execution", "evidence_discipline"],
-                "description": "Name of one available coworker skill to view.",
+                "description": "Name of one available Coworker Skill to load.",
             }
         },
-        "required": ["skill_name"],
+        "required": ["name"],
+        "additionalProperties": False,
     }
 
     def executor(*, arguments: dict[str, Any], run_context: RunContext):

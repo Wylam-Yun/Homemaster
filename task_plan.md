@@ -35,6 +35,7 @@ acceptance.
 | 7. Real anomaly acceptance | complete | `coworker-20260720-025635-a46d87ca` passes per-target rollback, video, visual, and independent verifier gates. |
 | 8. Acceptance report and final audit | complete | All attempts, hashes, evidence, 793/1 tests, preflight, dual verifiers, docs, and clean worktree agree. |
 | 9. Final code review | complete | Both P2 findings are fixed; 798/1 tests, compileall, focused checks, and dual stronger verifiers pass. |
+| 10. Gateway activation and live verification | complete | The configured Gateway ran successfully, its persisted session reached `replied`, and the owner confirmed normal Feishu message delivery and readback. |
 
 ## Failed Attempts To Preserve
 
@@ -45,5 +46,5 @@ acceptance.
 
 ## Current Next Action
 
-Commit both accepted reviewer fixes and publish the final handoff. Do not start
-another review.
+Commit the accepted Linux/macOS tool portability, structured input-error,
+`load_skill`, Gateway documentation, and scripted-gate compatibility changes.

@@ -615,7 +615,7 @@ def test_parallel_tool_call_ids_are_preserved() -> None:
     transport.queue_tool_calls(
         [
             ("call_1", "memory_retriever", {"query": "水杯"}),
-            ("call_2", "skill_view", {"skill": "fetch_object"}),
+            ("call_2", "load_skill", {"name": "fetch_object"}),
         ]
     )
     transport.queue_text("我查到了两个结果。")

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from homemaster.tools.bash import _shell_argv
 from homemaster.tools.contracts import ToolExecutionStatus
 from tests.homemaster.tools.universal_harness import execute, registry
 
@@ -33,6 +34,33 @@ async def _execute(
 
 def test_universal_registry_registers_bash() -> None:
     assert "bash" in registry().all_names()
+
+
+def test_shell_argv_uses_native_bash_on_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "homemaster.tools.bash.shutil.which",
+        lambda name: {"bash": "/bin/bash", "script": "/usr/bin/script"}.get(name),
+    )
+
+    assert _shell_argv("echo hello", platform_name="macos") == [
+        "/bin/bash",
+        "-lc",
+        "echo hello",
+    ]
+
+
+def test_shell_argv_keeps_script_wrapper_on_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "homemaster.tools.bash.shutil.which",
+        lambda name: {"bash": "/usr/bin/bash", "script": "/usr/bin/script"}.get(name),
+    )
+
+    assert _shell_argv("echo hello", platform_name="linux") == [
+        "/usr/bin/script",
+        "-qefc",
+        "echo hello",
+        "/dev/null",
+    ]
 
 
 @pytest.mark.asyncio
@@ -130,11 +158,7 @@ async def test_bash_cancellation_kills_the_complete_child_process_group(tmp_path
 
 
 def _child_command(pid_path: Path) -> str:
-    return (
-        "sleep 30 & child=$!; "
-        f"printf '%s' \"$child\" > {shlex.quote(str(pid_path))}; "
-        "wait"
-    )
+    return f"sleep 30 & child=$!; printf '%s' \"$child\" > {shlex.quote(str(pid_path))}; wait"
 
 
 async def _wait_for_pid(path: Path) -> int:

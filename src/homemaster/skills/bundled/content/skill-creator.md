@@ -19,7 +19,7 @@ Use this skill when the user wants to:
 - convert existing notes, prompts, or instructions into a reusable skill
 - modify or harden an existing skill
 - make a Skill available to HomeMaster or a trusted plugin
-- debug why the `skill` tool cannot find or load a skill
+- debug why the `load_skill` tool cannot find or load a skill
 - test trigger wording, skill metadata, or skill behavior
 
 ## HomeMaster Skill locations

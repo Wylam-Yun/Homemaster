@@ -1,5 +1,66 @@
 # Engineering Pitfalls
 
+## 2026-07-25 - `skill` 与 `skill_view` 重复暴露同一加载能力
+
+### 症状与根因
+
+Home profile 同时向模型暴露 `skill(name)` 和 `skill_view(skill_name)`，两者最终执行同一个 Skill Registry
+读取逻辑；Coworker 又只暴露旧名称。Available Skills 要求模型在两个近义入口之间选择，工具名也没有明确
+表达“把完整说明加载进上下文”的动作。
+
+### 修法与教训
+
+所有 Profile 统一为唯一的 `load_skill(name)`，删除模型可见的旧入口；上下文继续只预载 Skill 名称和简介，
+完整 `SKILL.md` 仅在调用后作为工具结果进入会话。一个模型能力只保留一个能表达动作的公开工具名；兼容
+需求不得通过继续暴露同义模型工具来解决。
+
+### 参考
+
+- `src/homemaster/domain/tools.py`
+- `src/homemaster/adapters/profiles.py`
+- `src/homemaster/agent/context.py`
+
+## 2026-07-25 - 原始 Pydantic 错误掩盖工具是否执行并诱发重复调用
+
+### 症状与根因
+
+模型连续调用 `grep` 时，工具边界只返回带 Pydantic 内部格式和文档 URL 的
+`invalid tool arguments` 文本。反馈没有工具名、实际参数键、缺失字段或 backend 是否启动，模型无法从
+结果区分输入校验失败和执行失败，最终连续五次相同错误后由 loop guard 停止。
+
+### 修法与教训
+
+输入校验失败统一返回与 metadata 同源的结构化 JSON，只陈述工具边界可观测事实：稳定错误码、工具名、
+收到的参数键、缺失必填字段、逐项校验问题和 `backend_attempted=false`。不得在工具错误里猜测 Provider、
+解析模型文本、推荐替代工具或注入重试提示；上游来源问题由对应层自行处理。
+
+### 参考
+
+- `src/homemaster/tools/executor.py`
+- `tests/homemaster/tools/test_universal_executor.py`
+
+## 2026-07-25 - POSIX 判断把 macOS 误当成支持 GNU `script` 参数
+
+### 症状与根因
+
+Home profile 的每条 `bash` 命令，包括 `echo hello`，都在执行前报
+`/usr/bin/script: illegal option -- f`。移植后的 HomeMaster Bash 只判断 `os.name == "posix"`，因此在
+Linux 和 macOS 都使用 `script -qefc`；但 macOS 提供的是参数不兼容的 BSD `script`。OpenHarness 的
+平台感知实现已经排除了 macOS，独立移植版本却遗漏该分支，Linux 测试因此无法暴露问题。
+
+### 修法与教训
+
+Shell argv 按明确平台选择：Linux 在 `script` 可用时保留 PTY 包装，macOS 固定使用 `bash -lc`。用注入的
+平台名分别锁定两套 argv，并在 macOS 真机通过 HomeMaster Registry 执行成功、非零返回码、超时和进程组
+清理。不得用 `os.name == "posix"` 推导 GNU 用户空间工具的参数兼容性；移植跨平台工具时同步上游的平台
+分支和测试，而不是只复制主执行路径。
+
+### 参考
+
+- `src/homemaster/tools/bash.py`
+- `src/openharness/utils/shell.py`
+- `tests/homemaster/tools/test_v20_openharness_bash_tool.py`
+
 ## 2026-07-24 - installed CLI 把配置路径硬绑源码根，非交互与 PTY 在 provider 前退出
 
 ### 症状与根因

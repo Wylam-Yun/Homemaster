@@ -739,3 +739,10 @@
 - Re-ran the independent Gate B verifier on `run-003`: zero attempts/requests, no artifact-consistency failures, `slice_verified=true`, `overall_status=incomplete`, missing `exact-cases-v3.json`, exit 2. This remains non-blocking incomplete evidence rather than PASS.
 - Ran all ten pinned Episodes as `alfworld-valid_unseen-v18-realapi-20260718-001`. The process exited 0 with ten result rows, but all ten are score-ineligible setup terminals at `scan_pose_mismatch -> scan_time_scale_restore_rejected`: 50 setup requests, zero agent tools/model/Provider requests, 0% evaluation/Harness coverage and no formal score.
 - Added a committed-manifest regression and reran the plan's exact focused/full commands at `193 passed` and `395 passed, 1 skipped`; JSON, Ruff, compile and whitespace checks remain clean.
+
+# 2026-07-25 Gateway Activation
+
+- Root-cause evidence from the preceding diagnostic turn: the ignored mode-0600 config enables Gateway/Feishu and contains both direct credentials, but no HomeMaster Gateway process or tagged session exists.
+- `uv run homemaster --help` failed because the project package was absent from `.venv`; `lark_oapi` was also absent. `uv sync --check --extra dev --extra gateway` reported seven required packages without mutating the environment.
+- Synchronized the locked environment and started the configured Gateway. Independent local inspection found the active `uv run homemaster gateway` parent and project-venv child plus Gateway session `gw-25d72ed7d051d61c3b9eba18ea0db8f6` at revision 4 with `session_status=replied` and 20 persisted messages.
+- The owner completed the Feishu-side black-box check and confirmed normal message delivery and readback. Gateway activation and live verification completed successfully; the test process was later stopped.

@@ -17,7 +17,7 @@ def test_registry_contains_exactly_ten_action_tools_in_stable_order() -> None:
     registry = build_coworker_tool_registry()
     assert tuple(registry.all_names()) == EXPECTED_COWORKER_TOOLS
     assert len(registry.all_names()) == 10
-    skill_names = registry.get("skill_view").input_schema["properties"]["skill_name"]["enum"]
+    skill_names = registry.get("load_skill").input_schema["properties"]["name"]["enum"]
     assert skill_names == ["change_execution", "evidence_discipline"]
 
 
@@ -26,10 +26,10 @@ def test_default_home_registry_is_unchanged() -> None:
     home_names = home_registry.all_names()
     assert "browser_navigate" not in home_names
     assert "sop_decide" not in home_names
-    assert "enum" not in home_registry.get("skill_view").input_schema["properties"]["skill_name"]
+    assert "enum" not in home_registry.get("load_skill").input_schema["properties"]["name"]
 
 
-@pytest.mark.parametrize("tool_name", ["task_planner", "task_progress_check", "skill_view"])
+@pytest.mark.parametrize("tool_name", ["task_planner", "task_progress_check", "load_skill"])
 def test_builtin_coworker_tools_reject_calls_after_terminal_outcome(tool_name: str) -> None:
     outcome = CoworkerOutcome()
     outcome.mark("complete")
