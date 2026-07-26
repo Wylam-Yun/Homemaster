@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed Coworker external tool routing so browser receipts, terminal verification, SOP decisions, and task-plan
+  mirror events consistently use the Case02 `coworker-...` domain run ID rather than the generic application
+  `run-...` ID. This restores real environment calls after the unified runtime began assigning its own run IDs.
 - Replaced the duplicate model-visible `skill` and `skill_view` entry points with one explicit
   `load_skill(name=...)` tool across Home and Coworker profiles. Available Skills continues to preload only names
   and descriptions; complete Skill Markdown enters model context only after `load_skill` is called, while user

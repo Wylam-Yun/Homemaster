@@ -1,5 +1,26 @@
 # Engineering Pitfalls
 
+## 2026-07-26 - Generic application run ID 被误用为 Coworker 环境 run ID
+
+### 症状与根因
+
+真实 Coworker 任务已创建 `coworker-...` 环境并能打开正确网页，但浏览器工具结果携带 generic runtime
+生成的 `run-...`。随后 SOP 决策、终端验证和任务进度镜像把该 ID 发给 Case02 服务，服务只认识环境 ID，
+因而持续返回 `unknown_run`。单测一直让两层 ID 相同或只直接调用局部 executor，未覆盖通用运行时生成
+独立 run ID 的组合边界。
+
+### 修法与教训
+
+在 Coworker `RunRequest.dependencies` 中显式绑定 `coworker_domain_run_id`，并由所有外部环境工具统一读取；
+generic runtime ID 继续只承担框架级 trace、provider 和 session 生命周期。回归故意令两个 ID 不同，逐项断言
+browser、terminal、SOP 与 planner 镜像的真实 `EnvironmentClient` 入参都是 domain ID。
+
+### 参考
+
+- `src/homemaster/benchmarking/coworker_demo/correlation.py`
+- `src/homemaster/benchmarking/coworker_demo/turn.py`
+- `tests/homemaster/benchmarking/coworker_demo/test_domain_run_routing.py`
+
 ## 2026-07-25 - `skill` 与 `skill_view` 重复暴露同一加载能力
 
 ### 症状与根因

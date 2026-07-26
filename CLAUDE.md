@@ -177,6 +177,9 @@
 
 ## Coworker 外部编排纪律
 
+- Coworker 必须显式区分 generic application `run_id` 与 Case02 environment domain `run_id`。所有发往
+  `EnvironmentClient` 的 state/reserve/browser/terminal/decision/runtime-event 调用只可使用依赖中绑定的
+  `coworker_domain_run_id`；回归 fixture 必须令两者不同，并逐项断言每次环境调用使用 domain ID。
 - 构建 Coworker 候选环境时必须安装 `coworker` optional extra；service Python 与 runner Python 分别
   核对。Service preflight PASS 后，仍要用实际 runner Python import Playwright、启动
   `sync_playwright()` 并核对配置的 Chrome executable，禁止用另一个 venv 的可用性替代。
