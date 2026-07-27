@@ -27,6 +27,9 @@
   安全落盘、reaction、publish；未授权和重复事件的下载、reaction、Runtime 次数都必须为零。
 - SDK WebSocket 没有真环境验证的 public stop API 时必须隔离到可终止子进程并回传 fatal/completion；
   设置本地 running flag、daemon thread 或 mock join 不能作为 deadline shutdown 证据。
+- Gateway CLI 必须把 `SIGINT`/`SIGTERM` 转成 Runtime service task 的受控取消，使既有 absolute-deadline
+  shutdown 路径实际 stop/join WebSocket 子进程；只验证主进程退出不算关闭。进程级回归必须逐个断言主进程、
+  worker 和其出站 socket 都已消失，防止孤儿 channel 继续接收同一 app 的事件。
 - logger filter 不能只挂在依赖父 logger 上并假设 propagation 会执行；依赖 SDK 与应用 logger 的 typed
   字段和自由文本按 candidate 2 保持原值。结构化 API audit 仍只包含其既有 allowlist 字段，但字段值不改写。
 - reply/receive target 只来自认证 SDK envelope 的 immutable `ChannelDeliveryContext`；renderer metadata、

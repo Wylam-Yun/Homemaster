@@ -27,6 +27,8 @@ def test_help_exposes_only_final_commands() -> None:
     assert "--output-format" in result.stdout
     assert "--resume" in result.stdout
     assert "--continue" in result.stdout
+    assert "--gateway" in result.stdout
+    assert "--config" in result.stdout
 
 
 def test_run_help_mentions_generic_agent() -> None:
@@ -45,4 +47,5 @@ def test_gateway_help_exposes_ignored_config_path() -> None:
     result = runner.invoke(app, ["gateway", "--help"])
     assert result.exit_code == 0
     assert "--config" in result.stdout
-    assert "telegram" in result.stdout.lower()
+    assert "feishu" in result.stdout.lower()
+    assert "telegram" not in result.stdout.lower()

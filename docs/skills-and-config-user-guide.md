@@ -324,8 +324,11 @@ SDK 日志和 `FeishuApiService.__repr__` 的已选字段保持原值；真实�
 派生成员；改名目标只取当前群 route，模型不能传 chat/member id 覆盖。
 
 ```bash
-uv run homemaster gateway --config config/homemaster.yaml
+uv run homemaster --gateway --config config/homemaster.yaml
 ```
+
+`homemaster --gateway` 仅运行飞书/Lark Gateway，不启动交互 shell。兼容入口
+`homemaster gateway --config ...` 保持可用。
 
 私聊、群聊和 thread 按 tenant/channel/chat/thread/sender 生成稳定 session；权限相同但会话仍按 sender
 隔离。malformed、合成 bot sender 和重复消息在附件下载/reaction 前拒绝。媒体先写入受 containment、

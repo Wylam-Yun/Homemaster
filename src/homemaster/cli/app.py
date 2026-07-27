@@ -43,6 +43,17 @@ def child_worker_command(
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
+    gateway: Annotated[
+        bool,
+        typer.Option(
+            "--gateway",
+            help="Run the configured Feishu/Lark Gateway without starting the interactive shell.",
+        ),
+    ] = False,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+    ] = None,
     print_prompt: Annotated[
         str | None,
         typer.Option("--print", "-p", help="Print one response and exit."),
@@ -84,6 +95,26 @@ def main_callback(
     if ctx.invoked_subcommand is not None:
         return
     try:
+        if gateway:
+            if any(
+                (
+                    print_prompt is not None,
+                    output_format is not None,
+                    dry_run,
+                    resume_session_id is not None,
+                    continue_latest,
+                    probe,
+                    provider_name is not None,
+                    model is not None,
+                )
+            ):
+                raise typer.BadParameter(
+                    "--gateway cannot be combined with interactive, one-shot, or dry-run options"
+                )
+            run_gateway(load_config(config_path))
+            return
+        if config_path is not None:
+            raise typer.BadParameter("--config requires --gateway")
         resolved_format = parse_output_format(output_format)
         if resume_session_id is not None and continue_latest:
             raise typer.BadParameter("--continue cannot be combined with --resume")
@@ -247,7 +278,7 @@ def gateway_command(
         typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
     ] = None,
 ) -> None:
-    """Run the configured remote Gateway (Telegram long polling)."""
+    """Run the configured Feishu/Lark WebSocket Gateway."""
     try:
         run_gateway(load_config(config_path))
     except (typer.Exit, SystemExit):

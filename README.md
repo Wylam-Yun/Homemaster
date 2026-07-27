@@ -148,7 +148,7 @@ chmod 600 config/homemaster.yaml
 export HOMEMASTER_FEISHU_ENCRYPT_KEY='...'
 export HOMEMASTER_FEISHU_VERIFICATION_TOKEN='...'
 
-uv run homemaster gateway --config config/homemaster.yaml
+uv run homemaster --gateway --config config/homemaster.yaml
 ```
 
 `app_id/app_secret` 优先从 mode 0600、Git ignored 的真实 YAML 读取；旧环境变量配置仍兼容但不会与
@@ -352,8 +352,11 @@ Gateway。安装 `gateway` extra，在 ignored、mode-0600 的真实 YAML 中填
 
 ```bash
 uv sync --extra dev --extra gateway
-uv run homemaster gateway --config config/homemaster.yaml
+uv run homemaster --gateway --config config/homemaster.yaml
 ```
+
+`homemaster --gateway` 只启动远程 Gateway，不启动本地交互 shell；原有
+`homemaster gateway --config ...` 命令继续可用。
 
 **目录结构**：
 

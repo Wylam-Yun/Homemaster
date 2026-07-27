@@ -1,5 +1,27 @@
 # Engineering Pitfalls
 
+## 2026-07-27 - `SIGTERM` 退出 Gateway 主进程却遗留飞书 WebSocket worker
+
+### 症状与根因
+
+为切换运行中的 Gateway 向 CLI 主进程发送 `SIGTERM` 后，主进程立刻消失，但 `multiprocessing` 生成的
+`lark.ws.Client` worker 仍持有到飞书的 TLS 连接。`run_gateway()` 只调用 `asyncio.run()`；默认 SIGTERM
+直接终止解释器，因而不会进入 `serve_gateway()` 的 `finally` 或 `GatewayRuntime.aclose()`，已实现的
+worker terminate/join deadline 根本没有机会执行。
+
+### 修法与教训
+
+在 Gateway CLI 的 event loop 中注册 `SIGINT`/`SIGTERM`，将信号转换为 service task 取消。`GatewayRuntime.serve()`
+捕获该取消并走既有 absolute-deadline `aclose()`，随后才释放 application 资源。回归分别断言信号已进入
+shutdown event、service task 被取消；真实进程验收还必须在 TERM 后逐项检查主进程、spawn worker 和 TLS socket
+均已消失。主进程 PID 消失不是远程 Gateway 已停止的证据。
+
+### 参考
+
+- `src/homemaster/cli/gateway_command.py`
+- `src/homemaster/gateway/runtime.py`
+- `tests/homemaster/gateway/test_runtime.py`
+
 ## 2026-07-24 - installed CLI 把配置路径硬绑源码根，非交互与 PTY 在 provider 前退出
 
 ### 症状与根因

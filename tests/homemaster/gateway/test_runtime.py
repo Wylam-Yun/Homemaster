@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import signal
 import time
 from dataclasses import dataclass
 from unittest.mock import AsyncMock
@@ -31,7 +32,11 @@ from homemaster.channels.contracts import (
 )
 from homemaster.channels.impl.base import ChannelDeliveryError
 from homemaster.channels.router import AttachmentPolicy, ChannelRouter
-from homemaster.cli.gateway_command import serve_gateway
+from homemaster.cli.gateway_command import (
+    _install_shutdown_handlers,
+    _serve_until_shutdown,
+    serve_gateway,
+)
 from homemaster.config import GatewayConfig, HomeMasterConfig
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
@@ -145,6 +150,32 @@ class _FakeGroupOperations:
         self.clears.append((session_id, generation))
 
 
+class _SignalLoop:
+    def __init__(self) -> None:
+        self.handlers = {}
+        self.removed = []
+
+    def add_signal_handler(self, value, callback) -> None:
+        self.handlers[value] = callback
+
+    def remove_signal_handler(self, value) -> None:
+        self.removed.append(value)
+
+
+class _BlockingGatewayService:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    async def serve(self, _channel) -> None:
+        self.started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+
+
 def _inbound(content: str = "hello") -> InboundMessage:
     return InboundMessage(
         identity=ChannelIdentity("tenant-a", "telegram", "chat-a", "sender-a"),
@@ -153,6 +184,37 @@ def _inbound(content: str = "hello") -> InboundMessage:
         ),
         content=content,
     )
+
+
+def test_sigterm_requests_gateway_shutdown() -> None:
+    shutdown_requested = asyncio.Event()
+    loop = _SignalLoop()
+
+    remove_handlers = _install_shutdown_handlers(loop, shutdown_requested)
+    loop.handlers[signal.SIGTERM]()
+    remove_handlers()
+
+    assert shutdown_requested.is_set()
+    assert loop.removed == [signal.SIGINT, signal.SIGTERM]
+
+
+@pytest.mark.asyncio
+async def test_signal_shutdown_cancels_gateway_service_task() -> None:
+    gateway = _BlockingGatewayService()
+    shutdown_requested = asyncio.Event()
+    serving = asyncio.create_task(
+        _serve_until_shutdown(
+            gateway,
+            object(),
+            shutdown_requested=shutdown_requested,
+        )
+    )
+    await gateway.started.wait()
+
+    shutdown_requested.set()
+    await asyncio.wait_for(serving, timeout=1)
+
+    assert gateway.cancelled.is_set()
 
 
 @pytest.mark.asyncio

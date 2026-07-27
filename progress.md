@@ -1,5 +1,23 @@
 # Current V1.9 Recovery Progress
 
+## 2026-07-27 Gateway shorthand and signal-cleanup repair
+
+- Status: completed. `homemaster --gateway --config <path>` is a gateway-only alias for the existing
+  Feishu/Lark lifecycle. It neither starts the local interactive shell nor creates a second
+  `ApplicationRuntime`; the explicit `homemaster gateway --config <path>` entry remains compatible.
+- The implementation rejects `--gateway` combined with one-shot, dry-run or interactive-only options and
+  accepts the same explicit config path as the existing gateway command. README, the Skills/config user guide,
+  CHANGELOG and CLI help now describe the alias and the corrected Feishu/Lark WebSocket transport.
+- During live handover, a real `SIGTERM` initially removed only the CLI parent and left the spawned WebSocket
+  worker with an established TLS socket. Root cause was default signal termination bypassing `asyncio.run()`
+  cleanup. Gateway now maps `SIGINT`/`SIGTERM` to cancellation of its Runtime service task, which owns the
+  existing deadline-bounded channel stop/join path. The incident and preventive rule are recorded in
+  `docs/pitfalls.md` and `CLAUDE.md`.
+- Current evidence: 30 focused CLI/Gateway tests pass; Ruff, format and diff checks pass. A real alias launch
+  produced exactly one gateway parent, one spawn worker and one established Feishu TLS connection. A real TERM
+  then removed all three per-instance states. A fresh alias launch is currently online; no business message was
+  sent during this lifecycle-only validation.
+
 ## 2026-07-24 Feishu P2P access-event ACK repair
 
 - Status: implementation and available self-verification are complete. The supplied Feishu delivery history was

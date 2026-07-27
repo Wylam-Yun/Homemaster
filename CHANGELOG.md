@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- Added the gateway-only shorthand `homemaster --gateway --config <path>`. It delegates to the
+  existing Feishu/Lark Gateway lifecycle without creating an interactive shell or a second
+  application runtime; `homemaster gateway --config <path>` remains supported.
+- Made Gateway `SIGINT`/`SIGTERM` enter its deadline-bounded Runtime shutdown path so the spawned
+  Feishu WebSocket worker is stopped and joined instead of surviving as an orphan process.
+- Documented the pending V2.1 generic-browser-tools and memory-system implementation plans, including
+  the browser plan handoff, locked design decisions, validation gates, and current blockers. These
+  documents do not claim that either V2.1 feature has been implemented.
+
 ### V2 workspace checkpoint
 
 - Preserved the complete accumulated V2 workspace in one checkpoint: universal ordinary-name tool execution,
