@@ -52,6 +52,13 @@ class _AsyncStream:
         }
         yield {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
 
+    async def get_final_message(self) -> dict[str, Any]:
+        return {
+            "content": [{"type": "text", "text": "ok"}],
+            "stop_reason": "end_turn",
+            "usage": {},
+        }
+
 
 class _AsyncMessages:
     def __init__(self, entered: asyncio.Event | None, release: asyncio.Event | None) -> None:
@@ -93,6 +100,13 @@ class _IncrementalStream(_AsyncStream):
         }
         await self.release_after_text.wait()
         yield {"type": "message_delta", "delta": {"stop_reason": "end_turn"}}
+
+    async def get_final_message(self) -> dict[str, Any]:
+        return {
+            "content": [{"type": "text", "text": "first"}],
+            "stop_reason": "end_turn",
+            "usage": {},
+        }
 
 
 class _IncrementalMessages:

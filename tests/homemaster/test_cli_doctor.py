@@ -62,6 +62,7 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     memory = next(check for check in payload["checks"] if check["name"] == "memory_backend")
     assert memory["status"] == "PASS"
     assert memory["details"]["available"] is True
+    assert memory["details"]["fastembed_cache_path"].endswith(".cache/homemaster/fastembed")
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" in encoded

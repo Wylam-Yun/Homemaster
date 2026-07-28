@@ -37,7 +37,9 @@ class FactRecord(BaseModel):
     schema_version: Literal[1] = 1
     memory_type: Literal["fact"] = "fact"
     subject: Subject
-    predicate: str
+    predicate: str = Field(
+        description="Lowercase English snake_case relationship, such as location or status."
+    )
     value: str | int | float | bool | dict[str, Any]
     source: MemorySource
 

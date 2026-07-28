@@ -129,6 +129,8 @@ memory:
     qdrant_path: ~/.homemaster/memory/qdrant
     collection_name: homemaster_memory_qwen3_4096_v1
     history_db_path: ~/.homemaster/memory/history.sqlite3
+    # Persistent local BM25 cache. This stays inside the checkout and is ignored by Git.
+    fastembed_cache_path: .cache/homemaster/fastembed
     embedding_dimensions: 4096
     search_limit: 5
     search_threshold: 0.1

@@ -13,7 +13,7 @@ from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.mem0_store import Mem0MemoryStore
 from homemaster.tools.base import ToolExecutionContext
-from homemaster.tools.memory_tools import build_memory_tools
+from homemaster.tools.memory_tools import AddMemoryInput, build_memory_tools
 
 MEMORY_TOOL_NAMES = {
     "memory",
@@ -48,8 +48,13 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
     tools = build_memory_tools()
     assert {tool.definition.model_alias for tool in tools} == MEMORY_TOOL_NAMES
     by_name = {tool.definition.model_alias: tool for tool in tools}
-    assert by_name["memory"].definition.required_capabilities == ("tool.read",)
-    assert by_name["memory"].definition.state_effects == ("read",)
+    assert by_name["memory"].definition.required_capabilities == ("tool.read", "tool.mutate")
+    assert by_name["memory"].definition.state_effects == ("memory.write",)
+    memory_description = by_name["memory"].definition.description
+    assert "this tool has no read action" in memory_description
+    action_schema = by_name["memory"].definition.input_schema["properties"]["action"]
+    action_enum = next(item["enum"] for item in action_schema["anyOf"] if "enum" in item)
+    assert set(action_enum) == {"add", "update", "delete"}
     for name in ("add_memory", "update_memory", "delete_memory"):
         assert "tool.mutate" in by_name[name].definition.required_capabilities
     for tool in tools:
@@ -57,6 +62,74 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
         properties = schema.get("properties", {})
         forbidden = {"tenant_id", "session_id", "run_id", "metadata", "dedupe_key"}
         assert not (forbidden & set(properties))
+
+    search_description = by_name["search_memories"].definition.description
+    assert "One call combines exact metadata with mem0 hybrid retrieval" in (search_description)
+    assert "do not repeat it unless" in search_description
+
+
+def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
+    by_name = {
+        tool.definition.model_alias: tool.definition.to_model_manifest()["input_schema"]
+        for tool in build_memory_tools()
+    }
+
+    add_schema = by_name["add_memory"]
+    record_schema = add_schema["properties"]["record"]
+    object_union = next(item for item in record_schema["anyOf"] if "oneOf" in item)
+    assert object_union["discriminator"]["propertyName"] == "memory_type"
+    fact_schema, procedure_schema = object_union["oneOf"]
+    assert set(fact_schema["properties"]) >= {
+        "memory_type",
+        "subject",
+        "predicate",
+        "value",
+        "source",
+    }
+    assert set(procedure_schema["properties"]) >= {
+        "memory_type",
+        "name",
+        "entry_url",
+        "steps",
+        "success",
+    }
+    assert set(fact_schema["properties"]["subject"]["properties"]) == {
+        "type",
+        "name",
+        "id",
+    }
+    search_schema = by_name["search_memories"]
+    subject_schema = search_schema["properties"]["subject"]["anyOf"][0]
+    assert set(subject_schema["properties"]) == {
+        "type",
+        "name",
+        "id",
+    }
+    assert "$defs" not in add_schema
+    assert "$ref" not in json.dumps(add_schema)
+    assert {item.get("type") for item in record_schema["anyOf"]} >= {"string"}
+
+
+def test_add_memory_accepts_provider_encoded_record_string() -> None:
+    validated = AddMemoryInput.model_validate(
+        {
+            "memory_type": "fact",
+            "record": json.dumps(
+                {
+                    "memory_type": "fact",
+                    "subject": {"type": "object", "name": "probe"},
+                    "predicate": "location",
+                    "value": "cabinet",
+                    "source": "user_statement",
+                }
+            ),
+            "evidence_refs": ["evidence-1"],
+        }
+    )
+
+    assert validated.record.memory_type == "fact"
+    assert validated.record.subject.name == "probe"
+    assert validated.record.predicate == "location"
 
 
 @pytest.mark.asyncio
@@ -105,6 +178,9 @@ async def test_file_memory_mutation_requires_tool_mutate_and_uses_service(tmp_pa
     )
     assert added.success
     assert store.read("user").entries == ("偏好简洁回答",)
+    rejected_read = await executor.execute({"target": "user", "action": "read"}, context)
+    assert rejected_read.error is not None
+    assert rejected_read.error.code == "memory_invalid_input"
     rows = [
         json.loads(line)
         for line in (tmp_path / "memory_operations.jsonl").read_text(encoding="utf-8").splitlines()

@@ -745,6 +745,8 @@ memory_record_corrupt
 
 ```text
 mem0ai==2.0.13
+mem0ai[nlp] 对应的 spaCy
+en_core_web_sm==3.8.0（锁定 wheel URL 与 hash）
 fastembed（实施时锁定与目标 wheel 兼容的精确版本）
 ```
 
@@ -753,9 +755,9 @@ fastembed（实施时锁定与目标 wheel 兼容的精确版本）
 `openai/httpx/protobuf/pydantic` 没有被意外降级，并运行既有 provider/MCP/Gateway 相关回归。
 
 安装阶段预取并校验准确 `Qdrant/bm25` artifact，记录 checksum/cache path，运行时进入 offline/no-download 模式；
-冷缓存断网启动必须明确 fail fast，不能静默退成纯语义。第一版明确不安装 spaCy 与 `en_core_web_sm`，接受无
-lemmatization/entity boost，并断言 mem0 不因环境偶然存在 spaCy 而联网下载模型；若 wheel 行为不能确定性禁用，
-停止并调整设计。fastembed、artifact 加载及 spaCy 行为在目标 venv 真验以前均为 `UNVERIFIED`。
+冷缓存断网启动必须明确 fail fast，不能静默退成纯语义。公开 `Memory.search()` 使用的 spaCy 与
+`en_core_web_sm` 必须作为锁定依赖随环境安装，禁止首次搜索运行时下载。fastembed、artifact 加载及 spaCy
+行为必须在目标 venv 真验。
 
 计划使用 PyPI wheel；本地 mem0 checkout 只作为已锁定源码参考，不以绝对路径成为运行依赖。2026-07-27
 真环境核对发现 PyPI 2.0.13 wheel 与同版本 tag 仅在 Chroma、OpenSearch、PGVector 三个未选 backend 文件存在
@@ -901,7 +903,7 @@ mem0 仍会在构造时创建 LLM client，即使 HomeMaster 永远使用 `infer
 - example 无真实 secret；真实配置 mode 0600 且 gitignored；
 - isolated wheel 安装后 import `mem0/qdrant`；
 - fastembed 精确版本、BM25 artifact checksum/cache/offline load 和冷缓存 fail-fast；
-- 无 spaCy 模型下载、无运行时 artifact 下载；
+- spaCy/full 与 lemma pipeline 均从已安装模型加载，无运行时模型/artifact 下载；
 - 关键共享依赖版本审计。
 
 ### WP2：文件 store 与冻结上下文
@@ -1076,7 +1078,7 @@ mem0 仍会在构造时创建 LLM client，即使 HomeMaster 永远使用 `infer
 - mem0 update(text+metadata) 对真实 Qdrant 的原子可见性；
 - search threshold 对中文 fact/procedure fixture 的 per-case 召回率；
 - mem0 telemetry 在 HomeMaster 启动边界关闭后确实零外联；
-- fastembed 精确版本、`Qdrant/bm25` artifact checksum/offline load、BM25 实际贡献和 spaCy 零下载；
+- fastembed 精确版本、`Qdrant/bm25` artifact checksum/offline load、BM25 实际贡献和 spaCy 已安装模型零下载；
 - mem0 sink LLM 构造不外联，outbound guard 只放行准确 embeddings endpoint；
 - procedure evidence 与尚待实施的通用浏览器工具 receipt 格式；未完成浏览器计划以前相关外部符号保持
   `UNVERIFIED`，不得由记忆计划替它背书。

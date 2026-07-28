@@ -74,6 +74,12 @@
 
 ## 测试工作区纪律
 
+- 非 PyPI 依赖必须通过标准 PEP 508 direct reference 写入项目依赖和构建后的 wheel `Requires-Dist`；不得只依赖
+  `[tool.uv.sources]` 等源码仓库私有映射。每次变更都从源码外只拿 wheel 建立空 venv，先检查 wheel 元数据包含
+  准确 URL，再让安装器真实解析全部依赖并 import 目标包；源码环境的 `uv sync` 成功不能替代发布包安装门。
+- 运行必需的离线模型/词表工件不得依赖 `/tmp`、用户级默认 cache 或首次联网下载。把锁定工件作为
+  package data 分发，显式 materialize 到可配置的持久项目/部署目录，并让所有调用链使用同一个 cache path。
+  每次变更必须在空 cache、断网条件下分别验证源码和已安装 wheel 的真实加载与外部功能终态。
 - Service-backed tool 必须通过真实 `ApplicationRuntime` dispatch 边界测试；直接调用 executor 或 pipeline
   不能证明 composition 注入和 session runtime 接线成立。
 - Parser、stop condition 和 resume 逻辑必须断言组件间实际序列化 envelope；禁止按 executor 的中间 dict
@@ -143,6 +149,11 @@
   extension cleanup，并把 hook/cleanup 状态写入字段受限、文本精确的结构化 trace。
 
 ## Provider 外部门纪律
+
+- Anthropic流式响应的实时 delta只用于展示 text/thinking；可执行工具名与参数必须以 SDK最终消息中的
+  `tool_use.name/input`为唯一真理源。不得同时维护第二套生产参数聚合器，也不得解析正文 XML样式工具标记执行。
+- Provider已被真机证明会把声明为object的嵌套参数编码成 JSON字符串时，只能在typed输入边界解析为object，
+  随后继续执行完整原始模型校验；禁止以兼容为名接受任意字符串、数组或跳过discriminator/字段约束。
 
 - doctor/health check 的 PASS/WARN/FAIL 必须与真实故障域一致：可选子系统 unavailable 且调用边界已
   fail closed 时报告 WARN 和具体影响，不得用全局 FAIL 误杀仍可工作的顶层入口；同时保留真实 unavailable
@@ -216,6 +227,8 @@
 - Helper 自测必须审计真实 CLI/handler 接线；新 validator 存在或 isolated fixture 通过不算接线完成。case/run verifier 必须逐 case 回读 raw setup artifacts 并独立重算，禁止只信 worker 自报计数。
 - 共享 schema 迁移时，把同一份 committed payload 直接喂给每个真实 consumer；禁止在 synthetic fixture 中补回生产 payload 已删除的字段。目标 mutation 必须核对具体拒绝原因，不能把其他缺字段异常算 PASS。
 - 跨 producer/consumer 的 synthetic shared-schema fixture 必须由真实 producer 生成，或从 producer 的实际 coverage rule 重算并逐 ID 审计；禁止手工补出真实生产路径不会发布的行或字段。
+- 模型已持有的数据不要再暴露同义读取入口：当 profile、memory 或其他状态已经进入当前上下文时，模型工具 schema 不得同时提供普通召回用的 read/list 动作。禁止性描述不能抵消 enum 中实际存在的能力；保留底层程序读接口供快照构建、审计和写后终态核验，并用真实事件断言无需工具的问答首轮 `tool_calls=[]`。
+- 第三方高层 API 若隐式组合多个外部分支，先沿锁定 wheel 的真实调用栈列出每个外部调用，再决定是否在应用层补分支。默认优先保留公开 API 并删除重复的应用层分支；验收逐分支计数，结果带多个来源标签不能证明每个外部检索只执行了一次。
 - 外部 transaction 完成后的下游派生、序列化或汇总失败，仍必须保留已完成的 raw refs、逐动作 rows、返回码和真实 action count；不得退化成零计数最小错误。
 - 在仓库外临时目录运行 Ruff 等项目工具时，显式传入仓库真配置；临时默认配置的 PASS 不得作为项目门。同步后必须在正式仓库路径复跑。
 - 多命令验收脚本必须 fail-fast 或逐命令断言返回码；禁止用最后一条成功命令的 exit 0 掩盖前序 lint、format、测试或外部验证失败。

@@ -63,6 +63,9 @@ Runtime 的 opaque evidence，所有 mutation 以 SDK receipt 加独立文件/Qd
 [记忆用户指南](docs/memory-user-guide.md)，owner、不变量与数据流见
 [记忆系统架构](docs/architecture/memory-system.md)。
 
+离线 BM25 工件随源码和 wheel 分发。首次启动会在项目 `.cache/homemaster/fastembed` 解包经哈希锁定的
+`Qdrant/bm25` 文件，整个目录已被 Git 忽略；迁移服务器时不需要复制 `/tmp/fastembed_cache` 或联网下载。
+
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
 ## 体检
@@ -78,7 +81,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - API 配置是否可读
 - Mimo 最小 JSON 调用
 - Qwen3 MemoryEmbedding `/v1/embeddings` 调用
-- mem0/Qdrant/BM25 backend 是否可启动；故障原因会显示在 `memory_backend`，文件记忆仍独立可用
+- mem0/Qdrant/BM25 backend 是否可启动；故障原因和实际 BM25 cache path 会显示在 `memory_backend`，文件记忆仍独立可用
 
 ## 配置与 Skills
 

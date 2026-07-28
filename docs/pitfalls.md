@@ -1,5 +1,117 @@
 # Engineering Pitfalls
 
+## 2026-07-28 - uv source映射未进入wheel元数据，源码可装但发布包依赖无解
+
+### 症状与根因
+
+项目源码环境中 `uv sync`、锁文件检查和全部 memory 测试都通过，但从源码外安装刚构建的 HomeMaster wheel 时，
+解析器报告不存在 `en-core-web-sm==3.8.0`。该模型 wheel 不发布在 PyPI；`pyproject.toml` 只把版本写进
+`project.dependencies`，真实下载 URL 放在 `[tool.uv.sources]`。后者只供 uv 读取源码项目时使用，不会进入构建
+产物的 `Requires-Dist`，所以发布 wheel 丢失了唯一可解析来源。
+
+### 修法与教训
+
+把模型依赖写成标准 PEP 508 direct URL，使构建元数据和 lock 同时保存准确来源；删除只在源码侧生效的 source
+映射。回归从源码外建立空 venv，检查 wheel `METADATA` 后让安装器真实解析依赖并 import 包。源码 checkout 中
+依赖齐全、lock 正确或构建成功，都不能证明 wheel 自身可安装；非 PyPI 依赖必须审计最终 `Requires-Dist`。
+
+### 参考
+
+- `pyproject.toml`
+- `uv.lock`
+- `tests/homemaster/skills/test_installed_package.py`
+
+## 2026-07-28 - mem0公开search已内置hybrid，外层又跑BM25导致重复检索和spaCy告警
+
+### 症状与根因
+
+每次 `search_memories` 都打印缺少 spaCy lemma/full model 的两条警告，但召回仍成功。目标 venv 中实际安装的
+`mem0ai==2.0.13` 会在公开 `Memory.search()` 内先做 lemma/entity 预处理，再执行 dense search、Qdrant BM25 和
+融合；HomeMaster 又在返回后单独调用一次 `vector_store.keyword_search()`。此前只根据旧认知把公开 search 判断为
+dense-only，没有沿目标 wheel 的真实调用栈核对，因此单测和分支命中虽然通过，实际每次召回却执行了两次 BM25。
+
+### 修法与教训
+
+HomeMaster 改为只调用一次公开 `Memory.search()`，再与 metadata exact 合并，删除外层第二次 BM25。项目依赖
+显式包含 `mem0ai[nlp]` 和锁定的 `en_core_web_sm` wheel，避免首次搜索临时下载。回归同时计数公开 hybrid 与其
+内部 BM25 各一次、断言搜索阶段没有 spaCy 告警，并用真实 Qdrant 结果核对召回。第三方公开 API 的语义会随
+版本改变；必须对锁定 wheel 追调用栈并审计实际外部调用次数，不能用“结果里有两个 source”证明分支没有重复。
+
+### 参考
+
+- `src/homemaster/memory/mem0_store.py`
+- `tests/homemaster/memory/test_mem0_store.py`
+
+## 2026-07-28 - USER快照已注入，模型仍把它当文件并重复读取
+
+### 症状与根因
+
+真实 Mimo 会话已经在推理中识别出 USER 内容，却先后调用 `read_file(USER.md)`、文件搜索、结构化检索和
+`memory(target=user, action=read)`。根因有两层：`# USER.md` 这类标题看起来像工作区路径；更关键的是，只要
+模型 schema 仍暴露 `read` enum，能力存在本身就会压过“普通召回不要读”的描述。仅改标题和描述后，真实
+Mimo 仍调用了 `read`，证明该修法不完整。
+
+### 修法与教训
+
+冻结快照改用 Assistant Identity、User Profile、Persistent Memory 语义标题。模型可见的文件记忆工具只保留
+add/update/delete，与 Hermes 的写工具边界一致；底层 `FileMemoryStore.read()` 继续供快照构建和写后独立终态
+核验使用。涉及模型工具选择时，必须检查 schema 实际暴露的能力，并用真实流式事件断言首轮
+`tool_calls=[]`，不能把禁止性描述或最终答对当成零冗余调用的证据。
+
+### 参考
+
+- `src/homemaster/memory/context_service.py`
+- `src/homemaster/tools/memory_tools.py`
+- `tests/homemaster/memory/test_context_integration.py`
+- `tests/homemaster/memory/test_memory_tools.py`
+
+## 2026-07-28 - Anthropic流式工具参数重复组装，复杂record又被Mimo编码成字符串
+
+### 症状与根因
+
+Mimo有时在正文输出 XML 风格 `<tool_call>`，同时原生工具调用出现空参数；HomeMaster当时自行聚合
+`input_json_delta`，与 Anthropic SDK 的最终消息组装形成两套参数来源，无法仅凭运行 trace 排除 Harness 丢参。
+改为 SDK 终态后，`memory(target=user)` 首次原生调用正常；真实 `add_memory` 又证明 Mimo能理解完整 FactRecord
+字段，却稳定把嵌套 `record` 输出成 JSON 字符串。仅内联 `$ref`仍复现，根因不是后端 Pydantic校验。
+
+### 修法与教训
+
+Anthropic实时流只负责 text/thinking，工具调用统一读取 `get_final_message().content[].tool_use.input`；正文标记
+永不执行。六个 memory输入契约改为 Pydantic单一真理源，Provider schema只做确定性本地引用内联。对已由
+真实 Mimo证明的 nested-record字符串化，在 Pydantic before-validator中只解析 JSON object，再执行完整判别联合
+校验，禁止接受任意文本或数组。真机验收必须分别断言首次工具参数、磁盘/DB终态和新session召回。
+
+### 参考
+
+- `src/homemaster/providers/llm_client.py`
+- `src/homemaster/tools/memory_tools.py`
+- `tests/homemaster/test_llm_client.py`
+- `tests/homemaster/memory/test_memory_tools.py`
+
+## 2026-07-28 - FastEmbed 默认将离线 BM25 工件写入易清理的 `/tmp`
+
+### 症状与根因
+
+HomeMaster 启动时 FastEmbed 报 `Could not find the model tar.gz file at /tmp/fastembed_cache/bm25 and
+local_files_only=True`。代码正确要求 BM25 离线运行，但没有显式设置 FastEmbed cache path，于是依赖的默认值
+落在系统临时目录。`/tmp` 被清理、换服务器或冷启动时，锁定的 `Qdrant/bm25` 工件不存在；FastEmbed 先尝试
+HuggingFace cache 失败后回退到旧 GCS tarball 布局，因此错误信息还误导为缺少 tar.gz。
+
+### 修法与教训
+
+把锁定的 18 个 BM25 工件作为 HomeMaster package data 分发，首次启动原子 materialize 到
+`memory.mem0.fastembed_cache_path`（默认项目 `.cache/homemaster/fastembed`），并让预检与 mem0/Qdrant
+共用该缓存和 offline 环境。每次 materialize 后仍校验原始 commit、文件集合、SHA-256 和中文 sparse 编码；
+缓存损坏可由随包工件重建，工件损坏或目录不可写则 fail closed。回归必须在空缓存、离线代理下测试源码和
+已安装 wheel 两种形态，不能以已有 `/tmp` 缓存作为通过证据。
+
+### 参考
+
+- `src/homemaster/memory/bm25_preflight.py`
+- `src/homemaster/memory/mem0_store.py`
+- `tests/homemaster/memory/test_bm25_preflight.py`
+- `tests/homemaster/memory/test_mem0_store.py`
+
 ## 2026-07-28 - 记忆后端召回成功，但完整记录只进 data，模型只看到 succeeded
 
 ### 症状与根因
@@ -45,22 +157,21 @@ fail closed 返回 `memory_backend_unavailable`，文件记忆与 shell 正常�
 - `tests/homemaster/test_cli_doctor.py`
 - `tests/homemaster/test_cli_streaming_blackbox.py`
 
-## 2026-07-27 - mem0 Qdrant 源码含 BM25 代码，但运行时 `search` 被后定义覆盖成 dense-only
+## 2026-07-27 - 误判 mem0 公开 search 为 dense-only，分支测试没有审计真实调用栈
 
 ### 症状与根因
 
-V2.1 初版真实 Qdrant 测试名为 hybrid search，且安装包的 Qdrant adapter 会创建 `bm25` sparse slot、写入
-sparse vector 并实现 `keyword_search()`，看起来已经满足混合召回。但 `Memory.search()` 最终调用的同类
-`search()` 只执行 dense `query_points(vectors=...)`；源码中的 BM25 写入能力不等于公开 search 路径会消费它。
-原测试只断言中文结果能命中，并统一标成 `hybrid`，dense 单支也能通过，形成假阳性。
+V2.1 初版只观察到底层 Qdrant `search()` 是 dense 查询，便把上层 `Memory.search()` 误判成 dense-only，随后在
+HomeMaster 外层补了一次 `keyword_search()`。目标 venv 的 `mem0ai==2.0.13` 实际会在 `Memory.search()` 中先调用
+底层 dense search，再调用 BM25 并融合；只检查一个底层方法，没有沿完整公开入口追调用栈，导致 BM25 执行两次。
 
 ### 修法与教训
 
-HomeMaster 不修改 site-packages，而是在 store 边界分别调用 mem0 semantic search 和真环境核对过的 Qdrant
-`keyword_search()`，再按 memory_id/RRF 合并并保留 `semantic`/`bm25`/`exact` 来源。启动时离线校验锁定的
+HomeMaster 不修改 site-packages，只调用一次公开 `Memory.search()`，再与 metadata exact 候选合并；公开融合结果
+统一标记 `hybrid`，不虚构无法从返回值区分的 semantic/BM25 来源。启动时仍离线校验锁定的
 `Qdrant/bm25` commit、全部文件 SHA-256 和中文 sparse 编码；缺缓存、checksum 错或 keyword probe 失败均显式
-unavailable，不静默 dense-only。回归直接断言 raw point 含 named `bm25` vector，并用不同查询分别证明
-semantic 与 BM25 各自产生命中。不能用一个“混合搜索有结果”断言证明每个分支真实执行。
+unavailable，不静默 dense-only。回归直接断言 raw point 含 named `bm25` vector，并计数公开 hybrid 一次及其
+内部 BM25 一次。不能用一个“混合搜索有结果”断言证明没有重复调用。
 
 ### 参考
 

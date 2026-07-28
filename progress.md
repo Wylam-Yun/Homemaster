@@ -1,9 +1,30 @@
 # Current HomeMaster Progress
 
+## 2026-07-28 Public mem0 hybrid search and spaCy environment
+
+- Status: implemented and focused tests pass. HomeMaster calls `Memory.search()` once and no longer adds a second
+  `keyword_search()`. The project lock and `.venv` now include `mem0ai[nlp]==2.0.13`, spaCy 3.8.14 and the locked
+  `en_core_web_sm==3.8.0` wheel; both full and lemma pipelines load without runtime download. Real embedded-Qdrant
+  tests verify one public hybrid call, one internal BM25 call, correct recall and no missing-spaCy warning.
+
+## 2026-07-28 Persistent offline BM25 cache
+
+- Status: completed. The locked `Qdrant/bm25` artifact is now package data and is atomically materialized into
+  `memory.mem0.fastembed_cache_path`, defaulting to the checkout's ignored
+  `.cache/homemaster/fastembed`. HomeMaster's preflight and mem0/Qdrant use this same cache and force offline mode;
+  the doctor reports the resolved path in `memory_backend.details.fastembed_cache_path`.
+- Migration: a new clone or server requires no `/tmp/fastembed_cache` copy and no model download. The 18 locked
+  files are restored from the source/wheel on first memory backend startup. Deployments whose checkout is read-only
+  must set `memory.mem0.fastembed_cache_path` to a writable persistent absolute path.
+- Evidence: focused memory/doctor slice `26 passed`; Ruff and diff checks pass. A true cold-cache
+  `homemaster doctor --json` passed with offline mode and unreachable HTTP(S) proxies. `uv build --wheel` succeeded,
+  a fresh venv installed only that wheel outside the checkout, and offline FastEmbed loaded all 18 packaged files
+  into an empty cache.
+
 ## 2026-07-27 V2.1 memory system implementation
 
-- Status: WP1-WP6 implementation, documentation, live provider gate and isolated wheel gate are complete; the one
-  final read-only review remains. The formal source of truth is
+- Status: WP1-WP6 implementation, documentation, live provider gate and isolated wheel gate are complete. The user
+  explicitly waived the one final read-only review before commit. The formal source of truth is
   `plan/V2.1/homemaster-memory-system-implementation-plan-zh.md`; the discussion file is historical only.
 - Dependencies/config: `mem0ai==2.0.13`, `fastembed==0.8.0`, resolved `qdrant-client==1.18.0` are locked. The owner
   selected the stable PyPI wheel even though unused backend files differ from the Git tag; selected Qdrant/core paths
@@ -15,10 +36,9 @@
 - mem0/Qdrant: typed fact/procedure schemas, deterministic serialization/dedupe, persistent evidence ledger, CRUD,
   same-ID update, stale evidence rejection, exact hints and independent terminal readback/raw-point checks pass on
   real embedded Qdrant. Process-level close/reopen returns zero with no Qdrant destructor warning.
-- Hybrid root cause and repair: the installed mem0 adapter creates/writes `bm25` sparse vectors and exposes
-  `keyword_search`, but its effective public `search()` executes dense-only. HomeMaster now explicitly merges mem0
-  semantic, Qdrant BM25 and metadata-exact branches with source labels. A raw point contains the named `bm25` vector,
-  and separate Chinese queries prove semantic and BM25 contribution. The incident is recorded in
+- Hybrid root cause and repair: the installed mem0 2.0.13 public `search()` already performs dense and BM25 retrieval.
+  HomeMaster calls it once and only merges metadata-exact candidates, preventing the former second BM25 call. A raw
+  point contains the named `bm25` vector, and real Chinese queries prove public hybrid recall. The incident is recorded in
   `docs/pitfalls.md` and a preventive rule in `CLAUDE.md`.
 - BM25 offline gate: `Qdrant/bm25` commit `e499a1f8d6bec960aab5533a0941bf914e70faf9` and all 18 artifact file
   SHA-256 values are locked. Startup resolves fastembed's actual cache directory with `local_files_only=True`, verifies
@@ -43,9 +63,10 @@
   declared dependencies, imported homemaster/mem0/fastembed/qdrant, read SOUL/threat-pattern package data, exposed
   exactly the six new Home tools, excluded legacy Home tools and removed all six when disabled. Real config doctor is
   PASS; a deliberate Qdrant lock conflict is WARN with file memory still readable.
-- Next: run the single allowed final read-only reviewer, remediate findings, perform targeted revalidation and commit.
+- Current commit gate: the full non-live suite passes (`1663 passed, 1 skipped, 11 deselected`); focused Ruff,
+  format, lock and diff checks pass. Commit and push are next.
 - Blocking items: none. Preserve unrelated pre-existing browser changes and the user's edits in
-  `src/homemaster/application/runtime.py` and `src/homemaster/tools/base.py`; no final review has been started.
+  `src/homemaster/application/runtime.py` and `src/homemaster/tools/base.py`.
 
 ## 2026-07-27 V2.1 generic browser phase-one feasibility
 
@@ -867,3 +888,20 @@
 - The first real write attempt also reconfirmed the existing tool-schema usability issue: `record` is advertised only as a
   generic object, so Mimo initially omitted required FactRecord fields. This is separate from result projection and remains
   deferred per the locked scope.
+
+## 2026-07-28 SDK Tool Calls And Pydantic Memory Inputs
+
+- Anthropic live text/thinking remains streamed, while executable tool calls now come exclusively from the SDK final
+  message's `tool_use.name/input`; HomeMaster no longer uses its independent streamed argument assembly in production.
+- All six memory tools now generate provider schemas and validate execution input from Pydantic models. Local references
+  are inlined for provider visibility, and the complete Fact/Procedure/Subject structures are exposed.
+- Real Mimo proved that nested `record` is emitted as a JSON object string despite the object schema. A strict Pydantic
+  before-validator now decodes only JSON objects, then applies the unchanged discriminated record validation.
+- Real USER.md gate passed on the first native `memory(target=user)` call; disk readback and a fresh-session prompt answer
+  both returned evening walks and 08:00 running. The exact test entry was deleted and USER.md returned empty.
+- Real structured gate passed on the first `add_memory` call after compatibility handling. ID
+  `57a453d4-ac30-40c6-8c6a-6840e5e5fedc` stored the F probe at `回归测试柜 / 第八层`; a fresh session recalled it,
+  deletion succeeded, and a later fresh search returned no record. Earlier D/E probes never passed input validation.
+- Final HomeMaster non-live verification passed with `1242 passed, 2 skipped`; the provider/tool-call regression slice
+  passed with `26 passed`. Targeted Ruff lint/format, `git diff --check`, `uv build`, and `uv lock --check` also pass.
+- Case02 environment/browser/terminal tests are outside this memory-system scope and are not part of this acceptance.

@@ -5,12 +5,20 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from pydantic import ValidationError
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from homemaster.events.trace import append_jsonl_event
 from homemaster.memory.evidence import MemoryEvidenceError, MemoryEvidenceLedger
@@ -21,7 +29,7 @@ from homemaster.memory.file_store import (
     FileMemoryStore,
 )
 from homemaster.memory.mem0_store import Mem0MemoryStore, Mem0StoreError, StoredMemory
-from homemaster.memory.models import MEMORY_RECORD_ADAPTER, MemoryRecord
+from homemaster.memory.models import MEMORY_RECORD_ADAPTER, MemoryRecord, Subject
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
@@ -38,14 +46,107 @@ from homemaster.tools.contracts import (
 _REFERENCE = "homemaster.tools.memory_tools"
 _READ_CAPABILITY = "tool.read"
 _MUTATE_CAPABILITY = "tool.mutate"
+_NonEmptyText = Annotated[str, Field(min_length=1)]
+
+
+def _decode_record_object(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise ValueError("record string must contain valid JSON") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError("record string must decode to a JSON object")
+    return decoded
+
+
+MemoryRecordInput = Annotated[
+    MemoryRecord,
+    BeforeValidator(
+        _decode_record_object,
+        json_schema_input_type=MemoryRecord | str,
+    ),
+]
+
+
+class _MemoryToolInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class FileMemoryOperationInput(_MemoryToolInput):
+    action: Literal["add", "update", "delete"]
+    content: str | None = None
+    match: str | None = None
+
+
+class FileMemoryInput(_MemoryToolInput):
+    target: Literal["user", "memory"]
+    action: Literal["add", "update", "delete"] | None = None
+    content: str | None = None
+    match: str | None = None
+    operations: tuple[FileMemoryOperationInput, ...] | None = Field(default=None, min_length=1)
+
+
+class AddMemoryInput(_MemoryToolInput):
+    memory_type: Literal["fact", "procedure"]
+    record: MemoryRecordInput = Field(
+        description=(
+            "Complete FactRecord or ProcedureRecord. Send a JSON object; a JSON-encoded "
+            "object string is accepted only for provider compatibility. Fact predicate must "
+            "be lowercase English snake_case, such as location."
+        )
+    )
+    evidence_refs: tuple[_NonEmptyText, ...] = Field(
+        min_length=1, json_schema_extra={"uniqueItems": True}
+    )
+
+    @model_validator(mode="after")
+    def _memory_types_match(self) -> AddMemoryInput:
+        if self.memory_type != self.record.memory_type:
+            raise ValueError("memory_type must match record.memory_type")
+        return self
+
+
+class SearchMemoriesInput(_MemoryToolInput):
+    query: _NonEmptyText
+    memory_type: Literal["fact", "procedure"] | None = None
+    limit: int = Field(default=5, ge=1, le=20)
+    subject: Subject | None = None
+    predicate: str | None = None
+    entry_url: str | None = None
+    name: str | None = None
+
+
+class GetMemoryInput(_MemoryToolInput):
+    memory_id: _NonEmptyText
+
+
+class UpdateMemoryInput(_MemoryToolInput):
+    memory_id: _NonEmptyText
+    record: MemoryRecordInput = Field(
+        description=(
+            "Complete replacement FactRecord or ProcedureRecord. Send a JSON object; a "
+            "JSON-encoded object string is accepted only for provider compatibility. Fact "
+            "predicate must be lowercase English snake_case."
+        )
+    )
+    evidence_refs: tuple[_NonEmptyText, ...] = Field(
+        min_length=1, json_schema_extra={"uniqueItems": True}
+    )
+
+
+class DeleteMemoryInput(_MemoryToolInput):
+    memory_id: _NonEmptyText
 
 
 class MemoryAuditExecutor:
     """Write one field-limited JSONL record around a canonical memory executor."""
 
-    def __init__(self, operation: str, delegate: Any) -> None:
+    def __init__(self, operation: str, delegate: Any, input_model: type[_MemoryToolInput]) -> None:
         self.operation = operation
         self.delegate = delegate
+        self.input_model = input_model
 
     def is_read_only(self, arguments: Mapping[str, object]) -> bool:
         dynamic = getattr(self.delegate, "is_read_only", None)
@@ -64,20 +165,25 @@ class MemoryAuditExecutor:
         self, arguments: Mapping[str, object], context: ToolExecutionContext
     ) -> ToolExecutionResult:
         started = time.monotonic()
-        result = await self.delegate.execute(arguments, context)
+        try:
+            validated = self.input_model.model_validate(arguments)
+        except ValidationError as exc:
+            return _failure("memory_invalid_input", f"invalid memory tool input: {exc}")
+        normalized_arguments = validated.model_dump(mode="python")
+        result = await self.delegate.execute(normalized_arguments, context)
         path = context.services.get("memory_audit_path")
         if isinstance(path, Path):
-            raw_id = arguments.get("memory_id")
+            raw_id = normalized_arguments.get("memory_id")
             memory_id_hash = (
                 hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:16]
                 if isinstance(raw_id, str) and raw_id
                 else None
             )
-            record = arguments.get("record")
+            record = normalized_arguments.get("record")
             memory_type = (
                 record.get("memory_type")
                 if isinstance(record, Mapping)
-                else arguments.get("memory_type")
+                else normalized_arguments.get("memory_type")
             )
             append_jsonl_event(
                 path,
@@ -99,10 +205,6 @@ class MemoryAuditExecutor:
 
 
 class FileMemoryExecutor:
-    @staticmethod
-    def is_read_only(arguments: Mapping[str, object]) -> bool:
-        return arguments.get("action") == "read" and arguments.get("operations") is None
-
     async def execute(
         self, arguments: Mapping[str, object], context: ToolExecutionContext
     ) -> ToolExecutionResult:
@@ -111,10 +213,6 @@ class FileMemoryExecutor:
         raw_operations = arguments.get("operations")
         try:
             store = _service(context, "file_memory_store", FileMemoryStore)
-            if action == "read":
-                if raw_operations is not None:
-                    return _failure("memory_invalid_input", "read cannot include operations")
-                return _file_success("read", store.read(target))
             if not _has_capability(context, _MUTATE_CAPABILITY):
                 return _failure(
                     "memory_permission_denied",
@@ -145,9 +243,9 @@ class FileMemoryExecutor:
             )
             return _file_success(action, state, attempted=True)
         except FileMemoryError as exc:
-            return _failure(exc.code, str(exc), details=exc.details, attempted=action != "read")
+            return _failure(exc.code, str(exc), details=exc.details, attempted=True)
         except Mem0StoreError as exc:
-            return _store_failure(exc, attempted=action != "read")
+            return _store_failure(exc, attempted=True)
 
 
 class AddMemoryExecutor:
@@ -439,7 +537,7 @@ def _optional_mapping(arguments: Mapping[str, object], key: str) -> dict[str, ob
 def _definition(
     name: str,
     description: str,
-    schema: Mapping[str, object],
+    input_model: type[BaseModel],
     *,
     mutating: bool = False,
 ) -> ToolDefinition:
@@ -447,7 +545,7 @@ def _definition(
         internal_id=f"homemaster.memory.{name}.v1",
         model_alias=name,
         description=description,
-        input_schema=schema,
+        input_schema=_inline_local_refs(input_model.model_json_schema()),
         output_schema={"type": "object"},
         verification_policy=VerificationPolicy(
             execution_proof=ExecutionProof.STRUCTURED_RECEIPT if mutating else ExecutionProof.NONE
@@ -462,140 +560,99 @@ def _definition(
     )
 
 
+def _inline_local_refs(schema: Mapping[str, object]) -> dict[str, object]:
+    """Inline Pydantic's local refs for provider-facing tool schemas."""
+
+    definitions = schema.get("$defs", {})
+    if not isinstance(definitions, Mapping):
+        return dict(schema)
+
+    def expand(value: object, stack: tuple[str, ...] = ()) -> object:
+        if isinstance(value, Mapping):
+            reference = value.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/$defs/"):
+                name = reference.removeprefix("#/$defs/")
+                target = definitions.get(name)
+                if isinstance(target, Mapping) and name not in stack:
+                    expanded = expand(target, (*stack, name))
+                    assert isinstance(expanded, dict)
+                    siblings = {
+                        key: expand(item, stack) for key, item in value.items() if key != "$ref"
+                    }
+                    return {**expanded, **siblings}
+            result: dict[str, object] = {}
+            for key, item in value.items():
+                if key == "$defs":
+                    continue
+                if key == "discriminator" and isinstance(item, Mapping):
+                    property_name = item.get("propertyName")
+                    if isinstance(property_name, str):
+                        result[key] = {"propertyName": property_name}
+                    continue
+                result[str(key)] = expand(item, stack)
+            return result
+        if isinstance(value, tuple | list):
+            return [expand(item, stack) for item in value]
+        return value
+
+    expanded = expand(schema)
+    assert isinstance(expanded, dict)
+    return expanded
+
+
 def build_memory_tools() -> tuple[RegisteredTool, ...]:
-    record = {"type": "object", "description": "Complete FactRecord or ProcedureRecord"}
-    evidence = {
-        "type": "array",
-        "items": {"type": "string", "minLength": 1},
-        "minItems": 1,
-        "uniqueItems": True,
-    }
-    identifier = {"type": "string", "minLength": 1}
     return (
         RegisteredTool(
             _definition(
                 "memory",
-                "Manage curated USER or MEMORY file entries. Use target=user only for stable identity, preferences, communication and usage habits; use target=memory for recent events, decisions, results and cross-session unfinished work. Object locations, device state and reusable procedures belong in the mem0 tools. The session prompt is frozen, so writes persist immediately but affect only new sessions; read is for live disk audit or confirming a prior write. Mutations additionally require tool.mutate.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "target": {"type": "string", "enum": ["user", "memory"]},
-                        "action": {
-                            "type": ["string", "null"],
-                            "enum": ["read", "add", "update", "delete", None],
-                        },
-                        "content": {"type": ["string", "null"]},
-                        "match": {"type": ["string", "null"]},
-                        "operations": {
-                            "type": ["array", "null"],
-                            "minItems": 1,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "action": {
-                                        "type": "string",
-                                        "enum": ["add", "update", "delete"],
-                                    },
-                                    "content": {"type": ["string", "null"]},
-                                    "match": {"type": ["string", "null"]},
-                                },
-                                "required": ["action"],
-                                "additionalProperties": False,
-                            },
-                        },
-                    },
-                    "required": ["target"],
-                    "additionalProperties": False,
-                },
+                "Update curated user-profile or persistent-memory entries. Their frozen contents are already present in the current session context and this tool has no read action. Use target=user only for stable identity, preferences, communication and usage habits; use target=memory for recent events, decisions, results and cross-session unfinished work. Object locations, device state and reusable procedures belong in the mem0 tools. Writes persist immediately, are independently read back from disk, and affect only new session snapshots. Requires tool.mutate.",
+                FileMemoryInput,
+                mutating=True,
             ),
-            MemoryAuditExecutor("memory", FileMemoryExecutor()),
+            MemoryAuditExecutor("memory", FileMemoryExecutor(), FileMemoryInput),
         ),
         RegisteredTool(
             _definition(
                 "add_memory",
-                "Store one complete external-world fact or reusable procedure exactly with infer=false. USER preferences belong in memory(target=user), and recent narrative context belongs in memory(target=memory). Both fact sources require current opaque evidence refs; procedures require a fully successful environment-observation sequence. Never supply metadata, scope, IDs, dedupe keys, timestamps, confidence or credentials.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "memory_type": {"type": "string", "enum": ["fact", "procedure"]},
-                        "record": record,
-                        "evidence_refs": evidence,
-                    },
-                    "required": ["memory_type", "record", "evidence_refs"],
-                    "additionalProperties": False,
-                },
+                "Store only structured external-world facts (such as object locations or device state) and reusable, environment-verified procedures. Never use this for the user's identity, preferences, habits, health guidance or long-term schedule; those must use memory(target=user). Recent events, decisions, results and unfinished work must use memory(target=memory). Supply one complete FactRecord or ProcedureRecord with infer=false and current opaque evidence refs. Never supply metadata, scope, IDs, dedupe keys, timestamps, confidence or credentials.",
+                AddMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("add_memory", AddMemoryExecutor()),
+            MemoryAuditExecutor("add_memory", AddMemoryExecutor(), AddMemoryInput),
         ),
         RegisteredTool(
             _definition(
                 "search_memories",
-                "Search external facts and reusable procedures when the current session lacks the answer. This does not search SOUL, USER or MEMORY files. Use separate queries for separate questions, include exact hints when known, and only pass returned IDs to get, update or delete.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "query": identifier,
-                        "memory_type": {
-                            "type": ["string", "null"],
-                            "enum": ["fact", "procedure", None],
-                        },
-                        "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5},
-                        "subject": {"type": ["object", "null"]},
-                        "predicate": {"type": ["string", "null"]},
-                        "entry_url": {"type": ["string", "null"]},
-                        "name": {"type": ["string", "null"]},
-                    },
-                    "required": ["query"],
-                    "additionalProperties": False,
-                },
+                "Search structured external facts and reusable procedures that are not already present in the current context. One call combines exact metadata with mem0 hybrid retrieval, so use one query covering the current request and do not repeat it unless the requested information or search hints change. This does not search SOUL, USER or MEMORY files. Only pass returned IDs to get, update or delete.",
+                SearchMemoriesInput,
             ),
-            MemoryAuditExecutor("search_memories", SearchMemoriesExecutor()),
+            MemoryAuditExecutor("search_memories", SearchMemoriesExecutor(), SearchMemoriesInput),
         ),
         RegisteredTool(
             _definition(
                 "get_memory",
                 "Fetch a complete fact or procedure only by an exact ID returned by add or search. Use it before executing a procedure or confirming an item for update/delete; it is not semantic search and IDs must never be guessed.",
-                {
-                    "type": "object",
-                    "properties": {"memory_id": identifier},
-                    "required": ["memory_id"],
-                    "additionalProperties": False,
-                },
+                GetMemoryInput,
             ),
-            MemoryAuditExecutor("get_memory", GetMemoryExecutor()),
+            MemoryAuditExecutor("get_memory", GetMemoryExecutor(), GetMemoryInput),
         ),
         RegisteredTool(
             _definition(
                 "update_memory",
                 "Replace one existing memory in place with a complete validated record, normally after search/get. Update facts only from confirmed corrections or newer observations; update a procedure only after the entire new path succeeds. Partial patches and unconfirmed information are forbidden, and current opaque evidence refs are required.",
-                {
-                    "type": "object",
-                    "properties": {
-                        "memory_id": identifier,
-                        "record": record,
-                        "evidence_refs": evidence,
-                    },
-                    "required": ["memory_id", "record", "evidence_refs"],
-                    "additionalProperties": False,
-                },
+                UpdateMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("update_memory", UpdateMemoryExecutor()),
+            MemoryAuditExecutor("update_memory", UpdateMemoryExecutor(), UpdateMemoryInput),
         ),
         RegisteredTool(
             _definition(
                 "delete_memory",
                 "Delete one exact memory only when the user explicitly requests it or the record is confirmed wrong, duplicate or permanently obsolete. Search/get first, never guess an ID, and never perform delete-all; there is no automatic forgetting.",
-                {
-                    "type": "object",
-                    "properties": {"memory_id": identifier},
-                    "required": ["memory_id"],
-                    "additionalProperties": False,
-                },
+                DeleteMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("delete_memory", DeleteMemoryExecutor()),
+            MemoryAuditExecutor("delete_memory", DeleteMemoryExecutor(), DeleteMemoryInput),
         ),
     )
 

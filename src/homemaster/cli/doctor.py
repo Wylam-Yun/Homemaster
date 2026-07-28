@@ -249,6 +249,7 @@ def _memory_backend_check() -> DoctorCheck:
             "available": available,
             "collection_name": config.memory.mem0.collection_name,
             "embedding_provider_name": config.memory.embedding_provider_name,
+            "fastembed_cache_path": str(config.memory.mem0.fastembed_cache_path),
             **({"cause": cause} if cause else {}),
         },
     )

@@ -67,8 +67,8 @@ def test_sync_context_freezes_per_session_and_counts_memory_tokens(tmp_path: Pat
     first_a = _prepare(assembler, session_a)
     baseline = _prepare(_assembler(), _session("baseline"))
 
-    assert first_a.system_prompt.startswith("BASE SYSTEM\n\n# SOUL.md")
-    assert "# USER.md\n\nconcise replies" in first_a.system_prompt
+    assert first_a.system_prompt.startswith("BASE SYSTEM\n\n# Assistant Identity")
+    assert "# User Profile\n\nconcise replies" in first_a.system_prompt
     assert first_a.metrics.estimated_tokens > baseline.metrics.estimated_tokens
 
     store.apply("memory", [FileMemoryOperation("add", content="decision v2")])
@@ -93,5 +93,5 @@ async def test_async_context_uses_the_same_frozen_system_prompt(tmp_path: Path) 
         tools=[],
     )
 
-    assert "# SOUL.md" in context.system_prompt
-    assert "# MEMORY.md\n\nasync memory" in context.system_prompt
+    assert "# Assistant Identity" in context.system_prompt
+    assert "# Persistent Memory\n\nasync memory" in context.system_prompt

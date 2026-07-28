@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
+import shutil
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from importlib import resources
 from pathlib import Path
 
+from homemaster.config import REPO_ROOT
+
+FASTEMBED_CACHE_DIR = REPO_ROOT / ".cache" / "homemaster" / "fastembed"
 BM25_COMMIT = "e499a1f8d6bec960aab5533a0941bf914e70faf9"
+_BM25_MODEL_DIRECTORY = "models--Qdrant--bm25"
+_BM25_ARTIFACT_DIRECTORY = "bm25_artifact"
 BM25_HASHES = {
     "arabic.txt": "0df01c0a184d8c15077c6f0ee70e25e0c0308d827b92b14a19f5f819a0c465d0",
     "config.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
@@ -29,10 +40,27 @@ BM25_HASHES = {
 }
 
 
-def verify_bm25_offline() -> Path:
+def configure_bm25_offline_cache(cache_dir: Path = FASTEMBED_CACHE_DIR) -> Path:
+    """Materialize the packaged BM25 artifact and make FastEmbed use it offline."""
+
+    resolved_cache_dir = cache_dir.expanduser().absolute()
+    _materialize_bm25_artifact(resolved_cache_dir)
+    os.environ["FASTEMBED_CACHE_PATH"] = str(resolved_cache_dir)
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    return resolved_cache_dir
+
+
+def verify_bm25_offline(cache_dir: Path = FASTEMBED_CACHE_DIR) -> Path:
+    """Verify the packaged artifact through FastEmbed's real offline load path."""
+
     from fastembed import SparseTextEmbedding
 
-    encoder = SparseTextEmbedding(model_name="Qdrant/bm25", local_files_only=True)
+    resolved_cache_dir = configure_bm25_offline_cache(cache_dir)
+    encoder = SparseTextEmbedding(
+        model_name="Qdrant/bm25",
+        cache_dir=str(resolved_cache_dir),
+        local_files_only=True,
+    )
     model_dir = Path(encoder.model._model_dir)
     if model_dir.name != BM25_COMMIT:
         raise RuntimeError(f"unexpected BM25 artifact revision: {model_dir.name}")
@@ -51,4 +79,90 @@ def verify_bm25_offline() -> Path:
     return model_dir
 
 
-__all__ = ["BM25_COMMIT", "BM25_HASHES", "verify_bm25_offline"]
+def _materialize_bm25_artifact(cache_dir: Path) -> Path:
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(cache_dir, 0o700)
+    model_dir = cache_dir / _BM25_MODEL_DIRECTORY
+    snapshot_dir = model_dir / "snapshots" / BM25_COMMIT
+
+    with _exclusive_cache_lock(cache_dir):
+        if not _matches_lock(snapshot_dir):
+            snapshot_dir.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            staging_dir = Path(tempfile.mkdtemp(prefix=f".{BM25_COMMIT}.", dir=snapshot_dir.parent))
+            try:
+                for name, expected in BM25_HASHES.items():
+                    _atomic_write(staging_dir / name, _packaged_artifact_bytes(name, expected))
+                if snapshot_dir.exists():
+                    shutil.rmtree(snapshot_dir)
+                staging_dir.replace(snapshot_dir)
+            finally:
+                if staging_dir.exists():
+                    shutil.rmtree(staging_dir)
+        refs_dir = model_dir / "refs"
+        refs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        _atomic_write(refs_dir / "main", BM25_COMMIT.encode("ascii"))
+
+    return snapshot_dir
+
+
+def _packaged_artifact_bytes(name: str, expected: str) -> bytes:
+    source = resources.files(__package__).joinpath(_BM25_ARTIFACT_DIRECTORY, name)
+    content = source.read_bytes()
+    if hashlib.sha256(content).hexdigest() == expected:
+        return content
+    # apply_patch represents every text resource with a final newline. The upstream
+    # artifact has three files without one, so restore only that proven byte change.
+    if content.endswith(b"\n") and hashlib.sha256(content[:-1]).hexdigest() == expected:
+        return content[:-1]
+    raise RuntimeError(f"packaged BM25 artifact checksum mismatch: {name}")
+
+
+def _matches_lock(model_dir: Path) -> bool:
+    if not model_dir.is_dir():
+        return False
+    observed = {path.name for path in model_dir.iterdir() if path.is_file()}
+    if observed != set(BM25_HASHES):
+        return False
+    return all(
+        hashlib.sha256((model_dir / name).read_bytes()).hexdigest() == expected
+        for name, expected in BM25_HASHES.items()
+    )
+
+
+def _atomic_write(path: Path, content: bytes) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary_path = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+        os.chmod(temporary_path, 0o600)
+        temporary_path.replace(path)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+
+
+@contextmanager
+def _exclusive_cache_lock(cache_dir: Path) -> Iterator[None]:
+    lock_path = cache_dir / ".homemaster-bm25.lock"
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - Windows does not provide flock
+            yield
+            return
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+__all__ = [
+    "BM25_COMMIT",
+    "BM25_HASHES",
+    "FASTEMBED_CACHE_DIR",
+    "configure_bm25_offline_cache",
+    "verify_bm25_offline",
+]

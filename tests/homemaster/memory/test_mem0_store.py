@@ -93,6 +93,7 @@ def _config(tmp_path: Path, base_url: str) -> HomeMasterConfig:
                 "qdrant_path": tmp_path / "qdrant",
                 "collection_name": "memory_test_8_v1",
                 "history_db_path": tmp_path / "history.sqlite3",
+                "fastembed_cache_path": tmp_path / "fastembed",
                 "embedding_dimensions": 8,
                 "search_threshold": 0.0,
             },
@@ -207,6 +208,11 @@ async def test_real_exact_semantic_and_bm25_search_branches(tmp_path: Path) -> N
     with _embedding_server() as base_url:
         store = Mem0MemoryStore(_config(tmp_path, base_url))
         store.start()
+        encoder = store._memory.vector_store._bm25_encoder
+        assert encoder is not None
+        assert Path(encoder.model._model_dir).is_relative_to(
+            store.config.memory.mem0.fastembed_cache_path
+        )
         apple = await store.add(_fact("冰箱"), provenance_seq=1)
         procedure = await store.add(_procedure(), provenance_seq=2)
         raw_with_vectors = store._memory.vector_store.client.retrieve(
@@ -241,9 +247,9 @@ async def test_real_exact_semantic_and_bm25_search_branches(tmp_path: Path) -> N
             limit=5,
         )
         assert [item.memory_id for item in facts] == [apple.memory_id]
-        assert "semantic" in facts[0].match_sources
+        assert "hybrid" in facts[0].match_sources
         assert [item.memory_id for item in keyword_facts] == [apple.memory_id]
-        assert "bm25" in keyword_facts[0].match_sources
+        assert "hybrid" in keyword_facts[0].match_sources
         assert [item.memory_id for item in exact_facts] == [apple.memory_id]
         assert "exact" in exact_facts[0].match_sources
         assert [item.memory_id for item in procedures] == [procedure.memory_id]
@@ -251,6 +257,41 @@ async def test_real_exact_semantic_and_bm25_search_branches(tmp_path: Path) -> N
         assert "exact" in exact_procedures[0].match_sources
         assert all(request["path"] == "/v1/embeddings" for request in _EmbeddingHandler.requests)
         assert not any("messages" in request["body"] for request in _EmbeddingHandler.requests)
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_search_uses_mem0_hybrid_once_without_spacy_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    with _embedding_server() as base_url:
+        store = Mem0MemoryStore(_config(tmp_path, base_url))
+        store.start()
+        expected = await store.add(_fact("冰箱"), provenance_seq=1)
+        memory = store._memory
+        keyword_search = memory.vector_store.keyword_search
+        hybrid_search = memory.search
+        calls = {"hybrid": 0, "bm25": 0}
+
+        def counted_hybrid(*args, **kwargs):
+            calls["hybrid"] += 1
+            return hybrid_search(*args, **kwargs)
+
+        def counted_bm25(*args, **kwargs):
+            calls["bm25"] += 1
+            return keyword_search(*args, **kwargs)
+
+        monkeypatch.setattr(memory, "search", counted_hybrid)
+        monkeypatch.setattr(memory.vector_store, "keyword_search", counted_bm25)
+
+        caplog.clear()
+        with caplog.at_level("WARNING"):
+            result = await store.search("苹果", memory_type="fact")
+
+        assert [item.memory_id for item in result] == [expected.memory_id]
+        assert result[0].match_sources == ("hybrid",)
+        assert calls == {"hybrid": 1, "bm25": 1}
+        assert "spaCy" not in caplog.text
         await store.close()
 
 

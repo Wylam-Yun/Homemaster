@@ -87,7 +87,7 @@ class Mem0MemoryStore:
             raise RuntimeError("mem0 store is closed")
         constructed: Any | None = None
         try:
-            verify_bm25_offline()
+            verify_bm25_offline(self.config.memory.mem0.fastembed_cache_path)
             provider = self.config.get_provider(
                 self.config.memory.embedding_provider_name, kind="embedding"
             )
@@ -245,16 +245,6 @@ class Mem0MemoryStore:
                 threshold=self.config.memory.mem0.search_threshold,
                 rerank=False,
             )
-            keyword_points = await asyncio.to_thread(
-                self._require_memory().vector_store.keyword_search,
-                query,
-                top_k=limit,
-                filters=filters,
-            )
-            if keyword_points is None:
-                raise Mem0StoreError(
-                    "memory_backend_unavailable", "Qdrant BM25 sparse search is unavailable"
-                )
         results = response.get("results", []) if isinstance(response, dict) else []
         ranked: dict[str, tuple[StoredMemory, float, int]] = {}
         diagnostics: dict[str, MemorySearchDiagnostic] = {}
@@ -263,9 +253,7 @@ class Mem0MemoryStore:
             if item is None:
                 continue
             ranked[item.memory_id] = (item, 1.0, len(ranked))
-        self._merge_ranked(ranked, results, source="semantic", diagnostics=diagnostics)
-        keyword_raw = [self._point_to_raw(point) for point in keyword_points]
-        self._merge_ranked(ranked, keyword_raw, source="bm25", diagnostics=diagnostics)
+        self._merge_ranked(ranked, results, source="hybrid", diagnostics=diagnostics)
         ordered = sorted(
             ranked.values(),
             key=lambda entry: ("exact" not in entry[0].match_sources, -entry[1], entry[2]),

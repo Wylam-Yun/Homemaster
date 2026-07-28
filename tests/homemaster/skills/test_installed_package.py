@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 
@@ -17,6 +18,15 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
         text=True,
     )
     wheel = next(dist.glob("homemaster-*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        metadata_name = next(
+            name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        metadata = archive.read(metadata_name).decode("utf-8")
+    assert (
+        "Requires-Dist: en-core-web-sm @ https://github.com/explosion/spacy-models/releases/"
+        "download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" in metadata
+    )
     subprocess.run(
         ["uv", "venv", "--python", sys.executable, str(venv)],
         check=True,

@@ -24,9 +24,11 @@ class FakeAnthropicStream:
         events: list[dict[str, Any]],
         *,
         enter_error: Exception | None = None,
+        final_message: dict[str, Any] | None = None,
     ) -> None:
         self._events = events
         self._enter_error = enter_error
+        self._final_message = final_message
 
     def __enter__(self) -> FakeAnthropicStream:
         if self._enter_error is not None:
@@ -39,6 +41,50 @@ class FakeAnthropicStream:
     def __iter__(self):
         return iter(self._events)
 
+    async def get_final_message(self) -> Any:
+        if self._final_message is not None:
+            return self._final_message
+        content: list[dict[str, Any]] = []
+        text_parts: list[str] = []
+        thinking_parts: list[str] = []
+        tools: dict[int, dict[str, Any]] = {}
+        stop_reason = None
+        usage: dict[str, int] = {}
+        for event in self._events:
+            event_type = event.get("type")
+            if event_type == "content_block_start":
+                block = event.get("content_block", {})
+                if block.get("type") == "tool_use":
+                    tools[event.get("index", 0)] = {
+                        "type": "tool_use",
+                        "id": block.get("id", "call_0"),
+                        "name": block.get("name", ""),
+                        "input": block.get("input", {}),
+                        "partial_json": "",
+                    }
+            elif event_type == "content_block_delta":
+                delta = event.get("delta", {})
+                if delta.get("type") == "text_delta":
+                    text_parts.append(delta.get("text", ""))
+                elif delta.get("type") == "thinking_delta":
+                    thinking_parts.append(delta.get("thinking", ""))
+                elif delta.get("type") == "input_json_delta":
+                    tools[event.get("index", 0)]["partial_json"] += delta.get("partial_json", "")
+            elif event_type == "message_delta":
+                stop_reason = event.get("delta", {}).get("stop_reason")
+                usage.update(event.get("usage", {}))
+        if thinking_parts:
+            content.append({"type": "thinking", "thinking": "".join(thinking_parts)})
+        if text_parts:
+            content.append({"type": "text", "text": "".join(text_parts)})
+        for index in sorted(tools):
+            tool = tools[index]
+            partial_json = tool.pop("partial_json")
+            if partial_json:
+                tool["input"] = json.loads(partial_json)
+            content.append(tool)
+        return {"content": content, "stop_reason": stop_reason, "usage": usage}
+
 
 class FakeAnthropicMessages:
     def __init__(
@@ -46,14 +92,20 @@ class FakeAnthropicMessages:
         events: list[dict[str, Any]],
         requests: list[dict[str, Any]],
         enter_error: Exception | None = None,
+        final_message: dict[str, Any] | None = None,
     ) -> None:
         self._events = events
         self._requests = requests
         self._enter_error = enter_error
+        self._final_message = final_message
 
     def stream(self, **kwargs: Any) -> FakeAnthropicStream:
         self._requests.append(kwargs)
-        return FakeAnthropicStream(self._events, enter_error=self._enter_error)
+        return FakeAnthropicStream(
+            self._events,
+            enter_error=self._enter_error,
+            final_message=self._final_message,
+        )
 
 
 class FakeAnthropicClient:
@@ -62,8 +114,9 @@ class FakeAnthropicClient:
         events: list[dict[str, Any]],
         requests: list[dict[str, Any]],
         enter_error: Exception | None = None,
+        final_message: dict[str, Any] | None = None,
     ) -> None:
-        self.messages = FakeAnthropicMessages(events, requests, enter_error)
+        self.messages = FakeAnthropicMessages(events, requests, enter_error, final_message)
 
 
 def _provider(
@@ -90,13 +143,67 @@ def _anthropic_factory(
     requests: list[dict[str, Any]],
     constructions: list[dict[str, Any]],
     enter_errors: list[Exception | None] | None = None,
+    final_message: dict[str, Any] | None = None,
 ) -> Any:
     def factory(**kwargs: Any) -> FakeAnthropicClient:
         constructions.append(kwargs)
         enter_error = enter_errors.pop(0) if enter_errors else None
-        return FakeAnthropicClient(events, requests, enter_error)
+        return FakeAnthropicClient(events, requests, enter_error, final_message)
 
     return factory
+
+
+@pytest.mark.asyncio
+async def test_anthropic_tool_arguments_come_from_sdk_final_message() -> None:
+    requests: list[dict[str, Any]] = []
+    constructions: list[dict[str, Any]] = []
+    events = [
+        {"type": "message_start", "message": {}},
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "text_delta",
+                "text": (
+                    "<tool_call><function=memory>"
+                    "<parameter=target>user</parameter></function></tool_call>"
+                ),
+            },
+        },
+        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}},
+    ]
+    final_message = {
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "call_memory",
+                "name": "memory",
+                "input": {
+                    "target": "user",
+                    "action": "add",
+                    "content": "用户喜欢傍晚散步",
+                },
+            }
+        ],
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 7},
+    }
+    client = LLMClient(
+        _provider(),
+        anthropic_client_factory=_anthropic_factory(
+            events, requests, constructions, final_message=final_message
+        ),
+    )
+
+    message = await client.complete([UserMessage.from_text("记住我的散步习惯")])
+
+    assert message.text.startswith("<tool_call>")
+    assert len(message.tool_calls) == 1
+    assert message.tool_calls[0].arguments == {
+        "target": "user",
+        "action": "add",
+        "content": "用户喜欢傍晚散步",
+    }
 
 
 @pytest.mark.asyncio

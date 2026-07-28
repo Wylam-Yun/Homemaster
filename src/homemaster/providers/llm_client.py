@@ -334,7 +334,28 @@ class LLMClient:
                     stream_context = client.messages.stream(**kwargs)
                     async with _async_context(stream_context) as stream:
                         async for delta in self._transport.aiter_stream_deltas(_async_iter(stream)):
-                            yield delta
+                            # Text and thinking stay live. Anthropic's SDK owns the
+                            # authoritative assembly of tool_use.input at stream end.
+                            if delta.text_delta or delta.reasoning_delta:
+                                yield delta
+                        final_message = await _maybe_await(stream.get_final_message())
+                        normalized = self._transport.normalize_response(final_message)
+                        for tool_call in normalized.tool_calls:
+                            yield TransportDelta(
+                                type="transport.delta",
+                                tool_call_delta=tool_call,
+                            )
+                        if (
+                            normalized.finish_reason
+                            or normalized.usage
+                            or normalized.provider_metadata
+                        ):
+                            yield TransportDelta(
+                                type="transport.delta",
+                                finish_reason=normalized.finish_reason,
+                                usage=normalized.usage,
+                                provider_metadata=normalized.provider_metadata,
+                            )
                 finally:
                     close = getattr(client, "aclose", None) or getattr(client, "close", None)
                     if callable(close):

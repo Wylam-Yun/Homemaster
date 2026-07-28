@@ -38,6 +38,9 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert config.memory.embedding_provider_name == "MemoryEmbedding"
     assert config.memory.mem0.qdrant_path.is_absolute()
     assert config.memory.mem0.history_db_path.is_absolute()
+    assert config.memory.mem0.fastembed_cache_path == (
+        REPO_ROOT / ".cache" / "homemaster" / "fastembed"
+    )
     assert config.memory.mem0.embedding_dimensions == 4096
     assert config.memory.mem0.search_limit == 5
     assert config.memory.mem0.search_threshold == pytest.approx(0.1)
@@ -73,11 +76,14 @@ def test_disabled_memory_does_not_require_embedding_provider() -> None:
     assert config.memory.enabled is False
 
 
-def test_project_locks_minimum_memory_dependencies_without_extras() -> None:
+def test_project_locks_memory_search_dependencies_and_spacy_model() -> None:
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
 
-    assert "mem0ai==2.0.13" in dependencies
+    assert "mem0ai[nlp]==2.0.13" in dependencies
+    assert (
+        "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/"
+        "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" in dependencies
+    )
     fastembed = [value for value in dependencies if value.startswith("fastembed==")]
     assert len(fastembed) == 1
-    assert not any(value.startswith("mem0ai[") for value in dependencies)

@@ -4,6 +4,26 @@
 
 ### Added
 
+- Removed duplicate structured-memory retrieval in `mem0ai==2.0.13`: HomeMaster now calls the public hybrid
+  `Memory.search()` once and merges its results only with metadata-exact matches, instead of invoking a second Qdrant
+  BM25 search. `mem0ai[nlp]` and the locked `en_core_web_sm==3.8.0` model are project dependencies, so the public API's
+  lemma/entity paths load without warnings or a first-search download. The model uses a PEP 508 direct URL in wheel
+  metadata, so HomeMaster wheels remain installable outside the source checkout. Hybrid results use one truthful source
+  label.
+
+- Made Anthropic streaming tool calls use the SDK's final `tool_use.input` as the authoritative parameter source while
+  preserving live text/thinking deltas. Memory tools now derive model-visible and runtime-validated inputs from Pydantic
+  models, expose complete fact/procedure schemas, route user preferences and long-term health schedules to `USER.md`, and
+  strictly decode Mimo's JSON-encoded nested `record` object before full typed validation. The structured-memory search
+  contract now asks for one query per current request because exact and mem0 hybrid retrieval are already
+  merged inside that single tool call. Frozen file-memory blocks now use semantic identity/profile/memory headings rather
+  than path-like `.md` headings. The model-facing file-memory tool no longer exposes a redundant `read` action; writes
+  retain independent disk readback through the internal store boundary.
+
+- Packaged the locked offline `Qdrant/bm25` artifact and materialized it atomically into the persistent project
+  FastEmbed cache (`.cache/homemaster/fastembed` by default). Both HomeMaster's preflight and mem0/Qdrant now use
+  that cache, so deployments no longer depend on volatile `/tmp/fastembed_cache` or a first-run model download.
+
 - Fixed all six V2.1 memory tools to project their complete structured result into model-visible tool-result content,
   instead of exposing only a success sentence while retaining records and IDs solely in internal message data. This
   makes add IDs, search records, get/update payloads, delete receipts, and file-memory state readable by the next model

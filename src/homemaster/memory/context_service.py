@@ -22,7 +22,11 @@ class FrozenMemoryContextService:
             soul = self._store.read_soul_for_prompt().strip()
             user = "\n§\n".join(self._store.entries_for_prompt("user")).strip()
             memory = "\n§\n".join(self._store.entries_for_prompt("memory")).strip()
-            for title, content in (("SOUL.md", soul), ("USER.md", user), ("MEMORY.md", memory)):
+            for title, content in (
+                ("Assistant Identity", soul),
+                ("User Profile", user),
+                ("Persistent Memory", memory),
+            ):
                 if content:
                     blocks.append(f"# {title}\n\n{content}")
             snapshot = "\n\n".join(blocks)

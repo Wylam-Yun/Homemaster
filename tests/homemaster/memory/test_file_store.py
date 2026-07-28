@@ -166,14 +166,14 @@ def test_session_snapshot_is_frozen_and_new_session_reads_new_terminal_state(
     store.apply("user", [FileMemoryOperation("add", content="concise replies")])
     service = FrozenMemoryContextService(store)
     first_a = service.snapshot("session-a")
-    assert first_a.index("# SOUL.md") < first_a.index("# USER.md")
-    assert "# MEMORY.md" not in first_a
+    assert first_a.index("# Assistant Identity") < first_a.index("# User Profile")
+    assert "# Persistent Memory" not in first_a
 
     store.apply("memory", [FileMemoryOperation("add", content="decision v2")])
     assert service.snapshot("session-a") == first_a
     first_b = service.snapshot("session-b")
     assert "decision v2" in first_b
-    assert first_b.index("# USER.md") < first_b.index("# MEMORY.md")
+    assert first_b.index("# User Profile") < first_b.index("# Persistent Memory")
 
 
 def test_lock_and_atomic_write_leave_no_temporary_files(tmp_path: Path) -> None:

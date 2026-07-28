@@ -263,11 +263,12 @@ class Mem0Config(BaseModel):
     qdrant_path: Path = Path("~/.homemaster/memory/qdrant")
     collection_name: str = "homemaster_memory_qwen3_4096_v1"
     history_db_path: Path = Path("~/.homemaster/memory/history.sqlite3")
+    fastembed_cache_path: Path = REPO_ROOT / ".cache" / "homemaster" / "fastembed"
     embedding_dimensions: int = Field(default=4096, gt=0)
     search_limit: int = Field(default=5, ge=1, le=20)
     search_threshold: float = Field(default=0.1, ge=0, le=1)
 
-    @field_validator("qdrant_path", "history_db_path")
+    @field_validator("qdrant_path", "history_db_path", "fastembed_cache_path")
     @classmethod
     def _expand_paths(cls, value: Path) -> Path:
         return _private_absolute_path(value)
