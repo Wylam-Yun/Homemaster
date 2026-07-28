@@ -18,8 +18,11 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.config import HomeMasterConfig
+from homemaster.config import HomeMasterConfig, MemoryConfig
+from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.file_store import FileMemoryOperation, FileMemoryStore
 from homemaster.memory.mem0_store import Mem0MemoryStore, Mem0StoreError
+from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.memory.models import FactRecord, ProcedureRecord
 
 
@@ -88,11 +91,9 @@ def _config(tmp_path: Path, base_url: str) -> HomeMasterConfig:
             ]
         },
         memory={
-            "root": tmp_path / "files",
+            "data_root": tmp_path / "memory-data",
             "mem0": {
-                "qdrant_path": tmp_path / "qdrant",
                 "collection_name": "memory_test_8_v1",
-                "history_db_path": tmp_path / "history.sqlite3",
                 "fastembed_cache_path": tmp_path / "fastembed",
                 "embedding_dimensions": 8,
                 "search_threshold": 0.0,
@@ -367,11 +368,7 @@ async def test_timed_out_mutation_keeps_lock_until_thread_finishes_and_close_wai
 async def test_missing_embedding_provider_is_explicitly_unavailable(tmp_path: Path) -> None:
     config = HomeMasterConfig(
         memory={
-            "root": tmp_path / "files",
-            "mem0": {
-                "qdrant_path": tmp_path / "qdrant",
-                "history_db_path": tmp_path / "history.sqlite3",
-            },
+            "data_root": tmp_path / "memory-data",
         }
     )
     store = Mem0MemoryStore(config)
@@ -474,11 +471,9 @@ def test_process_close_is_clean_and_same_qdrant_path_reopens(tmp_path: Path) -> 
                 }]
             },
             memory={
-                "root": root / "files",
+                "data_root": root,
                 "mem0": {
-                    "qdrant_path": root / "qdrant",
                     "collection_name": "memory_process_8_v1",
-                    "history_db_path": root / "history.sqlite3",
                     "embedding_dimensions": 8,
                     "search_threshold": 0.0,
                 },
@@ -548,3 +543,100 @@ def test_process_close_is_clean_and_same_qdrant_path_reopens(tmp_path: Path) -> 
         }
         assert "Exception ignored" not in reopened.stderr
         assert "QdrantClient.__del__" not in reopened.stderr
+
+
+@pytest.mark.asyncio
+async def test_two_legacy_layouts_migrate_with_independent_terminal_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _embedding_server() as base_url:
+        for instance in ("alpha", "beta"):
+            home = tmp_path / f"home-{instance}"
+            monkeypatch.setenv("HOME", str(home))
+            old_config = _config(tmp_path / f"old-{instance}", base_url)
+            old_store = Mem0MemoryStore(old_config)
+            old_store.start()
+            assert old_store.available, old_store.unavailable_cause
+            fact = await old_store.add(
+                _fact(f"旧-{instance}-冰箱", name=f"{instance}-苹果"), provenance_seq=1
+            )
+            procedure = await old_store.add(_procedure(), provenance_seq=2)
+            files = FileMemoryStore(old_config.memory)
+            files.start()
+            files.apply("user", [FileMemoryOperation("add", content=f"owner-{instance}")])
+            await old_store.close()
+
+            migration_memory = MemoryConfig.model_validate(
+                {
+                    "root": old_config.memory.files_root,
+                    "mem0": {
+                        "qdrant_path": old_config.memory.qdrant_path,
+                        "history_db_path": old_config.memory.history_db_path,
+                        "collection_name": old_config.memory.mem0.collection_name,
+                        "fastembed_cache_path": old_config.memory.mem0.fastembed_cache_path,
+                        "embedding_dimensions": 8,
+                        "search_threshold": 0.0,
+                    },
+                }
+            )
+            migrated_config = old_config.model_copy(update={"memory": migration_memory})
+            evidence = MemoryEvidenceLedger(migrated_config.memory.evidence_db_path)
+            evidence.start()
+            registered = evidence.register(
+                kind="user_statement",
+                tenant_id="local",
+                session_id=instance,
+                run_id="migration",
+                turn_id="1",
+            )
+            evidence.close()
+
+            manifest = MemoryMigrationCoordinator(migrated_config.memory).ensure_ready(
+                auto_migrate=True
+            )
+            assert manifest["status"] == "completed"
+            assert migrated_config.memory.user_path.read_text(encoding="utf-8") == (
+                f"owner-{instance}"
+            )
+            evidence_reopened = MemoryEvidenceLedger(migrated_config.memory.evidence_db_path)
+            evidence_reopened.start()
+            assert (
+                evidence_reopened.validate(
+                    [registered.ref],
+                    expected_kind="user_statement",
+                    tenant_id="local",
+                    session_id=instance,
+                    run_id="migration",
+                    turn_id="1",
+                )[0].ref
+                == registered.ref
+            )
+            evidence_reopened.close()
+
+            migrated = Mem0MemoryStore(migrated_config)
+            migrated.start()
+            assert migrated.available, migrated.unavailable_cause
+            assert (await migrated.get(fact.memory_id)).record.value == {
+                "container": f"旧-{instance}-冰箱"
+            }
+            assert (await migrated.get(procedure.memory_id)).record.name == "查询当前告警"
+            hits = await migrated.search(f"{instance}-苹果 旧-{instance}-冰箱", memory_type="fact")
+            assert [item.memory_id for item in hits] == [fact.memory_id]
+            updated = await migrated.update(
+                fact.memory_id,
+                _fact(f"新-{instance}-冰箱", name=f"{instance}-苹果"),
+                provenance_seq=3,
+            )
+            assert updated.record.value == {"container": f"新-{instance}-冰箱"}
+            await migrated.delete(procedure.memory_id)
+            await migrated.close()
+
+            final = Mem0MemoryStore(migrated_config)
+            final.start()
+            assert (await final.get(fact.memory_id)).record.value == {
+                "container": f"新-{instance}-冰箱"
+            }
+            with pytest.raises(Mem0StoreError) as deleted:
+                await final.get(procedure.memory_id)
+            assert deleted.value.code == "memory_not_found"
+            await final.close()

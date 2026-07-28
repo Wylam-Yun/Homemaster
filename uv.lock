@@ -762,12 +762,17 @@ dependencies = [
     { name = "httpx" },
     { name = "jieba" },
     { name = "jsonschema" },
-    { name = "mem0ai", extra = ["nlp"] },
     { name = "openai" },
     { name = "pillow" },
+    { name = "posthog" },
+    { name = "protobuf" },
     { name = "pydantic" },
+    { name = "pytz" },
     { name = "pyyaml" },
+    { name = "qdrant-client" },
     { name = "rich" },
+    { name = "spacy" },
+    { name = "sqlalchemy" },
     { name = "typer" },
 ]
 
@@ -804,26 +809,31 @@ requires-dist = [
     { name = "en-core-web-sm", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" },
     { name = "fastapi", marker = "extra == 'coworker'", specifier = ">=0.115,<1.0" },
     { name = "fastembed", specifier = "==0.8.0" },
-    { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "httpx", marker = "extra == 'coworker'", specifier = ">=0.27,<1.0" },
     { name = "jieba", specifier = ">=0.42" },
     { name = "jinja2", marker = "extra == 'coworker'", specifier = ">=3.1,<4.0" },
     { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "lark-oapi", marker = "extra == 'gateway'", specifier = ">=1.7.1,<2" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
-    { name = "mem0ai", extras = ["nlp"], specifier = "==2.0.13" },
-    { name = "openai", specifier = ">=1.50,<3.0" },
+    { name = "openai", specifier = ">=1.90,<3.0" },
     { name = "pillow", specifier = ">=10,<13" },
     { name = "playwright", marker = "extra == 'coworker'", specifier = ">=1.45,<2.0" },
+    { name = "posthog", specifier = ">=7.14.0" },
+    { name = "protobuf", specifier = ">=5.29.6,<7.0.0" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "pydantic", marker = "extra == 'coworker'", specifier = ">=2.7,<3.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2,<10" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23,<2" },
+    { name = "pytz", specifier = ">=2024.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'alfworld'", specifier = ">=6.0" },
     { name = "pyyaml", marker = "extra == 'coworker'", specifier = ">=6,<7" },
+    { name = "qdrant-client", specifier = "==1.18.0" },
     { name = "rich", specifier = ">=13.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<1.0" },
+    { name = "spacy", specifier = "==3.8.14" },
+    { name = "sqlalchemy", specifier = ">=2.0.31" },
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", marker = "extra == 'coworker'", specifier = ">=0.30,<1.0" },
 ]
@@ -1205,30 +1215,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/d6/54/cfe61301667036ec958cb99bd3efefba235e65cdeb9c84d24a8293ba1d90/mdurl-0.1.2.tar.gz", hash = "sha256:bb413d29f5eea38f31dd4754dd7377d4465116fb207585f97bf925588687c1ba", size = 8729, upload-time = "2022-08-14T12:40:10.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl", hash = "sha256:84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8", size = 9979, upload-time = "2022-08-14T12:40:09.779Z" },
-]
-
-[[package]]
-name = "mem0ai"
-version = "2.0.13"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "posthog" },
-    { name = "protobuf" },
-    { name = "pydantic" },
-    { name = "pytz" },
-    { name = "qdrant-client" },
-    { name = "sqlalchemy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/bc/85/131b6de5da48271519bbf126589060db6b46b7803ab04317bb49d740337e/mem0ai-2.0.13.tar.gz", hash = "sha256:a81446d760ebd30fbfe356b4e3f8e95a1a567dd05e74494071dc7a2340acdcc3", size = 240638, upload-time = "2026-07-22T18:12:06.688Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/6f/a9294a41cde34035eb78181c3042816b1ace883ce74a2a9e1ad5b6a984b2/mem0ai-2.0.13-py3-none-any.whl", hash = "sha256:dff29057329370243d88bfccd367deba41c2fb1652f63225a23068cbdd1bc066", size = 334042, upload-time = "2026-07-22T18:12:05.021Z" },
-]
-
-[package.optional-dependencies]
-nlp = [
-    { name = "spacy" },
 ]
 
 [[package]]

@@ -272,6 +272,7 @@
           "title": "Background"
         },
         "image_paths": {
+          "default": [],
           "description": "Local image paths to edit or use as references. OpenAI provider uses image edit mode. Codex hosted generation currently treats these as visual context.",
           "items": {
             "type": "string"

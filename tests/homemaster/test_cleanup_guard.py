@@ -61,12 +61,7 @@ def test_cleanup_guard_has_no_unclassified_violations() -> None:
         "BLOCKED TEXT ['pipeline']: docs/pitfalls.md",
         "BLOCKED TEXT ['stage_']: src/homemaster/channels/impl/feishu.py",
         "BLOCKED TEXT ['scenario']: src/homemaster/skills/bundled/content/test.md",
-        "BLOCKED TEXT ['pipeline']: src/openharness/coordinator/agent_definitions.py",
-        "BLOCKED TEXT ['scenario']: src/openharness/prompts/system_prompt.py",
-        "BLOCKED TEXT ['scenario']: src/openharness/skills/bundled/content/test.md",
-        "BLOCKED TEXT ['pipeline']: src/openharness/swarm/registry.py",
         "BLOCKED TEXT ['pipeline']: tests/homemaster/tools/test_universal_registry.py",
-        "BLOCKED TEXT ['pipeline']: tests/openharness_upstream/test_skills/test_loader.py",
     }
 
 

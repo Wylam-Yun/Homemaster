@@ -1,0 +1,747 @@
+{
+  "distribution": "mem0ai",
+  "files": [
+    {
+      "modified_by_homemaster": true,
+      "path": "mem0/__init__.py",
+      "sha256": "d3715cd1e2a4bc94638d7444004b2acaa5212bfbd228d09e699ace250f2a3ef4",
+      "size": 373,
+      "upstream_sha256": "d4dea4af0e23d544a8a004dd385656ab49ea14180d1d854ef81483e94c1d045d"
+    },
+    {
+      "path": "mem0/client/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/client/main.py",
+      "sha256": "f045c08f983dfed10253f2b42fa73492e2e0a0c4838269d56d6a78b44a17c180",
+      "size": 72393
+    },
+    {
+      "path": "mem0/client/project.py",
+      "sha256": "2d59ffdd9ede15689c241aec7deaa1af2205ad60e3f7418b0b9ddee461af40d9",
+      "size": 30991
+    },
+    {
+      "path": "mem0/client/types.py",
+      "sha256": "78a325d1743c40b5e2d8719dcd6997f38d3d962e82f8f80b9f00ef89b641a8fc",
+      "size": 5321
+    },
+    {
+      "path": "mem0/client/utils.py",
+      "sha256": "1ec13580e186cab82c3831597c593b226467d7fa3a5d34a67614f151b2a50754",
+      "size": 3910
+    },
+    {
+      "path": "mem0/configs/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/configs/base.py",
+      "sha256": "8bc0431f599c13ab2aff887e7b6eecc2688f8f4d070d76f029b3b55e37169b33",
+      "size": 3275
+    },
+    {
+      "path": "mem0/configs/embeddings/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/configs/embeddings/base.py",
+      "sha256": "3c79daa02ecb4b6f33fe4ddca1ae1eea49ade1c3f538bc9bf46a501da0062dd8",
+      "size": 5192
+    },
+    {
+      "path": "mem0/configs/enums.py",
+      "sha256": "e6a8fe3ed972ffee7f867ad0779562051db081011595e9dd622302ac0fc42bd1",
+      "size": 151
+    },
+    {
+      "path": "mem0/configs/llms/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/configs/llms/anthropic.py",
+      "sha256": "3d6cc5496e76a984793c2553f230488092c9cacbd6871ed528ecbd8575384cf5",
+      "size": 2245
+    },
+    {
+      "path": "mem0/configs/llms/aws_bedrock.py",
+      "sha256": "0cb85a0fa882f0bee61d4edbecd91742b26ddb1d5a35028fc0bc18ecf5824cef",
+      "size": 6801
+    },
+    {
+      "path": "mem0/configs/llms/azure.py",
+      "sha256": "1b12b6b3044eac3863125cf4990108a0088cca49899fbaae68c5862b8a8e5111",
+      "size": 2693
+    },
+    {
+      "path": "mem0/configs/llms/base.py",
+      "sha256": "93197f48e7c89258f0152027927968e847975f912bbce809cc5877b0fa5ef7f1",
+      "size": 3954
+    },
+    {
+      "path": "mem0/configs/llms/deepseek.py",
+      "sha256": "bbe5e20b8bd345720f9f574c6dd0f7d81d050100515082edc5a7a8d4f9e760c0",
+      "size": 1962
+    },
+    {
+      "path": "mem0/configs/llms/gemini.py",
+      "sha256": "04a96785d88e713353706e0cd251fffd5bd0d92b46d83edce5a6d159ca49e221",
+      "size": 2521
+    },
+    {
+      "path": "mem0/configs/llms/lmstudio.py",
+      "sha256": "80875b3430984bfb3bb5bdeb0876ec2953c812acc75b083c3e4c9dcbf3381611",
+      "size": 2221
+    },
+    {
+      "path": "mem0/configs/llms/minimax.py",
+      "sha256": "c6acd0008572a7228e47dfd0ed5a11d3b6a960407caf738a2fb261195929fecc",
+      "size": 1949
+    },
+    {
+      "path": "mem0/configs/llms/ollama.py",
+      "sha256": "d411d730a5e310feac63861d1d223697bfe897b1dbae1aa11bdd6f2e204fa5b7",
+      "size": 1932
+    },
+    {
+      "path": "mem0/configs/llms/openai.py",
+      "sha256": "d8df3a7a75da977fdb64cde5df698a724fd3cf1295f89bb002d37c850dd0e57f",
+      "size": 3974
+    },
+    {
+      "path": "mem0/configs/llms/vllm.py",
+      "sha256": "677bc1e33ee85eba111b12b68c7d756043dde769cdb3eec4581f1ee17ca65a35",
+      "size": 1936
+    },
+    {
+      "path": "mem0/configs/llms/xai.py",
+      "sha256": "cb8325680735667aef72be6addb00a11b086c129a6fe127afa898c83983b86ab",
+      "size": 1882
+    },
+    {
+      "path": "mem0/configs/prompts.py",
+      "sha256": "10bc8a34b3b5f0ce24560a2a3190c9112b979a891b981f48393bbd168d915a5c",
+      "size": 64064
+    },
+    {
+      "path": "mem0/configs/rerankers/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/configs/rerankers/base.py",
+      "sha256": "df568877646715891388d42be71c5297c8b9238168248cb20b4a3826b4ed1079",
+      "size": 843
+    },
+    {
+      "path": "mem0/configs/rerankers/cohere.py",
+      "sha256": "6d164a5a8e9c52a003324883ec4946916c095d16438752b09a70c68ac322e308",
+      "size": 653
+    },
+    {
+      "path": "mem0/configs/rerankers/config.py",
+      "sha256": "5099a7b1286aec81733dd6002c476b030d52764e1b6f41557266529650a5f6d6",
+      "size": 405
+    },
+    {
+      "path": "mem0/configs/rerankers/huggingface.py",
+      "sha256": "48362b5bb1a65158b789b9ca5988d8eef0966e72b6cfeaee025520460df22ad7",
+      "size": 835
+    },
+    {
+      "path": "mem0/configs/rerankers/llm.py",
+      "sha256": "742f3d201d70b4b446bfabedc7b351589c1db3c97bde77c77c30434203f53aea",
+      "size": 1845
+    },
+    {
+      "path": "mem0/configs/rerankers/sentence_transformer.py",
+      "sha256": "0261894a3f4d1fbecbdb793abfa92e94fb10127db1315b0ac605c409ccdd658f",
+      "size": 808
+    },
+    {
+      "path": "mem0/configs/rerankers/zero_entropy.py",
+      "sha256": "2bb3e1ed63408b78f1fe1154b89520eb24ceb88f88f7115583e3ce305380cd43",
+      "size": 921
+    },
+    {
+      "path": "mem0/configs/vector_stores/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/configs/vector_stores/azure_ai_search.py",
+      "sha256": "3f33344ce2f711b07cde80260a055a72dd288e4013ef9cbd348e688b049233a6",
+      "size": 2549
+    },
+    {
+      "path": "mem0/configs/vector_stores/azure_mysql.py",
+      "sha256": "711f2813a10f18f3ecf3896bb4ac04c4b6b9129d526760bee76e53d2d82237fa",
+      "size": 4153
+    },
+    {
+      "path": "mem0/configs/vector_stores/baidu.py",
+      "sha256": "0e903174000914a9fb63699b834b02637002299e64dd91867e20922987ce0f69",
+      "size": 1271
+    },
+    {
+      "path": "mem0/configs/vector_stores/cassandra.py",
+      "sha256": "492a0614143d52b216e0e8d7c91ff9348a168ba8caefea6bf7f4952ff4e6c209",
+      "size": 2952
+    },
+    {
+      "path": "mem0/configs/vector_stores/chroma.py",
+      "sha256": "bfeefb033ec7ba62b2ed606893ed10b04d2d775823d3722e418315220e391692",
+      "size": 2684
+    },
+    {
+      "path": "mem0/configs/vector_stores/databricks.py",
+      "sha256": "f0fab02bf061c5b81796710c69a5e2d1db0511ce3d9b0b73d41a20302e778586",
+      "size": 3308
+    },
+    {
+      "path": "mem0/configs/vector_stores/elasticsearch.py",
+      "sha256": "6072b8656567f71711fe5f6eb6fc9567e065846c6a4065da8dcfe71238491fcd",
+      "size": 3361
+    },
+    {
+      "path": "mem0/configs/vector_stores/faiss.py",
+      "sha256": "34927b2053b21ed3383bf781f76a342200fd901876f18d6d1cb8fea0510b80a9",
+      "size": 1709
+    },
+    {
+      "path": "mem0/configs/vector_stores/langchain.py",
+      "sha256": "28765b90753841f5572992f33e2268e57a0890a0f62d95e819ea2eb7ed706da3",
+      "size": 1181
+    },
+    {
+      "path": "mem0/configs/vector_stores/milvus.py",
+      "sha256": "54832b9127b59fe3b1a3737dd13b38445e2be7681c70e43717eb688c797dad9e",
+      "size": 1499
+    },
+    {
+      "path": "mem0/configs/vector_stores/mongodb.py",
+      "sha256": "5e7847c17440c47d36d5d451f19314b0ae155a7c2210417552d04fcb850673bf",
+      "size": 1185
+    },
+    {
+      "path": "mem0/configs/vector_stores/neptune.py",
+      "sha256": "37c45fbfcb65629267384645b26d2867b6605749587817db468cb8777a3887ca",
+      "size": 1578
+    },
+    {
+      "path": "mem0/configs/vector_stores/opensearch.py",
+      "sha256": "8dc4e9e8ff60eb9d7ddc49b36cd84561dbfd3d7b558d0f415bc1d9e72774d5fc",
+      "size": 2439
+    },
+    {
+      "path": "mem0/configs/vector_stores/pgvector.py",
+      "sha256": "4591db8b9af737299db7744a998eaa3c56139ccc2d8bb9b44fca4e38520ccb33",
+      "size": 3090
+    },
+    {
+      "path": "mem0/configs/vector_stores/pinecone.py",
+      "sha256": "0f2a753e2f56bbdb4a113fcd20ee060b324e75660edb02dbdbb77f00b83842d7",
+      "size": 2802
+    },
+    {
+      "path": "mem0/configs/vector_stores/qdrant.py",
+      "sha256": "9494f03cabd54cb99a838cfdba03a979ea2aba5061fc0df696a8874f588314a1",
+      "size": 2391
+    },
+    {
+      "path": "mem0/configs/vector_stores/redis.py",
+      "sha256": "8784dde1f08d697c159c4aa91aab064c6997d2b28c8f856c56e9f4890d94c8b5",
+      "size": 962
+    },
+    {
+      "path": "mem0/configs/vector_stores/s3_vectors.py",
+      "sha256": "360cdf31fbd76ccf02bc176812859ef3b70cb84935bdf0d25fd0c8222ba8aa7b",
+      "size": 1218
+    },
+    {
+      "path": "mem0/configs/vector_stores/supabase.py",
+      "sha256": "9d6324867d62c867f67a12d71a842bd14e9f425b8719da6d36ad861d9289228a",
+      "size": 1780
+    },
+    {
+      "path": "mem0/configs/vector_stores/turbopuffer.py",
+      "sha256": "2973f51375bad43c8c2340f62c3b99e035c408f7867ceec40d40cb1fe3691858",
+      "size": 1927
+    },
+    {
+      "path": "mem0/configs/vector_stores/upstash_vector.py",
+      "sha256": "85f5cd33841e8c27070fd34bb310db6027be164955d145a2675bd0a29d1e4ab4",
+      "size": 1762
+    },
+    {
+      "path": "mem0/configs/vector_stores/valkey.py",
+      "sha256": "4db5e399ffa9a641173e830dc4ef28138a1e213c8380f185dd6c33b43deb8de1",
+      "size": 1597
+    },
+    {
+      "path": "mem0/configs/vector_stores/vertex_ai_vector_search.py",
+      "sha256": "cfbb0a95cfdc2d67dc34642e54192b7e2c265b2cf4d6bebf266d7df307866e25",
+      "size": 1434
+    },
+    {
+      "path": "mem0/configs/vector_stores/weaviate.py",
+      "sha256": "ec45fbc4bcd83296f4fd7c477e03cb96694e110326ffc5cd5c4534868031d061",
+      "size": 1588
+    },
+    {
+      "path": "mem0/embeddings/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/embeddings/aws_bedrock.py",
+      "sha256": "5676217c22c5443816f696da0554fa07620fed13d3e220564c8515bb2b3159cb",
+      "size": 4241
+    },
+    {
+      "path": "mem0/embeddings/azure_openai.py",
+      "sha256": "56f0c01e059a7a812ce5e71347554edf1ccdd21123b9190cfad04284f5cd8e03",
+      "size": 3265
+    },
+    {
+      "path": "mem0/embeddings/base.py",
+      "sha256": "4e75edb85c9bf458b634c538c3b5055b85d22df9afc749dc50aeb94a872c1d0f",
+      "size": 1608
+    },
+    {
+      "path": "mem0/embeddings/configs.py",
+      "sha256": "be7c3b79ef2806bb279afe53ef3909c3fdea9bb8524d00bd7d95a8e11f0b46fa",
+      "size": 906
+    },
+    {
+      "path": "mem0/embeddings/fastembed.py",
+      "sha256": "d2e3f0e9f09431d26aa8cb7560116f4a63dafcaeccdb34cff085b8e1e1a4cd61",
+      "size": 1288
+    },
+    {
+      "path": "mem0/embeddings/gemini.py",
+      "sha256": "ddb14e5247ca20cd56d52b8ff56baa97882d387a1051221fe67bf03a044f56a9",
+      "size": 2346
+    },
+    {
+      "path": "mem0/embeddings/huggingface.py",
+      "sha256": "31502803fdcf2453befc1900c7a02cc33db0bc57bd3a99b0157f5d3e4c4a1769",
+      "size": 2868
+    },
+    {
+      "path": "mem0/embeddings/langchain.py",
+      "sha256": "fe5c2944ca6a36b84a4e21d385f5b2dd6c96f759df5fb023dd6286421c649f4d",
+      "size": 1237
+    },
+    {
+      "path": "mem0/embeddings/lmstudio.py",
+      "sha256": "526d4245396c56a9709aeacab06a5cabc7049496ead73709fcb6369aa4f7db50",
+      "size": 1883
+    },
+    {
+      "path": "mem0/embeddings/mock.py",
+      "sha256": "70e9fb95fad06d7f287fa299451f6b8f6ecda4ab9ec8798f693b6449b73bd81e",
+      "size": 365
+    },
+    {
+      "path": "mem0/embeddings/ollama.py",
+      "sha256": "7a3d5f9fe4aead062e4ea810372f434e368bf76a987dba3cbd70b27eb67b280f",
+      "size": 2998
+    },
+    {
+      "path": "mem0/embeddings/openai.py",
+      "sha256": "bd8c0cfeaa1ac89511350d51c5042a3b01f90530e18259ed5b0c3e019595e1e1",
+      "size": 3274
+    },
+    {
+      "path": "mem0/embeddings/together.py",
+      "sha256": "a0e5aa65a525d656026a9c7e2403a127f25fe15062457360c927cc99e59c1599",
+      "size": 1724
+    },
+    {
+      "path": "mem0/embeddings/vertexai.py",
+      "sha256": "a84a8ee289eb9936f22d6e16be6dec1eb40e5aa581fc575687bed0e8de6ed646",
+      "size": 3985
+    },
+    {
+      "path": "mem0/exceptions.py",
+      "sha256": "ecaa0ec47e552a08f6bbac9602c8e5998c152d4c9c92a4c1b1db80486c64184a",
+      "size": 16850
+    },
+    {
+      "path": "mem0/llms/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/llms/anthropic.py",
+      "sha256": "105562dfee9a375deba90660c713b3902230d9909b389b12ea5ffbbbfdd7c2ec",
+      "size": 6140
+    },
+    {
+      "path": "mem0/llms/aws_bedrock.py",
+      "sha256": "164a01007f61a0aca676b388dd70e9d31c649db28909558ce72161e64cddefce",
+      "size": 29943
+    },
+    {
+      "path": "mem0/llms/azure_openai.py",
+      "sha256": "fa14f5f3aff8bf4a020dd25164e49bad8d3e71b5a4f2167b5a24531320969b8f",
+      "size": 6565
+    },
+    {
+      "path": "mem0/llms/azure_openai_structured.py",
+      "sha256": "7bfeb3008afd1c4c15ef1a6cc4bab9d1fa1e7d4ca11abe7e9b25c002956c97a9",
+      "size": 6184
+    },
+    {
+      "path": "mem0/llms/base.py",
+      "sha256": "b8fda28dfb6cd92723169f8dc8837f2686653768cadfb822e73e5aa46710f730",
+      "size": 6213
+    },
+    {
+      "path": "mem0/llms/configs.py",
+      "sha256": "9e230de7c6b9e9a85372932bb273249a75028ea1c427274fcafee437591c999c",
+      "size": 1020
+    },
+    {
+      "path": "mem0/llms/deepseek.py",
+      "sha256": "1c44a599c30e9a01814087ccc74b5b237771481674c575886e13b300320b0602",
+      "size": 3930
+    },
+    {
+      "path": "mem0/llms/gemini.py",
+      "sha256": "999a809809ae1585316c066540bcd303497be6aff4abacb8848ec4481aaf9743",
+      "size": 8458
+    },
+    {
+      "path": "mem0/llms/groq.py",
+      "sha256": "9e6beab99e80493c506a3f0847d2c5c1889ed5a409193d21f0fd38022b6eedfe",
+      "size": 4420
+    },
+    {
+      "path": "mem0/llms/langchain.py",
+      "sha256": "78651608636c1e0095e530467530642356cd7ccb4a7c3ba6ba0d4bf2c37b2249",
+      "size": 3381
+    },
+    {
+      "path": "mem0/llms/litellm.py",
+      "sha256": "ed6d408999c06cb0e26270794fcab442bc7228df6c9848e22842121e10a30f90",
+      "size": 3236
+    },
+    {
+      "path": "mem0/llms/lmstudio.py",
+      "sha256": "f35ec1b0afb610773e6f875fb40d0fb98b2d8bcf21cffc77a64de5a7265ac65d",
+      "size": 4139
+    },
+    {
+      "path": "mem0/llms/minimax.py",
+      "sha256": "696ef47841934a8688de656c18733481720ab959b6fd206a0bed7d722f548351",
+      "size": 3962
+    },
+    {
+      "path": "mem0/llms/ollama.py",
+      "sha256": "72b0f52b7d99dbfa854bbb1a8c706fd56396e53da89b5c75c439db599a2cf2c5",
+      "size": 5260
+    },
+    {
+      "path": "mem0/llms/openai.py",
+      "sha256": "37e6d3c22b55df0731740f4e0868b95bd480ce44363227fe53461db328c5f67e",
+      "size": 5804
+    },
+    {
+      "path": "mem0/llms/openai_structured.py",
+      "sha256": "680886444d2780b6a5c50a9cf7da0a84b7ce662e2eed7453a373d5b39e0f8aa3",
+      "size": 1640
+    },
+    {
+      "path": "mem0/llms/sarvam.py",
+      "sha256": "934af602a498618eb7baf192a81b670820dc5e65a41ce3eb42f40aa866a90398",
+      "size": 3674
+    },
+    {
+      "path": "mem0/llms/together.py",
+      "sha256": "b5248713eed7d9712d3cc1fe3f439b7c28dfbb29c02db04c4030df580662817c",
+      "size": 3288
+    },
+    {
+      "path": "mem0/llms/vllm.py",
+      "sha256": "7994cb3888e2c31253b70c9d4bca85489cf6b49517b375b7e4dce37e36e2be44",
+      "size": 3894
+    },
+    {
+      "path": "mem0/llms/xai.py",
+      "sha256": "d21a9ca07d837399958f24af87c920939b725ba6ada118b67551dc50c49d1e5d",
+      "size": 4007
+    },
+    {
+      "path": "mem0/memory/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/memory/base.py",
+      "sha256": "bb093eacbeb409b12b043b7df9b3152b895a00bb5ce30776a1e56c915cf17777",
+      "size": 1315
+    },
+    {
+      "path": "mem0/memory/main.py",
+      "sha256": "7aa1a0026056abaea7b3a7653ea0d175a3a461d90b83a66c33c680fdac7cb46e",
+      "size": 164336
+    },
+    {
+      "path": "mem0/memory/notices.py",
+      "sha256": "d68d26c90a9742d62c3288518ef923d1155c4b062f8a786ec95538e654001c97",
+      "size": 52506
+    },
+    {
+      "path": "mem0/memory/setup.py",
+      "sha256": "840d3af99b628be4070cd88c30ded45e1c5532279128fcc5fc6f99f3eed829ea",
+      "size": 5320
+    },
+    {
+      "path": "mem0/memory/storage.py",
+      "sha256": "5f5ecdadd2b260fd14f36a0f338336eb760275465dd1056a99a47e1ef07702bd",
+      "size": 12886
+    },
+    {
+      "path": "mem0/memory/telemetry.py",
+      "sha256": "89f36bd0b87059fa0710adcccfbd9639ab4d5c4a762d875a1caceaf688aca687",
+      "size": 9024
+    },
+    {
+      "path": "mem0/memory/utils.py",
+      "sha256": "dbeba4f50c499fd486cae225f0a035ff108420b628ea389adb0bd6e1e8f36b88",
+      "size": 10800
+    },
+    {
+      "path": "mem0/proxy/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/proxy/main.py",
+      "sha256": "b2510161fcd80c1489c8e415892d9fda3576e8634c04f15761ec7dd5d86c8c05",
+      "size": 7214
+    },
+    {
+      "path": "mem0/reranker/__init__.py",
+      "sha256": "3cba45d0c29035a410f89a9b0e466070e1657d38b5ad25d512955adfdd8ffb81",
+      "size": 522
+    },
+    {
+      "path": "mem0/reranker/base.py",
+      "sha256": "12af1b5c2cf348fa63b3a4bf7b053c98639c76d5554a06066d04d8c3d2cf68c8",
+      "size": 687
+    },
+    {
+      "path": "mem0/reranker/cohere_reranker.py",
+      "sha256": "8d76aeaf5bbe7f469f679070956353ad9f55666228ee3d669dea02d46435e979",
+      "size": 3109
+    },
+    {
+      "path": "mem0/reranker/huggingface_reranker.py",
+      "sha256": "3bf1e48f9c68d02607d10f1a98537cda5d87b1c7b8acf87014983a8d7f44f1a2",
+      "size": 6484
+    },
+    {
+      "path": "mem0/reranker/llm_reranker.py",
+      "sha256": "5dfbbc3838199694268fa595d59a219bffb3bd3615fa094fad9e72628585d8e8",
+      "size": 7121
+    },
+    {
+      "path": "mem0/reranker/sentence_transformer_reranker.py",
+      "sha256": "079e7f442b83f8b18c1f06babcccf8600b77ce9aec8797078573e1a153e57f1b",
+      "size": 4539
+    },
+    {
+      "path": "mem0/reranker/zero_entropy_reranker.py",
+      "sha256": "c3fb6b7b67dd3bb0c56168a65bb01396b450cc14ee4aafd5499941d0e27c807d",
+      "size": 3606
+    },
+    {
+      "path": "mem0/utils/entity_extraction.py",
+      "sha256": "46aee82cb08cd9e37ee6928fb7b1e518d8fe00bb6b507133121b48f65bd1224e",
+      "size": 21278
+    },
+    {
+      "path": "mem0/utils/factory.py",
+      "sha256": "34698fe69f2fb8c718da3872aca0e35fe2913405a8fd7893283f1a5847e050f5",
+      "size": 12425
+    },
+    {
+      "path": "mem0/utils/gcp_auth.py",
+      "sha256": "2fd5ad335cbab10d61411f26dd1e4488b60b9c0d468422e66792e72a7137d5a7",
+      "size": 6394
+    },
+    {
+      "path": "mem0/utils/http.py",
+      "sha256": "a88328b2b61a1968fa8db7e3b6a4a0f85767a44dd24cd07b04de5dd6ba5e5969",
+      "size": 450
+    },
+    {
+      "path": "mem0/utils/lemmatization.py",
+      "sha256": "7b53da59417d29c3b2adcf71ed9e272c1038667c308859b0c5182f7e67e9408c",
+      "size": 1435
+    },
+    {
+      "path": "mem0/utils/scoring.py",
+      "sha256": "9a4313fda723ad05cb52278e9ef0b9b5792b71fb3b41ba6318410121022e4527",
+      "size": 4401
+    },
+    {
+      "path": "mem0/utils/spacy_models.py",
+      "sha256": "d3e5705a56b826a85572b7b8be5063e33fc0ba2dfa40087839c890819245cd83",
+      "size": 2724
+    },
+    {
+      "path": "mem0/vector_stores/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "mem0/vector_stores/azure_ai_search.py",
+      "sha256": "43274cf0ce752664b3e41efbc088613d27e0445b7bae5896bb4f2ffa7d5768d1",
+      "size": 16867
+    },
+    {
+      "path": "mem0/vector_stores/azure_mysql.py",
+      "sha256": "45c4248656c7a8a24a894b3252d4ffe3fa0b191c0d74c2db638b95cd44dd12a5",
+      "size": 20888
+    },
+    {
+      "path": "mem0/vector_stores/baidu.py",
+      "sha256": "a1033f130c54fbc0efde51ef53b07fcaeaabaa5d0036d47b41889f47d35ed965",
+      "size": 15108
+    },
+    {
+      "path": "mem0/vector_stores/base.py",
+      "sha256": "c9d7f6a5fd6d74411eec0be17b409f69d377630ab85ba0a70f754a6df6215450",
+      "size": 3228
+    },
+    {
+      "path": "mem0/vector_stores/cassandra.py",
+      "sha256": "67c5118c87250fc9b5bb810862a64f110a9b58cde04fa4536992b51db55af88c",
+      "size": 17491
+    },
+    {
+      "path": "mem0/vector_stores/chroma.py",
+      "sha256": "748f02a7335e95681fad3061e1ac1f1632528c90f1aed62a91997d1e2804f9c5",
+      "size": 13525
+    },
+    {
+      "path": "mem0/vector_stores/configs.py",
+      "sha256": "60294795ea2c15bd0e5cd4d8fd94fd7aef4ff343e09d9b2ce66b2dde3cd9f688",
+      "size": 2488
+    },
+    {
+      "path": "mem0/vector_stores/databricks.py",
+      "sha256": "ed6f04d7f0b6c98c931082b953ba79b901bebf47c3c39298a89b42fefcc0c016",
+      "size": 37941
+    },
+    {
+      "path": "mem0/vector_stores/elasticsearch.py",
+      "sha256": "98428d80840befeb6d511b98a5afced6bce40c87096f79579b4b65156f902966",
+      "size": 11159
+    },
+    {
+      "path": "mem0/vector_stores/faiss.py",
+      "sha256": "4b2f4ee39ca5cee021adabc31759b80661f937b1232bedd0d3afb070198f1ae7",
+      "size": 22418
+    },
+    {
+      "path": "mem0/vector_stores/langchain.py",
+      "sha256": "895944935d18ed68a99f0443b9c0591e27d7e7b6bcb2c609bd17ac02a383760d",
+      "size": 7636
+    },
+    {
+      "path": "mem0/vector_stores/milvus.py",
+      "sha256": "1af1e18ef1ebfa131dd9298e75ab654725c5a174a1d99e6bda10423070f46c67",
+      "size": 14736
+    },
+    {
+      "path": "mem0/vector_stores/mongodb.py",
+      "sha256": "3e97da50153f66d7da977439daa1318fa3ea2da2ba020e9d3c9eaeac0c934aca",
+      "size": 17246
+    },
+    {
+      "path": "mem0/vector_stores/neptune_analytics.py",
+      "sha256": "9ddfbfd8291842d75489739078462617daac552d482584a54bc55283b9adf259",
+      "size": 19049
+    },
+    {
+      "path": "mem0/vector_stores/opensearch.py",
+      "sha256": "4f5c6aa146950ed7022b2b79ae3ba16ea7eae49562fd50e58502b3921ef56290",
+      "size": 15669
+    },
+    {
+      "path": "mem0/vector_stores/pgvector.py",
+      "sha256": "e49c96be52bdd2f273243920344311282449ebda06ca3740371c2f1aba296a50",
+      "size": 21365
+    },
+    {
+      "path": "mem0/vector_stores/pinecone.py",
+      "sha256": "5be7651893b614319d5547c7c2928e42f40f78e1f25ef4bd471d7dbc539a75a5",
+      "size": 15157
+    },
+    {
+      "path": "mem0/vector_stores/qdrant.py",
+      "sha256": "da570579d5cad69e6f123fdfe32b725235a25604e70047666bec763ba6e2bf43",
+      "size": 25105
+    },
+    {
+      "path": "mem0/vector_stores/redis.py",
+      "sha256": "17917dd872df47ba569c78e5a285addbdf3d3ae93812cc0ac0da18fae355ed0b",
+      "size": 14028
+    },
+    {
+      "path": "mem0/vector_stores/s3_vectors.py",
+      "sha256": "cc8c634dc7395642b8b37eab7019daf2dfb1bbd8a6d830c4d23211ef0480212f",
+      "size": 8375
+    },
+    {
+      "path": "mem0/vector_stores/supabase.py",
+      "sha256": "0ef2a02aaa33f5a29ed9d6657d88b9b70afdce90e987e3748c0de0433a4563f3",
+      "size": 8365
+    },
+    {
+      "path": "mem0/vector_stores/turbopuffer.py",
+      "sha256": "04c085fd908c0eb713fd88386032432a4c57a0b09b14f92c9fd5774b077f2d68",
+      "size": 11138
+    },
+    {
+      "path": "mem0/vector_stores/upstash_vector.py",
+      "sha256": "81626f506ecd848763876d260b88db180f3aaace1d16d0efd2b5408145df7aea",
+      "size": 10345
+    },
+    {
+      "path": "mem0/vector_stores/valkey.py",
+      "sha256": "eefefcea870a15601a58e2f69e551304c0e86c55c542940e69cdfeb94588c8cc",
+      "size": 31380
+    },
+    {
+      "path": "mem0/vector_stores/vertex_ai_vector_search.py",
+      "sha256": "d109369ff9a762cd9053342d35c91afed0def79afa32615553cd53c349fe0efc",
+      "size": 25788
+    },
+    {
+      "path": "mem0/vector_stores/weaviate.py",
+      "sha256": "a036df3f6aefcec57ddfc98f5a7cc57ff0bc3c35084f980c62b152ede5471e9b",
+      "size": 14484
+    }
+  ],
+  "license": "Apache-2.0",
+  "schema_version": "homemaster-vendored-python-package-v1",
+  "sdist": {
+    "sha256": "a81446d760ebd30fbfe356b4e3f8e95a1a567dd05e74494071dc7a2340acdcc3"
+  },
+  "version": "2.0.13",
+  "wheel": {
+    "sha256": "dff29057329370243d88bfccd367deba41c2fb1652f63225a23068cbdd1bc066",
+    "url": "https://files.pythonhosted.org/packages/7c/6f/a9294a41cde34035eb78181c3042816b1ace883ce74a2a9e1ad5b6a984b2/mem0ai-2.0.13-py3-none-any.whl"
+  }
+}

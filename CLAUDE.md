@@ -74,6 +74,19 @@
 
 ## 测试工作区纪律
 
+- 迁移完成态不得只信任 journal/manifest 的 identity/status；逐组件核对锁定 source/target、publication、
+  digest schema，以及所有已发布目标的存在和结构。发布时在适用的旧 store 锁或一致性 snapshot 下复制，并在
+  atomic publish 前重读源；源变化必须 fail closed。发布摘要只证明迁移瞬间一致，活跃数据正常变更后不得用
+  陈旧摘要冒充永久内容完整性。
+- 声明只读的 doctor/inspect 必须用完整文件树前后对比验零写入，ready、migration-required、cold-cache 都要
+  覆盖。不得从诊断路径启动 store、创建数据库、物化 cache 或为了 import check 执行有全局副作用的第三方包；
+  真正 backend 可用性只由显式启动或独立 mutating probe 验证。
+
+- 第三方库若在 import 时读取环境变量、注册退出钩子或创建全局资源，文件定位、版本检查、doctor 和完整性
+  preflight 不得提前 import 该库。先设置全部进程级开关，再从唯一业务边界 import；纯文件校验用 spec/resource
+  定位，并回归断言 `sys.modules` 未被污染。隔离 HOME 后通过只能证明共享用户目录参与了故障，不能替代真实
+  并发进程下的组合测试。
+
 - 非 PyPI 依赖必须通过标准 PEP 508 direct reference 写入项目依赖和构建后的 wheel `Requires-Dist`；不得只依赖
   `[tool.uv.sources]` 等源码仓库私有映射。每次变更都从源码外只拿 wheel 建立空 venv，先检查 wheel 元数据包含
   准确 URL，再让安装器真实解析全部依赖并 import 目标包；源码环境的 `uv sync` 成功不能替代发布包安装门。

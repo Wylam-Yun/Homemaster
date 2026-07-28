@@ -1,13 +1,11 @@
-"""Regenerate HomeMaster service tool metadata from the locked upstream source."""
+"""Regenerate service tool metadata from HomeMaster's owned default registry."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from pydantic_core import PydanticUndefined
-
-from openharness.tools import create_default_tool_registry
+from homemaster.adapters import build_universal_tool_registry
 
 NAMES = (
     "ask_user_question",
@@ -37,13 +35,17 @@ NAMES = (
 
 
 def main() -> None:
-    upstream = {tool.name: tool for tool in create_default_tool_registry().list_tools()}
+    registry = build_universal_tool_registry()
+    tools = {name: registry.get(name) for name in NAMES}
+    missing = [name for name, tool in tools.items() if tool is None]
+    if missing:
+        raise RuntimeError(f"HomeMaster registry is missing service tools: {missing}")
     payload = [
         {
             "name": name,
-            "description": upstream[name].description,
-            "input_schema": upstream[name].input_model.model_json_schema(),
-            "defaults": _model_defaults(upstream[name].input_model),
+            "description": tools[name].description,
+            "input_schema": tools[name].input_model.model_json_schema(),
+            "defaults": _schema_defaults(tools[name].input_model.model_json_schema()),
         }
         for name in NAMES
     ]
@@ -60,14 +62,15 @@ def main() -> None:
     )
 
 
-def _model_defaults(model: type) -> dict[str, object]:
-    defaults: dict[str, object] = {}
-    for name, field in model.model_fields.items():
-        if field.default is not PydanticUndefined:
-            defaults[name] = field.default
-        elif field.default_factory is not None:
-            defaults[name] = field.default_factory()
-    return defaults
+def _schema_defaults(schema: dict[str, object]) -> dict[str, object]:
+    properties = schema.get("properties")
+    if not isinstance(properties, dict):
+        return {}
+    return {
+        str(name): definition["default"]
+        for name, definition in properties.items()
+        if isinstance(definition, dict) and "default" in definition
+    }
 
 
 if __name__ == "__main__":

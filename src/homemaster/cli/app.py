@@ -19,6 +19,7 @@ from homemaster.cli.dry_run import build_dry_run_preview
 from homemaster.cli.errors import render_error_and_exit
 from homemaster.cli.gateway_command import run_gateway
 from homemaster.cli.interactive_shell import run_interactive_shell
+from homemaster.cli.memory_command import memory_app
 from homemaster.cli.renderers import parse_output_format, render_dry_run
 from homemaster.cli.run_command import handle_print, handle_run
 from homemaster.cli.session_command import session_app
@@ -31,6 +32,7 @@ app = typer.Typer(
 )
 app.add_typer(session_app, name="session")
 app.add_typer(cron_app, name="cron")
+app.add_typer(memory_app, name="memory")
 
 
 @app.command("child-worker", hidden=True)

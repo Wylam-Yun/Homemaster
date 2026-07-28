@@ -36,6 +36,50 @@ uv sync --all-extras
 缓存损坏会在启动时从随包工件重建；随包工件本身校验失败或目录不可写时，五个 mem0 工具会返回
 `memory_backend_unavailable`，不会退化为 semantic-only。文件 `memory` 工具仍可用。
 
+持久数据只有一个外部根目录：
+
+```yaml
+memory:
+  enabled: true
+  data_root: ~/.homemaster/memory
+  mem0:
+    collection_name: homemaster_memory_qwen3_4096_v1
+```
+
+目录固定派生为：
+
+```text
+~/.homemaster/memory/
+  files/SOUL.md
+  files/USER.md
+  files/MEMORY.md
+  qdrant/
+  history.sqlite3
+  evidence.sqlite3
+```
+
+## 换服务器与旧目录迁移
+
+HomeMaster wheel 已包含完整 `mem0ai==2.0.13` runtime；新服务器不需要另行复制或安装 mem0 源码。记忆数据
+独立传输：关闭旧服务器上所有 HomeMaster/Gateway 进程，复制整个 `memory.data_root` 到新服务器相同或新配置
+位置，保持目录私有，再启动 HomeMaster。代码升级和数据备份互不包含对方。
+
+旧版本若仍有 `~/.homemaster/memories`，先保留旧目录并运行：
+
+```bash
+uv run homemaster doctor --json
+uv run homemaster memory migrate --config config/homemaster.yaml
+```
+
+迁移命令对 `files/qdrant/history/evidence` 分组件校验、暂存和原子发布，返回 JSON receipt；旧源不会自动删除。
+中断后再次运行会按 `migration-journal.json` 恢复同一个计划。目标已有不同数据、SQLite 损坏或 Qdrant 被其他
+进程占用时命令非零退出且不合并数据。`doctor` 始终只读：需要迁移时返回 `WARN migration_required`，不会创建
+目标、journal、数据库或 BM25 cache，也不会打开 Qdrant。应用、one-shot CLI 和 Gateway 启动会调用同一个
+coordinator 自动完成或恢复迁移。
+
+旧 `memory.root`、`memory.mem0.qdrant_path`、`memory.mem0.history_db_path` 仅作为一次迁移输入兼容；不要与新
+`memory.data_root` 同时配置。迁移完成后删除旧字段，只保留 `data_root`。
+
 ## 六个工具
 
 ### `memory`
@@ -90,7 +134,7 @@ records、value、match sources 和错误）会作为 tool result 进入下一�
 
 ## 文件与隐私
 
-文件记忆目录为 0700，文件、lock、backup、Qdrant/history/evidence DB 为本机私有且不进入 Git。USER/MEMORY
+data root 和文件记忆目录为 0700，文件、lock、backup、Qdrant/history/evidence DB 为本机私有且不进入 Git。USER/MEMORY
 写入会拒绝 prompt injection、credential/exfiltration 模式、控制字符和内部分隔符；人工改坏文件时拒绝写入并
 生成 mode-0600 drift backup。磁盘中命中威胁规则的内容不会被静默删除，prompt 中显示 blocked marker。
 
@@ -113,3 +157,6 @@ mem0 telemetry 在 import 前关闭，LLM extraction 永远使用 `infer=False`�
 ```bash
 uv run homemaster doctor --json | jq '.checks[] | select(.name == "memory_backend")'
 ```
+
+该检查只报告 vendored 字节、配置和迁移是否 ready，并以 `probe=not_opened` 明示没有启动 backend；实际 Qdrant、
+embedding 与 BM25 可用性由 HomeMaster 启动边界验证。

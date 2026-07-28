@@ -24,6 +24,7 @@ from homemaster.memory.serialization import (
     normalize_url,
     serialize_record,
 )
+from homemaster.memory.vendor_integrity import verify_vendored_mem0
 
 _INTERNAL_USER_ID = "homemaster"
 _T = TypeVar("_T")
@@ -93,6 +94,7 @@ class Mem0MemoryStore:
             )
             validate_embedding_endpoint(provider.base_url, provider.embedding_url)
             os.environ["MEM0_TELEMETRY"] = "False"
+            verify_vendored_mem0()
             from mem0 import Memory
 
             constructed = Memory.from_config(self._mem0_config(provider))
@@ -539,14 +541,15 @@ class Mem0MemoryStore:
             raise Mem0StoreError("memory_outbound_blocked", str(exc)) from exc
 
     def _mem0_config(self, provider: Any) -> dict[str, Any]:
-        memory = self.config.memory.mem0
+        memory = self.config.memory
+        mem0 = memory.mem0
         return {
             "vector_store": {
                 "provider": "qdrant",
                 "config": {
                     "path": str(memory.qdrant_path),
-                    "collection_name": memory.collection_name,
-                    "embedding_model_dims": memory.embedding_dimensions,
+                    "collection_name": mem0.collection_name,
+                    "embedding_model_dims": mem0.embedding_dimensions,
                     "on_disk": True,
                 },
             },
@@ -556,7 +559,7 @@ class Mem0MemoryStore:
                     "model": provider.model,
                     "api_key": provider.api_keys[0],
                     "openai_base_url": provider.base_url,
-                    "embedding_dims": memory.embedding_dimensions,
+                    "embedding_dims": mem0.embedding_dimensions,
                 },
             },
             "llm": {

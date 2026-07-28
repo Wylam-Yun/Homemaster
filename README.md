@@ -66,6 +66,17 @@ Runtime 的 opaque evidence，所有 mutation 以 SDK receipt 加独立文件/Qd
 离线 BM25 工件随源码和 wheel 分发。首次启动会在项目 `.cache/homemaster/fastembed` 解包经哈希锁定的
 `Qdrant/bm25` 文件，整个目录已被 Git 忽略；迁移服务器时不需要复制 `/tmp/fastembed_cache` 或联网下载。
 
+`mem0ai==2.0.13` 的完整 Python runtime 也随 HomeMaster 源码和 wheel 分发，不再单独安装 `mem0ai`
+distribution。持久记忆与代码解耦，统一位于 `memory.data_root`（默认 `~/.homemaster/memory`）的
+`files/`、`qdrant/`、`history.sqlite3` 和 `evidence.sqlite3`。换服务器时安装 HomeMaster wheel，再独立复制
+整个 data root 即可。旧版 `~/.homemaster/memories` 可执行：
+
+```bash
+uv run homemaster memory migrate --config config/homemaster.yaml
+```
+
+迁移保留旧源；`doctor` 只报告 `migration_required`，不会创建目录或打开 Qdrant。
+
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
 ## 体检
@@ -81,7 +92,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - API 配置是否可读
 - Mimo 最小 JSON 调用
 - Qwen3 MemoryEmbedding `/v1/embeddings` 调用
-- mem0/Qdrant/BM25 backend 是否可启动；故障原因和实际 BM25 cache path 会显示在 `memory_backend`，文件记忆仍独立可用
+- vendored mem0 字节完整性、迁移状态与 backend 配置；`doctor` 不打开 Qdrant、创建数据库或物化 BM25 cache
 
 ## 配置与 Skills
 

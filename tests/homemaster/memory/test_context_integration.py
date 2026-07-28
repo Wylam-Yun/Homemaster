@@ -17,11 +17,7 @@ from homemaster.memory.file_store import FileMemoryOperation, FileMemoryStore
 
 def _services(tmp_path: Path) -> tuple[FileMemoryStore, FrozenMemoryContextService]:
     config = MemoryConfig(
-        root=tmp_path / "memories",
-        mem0={
-            "qdrant_path": tmp_path / "qdrant",
-            "history_db_path": tmp_path / "history.sqlite3",
-        },
+        data_root=tmp_path / "memory-data",
     )
     store = FileMemoryStore(config)
     store.start()

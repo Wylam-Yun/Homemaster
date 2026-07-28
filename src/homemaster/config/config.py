@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -24,6 +26,8 @@ from homemaster.mcp.types import McpSettingsConfig
 from homemaster.permissions.config import PermissionSettingsConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+logger = logging.getLogger(__name__)
+_WARNED_LEGACY_MEMORY_FIELDS: set[tuple[str, ...]] = set()
 
 
 def _default_config_path(environ: Mapping[str, str] | None = None) -> Path:
@@ -255,20 +259,35 @@ def _private_absolute_path(value: Path) -> Path:
     return expanded.absolute()
 
 
+class MemoryMigrationSpec(BaseModel):
+    """Immutable one-time inputs captured while parsing legacy memory fields."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    files_source: Path
+    qdrant_source: Path
+    history_source: Path
+    evidence_source: Path
+    explicit_legacy_fields: tuple[str, ...] = ()
+
+    @field_validator("files_source", "qdrant_source", "history_source", "evidence_source")
+    @classmethod
+    def _expand_paths(cls, value: Path) -> Path:
+        return _private_absolute_path(value)
+
+
 class Mem0Config(BaseModel):
     """HomeMaster-owned embedded mem0/Qdrant configuration."""
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    qdrant_path: Path = Path("~/.homemaster/memory/qdrant")
     collection_name: str = "homemaster_memory_qwen3_4096_v1"
-    history_db_path: Path = Path("~/.homemaster/memory/history.sqlite3")
     fastembed_cache_path: Path = REPO_ROOT / ".cache" / "homemaster" / "fastembed"
     embedding_dimensions: int = Field(default=4096, gt=0)
     search_limit: int = Field(default=5, ge=1, le=20)
     search_threshold: float = Field(default=0.1, ge=0, le=1)
 
-    @field_validator("qdrant_path", "history_db_path", "fastembed_cache_path")
+    @field_validator("fastembed_cache_path")
     @classmethod
     def _expand_paths(cls, value: Path) -> Path:
         return _private_absolute_path(value)
@@ -288,7 +307,7 @@ class MemoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
     enabled: bool = True
-    root: Path = Path("~/.homemaster/memories")
+    data_root: Path = Path("~/.homemaster/memory")
     soul_file: str = "SOUL.md"
     user_file: str = "USER.md"
     memory_file: str = "MEMORY.md"
@@ -296,8 +315,44 @@ class MemoryConfig(BaseModel):
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
     mem0: Mem0Config = Field(default_factory=Mem0Config)
+    migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
-    @field_validator("root")
+    @model_validator(mode="before")
+    @classmethod
+    def _capture_legacy_paths(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        data = dict(value)
+        if "migration_spec" in data:
+            raise ValueError("memory.migration_spec is internal")
+        mem0 = dict(data.get("mem0") or {})
+        has_data_root = "data_root" in data
+        legacy_fields: list[str] = []
+        if "root" in data:
+            legacy_fields.append("memory.root")
+        if "qdrant_path" in mem0:
+            legacy_fields.append("memory.mem0.qdrant_path")
+        if "history_db_path" in mem0:
+            legacy_fields.append("memory.mem0.history_db_path")
+        if has_data_root and legacy_fields:
+            raise ValueError("memory.data_root cannot be combined with legacy memory path fields")
+
+        data_root = _private_absolute_path(Path(data.get("data_root", "~/.homemaster/memory")))
+        files_source = Path(data.pop("root", "~/.homemaster/memories"))
+        qdrant_source = Path(mem0.pop("qdrant_path", data_root / "qdrant"))
+        history_source = Path(mem0.pop("history_db_path", data_root / "history.sqlite3"))
+        data["mem0"] = mem0
+        data["data_root"] = data_root
+        data["migration_spec"] = {
+            "files_source": files_source,
+            "qdrant_source": qdrant_source,
+            "history_source": history_source,
+            "evidence_source": data_root / "evidence.sqlite3",
+            "explicit_legacy_fields": tuple(legacy_fields),
+        }
+        return data
+
+    @field_validator("data_root")
     @classmethod
     def _expand_root(cls, value: Path) -> Path:
         return _private_absolute_path(value)
@@ -320,15 +375,37 @@ class MemoryConfig(BaseModel):
 
     @property
     def soul_path(self) -> Path:
-        return self.root / self.soul_file
+        return self.files_root / self.soul_file
 
     @property
     def user_path(self) -> Path:
-        return self.root / self.user_file
+        return self.files_root / self.user_file
 
     @property
     def memory_path(self) -> Path:
-        return self.root / self.memory_file
+        return self.files_root / self.memory_file
+
+    @property
+    def files_root(self) -> Path:
+        return self.data_root / "files"
+
+    @property
+    def root(self) -> Path:
+        """Compatibility property for file-store callers; never a config field."""
+
+        return self.files_root
+
+    @property
+    def qdrant_path(self) -> Path:
+        return self.data_root / "qdrant"
+
+    @property
+    def history_db_path(self) -> Path:
+        return self.data_root / "history.sqlite3"
+
+    @property
+    def evidence_db_path(self) -> Path:
+        return self.data_root / "evidence.sqlite3"
 
 
 class SkillSourcesConfig(BaseModel):
@@ -553,6 +630,19 @@ def load_config(
         raise ConfigError(f"invalid HomeMaster config: {path}: {type(exc).__name__}") from exc
     config._config_path = path
     config._provenance = {key: "file" for key in _config_leaf_paths(payload)}
+    legacy_fields = config.memory.migration_spec.explicit_legacy_fields
+    if legacy_fields and legacy_fields not in _WARNED_LEGACY_MEMORY_FIELDS:
+        _WARNED_LEGACY_MEMORY_FIELDS.add(legacy_fields)
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "config.memory.legacy_paths",
+                    "fields": list(legacy_fields),
+                    "replacement": "memory.data_root",
+                },
+                sort_keys=True,
+            )
+        )
     return _apply_env_overrides(config, cli_overrides=cli_overrides)
 
 

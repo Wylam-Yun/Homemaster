@@ -4,6 +4,17 @@
 
 ### Added
 
+- Made HomeMaster self-contained for server migration: the complete verified `mem0ai==2.0.13` runtime and Apache-2.0
+  license are vendored into the repository and wheel with per-file integrity enforcement, while the separate `mem0ai`
+  distribution dependency is removed. Deleted the unused `src/openharness` package and upstream-only tests/generator,
+  archived their immutable provenance, and retained HomeMaster-owned tools, Skills, behavior tests, and MIT attribution.
+  Persistent memory now derives only from configurable `memory.data_root` (`files/qdrant/history/evidence`); one
+  journaled coordinator performs recoverable component migration from legacy paths before stores open, the explicit
+  `homemaster memory migrate` command returns typed receipts, and doctor reports migration state without writes.
+  Completed manifests now fail closed when published targets are missing or structurally invalid, migration locks and
+  rechecks legacy file sources before publication, SQLite copies use consistent snapshots, and doctor verifies vendored
+  mem0 bytes without executing mem0 or opening/materializing the backend.
+
 - Removed duplicate structured-memory retrieval in `mem0ai==2.0.13`: HomeMaster now calls the public hybrid
   `Memory.search()` once and merges its results only with metadata-exact matches, instead of invoking a second Qdrant
   BM25 search. `mem0ai[nlp]` and the locked `en_core_web_sm==3.8.0` model are project dependencies, so the public API's

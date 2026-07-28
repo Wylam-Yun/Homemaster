@@ -1,5 +1,53 @@
 # Engineering Pitfalls
 
+## 2026-07-28 - 迁移 manifest 只验身份，doctor 只读声明仍启动 backend
+
+### 症状与根因
+
+迁移完成后删除已发布的 `files/`，coordinator 仍因 manifest 的 schema/root/status 正确而返回 ready，随后
+`FileMemoryStore.start()` 会创建空记忆；复制旧目录期间发生写入也不会阻止旧快照发布。与此同时，doctor 在
+ready 分支实际启动 `Mem0MemoryStore`，会创建 Qdrant/history 和 BM25 cache；通用 import 检查还会在 vendored
+字节校验前执行 `mem0`。根因是把“内部 receipt 存在”误当外部数据仍有效，并让诊断命令复用了有副作用的启动
+路径。
+
+### 修法与教训
+
+完成态 manifest 必须验证 component schema、锁定路径、publication/digest 形状，以及所有已发布目标的存在和
+结构；发布时继续对 source/staging/target 做同值校验。活跃记忆会正常更新，发布摘要不能永久绑定其内容哈希，
+否则正常写入会在下次启动被误报为损坏。旧文件复制持有真实 `.memory.lock` 并在 publish 前重读 source；SQLite
+使用 backup snapshot。doctor 只做文件级 vendor 校验、配置与 migration `inspect()`，不 import mem0、不打开
+backend、不物化 cache。回归必须分别删除已发布目标、在 copy 后改变源，并对 ready/cold-cache doctor 比较完整
+文件树前后状态。
+
+### 参考
+
+- `src/homemaster/memory/migration.py`
+- `src/homemaster/cli/doctor.py`
+- `tests/homemaster/memory/test_migration.py`
+- `tests/homemaster/test_cli_doctor.py`
+
+## 2026-07-28 - 完整性校验提前 import mem0，遥测开关失效并争抢全局 Qdrant
+
+### 症状与根因
+
+单个 mem0 store 测试通过，连同 vendor integrity 测试运行时却在后续实例随机失败，报告
+`~/.mem0/migrations_qdrant` 已被另一个 Qdrant client 占用。完整性校验为定位包目录执行了 `import mem0`；
+上游在 import 时冻结 `MEM0_TELEMETRY`，而 HomeMaster 直到 store 启动才设置环境变量。于是测试顺序改变了
+进程语义，遥测 migration store 被启用并与真实 Gateway 争用固定用户目录。
+
+### 修法与教训
+
+vendor 校验改用 `importlib.util.find_spec()` 做纯文件定位并断言不会把 `mem0` 放入 `sys.modules`；禁用遥测后
+才允许业务边界 import。第三方库若在 import 时读取环境或创建全局资源，任何 preflight、doctor 和 hash
+校验都不得为了“找路径”提前 import；回归必须在真实并发进程存在时运行组合测试，单测隔离 HOME 只能用于
+根因对照，不能作为修复。
+
+### 参考
+
+- `src/homemaster/memory/vendor_integrity.py`
+- `src/homemaster/memory/mem0_store.py`
+- `tests/homemaster/memory/test_vendor_integrity.py`
+
 ## 2026-07-28 - uv source映射未进入wheel元数据，源码可装但发布包依赖无解
 
 ### 症状与根因

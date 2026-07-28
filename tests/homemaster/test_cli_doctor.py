@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 
@@ -11,12 +10,11 @@ from typer.testing import CliRunner
 
 from homemaster.cli.app import app
 from homemaster.cli.doctor import run_doctor
-from homemaster.memory.file_store import FileMemoryStore
-from homemaster.memory.mem0_store import Mem0MemoryStore
 
 
 @pytest.fixture(autouse=True)
 def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text(
         f"""
@@ -39,10 +37,8 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
               embedding_url: https://embedding.example/v1/embeddings
               api_keys: [doctor-embedding-secret]
         memory:
-          root: {tmp_path / "memory-files"}
+          data_root: {tmp_path / "memory-data"}
           mem0:
-            qdrant_path: {tmp_path / "qdrant"}
-            history_db_path: {tmp_path / "history.sqlite3"}
             embedding_dimensions: 8
             collection_name: doctor_memory_8_v1
         """,
@@ -61,12 +57,33 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert any(check["name"] == "config_source" for check in payload["checks"])
     memory = next(check for check in payload["checks"] if check["name"] == "memory_backend")
     assert memory["status"] == "PASS"
-    assert memory["details"]["available"] is True
+    assert memory["details"]["probe"] == "not_opened"
     assert memory["details"]["fastembed_cache_path"].endswith(".cache/homemaster/fastembed")
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" in encoded
     assert "doctor-embedding-secret" in encoded
+
+
+def test_doctor_reports_migration_required_without_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / ".homemaster" / "memories"
+    source.mkdir(parents=True)
+    for name in ("SOUL.md", "USER.md", "MEMORY.md"):
+        source.joinpath(name).write_text(name, encoding="utf-8")
+    target = tmp_path / "memory-data"
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+
+    report = run_doctor(live=False)
+
+    after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+    memory = next(check for check in report.checks if check.name == "memory_backend")
+    assert memory.status == "WARN"
+    assert memory.details["migration_status"] == "migration_required"
+    assert "migration_required" in memory.message
+    assert before == after
+    assert not target.exists()
 
 
 def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> None:
@@ -89,25 +106,42 @@ def test_cli_doctor_text_reports_pass_warn_fail() -> None:
     assert "api_keys" not in result.stdout
 
 
-def test_doctor_reports_qdrant_lock_conflict_while_file_memory_remains_available(
+def test_doctor_ready_state_does_not_materialize_backend_or_cache(
+    tmp_path: Path,
+) -> None:
+    before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+
+    report = run_doctor(live=False)
+
+    after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
+    memory = next(check for check in report.checks if check.name == "memory_backend")
+    assert memory.status == "PASS"
+    assert memory.details["probe"] == "not_opened"
+    assert before == after
+    assert not (tmp_path / "memory-data").exists()
+
+
+def test_doctor_verifies_vendored_mem0_before_package_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from homemaster.cli import doctor as doctor_module
 
-    config = doctor_module.load_config(doctor_module.HOMEMASTER_CONFIG_PATH)
-    file_store = FileMemoryStore(config.memory)
-    file_store.start()
-    owner = Mem0MemoryStore(config)
-    owner.start()
-    assert owner.available
-    monkeypatch.setattr("homemaster.cli.doctor.load_config", lambda *_args, **_kwargs: config)
-    try:
-        report = run_doctor(live=False)
+    events: list[str] = []
+    original_import = doctor_module.importlib.import_module
 
-        memory = next(check for check in report.checks if check.name == "memory_backend")
-        assert memory.status == "WARN"
-        assert memory.details["available"] is False
-        assert "already accessed by another instance" in str(memory.details["cause"]).casefold()
-        assert file_store.read("memory").target == "memory"
-    finally:
-        asyncio.run(owner.close())
+    def verify() -> Path:
+        events.append("verify")
+        return Path("/verified/mem0")
+
+    def tracked_import(name: str):
+        if name == "mem0":
+            events.append("import")
+        return original_import(name)
+
+    monkeypatch.setattr(doctor_module, "verify_vendored_mem0", verify)
+    monkeypatch.setattr(doctor_module.importlib, "import_module", tracked_import)
+
+    checks = doctor_module._import_checks()
+
+    assert next(check for check in checks if check.name == "import:mem0").status == "PASS"
+    assert events == ["verify"]

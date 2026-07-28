@@ -362,8 +362,7 @@ def test_real_stream_json_preserves_split_config_secret_path_and_url() -> None:
     rows = [json.loads(line) for line in stdout.splitlines()]
     assert rows[-1]["type"] == "result"
     assert rows[-1]["final_reply"] == (
-        "safe blackbox-provider-secret /home/user/private "
-        "https://host/path?token=value"
+        "safe blackbox-provider-secret /home/user/private https://host/path?token=value"
     )
     assert stderr == b""
 
@@ -412,7 +411,9 @@ def _wait_until(predicate, timeout: float = 60) -> None:
 
 @pytest.mark.skipif(not os.path.exists("/usr/bin/tmux"), reason="tmux is required")
 @pytest.mark.parametrize("terminal_width", [48, 120])
-def test_real_interactive_rich_bash_final_screen_via_tmux(terminal_width: int) -> None:
+def test_real_interactive_rich_bash_final_screen_via_tmux(
+    terminal_width: int, tmp_path: Path
+) -> None:
     session = f"hm-rich-{uuid.uuid4().hex[:10]}"
     command = (
         "printf 'RICH_HEAD_0123456789'; printf '%s' \"$RICH_HIDDEN_BODY\"; "
@@ -425,8 +426,11 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(terminal_width: int) -
         tool_input={"command": command},
     ) as (base_url, state):
         env = os.environ.copy()
+        isolated_home = tmp_path / "home"
+        isolated_home.mkdir()
         env.update(
             {
+                "HOME": str(isolated_home),
                 "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
                 "HOMEMASTER_MIMO_BASE_URL": base_url,
                 "HOMEMASTER_MIMO_MODEL": "blackbox-model",
@@ -438,6 +442,7 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(terminal_width: int) -
         command = shlex.join(
             [
                 "env",
+                f"HOME={env['HOME']}",
                 f"HOMEMASTER_MIMO_API_KEY={env['HOMEMASTER_MIMO_API_KEY']}",
                 f"HOMEMASTER_MIMO_BASE_URL={env['HOMEMASTER_MIMO_BASE_URL']}",
                 f"HOMEMASTER_MIMO_MODEL={env['HOMEMASTER_MIMO_MODEL']}",

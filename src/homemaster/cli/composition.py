@@ -36,6 +36,7 @@ from homemaster.memory.context_service import FrozenMemoryContextService
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.mem0_store import Mem0MemoryStore
+from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
 from homemaster.tools.adapters import from_registered_tool
@@ -265,11 +266,12 @@ def _finish_home_application(
     frozen_memory_context: FrozenMemoryContextService | None = None
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
     mem0_memory_store: Mem0MemoryStore | None = None
+    memory_migration: MemoryMigrationCoordinator | None = None
     if resolved.memory.enabled:
+        memory_migration = MemoryMigrationCoordinator(resolved.memory)
         file_memory_store = FileMemoryStore(resolved.memory)
         frozen_memory_context = FrozenMemoryContextService(file_memory_store)
-        evidence_path = resolved.memory.mem0.history_db_path.with_name("evidence.sqlite3")
-        memory_evidence_ledger = MemoryEvidenceLedger(evidence_path)
+        memory_evidence_ledger = MemoryEvidenceLedger(resolved.memory.evidence_db_path)
         mem0_memory_store = Mem0MemoryStore(resolved)
         scope.bind(
             ResourceBinding.owned(
@@ -297,6 +299,8 @@ def _finish_home_application(
             assert file_memory_store is not None
             assert memory_evidence_ledger is not None
             assert mem0_memory_store is not None
+            assert memory_migration is not None
+            memory_migration.ensure_ready(auto_migrate=True)
             file_memory_store.start()
             memory_evidence_ledger.start()
             mem0_memory_store.start()
@@ -371,6 +375,7 @@ def _finish_home_application(
                     "frozen_memory_context": frozen_memory_context,
                     "memory_evidence_ledger": memory_evidence_ledger,
                     "mem0_memory_store": mem0_memory_store,
+                    "memory_migration": memory_migration,
                     "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
                     / "memory_operations.jsonl",
                 }

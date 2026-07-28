@@ -21,7 +21,8 @@ from homemaster.config import (
     ConfigError,
     load_config,
 )
-from homemaster.memory.mem0_store import Mem0MemoryStore
+from homemaster.memory.migration import MemoryMigrationCoordinator
+from homemaster.memory.vendor_integrity import verify_vendored_mem0
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
 
@@ -107,7 +108,9 @@ def _import_checks() -> list[DoctorCheck]:
         try:
             if module == "mem0":
                 os.environ["MEM0_TELEMETRY"] = "False"
-            importlib.import_module(module)
+                verify_vendored_mem0()
+            else:
+                importlib.import_module(module)
         except Exception as exc:  # pragma: no cover - exact import failure is environment-specific
             checks.append(
                 DoctorCheck(
@@ -118,7 +121,8 @@ def _import_checks() -> list[DoctorCheck]:
                 )
             )
         else:
-            checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message="import ok"))
+            message = "vendored package bytes verified" if module == "mem0" else "import ok"
+            checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message=message))
     return checks
 
 
@@ -215,42 +219,36 @@ def _memory_backend_check() -> DoctorCheck:
             message="memory system is disabled by configuration",
             details={"enabled": False},
         )
-    store = Mem0MemoryStore(config)
-    store.start()
-    available = store.available
-    cause = store.unavailable_cause
-    asyncio.run(store.close())
+    migration = MemoryMigrationCoordinator(config.memory).inspect()
+    if migration.status != "ready":
+        return DoctorCheck(
+            name="memory_backend",
+            status="FAIL" if migration.status == "conflict" else "WARN",
+            message=(
+                f"migration_conflict: {migration.reason}"
+                if migration.status == "conflict"
+                else f"migration_required: {migration.reason}"
+            ),
+            impact="memory stores remain unopened until migration completes",
+            suggestion="Run `homemaster memory migrate --config <path>`.",
+            details={
+                "enabled": True,
+                "migration_status": migration.status,
+                "data_root": str(migration.data_root),
+                "legacy_fields": list(migration.legacy_fields),
+            },
+        )
     return DoctorCheck(
         name="memory_backend",
-        # Structured memory is an optional subsystem: its five tools fail
-        # closed while file memory and the rest of HomeMaster remain usable.
-        status="PASS" if available else "WARN",
-        message=(
-            "mem0/Qdrant backend is available" if available else f"backend unavailable: {cause}"
-        ),
-        impact=(
-            None
-            if available
-            else (
-                "add/search/get/update/delete memory tools return "
-                "memory_backend_unavailable; file memory remains available"
-            )
-        ),
-        suggestion=(
-            None
-            if available
-            else (
-                "Check the embedding provider, BM25 artifact, private paths, "
-                "and Qdrant lock ownership."
-            )
-        ),
+        status="PASS",
+        message="memory configuration and migration state are ready; backend was not opened",
         details={
             "enabled": True,
-            "available": available,
+            "probe": "not_opened",
             "collection_name": config.memory.mem0.collection_name,
             "embedding_provider_name": config.memory.embedding_provider_name,
             "fastembed_cache_path": str(config.memory.mem0.fastembed_cache_path),
-            **({"cause": cause} if cause else {}),
+            "data_root": str(config.memory.data_root),
         },
     )
 

@@ -1,5 +1,40 @@
 # Current HomeMaster Progress
 
+## 2026-07-28 Self-contained mem0, OpenHarness cleanup and memory data root
+
+- Status: `COMPLETED`. The complete proven `mem0ai==2.0.13` runtime is vendored into Git and
+  the HomeMaster wheel with full manifest verification and no external `mem0ai` distribution dependency.
+  `src/openharness`, its upstream-only tests and live V2 generator are deleted; immutable provenance is archived.
+- Persistent runtime data derives only from `memory.data_root` (default `~/.homemaster/memory`) while code and data
+  remain independently transferable. A journaled component coordinator migrates old files, validates Qdrant/SQLite,
+  preserves sources, resumes interrupted plans and runs before any application/Gateway store opens. Doctor is read-only
+  and `homemaster memory migrate` emits typed success/failure receipts.
+- Plan source: `plan/self-contained-mem0-openharness-cleanup-memory-layout-plan-zh.md`.
+- Plan review: the single read-only gate found one critical migration-publication flaw, three additional high-severity
+  gaps and one medium OpenHarness-boundary ambiguity. All are accepted: migration is now component-published with a
+  recovery journal, historical default discovery is explicit, vendored bytes use distribution/hash verification, one
+  coordinator owns every store-opening entry, and OpenHarness provenance has one archival path.
+- Current evidence: focused configuration/migration/doctor gates pass; two independent real embedded-Qdrant legacy
+  layouts preserve fact/procedure IDs, file memory and evidence through migration, update/delete and restart. A fresh
+  venv installed only the HomeMaster wheel from an empty cwd and passed vendored integrity, dense/BM25 CRUD, 61-tool
+  construction, license inventory, absent `mem0ai` distribution and absent `openharness` package.
+- Current internal gates: full non-live suite `1538 passed, 1 skipped, 11 deselected`; full Ruff, changed-file format,
+  `uv lock --check` and `git diff --check` pass. The first isolated full-suite run intentionally changed HOME and exposed
+  four missing-browser-cache failures plus two tmux HOME-inheritance failures; the browser cache was explicitly bound,
+  tmux now receives per-case HOME, and the complete rerun passed.
+- Final review: the sole read-only reviewer found four valid boundaries: completed manifests trusted identity without
+  target validation, copy did not recheck a changing source, ready-state doctor opened/materialized the backend, and its
+  mem0 import preceded vendor verification. All were accepted. Published targets now fail closed when missing or
+  structurally invalid; file sources use their real lock plus a pre-publish digest recheck; SQLite uses backup snapshots;
+  doctor verifies vendored bytes without executing mem0 and reports `probe=not_opened` with zero filesystem writes.
+- Post-review targeted remediation: migration/vendor/mem0/doctor regressions pass (`30 passed`), targeted Ruff/format,
+  diff and lock checks pass. A current-byte wheel installed with all 87 declared dependencies in a fresh Python 3.11
+  venv; it verified vendored bytes, absent external `mem0ai`/OpenHarness, successful legacy publication, missing-target
+  conflict and unchanged legacy source. The same install correctly rejected unsupported Python 3.14 because locked
+  spaCy has no cp314 wheel. Commit/push/merge are next. No second final review was started.
+- Blocking items: none. The currently running pre-change Gateway was not terminated and real user memory was not moved;
+  the first controlled restart or explicit migration command will use the same coordinator after the old owner closes.
+
 ## 2026-07-28 Public mem0 hybrid search and spaCy environment
 
 - Status: implemented and focused tests pass. HomeMaster calls `Memory.search()` once and no longer adds a second

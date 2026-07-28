@@ -118,7 +118,7 @@ runtime_defaults:
 
 memory:
   enabled: true
-  root: ~/.homemaster/memories
+  data_root: ~/.homemaster/memory
   soul_file: SOUL.md
   user_file: USER.md
   memory_file: MEMORY.md
@@ -126,9 +126,7 @@ memory:
   memory_char_limit: 2200
   embedding_provider_name: MemoryEmbedding
   mem0:
-    qdrant_path: ~/.homemaster/memory/qdrant
     collection_name: homemaster_memory_qwen3_4096_v1
-    history_db_path: ~/.homemaster/memory/history.sqlite3
     # Persistent local BM25 cache. This stays inside the checkout and is ignored by Git.
     fastembed_cache_path: .cache/homemaster/fastembed
     embedding_dimensions: 4096

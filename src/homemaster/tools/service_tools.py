@@ -147,9 +147,7 @@ class HomeServiceExecutor:
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         try:
-            parsed = SimpleNamespace(
-                **_arguments_with_defaults(self._spec, arguments)
-            )
+            parsed = SimpleNamespace(**_arguments_with_defaults(self._spec, arguments))
             metadata: dict[str, Any] = dict(context.services)
             if self._spec.name == "ask_user_question" and not callable(
                 metadata.get("ask_user_prompt")
@@ -374,8 +372,7 @@ def _execute_lsp(arguments: Any, root: Path) -> ToolResult:
     if arguments.operation == "find_references":
         refs = find_references(**kwargs)
         output = "\n".join(
-            f"{_display_path(item_path, root)}:{line}:{text}"
-            for item_path, line, text in refs
+            f"{_display_path(item_path, root)}:{line}:{text}" for item_path, line, text in refs
         )
         return ToolResult(output or "(no results)")
     result = hover(**kwargs)
@@ -858,7 +855,7 @@ def _definition(tool: ServiceToolSpec) -> ToolDefinition:
         internal_id=f"homemaster.{tool.name}.v1",
         model_alias=tool.name,
         description=tool.description,
-        input_schema=tool.input_schema,
+        input_schema=_schema_with_defaults(tool),
         output_schema={"type": "object"},
         verification_policy=VerificationPolicy(
             execution_proof=(
@@ -878,6 +875,17 @@ def _definition(tool: ServiceToolSpec) -> ToolDefinition:
         state_effects=state_effects,
         required_capabilities=tuple(capabilities),
     )
+
+
+def _schema_with_defaults(tool: ServiceToolSpec) -> dict[str, Any]:
+    schema = json.loads(json.dumps(tool.input_schema))
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, default in tool.defaults.items():
+            definition = properties.get(name)
+            if isinstance(definition, dict):
+                definition.setdefault("default", default)
+    return schema
 
 
 __all__ = ["build_service_tools"]

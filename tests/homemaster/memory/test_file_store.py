@@ -20,10 +20,8 @@ from homemaster.memory.file_store import (
 
 def _store(tmp_path: Path, **updates: object) -> FileMemoryStore:
     payload: dict[str, object] = {
-        "root": tmp_path / "memories",
+        "data_root": tmp_path / "memory-data",
         "mem0": {
-            "qdrant_path": tmp_path / "qdrant",
-            "history_db_path": tmp_path / "history.sqlite3",
         },
     }
     payload.update(updates)
