@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,17 @@ from homemaster.tools.contracts import (
     VerificationStatus,
 )
 from homemaster.tools.executor import ToolExecutor
+
+_MEMORY_TOOL_NAMES = frozenset(
+    {
+        "memory",
+        "add_memory",
+        "search_memories",
+        "get_memory",
+        "update_memory",
+        "delete_memory",
+    }
+)
 
 
 class ApplicationToolExecutor:
@@ -37,6 +50,7 @@ class ApplicationToolExecutor:
         completion_requires_external_owner: bool = False,
         verification_required_tool_names: frozenset[str] = frozenset(),
         artifact_publisher: Any | None = None,
+        initial_memory_evidence_refs: tuple[str, ...] = (),
     ) -> None:
         self._executor = executor
         self._registry = registry
@@ -57,7 +71,9 @@ class ApplicationToolExecutor:
         )
         timeout = request.run_policy.deadline_s
         self._expires_at = None if timeout is None else time.monotonic() + timeout
-        self.evidence_refs = runtime.canonical_evidence_refs
+        self.evidence_refs = tuple(
+            dict.fromkeys((*runtime.canonical_evidence_refs, *initial_memory_evidence_refs))
+        )
 
     async def dispatch(
         self,
@@ -84,9 +100,10 @@ class ApplicationToolExecutor:
         for index, message in enumerate(messages):
             if message is not None:
                 continue
-            call, _context = calls[result_index]
+            call, context = calls[result_index]
             result = results[result_index]
             result_index += 1
+            result = self._register_environment_memory_evidence(call, context, result)
             if observer is not None:
                 observer.on_result(call, result)
             self._completion_guard.record(call.name, result)
@@ -141,7 +158,19 @@ class ApplicationToolExecutor:
 
     def _message(self, call: ToolCall, result: ToolResult) -> ToolResultMessage:
         data = dict(result.metadata)
-        content = [ContentBlock(text=result.output)] if result.output else []
+        if call.name in _MEMORY_TOOL_NAMES and data:
+            model_payload = dict(data)
+            if result.output:
+                model_payload.setdefault("text", result.output)
+            model_text = json.dumps(
+                model_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        else:
+            model_text = result.output
+        content = [ContentBlock(text=model_text)] if model_text else []
         for image in data.get("images", []):
             if isinstance(image, dict) and image.get("data_base64"):
                 content.append(
@@ -178,6 +207,58 @@ class ApplicationToolExecutor:
         refs = [raw] if isinstance(raw, str) else list(raw) if isinstance(raw, list | tuple) else []
         if refs:
             self.evidence_refs = tuple(dict.fromkeys((*self.evidence_refs, *refs)))
+
+    def _register_environment_memory_evidence(
+        self,
+        call: ToolCall,
+        context: ToolExecutionContext,
+        result: ToolResult,
+    ) -> ToolResult:
+        if result.is_error or call.name in {
+            "memory",
+            "add_memory",
+            "search_memories",
+            "get_memory",
+            "update_memory",
+            "delete_memory",
+        }:
+            return result
+        if not bool(result.metadata.get("backend_attempted")):
+            return result
+        tool = self._registry.get(call.name)
+        if tool is None:
+            return result
+        try:
+            arguments = tool.input_model.model_validate(call.arguments)
+        except Exception:
+            return result
+        verified = result.metadata.get("verification_status") == "passed"
+        if not verified and not tool.is_read_only(arguments):
+            return result
+        ledger = context.services.get("memory_evidence_ledger")
+        register = getattr(ledger, "register", None)
+        if not callable(register):
+            return result
+        evidence = register(
+            kind="environment_observation",
+            tenant_id=self._request.permission_subject.tenant_id,
+            session_id=self._runtime.session.session_id,
+            run_id=self._run_id,
+            turn_id=f"turn-{self._agent_state.turn_index}",
+            tool_call_id=call.id,
+            verification="passed" if verified else "read_observation",
+        )
+        metadata = dict(result.metadata)
+        raw_refs = metadata.get("evidence_refs", ())
+        refs = (
+            [raw_refs]
+            if isinstance(raw_refs, str)
+            else list(raw_refs)
+            if isinstance(raw_refs, (list, tuple))
+            else []
+        )
+        metadata["evidence_refs"] = list(dict.fromkeys((*refs, evidence.ref)))
+        return replace(result, metadata=metadata)
 
 
 def _bind_backend(deps: dict[str, object], profile: str, backend: object | None) -> None:

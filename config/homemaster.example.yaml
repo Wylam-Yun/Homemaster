@@ -116,6 +116,23 @@ runtime_defaults:
   default_provider_name: Mimo
   default_embedding_provider_name: MemoryEmbedding
 
+memory:
+  enabled: true
+  root: ~/.homemaster/memories
+  soul_file: SOUL.md
+  user_file: USER.md
+  memory_file: MEMORY.md
+  user_char_limit: 1375
+  memory_char_limit: 2200
+  embedding_provider_name: MemoryEmbedding
+  mem0:
+    qdrant_path: ~/.homemaster/memory/qdrant
+    collection_name: homemaster_memory_qwen3_4096_v1
+    history_db_path: ~/.homemaster/memory/history.sqlite3
+    embedding_dimensions: 4096
+    search_limit: 5
+    search_threshold: 0.1
+
 observability:
   console_enabled: true
   console_show_thinking: true

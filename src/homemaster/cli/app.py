@@ -237,7 +237,7 @@ def run_command(
 def doctor_command(
     live: Annotated[
         bool,
-        typer.Option("--live", help="Run live Mimo and BGE-M3 provider smoke checks."),
+        typer.Option("--live", help="Run live chat and MemoryEmbedding provider smoke checks."),
     ] = False,
     json_output: Annotated[
         bool,

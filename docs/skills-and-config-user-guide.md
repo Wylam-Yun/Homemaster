@@ -74,6 +74,41 @@ uv run homemaster --dry-run -p '检查药盒状态' \
   --output-format json
 ```
 
+### V2.1 记忆 embedding 配置
+
+默认 Home profile 还要求一个独立的 `MemoryEmbedding` provider。它只供结构化记忆的 semantic
+写入和搜索使用，不替代聊天 provider，也不复制或复用聊天凭证：
+
+```yaml
+providers:
+  items:
+    - name: MemoryEmbedding
+      kind: embedding
+      api_format: openai
+      transport: openai_sdk
+      base_url: https://api.siliconflow.cn/v1
+      embedding_url: https://api.siliconflow.cn/v1/embeddings
+      model: Qwen/Qwen3-Embedding-8B
+      api_keys: ["<your-memory-embedding-key>"]
+
+memory:
+  enabled: true
+  root: ~/.homemaster/memories
+  embedding_provider_name: MemoryEmbedding
+  mem0:
+    qdrant_path: ~/.homemaster/memory/qdrant
+    history_db_path: ~/.homemaster/memory/history.sqlite3
+    collection_name: homemaster_memory_qwen3_4096_v1
+    embedding_dimensions: 4096
+```
+
+`search_memories` 的 query 与版本化 search text 会发送到这个第三方 endpoint；API key、opaque
+evidence ref、procedure URL query/fragment 和真实 input value 会在出站前拒绝或剔除。mem0 extraction
+固定 `infer=False`，embedded Qdrant 和离线 BM25 不联网。运行 `uv run homemaster doctor --json` 可查看
+`memory_backend`：失败时五个结构化工具统一返回 `memory_backend_unavailable`，文件 `memory` 工具仍可用。
+`memory.enabled: false` 会一起移除六工具和 frozen 文件上下文，不会静默切换到第二个 backend。完整用法见
+[记忆用户指南](memory-user-guide.md)。
+
 `doctor`、dry-run、config tool、日志和事件各自只输出 typed schema 选中的字段；经过本地权限和 ownership
 边界后，这些字段的运行时文本按 candidate 2 保持原值，包括认证字段、URL userinfo/query 和路径。
 真实配置必须保持 mode 0600 且 Git ignored，仓库模板仍只能使用占位值。

@@ -5,14 +5,14 @@
 - Owner：主 agent
 - 日期：2026-07-27
 - 基线提交：`bb927d4c6e11f1fe291db0e1d9b0ecb7adfd34d1`
-- 当前阶段：正式计划编写完成，等待唯一一次计划 reviewer 评审；尚未实施
+- 当前阶段：WP1-WP6、真实外部终态、隔离 wheel 安装和完整非 live 回归已完成；等待最终只读代码评审
 - 旧讨论记录：`plan/V2.1/homemaster-memory-system-discussion.md` 仅保留历史讨论，不再作为实施依据
 - 正式实施真理源：本文档
-- 计划评审：本文全文完成后启动一次只读 reviewer subagent；逐条处理发现后锁定计划
+- 计划评审：唯一一次只读 reviewer subagent 评审已完成；9 项发现全部采纳，处置见 §21
 - 最终代码评审：实现、测试、外部终态验证和文档更新全部完成后启动一次只读 reviewer subagent
 - 工作树状态：仓库已有用户修改；本任务不得覆盖、回退或顺带整理这些修改
 
-计划评审完成并逐条处理发现以前，禁止开始产品代码实施。
+计划评审门已满足；用户 review 并明确授权实施以前，禁止开始产品代码实施。
 
 ## 1. 目标与完成形态
 
@@ -223,6 +223,10 @@ ApplicationRuntime.start
 
 entry 可以多行；工具读写只操作完整 entry，不按字符截断。文件内容本身保持可人工阅读。
 
+输入 canonicalization 固定为：CRLF/CR 统一为 LF，保留正常多行和 Unicode；拒绝 NUL、非换行/制表的控制字符，
+并拒绝内容中出现完整 delimiter `\n§\n`，不做可能改变含义的自动转义。add 与已有 canonical entry 完全相同时返回
+幂等成功，不重复追加。容量按 canonical serialization 的 Unicode code points 计数。
+
 `USER.md` 示例：
 
 ```markdown
@@ -301,13 +305,14 @@ MEMORY.md = 2,200 Unicode code points
 
 ### 7.1 物理存储形态
 
-Agent 工具接收结构化对象，HomeMaster 同步派生两份同源数据并在一次 mem0 add/update 中提交：
+Agent 工具接收结构化对象，HomeMaster 同步派生三份同源数据并在一次 mem0 add/update 中提交：
 
 1. `memory` text：由结构确定性生成的自然语言检索文档，用于 embedding/关键词搜索；
 2. metadata `record_json`：canonical compact JSON string，保存完整结构化记录。
+3. metadata 扁平索引字段：由完整结构确定性生成，用于 dedupe 和精确过滤。
 
 选择 `record_json` 字符串而不是依赖任意深度 nested metadata，避免不同 vector store payload/filter 对嵌套 JSON
-语义不一致。以下字段作为扁平 metadata 单独保存，供精确过滤：
+语义不一致。以下字段作为扁平 metadata 单独保存，供精确过滤。字段按 memory type 固定，不能由 Agent 任意追加：
 
 ```text
 schema_version
@@ -315,12 +320,21 @@ memory_type
 dedupe_key
 source
 record_json
+subject_type              # fact
+subject_id                # fact，可选
+subject_name_normalized   # fact
+predicate                 # fact
+procedure_name_normalized # procedure
+entry_url_normalized      # procedure
+provenance_seq            # 内部持久化单调序号
 ```
 
 另外由 mem0 内部写入固定技术性 `user_id="homemaster"`。第一版不向工具公开任何 scope 字段。
 
-HomeMaster 是 search text 与 `record_json` 的唯一生成者；Agent 不直接提交任意 metadata、dedupe key、时间戳、
-mem0 identity 或序列化 JSON。update 必须从完整结构重新生成两份数据，禁止只改其中一份。
+HomeMaster 是 search text、扁平索引字段与 `record_json` 的唯一生成者；Agent 不直接提交任意 metadata、dedupe key、
+时间戳、provenance sequence、mem0 identity 或序列化 JSON。update 必须从完整结构重新生成三份数据，禁止只改
+其中一份。normalized 字段的 Unicode normalization、case 和 URL canonicalization 规则版本化并做同输入同输出测试；
+原始可读值仍只以 record 为准。
 
 ### 7.2 `fact` schema
 
@@ -458,6 +472,8 @@ subject.id 存在：sha256("fact\0" + subject.type + "\0id\0" + subject.id + "\0
 由 procedure 输入或运行时认证处理。工具不擅自重写一个已接受 URL 的文本。
 
 procedure `dedupe_key` 由 HomeMaster 根据 canonical `entry_url + name` 自动计算并只放 metadata。Agent 不感知。
+精确查询必须同时具备 `entry_url + name` 才计算 key；仅提供其中一个 hint 时只按对应扁平字段缩小候选，不误当
+唯一 identity。
 
 steps：
 
@@ -478,12 +494,12 @@ steps：
 1. Pydantic/JSON Schema 校验结构；
 2. 校验 source 与当前证据类型；
 3. 生成 canonical record、search text、dedupe key；
-4. 先用固定内部 scope + memory_type + dedupe_key 做精确查询；
+4. 先用固定内部 scope + memory_type + dedupe_key 做精确查询；该 key 完全由完整 record 生成，不依赖语义搜索；
 5. 已存在且完整结构相同：幂等成功，不新增；
 6. 已存在但不同：返回 `memory_conflict` 和准确 memory_id，要求模型使用 `update_memory`；
 7. 不存在：调用 mem0 `add(... infer=False ...)`；
 8. 检查 SDK 返回包含一个 ADD id；
-9. 按 id 重新 get，逐字段核对 text、record_json、type/key/source；
+9. 按 id 重新 get，逐字段核对 text、record_json、全部扁平索引字段；
 10. 终态一致才返回成功。
 
 ### 8.2 混合召回
@@ -505,8 +521,10 @@ steps：
   -> 返回结构化记录和匹配来源
 ```
 
-fact 搜索优先使用 subject/predicate/dedupe key；procedure 优先使用 entry_url/name；缺少精确信息时语义召回。
-Agent 不需要分别调用“关键词工具”和“语义工具”。
+fact 搜索优先使用扁平 `subject_type/subject_id/subject_name_normalized/predicate/dedupe_key`；procedure 优先使用扁平
+`entry_url_normalized/procedure_name_normalized/dedupe_key`；缺少完整 identity 时将部分 exact hint 与 hybrid 结果合并，
+不得通过解析 `record_json` 做无界全表扫描。缺少精确信息时使用 hybrid 召回。Agent 不需要分别调用“关键词工具”
+和“语义工具”。
 
 损坏、缺字段或 schema_version 不支持的记录不得作为正常命中悄悄返回；进入结构化 diagnostics，并且不授权
 任何设备或网页动作。
@@ -539,8 +557,9 @@ Agent 推测、失败工具结果或找不到证据
   -> 拒绝覆盖
 ```
 
-第一版不保存旧 value 版本、不比较 confidence、不做来源优先级；“最新有效值”指当前 write 已通过来源和证据门，
-不是模型声称“更新”。
+第一版不保存旧 value 版本、不比较 confidence、不做来源优先级；“最新有效值”指当前 evidence 在持久化
+`MemoryEvidenceLedger` 获得的 `provenance_seq` 大于当前记录，且 write 已通过来源和证据门，不是模型声称“更新”。
+较早产生但较晚提交的观测必须返回 `memory_stale_observation`，不能回滚新值。
 
 ### 8.5 procedure 更新
 
@@ -548,7 +567,7 @@ Agent 推测、失败工具结果或找不到证据
 - 再次执行成功且结构未变：幂等，不更新；
 - 页面变化后，新路径完整执行成功：update 原 memory_id；
 - 一次失败、页面未加载或仍未找到新路径：不得覆盖旧 procedure；
-- update 必须保持原 memory_id，重新生成 search text、record_json、dedupe key；
+- update 必须保持原 memory_id，重新生成 search text、record_json 和全部扁平索引字段；
 - 如果 name/entry_url 改变导致 dedupe identity 与另一条记录冲突，拒绝并返回冲突 ID，不自动合并。
 
 ### 8.6 删除
@@ -556,28 +575,36 @@ Agent 推测、失败工具结果或找不到证据
 - 只允许准确 memory_id；
 - 仅在用户明确要求忘记、记录确认错误、确认重复或流程永久失效时调用；
 - 第一版不得按时间、相关度或低使用频率自动删除；
-- delete 后必须 get 返回 not found，并以 Qdrant 独立 client/list 检查 ID 不存在；
+- delete 后必须 get 返回 not found，并以同一底层 Qdrant client 的 raw point API 检查 ID 不存在；store 关闭后
+  再由独立进程 reopen 做持久化复核，不在 live mutation 时打开同路径第二 client；
 - 调用超时或异常且无法确认外部状态时返回 `outcome_unknown`，禁止自动重试删除。
 
 ## 9. 来源与证据门
 
 ### 9.1 `user_statement`
 
-- 只用于用户当前消息明确陈述的 fact；
+- 只用于用户当前消息明确陈述的 fact；Agent 声明 source 但必须同时提交由 runtime 为当前 canonical user turn
+  注册的 opaque evidence ref；
 - 不能把模型总结、推理或常识标为用户陈述；
-- 工具 trace 记录触发写入的 session/run/turn/tool_call，不复制整段用户隐私到 metadata；
+- executor 验证 ref 属于同 session/run/turn、角色确为 user、发生在 memory tool call 以前，并从 ledger 取得
+  `provenance_seq`；模型不能自报字符串绕过；
+- 工具 trace 记录触发写入的 session/run/turn/tool_call 和 provenance ref hash，不复制整段用户隐私到 metadata；
 - USER 偏好不进 mem0，应路由到 `memory(target="user")`。
 
 ### 9.2 `environment_observation`
 
 - fact/procedure 写工具必须携带当前 run 已提交成功的 evidence refs；
-- 新增 application/run-owned `MemoryEvidenceLedger`，只接受 ToolExecutor 已完成且 status=success、
+- 新增 application-owned、ref 按 run 隔离的 `MemoryEvidenceLedger`，只接受 ToolExecutor 已完成且 status=success、
   verification=passed 或工具契约明确为 read observation 的 canonical result；
 - memory tool executor 只按 opaque ref 查询 ledger，模型不能用任意字符串伪造证据；
 - 证据必须属于同 tenant/session/run，且发生在 memory tool call 以前；
 - procedure refs 必须覆盖按 order 执行的全部动作和最终 success 观测；
 - 同一批并行 tool calls 中尚未提交的动作不能作为 procedure 证据；模型必须在后续 iteration 再保存；
 - 外部工具/API 返回统一归类为 `environment_observation`，不增加第三个 source。
+
+`MemoryEvidenceLedger` 的序号由 application-owned 私有 SQLite 表在 evidence 进入 ledger 时用单事务自增分配，并持久化
+跨 session/restart；事实 mutation 在 mem0 写锁内比较当前 `provenance_seq` 后再写。用户 turn 和工具 observation 使用
+同一序列域，保证“最新”按证据产生顺序而不是按谁最后抢到写锁。
 
 `MemoryEvidenceLedger` 只解决“确实观察/执行过”，不让 memory 工具替代设备权限、浏览器 stale-ref、业务终态或
 benchmark scorer。
@@ -619,10 +646,11 @@ operations: [{action, content?, match?}]   # 原子 batch；与单操作互斥
 ```text
 memory_type: fact | procedure
 record: FactRecord | ProcedureRecord
-evidence_refs: [opaque ref]   # environment_observation 必需
+evidence_refs: [opaque ref]
 ```
 
-描述必须明确正反路由、source 约束、procedure 成功证据和 `infer=False` 原样存储。Agent 不传 metadata、scope、
+`evidence_refs` 对两种 source 都必需：`user_statement` 绑定当前 user turn，`environment_observation` 绑定当前成功观测；
+procedure 只接受后者。描述必须明确正反路由、source 约束、procedure 成功证据和 `infer=False` 原样存储。Agent 不传 metadata、scope、
 dedupe key、memory_id 或 confidence。
 
 ### 10.3 `search_memories`
@@ -636,6 +664,7 @@ limit: 1..20, default 5
 subject: optional exact hint
 predicate: optional exact hint
 entry_url: optional exact hint
+name: optional exact procedure hint
 ```
 
 描述必须要求：当问题依赖外部当前事实或可复用操作流程而当前会话没有答案时主动调用；不搜索
@@ -659,7 +688,8 @@ evidence_refs
 ```
 
 描述必须要求：通常先 search/get；fact 变化或用户纠正时原地更新；procedure 只有新路径完整成功后更新；
-不得用未经确认信息覆盖，不允许 partial patch 造成 search text/record_json 分叉。
+不得用未经确认信息覆盖，不允许 partial patch 造成 search text/record_json/扁平索引分叉。两种 source 都必须提交
+与 §9 相符的 evidence refs，并由 executor 校验 provenance sequence。
 
 ### 10.6 `delete_memory`
 
@@ -688,6 +718,7 @@ verified_terminal_state
 memory_invalid_input
 memory_permission_denied
 memory_content_blocked
+memory_outbound_blocked
 memory_match_not_found
 memory_match_ambiguous
 memory_capacity_exceeded
@@ -697,6 +728,7 @@ memory_not_found
 memory_conflict
 memory_evidence_missing
 memory_evidence_invalid
+memory_stale_observation
 memory_backend_unavailable
 memory_backend_rejected
 memory_outcome_unknown
@@ -713,13 +745,22 @@ memory_record_corrupt
 
 ```text
 mem0ai==2.0.13
+fastembed（实施时锁定与目标 wheel 兼容的精确版本）
 ```
 
-`mem0ai` 自带 `qdrant-client>=1.12.0` 依赖。使用 `uv add`/`uv lock`，禁止裸 `pip install -U`。安装后核对
+`mem0ai` 自带 `qdrant-client>=1.12.0`，但基础依赖不包含 Qdrant BM25 所需 `fastembed`；不得安装体积和依赖面更大的
+整个 `mem0ai[extras]`。使用 `uv add`/`uv lock` 锁定最小直接依赖，禁止裸 `pip install -U`。安装后核对
 `openai/httpx/protobuf/pydantic` 没有被意外降级，并运行既有 provider/MCP/Gateway 相关回归。
 
-计划使用 PyPI wheel；本地 mem0 checkout 只作为已锁定源码参考，不以绝对路径成为运行依赖。若 PyPI 2.0.13
-wheel 与锁定源码提交内容不一致，停止实施并记录差异，不静默混用。
+安装阶段预取并校验准确 `Qdrant/bm25` artifact，记录 checksum/cache path，运行时进入 offline/no-download 模式；
+冷缓存断网启动必须明确 fail fast，不能静默退成纯语义。第一版明确不安装 spaCy 与 `en_core_web_sm`，接受无
+lemmatization/entity boost，并断言 mem0 不因环境偶然存在 spaCy 而联网下载模型；若 wheel 行为不能确定性禁用，
+停止并调整设计。fastembed、artifact 加载及 spaCy 行为在目标 venv 真验以前均为 `UNVERIFIED`。
+
+计划使用 PyPI wheel；本地 mem0 checkout 只作为已锁定源码参考，不以绝对路径成为运行依赖。2026-07-27
+真环境核对发现 PyPI 2.0.13 wheel 与同版本 tag 仅在 Chroma、OpenSearch、PGVector 三个未选 backend 文件存在
+差异，Qdrant 路径和本计划依赖的 mem0 core 文件一致。Owner 锁定以发布 wheel 的实际部署行为为准，不要求未使用
+backend 全字节一致；实施必须增加只构造 Qdrant、无 backend selector 的门，且不得从本地 checkout 混入文件。
 
 ### 11.2 HomeMaster 配置 schema
 
@@ -772,14 +813,21 @@ embedder.config.api_key = MemoryEmbedding.api_keys[0]
 embedder.config.openai_base_url = MemoryEmbedding.base_url
 embedder.config.embedding_dims = 4096
 
+llm.provider = openai
+llm.config.model = homemaster-infer-disabled
+llm.config.api_key = non-secret-static-sentinel
+llm.config.openai_base_url = http://127.0.0.1:9/v1
+
 history_db_path = configured path
 reranker = none
 ```
 
-mem0 仍会在构造时创建 LLM client，即使 HomeMaster 永远使用 `infer=False`。第一版给它配置一个不会被调用的
-OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断言 add/search/update/delete 全流程没有
-`/chat/completions` 请求；任何 infer=True 路径视为 bug 并 fail closed。实施中不得为了绕过构造而依赖
-未公开 mem0 internal factory patch，除非另做 owner 决策。
+mem0 仍会在构造时创建 LLM client，即使 HomeMaster 永远使用 `infer=False`。第一版显式配置确定性不可外联的 sink：
+本机 discard port、非密钥 sentinel 和不可用 model；绝不复用真实 embedding/provider 凭证。HomeMaster store 边界
+只暴露硬编码 `infer=False` 的内部方法，且 outbound guard 只允许准确 embedding origin/path，拒绝
+`/chat/completions` 和其他 host。集成测试断言 add/search/update/delete 全流程无 LLM 请求；任何 infer=True 路径在
+发包前 fail closed。目标 wheel 能否仅构造该 sink 而不请求网络仍为 `UNVERIFIED`；若构造失败，停止并回到设计，
+不得 patch 未公开 mem0 internal factory。
 
 在首次 import mem0 以前设置 `MEM0_TELEMETRY=False`。这项行为必须由 HomeMaster 启动边界确定性完成，
 不能只依赖开发者 shell；同时记录配置诊断但不输出密钥。
@@ -788,6 +836,9 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 
 - `FileMemoryStore`、`FrozenMemoryContextService`、`Mem0MemoryStore`、`MemoryEvidenceLedger` 均由 application
   composition 创建并注入 `application_services`；工具通过 `context.services` 获取，禁止从全局 import 单例；
+- application 必须先初始化文件服务；mem0 初始化失败时，`Mem0MemoryStore` 进入带 sanitized cause 的显式
+  `unavailable` 状态（不是另一种 backend/provider），五个工具仍注册但统一返回 `memory_backend_unavailable`，文件上下文
+  和 `memory` 工具继续可用；doctor/status 必须显示故障，不得伪装为空 store；
 - mem0 SDK 是同步 API，所有调用用 `asyncio.to_thread` 或独立 bounded executor，禁止阻塞 Runtime event loop；
 - 第一版用 application-owned async lock 串行化 mem0 mutation，避免 embedded Qdrant/SQLite 并发写；
 - read/search 是否可并发必须以 qdrant-client + mem0 真实 stress 验证为准，验证前同样走统一锁；
@@ -809,6 +860,12 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - `memory` action 级权限必须区分 read/mutate；
 - mem0 mutation 工具要求 `tool.mutate`，search/get 要求 `tool.read`；
 - procedure URL 不保存 credential；procedure inputs 不保存一次执行的 secret 值；
+- fact/procedure 的版本化 search-text 模板只包含召回必需字段：fact 的 subject/predicate/value 摘要，procedure 的
+  name、无 query/fragment 的 origin+path、step action/semantic target/success 摘要；禁止 query、userinfo、真实 input
+  值、token、cookie、内部 evidence 和任意原始工具 payload；
+- search text 和 search query 都会发往第三方 SiliconFlow embedding 服务。写入/搜索前执行 outbound policy 与
+  credential/内部地址扫描；命中禁止字段时拒绝外发并返回稳定错误，不能先发后报；用户指南必须明确这不是全本地方案；
+- outbound allowlist 只允许配置中准确 SiliconFlow embedding origin + `/v1/embeddings`，并核对请求体不含禁止字段；
 - Qdrant/history/memory 文件均为本机私有路径，不进入 Git；
 - tool schema 不接受任意 metadata/filter/user_id/path；
 - 任何 mem0 record_json parse/schema failure fail closed；
@@ -843,6 +900,8 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - embedding provider 必须存在且 kind=embedding；
 - example 无真实 secret；真实配置 mode 0600 且 gitignored；
 - isolated wheel 安装后 import `mem0/qdrant`；
+- fastembed 精确版本、BM25 artifact checksum/cache/offline load 和冷缓存 fail-fast；
+- 无 spaCy 模型下载、无运行时 artifact 下载；
 - 关键共享依赖版本审计。
 
 ### WP2：文件 store 与冻结上下文
@@ -863,7 +922,7 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 
 测试：
 
-- 文件创建、mode、delimiter、dedupe、unique substring；
+- 文件创建、mode、delimiter、dedupe、unique substring、CRLF normalization、NUL/control/delimiter injection 拒绝；
 - add/update/delete/read/batch、最终容量、全-or-nothing；
 - unreadable、drift、并发 session、原子替换失败；
 - threat write/load 双重扫描；
@@ -884,13 +943,13 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 职责：
 
 - schema validation；
-- search text/canonical JSON/dedupe key；
+- search text/canonical JSON/扁平索引/dedupe key；
 - Home config -> mem0 config；
 - sync SDK 异步隔离；
 - exact + hybrid search；
 - add/update/delete 后终态 reread；
 - stable errors；
-- telemetry 禁用和 lifecycle close。
+- outbound policy、telemetry 禁用和 lifecycle close。
 
 测试：
 
@@ -899,10 +958,11 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - dedupe key 同输入确定、不同 identity 不冲突；
 - fixed internal scope 不泄漏到工具参数；
 - fake SDK 只做组件单测，不作为发布证据；
-- 本地真实 Qdrant 临时目录做 CRUD、进程重开持久化、精确过滤、中文语义搜索；
+- 本地真实 Qdrant 临时目录做 CRUD、进程重开持久化、全部扁平字段精确过滤、部分 hint、中文语义搜索；
 - update 保持 ID、更新 text+metadata、旧值不可检索为当前；
-- delete 后独立 client 不存在；
-- no infer、no LLM request、no PostHog request。
+- delete 在线 raw point 不存在，关闭后由独立进程复核；
+- semantic 与 BM25 分支分别真实贡献候选，缺 artifact 不静默降级；
+- no infer、no LLM request、no PostHog request、no runtime model download。
 
 ### WP4：六个 canonical tools
 
@@ -937,8 +997,12 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 4. 相同 procedure 幂等 add 不产生第二条；
 5. 相似名称、不同 URL 的 procedure 不错误合并；
 6. 无 evidence 的 environment fact/procedure 写入被拒，Qdrant 无新增；
-7. 删除后 get/search/独立 Qdrant client 均确认不存在；
-8. 五个 mem0 工具各自核对 API/SDK 成功返回和外部终态。
+7. 删除后 get/search/在线 raw point 均确认不存在，关闭后由独立进程 reopen 复核；
+8. 五个 mem0 工具各自核对 API/SDK 成功返回和外部终态；在线用同一 Qdrant client 的 raw point API 绕过 mem0
+   formatter 复核，关闭 store 后再由独立进程 reopen 做持久化复核；
+9. 较早 evidence 延迟提交不能覆盖较新值；user_statement 无当前 user-turn ref 时零写入；
+10. outbound capture 只看到 embeddings endpoint，请求体逐字段确认无 query string、secret、真实 procedure input 或
+    evidence payload。
 
 再用 deterministic provider 通过完整 `ApplicationRuntime` 让模型产生六种工具调用；provider schema、工具结果和
 下一次模型请求必须逐步吻合。真实 LLM 是否稳定选择工具另做 live behavior gate，不用 prompt fixture 自证描述有效。
@@ -964,6 +1028,7 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - fact/procedure schema；
 - Qdrant 数据路径、备份和恢复；
 - embedding 配置引用而非复制 secret；
+- 会发送到第三方 embedding 服务的字段、禁止字段与数据流图；
 - 无自动遗忘、无多用户；
 - mem0/Qdrant 故障诊断；
 - 明确不经过 MCP。
@@ -978,16 +1043,18 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 | 文件 add/update/delete | store 单测 | 独立进程重新打开文件，按 entry 解析并核对 mode/内容 |
 | 文件 batch | all-or-nothing 单测 | 注入中途失败，最终文件 hash 保持原值 |
 | 冻结快照 | ContextAssembler 单测 | 两个真实 session 顺序运行，A 不变、B 看到新值 |
-| mem0 add | fake SDK + schema | 真实 Qdrant 独立 client 按 ID/metadata 读取 |
-| mem0 search | 排序/merge 单测 | 真实 Qwen 4096 embedding + 中文 query per-case 命中 |
+| mem0 add | fake SDK + schema | 在线同一 client raw point 按 ID/metadata 读取；关闭后独立进程复核 |
+| mem0 search | 排序/merge 单测 | 真实 Qwen 4096 embedding + BM25 分支分别贡献、中文 query per-case 命中 |
 | mem0 update | ID/serialization 单测 | 同一 ID 新值存在、旧值不再是当前，updated_at 改变 |
-| mem0 delete | 错误映射单测 | SDK get、search、Qdrant independent get 三条都不存在 |
+| mem0 delete | 错误映射单测 | SDK get/search + 在线 raw point 不存在；关闭后独立进程复核 |
 | procedure evidence | ledger 单测 | 完整 runtime 先产生成功动作证据再写；伪造/跨 run ref 零写入 |
 | 工具注册 | registry snapshot | 顶层 Home application tool list 精确包含六个名称 |
 | embedding | response parser | live HTTP 200、准确模型、4096 维、finite vector |
 | 持久化 | restart 单测 | 关闭并新进程构造 store 后仍能 get/search |
 | 隐私 | scanner/telemetry 单测 | 无 PostHog socket/request；Git 无真实 key/记忆数据 |
+| 数据出境 | outbound policy 单测 | 只出现预期 embedding 请求；request body 无凭证、query、input value、内部 evidence |
 | 生命周期 | cancel/close 单测 | 进程退出后 Qdrant lock/线程/socket 不残留，目录可被新进程打开 |
+| 后端故障 | unavailable state 单测 | 锁冲突/坏路径启动后文件记忆可读，五工具稳定 unavailable，doctor 可见 |
 
 每个多实例门逐条断言，不允许用 any/best/global min-max 掩盖某个 case 失败。
 
@@ -1009,6 +1076,8 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - mem0 update(text+metadata) 对真实 Qdrant 的原子可见性；
 - search threshold 对中文 fact/procedure fixture 的 per-case 召回率；
 - mem0 telemetry 在 HomeMaster 启动边界关闭后确实零外联；
+- fastembed 精确版本、`Qdrant/bm25` artifact checksum/offline load、BM25 实际贡献和 spaCy 零下载；
+- mem0 sink LLM 构造不外联，outbound guard 只放行准确 embeddings endpoint；
 - procedure evidence 与尚待实施的通用浏览器工具 receipt 格式；未完成浏览器计划以前相关外部符号保持
   `UNVERIFIED`，不得由记忆计划替它背书。
 
@@ -1019,12 +1088,14 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 - 文件写前失败：外部终态不变，返回 confirmed failure；
 - 文件 atomic replace 后验证失败：返回 outcome_unknown，保留 backup/hash 供诊断；
 - embedding 网络失败：search/add/update 明确失败，不降级成不带向量的假成功；
-- Qdrant add/update/delete SDK 异常：重新 get；能确定终态则按实际终态返回，否则 outcome_unknown；
+- Qdrant add/update/delete SDK 异常：在线通过同一底层 client raw point API 复核；能确定终态则按实际终态返回，
+  否则 outcome_unknown；关闭后的独立进程 reopen 只用于场景/持久化验收，不在 live mutation 时争抢同一路径锁；
 - outcome_unknown mutation 不自动重试；
 - record_json 损坏：隔离该条结果并报告，不用自然语言 text 猜结构；
 - collection 维度不匹配：application start fail fast，不自动 reset/delete collection；
 - memory 文件超限：事务不写，返回整理信息；
-- Qdrant 不可用不阻止 `SOUL/USER/MEMORY` 读取，但五个 mem0 工具明确 backend unavailable；
+- Qdrant 不可用时 application 保持显式 unavailable store 状态，不阻止 `SOUL/USER/MEMORY` 读取，五个 mem0 工具
+  明确 backend unavailable，doctor/status 必须可见；
 - `SOUL/USER/MEMORY` 读取失败不能静默启动成空人格/空画像；startup 返回明确错误或 blocked marker，具体策略在
   RED 测试中锁定，禁止吞错。
 
@@ -1036,12 +1107,12 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 2. 六个工具协议、描述和权限与本文一致；
 3. SOUL/USER/MEMORY session 冻结注入顺序和 live read 行为通过；
 4. 文件容量、batch、锁、drift、atomic write 和 mode 通过；
-5. mem0 真实 Qdrant fact/procedure CRUD 与混合召回通过；
+5. mem0 真实 Qdrant fact/procedure CRUD 与 semantic + BM25 混合召回分别通过；
 6. Qwen live embedding 返回码、模型、4096 维和 finite vector 通过；
-7. 每个 mutation 同时核对 SDK 返回状态和独立外部终态；
-8. procedure 无证据零写入，完整证据成功写入；
-9. telemetry 零外联门通过；
-10. application close 后无残留资源，重启仍能读取；
+7. 每个 mutation 同时核对 SDK 返回状态、在线 raw point 终态和 close 后独立进程持久化终态；
+8. 两种 source 都绑定真实 evidence，procedure 无完整证据零写入，stale observation 不覆盖新值；
+9. telemetry、LLM 和未授权 endpoint 零外联，embedding request body 无禁止字段；
+10. application close 后无残留资源，重启仍能读取；mem0 故障时文件记忆仍可用且 unavailable 状态可观测；
 11. default Home 和 benchmark profile 工具面迁移准确；
 12. 配置、README、架构、用户指南、CHANGELOG、progress 同源更新；
 13. wheel 外安装与 package data 门通过；
@@ -1074,5 +1145,24 @@ OpenAI-compatible client，复用同一 provider 凭证，并用集成测试断�
 
 ## 21. 计划评审记录
 
-等待本文完成后的唯一一次只读 reviewer subagent 评审。Reviewer 只提交发现，不修改文件、不参与实现或验证、
-不再派生 subagent。主 agent 将在本节记录每项发现的采纳/不采纳理由和对应计划修订。
+2026-07-27 已完成本文唯一一次实施前只读 reviewer subagent 评审。Reviewer 未修改文件、未参与实现或验证、未派生
+subagent。9 项发现处置如下，全部采纳，不追加第二次计划评审：
+
+1. **精确检索字段缺失：采纳。** §7.1 增加 fact/procedure 扁平索引 metadata 和 normalized 规则；§8.2/§10.3
+   补完整 identity、部分 hint 与 `name`；WP3 增加真实 Qdrant 精确过滤门。
+2. **BM25 依赖不完整：采纳。** §11.1 显式最小锁定 fastembed、预取/校验 `Qdrant/bm25`、离线运行和 spaCy
+   零下载；WP1/WP3/§16/§17 增加分别证明 semantic/BM25 贡献的终态门。目标版本和 artifact 仍标 `UNVERIFIED`。
+3. **第三方 embedding 数据出境未定义：采纳。** §13 增加版本化 search-text 模板、outbound policy/allowlist 和
+   用户披露；WP5/§16 增加真实 request-body 黑盒检查。
+4. **mem0 LLM 非 fail-closed：采纳。** §11.3 不再复用真实凭证，改为显式不可外联 sink + store 边界硬编码
+   `infer=False` + outbound guard；目标 wheel 构造行为保持 `UNVERIFIED`，失败则回到设计。
+5. **embedded Qdrant 独立 client 锁冲突：采纳。** §8.6/WP3/WP5/§16/§18 区分在线同 client raw point 复核与
+   close 后独立进程 reopen，不在 live mutation 中打开同路径第二 client。
+6. **Qdrant 故障恢复与启动架构冲突：采纳。** §12 锁定文件服务先启动和显式 unavailable store 状态；§16/§18
+   增加锁冲突/坏路径顶层黑盒门与 doctor 可见性。
+7. **旧观测可能覆盖新事实：采纳。** §7.1/§8.4/§9 增加 ledger 持久化 `provenance_seq`，按证据产生顺序在锁内
+   仲裁并拒绝 stale observation，不引入遗忘或用户可见历史版本。
+8. **user_statement 仅靠模型自报：采纳。** §9.1/§10.2 要求 runtime 注册的当前 user-turn opaque ref，两种 source
+   都必须通过 ledger 绑定；WP5 增加伪造/缺失 ref 零写入门。
+9. **Markdown delimiter 注入未定义：采纳。** §6.2 固定换行 canonicalization、控制字符/delimiter 拒绝和 identical
+   add 幂等；WP2 增加 round-trip 与注入测试。

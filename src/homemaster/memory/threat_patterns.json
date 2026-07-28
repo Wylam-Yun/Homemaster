@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "patterns": [
+    {"id": "instruction_override", "pattern": "(?:ignore|disregard|override) +(?:all +)?(?:previous(?: +system| +developer)?|system|developer) +instructions"},
+    {"id": "secret_request", "pattern": "(?:reveal|exfiltrate|send|print) +(?:the +)?(?:api[_ -]?key|token|password|credential|system prompt)"},
+    {"id": "common_api_key", "pattern": "(?:sk|xox[baprs]|ghp)_[A-Za-z0-9_-]{12,}"}
+  ]
+}

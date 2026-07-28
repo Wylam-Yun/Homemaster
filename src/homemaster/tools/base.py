@@ -258,10 +258,7 @@ def normalize_tool_result(value: Any) -> ToolResult:
         failure_reason = getattr(error, "message", None) or failure_reason
     content_text = data.get("content")
     output = str(
-        text
-        or summary
-        or failure_reason
-        or (content_text if isinstance(content_text, str) else "")
+        text or summary or failure_reason or (content_text if isinstance(content_text, str) else "")
     )
     if not output and data:
         renderable = {
@@ -318,8 +315,11 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         self._tools: dict[str, BaseTool] = {}
+        self._frozen = False
 
     def register(self, tool: BaseTool) -> None:
+        if self._frozen:
+            raise ToolRegistryError("tool registry is frozen")
         if not isinstance(tool, BaseTool):
             raise TypeError("registry entries must be BaseTool instances")
         tool.validate_identity()
@@ -332,6 +332,8 @@ class ToolRegistry:
         self._tools[tool.name] = tool
 
     def register_many(self, tools: list[BaseTool] | tuple[BaseTool, ...]) -> None:
+        if self._frozen:
+            raise ToolRegistryError("tool registry is frozen")
         staged: dict[str, BaseTool] = {}
         for tool in tools:
             if not isinstance(tool, BaseTool):
@@ -360,6 +362,14 @@ class ToolRegistry:
 
     def manifests(self) -> tuple[dict[str, Any], ...]:
         return tuple(self.to_api_schema())
+
+    @property
+    def frozen(self) -> bool:
+        return self._frozen
+
+    def freeze(self) -> ToolRegistry:
+        self._frozen = True
+        return self
 
 
 __all__ = [

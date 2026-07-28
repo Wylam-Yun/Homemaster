@@ -4,6 +4,19 @@
 
 ### Added
 
+- Fixed all six V2.1 memory tools to project their complete structured result into model-visible tool-result content,
+  instead of exposing only a success sentence while retaining records and IDs solely in internal message data. This
+  makes add IDs, search records, get/update payloads, delete receipts, and file-memory state readable by the next model
+  iteration; an ApplicationRuntime regression now parses recalled records from the actual tool message.
+
+- Added the V2.1 layered memory system: frozen SOUL/USER/MEMORY Markdown, six canonical Home memory tools, typed
+  fact/procedure records, run-bound evidence, `mem0ai==2.0.13` with embedded Qdrant, exact + semantic + offline BM25
+  retrieval, corrupt-record diagnostics, fail-closed outbound policy, privacy-safe JSONL, timeout-owned mutation
+  fencing, backend doctor status, independent mutation readback and clean process reopen. The stable PyPI
+  wheel is intentionally used even though unused backend files differ from the Git tag; selected Qdrant/core paths
+  match. Legacy object-memory tools remain benchmark-only. This changes the default Home tool surface and adds local
+  private memory files plus SiliconFlow embedding traffic; see `docs/memory-user-guide.md`.
+
 - Added the gateway-only shorthand `homemaster --gateway --config <path>`. It delegates to the
   existing Feishu/Lark Gateway lifecycle without creating an interactive shell or a second
   application runtime; `homemaster gateway --config <path>` remains supported.

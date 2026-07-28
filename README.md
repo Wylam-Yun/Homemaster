@@ -2,7 +2,7 @@
 
 LLM-first generic agent runtime with home-robot domain tools.
 
-默认入口是 **GenericAgentRuntime**（Mimo 驱动的 tool loop）：上下文组装、任务状态快照、工具调用、记忆检索、目标 grounding、模拟机器人执行和轻量记忆写回。
+默认入口是 **ApplicationRuntime**：上下文组装、任务状态快照、统一工具执行、V2.1 分层记忆、目标 grounding 和模拟机器人执行。
 
 > `skill_mode=simulated` 是当前支持的运行模式。navigation / operation / verification skill 使用模拟执行器，未接真实机器人、VLA、VLM。真实 VLA/VLN/VLM 执行器尚未集成。
 
@@ -48,10 +48,20 @@ mode 0600 且不进入 Git。
 真实配置已加入 `.gitignore`，真实 key 只能保留在运行机器上，不能提交进 Git。仓库中的
 `config/homemaster.example.yaml` 是字段模板，只包含占位认证值。
 
-配置文件需要包含两个 provider：
+配置文件至少包含聊天和记忆 embedding provider：
 
 - Mimo：用于 agent loop、检索 query、编排、总结。
-- BGE-M3：用于 `/v1/embeddings` 生成向量。
+- `MemoryEmbedding`：正式部署使用 SiliconFlow `Qwen/Qwen3-Embedding-8B` 的 `/v1/embeddings` 生成 4096 维向量。
+
+## V2.1 记忆系统
+
+默认 Home profile 提供 `memory`、`add_memory`、`search_memories`、`get_memory`、`update_memory`、
+`delete_memory`。SOUL/USER/MEMORY 固定注入 session 快照；fact/procedure 使用 application-owned
+mem0 + embedded Qdrant，并合并 metadata exact、SiliconFlow semantic 和离线 BM25。写入必须绑定当前
+Runtime 的 opaque evidence，所有 mutation 以 SDK receipt 加独立文件/Qdrant 终态读回为成功门。旧
+`memory_retriever/memory_writer` 只保留在 benchmark memory mode。配置、工具示例、隐私和诊断见
+[记忆用户指南](docs/memory-user-guide.md)，owner、不变量与数据流见
+[记忆系统架构](docs/architecture/memory-system.md)。
 
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
@@ -67,8 +77,8 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - 本地依赖和导入
 - API 配置是否可读
 - Mimo 最小 JSON 调用
-- BGE-M3 `/v1/embeddings` 调用
-- runtime memory 目录是否可写
+- Qwen3 MemoryEmbedding `/v1/embeddings` 调用
+- mem0/Qdrant/BM25 backend 是否可启动；故障原因会显示在 `memory_backend`，文件记忆仍独立可用
 
 ## 配置与 Skills
 
@@ -305,8 +315,8 @@ non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测�
 
 ## 当前边界
 
-- 真实：Mimo、BGE-M3。
-- 程序：可靠记忆判定、轻量记忆写回。
+- 真实：Mimo，以及 V2.1 使用的 SiliconFlow Qwen3 MemoryEmbedding。
+- 真实：V2.1 文件记忆、SiliconFlow Qwen3 4096 维 semantic、embedded Qdrant/BM25 与证据门。
 - 模拟：navigation、operation、verification skill。
 - Benchmark：`AlfredThorEnv` 已接入 V1.8 trial/reset/snapshot/current-view/typed-feedback 产品边界；内部回归通过，但完整 Gate B 与十 Episode 真实 API 证据仍不可用。
 

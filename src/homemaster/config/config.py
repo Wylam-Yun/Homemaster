@@ -248,6 +248,88 @@ class RuntimeDefaultsConfig(BaseModel):
     default_embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
 
 
+def _private_absolute_path(value: Path) -> Path:
+    expanded = value.expanduser()
+    if not expanded.is_absolute():
+        expanded = Path.cwd() / expanded
+    return expanded.absolute()
+
+
+class Mem0Config(BaseModel):
+    """HomeMaster-owned embedded mem0/Qdrant configuration."""
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+    qdrant_path: Path = Path("~/.homemaster/memory/qdrant")
+    collection_name: str = "homemaster_memory_qwen3_4096_v1"
+    history_db_path: Path = Path("~/.homemaster/memory/history.sqlite3")
+    embedding_dimensions: int = Field(default=4096, gt=0)
+    search_limit: int = Field(default=5, ge=1, le=20)
+    search_threshold: float = Field(default=0.1, ge=0, le=1)
+
+    @field_validator("qdrant_path", "history_db_path")
+    @classmethod
+    def _expand_paths(cls, value: Path) -> Path:
+        return _private_absolute_path(value)
+
+    @field_validator("collection_name")
+    @classmethod
+    def _validate_collection_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("collection_name must not be blank")
+        return stripped
+
+
+class MemoryConfig(BaseModel):
+    """V2.1 file memory and product-owned mem0 configuration."""
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+    enabled: bool = True
+    root: Path = Path("~/.homemaster/memories")
+    soul_file: str = "SOUL.md"
+    user_file: str = "USER.md"
+    memory_file: str = "MEMORY.md"
+    user_char_limit: int = Field(default=1375, gt=0)
+    memory_char_limit: int = Field(default=2200, gt=0)
+    embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
+    mem0: Mem0Config = Field(default_factory=Mem0Config)
+
+    @field_validator("root")
+    @classmethod
+    def _expand_root(cls, value: Path) -> Path:
+        return _private_absolute_path(value)
+
+    @field_validator("soul_file", "user_file", "memory_file")
+    @classmethod
+    def _plain_file_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped or Path(stripped).name != stripped or stripped in {".", ".."}:
+            raise ValueError("memory file must be a plain file name")
+        return stripped
+
+    @field_validator("embedding_provider_name")
+    @classmethod
+    def _embedding_provider_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("embedding_provider_name must not be blank")
+        return stripped
+
+    @property
+    def soul_path(self) -> Path:
+        return self.root / self.soul_file
+
+    @property
+    def user_path(self) -> Path:
+        return self.root / self.user_file
+
+    @property
+    def memory_path(self) -> Path:
+        return self.root / self.memory_file
+
+
 class SkillSourcesConfig(BaseModel):
     user_dirs: tuple[Path, ...] = (Path("~/.homemaster/skills"),)
     project_dirs: tuple[str, ...] = (".homemaster/skills",)
@@ -388,6 +470,7 @@ class HomeMasterConfig(BaseModel):
     provider_client: ProviderClientConfig = Field(default_factory=ProviderClientConfig)
     runtime_paths: RuntimePathsConfig = Field(default_factory=RuntimePathsConfig)
     runtime_defaults: RuntimeDefaultsConfig = Field(default_factory=RuntimeDefaultsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     skills: SkillSourcesConfig = Field(default_factory=SkillSourcesConfig)
     mcp: McpSettingsConfig = Field(default_factory=McpSettingsConfig)
@@ -397,6 +480,20 @@ class HomeMasterConfig(BaseModel):
 
     _config_path: Path | None = PrivateAttr(default=None)
     _provenance: dict[str, ConfigSource] = PrivateAttr(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_memory_embedding_provider(self) -> HomeMasterConfig:
+        if not self.memory.enabled or not self.providers.items:
+            return self
+        name = self.memory.embedding_provider_name.casefold()
+        provider = next(
+            (item for item in self.providers.items if item.name.casefold() == name),
+            None,
+        )
+        if provider is not None and provider.kind != "embedding":
+            label = self.memory.embedding_provider_name
+            raise ValueError(f"memory provider {label!r} must exist with kind 'embedding'")
+        return self
 
     @property
     def config_path(self) -> Path | None:

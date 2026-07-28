@@ -82,7 +82,8 @@ def create_application(
         session_root=Path(resolved_config.observability.session_dir).expanduser()
     )
     providers = provider_factory or _provider_factory(resolved_config)
-    assemblers = context_assembler_factory or _context_factory(resolved_config)
+    services = dict(application_services or {})
+    assemblers = context_assembler_factory or _context_factory(resolved_config, services)
     scope = resource_scope or RunResourceScope()
     existing_connections = scope.get("device-connection-pool")
     if existing_connections is not None:
@@ -109,7 +110,7 @@ def create_application(
         device_connection_pool=connections,
         device_lease_manager=resource_manager,
         working_directory=Path.cwd().resolve(strict=True),
-        application_services=dict(application_services or {}),
+        application_services=services,
     )
     return ApplicationRuntime(
         registry=registry,
@@ -142,7 +143,9 @@ def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
     return build
 
 
-def _context_factory(config: HomeMasterConfig) -> ContextAssemblerFactory:
+def _context_factory(
+    config: HomeMasterConfig, application_services: Mapping[str, object]
+) -> ContextAssemblerFactory:
     system_prompt = load_prompt(config.prompts.agent_system_prompt)
 
     def build(request: RunRequest, provider: Any) -> ContextAssembler:
@@ -153,6 +156,7 @@ def _context_factory(config: HomeMasterConfig) -> ContextAssemblerFactory:
             system_prompt=system_prompt,
             summary_client=provider,
             skill_registry=request.dependencies.get("skill_registry"),
+            frozen_memory_context=application_services.get("frozen_memory_context"),
         )
 
     return build

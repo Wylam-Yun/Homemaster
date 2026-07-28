@@ -1,4 +1,95 @@
-# Current V1.9 Recovery Progress
+# Current HomeMaster Progress
+
+## 2026-07-27 V2.1 memory system implementation
+
+- Status: WP1-WP6 implementation, documentation, live provider gate and isolated wheel gate are complete; the one
+  final read-only review remains. The formal source of truth is
+  `plan/V2.1/homemaster-memory-system-implementation-plan-zh.md`; the discussion file is historical only.
+- Dependencies/config: `mem0ai==2.0.13`, `fastembed==0.8.0`, resolved `qdrant-client==1.18.0` are locked. The owner
+  selected the stable PyPI wheel even though unused backend files differ from the Git tag; selected Qdrant/core paths
+  match. `memory.enabled=false` removes all six public memory tools and memory context injection without selecting a
+  second backend.
+- File memory: private atomic SOUL/USER/MEMORY stores, threat scan, drift backup, capacity/unique-match errors and
+  per-session frozen prompt are implemented. Same-session writes persist without changing its frozen prompt; a new
+  session observes them.
+- mem0/Qdrant: typed fact/procedure schemas, deterministic serialization/dedupe, persistent evidence ledger, CRUD,
+  same-ID update, stale evidence rejection, exact hints and independent terminal readback/raw-point checks pass on
+  real embedded Qdrant. Process-level close/reopen returns zero with no Qdrant destructor warning.
+- Hybrid root cause and repair: the installed mem0 adapter creates/writes `bm25` sparse vectors and exposes
+  `keyword_search`, but its effective public `search()` executes dense-only. HomeMaster now explicitly merges mem0
+  semantic, Qdrant BM25 and metadata-exact branches with source labels. A raw point contains the named `bm25` vector,
+  and separate Chinese queries prove semantic and BM25 contribution. The incident is recorded in
+  `docs/pitfalls.md` and a preventive rule in `CLAUDE.md`.
+- BM25 offline gate: `Qdrant/bm25` commit `e499a1f8d6bec960aab5533a0941bf914e70faf9` and all 18 artifact file
+  SHA-256 values are locked. Startup resolves fastembed's actual cache directory with `local_files_only=True`, verifies
+  commit/file set/checksums and finite Chinese sparse encoding, and fails unavailable rather than downloading or
+  degrading. The gate passes with `HF_HUB_OFFLINE=1` and an unreachable proxy.
+- Public tools: default Home exposes exactly `memory`, `add_memory`, `search_memories`, `get_memory`,
+  `update_memory`, `delete_memory`; legacy `memory_retriever`/`memory_writer` remain only in benchmark memory modes.
+  File mutation has action-level `tool.mutate`; scope/metadata/dedupe/provenance are application-owned.
+- Runtime evidence: the canonical current user turn is registered before the first provider call and its opaque ref is
+  rendered in a separate runtime context block while user text remains byte-for-byte unchanged. Successful backend
+  read observations or verification-passed mutations are registered only after ToolExecutor completion. A full
+  ApplicationRuntime gate proves user-statement fact write; another proves ordered observation refs are committed in
+  one iteration and consumed by a procedure write only in the next. Evidence is tenant/session/run/turn bound;
+  procedure evidence must cover every ordered step plus final success and be strictly monotonic.
+- Current evidence: focused memory/runtime slice `99 passed`; offline BM25 artifact gate `1 passed`; full non-live
+  suite `1238 passed, 2 skipped`. The real SiliconFlow gate returned HTTP success for
+  `Qwen/Qwen3-Embedding-8B`, 4096 finite dimensions, per-case Chinese fact/procedure hits, same-ID update, idempotent
+  procedure and delete/reopen absence. Outbound capture excludes credentials, evidence refs, URL query, actual
+  procedure input, chat payload and telemetry hosts. Corrupt records are quarantined with secret-safe diagnostics;
+  timed-out mutations retain store ownership and lock until the sync worker finishes.
+- Release evidence: `uv build` succeeds; a fresh Python 3.14 venv outside the checkout installed the wheel with all
+  declared dependencies, imported homemaster/mem0/fastembed/qdrant, read SOUL/threat-pattern package data, exposed
+  exactly the six new Home tools, excluded legacy Home tools and removed all six when disabled. Real config doctor is
+  PASS; a deliberate Qdrant lock conflict is WARN with file memory still readable.
+- Next: run the single allowed final read-only reviewer, remediate findings, perform targeted revalidation and commit.
+- Blocking items: none. Preserve unrelated pre-existing browser changes and the user's edits in
+  `src/homemaster/application/runtime.py` and `src/homemaster/tools/base.py`; no final review has been started.
+
+## 2026-07-27 V2.1 generic browser phase-one feasibility
+
+- Status: `PHASE_1_IMPLEMENTED_ANT_GATE_BLOCKED`. Generic run-scoped Playwright ownership, nine canonical tools,
+  immutable per-run Registry views, live DOM readback, latest-only exact refs, timeout fencing, JSONL, PNG, trace
+  and WebM are implemented. Coworker migration and production policy remain phase two and were not started.
+- Current evidence: browser/runtime focused `15 passed, 1 skipped`; isolated wheel import from an empty cwd launched
+  Chrome 149, audited all nine tools, exercised DOM/PNG, produced a valid trace and VP8 1280x720 WebM, and decoded
+  two PNG frames. Ant frontend `54` Vitest tests, Biome, `tsc --noEmit`, and production build pass.
+- External blocker: the shared Linux account has `fs.inotify.max_user_watches=8192`; an unrelated VS Code file
+  watcher owns 8113 watches. Umi dev refuses to start even with polling. The process was not terminated. Production
+  preview is not a substitute because the exported route resolves to Umi `EmptyRoute` with an empty root.
+- Full HomeMaster run: `1160 passed, 2 skipped, 28 failed`. All 28 failures share the concurrent memory-system
+  validator requiring `MemoryEmbedding` in older custom-provider fixtures; browser tests and stacks are not involved.
+  Do not alter that user-owned work from the browser task.
+- Next: on Mac, start Ant dev with Node 22+, set `HOMEMASTER_ANT_ORIGIN`, run the deterministic Runtime Ant test,
+  verify per-field DOM/SUCCESS/command/image/video/trace/cleanup, then attempt the real-provider gate. Do not mark
+  `GENERIC_BROWSER_FEASIBILITY_PASS` or enter phase two before those gates pass.
+
+## 2026-07-27 V2.1 memory system implementation
+
+- Status: `IMPLEMENTING`. The user authorized implementation of
+  `plan/V2.1/homemaster-memory-system-implementation-plan-zh.md`; its single plan-review gate was already completed
+  and all nine findings were incorporated before implementation. The historical discussion document is context only.
+- Current actual baseline is Git `f4c6709a898e2c819de6d9d6fd054ab9ca8bef2a`, newer than the plan's recorded
+  baseline. The worktree also contains pre-existing generic-browser changes, including overlapping edits in
+  `src/homemaster/application/runtime.py` and `src/homemaster/tools/base.py`; this task must preserve and integrate
+  with those bytes rather than revert or overwrite them.
+- Current stage: repository/config/runtime/profile/pitfall audit and WP1 dependency linchpin verification.
+  `mem0ai`, `qdrant-client`, and `fastembed` are not yet installed in the project venv. PyPI wheel/source equivalence,
+  compatible exact fastembed version, embedded-Qdrant CRUD/filter/hybrid behavior, offline BM25 artifact behavior,
+  telemetry suppression, non-networking mem0 LLM construction, and public resource-close behavior remain
+  `UNVERIFIED` until exercised in the target venv.
+- Next: capture RED configuration/dependency/tool-surface tests, lock the minimum dependencies with `uv`, compare the
+  installed `mem0ai==2.0.13` wheel to the locked reference source, then run isolated real Qdrant and outbound-network
+  probes before implementing the file and mem0 stores.
+- Blocking items: none. No product-code implementation or success claim will be made if a linchpin fails; the design
+  will be revisited without adding an MCP/cloud/local fallback mode.
+- Owner decision after the dependency probe: use the published `mem0ai==2.0.13` wheel and pin its deployed behavior,
+  rather than requiring byte identity with the Git tag. The wheel differs from the tagged checkout only in Chroma,
+  OpenSearch, and PGVector files; the selected Qdrant path and mem0 core files are identical. HomeMaster will expose
+  no backend selector and tests must prove it constructs only Qdrant. The real `Qdrant/bm25` artifact was fetched
+  through `hf-mirror.com` at repository commit `e499a1f8d6bec960aab5533a0941bf914e70faf9`; per-file hashes were captured,
+  and a second process encoded Chinese text with `HF_HUB_OFFLINE=1`, an invalid proxy, and `local_files_only=True`.
 
 ## 2026-07-27 Gateway shorthand and signal-cleanup repair
 
@@ -757,3 +848,22 @@
 - Re-ran the independent Gate B verifier on `run-003`: zero attempts/requests, no artifact-consistency failures, `slice_verified=true`, `overall_status=incomplete`, missing `exact-cases-v3.json`, exit 2. This remains non-blocking incomplete evidence rather than PASS.
 - Ran all ten pinned Episodes as `alfworld-valid_unseen-v18-realapi-20260718-001`. The process exited 0 with ten result rows, but all ten are score-ineligible setup terminals at `scan_pose_mismatch -> scan_time_scale_restore_rejected`: 50 setup requests, zero agent tools/model/Provider requests, 0% evaluation/Harness coverage and no formal score.
 - Added a committed-manifest regression and reran the plan's exact focused/full commands at `193 passed` and `395 passed, 1 skipped`; JSON, Ruff, compile and whitespace checks remain clean.
+
+## 2026-07-28 Memory Tool Result Projection
+
+- Fixed the six V2.1 memory tools at the ApplicationRuntime message boundary: complete structured results now enter
+  model-visible tool-result `content` as JSON while remaining available in internal `data`. No automatic per-turn memory
+  prefetch was added.
+- Added real ApplicationRuntime regressions proving `add_memory` exposes its returned ID and `search_memories` exposes
+  records/value through the next model request. Focused memory plus ApplicationRuntime suite: `86 passed`.
+- Real HomeMaster black box passed. Mimo wrote fact `HomeMaster工具结果修复探针-20260728-B`, returned ID
+  `be2d4e6a-26c4-4893-9428-74cc6420d9b7`, and a fresh session recalled `回归测试柜 / 第五层`; the search event's
+  model-facing `result` contained the complete record. The test memory was deleted, then a newly constructed store returned
+  `memory_not_found` for that ID.
+- `uv build`, `uv lock --check`, targeted Ruff lint/format and `git diff --check` pass. The non-live repository suite ended
+  `1 failed, 1662 passed, 1 skipped, 7 deselected`; the sole unrelated failure is Cron startup. It reproduces alone because
+  the unmodified worker cold import takes about 5.86 seconds while `cron start` permits only 5 seconds to publish its PID,
+  then its termination wait reaches the test's 10-second subprocess timeout. Cron was diagnosed but not changed.
+- The first real write attempt also reconfirmed the existing tool-schema usability issue: `record` is advertised only as a
+  generic object, so Mimo initially omitted required FactRecord fields. This is separate from result projection and remains
+  deferred per the locked scope.

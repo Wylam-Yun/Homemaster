@@ -101,9 +101,7 @@ class ContextBudget:
     def compaction_threshold_tokens(self) -> int:
         ratio_threshold = int(self.context_window_tokens * self.threshold_ratio)
         hard_cap = (
-            self.context_window_tokens
-            - self.output_reserve_tokens
-            - self.safety_buffer_tokens
+            self.context_window_tokens - self.output_reserve_tokens - self.safety_buffer_tokens
         )
         return max(1, min(ratio_threshold, hard_cap))
 
@@ -206,9 +204,7 @@ class FailureSummaryProvider:
         self._state = state
 
     def collect(self) -> list[ContextItem]:
-        errors = [
-            r for r in self._state.last_tool_results_summary if r.get("is_error")
-        ]
+        errors = [r for r in self._state.last_tool_results_summary if r.get("is_error")]
         if not errors:
             return []
         payload = {
@@ -335,6 +331,8 @@ class ContextAssembler:
         system_prompt: str,
         summary_client: Any = None,
         skill_registry: Any | None = None,
+        frozen_memory_context: Any | None = None,
+        runtime_evidence_refs: tuple[str, ...] = (),
     ) -> None:
         self._provider = provider
         self._policy = policy
@@ -342,6 +340,30 @@ class ContextAssembler:
         self._estimator = make_default_estimator(provider)
         self._summary_client = summary_client
         self._skill_registry = skill_registry
+        self._frozen_memory_context = frozen_memory_context
+        self._runtime_evidence_refs = tuple(runtime_evidence_refs)
+
+    def bind_runtime_evidence(self, refs: tuple[str, ...]) -> None:
+        self._runtime_evidence_refs = tuple(refs)
+
+    def _runtime_evidence_prelude(self) -> str | None:
+        if not self._runtime_evidence_refs:
+            return None
+        return "# Current Run Memory Evidence\n" + _json_text(
+            {
+                "user_statement_refs": list(self._runtime_evidence_refs),
+                "instruction": (
+                    "Use these opaque refs only when a memory record is directly supported "
+                    "by the current canonical user turn."
+                ),
+            }
+        )
+
+    def _session_system_prompt(self, session_id: str) -> str:
+        if self._frozen_memory_context is None:
+            return self._system_prompt
+        memory = self._frozen_memory_context.snapshot(session_id).strip()
+        return self._system_prompt if not memory else f"{self._system_prompt}\n\n{memory}"
 
     def _budget(self) -> ContextBudget:
         return ContextBudget(
@@ -362,6 +384,7 @@ class ContextAssembler:
         tools: list[dict] | None,
         force_compact: str | bool | None = None,
     ) -> ComposedContext:
+        system_prompt = self._session_system_prompt(session.session_id)
         providers = self._build_providers(
             session=session,
             agent_state=agent_state,
@@ -375,18 +398,17 @@ class ContextAssembler:
         ]
 
         prelude_texts: list[str] = []
+        if evidence_prelude := self._runtime_evidence_prelude():
+            prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages
         for item in items:
             rendered = item.render(item.mode)
             if item.placement is ContextPlacement.CONTEXT_PRELUDE and isinstance(rendered, str):
                 prelude_texts.append(rendered)
-            elif (
-                item.placement is ContextPlacement.CONVERSATION
-                and isinstance(rendered, list)
-            ):
+            elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
                 conversation_messages = rendered
 
-        estimated = self._estimator.estimate_text(self._system_prompt)
+        estimated = self._estimator.estimate_text(system_prompt)
         estimated += self._estimator.estimate_messages(conversation_messages)
         estimated += sum(self._estimator.estimate_text(text) for text in prelude_texts)
         estimated += estimate_tools_tokens(tools)
@@ -427,10 +449,8 @@ class ContextAssembler:
                     conversation_messages,
                     estimator=self._estimator,
                 )
-                after_estimate += self._estimator.estimate_text(self._system_prompt)
-                after_estimate += sum(
-                    self._estimator.estimate_text(text) for text in prelude_texts
-                )
+                after_estimate += self._estimator.estimate_text(system_prompt)
+                after_estimate += sum(self._estimator.estimate_text(text) for text in prelude_texts)
                 after_estimate += estimate_tools_tokens(tools)
                 after_tokens = budget.padded(after_estimate)
                 padded = after_tokens
@@ -447,7 +467,7 @@ class ContextAssembler:
 
         return ComposedContext(
             messages=messages,
-            system_prompt=self._system_prompt,
+            system_prompt=system_prompt,
             tools=tools,
             metrics=ContextMetrics(
                 estimated_tokens=padded,
@@ -466,6 +486,7 @@ class ContextAssembler:
         force_compact: str | bool | None = None,
     ) -> ComposedContext:
         """Assemble context without blocking the application event loop."""
+        system_prompt = self._session_system_prompt(session.session_id)
 
         providers = self._build_providers(
             session=session,
@@ -479,6 +500,8 @@ class ContextAssembler:
             if item.placement is not ContextPlacement.TRACE_ONLY
         ]
         prelude_texts: list[str] = []
+        if evidence_prelude := self._runtime_evidence_prelude():
+            prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages
         for item in items:
             rendered = item.render(item.mode)
@@ -487,7 +510,7 @@ class ContextAssembler:
             elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
                 conversation_messages = rendered
 
-        estimated = self._estimator.estimate_text(self._system_prompt)
+        estimated = self._estimator.estimate_text(system_prompt)
         estimated += self._estimator.estimate_messages(conversation_messages)
         estimated += sum(self._estimator.estimate_text(text) for text in prelude_texts)
         estimated += estimate_tools_tokens(tools)
@@ -505,14 +528,12 @@ class ContextAssembler:
         if force_requested or should_auto_compact:
             before_tokens = padded
             force_mode = str(force_compact) if force_compact else ""
-            compaction_triggered, compaction_kind, conversation_messages = (
-                await self._acompact(
-                    session=session,
-                    messages=conversation_messages,
-                    budget=budget,
-                    aggressive=force_mode in {"aggressive", "manual"},
-                    force_summary=force_mode == "manual",
-                )
+            compaction_triggered, compaction_kind, conversation_messages = await self._acompact(
+                session=session,
+                messages=conversation_messages,
+                budget=budget,
+                aggressive=force_mode in {"aggressive", "manual"},
+                force_summary=force_mode == "manual",
             )
             if compaction_triggered:
                 if force_mode == "manual":
@@ -529,10 +550,8 @@ class ContextAssembler:
                     conversation_messages,
                     estimator=self._estimator,
                 )
-                after_estimate += self._estimator.estimate_text(self._system_prompt)
-                after_estimate += sum(
-                    self._estimator.estimate_text(text) for text in prelude_texts
-                )
+                after_estimate += self._estimator.estimate_text(system_prompt)
+                after_estimate += sum(self._estimator.estimate_text(text) for text in prelude_texts)
                 after_estimate += estimate_tools_tokens(tools)
                 after_tokens = budget.padded(after_estimate)
                 padded = after_tokens
@@ -548,7 +567,7 @@ class ContextAssembler:
                 prelude_texts=prelude_texts,
                 conversation_messages=conversation_messages,
             ),
-            system_prompt=self._system_prompt,
+            system_prompt=system_prompt,
             tools=tools,
             metrics=ContextMetrics(
                 estimated_tokens=padded,
@@ -637,9 +656,7 @@ class ContextAssembler:
             else self._policy.tail_token_ratio
         )
         protect_first_n = (
-            self._policy.aggressive_protect_first_n
-            if aggressive
-            else self._policy.protect_first_n
+            self._policy.aggressive_protect_first_n if aggressive else self._policy.protect_first_n
         )
         if force_summary:
             preserve_count = 1
@@ -664,10 +681,12 @@ class ContextAssembler:
         summary = self._build_summary(older=older, recent=recent)
         if summary is None:
             return False, "none", messages
-        compacted_messages = repair_tool_pairs([
-            build_compaction_summary_message(summary),
-            *recent,
-        ])
+        compacted_messages = repair_tool_pairs(
+            [
+                build_compaction_summary_message(summary),
+                *recent,
+            ]
+        )
         compacted_messages, _stripped_final = strip_old_images(
             compacted_messages,
             keep_recent_images=self._policy.keep_recent_images,
@@ -743,9 +762,7 @@ class ContextAssembler:
             else self._policy.tail_token_ratio
         )
         protect_first_n = (
-            self._policy.aggressive_protect_first_n
-            if aggressive
-            else self._policy.protect_first_n
+            self._policy.aggressive_protect_first_n if aggressive else self._policy.protect_first_n
         )
         preserve_count = (
             1
@@ -774,9 +791,7 @@ class ContextAssembler:
         summary = await self._abuild_summary(older=older, recent=recent)
         if summary is None:
             return False, "none", messages
-        compacted_messages = repair_tool_pairs(
-            [build_compaction_summary_message(summary), *recent]
-        )
+        compacted_messages = repair_tool_pairs([build_compaction_summary_message(summary), *recent])
         compacted_messages, _ = strip_old_images(
             compacted_messages,
             keep_recent_images=self._policy.keep_recent_images,

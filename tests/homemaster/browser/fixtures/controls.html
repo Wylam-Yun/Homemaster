@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Browser Controls</title>
+  </head>
+  <body>
+    <label for="tenant">TenantId</label>
+    <input id="tenant" name="tenant" required>
+
+    <label for="region">Region</label>
+    <select id="region">
+      <option value="cn">China</option>
+      <option value="us">United States</option>
+    </select>
+
+    <label><input id="subscribe" type="checkbox"> Subscribe</label>
+    <button id="duplicate-a">Duplicate</button>
+    <button id="duplicate-b">Duplicate</button>
+    <button id="apply" onclick="document.getElementById('result').textContent = 'Applied ' + document.getElementById('tenant').value">Apply</button>
+    <div id="result" role="status">Idle</div>
+  </body>
+</html>

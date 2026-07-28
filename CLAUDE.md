@@ -78,6 +78,9 @@
   不能证明 composition 注入和 session runtime 接线成立。
 - Parser、stop condition 和 resume 逻辑必须断言组件间实际序列化 envelope；禁止按 executor 的中间 dict
   猜测 canonical message 形状。
+- 工具返回中供模型继续决策的 ID、records、状态和错误细节必须进入 provider 实际序列化的 tool-result
+  `content`；只写内部 `data`/metadata/event 不算模型可见。回归必须在下一次真实 transport 请求边界解析并
+  断言这些字段，禁止用 executor result 或 runtime trace 代替。
 - Package-data 功能必须构建并安装 wheel，再逐项枚举资源；源码 checkout 的 import/resource 测试不能
   证明发布包完整。
 - 默认 profile 的 wheel 门必须安装 wheel 声明的核心依赖，并在源码 checkout 外真实 import、构造 profile、
@@ -140,6 +143,14 @@
   extension cleanup，并把 hook/cleanup 状态写入字段受限、文本精确的结构化 trace。
 
 ## Provider 外部门纪律
+
+- doctor/health check 的 PASS/WARN/FAIL 必须与真实故障域一致：可选子系统 unavailable 且调用边界已
+  fail closed 时报告 WARN 和具体影响，不得用全局 FAIL 误杀仍可工作的顶层入口；同时保留真实 unavailable
+  工具结果与独立健康诊断测试。
+
+- 外部库声称 hybrid/多分支能力时，逐分支从真实运行时入口证明调用和终态贡献；源码存在 helper、collection
+  存在 sparse slot、写入含 named vector 或一个聚合查询能命中，都不能证明公开 search 路径实际消费每个分支。
+  为每个分支保留独立来源标签与对抗 fixture，禁止用笼统 `hybrid` 标签掩盖 dense-only 退化。
 
 - 用真实顶层 consumer 的 pre-completion first-byte 黑盒门证明实时输出：让 fake
   provider 在首 delta 后阻塞，并断言 CLI 已输出且仍未退出；provider-level

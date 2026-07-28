@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,7 @@ from homemaster.config import (
     ConfigError,
     load_config,
 )
+from homemaster.memory.mem0_store import Mem0MemoryStore
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
 
@@ -58,6 +60,7 @@ def run_doctor(*, live: bool = False) -> DoctorReport:
     checks.extend(_import_checks())
     checks.append(_config_check(config_source))
     checks.append(_embedding_endpoint_check())
+    checks.append(_memory_backend_check())
     checks.append(_ignored_paths_check())
     if live:
         checks.extend(_live_provider_checks())
@@ -88,10 +91,22 @@ def _python_environment_check() -> DoctorCheck:
 
 
 def _import_checks() -> list[DoctorCheck]:
-    modules = ["homemaster", "pydantic", "httpx", "typer", "bm25s", "jieba"]
+    modules = [
+        "homemaster",
+        "pydantic",
+        "httpx",
+        "typer",
+        "bm25s",
+        "jieba",
+        "mem0",
+        "fastembed",
+        "qdrant_client",
+    ]
     checks: list[DoctorCheck] = []
     for module in modules:
         try:
+            if module == "mem0":
+                os.environ["MEM0_TELEMETRY"] = "False"
             importlib.import_module(module)
         except Exception as exc:  # pragma: no cover - exact import failure is environment-specific
             checks.append(
@@ -177,8 +192,65 @@ def _embedding_endpoint_check() -> DoctorCheck:
         name="embedding_endpoint",
         status=status,
         message=f"embedding endpoint={endpoint}",
-        suggestion="Use /v1/embeddings for BGE-M3, not /v1/messages." if status == "WARN" else None,
+        suggestion="Use the provider's exact /v1/embeddings path." if status == "WARN" else None,
         details={"provider_name": provider.name, "model": provider.model, "endpoint": endpoint},
+    )
+
+
+def _memory_backend_check() -> DoctorCheck:
+    try:
+        config = load_config(HOMEMASTER_CONFIG_PATH)
+    except ConfigError as exc:
+        return DoctorCheck(
+            name="memory_backend",
+            status="FAIL",
+            message=str(exc),
+            impact="five structured memory tools are unavailable; file memory remains independent",
+            suggestion="Fix the memory and MemoryEmbedding configuration.",
+        )
+    if not config.memory.enabled:
+        return DoctorCheck(
+            name="memory_backend",
+            status="WARN",
+            message="memory system is disabled by configuration",
+            details={"enabled": False},
+        )
+    store = Mem0MemoryStore(config)
+    store.start()
+    available = store.available
+    cause = store.unavailable_cause
+    asyncio.run(store.close())
+    return DoctorCheck(
+        name="memory_backend",
+        # Structured memory is an optional subsystem: its five tools fail
+        # closed while file memory and the rest of HomeMaster remain usable.
+        status="PASS" if available else "WARN",
+        message=(
+            "mem0/Qdrant backend is available" if available else f"backend unavailable: {cause}"
+        ),
+        impact=(
+            None
+            if available
+            else (
+                "add/search/get/update/delete memory tools return "
+                "memory_backend_unavailable; file memory remains available"
+            )
+        ),
+        suggestion=(
+            None
+            if available
+            else (
+                "Check the embedding provider, BM25 artifact, private paths, "
+                "and Qdrant lock ownership."
+            )
+        ),
+        details={
+            "enabled": True,
+            "available": available,
+            "collection_name": config.memory.mem0.collection_name,
+            "embedding_provider_name": config.memory.embedding_provider_name,
+            **({"cause": cause} if cause else {}),
+        },
     )
 
 
@@ -290,7 +362,7 @@ def _live_embedding_smoke() -> DoctorCheck:
     return DoctorCheck(
         name="live_embedding_smoke",
         status="PASS" if response.embeddings and response.embeddings[0] else "WARN",
-        message="BGE-M3 returned an embedding vector",
+        message="MemoryEmbedding returned an embedding vector",
         details={"provider": response.public_summary()},
     )
 

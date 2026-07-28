@@ -32,6 +32,10 @@ from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
+from homemaster.memory.context_service import FrozenMemoryContextService
+from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.file_store import FileMemoryStore
+from homemaster.memory.mem0_store import Mem0MemoryStore
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
 from homemaster.tools.adapters import from_registered_tool
@@ -120,6 +124,7 @@ def create_home_application(
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
+        memory_enabled=resolved.memory.enabled,
     )
     if feishu_group_operations is not None:
         group_tools = build_feishu_group_tools(feishu_group_operations)
@@ -246,7 +251,7 @@ def _finish_home_application(
     )
     mcp_manager: McpClientManager | None = None
     mcp_audit_path: Path | None = None
-    application_starter = None
+    starter_steps: list[Any] = []
     service_state_root = Path(resolved.observability.session_dir).expanduser().resolve().parent
     tool_services = HomeToolServices(resolved, state_root=service_state_root)
     scope.bind(
@@ -256,6 +261,47 @@ def _finish_home_application(
             lifetime=ResourceLifetime.APPLICATION,
         )
     )
+    file_memory_store: FileMemoryStore | None = None
+    frozen_memory_context: FrozenMemoryContextService | None = None
+    memory_evidence_ledger: MemoryEvidenceLedger | None = None
+    mem0_memory_store: Mem0MemoryStore | None = None
+    if resolved.memory.enabled:
+        file_memory_store = FileMemoryStore(resolved.memory)
+        frozen_memory_context = FrozenMemoryContextService(file_memory_store)
+        evidence_path = resolved.memory.mem0.history_db_path.with_name("evidence.sqlite3")
+        memory_evidence_ledger = MemoryEvidenceLedger(evidence_path)
+        mem0_memory_store = Mem0MemoryStore(resolved)
+        scope.bind(
+            ResourceBinding.owned(
+                "file-memory-store",
+                file_memory_store,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+        scope.bind(
+            ResourceBinding.owned(
+                "memory-evidence-ledger",
+                memory_evidence_ledger,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+        scope.bind(
+            ResourceBinding.owned(
+                "mem0-memory-store",
+                mem0_memory_store,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
+
+        async def start_file_memory(_application: ApplicationRuntime) -> None:
+            assert file_memory_store is not None
+            assert memory_evidence_ledger is not None
+            assert mem0_memory_store is not None
+            file_memory_store.start()
+            memory_evidence_ledger.start()
+            mem0_memory_store.start()
+
+        starter_steps.append(start_file_memory)
     if resolved.mcp.servers:
         mcp_audit_path = run_dir / "mcp_audit.jsonl"
         audit_log = McpAuditLog(mcp_audit_path)
@@ -296,7 +342,13 @@ def _finish_home_application(
             )
             register_mcp_tools_atomically(application.registry, registered)
 
-        application_starter = start_mcp
+        starter_steps.append(start_mcp)
+
+    async def start_application_services(application: ApplicationRuntime) -> None:
+        for starter in starter_steps:
+            await starter(application)
+
+    application_starter = start_application_services if starter_steps else None
     application = create_application(
         config=resolved,
         registry=registry,
@@ -312,6 +364,21 @@ def _finish_home_application(
             "team_registry": tool_services.teams,
             "plan_mode": tool_services.plan_mode,
             "home_config": tool_services.config,
+            **(
+                {
+                    "file_memory_store": file_memory_store,
+                    "frozen_memory_context": frozen_memory_context,
+                    "memory_evidence_ledger": memory_evidence_ledger,
+                    "mem0_memory_store": mem0_memory_store,
+                    "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
+                    / "memory_operations.jsonl",
+                }
+                if file_memory_store is not None
+                and frozen_memory_context is not None
+                and memory_evidence_ledger is not None
+                and mem0_memory_store is not None
+                else {}
+            ),
             **_image_provider_services(resolved),
             **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
         },

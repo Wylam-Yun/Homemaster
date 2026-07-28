@@ -5,6 +5,8 @@ import base64
 import gc
 import hashlib
 import io
+import json
+import re
 import threading
 import time
 import weakref
@@ -36,6 +38,9 @@ from homemaster.extensions import (
     HookSpec,
     LoadedExtension,
 )
+from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.mem0_store import Mem0MemoryStore, MemorySearchResult, StoredMemory
+from homemaster.memory.models import FactRecord
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
@@ -59,6 +64,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
+from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
 
 
@@ -158,6 +164,173 @@ class _ClosableTransport(_FakeTransport):
 class _FailingCloseTransport(_FakeTransport):
     def close(self) -> None:
         raise RuntimeError("provider close failed")
+
+
+class _MemoryEvidenceTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.evidence_ref: str | None = None
+
+    async def stream(self, messages, *, tools=None, **kwargs):
+        del kwargs
+        self.calls.append({"messages": messages, "tools": tools})
+        if len(self.calls) == 1:
+            context_text = "\n".join(
+                block.text for message in messages for block in message.content if block.text
+            )
+            match = re.search(r"memory-evidence-[0-9a-f]{32}", context_text)
+            assert match is not None
+            self.evidence_ref = match.group(0)
+            for delta in _tool(
+                "memory-add-1",
+                "add_memory",
+                {
+                    "memory_type": "fact",
+                    "record": {
+                        "memory_type": "fact",
+                        "subject": {"type": "object", "name": "钥匙"},
+                        "predicate": "location",
+                        "value": {"container": "玄关抽屉"},
+                        "source": "user_statement",
+                    },
+                    "evidence_refs": [self.evidence_ref],
+                },
+            ):
+                yield delta
+            return
+        for delta in _text("记住了"):
+            yield delta
+
+
+class _RecordingMem0Store(Mem0MemoryStore):
+    def __init__(self) -> None:
+        self.calls: list[tuple[FactRecord, int]] = []
+
+    async def add(self, record, *, provenance_seq):
+        self.calls.append((record, provenance_seq))
+        return StoredMemory(
+            memory_id="memory-runtime-1",
+            memory_type=record.memory_type,
+            record=record,
+            created_at="2026-07-27T00:00:00Z",
+            updated_at="2026-07-27T00:00:00Z",
+        )
+
+
+class _MemoryRecallStore(Mem0MemoryStore):
+    def __init__(self) -> None:
+        pass
+
+    async def search_with_diagnostics(self, query, **kwargs):
+        assert query == "钥匙在哪里"
+        assert kwargs["memory_type"] == "fact"
+        return MemorySearchResult(
+            records=(
+                StoredMemory(
+                    memory_id="memory-recall-1",
+                    memory_type="fact",
+                    record=FactRecord(
+                        memory_type="fact",
+                        subject={"type": "object", "name": "钥匙"},
+                        predicate="location",
+                        value={"container": "玄关抽屉"},
+                        source="user_statement",
+                    ),
+                    created_at="2026-07-28T00:00:00Z",
+                    updated_at="2026-07-28T00:00:00Z",
+                    score=0.98,
+                    match_sources=("semantic", "bm25"),
+                ),
+            ),
+            diagnostics=(),
+        )
+
+
+class _MemoryRecallTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(self, messages, *, tools=None, **kwargs):
+        del kwargs
+        self.calls.append({"messages": messages, "tools": tools})
+        if len(self.calls) == 1:
+            for delta in _tool(
+                "memory-search-1",
+                "search_memories",
+                {"query": "钥匙在哪里", "memory_type": "fact"},
+            ):
+                yield delta
+            return
+        tool_message = next(
+            message
+            for message in messages
+            if message.role == "tool" and message.name == "search_memories"
+        )
+        payload = json.loads(tool_message.content[0].text)
+        assert payload["records"][0]["memory_id"] == "memory-recall-1"
+        assert payload["records"][0]["record"]["value"] == {"container": "玄关抽屉"}
+        for delta in _text("钥匙在玄关抽屉"):
+            yield delta
+
+
+class _ObservationExecutor:
+    async def execute(self, arguments, context) -> ToolExecutionResult:
+        del arguments, context
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            data={"observed": True},
+            backend_attempted=True,
+        )
+
+
+class _ProcedureEvidenceTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(self, messages, *, tools=None, **kwargs):
+        del kwargs
+        self.calls.append({"messages": messages, "tools": tools})
+        if len(self.calls) == 1:
+            for call_id in ("observation-step", "observation-success"):
+                for delta in _tool(call_id, "read_observation", {}):
+                    yield delta
+            return
+        if len(self.calls) == 2:
+            refs = [
+                ref
+                for message in messages
+                if message.role == "tool" and message.name == "read_observation"
+                for ref in (message.data or {}).get("evidence_refs", [])
+                if ref.startswith("memory-evidence-")
+            ]
+            assert len(refs) == 2
+            for delta in _tool(
+                "procedure-add",
+                "add_memory",
+                {
+                    "memory_type": "procedure",
+                    "record": {
+                        "memory_type": "procedure",
+                        "name": "查看告警",
+                        "entry_url": "https://monitor.example.com/alarms",
+                        "steps": [
+                            {
+                                "order": 1,
+                                "action": "open",
+                                "target": {"url": "https://monitor.example.com/alarms"},
+                                "expect": {"visible_text": "告警"},
+                            }
+                        ],
+                        "success": {"visible_text": "告警"},
+                        "source": "environment_observation",
+                    },
+                    "evidence_refs": refs,
+                },
+            ):
+                yield delta
+            return
+        for delta in _text("流程已保存"):
+            yield delta
 
 
 class _FailingSaveBackend:
@@ -345,6 +518,18 @@ def _waiting_user_tool() -> RegisteredTool:
     )
 
 
+def _observation_tool() -> RegisteredTool:
+    return RegisteredTool(
+        definition=_definition(
+            "test.read_observation.v1",
+            "read_observation",
+            state_effects=("read",),
+            input_schema={"type": "object", "additionalProperties": False},
+        ),
+        executor=_ObservationExecutor(),
+    )
+
+
 def _progress_tool(*, external: bool = False) -> RegisteredTool:
     adapted = adapt_legacy_tool_spec(
         make_task_progress_check_tool(),
@@ -387,6 +572,7 @@ def _application(
     profile_name: str = "test",
     extension_runner: HookRunner | None = None,
     artifact_publisher: ArtifactPublisher | None = None,
+    application_services: dict[str, object] | None = None,
 ) -> ApplicationRuntime:
     del profile_name
     registry = ToolRegistry()
@@ -419,6 +605,7 @@ def _application(
         ),
         context=ContextPolicyConfig(),
         provider_name="fake",
+        application_services=dict(application_services or {}),
     )
 
     def provider_factory(request, run_id):
@@ -438,6 +625,106 @@ def _application(
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
     )
+
+
+@pytest.mark.asyncio
+async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_path) -> None:
+    ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
+    ledger.start()
+    store = _RecordingMem0Store()
+    transport = _MemoryEvidenceTransport()
+    app = _application(
+        tmp_path,
+        list(build_memory_tools()),
+        {"钥匙在玄关抽屉": transport},
+        application_services={
+            "memory_evidence_ledger": ledger,
+            "mem0_memory_store": store,
+        },
+    )
+
+    result = await app.run(
+        RunRequest(
+            text="钥匙在玄关抽屉",
+            session_id="memory-runtime",
+            profile="home",
+        )
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert result.final_reply == "记住了"
+    assert transport.evidence_ref is not None
+    assert len(store.calls) == 1
+    record, provenance_seq = store.calls[0]
+    assert record.value == {"container": "玄关抽屉"}
+    assert provenance_seq > 0
+    first_messages = transport.calls[0]["messages"]
+    assert first_messages[-1].content[0].text == "钥匙在玄关抽屉"
+    assert transport.evidence_ref not in first_messages[-1].content[0].text
+    add_result = next(
+        message
+        for message in transport.calls[1]["messages"]
+        if message.role == "tool" and message.name == "add_memory"
+    )
+    add_payload = json.loads(add_result.content[0].text)
+    assert add_payload["memory_id"] == "memory-runtime-1"
+    assert add_payload["record"]["value"] == {"container": "玄关抽屉"}
+    await app.aclose()
+    ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_projects_memory_search_records_into_model_tool_content(
+    tmp_path,
+) -> None:
+    transport = _MemoryRecallTransport()
+    app = _application(
+        tmp_path,
+        list(build_memory_tools()),
+        {"钥匙在哪里": transport},
+        application_services={"mem0_memory_store": _MemoryRecallStore()},
+    )
+
+    result = await app.run(
+        RunRequest(text="钥匙在哪里", session_id="memory-recall-runtime", profile="home")
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert result.final_reply == "钥匙在玄关抽屉"
+    assert len(transport.calls) == 2
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_path) -> None:
+    ledger = MemoryEvidenceLedger(tmp_path / "procedure-evidence.sqlite3")
+    ledger.start()
+    store = _RecordingMem0Store()
+    transport = _ProcedureEvidenceTransport()
+    app = _application(
+        tmp_path,
+        [*build_memory_tools(), _observation_tool()],
+        {"学习查看告警流程": transport},
+        application_services={
+            "memory_evidence_ledger": ledger,
+            "mem0_memory_store": store,
+        },
+    )
+
+    result = await app.run(
+        RunRequest(text="学习查看告警流程", session_id="procedure-runtime", profile="home")
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert result.final_reply == "流程已保存"
+    assert len(store.calls) == 1
+    procedure, provenance_seq = store.calls[0]
+    assert procedure.memory_type == "procedure"
+    assert procedure.name == "查看告警"
+    assert provenance_seq > 0
+    assert len(transport.calls) == 3
+    await app.aclose()
+    ledger.close()
 
 
 @pytest.mark.asyncio

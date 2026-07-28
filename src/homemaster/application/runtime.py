@@ -234,6 +234,7 @@ class ApplicationRuntime:
         self._extension_stop_lock = asyncio.Lock()
         self._extension_stop_started = False
         self._extensions_closed = False
+        self._browser_run_scopes: set[RunResourceScope] = set()
 
     @property
     def started(self) -> bool:
@@ -331,6 +332,31 @@ class ApplicationRuntime:
             if callable(bind_run):
                 await _maybe_await(bind_run(run_id, generation))
             runtime.application_control = _control_request(request, session_id)
+            return await self._execute_run(
+                request=request,
+                runtime=runtime,
+                generation=generation,
+                run_id=run_id,
+                session_id=session_id,
+                backend=backend,
+                run_event_sink=run_event_sink,
+            )
+
+    async def _execute_run(
+        self,
+        *,
+        request: RunRequest,
+        runtime: SessionRuntime,
+        generation: int,
+        run_id: str,
+        session_id: str,
+        backend: object | None,
+        run_event_sink: Any,
+    ) -> RunResult:
+        async with self._run_tool_view(request, run_id) as (
+            run_registry,
+            run_tool_executor,
+        ):
             provider_value = await _maybe_await(self.provider_factory(request, run_id))
             provider_scope = RunResourceScope()
             async with provider_scope:
@@ -340,12 +366,22 @@ class ApplicationRuntime:
                 assembler = self.context_assembler_factory(request, provider)
                 agent_state = runtime.agent_state.model_copy(deep=True)
                 agent_state.run_id = run_id
+                current_user_evidence = self._register_user_memory_evidence(
+                    request=request,
+                    session_id=session_id,
+                    run_id=run_id,
+                    turn_index=agent_state.turn_index,
+                )
+                bind_runtime_evidence = getattr(assembler, "bind_runtime_evidence", None)
+                if callable(bind_runtime_evidence):
+                    bind_runtime_evidence(current_user_evidence)
                 task_state_store = TaskStateStore.from_snapshot_dict(
                     runtime.task_state_store.to_snapshot_dict()
                 )
+                run_tools = run_registry.list_tools()
                 executor = ApplicationToolExecutor(
-                    executor=self.tool_executor,
-                    registry=self.registry,
+                    executor=run_tool_executor,
+                    registry=run_registry,
                     runtime=runtime,
                     run_id=run_id,
                     backend=backend,
@@ -356,12 +392,13 @@ class ApplicationRuntime:
                     event_sink=run_event_sink,
                     artifact_publisher=self.artifact_publisher,
                     working_directory=self._working_directory,
-                    completion_requires_external_owner=(
-                        self._completion_requires_external_owner
+                    completion_requires_external_owner=any(
+                        tool.external_terminal_owner for tool in run_tools
                     ),
-                    verification_required_tool_names=(
-                        self._verification_required_tool_names
+                    verification_required_tool_names=frozenset(
+                        tool.name for tool in run_tools if tool.verification_required
                     ),
+                    initial_memory_evidence_refs=current_user_evidence,
                 )
                 fenced_session = _FencedAgentSession(
                     self.session_manager,
@@ -391,7 +428,7 @@ class ApplicationRuntime:
                         agent_state=agent_state,
                         task_state_store=task_state_store,
                         force_compact=runtime.consume_compaction(generation),
-                        tool_registry=self.registry,
+                        tool_registry=run_registry,
                         cancellation_token=runtime.cancellation,
                         deadline=executor.deadline,
                     )
@@ -435,6 +472,64 @@ class ApplicationRuntime:
                         error_code="stale_generation",
                     )
                 return result
+
+    def _register_user_memory_evidence(
+        self,
+        *,
+        request: RunRequest,
+        session_id: str,
+        run_id: str,
+        turn_index: int,
+    ) -> tuple[str, ...]:
+        services = getattr(self.settings, "application_services", {})
+        ledger = services.get("memory_evidence_ledger") if isinstance(services, Mapping) else None
+        register = getattr(ledger, "register", None)
+        if not callable(register):
+            return ()
+        evidence = register(
+            kind="user_statement",
+            tenant_id=request.permission_subject.tenant_id,
+            session_id=session_id,
+            run_id=run_id,
+            turn_id=f"turn-{turn_index}",
+        )
+        return (evidence.ref,)
+
+    @asynccontextmanager
+    async def _run_tool_view(self, request: RunRequest, run_id: str):
+        factory = request.dependencies.get("browser_session_factory")
+        if factory is None:
+            yield self.registry, self.tool_executor
+            return
+        create = getattr(factory, "create", None)
+        if not callable(create):
+            raise TypeError("browser_session_factory must provide create()")
+        scope = RunResourceScope()
+        self._browser_run_scopes.add(scope)
+        try:
+            async with scope:
+                session = await _maybe_await(create(run_id=run_id))
+                from homemaster.browser.contracts import audit_browser_session_implementation
+                from homemaster.browser.tools import build_browser_run_registry
+
+                scope.bind(
+                    ResourceBinding.owned(
+                        f"browser-session:{run_id}",
+                        session,
+                        lifetime=ResourceLifetime.RUN,
+                    )
+                )
+                audit_browser_session_implementation(session)
+                registry = build_browser_run_registry(self.registry, session)
+                executor = ToolExecutor(
+                    registry,
+                    permission_checker=self.tool_executor.permission_checker,
+                    confirmation_handler=self.tool_executor.confirmation_handler,
+                    resource_manager=self.tool_executor.resource_manager,
+                )
+                yield registry, executor
+        finally:
+            self._browser_run_scopes.discard(scope)
 
     async def compact(self, session_id: str) -> CompactionResult:
         await self.start()
@@ -498,7 +593,15 @@ class ApplicationRuntime:
     async def aclose(self) -> None:
         await self._close_extensions()
         try:
+            browser_cleanup_errors: list[BaseException] = []
+            for scope in tuple(self._browser_run_scopes):
+                try:
+                    await scope.aclose()
+                except BaseException as exc:
+                    browser_cleanup_errors.append(exc)
             await self.resource_scope.aclose()
+            if browser_cleanup_errors:
+                raise ResourceCleanupError(tuple(browser_cleanup_errors))
         finally:
             try:
                 await self.event_bus.aclose()

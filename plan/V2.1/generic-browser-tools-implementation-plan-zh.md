@@ -5,14 +5,14 @@
 - Owner：主 agent
 - 日期：2026-07-27
 - 基线提交：`bb927d4c6e11f1fe291db0e1d9b0ecb7adfd34d1`
-- 当前阶段：根据 owner 评审意见修订为两阶段计划，尚未实施
+- 当前阶段：`PHASE_1_IMPLEMENTED_ANT_GATE_BLOCKED`；A-B 和 C 的本地/安装门完成，真实 Ant dev 门待 Mac 续跑
 - 用户已锁定的架构选择：方案 3，通用浏览器执行与 benchmark 评分/编排分离
-- 计划评审：此前只读 reviewer 在 owner 要求停止后中断，未形成独立结论；本轮按 owner 已锁定意见修订
-- 最终代码评审：全部实现、测试、外部终态验证和文档更新完成后进行唯一一次只读 reviewer subagent 评审
+- 计划评审：此前已完成 owner 评审；owner 于 2026-07-27 明确要求不再重复启动 reviewer，直接执行
+- 后续评审：owner 于 2026-07-27 明确要求本轮不再启动 reviewer；本轮按该指示执行
 - 实施交接：`plan/V2.1/generic-browser-tools-implementation-handoff-zh.md`
 - 工作树状态：已有用户修改；本任务不得覆盖或回退这些修改
 
-本轮修订得到 owner 确认以前，禁止开始产品代码实现。不得把第一阶段可行性通过写成完整功能发布。
+本轮修订已得到 owner 确认并锁定。只实施第一阶段 A-C；不得把第一阶段可行性通过写成完整功能发布。
 
 ## 1. 目标与完成形态
 
@@ -88,12 +88,13 @@ benchmark；第二阶段完成后必须删除旧通用职责实现，才可宣�
 
 ### 2.5 浏览器环境现状
 
-- HomeMaster venv 中安装的是 Playwright `1.61.0`。
-- Playwright 当前报告的 Chromium 路径为 `chromium-1228/.../chrome`，该文件当前不存在。
-- 缓存中只有旧的 `chromium-1169`；它不能作为 Playwright 1.61 可用性的证据。
-- `/usr/bin/google-chrome` 当前不存在，因此现有 Coworker example config 不能直接通过真实 Chrome preflight。
-- 实施阶段必须使用项目 venv 的 Playwright 安装匹配浏览器，或者锁定并真机验证一个显式 executable；安装成功、
-  启动返回和真实页面操作三项都通过以前，浏览器前置条件保持 `UNVERIFIED`。
+- HomeMaster venv 中安装的是 Playwright `1.61.1-beta-1782139630000`。
+- 2026-07-27 已通过项目 `.venv/bin/playwright install chromium` 在用户缓存安装匹配的 Chrome for Testing
+  `149.0.7827.55`（Playwright chromium/headless-shell `v1228`），安装命令返回 0；未安装系统级 Google Chrome。
+- 已用 Playwright 默认路径真实 headless 启动 Chrome 149，读取 DOM、生成有效 PNG，并用 `record_video_dir` 生成
+  640x360、25 fps、VP8 WebM；Playwright FFmpeg `1011` 成功解码，浏览器与解码命令均返回 0。
+- 第一阶段锁定 `headless=True`，不依赖 X Server/Xvfb；每次正式门仍须重新执行 launch/page/close、DOM、截图、视频
+  解码和无残留进程检查，不能用本次环境 probe 代替实施后的真实链路。
 
 ## 3. 架构候选与锁定决策
 
@@ -146,7 +147,7 @@ benchmark；第二阶段完成后必须删除旧通用职责实现，才可宣�
 1. 继续由 Coworker 创建浏览器再注入工具。改动最小，但普通 Home 无法使用，拒绝。
 2. 普通 Home 和 Coworker 各自创建一套 Driver。短期直观，但形成两套所有权和行为，拒绝。
 3. HomeMaster 通用 composition 通过 `BrowserSessionFactory` 创建 run-scoped BrowserSession；普通 Home 与 Coworker
-   只提供配置和外围 lifecycle。生命周期统一、run 间隔离，第一阶段采用。
+   只提供配置和外围 lifecycle。生命周期统一、run 间隔离，第一阶段采用 headless session。
 4. 首次工具调用时惰性启动 application-scoped 长期浏览器。可减少无浏览任务的启动成本，但并发、恢复和清理更复杂，
    留作后续优化。
 
@@ -475,13 +476,15 @@ Agent 不再输入 route、bid 或 job-specific wait schema；这些只作为 Co
 3. 实现九工具基础合同；fill/select/check/uncheck 逐实例 DOM readback，click 只报告 interaction，wait 返回 last-state。
 4. 同一 session 并发动作必须串行；timeout/cancel 返回 `outcome_unknown` 后 session fenced，后续动作拒绝且不自动重试。
 5. 用可信本地 iframe fixture 单独探测 same-origin/cross-origin 可采集性；结果标明仅是能力验证，不宣称生产策略完成。
+6. 每个 run 启用 Playwright 原生 `record_video_dir`；关闭 context 后取得 WebM，核对文件存在、非空、当前 run 归属、
+   FFmpeg 解码返回 0、尺寸/帧率和至少两个可解码帧。无头不降低视频终态门。
 
 ### 第一阶段 C：普通 ApplicationRuntime 与 Ant 黑盒门
 
 1. 通过普通 Home `ApplicationRuntime`、canonical Registry 和通用 composition 调用工具，不借 Coworker entry/harness。
 2. 用确定性 provider 完成 Ant Automation navigate -> inspect -> 四次 fill（每次重新 inspect）-> click -> wait -> observe。
 3. 独立 Playwright locator 逐字段断言 DOM、最终 SUCCESS 文本和 command；断言 Runtime 返回码、工具 JSONL、图片到
-   provider request、BrowserSession/Chrome 清理终态。
+   provider request、当前 run WebM 可解码、BrowserSession/Chrome 清理终态。
 4. 再用真实 provider 做不含元素编号的同链路验证；失败保持 `UNVERIFIED`，不影响确定性接线事实，但第一阶段不能宣称
    真实模型自主能力通过。
 5. 第一阶段结果只记为 `GENERIC_BROWSER_FEASIBILITY_PASS`，不得更新 README/CHANGELOG 为正式发布能力。
@@ -514,7 +517,8 @@ Agent 不再输入 route、bid 或 job-specific wait schema；这些只作为 Co
 
 1. 在 Ant Design 项目依赖环境中建立 Node >=22 的真实运行入口并核对版本；不得用当前 Node 20 启动成功猜测兼容。
 2. 使用项目 lock/依赖管理方式，不污染全局依赖。
-3. 为 HomeMaster Playwright 1.61 安装或锁定匹配 Chromium，执行真实 launch/page/close preflight。
+3. 核对 HomeMaster Playwright 1.61 与已安装 Chromium/headless-shell v1228，执行真实 headless launch/page/close、
+   screenshot 和 WebM decode preflight。
 4. 启动 Ant Design dev server，记录实际 PID、监听地址、端口和日志；如果默认端口被占用，选择新端口并把实际
    origin 注入 BrowserPolicy。
 5. 用 HTTP 检查入口和抽样静态资源均成功；HTML 200 不能代替资源可用。
@@ -628,7 +632,7 @@ Automation 页面当前没有 select/checkbox。不能用 Automation 的 fill/cl
 - [ ] 九工具 schema 和第 7.10 节读写/权限/资源/verification 矩阵锁定并通过审计。
 - [ ] 最新 exact snapshot、写后失效、单动作串行和 timeout 后 session fence 的最小规则通过。
 - [ ] 普通 `ApplicationRuntime` 在真实 Ant Automation 完成逐字段 readback、独立 SUCCESS DOM、图片 provider 投影、
-      返回码和清理终态门。
+      当前 run WebM 解码、返回码和清理终态门。
 - [ ] committed control fixture 的 select/check/uncheck 逐实例门通过；可信 iframe fixture 只记录能力探测结果。
 - [ ] focused、全量、lint/format/compile/lock/wheel/diff 检查逐项记录退出码。
 - [ ] handoff 明确标记 `GENERIC_BROWSER_FEASIBILITY_PASS` 或准确阻塞，不宣称正式发布或 Coworker 已迁移。
@@ -655,12 +659,12 @@ Automation 页面当前没有 select/checkbox。不能用 Automation 的 fill/cl
 - [ ] focused、全量、lint/format/compile/lock/wheel/diff 检查逐项记录退出码。
 - [ ] 所有用户已有修改保持不丢失，计划外文件无无关重构或格式 churn。
 
-第二阶段全部实现、测试、外部终态验证和文档完成后，才启动唯一一次最终只读 reviewer subagent。主 agent 逐条处理发现；
-采纳就做针对性修改与验证，不采纳就记录具体理由，不自动追加第三次评审。
+本轮不启动 reviewer。若 owner 以后恢复第二阶段并重新要求独立评审，再以当时的明确指示为准。
 
 ## 18. 停止条件与阻塞处理
 
-- 找不到 Playwright 1.61 可启动浏览器：先建立根因和项目内依赖修复，不使用旧缓存假装通过。
+- Playwright 1.61 无法通过默认 v1228 headless 浏览器启动或视频无法解码：先建立根因和项目内依赖修复，不回退旧
+  chromium-1169 假装通过。
 - Node 22+ 无法建立或 Ant dev server/资源失败：保持 Ant 门 `BLOCKED/UNVERIFIED`。
 - OpenCLI 外部 API/AX/CDP 符号未在当前真实运行时核对：保持 `UNVERIFIED`，改用已验证 Playwright 能力或停止。
 - 普通 Home composition 不能在 provider request 前创建并绑定 BrowserSession：第一阶段失败，不能退回 Coworker 注入
@@ -682,5 +686,5 @@ Automation 页面当前没有 select/checkbox。不能用 Automation 的 fill/cl
    两条最小防护，见 5、8、12、17。
 5. 原一次性交付计划拆成第一阶段通用可行性与第二阶段生产迁移：已采纳，见 1、11-17。
 
-此前启动的只读 reviewer 应 owner 要求中断，未形成独立评审结论，不得记为 reviewer PASS。本轮修改仍需 owner 确认后
-才能把计划状态改为 `REVIEWED/LOCKED` 并开始第一阶段实现。
+此前启动的只读 reviewer 应 owner 要求中断，未形成独立评审结论，不得记为 reviewer PASS。owner 已于 2026-07-27
+确认本轮修改，并明确说明计划此前已经评审、无需再次启动 reviewer；计划据此标记为 `REVIEWED/LOCKED` 并开始第一阶段。

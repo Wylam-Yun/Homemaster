@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -54,12 +55,20 @@ def from_registered_tool(registered: Any) -> FunctionTool:
     required_capabilities = tuple(
         dict.fromkeys((required_capability(definition), *definition.required_capabilities))
     )
+    dynamic_read_only = getattr(registered.executor, "is_read_only", None)
+    if callable(dynamic_read_only):
+
+        def read_only(arguments: Mapping[str, Any]) -> bool:
+            return bool(dynamic_read_only(arguments))
+
+    else:
+        read_only = not any(effect not in {"none", "read", "read_only"} for effect in effects)
     return FunctionTool(
         name=definition.model_alias,
         description=definition.description,
         input_schema=definition.input_schema,
         execute=execute,
-        read_only=not any(effect not in {"none", "read", "read_only"} for effect in effects),
+        read_only=read_only,
         verification_required=verification_policy.execution_proof.value != "none",
         external_terminal_owner=(
             verification_policy.terminal_rule.value == "external_terminal_owner"

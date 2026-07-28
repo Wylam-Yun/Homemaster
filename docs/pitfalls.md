@@ -1,5 +1,74 @@
 # Engineering Pitfalls
 
+## 2026-07-28 - 记忆后端召回成功，但完整记录只进 data，模型只看到 succeeded
+
+### 症状与根因
+
+真实 HomeMaster 已把 fact 写进 embedded Qdrant，新的 session 也由 semantic/BM25 命中准确记录；runtime event
+中的 `data.records`、memory ID 和 value 全部正确，但模型连续认为“搜索成功却没有具体记录”。
+`ApplicationToolExecutor._message()` 把 `ToolResult.metadata` 放进内部 `ToolResultMessage.data`，provider transport
+却只序列化 `content`；而记忆 executor 的 `output` 只有 `memory search succeeded`。因此内部 trace 证明了后端
+成功，却没有证明模型接收到了结果。
+
+### 修法与教训
+
+六个记忆工具在 ApplicationRuntime 消息边界把完整结构化 result data 序列化为 JSON `content`，同时保留
+原有 `data` 供事件和程序消费。回归使用真实 ApplicationRuntime：模型先调用 `search_memories`，第二次 transport
+请求必须从 `role=tool` 的 `content` 解析出准确 ID 和位置后才能回答；另断言 `add_memory` 的 ID 同样模型可见。
+任何供模型决策的工具字段都必须在实际 provider request 的模型可见 content 中断言，内部 metadata/event 正确
+不能替代这一门。
+
+### 参考
+
+- `src/homemaster/application/tool_executor.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
+## 2026-07-27 - 可选 memory backend 的 doctor FAIL 误杀整个交互 shell
+
+### 症状与根因
+
+V2.1 加入真实 mem0/Qdrant doctor probe 后，两个 tmux 交互黑盒在出现 `homemaster>` 前直接退出。example
+配置的 embedding key 是占位符，配置层会正确规范化为空；probe 因此报告 backend unavailable。但 doctor
+把这个局部故障标为全局 `FAIL`，既有 interactive shell 遇任意 FAIL 会拒绝启动，于是“结构化记忆不可用、
+文件记忆和其余系统可用”的设计被错误提升成整个应用不可用。
+
+### 修法与教训
+
+doctor 继续真实启动并报告 `memory_backend` 原因，但不可用状态标为 `WARN`；五个 mem0 工具仍在调用边界
+fail closed 返回 `memory_backend_unavailable`，文件记忆与 shell 正常工作。回归同时覆盖真实锁冲突、文件读取
+和两个 tmux 宽度。健康检查的严重度必须与故障域一致；可选子系统 fail closed 不等于顶层进程 fail stop。
+
+### 参考
+
+- `src/homemaster/cli/doctor.py`
+- `src/homemaster/cli/interactive_shell.py`
+- `tests/homemaster/test_cli_doctor.py`
+- `tests/homemaster/test_cli_streaming_blackbox.py`
+
+## 2026-07-27 - mem0 Qdrant 源码含 BM25 代码，但运行时 `search` 被后定义覆盖成 dense-only
+
+### 症状与根因
+
+V2.1 初版真实 Qdrant 测试名为 hybrid search，且安装包的 Qdrant adapter 会创建 `bm25` sparse slot、写入
+sparse vector 并实现 `keyword_search()`，看起来已经满足混合召回。但 `Memory.search()` 最终调用的同类
+`search()` 只执行 dense `query_points(vectors=...)`；源码中的 BM25 写入能力不等于公开 search 路径会消费它。
+原测试只断言中文结果能命中，并统一标成 `hybrid`，dense 单支也能通过，形成假阳性。
+
+### 修法与教训
+
+HomeMaster 不修改 site-packages，而是在 store 边界分别调用 mem0 semantic search 和真环境核对过的 Qdrant
+`keyword_search()`，再按 memory_id/RRF 合并并保留 `semantic`/`bm25`/`exact` 来源。启动时离线校验锁定的
+`Qdrant/bm25` commit、全部文件 SHA-256 和中文 sparse 编码；缺缓存、checksum 错或 keyword probe 失败均显式
+unavailable，不静默 dense-only。回归直接断言 raw point 含 named `bm25` vector，并用不同查询分别证明
+semantic 与 BM25 各自产生命中。不能用一个“混合搜索有结果”断言证明每个分支真实执行。
+
+### 参考
+
+- `src/homemaster/memory/mem0_store.py`
+- `src/homemaster/memory/bm25_preflight.py`
+- `tests/homemaster/memory/test_mem0_store.py`
+- `tests/homemaster/memory/test_bm25_preflight.py`
+
 ## 2026-07-27 - `SIGTERM` 退出 Gateway 主进程却遗留飞书 WebSocket worker
 
 ### 症状与根因

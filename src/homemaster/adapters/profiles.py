@@ -49,6 +49,7 @@ from homemaster.tools.contracts import (
 from homemaster.tools.core_tools import build_core_tools
 from homemaster.tools.file_tools import build_file_tools
 from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
+from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
 from homemaster.tools.service_tools import build_service_tools
 from homemaster.tools.web_tools import build_web_tools
@@ -126,6 +127,7 @@ def build_universal_tool_registry(
     memory_path: Path | None = None,
     runtime_memory_root: Path | None = None,
     memory_mode: str = "disabled",
+    memory_enabled: bool = True,
 ) -> ToolRegistry:
     """Build the single Registry shared by Home, ALFWorld, and Coworker."""
 
@@ -135,6 +137,7 @@ def build_universal_tool_registry(
                 world_path=world_path,
                 memory_path=memory_path,
                 runtime_memory_root=runtime_memory_root,
+                memory_enabled=memory_enabled,
             ),
             "alfworld": _alfworld_tools(
                 memory_mode=memory_mode,
@@ -183,11 +186,13 @@ def _home_tools(
     world_path: Path | None,
     memory_path: Path | None,
     runtime_memory_root: Path | None,
+    memory_enabled: bool = True,
 ) -> tuple[RegisteredTool, ...]:
     tools = [
         build_bash_tool(),
         *build_core_tools(),
         *build_file_tools(),
+        *(build_memory_tools() if memory_enabled else ()),
         *build_web_tools(),
         *build_service_tools(),
     ]
@@ -196,14 +201,12 @@ def _home_tools(
         spec.name: spec
         for spec in (
             make_task_interpreter(),
-            make_memory_retriever(memory_path=memory_path),
             make_target_grounder(world_path=world_path),
             make_skill(),
             make_skill_view(),
             make_robot_navigate(),
             make_robot_manipulate(),
             make_robot_verify(),
-            make_memory_writer(runtime_memory_root=runtime_memory_root),
             make_task_summarizer(),
             make_task_planner_tool(),
             make_task_progress_check_tool(),
@@ -211,7 +214,6 @@ def _home_tools(
     }
     ordered = (
         "task_interpreter",
-        "memory_retriever",
         "target_grounder",
         "skill",
         "skill_view",
@@ -219,7 +221,6 @@ def _home_tools(
         "observe",
         "robot_manipulate",
         "robot_verify",
-        "memory_writer",
         "task_summarizer",
         "task_planner",
         "task_progress_check",
@@ -302,8 +303,7 @@ def _coworker_tools() -> tuple[RegisteredTool, ...]:
             environment="coworker",
             policy=_policy_for(spec.name, environment="coworker"),
             state_effects=("browser.advance",)
-            if spec.name
-            in {"browser_navigate", "browser_click", "browser_fill", "browser_select"}
+            if spec.name in {"browser_navigate", "browser_click", "browser_fill", "browser_select"}
             else (),
         )
         for spec in specs

@@ -1,5 +1,7 @@
 # HomeMaster V2.1 记忆系统讨论记录
 
+> 已被 `homemaster-memory-system-implementation-plan-zh.md` 取代。本文仅保留历史讨论，不再作为实施依据。
+
 > 状态：核心分层已确认，细节讨论中，尚未授权实施
 > 更新日期：2026-07-24
 > 目标仓库：`/hpc2hdd/home/wyuan140/weilin_workspace/Homemaster`

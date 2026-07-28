@@ -49,6 +49,7 @@ def build_dry_run_preview(
     registry = build_universal_tool_registry(
         world_path=world_path,
         memory_path=memory_path,
+        memory_enabled=resolved.memory.enabled,
     )
     skill_registry = load_home_skills(resolved)
     mcp_statuses: list[dict[str, object]] = []
@@ -77,9 +78,7 @@ def build_dry_run_preview(
                 "name": skill.name,
                 "description": skill.description,
                 "source": skill.source,
-                "provenance": [
-                    item.source for item in skill_registry.provenance_for(skill)
-                ],
+                "provenance": [item.source for item in skill_registry.provenance_for(skill)],
                 "user_invocable": skill.user_invocable,
                 "model_invocable": not skill.disable_model_invocation,
             }

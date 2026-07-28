@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Iframe Probe</title></head>
+  <body>
+    <iframe title="same origin" src="frame.html"></iframe>
+    <script>
+      const cross = new URLSearchParams(location.search).get('cross');
+      if (cross) {
+        const frame = document.createElement('iframe');
+        frame.title = 'cross origin';
+        frame.src = cross;
+        document.body.appendChild(frame);
+      }
+    </script>
+  </body>
+</html>

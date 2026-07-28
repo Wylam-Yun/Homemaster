@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Async Render</title></head>
+  <body>
+    <div id="root"></div>
+    <script>
+      setTimeout(() => {
+        document.getElementById('root').innerHTML = '<label for="late">Late field</label><input id="late">';
+      }, 150);
+    </script>
+  </body>
+</html>
