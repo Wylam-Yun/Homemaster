@@ -144,7 +144,8 @@ def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
 
 
 def _context_factory(
-    config: HomeMasterConfig, application_services: Mapping[str, object]
+    config: HomeMasterConfig,
+    application_services: Mapping[str, object],
 ) -> ContextAssemblerFactory:
     system_prompt = load_prompt(config.prompts.agent_system_prompt)
 
@@ -155,7 +156,7 @@ def _context_factory(
             policy=config.context,
             system_prompt=system_prompt,
             summary_client=provider,
-            skill_registry=request.dependencies.get("skill_registry"),
+            skill_registry=application_services.get("skill_registry"),
             frozen_memory_context=application_services.get("frozen_memory_context"),
         )
 

@@ -42,11 +42,15 @@ real LLM
 
 ## Runtime Boundaries
 
-The model receives exactly eleven tools: planner, progress, two-name `skill_view`, six browser
-tools, restricted terminal execution, and `sop_decide`. The Planner snapshot is model-owned;
-the environment result is environment-owned; the decision summary is deterministically
-reducer-owned. It has no business API, arbitrary URL, arbitrary shell, observer, audit, score,
-artifact, scenario, or ground-truth tool.
+The application model receives the same 57-tool universal Registry as the other runtime entries;
+the Coworker environment binds ten domain actions: planner, progress, restricted `load_skill`, five
+browser tools, restricted terminal execution, and `sop_decide`. Universal tools such as `bash` remain
+subject to their ordinary permission and capability checks, but they do not satisfy Coworker's formal
+trajectory or result checkpoints. The standalone deterministic presentation Registry contains only
+those ten Coworker actions. The Planner snapshot is model-owned; the environment result is
+environment-owned; the decision summary is deterministically reducer-owned. The Coworker domain
+actions expose no business API, arbitrary URL, observer, audit, score, artifact, scenario, or
+ground-truth tool.
 
 The three Agent pages receive explicit Pydantic public projections. Observer-only fault fields,
 evaluator state, causal IDs, scores, and formal verdicts do not enter their HTML, JavaScript

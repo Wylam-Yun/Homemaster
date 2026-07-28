@@ -87,7 +87,7 @@ OpenHarness bundled < Home builtin < user root < git-bounded project roots < exp
   -> source precedence / named builtin override authorization
   -> dynamic SkillRegistry handle（不等待 MCP，不校验 tool_names）
   -> Available Skills name/description summary
-  -> skill(name) / compatible skill_view(skill_name) / slash invocation
+  -> load_skill(name) / slash invocation
   -> complete original content + base_dir
 ```
 
@@ -99,8 +99,8 @@ Plugin 来源是 data-only adapter：只解析 `plugin.json`/`.claude-plugin/plu
 保护的 `skills_dir`，不调用 executable extension loader、不导入 Python、不注册 tools/hooks/MCP。
 项目 plugin 默认关闭；plugin 即使优先级最后也不能绕过 builtin 精确覆盖授权。
 
-Home one-shot、Interactive 与 Gateway 在 composition root 创建同一 registry handle。标准 `skill` 与
-兼容 `skill_view` 每次读取前刷新，因此新写入的 Skill 在同一进程立即可见；slash resolver 复用同一
+Home one-shot、Interactive 与 Gateway 在 composition root 创建同一 registry handle。`load_skill`
+每次读取前刷新，因此新写入的 Skill 在同一进程立即可见；slash resolver 复用同一
 索引并把已配置的 Skill model 写入 run 级 override。MCP 只向 application Registry 原子追加工具，
 不重载或验证 Skills。
 八份 bundled Markdown 使用 package data 进入安装 wheel，不能依赖源码 checkout 路径。
@@ -128,6 +128,11 @@ stop、close 和超时必须终止整个进程组并等待真实子进程退出�
 管理面除 `tool.mutate` 外按职责独立要求 `process.spawn`、`scheduler.manage`、`config.mutate` 或
 `mcp.manage`。`config(action="show")` 仍受 registered tool 权限和 typed schema 约束；进入模型消息与
 JSONL trace 的已选字段保持原值，不按 key、URL 或配置字面值改写。
+
+输入 schema 校验失败时工具不进入 permission、resource lease 或 backend。模型可见结果与 metadata 使用
+同一结构化 payload：稳定错误码、工具名、实际收到的参数键、缺失的必填字段、逐项校验问题和
+`backend_attempted=false`。工具边界只报告这些可观测事实，不推断 Provider、文本格式或参数丢失来源，
+也不建议重试或替代工具。
 
 远程 `ask_user_question` 不保持 webhook task：executor 返回嵌套在 canonical `ToolResultMessage` 中的
 `waiting_user` marker，ApplicationRuntime 持久化包含 assistant tool call 与 tool result 的 snapshot，

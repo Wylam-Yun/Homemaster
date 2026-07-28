@@ -8,7 +8,10 @@ from typing import Any
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.coworker_demo.browser_driver import BrowserDriver
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
-from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
+from homemaster.benchmarking.coworker_demo.correlation import (
+    correlated_action_id,
+    coworker_domain_run_id,
+)
 from homemaster.benchmarking.coworker_demo.types import CoworkerOutcome
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
@@ -28,6 +31,7 @@ def _execute(
     callback: Callable[[BrowserDriver, str], dict[str, Any]],
 ) -> ToolResult:
     driver, budget, outcome = _deps(run_context)
+    domain_run_id = coworker_domain_run_id(run_context)
     budget.before_browser(outcome)
     action_id = correlated_action_id(run_context)
     observation = callback(driver, action_id)
@@ -37,7 +41,7 @@ def _execute(
         executor_mode="programmatic",
         data={
             "success": True,
-            "run_id": run_context.run_id,
+            "run_id": domain_run_id,
             "action_id": action_id,
             "backend_status": "succeeded",
             "page_state_version": observation.get("page_state_version", 0),

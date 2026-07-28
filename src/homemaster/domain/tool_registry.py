@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from homemaster.domain.tools import (
+    make_load_skill,
     make_memory_retriever,
     make_memory_writer,
     make_robot_manipulate,
     make_robot_navigate,
     make_robot_verify,
-    make_skill_view,
     make_target_grounder,
     make_task_interpreter,
     make_task_summarizer,
@@ -31,7 +31,7 @@ def build_home_tool_registry(
         make_task_interpreter(),
         make_memory_retriever(memory_path=memory_path),
         make_target_grounder(world_path=world_path),
-        make_skill_view(),
+        make_load_skill(),
         make_robot_navigate(),
         make_robot_manipulate(),
         make_robot_verify(),

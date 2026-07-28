@@ -15,7 +15,7 @@ OPENHARNESS_DEFAULT_TOOL_NAMES = (
     "grep",
     "image_to_text",
     "image_generation",
-    "skill",
+    "load_skill",
     "tool_search",
     "web_fetch",
     "web_search",
@@ -49,3 +49,4 @@ def test_universal_registry_exposes_every_locked_default_tool() -> None:
     available = set(registry().all_names())
 
     assert set(OPENHARNESS_DEFAULT_TOOL_NAMES) <= available
+    assert {"skill", "skill_view"}.isdisjoint(available)

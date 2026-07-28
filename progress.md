@@ -63,7 +63,7 @@
   declared dependencies, imported homemaster/mem0/fastembed/qdrant, read SOUL/threat-pattern package data, exposed
   exactly the six new Home tools, excluded legacy Home tools and removed all six when disabled. Real config doctor is
   PASS; a deliberate Qdrant lock conflict is WARN with file memory still readable.
-- Current commit gate: the full non-live suite passes (`1663 passed, 1 skipped, 11 deselected`); focused Ruff,
+- Current commit gate: the merged full non-live suite passes (`1673 passed, 1 skipped, 11 deselected`); focused Ruff,
   format, lock and diff checks pass. Commit and push are next.
 - Blocking items: none. Preserve unrelated pre-existing browser changes and the user's edits in
   `src/homemaster/application/runtime.py` and `src/homemaster/tools/base.py`.
@@ -905,3 +905,9 @@
 - Final HomeMaster non-live verification passed with `1242 passed, 2 skipped`; the provider/tool-call regression slice
   passed with `26 passed`. Targeted Ruff lint/format, `git diff --check`, `uv build`, and `uv lock --check` also pass.
 - Case02 environment/browser/terminal tests are outside this memory-system scope and are not part of this acceptance.
+# 2026-07-25 Gateway Activation
+
+- Root-cause evidence from the preceding diagnostic turn: the ignored mode-0600 config enables Gateway/Feishu and contains both direct credentials, but no HomeMaster Gateway process or tagged session exists.
+- `uv run homemaster --help` failed because the project package was absent from `.venv`; `lark_oapi` was also absent. `uv sync --check --extra dev --extra gateway` reported seven required packages without mutating the environment.
+- Synchronized the locked environment and started the configured Gateway. Independent local inspection found the active `uv run homemaster gateway` parent and project-venv child plus Gateway session `gw-25d72ed7d051d61c3b9eba18ea0db8f6` at revision 4 with `session_status=replied` and 20 persisted messages.
+- The owner completed the Feishu-side black-box check and confirmed normal message delivery and readback. Gateway activation and live verification completed successfully; the test process was later stopped.

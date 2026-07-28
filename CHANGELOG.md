@@ -45,6 +45,25 @@
 - Documented the pending V2.1 generic-browser-tools and memory-system implementation plans, including
   the browser plan handoff, locked design decisions, validation gates, and current blockers. These
   documents do not claim that either V2.1 feature has been implemented.
+- Fixed Coworker external tool routing so browser receipts, terminal verification, SOP decisions, and task-plan
+  mirror events consistently use the Case02 `coworker-...` domain run ID rather than the generic application
+  `run-...` ID. This restores real environment calls after the unified runtime began assigning its own run IDs.
+- Replaced the duplicate model-visible `skill` and `skill_view` entry points with one explicit
+  `load_skill(name=...)` tool across Home and Coworker profiles. Available Skills continues to preload only names
+  and descriptions; complete Skill Markdown enters model context only after `load_skill` is called, while user
+  slash invocation remains unchanged. The deterministic Coworker presentation gate now uses the same tool contract,
+  with a Registry compatibility regression preventing scripted calls to removed tools.
+- Clarified that enabling the Feishu Gateway does not start a daemon or configure boot-time recovery, and documented
+  the currently verified manual `PYTHONPATH=src uv run homemaster gateway --config config/homemaster.yaml` command
+  consistently in both README Gateway sections. A live configured Gateway reached a persisted `replied` session,
+  and the owner confirmed normal Feishu message delivery and readback.
+- Replaced raw Pydantic tool-input failures with one structured, source-neutral result containing the stable error
+  code, tool name, received argument keys, missing required arguments, validation issues, and
+  `backend_attempted=false`. The tool boundary no longer guesses at Provider causes or suggests retries and
+  alternative tools.
+- Fixed Home profile `bash` on macOS by preserving the OpenHarness platform split: Linux may use the
+  `script -qefc` PTY wrapper, while macOS executes through `bash -lc`. Platform-specific argv regressions and a
+  real macOS process gate now prevent Linux-only compatibility assumptions from disabling every shell command.
 
 ### V2 workspace checkpoint
 
@@ -110,8 +129,9 @@
 
 - Replaced HomeMaster's capability-bearing Skill model with OpenHarness-compatible instruction documents. Skills
   no longer require `tool_names`, cannot grant tools or permissions, dynamically discover Home-owned user/project
-  roots, and expose complete Markdown through standard `skill`, compatible `skill_view`, Available Skills context,
-  and slash invocation. Eight upstream bundled Skills are included in installed wheels.
+  roots, and expose complete Markdown through `load_skill`, Available Skills context, and slash invocation. The
+  earlier duplicate `skill` and `skill_view` model tools were removed before release. Eight upstream bundled Skills
+  are included in installed wheels.
 - Ported the locked OpenHarness 39/39 default tool surface into the Home profile, including files, process, network,
   LSP, images, config/plan, Cron, tasks, child agents, teams and MCP configuration. Application-owned services,
   immutable path resolution, per-resource verification leases, real return codes and structured audits preserve

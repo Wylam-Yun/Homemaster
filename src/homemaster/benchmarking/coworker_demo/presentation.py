@@ -18,7 +18,7 @@ _RUNTIME_STATUSES = {
 _TOOLS = {
     "task_planner",
     "task_progress_check",
-    "skill_view",
+    "load_skill",
     "browser_navigate",
     "observe",
     "browser_click",
@@ -118,7 +118,7 @@ _MAX_PLAN_ITEMS = 24
 _TOOL_PRESENTATION = {
     "task_planner": ("创建执行计划", "orchestration"),
     "task_progress_check": ("更新计划进度", "orchestration"),
-    "skill_view": ("读取操作规范", "orchestration"),
+    "load_skill": ("读取操作规范", "orchestration"),
     "browser_navigate": ("打开业务页面", "observation"),
     "observe": ("读取页面状态", "observation"),
     "browser_click": ("执行页面操作", "mutation"),
@@ -195,6 +195,8 @@ _PEM_PATTERN = re.compile(r"-----BEGIN [A-Z0-9 ]*(?:PRIVATE KEY|CERTIFICATE)----
 _SIGNED_URL_PATTERN = re.compile(
     r"(?i)https?://\S+[?&](?:x-amz-signature|signature|sig|token)=[^&\s]+"
 )
+
+
 class ProjectionError(RuntimeError):
     """Raised when a runtime event cannot cross the presentation trust boundary."""
 
@@ -332,8 +334,8 @@ def _safe_arguments(tool_name: str, value: Any) -> dict[str, Any]:
             "has_current_subtask": bool(arguments.get("current_subtask")),
             "has_next_focus": bool(arguments.get("next_focus")),
         }
-    if tool_name == "skill_view":
-        return {"skill_name": _required_closed(arguments, "skill_name", _SKILLS)}
+    if tool_name == "load_skill":
+        return {"name": _required_closed(arguments, "name", _SKILLS)}
     if tool_name == "browser_navigate":
         return {"route": _required_closed(arguments, "route", _ROUTES)}
     if tool_name == "observe":
@@ -461,7 +463,7 @@ def summarize_tool_result(tool_name: str, data: Any) -> dict[str, Any]:
         if isinstance(safe_data.get("success"), bool):
             result["success"] = safe_data["success"]
         return result
-    if tool_name == "skill_view":
+    if tool_name == "load_skill":
         result = {}
         skill_name = _closed(safe_data, "name", _SKILLS)
         if skill_name is not None:

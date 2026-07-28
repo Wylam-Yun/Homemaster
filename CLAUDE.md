@@ -80,6 +80,14 @@
 - 运行必需的离线模型/词表工件不得依赖 `/tmp`、用户级默认 cache 或首次联网下载。把锁定工件作为
   package data 分发，显式 materialize 到可配置的持久项目/部署目录，并让所有调用链使用同一个 cache path。
   每次变更必须在空 cache、断网条件下分别验证源码和已安装 wheel 的真实加载与外部功能终态。
+- 同一模型能力只允许一个公开工具名，名称必须表达模型要执行的动作。重命名时同步所有 Profile、上下文索引、
+  投影、安装门和文档，并断言旧名称不再出现在模型工具列表；不得用并列暴露同义工具维持兼容。
+- 工具输入校验失败只报告工具边界可观测事实：稳定错误码、工具名、收到的参数键、缺失字段、逐项问题和
+  `backend_attempted=false`。禁止在工具反馈中猜测 Provider/文本格式来源、解析模型叙述、推荐替代工具或
+  注入重试提示；错误文本与结构化 metadata 必须同源，并测试 backend/lease 调用次数为零。
+- 跨平台工具不得用 `os.name == "posix"` 推导 GNU/BSD 命令行兼容性。对 Linux 与 macOS 分别锁定最终
+  argv，并在对应真机执行至少一个成功命令和一个非零返回码命令；移植 OpenHarness 工具时同步其平台
+  分支及上游测试，禁止只复制主执行路径后另写简化判断。
 - Service-backed tool 必须通过真实 `ApplicationRuntime` dispatch 边界测试；直接调用 executor 或 pipeline
   不能证明 composition 注入和 session runtime 接线成立。
 - Parser、stop condition 和 resume 逻辑必须断言组件间实际序列化 envelope；禁止按 executor 的中间 dict
@@ -194,6 +202,9 @@
 
 ## Coworker 外部编排纪律
 
+- Coworker 必须显式区分 generic application `run_id` 与 Case02 environment domain `run_id`。所有发往
+  `EnvironmentClient` 的 state/reserve/browser/terminal/decision/runtime-event 调用只可使用依赖中绑定的
+  `coworker_domain_run_id`；回归 fixture 必须令两者不同，并逐项断言每次环境调用使用 domain ID。
 - 构建 Coworker 候选环境时必须安装 `coworker` optional extra；service Python 与 runner Python 分别
   核对。Service preflight PASS 后，仍要用实际 runner Python import Playwright、启动
   `sync_playwright()` 并核对配置的 Chrome executable，禁止用另一个 venv 的可用性替代。

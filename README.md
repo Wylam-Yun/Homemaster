@@ -161,8 +161,13 @@ chmod 600 config/homemaster.yaml
 export HOMEMASTER_FEISHU_ENCRYPT_KEY='...'
 export HOMEMASTER_FEISHU_VERIFICATION_TOKEN='...'
 
-uv run homemaster --gateway --config config/homemaster.yaml
+# Gateway 不会随配置自动启动；每次启动需在仓库根目录手动运行并保持该进程存活。
+PYTHONPATH=src uv run homemaster gateway --config config/homemaster.yaml
 ```
+
+`gateway.enabled: true` 和 `gateway.feishu.enabled: true` 只允许 Gateway 启动，不会创建后台守护进程，
+也不会配置开机自启。进程退出或电脑重启后，需要再次执行上面的手动启动命令；当前仓库未提供
+`launchd`、systemd 或其他自动重启服务。
 
 `app_id/app_secret` 优先从 mode 0600、Git ignored 的真实 YAML 读取；旧环境变量配置仍兼容但不会与
 YAML 单项混拼。`gateway.feishu.domain` 只允许 `feishu` 或 `lark`；完整配置见
@@ -337,8 +342,9 @@ ordinary-name Registry；每个 run 只冻结 provider request、generation 和�
 **Skills**：Skill 是 OpenHarness 兼容的按需 instruction document，不是工具授权声明，不要求
 `tool_names`，也不能修改 Registry 或扩大 permission。来源优先级为 OpenHarness bundled < Home builtin
 < `~/.homemaster/skills` < Git 项目内 `.homemaster/skills` < 显式目录；不会自动扫描 `.codex`、
-`.claude` 或 `.agents`。模型先看 Available Skills 摘要，再用标准 `skill(name=...)` 或兼容
-`skill_view(skill_name=...)` 读取完整 `SKILL.md`；`/<skill-name>` 支持参数和已配置模型覆盖。
+`.claude` 或 `.agents`。模型先看 Available Skills 的名称与简介，再用唯一的
+`load_skill(name=...)` 读取完整 `SKILL.md`；Skill 正文不会预加载，`/<skill-name>` 继续支持参数和已配置
+模型覆盖。
 
 **默认工具**：universal Registry 提供文件、`bash`、联网、
 LSP、图片、计划、配置、Cron、后台任务、子 agent 和团队。后台 Cron 用
@@ -369,7 +375,8 @@ uv run homemaster --gateway --config config/homemaster.yaml
 ```
 
 `homemaster --gateway` 只启动远程 Gateway，不启动本地交互 shell；原有
-`homemaster gateway --config ...` 命令继续可用。
+`homemaster gateway --config ...` 命令继续可用。该命令必须手动执行并保持进程存活；配置开关不会自动启动
+Gateway，进程退出或电脑重启后也不会自动恢复。
 
 **目录结构**：
 

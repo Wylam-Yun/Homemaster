@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import shutil
 import signal
 from collections.abc import Mapping
@@ -124,14 +125,24 @@ async def _create_shell_subprocess(command: str, cwd: Path) -> asyncio.subproces
     return await asyncio.create_subprocess_exec(*argv, **kwargs)
 
 
-def _shell_argv(command: str) -> list[str]:
+def _shell_argv(command: str, *, platform_name: str | None = None) -> list[str]:
+    resolved_platform = platform_name or _detect_platform()
     bash = shutil.which("bash")
     shell = bash or shutil.which("sh") or os.environ.get("SHELL") or "/bin/sh"
-    if os.name == "posix":
+    if resolved_platform == "linux":
         script = shutil.which("script")
         if script is not None:
             return [script, "-qefc", command, "/dev/null"]
     return [shell, "-lc", command]
+
+
+def _detect_platform() -> str:
+    system_name = platform.system().lower()
+    if system_name == "darwin":
+        return "macos"
+    if system_name == "linux":
+        return "linux"
+    return "unknown"
 
 
 async def _capture_output(

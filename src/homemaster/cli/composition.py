@@ -358,6 +358,7 @@ def _finish_home_application(
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
         application_services={
+            "skill_registry": skill_registry,
             "tool_services": tool_services,
             "task_manager": tool_services.tasks,
             "cron_store": tool_services.cron,

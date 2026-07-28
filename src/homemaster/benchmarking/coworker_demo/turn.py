@@ -404,6 +404,7 @@ def _run_runtime(
                 ),
                 dependencies={
                     "skill_registry": skill_registry,
+                    "coworker_domain_run_id": run_id,
                     "coworker_environment": client,
                     "coworker_browser": driver,
                     "coworker_budget": budget,

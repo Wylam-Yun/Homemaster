@@ -33,8 +33,8 @@ def test_assistant_message_can_hold_parallel_tool_calls() -> None:
             ),
             ToolCall(
                 id="call_2",
-                name="skill_view",
-                arguments={"skill": "fetch_object"},
+                name="load_skill",
+                arguments={"name": "fetch_object"},
             ),
         ],
         finish_reason="tool_calls",

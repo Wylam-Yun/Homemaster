@@ -6,11 +6,29 @@ from pathlib import Path
 
 import pytest
 
+from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
 from scripts.coworker_demo.scripted_shell_gate import ScriptedConversation
 from scripts.coworker_demo.verify_run_bundle import (
     verify_presentation_bundle,
     verify_provider_identity,
 )
+
+
+@pytest.mark.parametrize("case_id", ["normal", "post_change_anomaly"])
+@pytest.mark.parametrize("profile", ["clean", "observable_failures"])
+def test_scripted_conversation_only_calls_registered_coworker_tools(
+    case_id: str,
+    profile: str,
+) -> None:
+    registry = build_coworker_tool_registry()
+    registered = set(registry.all_names())
+    steps = ScriptedConversation(case_id, profile).steps
+
+    assert {tool_name for tool_name, _arguments in steps} <= registered
+    assert [arguments for tool_name, arguments in steps if tool_name == "load_skill"] == [
+        {"name": "change_execution"},
+        {"name": "evidence_discipline"},
+    ]
 
 
 def test_independent_verifier_rejects_missing_tool_completion(tmp_path: Path) -> None:

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -148,12 +149,8 @@ async def test_session_plan_mode_blocks_mutation_but_allows_exit(tmp_path: Path)
         metadata={"services": {"plan_mode": PlanMode()}, "session_id": "session-1"},
     )
 
-    blocked = await executor.execute(
-        ToolCall(id="1", name="write_note", arguments={}), context
-    )
-    exited = await executor.execute(
-        ToolCall(id="2", name="exit_plan_mode", arguments={}), context
-    )
+    blocked = await executor.execute(ToolCall(id="1", name="write_note", arguments={}), context)
+    exited = await executor.execute(ToolCall(id="2", name="exit_plan_mode", arguments={}), context)
 
     assert blocked.is_error is True
     assert blocked.output == "plan mode blocks mutating tools"
@@ -164,9 +161,7 @@ async def test_session_plan_mode_blocks_mutation_but_allows_exit(tmp_path: Path)
 async def test_default_mode_honors_tool_auto_capability(tmp_path: Path) -> None:
     executor = ToolExecutor(
         _registry(),
-        permission_checker=PermissionChecker(
-            PermissionSettingsConfig(mode=PermissionMode.DEFAULT)
-        ),
+        permission_checker=PermissionChecker(PermissionSettingsConfig(mode=PermissionMode.DEFAULT)),
     )
 
     result = await executor.execute(
@@ -292,19 +287,31 @@ async def test_denial_and_invalid_input_never_acquire_or_execute(tmp_path: Path)
     )
     context = ToolExecutionContext(
         tmp_path,
-        metadata={
-            "permission_subject": PermissionSubject("reader", "test", capabilities=())
-        },
+        metadata={"permission_subject": PermissionSubject("reader", "test", capabilities=())},
     )
 
-    invalid = await executor.execute(
-        ToolCall(id="1", name="write_note", arguments={}), context
-    )
+    invalid = await executor.execute(ToolCall(id="1", name="write_note", arguments={}), context)
     denied = await executor.execute(
         ToolCall(id="2", name="write_note", arguments={"value": "x"}), context
     )
 
     assert invalid.metadata["status"] == "invalid_tool_arguments"
+    assert invalid.metadata == {
+        "status": "invalid_tool_arguments",
+        "error_code": "invalid_tool_arguments",
+        "tool": "write_note",
+        "backend_attempted": False,
+        "received_argument_keys": [],
+        "missing_required_arguments": ["value"],
+        "issues": [
+            {
+                "location": [],
+                "message": "'value' is a required property",
+                "type": "value_error",
+            }
+        ],
+    }
+    assert json.loads(invalid.output) == invalid.metadata
     assert denied.metadata["status"] == "permission_denied"
     assert calls == 0
     assert acquires == 0

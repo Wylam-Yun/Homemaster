@@ -178,8 +178,8 @@ skills:
 ```
 
 Skill 文件和它引用的资源在读取前都会解析真实路径，并要求仍位于授权 root。绝对路径、`..`
-以及通过 symlink 逃出 root 的资源都会被拒绝。模型上下文只列名称和简介；标准
-`skill(name="check_inventory")` 和兼容 `skill_view(skill_name="check_inventory")` 都会在调用时重新
+以及通过 symlink 逃出 root 的资源都会被拒绝。模型上下文只列名称和简介；唯一的
+`load_skill(name="check_inventory")` 会在调用时重新
 发现并返回完整原文与 `base_dir`。用户也可输入 `/check_inventory 参数`；`user-invocable`、
 `disable-model-invocation`、`argument-hint` 和已配置的 `model` 覆盖按 OpenHarness 调用语义生效。
 
@@ -196,7 +196,7 @@ uv run homemaster --dry-run -p '列出 Skills' --output-format json
 也可以直接让 HomeMaster 使用 bundled `skill-creator` 处理 GitHub repository URL 或
 `blob/<ref>/<path>/SKILL.md` URL。它会 clone 一次、先枚举并校验全部目标冲突，再在
 `~/.homemaster/skills` 同文件系统 staging；任一冲突会在复制前阻塞，发布或 fresh Registry 验证失败会
-回滚本次目录。成功后仍应从新进程逐名调用 `skill(name=...)`，并按相对文件列表与 SHA-256 对比上游。
+回滚本次目录。成功后仍应从新进程逐名调用 `load_skill(name=...)`，并按相对文件列表与 SHA-256 对比上游。
 
 新增或修改 `SKILL.md` 后会动态发现，不需要重启。Home profile 的 `bash`、文件和联网工具可以按 Skill
 说明执行非交互脚本、解压、Git 以及项目隔离依赖安装，但必须遵守项目依赖管理：Python 使用临时/项目

@@ -23,11 +23,13 @@ class FakeSummaryClient:
         self.calls: list[dict[str, object]] = []
 
     def complete(self, messages, *, system_prompt: str = "", **kwargs):
-        self.calls.append({
-            "messages": messages,
-            "system_prompt": system_prompt,
-            "kwargs": kwargs,
-        })
+        self.calls.append(
+            {
+                "messages": messages,
+                "system_prompt": system_prompt,
+                "kwargs": kwargs,
+            }
+        )
         if self.fail:
             raise RuntimeError("summary failed")
         return AssistantMessage(content=[ContentBlock(text="LLM SUMMARY: cup found on table")])
@@ -72,7 +74,8 @@ def test_assembler_injects_snapshot_without_appending_to_session() -> None:
     assert context.system_prompt == "You are HomeMaster."
     has_snapshot = any(
         "task_state_snapshot" in block.text
-        for message in context.messages for block in message.content
+        for message in context.messages
+        for block in message.content
     )
     assert has_snapshot
     assert len(session.messages) == 1
@@ -92,12 +95,14 @@ def test_assembler_includes_runtime_budget_status() -> None:
 
     has_budget = any(
         "runtime_budget_status" in block.text
-        for message in context.messages for block in message.content
+        for message in context.messages
+        for block in message.content
     )
     assert has_budget
     assert any(
         '"max_tool_iterations": 99' in block.text
-        for message in context.messages for block in message.content
+        for message in context.messages
+        for block in message.content
     )
 
 
@@ -132,7 +137,7 @@ def test_assembler_lists_skill_summaries_without_inlining_full_instructions() ->
     )
     assert "# Available Skills" in text
     assert "**skill-creator**" in text
-    assert "Use the `skill` tool" in text
+    assert "Use `load_skill(name=...)`" in text
     assert "Read `references" not in text
 
 
@@ -159,9 +164,7 @@ def test_assembler_respects_enabled_context_providers() -> None:
         goal="goal",
         subtasks=[{"id": "a", "description": "A"}],
     )
-    assembler = _make_assembler(
-        policy=ContextPolicyConfig(enabled_providers=("conversation",))
-    )
+    assembler = _make_assembler(policy=ContextPolicyConfig(enabled_providers=("conversation",)))
 
     context = assembler.prepare(
         session=session,
@@ -234,11 +237,13 @@ def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
         session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 40)]))
         call = ToolCall(id=f"call_{index}", name="robot_observe", arguments={})
         session.append(AssistantMessage(tool_calls=[call], finish_reason="tool_calls"))
-        session.append(ToolResultMessage(
-            tool_call_id=f"call_{index}",
-            name="robot_observe",
-            content=[ContentBlock(text=f"observation {index} " + "y" * 40)],
-        ))
+        session.append(
+            ToolResultMessage(
+                tool_call_id=f"call_{index}",
+                name="robot_observe",
+                content=[ContentBlock(text=f"observation {index} " + "y" * 40)],
+            )
+        )
 
     context = assembler.prepare(
         session=session,
@@ -333,12 +338,12 @@ def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
     )
     session = AgentSession(session_id="s1")
     for index in range(4):
-        session.append(UserMessage(
-            content=[ContentBlock(text=f"old user turn {index} " + "x" * 400)]
-        ))
-        session.append(AssistantMessage(
-            content=[ContentBlock(text=f"old answer {index} " + "y" * 400)]
-        ))
+        session.append(
+            UserMessage(content=[ContentBlock(text=f"old user turn {index} " + "x" * 400)])
+        )
+        session.append(
+            AssistantMessage(content=[ContentBlock(text=f"old answer {index} " + "y" * 400)])
+        )
     session.append(UserMessage(content=[ContentBlock(text="current request")]))
     agent_state = AgentState(run_id="r1", session_id="s1")
 
