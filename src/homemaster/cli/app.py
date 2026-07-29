@@ -52,6 +52,13 @@ def main_callback(
             help="Run the configured Feishu/Lark Gateway without starting the interactive shell.",
         ),
     ] = False,
+    alfworld: Annotated[
+        bool,
+        typer.Option(
+            "--alfworld",
+            help="Use the configured fixed ALFWorld environment for Gateway runs.",
+        ),
+    ] = False,
     config_path: Annotated[
         Path | None,
         typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
@@ -113,8 +120,13 @@ def main_callback(
                 raise typer.BadParameter(
                     "--gateway cannot be combined with interactive, one-shot, or dry-run options"
                 )
-            run_gateway(load_config(config_path))
+            run_gateway(
+                load_config(config_path),
+                environment="alfworld" if alfworld else None,
+            )
             return
+        if alfworld:
+            raise typer.BadParameter("--alfworld requires --gateway")
         if config_path is not None:
             raise typer.BadParameter("--config requires --gateway")
         resolved_format = parse_output_format(output_format)

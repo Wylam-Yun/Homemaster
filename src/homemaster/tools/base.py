@@ -91,6 +91,7 @@ class BaseTool(ABC):
     description: str
     input_model: type[BaseModel]
     verification_required: bool = False
+    requires_model_observation: bool = False
     external_terminal_owner: bool = False
     required_capabilities: tuple[str, ...] = ()
     concurrency_policy: Literal["parallel", "serialized", "resource_key"] = "parallel"
@@ -152,6 +153,7 @@ class FunctionTool(BaseTool):
         execute: ToolFunction,
         read_only: bool | Callable[[Mapping[str, Any]], bool] = False,
         verification_required: bool = False,
+        requires_model_observation: bool = False,
         external_terminal_owner: bool = False,
         required_capabilities: tuple[str, ...] = (),
         concurrency_policy: Literal["parallel", "serialized", "resource_key"] = "parallel",
@@ -166,6 +168,7 @@ class FunctionTool(BaseTool):
         self._execute = execute
         self._read_only = read_only
         self.verification_required = verification_required
+        self.requires_model_observation = requires_model_observation
         self.external_terminal_owner = external_terminal_owner
         self.required_capabilities = tuple(required_capabilities)
         self.concurrency_policy = concurrency_policy

@@ -130,6 +130,7 @@ class ToolDefinition:
     resource_key: str | None = None
     state_effects: tuple[str, ...] = ()
     required_capabilities: tuple[str, ...] = ()
+    requires_model_observation: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.verification_policy, VerificationPolicy):
@@ -140,6 +141,8 @@ class ToolDefinition:
             raise TypeError("execution_backend must be ExecutionBackend")
         if not isinstance(self.concurrency_policy, ConcurrencyPolicy):
             raise TypeError("concurrency_policy must be ConcurrencyPolicy")
+        if not isinstance(self.requires_model_observation, bool):
+            raise TypeError("requires_model_observation must be a boolean")
         if _INTERNAL_ID_RE.fullmatch(self.internal_id) is None:
             raise ValueError("internal_id must be a stable namespaced lowercase id")
         if _MODEL_ALIAS_RE.fullmatch(self.model_alias) is None:
@@ -212,6 +215,7 @@ class ToolDefinition:
             "resource_key": self.resource_key,
             "state_effects": list(self.state_effects),
             "required_capabilities": list(self.required_capabilities),
+            "requires_model_observation": self.requires_model_observation,
         }
 
     @property
@@ -648,6 +652,8 @@ class ToolExecutionResult:
             is_error=self.is_error,
             data=payload,
         )
+
+
 class ToolExecutor(Protocol):
     def execute(
         self,

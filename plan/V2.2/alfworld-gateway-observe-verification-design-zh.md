@@ -1,11 +1,11 @@
-# V2.2 ALFWorld Gateway 动作后观察验证初步设计
+# V2.2 ALFWorld Gateway 动作后观察验证设计
 
 ## 1. 文档状态
 
-- 状态：初步设计，等待 owner 确认后再细化为可执行实施计划。
+- 状态：owner 已确认核心设计决策；下一步细化为可执行实施计划。
 - 范围：HomeMaster 迁移到 `hkust4` 后，通过飞书 Gateway 驱动同机 ALFWorld，并在每次导航或操作尝试后由模型调用 `observe` 做视觉黑盒验证，同时把同一张图片实时发给飞书用户。
 - 当前阶段只写设计，不修改产品代码。
-- ALFWorld 真环境位置：`/home/haodong2/weilin/red_bird/alfworld`。目录存在性已经只读核对；具体可用 episode、外部引擎参数和启动方式仍须在实施前真环境逐项核对，当前标记为 `UNVERIFIED`。
+- ALFWorld 真环境位置：`/home/haodong2/weilin/red_bird/alfworld`。AI2-THOR 启动、固定 trial reset、外部动作回执、非空 PNG 和 Unity/Xvfb 清理已经在 `hkust4` 真环境复现成功；最终 demo episode 和完整演示动作链仍须在实施前锁定。
 
 ## 2. 目标演示
 
@@ -16,7 +16,7 @@
 3. 模型确认目标后调用 `robot_go_to`。
 4. ALFWorld 独立返回导航动作成功或失败。
 5. 因 `robot_go_to` 的工具声明要求模型观察，Agent Loop 下一轮必须调用 `observe`。
-6. `observe` 获取当前 PNG；同一份图片既进入模型上下文，也通过 Gateway 发给飞书用户。
+6. `observe` 获取当前 PNG；同一份图片既作为 image block 进入下一次真实 Provider 请求的模型上下文，也通过 Gateway 发给飞书用户。
 7. 模型看图后决定继续、重试或调用 `robot_manipulate`。
 8. 每次 `robot_manipulate` 尝试后重复“调用 `observe`、模型看图、飞书发图”的过程。
 9. ALFWorld 的真实状态判定与模型的视觉判定都满足后，模型才完成任务。
@@ -95,10 +95,21 @@ Agent Loop 为当前 session/run 保存一条待观察状态，至少记录：�
 屏障存在时：
 
 - 下一次 Provider 请求只允许模型选择 `observe`。
+- 下一次 Provider 请求动态加入一条短协议提示，说明动作已经尝试，必须先调用 `observe` 并根据视觉证据判断结果；该提示不包含 episode、物体、场景或固定动作顺序。
 - 模型不能调用另一个导航或操作工具。
 - 模型不能用文本直接宣称任务完成。
 - 模型若不调用 `observe`，本轮视为协议不满足，进行有界重试；超过限制后明确失败，不能静默放行。
 - Provider 的“强制工具选择”具体 API 在目标 Provider 真环境核对前标 `UNVERIFIED`。即使 Provider 不支持强制参数，Harness 仍需通过工具披露收窄、结果校验和有界重试保证规则。
+
+动态协议提示采用以下固定语义，内容作为外部化 prompt 数据维护：
+
+```text
+A state-changing environment action was attempted.
+Before taking another action or giving a final answer, call `observe`
+and use the returned visual evidence to evaluate the action outcome.
+```
+
+正确性不依赖提示词。提示只用于减少模型困惑和无效重试；工具披露收窄、结果校验、有效图片门和有界重试才是强制协议。
 
 这不是执行器偷偷截图，也不是 Harness 伪造一个 `observe` tool result。模型必须在看到动作结果后的新一轮真实发出 `observe` tool call。
 
@@ -120,6 +131,8 @@ MVP 采用保守规则：一个 assistant batch 只要包含“动作后要求�
 ## 7. 图片进入模型和飞书的同一数据流
 
 `observe` 已能从当前 backend 获取 PNG，并生成模型可见图片。现有 Gateway 也已经具备工具图片的 artifact 发布、公共事件投影、MEDIA 出站和飞书上传发送链路。V2.2 不新建第二套截图或发图通道。
+
+`observe` 成功返回的 `ResultImage` 必须保留在紧接着的 Provider 请求上下文中。snapshot 可以继续按现有策略剥离旧图片，但不得在模型首次消费该观察结果前剥离、文本化或只保留内部 hash。
 
 目标数据流：
 
@@ -144,26 +157,34 @@ observe 返回唯一 ResultImage
 
 ```bash
 homemaster --gateway
-# 通用 Home 环境
+# 只启用通用工具；默认读取 config/homemaster.yaml
 
 homemaster --gateway --alfworld
-# 通用工具 + ALFWorld 环境工具
+# 启用通用工具 + 具身工具；默认读取 config/homemaster.yaml
 ```
 
-`homemaster gateway --alfworld` 是否同时保留为等价入口，在实现时按现有 CLI 一致性确定；至少用户指定的根入口必须成立。
+`--config` 只用于覆盖默认配置路径，例如 `homemaster --gateway --alfworld --config other.yaml`。MVP 只承诺用户指定的根入口，不要求额外保留 `homemaster gateway --alfworld` 等价入口。
 
 工具披露规则：
 
-- 默认环境：保留通用工具，不向 Provider 披露 ALFWorld 专用工具。
-- `--alfworld`：保留通用工具，增加 ALFWorld 工具；发生同名环境工具时由 ALFWorld 实现获胜。
-- 不启动 ALFWorld 时，不创建 adapter、不加载 ALFWorld episode，也不把对应 schema 发给 Provider。
+- 通用工具与环境无关，至少包括 `ask_user_question` 和 `observe`；规划、任务状态、记忆等工具按其真实依赖逐项归类，不能因为历史模块名叫 Home 就自动算环境工具。
+- 具身工具包括 `robot_go_to`、`robot_manipulate`、`robot_verify`，只在 `--alfworld` 模式披露。
+- Coworker 工具只在未来明确的 Coworker 入口披露；普通 Gateway 和 `--alfworld` Gateway 都不披露。
+- 普通 `--gateway` 只披露通用工具，不创建具身或 Coworker backend。
+- `--gateway --alfworld` 披露通用工具和具身工具，创建 AI2-THOR adapter，但不创建 Coworker backend。
 - 环境选择必须在 Registry 组成阶段完成，不能只设置 `profile=alfworld` 却继续把所有环境工具都发给 Provider。
 
-当前 `build_universal_tool_registry()` 会合并 Home、ALFWorld 和 Coworker 的唯一工具，`profile` 主要绑定 backend，不能满足上述披露约束。实施时应把组成关系改成“通用工具 + 当前启用环境工具”，并在实际 Provider request 边界核对最终工具名单。
+| 启动模式 | 通用工具 | 具身工具 | Coworker 工具 |
+| --- | --- | --- | --- |
+| `homemaster --gateway` | 开启 | 关闭 | 关闭 |
+| `homemaster --gateway --alfworld` | 开启 | 开启 | 关闭 |
+| 未来 Coworker 专用入口 | 开启 | 关闭 | 开启 |
+
+当前 `build_universal_tool_registry()` 会合并 Home、ALFWorld 和 Coworker 工具，`profile` 主要绑定 backend，不能满足上述披露约束。实施时应消除含义模糊的“Home 工具”分类，把组成关系改成“通用工具 + 当前显式启用的环境工具”，并在实际 Provider request 边界核对最终工具名单。
 
 ## 9. ALFWorld 与 Gateway 的生命周期
 
-当前 benchmark runner 会显式创建、reset、注入和关闭 ALFWorld adapter；Gateway 只创建普通 Home application，飞书产生的 `RunRequest` 也没有 ALFWorld environment、translator 和 terminal owner。这是 `--alfworld` 的主要接线缺口。
+当前 benchmark runner 会显式创建、reset、注入和关闭 ALFWorld adapter；Gateway 只创建不带 ALFWorld environment 的 application，飞书产生的 `RunRequest` 也没有 ALFWorld environment、translator 和 terminal owner。这是 `--alfworld` 的主要接线缺口。
 
 有三种部署选择：
 
@@ -173,7 +194,7 @@ homemaster --gateway --alfworld
 
 MVP 推荐方案 1：启动 `--alfworld` 时创建一个 application-owned 的固定 demo adapter，reset 到锁定 episode，注入 Gateway 每次 run，并对其他并发 session 明确拒绝。进程关闭时由 application 生命周期关闭 adapter。接口边界保留按 session 解析 environment 的可能性，但初版不实现方案 2。
 
-ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配置或环境变量，仓库只提交完整的 `.example` 占位配置，不能硬编码 `hkust4` 用户目录。episode 必须在真环境列举后选定并锁定；目前具体 ID 为 `UNVERIFIED`。
+ALFWorld root、data root、split 和固定 episode 标识必须来自 ignored 的真实配置，仓库只提交完整的 `.example` 占位配置，不能硬编码 `hkust4` 用户目录。启动 composition 必须从配置确定性解析 data root，不能依赖交互 shell 是否碰巧设置 `ALFWORLD_DATA`。episode 必须在真环境列举后选定并锁定；目前最终 demo ID 仍为 `UNVERIFIED`。
 
 ## 10. 模糊意图确认
 
@@ -201,7 +222,9 @@ ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配�
 
 ### WP0：真环境 linchpin 核对
 
-- 在 `hkust4` 的目标 venv 中核对 ALFWorld 启动、reset、当前 frame、动作返回码、终态查询和关闭。
+- 建立一个由项目 lock 管理、同时包含 Gateway 与 ALFWorld/AI2-THOR 依赖的目标 venv；不能继续依赖两个互相缺包的运行环境。
+- 在该目标 venv 中复验已经通过的 AI2-THOR 启动、reset、当前 frame、动作返回码、终态查询和关闭。
+- 从 ignored 配置显式解析 ALFWorld data root，并回归证明未设置 ambient `ALFWORLD_DATA` 时仍能找到锁定 episode。
 - 枚举可用 episode，选择一个动作短、视觉变化明显、可重复 reset 的 demo case并锁定目标。
 - 核对目标 Provider 是否支持单工具披露及强制 tool choice；未核对前保持 `UNVERIFIED`。
 - 用真实飞书应用核对图片上传/发送返回码和用户端可见终态。
@@ -217,21 +240,23 @@ ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配�
 
 - 在批量执行前拒绝含标记动作的多调用 batch。
 - 根据 `backend_attempted` 建立屏障。
-- 屏障期间只允许下一轮真实调用 `observe`，阻止动作和直接完成。
+- 屏障期间只披露 `observe`，动态加入固定的短协议提示，并要求下一轮真实调用 `observe`，阻止动作和直接完成。
 - 有效图片解除屏障；截图失败保持屏障并有界处理。
 - 将屏障纳入 snapshot/resume。
 
 ### WP3：环境选择和工具披露
 
 - 增加 `--alfworld`。
-- Registry 改为通用工具与选中环境工具的组合。
-- 默认模式明确排除 ALFWorld 专用 schema；ALFWorld 模式明确包含所需工具。
+- Registry 改为通用工具与显式选中环境工具的组合，移除含义模糊的“Home 工具”分类。
+- 默认模式只包含通用工具，明确排除具身和 Coworker schema。
+- ALFWorld 模式包含通用工具与具身工具，明确排除 Coworker schema。
 - 从真实 Provider request 边界审计，而不是只看 Registry 内部列表。
 
 ### WP4：Gateway ALFWorld composition
 
 - application-owned 创建、reset、注入、独占和关闭固定 demo adapter。
 - 给飞书 `RunRequest` 注入 ALFWorld environment、translator、trace/observer 和 terminal owner。
+- `homemaster --gateway --alfworld` 默认读取 `config/homemaster.yaml`，仅在显式传入 `--config` 时覆盖。
 - 复用现有 artifact/MEDIA 链路，不增加阶段事件。
 
 ### WP5：演示验收和文档同源
@@ -244,21 +269,22 @@ ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配�
 
 每项都按实例独立断言，不能用任意一个成功掩盖其他失败：
 
-1. `homemaster --gateway` 的真实 Provider 请求不含 ALFWorld 专用工具。
-2. `homemaster --gateway --alfworld` 的真实 Provider 请求包含通用工具、ALFWorld 动作工具和 `observe`，且同名动作绑定 ALFWorld 实现。
+1. `homemaster --gateway` 默认读取 `config/homemaster.yaml`；真实 Provider 请求包含 `ask_user_question`、`observe` 等通用工具，不含具身或 Coworker 工具。
+2. `homemaster --gateway --alfworld` 默认读取同一配置；真实 Provider 请求包含通用工具、`robot_go_to`、`robot_manipulate`、`robot_verify` 和 `observe`，不含 Coworker 工具，且具身动作绑定 ALFWorld 实现。
 3. 模糊演示输入先产生飞书追问；用户回复恢复同一 session 后才首次触发环境动作。
 4. 每个已触达 backend 的 `robot_go_to` 实例后，下一次模型工具调用都是独立的 `observe`。
 5. 每个已触达 backend 的 `robot_manipulate` 实例后，下一次模型工具调用都是独立的 `observe`。
-6. 动作成功和动作失败各至少一个实例都触发 `observe` 并发图。
-7. 参数校验失败或权限拒绝的动作实例证明 backend 调用次数为零，且不错误建立观察屏障。
-8. 同 batch 的动作加后续工具在任何 backend 调用前被整体拒绝。
-9. `observe` 失败时屏障未解除，模型不能继续动作或完成任务。
-10. 每张成功观察图片在下一次真实 Provider 请求中是可解析的 image block。
-11. 同一图片产生 Gateway MEDIA；hash 与 Provider image block 一致；飞书 API 返回成功，用户端真实可见。
-12. ALFWorld 动作返回码成功，并通过独立外部状态查询确认位置、inventory 或目标状态真的变化。
-13. Gateway 关闭后 ALFWorld adapter、飞书 worker 和相关外部连接均终止，无遗留进程。
+6. 每个待观察实例的下一次 Provider 请求只披露 `observe`，包含固定的短动态协议提示，且提示不含 episode、物体或场景特例。
+7. 动作成功和动作失败各至少一个实例都触发 `observe` 并发图。
+8. 参数校验失败或权限拒绝的动作实例证明 backend 调用次数为零，且不错误建立观察屏障。
+9. 同 batch 的动作加后续工具在任何 backend 调用前被整体拒绝。
+10. `observe` 失败时屏障未解除，模型不能继续动作或完成任务。
+11. 每张成功观察图片在紧接着的真实 Provider 请求中是可解析的 image block，且在模型首次消费前未被 snapshot 图片剥离策略移除。
+12. 同一图片产生 Gateway MEDIA；hash 与 Provider image block 一致；飞书 API 返回成功，用户端真实可见。
+13. ALFWorld 动作返回码成功，并通过独立外部状态查询确认位置、inventory 或目标状态真的变化。
+14. Gateway 关闭后 ALFWorld adapter、Unity、Xvfb、飞书 worker 和相关外部连接均终止，无遗留进程。
 
-第 11 项最后的“用户端真实可见”如无法自动从飞书接收端独立读取，只能标为人工黑盒门，不得用上传 API 成功或内部 trace 替代。
+第 12 项最后的“用户端真实可见”如无法自动从飞书接收端独立读取，只能标为人工黑盒门，不得用上传 API 成功或内部 trace 替代。
 
 ## 14. 明确不做
 
@@ -267,7 +293,7 @@ ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配�
 - 不把截图静默合并进动作工具来冒充模型观察。
 - 不让 `observe` 替代 ALFWorld 的环境状态验证。
 - 不在 MVP 中引入多种 observation/verification policy。
-- 不支持一个 Gateway 进程内动态切换 Home 与 ALFWorld。
+- 不支持一个 Gateway 进程内动态切换具身与 Coworker 环境。
 - 不在 MVP 中承诺多用户并发 ALFWorld episode。
 - 不先构造通用自然语言歧义分类器。
 
@@ -279,6 +305,8 @@ ALFWorld root、split 和固定 episode 标识必须来自 ignored 的真实配�
 2. Agent Loop 当前会批量执行 tool call，也没有待观察屏障。
 3. 默认 Registry 当前混合多个环境工具，环境选择没有控制 Provider 工具披露。
 4. Gateway 尚未拥有和注入 ALFWorld adapter 生命周期。
-5. 固定 demo episode、Provider 强制 tool choice 和飞书用户端图片终态仍需真环境锁定。
+5. 当前 Gateway venv 与 ALFWorld venv 互相缺少对方依赖，尚未形成一个受项目 lock 管理的统一运行环境。
+6. ALFWorld data root 仍可能依赖 ambient `ALFWORLD_DATA`，必须改为 ignored 配置驱动。
+7. 固定 demo episode、Provider 强制 tool choice 和飞书用户端图片终态仍需真环境锁定。
 
 推荐的 V2.2 MVP 是：**`--alfworld` 在启动时选择环境；工具声明 `requires_model_observation`；Agent Loop 在真实动作尝试后强制下一轮模型调用 `observe`；`observe` 的同一张图片同时给模型和飞书用户；ALFWorld 自己继续负责真实状态验真。**

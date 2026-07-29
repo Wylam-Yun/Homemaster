@@ -14,10 +14,54 @@ task_progress_check(...)
 observe()
 ```
 
-`robot_inspect_view` 已删除。`robot_go_to` 不执行探索或多候选搜索，但可以把 frozen scene index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝试一次导航；返回后仍必须看到准确目标。
+`robot_inspect_view` 已删除。默认情况下，`robot_go_to` 不执行探索或多候选搜索，但可以把 frozen scene
+index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝试一次导航；返回后仍必须看到准确目标。
+设置 `alfworld_gateway.allow_offscreen_object_navigation: false` 后，当前不可见且
+`receptacle=false` 的目标在任何 THOR 动作前返回 `target_not_visible`；当前不可见的 receptacle
+仍可作为搜索锚点导航。该模式用于验证模型是否能搜索并记住物体所在锚点，不删除默认点导航能力。
 
 `observe({})` 返回当前 frame 的一张 PNG，供模型自行确认画面；没有文字或状态 payload，也不会步进环境、改变
 评分状态，或成为 `robot_go_to` / `robot_manipulate` / `robot_verify` 的前置条件。
+
+## 飞书 Gateway 模式
+
+Gateway 进程继续运行在 HomeMaster 的项目 `.venv`；ALFWorld、AI2-THOR 与 Torch 留在
+`alfworld_gateway.python_executable` 指向的既有环境。HomeMaster 只通过 loopback HTTP 与受管 worker
+交换 JSON，不需要统一两套依赖。
+
+在 ignored 的 `config/homemaster.yaml` 填写 `alfworld_gateway`（字段模板见
+`config/homemaster.example.yaml`），然后运行：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --alfworld \
+  --config config/homemaster.yaml
+```
+
+位置记忆实验同时设置：
+
+```yaml
+memory:
+  enabled: true
+alfworld_gateway:
+  allow_offscreen_object_navigation: false
+```
+
+模型可自主使用 HomeMaster 结构化 `add_memory`、`search_memories`、`get_memory` 和
+`update_memory`。运行时只把当前环境操作产生的 opaque evidence ref 加入模型可见 tool result，
+不披露 exact object ID、containment、pose 或内部 trace；不强制模型写入或检索。ALFWorld 的 legacy
+benchmark `memory_mode` 继续保持 disabled，避免出现第二套 memory writer。
+
+启动会验证固定 trial、reset 后状态和 worker readiness；一个 Gateway 进程只把该环境授予一个
+session，其他并发 session 明确失败。每个真正尝试过 backend 的导航或 manipulation 后：
+
+1. 飞书先收到“已导航/已拿起/已放置”等语义进度；
+2. 下一次 Provider 请求只披露 `observe`；
+3. 模型必须真实调用 `observe`；
+4. 同一张 PNG 作为模型 image block，并作为紧随动作进度的飞书图片发送；
+5. 图片有效后才允许下一个动作或最终回复。
+
+`task_planner` 是可选工具：模型调用时展示子任务，未调用时正常执行。飞书不显示 thinking、
+token usage 或 `tool.call_started/completed` 这类内部事件；完整机器轨迹仍保存在 JSONL。
 
 ## 环境与输入
 

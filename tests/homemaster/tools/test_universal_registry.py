@@ -111,10 +111,10 @@ async def test_function_tool_validates_declared_json_schema(tmp_path: Path) -> N
     assert result.output == "kitchen"
 
 
-def test_composed_registry_is_universal_and_uses_alfworld_robot_contract() -> None:
-    from homemaster.adapters.profiles import build_universal_tool_registry
+def test_alfworld_registry_uses_alfworld_robot_contract() -> None:
+    from homemaster.adapters.profiles import build_tool_registry
 
-    registry = build_universal_tool_registry()
+    registry = build_tool_registry(environment="alfworld")
     go_to = registry.get("robot_go_to")
 
     assert go_to is not None
@@ -124,6 +124,32 @@ def test_composed_registry_is_universal_and_uses_alfworld_robot_contract() -> No
     assert set(schema["properties"]) == {"target"}
     assert registry.get("robot_navigate") is None
     assert len(registry.all_names()) == len(set(registry.all_names()))
+
+
+def test_alfworld_structured_memory_surface_is_controlled_only_by_memory_enabled() -> None:
+    from homemaster.adapters.profiles import build_tool_registry
+
+    structured = {"add_memory", "search_memories", "get_memory", "update_memory"}
+    legacy = {"memory_retriever", "memory_writer"}
+
+    enabled = set(
+        build_tool_registry(
+            environment="alfworld",
+            memory_enabled=True,
+            memory_mode="disabled",
+        ).all_names()
+    )
+    disabled = set(
+        build_tool_registry(
+            environment="alfworld",
+            memory_enabled=False,
+            memory_mode="disabled",
+        ).all_names()
+    )
+
+    assert structured <= enabled
+    assert not legacy & enabled
+    assert not (structured | legacy) & disabled
 
 
 def test_every_composed_tool_implements_the_complete_public_contract() -> None:
@@ -140,6 +166,20 @@ def test_every_composed_tool_implements_the_complete_public_contract() -> None:
         assert callable(tool.is_read_only), tool.name
         assert callable(tool.to_api_schema), tool.name
         assert callable(tool.validate_identity), tool.name
+        assert isinstance(tool.requires_model_observation, bool), tool.name
+
+
+def test_only_alfworld_state_changing_tools_require_model_observation() -> None:
+    from homemaster.adapters.profiles import build_tool_registry
+
+    registry = build_tool_registry(environment="alfworld")
+
+    assert registry.get("robot_go_to").requires_model_observation is True
+    assert registry.get("robot_manipulate").requires_model_observation is True
+    for name in set(registry.all_names()) - {"robot_go_to", "robot_manipulate"}:
+        assert registry.get(name).requires_model_observation is False
+    for schema in registry.to_api_schema():
+        assert "requires_model_observation" not in schema
 
 
 def test_composed_registry_preserves_execution_safety_capabilities() -> None:
@@ -168,7 +208,7 @@ def test_universal_builder_rejects_unapproved_cross_source_name_collision(
     monkeypatch.setattr(profiles, "_coworker_tools", lambda: (duplicate,))
 
     with pytest.raises(ValueError, match="unapproved duplicate tool name 'bash'"):
-        profiles.build_universal_tool_registry()
+        profiles.build_tool_registry(environment="coworker")
 
 
 def test_application_composition_api_has_no_profile_catalog_or_request_filter_layer() -> None:

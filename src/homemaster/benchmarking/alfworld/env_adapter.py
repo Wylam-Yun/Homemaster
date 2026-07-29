@@ -47,6 +47,7 @@ from homemaster.benchmarking.alfworld.pose_snapshot import (
 from homemaster.benchmarking.alfworld.reset_transaction import (
     AlfworldResetTransaction,
     ResetTransactionInput,
+    external_event_evidence_payload,
 )
 from homemaster.benchmarking.alfworld.trial_selection import (
     TrialSelectionEntry,
@@ -157,7 +158,11 @@ def _prepend_sys_path(path: Path) -> Iterator[None]:
             sys.path.remove(value)
 
 
-def load_alfworld_yaml(path: Path) -> dict[str, Any]:
+def load_alfworld_yaml(
+    path: Path,
+    *,
+    data_root: Path | None = None,
+) -> dict[str, Any]:
     try:
         import yaml
     except ImportError as exc:
@@ -170,14 +175,42 @@ def load_alfworld_yaml(path: Path) -> dict[str, Any]:
         payload = yaml.safe_load(reader)
     if not isinstance(payload, dict):
         raise ValueError(f"ALFWorld config must be a mapping: {path}")
+    if data_root is not None:
+        return _replace_alfworld_data(payload, data_root.resolve())
     return payload
 
 
+def _replace_alfworld_data(value: Any, data_root: Path) -> Any:
+    if isinstance(value, dict):
+        return {key: _replace_alfworld_data(item, data_root) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_alfworld_data(item, data_root) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_replace_alfworld_data(item, data_root) for item in value)
+    if isinstance(value, str):
+        for marker in ("${ALFWORLD_DATA}", "$ALFWORLD_DATA"):
+            if value == marker:
+                return str(data_root)
+            prefix = marker + "/"
+            if value.startswith(prefix):
+                return str(data_root / value[len(prefix) :])
+    return value
+
+
+def _alfworld_import_scope(config: AlfworldBenchmarkConfig):
+    if config.use_installed_alfworld:
+        return contextlib.nullcontext()
+    return _prepend_sys_path(config.alfworld_root)
+
+
 def build_alfworld_batch_env(config: AlfworldBenchmarkConfig) -> Any:
-    with _prepend_sys_path(config.alfworld_root):
+    with _alfworld_import_scope(config):
         from alfworld.agents.environment import get_environment
 
-        payload = load_alfworld_yaml(config.alfworld_config)
+        payload = load_alfworld_yaml(
+            config.alfworld_config,
+            data_root=config.data_root,
+        )
         env_cls = get_environment(config.env_type)
         alfred_env = env_cls(payload, train_eval=split_to_train_eval(config.split))
         env = alfred_env.init_env(batch_size=1)
@@ -198,10 +231,13 @@ def build_alfworld_batch_env_with_first_trial(
     without resetting. We pin json_file_list to [first_trial_path] so the first
     reset loads that trial's scene + object_poses.
     """
-    with _prepend_sys_path(config.alfworld_root):
+    with _alfworld_import_scope(config):
         from alfworld.agents.environment import get_environment
 
-        payload = load_alfworld_yaml(config.alfworld_config)
+        payload = load_alfworld_yaml(
+            config.alfworld_config,
+            data_root=config.data_root,
+        )
         env_cls = get_environment(config.env_type)
         alfred_env = env_cls(payload, train_eval=split_to_train_eval(config.split))
         # Pin the first trial before init_env triggers any file collection.
@@ -228,12 +264,14 @@ class AlfworldEnvAdapter:
         seed: int,
         frame_dir: Path | None = None,
         require_v18_reset: bool = False,
+        allow_offscreen_object_navigation: bool = True,
     ) -> None:
         self._env = env
         self._episode_prefix = episode_prefix
         self._seed = seed
         self._frame_dir = frame_dir
         self._require_v18_reset = require_v18_reset
+        self._allow_offscreen_object_navigation = allow_offscreen_object_navigation
         self._state: AlfworldEnvState | None = None
         self._last_go_to_object_id: str | None = None
         self._scene_generation = 0
@@ -355,9 +393,7 @@ class AlfworldEnvAdapter:
                 )
             try:
                 thor_env = self._resolve_thor_env()
-                runtime_scene = _event_logical_scene(
-                    getattr(thor_env, "last_event", None)
-                )
+                runtime_scene = _event_logical_scene(getattr(thor_env, "last_event", None))
             except RuntimeError:
                 runtime_scene = None
             if runtime_scene is None:
@@ -373,9 +409,7 @@ class AlfworldEnvAdapter:
         goal_fingerprint = (
             selection_entry.goal_fingerprint
             if selection_entry is not None
-            else _portable_state_fingerprint(
-                {"episode_id": state.episode_id, "task": state.task}
-            )
+            else _portable_state_fingerprint({"episode_id": state.episode_id, "task": state.task})
         )
         if not self._require_v18_reset or not self._looks_like_thor_backend():
             result = AlfworldResetResult(
@@ -431,9 +465,7 @@ class AlfworldEnvAdapter:
                 cache_entries=(),
                 snapshot_ref="oracle-pose-snapshot.json",
                 evidence_ref="reset-transaction.json",
-                artifact_root=(
-                    self._frame_dir.parent if self._frame_dir is not None else None
-                ),
+                artifact_root=(self._frame_dir.parent if self._frame_dir is not None else None),
             )
         )
         self._lifecycle = result.environment_disposition
@@ -485,9 +517,7 @@ class AlfworldEnvAdapter:
             recovery_status="not_needed",
             cleanup_status=cleanup.status,
             quarantine_required=cleanup.status != "succeeded",
-            environment_disposition=(
-                "closed" if cleanup.status == "succeeded" else "quarantined"
-            ),
+            environment_disposition=("closed" if cleanup.status == "succeeded" else "quarantined"),
             evidence_ref=None,
         )
         self._last_reset_result = result
@@ -781,9 +811,7 @@ class AlfworldEnvAdapter:
             benchmark_control_action_count=action_count,
             cleanup_status=cleanup.status,
             quarantine_required=cleanup.status != "succeeded" or state_uncertain,
-            environment_disposition=(
-                "closed" if cleanup.status == "succeeded" else "quarantined"
-            ),
+            environment_disposition=("closed" if cleanup.status == "succeeded" else "quarantined"),
             evidence_ref="goal-advance.json",
         )
 
@@ -803,6 +831,7 @@ class AlfworldEnvAdapter:
             objects=objects,
             scene_generation=self._scene_generation,
             snapshot_event_sequence=self._event_sequence,
+            require_receptacle_metadata=self._require_v18_reset,
         )
 
     def _indexed_navigation_target(
@@ -1321,6 +1350,7 @@ class AlfworldEnvAdapter:
                 pose_store=self._pose_store,
                 parent_resolver=NavigationAnchorResolver(),
                 gateway=OracleActionGateway(backend=backend),
+                allow_offscreen_object_navigation=self._allow_offscreen_object_navigation,
             ).execute(
                 target,
                 scene_generation=self._scene_generation,
@@ -1801,11 +1831,12 @@ class AlfworldEnvAdapter:
                 else None
             )
             object_label = str(tool_args.get("object") or "").strip() or None
-            target_label = str(
-                tool_args.get("tool_receptacle")
-                or tool_args.get("target_receptacle")
-                or ""
-            ).strip() or None
+            target_label = (
+                str(
+                    tool_args.get("tool_receptacle") or tool_args.get("target_receptacle") or ""
+                ).strip()
+                or None
+            )
             result = OracleManipulationExecutor(
                 scene_index=self._scene_object_index,
                 object_view=CurrentObjectView(
@@ -1831,9 +1862,7 @@ class AlfworldEnvAdapter:
                 error="execution_state_uncertain",
                 object_label=str(tool_args.get("object") or "").strip() or None,
                 target_label=str(
-                    tool_args.get("tool_receptacle")
-                    or tool_args.get("target_receptacle")
-                    or ""
+                    tool_args.get("tool_receptacle") or tool_args.get("target_receptacle") or ""
                 ).strip()
                 or None,
             )
@@ -2544,12 +2573,15 @@ def _legacy_execution_feedback(
     if mapped not in closed_errors:
         mapped = "unclassified_execution_failure"
     object_label = str(tool_args.get("object") or "").strip() or None
-    target_label = str(
-        tool_args.get("target")
-        or tool_args.get("target_receptacle")
-        or tool_args.get("tool_receptacle")
-        or ""
-    ).strip() or None
+    target_label = (
+        str(
+            tool_args.get("target")
+            or tool_args.get("target_receptacle")
+            or tool_args.get("tool_receptacle")
+            or ""
+        ).strip()
+        or None
+    )
     return make_execution_feedback(
         action=action,
         success=success,
@@ -4563,11 +4595,13 @@ class _AdapterOracleBackend:
         thor_env = self._adapter._resolve_thor_env()
         event = thor_env.step(dict(request.payload))
         self._adapter._event_sequence += 1
-        return _external_event_read(
+        external_event = _external_event_read(
             event,
             event_sequence=self._adapter._event_sequence,
             thor_env=thor_env,
         )
+        _persist_runtime_external_event(self._adapter, external_event)
+        return external_event
 
     def close(self) -> CleanupResult:
         return _close_alfworld_env(self._adapter._env)
@@ -4585,6 +4619,28 @@ def _event_logical_scene(event: Any) -> str | None:
     ):
         return None
     return scene_name.removesuffix("_physics")
+
+
+def _persist_runtime_external_event(
+    adapter: AlfworldEnvAdapter,
+    event: ExternalEventRead,
+) -> None:
+    if adapter._frame_dir is None or event.raw_event_ref is None:
+        return
+    artifact_root = adapter._frame_dir.parent
+    destination = artifact_root / event.raw_event_ref
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    payload = external_event_evidence_payload(event.raw_event_ref, event)
+    destination.write_text(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ),
+        encoding="utf-8",
+    )
 
 
 def _external_event_read(
@@ -4769,6 +4825,9 @@ def _scene_scan_inputs(value: Any) -> tuple[SceneObjectScanInput, ...] | None:
     result: list[SceneObjectScanInput] = []
     for object_id in sorted(objects):
         item = objects[object_id]
+        receptacle = item.get("receptacle")
+        if not isinstance(receptacle, bool):
+            receptacle = None
         position = item["position"]
         parent_ids = _string_tuple(item.get("parentReceptacles"))
         child_ids = _string_tuple(item.get("receptacleObjectIds"))
@@ -4785,6 +4844,7 @@ def _scene_scan_inputs(value: Any) -> tuple[SceneObjectScanInput, ...] | None:
             SceneObjectScanInput(
                 exact_object_id=object_id,
                 object_type=str(item["objectType"]),
+                receptacle=receptacle,
                 position=(
                     float(position["x"]),
                     float(position["y"]),
@@ -4911,10 +4971,7 @@ def _event_world_payload(metadata: dict[str, Any]) -> dict[str, Any]:
                 key: value
                 for key, value in item.items()
                 if key not in {"visible", "distance"}
-                and not (
-                    item.get("isPickedUp") is True
-                    and key in held_geometry_fields
-                )
+                and not (item.get("isPickedUp") is True and key in held_geometry_fields)
             }
         )
     normalized_objects.sort(key=lambda item: str(item["objectId"]))
@@ -4938,9 +4995,7 @@ def _event_world_payload(metadata: dict[str, Any]) -> dict[str, Any]:
             "reachablePositions",
         }
     }
-    return _canonical_json_projection(
-        {"objects": normalized_objects, "metadata": extras}
-    )
+    return _canonical_json_projection({"objects": normalized_objects, "metadata": extras})
 
 
 def _event_world_sha256(metadata: dict[str, Any]) -> str:

@@ -440,11 +440,7 @@ class AlfworldResetTransaction:
     def _validate_initial(event: ExternalEventRead) -> None:
         if event.status != "ok":
             raise _Abort("initial_state_unreadable")
-        if (
-            event.pose is None
-            or event.world_sha256 is None
-            or event.control_sha256 is None
-        ):
+        if event.pose is None or event.world_sha256 is None or event.control_sha256 is None:
             raise _Abort("initial_state_unreadable")
         if event.visibility_sha256 is None or event.frame_sha256 is None or event.objects is None:
             raise _Abort("initial_state_unreadable")
@@ -635,7 +631,7 @@ def _collect_transaction_evidence(
     event_files: dict[str, dict[str, object]] = {}
 
     def record_event(ref: str, event: ExternalEventRead) -> None:
-        payload = _event_evidence_payload(ref, event)
+        payload = external_event_evidence_payload(ref, event)
         previous = event_files.get(ref)
         if previous is not None and previous != payload:
             raise ValueError(f"conflicting external events share evidence ref: {ref}")
@@ -670,7 +666,7 @@ def _event_reference(event: ExternalEventRead, fallback: str) -> str:
 
 
 def _event_ledger_payload(ref: str, event: ExternalEventRead) -> dict[str, object]:
-    evidence = _event_evidence_payload(ref, event)
+    evidence = external_event_evidence_payload(ref, event)
     return {
         "event_ref": ref,
         "event_payload_sha256": _json_sha256(evidence),
@@ -688,7 +684,10 @@ def _event_ledger_payload(ref: str, event: ExternalEventRead) -> dict[str, objec
     }
 
 
-def _event_evidence_payload(ref: str, event: ExternalEventRead) -> dict[str, object]:
+def external_event_evidence_payload(
+    ref: str,
+    event: ExternalEventRead,
+) -> dict[str, object]:
     reachable = event.reachable_payload
     raw_frame = event.raw_frame_bytes
     return {

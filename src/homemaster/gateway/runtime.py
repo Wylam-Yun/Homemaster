@@ -307,13 +307,17 @@ class GatewayRuntime:
             return
         async for event in public_gateway_stream(event_bus, self._public_projection):
             if event.event_type in {
-                "assistant.reply",
                 "runtime.budget_exhausted",
                 "runtime.cancelled",
                 "runtime.turn_completed",
                 "runtime.turn_failed",
                 "transport.request_failed",
             }:
+                continue
+            if (
+                event.event_type == "assistant.reply"
+                and event.metadata.get("finish_reason") != "tool_calls"
+            ):
                 continue
             identity = self._identities.get(event.session_id)
             generation = event.gateway_generation
@@ -341,13 +345,15 @@ class GatewayRuntime:
                             )
                         )
                 else:
+                    if not event.content.strip():
+                        continue
                     await self.bus.publish_outbound(
                         OutboundMessage(
                             identity=identity,
                             session_id=event.session_id,
                             generation=generation,
                             kind=ChannelEventKind.PROGRESS,
-                            content=event.content or event.event_type,
+                            content=event.content,
                             correlation_id=event.correlation_id,
                             delivery_context=self._delivery_contexts.get(event.session_id),
                             metadata=event.metadata,
@@ -469,6 +475,7 @@ def build_gateway_assembly(
     *,
     api_service: FeishuApiService | None = None,
     group_operations: Any | None = None,
+    profile: str = "home",
 ) -> GatewayAssembly:
     """Wire remote ingress around the exact application-factory runtime instance."""
 
@@ -485,6 +492,7 @@ def build_gateway_assembly(
         bus=bus,
         router=ChannelRouter(),
         attachment_policy=AttachmentPolicy((attachment_root,)),
+        profile=profile,
         public_projection=projection,
     )
     runtime = GatewayRuntime(

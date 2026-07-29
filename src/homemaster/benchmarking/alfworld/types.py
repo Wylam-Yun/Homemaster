@@ -364,6 +364,8 @@ class AlfworldBenchmarkConfig:
     alfworld_root: Path
     alfworld_config: Path
     trace_root: Path
+    data_root: Path | None = None
+    use_installed_alfworld: bool = False
     env_type: EnvType = "AlfredTWEnv"
     split: SplitName = "valid_seen"
     episodes: int = 1
@@ -1207,8 +1209,7 @@ class AlfworldSummary:
         )
         provider_failures = classification_count.get("provider_failure", 0)
         runtime_failures = sum(
-            classification_count.get(name, 0)
-            for name in ("runtime_failure", "artifact_failure")
+            classification_count.get(name, 0) for name in ("runtime_failure", "artifact_failure")
         )
         cancelled = classification_count.get("cancelled", 0)
         evaluation_coverage = len(eligible) / total if total else 0.0
@@ -1274,18 +1275,12 @@ class AlfworldSummary:
                     "score_eligible": bool(getattr(e, "score_eligible", True)),
                     "agent_tool_call_count": int(getattr(e, "agent_tool_call_count", 0)),
                     "backend_action_count": int(getattr(e, "backend_action_count", 0)),
-                    "setup_backend_action_count": int(
-                        getattr(e, "setup_backend_action_count", 0)
-                    ),
+                    "setup_backend_action_count": int(getattr(e, "setup_backend_action_count", 0)),
                     "control_backend_action_count": int(
                         getattr(e, "control_backend_action_count", 0)
                     ),
-                    "model_backend_action_count": int(
-                        getattr(e, "model_backend_action_count", 0)
-                    ),
-                    "total_backend_action_count": int(
-                        getattr(e, "total_backend_action_count", 0)
-                    ),
+                    "model_backend_action_count": int(getattr(e, "model_backend_action_count", 0)),
+                    "total_backend_action_count": int(getattr(e, "total_backend_action_count", 0)),
                     "total_external_request_count": int(
                         getattr(e, "total_external_request_count", 0)
                     ),
@@ -1601,8 +1596,7 @@ class TasksetRunSummary:
         )
         provider_failures = classification_count.get("provider_failure", 0)
         runtime_failures = sum(
-            classification_count.get(name, 0)
-            for name in ("runtime_failure", "artifact_failure")
+            classification_count.get(name, 0) for name in ("runtime_failure", "artifact_failure")
         )
         cancelled = classification_count.get("cancelled", 0)
         evaluation_coverage = len(eligible) / total if total else 0.0

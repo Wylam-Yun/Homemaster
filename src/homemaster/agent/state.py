@@ -28,6 +28,15 @@ class CompactionRecord(BaseModel):
     reason: str = ""
 
 
+class ModelObservationBarrier(BaseModel):
+    source_tool_name: str
+    source_tool_call_id: str
+    source_status: str
+    observe_tool_name: str = "observe"
+    protocol_failures: int = 0
+    observe_failures: int = 0
+
+
 class AgentState(BaseModel):
     """Mutable runtime state for an AgentRuntime execution."""
 
@@ -49,6 +58,8 @@ class AgentState(BaseModel):
     last_compaction: CompactionRecord | None = None
     estimated_context_tokens: int = 0
     provider_usage: ProviderUsage | None = None
+    pending_model_observation: ModelObservationBarrier | None = None
+    unconsumed_observation_tool_call_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def begin_iteration(self, iteration: int) -> None:

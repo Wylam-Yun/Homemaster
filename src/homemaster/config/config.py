@@ -500,6 +500,55 @@ class GatewayConfig(BaseModel):
         return self
 
 
+class AlfworldGatewayConfig(BaseModel):
+    """Deployment-only paths and deterministic episode selection for Gateway."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_root: Path | None = None
+    data_root: Path | None = None
+    config_path: Path | None = None
+    python_executable: Path | None = None
+    env_type: Literal["AlfredThorEnv"] = "AlfredThorEnv"
+    split: Literal["train", "valid_seen", "valid_unseen"] = "valid_unseen"
+    trial_manifest: Path | None = None
+    trial_index: int = Field(default=0, ge=0)
+    seed: int = 42
+    display: str = ":102"
+    manage_xvfb: bool = False
+    xvfb_executable: Path = Path("/usr/bin/Xvfb")
+    startup_timeout_s: float = Field(default=180.0, gt=0)
+    request_timeout_s: float = Field(default=120.0, gt=0)
+    allow_offscreen_object_navigation: bool = True
+
+    @field_validator("display")
+    @classmethod
+    def _display_is_explicit(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith(":") or not normalized[1:].isdigit():
+            raise ValueError("display must be an explicit X display such as ':102'")
+        return normalized
+
+    def require_runtime_paths(self) -> tuple[Path, Path, Path, Path, Path]:
+        required = {
+            "asset_root": self.asset_root,
+            "data_root": self.data_root,
+            "config_path": self.config_path,
+            "python_executable": self.python_executable,
+            "trial_manifest": self.trial_manifest,
+        }
+        missing = [name for name, value in required.items() if value is None]
+        if missing:
+            raise ValueError("ALFWorld Gateway requires configured paths: " + ", ".join(missing))
+        return (
+            self.asset_root,
+            self.data_root,
+            self.config_path,
+            self.python_executable,
+            self.trial_manifest,
+        )
+
+
 class ExtensionApprovalConfig(BaseModel):
     """Deployment-owned pin and grants for one trusted local extension."""
 
@@ -554,6 +603,7 @@ class HomeMasterConfig(BaseModel):
     mcp: McpSettingsConfig = Field(default_factory=McpSettingsConfig)
     permissions: PermissionSettingsConfig = Field(default_factory=PermissionSettingsConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    alfworld_gateway: AlfworldGatewayConfig = Field(default_factory=AlfworldGatewayConfig)
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
 
     _config_path: Path | None = PrivateAttr(default=None)

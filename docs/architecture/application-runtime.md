@@ -111,7 +111,7 @@ Home one-shot、Interactive 与 Gateway 在 composition root 创建同一 regist
 ## Universal Tool 与 Service Flow
 
 ```text
-Home + ALFWorld + Coworker tools + optional MCP dynamic tools
+common tools + one explicit environment tool set + optional MCP dynamic tools
   -> one application ToolRegistry keyed by ordinary name
   -> PermissionChecker / immutable working_directory
   -> application-owned config/plan/Cron/task/team/child/MCP service
@@ -120,7 +120,8 @@ Home + ALFWorld + Coworker tools + optional MCP dynamic tools
   -> typed result / JSONL audit / session snapshot
 ```
 
-所有入口看到相同 Registry；环境只提供 Backend，缺失能力返回明确错误。文件路径由 composition 时锁定的 working directory
+普通 Gateway 使用 common-only，本地机器人、ALFWorld、Coworker 分别组合自己的环境工具；一次
+composition 不混合多个环境实现。文件路径由 composition 时锁定的 working directory
 统一解析；写入的 lease 覆盖 executor 和独立 readback verifier。默认 child worker argv 显式包含父应用
 config path，避免子进程退回仓库默认 provider。Cron scheduler 由 `homemaster cron start/status/stop`
 管理；task/team/plan/config 均使用 application-owned store。后台 shell/agent 任务在独立进程组中运行，
@@ -139,7 +140,8 @@ JSONL trace 的已选字段保持原值，不按 key、URL 或配置字面值改
 ChannelBridge 结束当前 run 且不发送重复 terminal。下一条 inbound 自动设置 `resume=True`，恢复同一
 session 后把用户答案追加到完整历史。停止判据解析实际序列化 envelope，而不是 executor 的中间 dict。
 
-ALFWorld 和 Coworker 不再创建环境 ToolView，也不缩窄模型可见工具；它们只绑定各自 Backend。
+ALFWorld 和 Coworker 不再创建环境 ToolView；composition 直接生成 common + 当前环境的 Registry，
+并绑定对应 Backend。
 固定 benchmark skill、manifest 与 scorer 输入仍由 benchmark owner 管理，不参与运行时工具授权。
 
 ## MCP Lifecycle And Data Flow
@@ -225,8 +227,11 @@ application cancellation、join worker，再增加 Gateway generation；旧 work
 RunRequest 时确定，并由 run event sink 写入每个 RuntimeEvent；public backlog 消费时只接受事件自带且
 仍为 current 的 generation，绝不把旧事件贴上当前代际。Gateway 本身不接收 private event；events
 模块只输出带 session/run/turn/tool-call correlation 的 `PublicGatewayEvent`。投影只允许已知事件，
-按 event type 及字段 allowlist 复制结构，并保持已选文本原值。`assistant.reply` 不作为 Gateway progress 转发；terminal outbound 由
-generation-fenced `RunResult` 统一发布，且与 cancel/error 共用 projection，因此不会 duplicate final。
+按 event type 及字段 allowlist 复制结构。Gateway progress 只包含非空的模型中间回复、可选
+`task_planner` 计划、具身动作语义进度和工具失败；usage、thinking、raw tool started/completed 名称和
+其他工具 payload 不进入 channel。`observe` artifact 保留源动作 tool-call correlation，事件顺序保证
+动作说明先于对应 MEDIA。finish_reason=stop 的模型回复由 generation-fenced `RunResult` 统一发布，
+不会 duplicate final。
 
 `ChannelDeliveryContext` 只从认证后的 SDK envelope 构造，并复制到 progress、MEDIA、final、error 和
 cancel；renderer metadata 不能覆盖 receive/reply target。thread 分区仍包含 sender，Reply API 使用

@@ -128,4 +128,5 @@ async def test_tool_search_returns_the_universal_registry_and_pure_tools_run(
     assert {match["name"] for match in search.data["matches"]} == {"web_fetch", "web_search"}
     assert brief.data["text"] == "a" * 20 + "..."
     assert slept.data["seconds"] == 0.0
-    assert "browser_navigate" in profile.all_names()
+    assert "robot_go_to" in profile.all_names()
+    assert "browser_navigate" not in profile.all_names()

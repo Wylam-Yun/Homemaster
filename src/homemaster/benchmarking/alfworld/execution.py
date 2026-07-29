@@ -139,6 +139,7 @@ class SceneObjectRef:
     canonical_label: str
     object_id: str
     object_type: str
+    receptacle: bool
     metadata: dict[str, Any]
 
 
@@ -156,6 +157,7 @@ class SceneObjectIndex:
         objects: list[dict[str, Any]],
         scene_generation: int,
         snapshot_event_sequence: int,
+        require_receptacle_metadata: bool = False,
     ) -> SceneObjectIndex:
         unique: dict[str, dict[str, Any]] = {}
         for item in objects:
@@ -186,12 +188,20 @@ class SceneObjectIndex:
                 sorted(grouped[type_key], key=lambda obj: str(obj["objectId"])),
                 start=1,
             ):
+                receptacle = item.get("receptacle")
+                if not isinstance(receptacle, bool):
+                    if require_receptacle_metadata:
+                        raise ValueError(
+                            f"object has invalid receptacle metadata: {item['objectId']}"
+                        )
+                    receptacle = False
                 label = f"{type_key} {index}"
                 labels.append(label)
                 by_label[label] = SceneObjectRef(
                     canonical_label=label,
                     object_id=str(item["objectId"]),
                     object_type=str(item["objectType"]),
+                    receptacle=receptacle,
                     metadata=item,
                 )
             labels_by_type[type_key] = tuple(labels)
@@ -425,6 +435,7 @@ class OracleNavigationExecutor:
         pose_store: OraclePoseStore,
         parent_resolver: NavigationAnchorResolver,
         gateway: OracleActionGateway,
+        allow_offscreen_object_navigation: bool = True,
         context_factory: Callable[..., OracleExecutionContext] = OracleExecutionContext,
     ) -> None:
         self._scene_index = scene_index
@@ -434,6 +445,7 @@ class OracleNavigationExecutor:
         self._pose_store = pose_store
         self._parent_resolver = parent_resolver
         self._gateway = gateway
+        self._allow_offscreen_object_navigation = allow_offscreen_object_navigation
         self._context_factory = context_factory
 
     def execute(
@@ -464,6 +476,28 @@ class OracleNavigationExecutor:
                 requested_label,
                 target.error or "execution_state_uncertain",
                 trace,
+            )
+
+        if (
+            lock.current_object.receptacle is None
+            or lock.target.receptacle != lock.current_object.receptacle
+        ):
+            return _navigation_failure(
+                requested_label,
+                "execution_state_uncertain",
+                trace,
+                lock,
+            )
+        if (
+            not self._allow_offscreen_object_navigation
+            and lock.observation.strict_visible is not True
+            and not lock.target.receptacle
+        ):
+            return _navigation_failure(
+                requested_label,
+                "target_not_visible",
+                trace,
+                lock,
             )
 
         trace.append({"event": "pose_lookup_started", "target_id": lock.target.object_id})
@@ -869,9 +903,8 @@ class OracleManipulationExecutor:
                 target_label,
                 trace,
             )
-        if (
-            self._view.event_sequence != context.current_event_sequence
-            or not oracle_pose_matches(self._current_event.pose, context.actual_pose)
+        if self._view.event_sequence != context.current_event_sequence or not oracle_pose_matches(
+            self._current_event.pose, context.actual_pose
         ):
             return self._uncertain(action, object_label, target_label, trace)
 
@@ -1275,12 +1308,8 @@ class OracleManipulationExecutor:
     ) -> OracleManipulationResult:
         result = self._gateway.execute_manipulation(payload)
         after = read_thor_state_snapshot(self._raw_event_reader())
-        trace.append(
-            {"event": "manipulation_gateway_result", "success": result.success}
-        )
-        if after.status != "ok" or not oracle_pose_matches(
-            result.event.pose, context.actual_pose
-        ):
+        trace.append({"event": "manipulation_gateway_result", "success": result.success})
+        if after.status != "ok" or not oracle_pose_matches(result.event.pose, context.actual_pose):
             return self._uncertain(
                 action, object_label, target_label, trace, backend_action_count=1
             )
@@ -1378,9 +1407,7 @@ class OracleManipulationExecutor:
         context = self._context
         if error == "execution_state_uncertain" and context is not None:
             context = replace(context, state="invalid")
-        return OracleManipulationResult(
-            feedback, context, backend_action_count, tuple(trace)
-        )
+        return OracleManipulationResult(feedback, context, backend_action_count, tuple(trace))
 
     def _uncertain(
         self,
@@ -1459,8 +1486,7 @@ def read_thor_state_snapshot(event: Any) -> ThorStateSnapshot:
                 )
             )
         canonical = [
-            asdict(item)
-            for item in sorted(objects, key=lambda item: item.exact_object_id)
+            asdict(item) for item in sorted(objects, key=lambda item: item.exact_object_id)
         ]
         state_sha256 = hashlib.sha256(
             json.dumps(
@@ -1583,6 +1609,7 @@ def _macro_plan(
     def pickup(state: ThorStateSnapshot) -> bool:
         obj = state.get(object_id)
         return object_id in state.inventory_ids and obj is not None and obj.is_picked_up
+
     if action == "heat":
         return (
             ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
@@ -1599,13 +1626,15 @@ def _macro_plan(
             ({"action": "CloseObject", "objectId": target_id, "forceAction": True}, close_target),
             (
                 {"action": "ToggleObjectOn", "objectId": target_id, "forceAction": True},
-                lambda state: state.get(target_id) is not None
-                and state.get(target_id).is_toggled is True,
+                lambda state: (
+                    state.get(target_id) is not None and state.get(target_id).is_toggled is True
+                ),
             ),
             (
                 {"action": "ToggleObjectOff", "objectId": target_id, "forceAction": True},
-                lambda state: state.get(target_id) is not None
-                and state.get(target_id).is_toggled is False,
+                lambda state: (
+                    state.get(target_id) is not None and state.get(target_id).is_toggled is False
+                ),
             ),
             ({"action": "OpenObject", "objectId": target_id, "forceAction": True}, open_target),
             ({"action": "PickupObject", "objectId": object_id, "forceAction": True}, pickup),
@@ -1646,13 +1675,15 @@ def _macro_plan(
         ),
         (
             {"action": "ToggleObjectOn", "objectId": faucet_id, "forceAction": True},
-            lambda state: state.get(faucet_id) is not None
-            and state.get(faucet_id).is_toggled is True,
+            lambda state: (
+                state.get(faucet_id) is not None and state.get(faucet_id).is_toggled is True
+            ),
         ),
         (
             {"action": "ToggleObjectOff", "objectId": faucet_id, "forceAction": True},
-            lambda state: state.get(faucet_id) is not None
-            and state.get(faucet_id).is_toggled is False,
+            lambda state: (
+                state.get(faucet_id) is not None and state.get(faucet_id).is_toggled is False
+            ),
         ),
         ({"action": "PickupObject", "objectId": object_id, "forceAction": True}, pickup),
     )

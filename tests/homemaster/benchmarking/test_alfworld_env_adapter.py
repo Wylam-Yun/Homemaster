@@ -12,6 +12,7 @@ from homemaster.benchmarking.alfworld.env_adapter import (
     AlfworldEnvAdapter,
     _event_world_sha256,
     _external_event_read,
+    load_alfworld_yaml,
     split_to_train_eval,
 )
 from homemaster.benchmarking.alfworld.execution import (
@@ -80,6 +81,25 @@ class FakeBatchEnv:
                 "goal_condition_success_rate": [0.0],
             },
         )
+
+
+def test_load_alfworld_yaml_resolves_data_root_without_ambient_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ALFWORLD_DATA", raising=False)
+    config_path = tmp_path / "base.yaml"
+    config_path.write_text(
+        "dataset:\n  data_path: $ALFWORLD_DATA/json_2.1.1\n  root: ${ALFWORLD_DATA}\n",
+        encoding="utf-8",
+    )
+
+    payload = load_alfworld_yaml(config_path, data_root=tmp_path / "explicit-data")
+
+    assert payload["dataset"]["data_path"] == str(
+        (tmp_path / "explicit-data" / "json_2.1.1").resolve()
+    )
+    assert payload["dataset"]["root"] == str((tmp_path / "explicit-data").resolve())
 
 
 def test_split_to_train_eval_mapping() -> None:
@@ -191,9 +211,7 @@ def test_external_event_control_hash_tracks_alfworld_state_not_current_view() ->
     def event(*, visible: bool) -> Any:
         return SimpleNamespace(
             frame=b"frame",
-            instance_detections2D=(
-                {"DeskLamp|1": [0, 0, 10, 10]} if visible else {}
-            ),
+            instance_detections2D=({"DeskLamp|1": [0, 0, 10, 10]} if visible else {}),
             metadata={
                 "lastAction": "TeleportFull",
                 "lastActionSuccess": True,
@@ -281,10 +299,7 @@ def test_external_event_control_hash_tracks_alfworld_state_not_current_view() ->
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
-    assert (
-        hashlib.sha256(unreadable_metadata + b"frame").hexdigest()
-        == unreadable.raw_event_sha256
-    )
+    assert hashlib.sha256(unreadable_metadata + b"frame").hexdigest() == unreadable.raw_event_sha256
     assert hashlib.sha256(b"frame").hexdigest() == unreadable.frame_sha256
 
 

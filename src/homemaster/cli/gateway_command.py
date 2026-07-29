@@ -5,16 +5,25 @@ from __future__ import annotations
 import asyncio
 import signal
 from collections.abc import Callable
+from typing import Literal
 
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.channels.feishu_groups import FeishuGroupOperations
 from homemaster.channels.impl.feishu import FeishuApiService
 from homemaster.cli.composition import create_home_application
 from homemaster.config import HomeMasterConfig
+from homemaster.gateway.alfworld import (
+    AlfworldGatewayApplication,
+    create_alfworld_gateway_binding,
+)
 from homemaster.gateway.runtime import build_gateway_assembly
 
 
-async def serve_gateway(config: HomeMasterConfig) -> None:
+async def serve_gateway(
+    config: HomeMasterConfig,
+    *,
+    environment: Literal["alfworld"] | None = None,
+) -> None:
     if not config.gateway.enabled or not config.gateway.feishu.enabled:
         raise ValueError("gateway and gateway.feishu must both be enabled")
     api_service = FeishuApiService.from_config(config.gateway.feishu)
@@ -24,13 +33,35 @@ async def serve_gateway(config: HomeMasterConfig) -> None:
         progress=False,
         quiet=True,
         feishu_group_operations=group_operations,
+        tool_environment=environment,
     )
-    assembly = build_gateway_assembly(
-        bundle.application,
-        config.gateway,
-        api_service=api_service,
-        group_operations=group_operations,
-    )
+    gateway_application = bundle.application
+    profile = "home"
+    alfworld_application: AlfworldGatewayApplication | None = None
+    try:
+        if environment == "alfworld":
+            binding, owner = await create_alfworld_gateway_binding(
+                config.alfworld_gateway,
+                run_dir=bundle.run_dir,
+                resource_scope=bundle.application.resource_scope,
+            )
+            alfworld_application = AlfworldGatewayApplication(
+                bundle.application,
+                owner,
+                binding,
+            )
+            gateway_application = alfworld_application
+            profile = "alfworld"
+        assembly = build_gateway_assembly(
+            gateway_application,
+            config.gateway,
+            api_service=api_service,
+            group_operations=group_operations,
+            profile=profile,
+        )
+    except BaseException:
+        await bundle.application.aclose()
+        raise
     shutdown_requested = asyncio.Event()
     remove_shutdown_handlers = _install_shutdown_handlers(
         asyncio.get_running_loop(), shutdown_requested
@@ -44,14 +75,20 @@ async def serve_gateway(config: HomeMasterConfig) -> None:
     finally:
         remove_shutdown_handlers()
         await assembly.runtime.aclose(deadline_s=config.gateway.shutdown_deadline_s)
+        if alfworld_application is not None:
+            await alfworld_application.seal()
         try:
             await bundle.application.aclose()
         except ResourceCleanupError:
             raise
 
 
-def run_gateway(config: HomeMasterConfig) -> None:
-    asyncio.run(serve_gateway(config))
+def run_gateway(
+    config: HomeMasterConfig,
+    *,
+    environment: Literal["alfworld"] | None = None,
+) -> None:
+    asyncio.run(serve_gateway(config, environment=environment))
 
 
 def _install_shutdown_handlers(

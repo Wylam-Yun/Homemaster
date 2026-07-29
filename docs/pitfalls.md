@@ -1,5 +1,79 @@
 # Engineering Pitfalls
 
+## 2026-07-29 - 记忆证据只在内部 message.data，真实 Provider 无法自主写入记忆
+
+### 症状与根因
+
+ApplicationRuntime 测试显示 observation 后产生了 `memory-evidence-*`，fake transport 也能从
+`ToolResultMessage.data` 读取并调用 `add_memory`，看起来环境事实记忆链路已经完整。但真实 Anthropic
+transport 只序列化 tool-result `content` 和图片，完全不发送 `data`；模型既看不到 evidence ref，又被
+`add_memory` schema 要求必须提供 evidence ref，因此结构化记忆虽然“工具已注册”，实际无法写入。
+原测试直接读取 Runtime 内部 message 对象的 `data`，绕过了真实 Provider 序列化边界，形成假阳性。
+
+### 修法与教训
+
+环境工具成功后仍由 evidence ledger 注册 run-bound opaque ref，但只把格式严格验证过的
+`memory-evidence-<32 hex>` 加入实际模型可见 tool-result content；objectId、containment、pose、hash
+和内部 trace 保持隐藏。回归从 tool-result content 解析 ref，再完成真实 `add_memory`，禁止从
+message.data 取值。凡是要求模型在下一轮原样回传的 token、ID 或 evidence ref，都必须在具体 Provider
+transport 的最终请求 payload 中断言，而不是依赖 Runtime 内部 message 形状。
+
+### 参考
+
+- `src/homemaster/application/tool_executor.py`
+- `src/homemaster/providers/transports/anthropic.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
+## 2026-07-29 - 飞书看到动作图片，但观察屏障没有真正建立
+
+### 症状与根因
+
+真实 ALFWorld 已完成导航、拿取和放置，飞书图片也显示外部状态变化，但 trace 中没有
+`model_observation.barrier_set`。工具层把强类型 `AlfworldStepResult` 转成旧式
+`ToolResultMessage` 时只保留模型可见反馈，丢失了 machine-only 的
+`backend_attempted=true`；图片和动作成功制造了“功能已完成”的假象。同时 Gateway 把空内容公共事件
+回退成 event type，导致用户看到 `usage.update`、`tool.call_completed` 等内部噪声。
+
+### 修法与教训
+
+在 canonical tool result 的 `data` 中保留 backend 尝试位，模型正文仍只含安全反馈；用真实动作后的
+barrier/observe/下一次 Provider image 序列作为门。公共投影对每种用户可见事件显式生成语义内容，
+空内容直接丢弃，绝不回退为内部事件名；动作后的 observe artifact 携带源 tool-call correlation。
+同样不得把 `backend_attempted=false` 的 observation protocol correction 描述成外部“操作失败”；
+它只说明模型提前请求了下一动作，实际环境没有执行该请求。
+外部状态变化、图片可见和内部协议生效是三个独立判据，不能互相替代。
+
+### 参考
+
+- `src/homemaster/benchmarking/alfworld/tools.py`
+- `src/homemaster/agent/generic_runtime.py`
+- `src/homemaster/events/public_projection.py`
+- `tests/homemaster/application/test_model_observation_barrier.py`
+
+## 2026-07-28 - ALFWorld full extra 在 Python 3.11 隔离构建失败
+
+### 症状与根因
+
+临时项目解析 `alfworld[full]` 时耗时数分钟后失败在 `visdom==0.2.4` 的构建后端：
+构建环境缺少 `pkg_resources`。ALFWorld 本体、AI2-THOR 和视觉运行依赖并未发生解析冲突；
+根因是 `full` extra 把训练、可视化等 Gateway 不使用的依赖一起带入，并将一个旧版
+visdom 的构建问题误扩散到运行时安装。
+
+### 修法与教训
+
+按 Gateway 的真实 import/执行边界锁定上游 ALFWorld commit、`ai2thor==2.1.0`、
+OpenCV、Torch 和 TorchVision 的最小集合，并先在独立 Python 3.11 临时项目执行
+`uv lock`。Oracle controller 不执行 CUDA 推理，源码环境从 PyTorch 官方 CPU index
+解析 Torch/TorchVision，避免无用的 NVIDIA wheel；公开 `Requires-Dist` 仍使用标准
+版本约束。外部项目的“全功能 extra”不是更可靠的默认值；应先列出产品实际运行路径，
+对最小依赖集合做 resolver 和真环境 import 双重验证，不能用裸 `pip install -U` 绕开失败。
+
+### 参考
+
+- `pyproject.toml`
+- `uv.lock`
+- `plan/V2.2/alfworld-gateway-observe-verification-implementation-plan-zh.md`
+
 ## 2026-07-28 - 迁移 manifest 只验身份，doctor 只读声明仍启动 backend
 
 ### 症状与根因
