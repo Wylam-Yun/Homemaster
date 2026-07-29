@@ -27,13 +27,35 @@ load and verify complete trial manifest
 
 `AlfworldResetResult` 和 `AlfworldGoalAdvanceResult` 是 closed typed result。ready 与 terminal 字段组合互斥；终止记录保留 trigger、最终 failure、classification、恢复/清理状态、环境 disposition、计数和 evidence ref。
 
+### Gateway 固定 Episode 绑定
+
+`AlfworldGatewayApplication` 在 application composition 外绑定一个固定 episode 和唯一 session。
+HomeMaster 进程不 import ALFWorld；`AlfworldHttpEnvironment` 使用随机 token 和 loopback ephemeral port
+启动配置中的 ALFWorld Python worker。HTTP 只承载 reset/current state、语义动作、截图与 close，
+worker 内部仍复用同一个 Adapter 和 Oracle 外部动作网关。启动 readiness、每次 HTTP status、返回
+schema、图片 hash/可解码性和进程退出分别核对；关闭回收 worker、Unity 与由应用管理的 Xvfb。
+
+这条 transport 只解决两套既有 Python 环境的进程隔离，不改变模型通信路径：模型仍经
+ApplicationRuntime/Provider 调用普通工具，工具 executor 才访问绑定的 environment。
+
 ## Snapshot 与当前物理视图
 
 reset scan 只生成 scene-generation 级 immutable snapshot。每个 addressable exact object row 最多给出一个 direct 或 unique-parent pose；lookup 不搜索、不枚举候选，也不会因一次失败选择另一个 pose。
 
 `robot_go_to` 与 manipulation 从动作即将使用的当前 THOR event 读取 object metadata、visibility 和 2D bbox。这个物理校验与模型何时调用 `observe`、provider 是否收到图片、图片是否被历史 context 裁剪完全独立。
 
-目标解析使用 frozen full scene index：generic label 优先锁定当前 strict-visible peer，没有可见 peer 时稳定锁定冻结顺序中的第一个离屏实例；显式 ordinal 绑定 frozen full set，不允许 fallback。只有当前事件 malformed、目标不存在或 snapshot pose 不可用时才会在发送前停止。`observe({})` 只读取当前 frame PNG 供模型确认，绝不创建动作授权或 freshness 状态。
+目标解析使用 frozen full scene index：generic label 优先锁定当前 strict-visible peer，没有可见 peer 时稳定锁定冻结顺序中的第一个离屏实例；显式 ordinal 绑定 frozen full set，不允许 fallback。Gateway
+配置关闭 offscreen object navigation 时，锁定目标必须满足 strict-visible 或 frozen
+`receptacle=true`；frozen 与当前 typed metadata 不一致、当前值缺失或类型错误都进入
+`execution_state_uncertain`。strict-invisible non-receptacle 返回可纠正的
+`target_not_visible`，backend action count 为零。只有通过该门后才允许 pose lookup 和
+`TeleportFull`。`observe({})` 只读取当前 frame PNG 供模型确认，绝不创建动作授权或 freshness 状态。
+
+Gateway/通用 Agent Loop 另有一个模型观察屏障：具身工具结果只有在
+`backend_attempted=true` 时建立屏障；参数校验/权限拒绝不会建立。屏障期间 Provider 只看到
+`observe`，有效 PNG 返回后解除。未首次消费的观察图片在 snapshot 中按精确 tool-call ID 保留；
+动作与其他工具同 batch 会在任何 backend 调用前整体拒绝。该屏障控制“模型下一步可做什么”，
+不替代 Adapter 对 return code 和外部终态的独立验证。
 
 ## 外部动作网关
 
@@ -44,7 +66,12 @@ reset scan 只生成 scene-generation 级 immutable snapshot。每个 addressabl
 - `lastActionSuccess=true`；
 - 动作专用 pose/world/终态门通过。
 
-导航把锁定的 visible 或 offscreen exact target 映射到 snapshot 的唯一 pose，并发送一次 `TeleportFull`。offscreen target 必须拥有 direct pose；`unobserved/relocated/absent` 的 parent fallback 只对已 strict-visible 的目标开放，不能用 hidden containment 定位离屏 child。返回后必须核对 actual pose、physical world、ALFWorld control hash、准确目标可见性和 bbox。physical world projection 去掉 view metadata；对 `isPickedUp=true` 对象还去掉 agent-coupled position/rotation/bounds，但保留 inventory、picked-up、containment 和其余语义状态。任何矛盾进入 Harness terminal 或 execution uncertainty，不回退到 V1.7 candidate search。
+导航把通过 policy gate 的 visible 或 offscreen exact target 映射到 snapshot 的唯一 pose，并发送一次
+`TeleportFull`。offscreen target 必须拥有 direct pose；实验模式只允许 offscreen receptacle
+进入这一步。`unobserved/relocated/absent` 的 parent fallback 只对已 strict-visible 的目标开放，
+不能用 hidden containment 定位离屏 child。返回后必须核对 actual pose、physical world、ALFWorld
+control hash、准确目标可见性和 bbox。每个 runtime THOR action 的 raw event 另存为受限 JSONL/artifact，
+用于独立核对返回码、pose 和 strict visibility，不投影给模型或飞书。
 
 Manipulation 锁定准确对象、准确 target 和有效 `OracleExecutionContext`。`take/open/close/put/use/slice/heat/cool/clean` 通过动作专用 precondition、gateway 请求、return-code 和 terminal-state evaluator；context 按动作语义 preserve、rebase、consume 或 invalidate。正式 V1.8 public call graph 不到达 V1.7 navigation/local-Put compatibility implementation，但兼容代码仍物理保留，尚未完成源文件级删除。
 

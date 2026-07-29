@@ -80,6 +80,11 @@ def save_snapshot(
         model=model,
         system_prompt=system_prompt,
         strip_images=strip_images,
+        preserve_image_tool_call_ids=(
+            frozenset({agent_state.unconsumed_observation_tool_call_id})
+            if agent_state.unconsumed_observation_tool_call_id is not None
+            else frozenset()
+        ),
     )
     atomic_write_json(path, payload)
 

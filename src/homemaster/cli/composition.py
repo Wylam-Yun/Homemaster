@@ -8,10 +8,10 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from homemaster.adapters.profiles import (
-    build_universal_tool_registry,
+    build_tool_registry,
 )
 from homemaster.application import ApplicationRuntime, ResourceBinding, ResourceLifetime
 from homemaster.application.factory import create_application
@@ -115,13 +115,15 @@ def create_home_application(
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
     feishu_group_operations: FeishuGroupOperations | None = None,
+    tool_environment: Literal["local_robot", "alfworld", "coworker"] | None = "local_robot",
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
     resolved = config or load_config()
     label = run_label or f"cli-{uuid.uuid4().hex[:12]}"
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
-    registry = build_universal_tool_registry(
+    registry = build_tool_registry(
+        environment=tool_environment,
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",

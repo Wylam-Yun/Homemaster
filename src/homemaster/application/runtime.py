@@ -130,6 +130,7 @@ class _FencedAgentSession:
         model: str,
         system_prompt: str,
         strip_images: bool = True,
+        preserve_image_tool_call_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         return self._manager.apply(
             self.session_id,
@@ -140,6 +141,7 @@ class _FencedAgentSession:
                 model=model,
                 system_prompt=system_prompt,
                 strip_images=strip_images,
+                preserve_image_tool_call_ids=preserve_image_tool_call_ids,
             ),
         )
 

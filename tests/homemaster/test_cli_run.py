@@ -287,7 +287,8 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
         "todo_write",
         "notebook_edit",
     ]
-    assert {"robot_go_to", "browser_navigate", "task_planner"} <= set(tool_names)
+    assert {"robot_go_to", "task_planner"} <= set(tool_names)
+    assert "browser_navigate" not in tool_names
     assert {skill["name"] for skill in preview["skills"]} >= {
         "fetch_object",
         "check_object_state",

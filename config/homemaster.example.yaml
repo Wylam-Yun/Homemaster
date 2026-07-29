@@ -226,6 +226,28 @@ gateway:
     react_emoji: EYES
     attachment_root: ~/.homemaster/attachments/feishu
 
+# Optional fixed-episode ALFWorld mode for `homemaster --gateway --alfworld`.
+# These are placeholders only; put real paths in ignored config/homemaster.yaml.
+alfworld_gateway:
+  asset_root: /replace/with/alfworld-assets
+  data_root: /replace/with/alfworld-data
+  config_path: /replace/with/alfworld/configs/base_config.yaml
+  python_executable: /replace/with/hm_alfworld/bin/python
+  env_type: AlfredThorEnv
+  split: valid_unseen
+  trial_manifest: /replace/with/one-entry-or-reviewed-manifest.json
+  trial_index: 0
+  seed: 42
+  display: ":102"
+  manage_xvfb: false
+  xvfb_executable: /usr/bin/Xvfb
+  startup_timeout_s: 180
+  request_timeout_s: 120
+  # true preserves V1.8 offscreen object point navigation. Set false for
+  # memory-search experiments: offscreen receptacles remain navigable, while
+  # other offscreen objects fail before any THOR action.
+  allow_offscreen_object_navigation: true
+
 # Trusted local Python extensions are disabled unless every approval field is pinned.
 extensions:
   approvals: []

@@ -132,6 +132,10 @@ class FakeTransport:
                 ],
                 finish_reason="tool_calls",
             ),
+            AssistantMessage(
+                tool_calls=[ToolCall(id="observe_4", name="observe", arguments={})],
+                finish_reason="tool_calls",
+            ),
         ]
         self.call_count = 0
         self.seen_tools: list[list[dict[str, Any]]] = []
@@ -422,11 +426,7 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
     assert observed == {
         "config": config,
         "first_trial_path": (
-            config.alfworld_root
-            / "data"
-            / "json_2.1.1"
-            / "case-1"
-            / "traj_data.json"
+            config.alfworld_root / "data" / "json_2.1.1" / "case-1" / "traj_data.json"
         ),
     }
 
@@ -438,11 +438,14 @@ def test_terminal_harness_navigation_failure_wins_over_runtime_budget_error() ->
         tool_call_id="call_navigation",
     )
 
-    assert _episode_classification(
-        success=False,
-        failure_reason="max_tool_iterations_exceeded",
-        outcome=outcome,
-    ) == "harness_navigation_failure"
+    assert (
+        _episode_classification(
+            success=False,
+            failure_reason="max_tool_iterations_exceeded",
+            outcome=outcome,
+        )
+        == "harness_navigation_failure"
+    )
     assert outcome.score_eligible is False
 
 
@@ -475,13 +478,11 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert summary.success_rate == 1.0
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
-    assert transport.call_count == 6
-    assert counts["screenshot"] == 3
+    assert transport.call_count == 7
+    assert counts["screenshot"] == 4
     assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
     assert any(
-        block.type == "image"
-        for message in transport.seen_messages[1]
-        for block in message.content
+        block.type == "image" for message in transport.seen_messages[1] for block in message.content
     )
     assert transport.seen_system_prompts[0]
     assert any(
@@ -564,12 +565,7 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     summary = runner.run()
 
     attempts_path = (
-        tmp_path
-        / "traces"
-        / "valid"
-        / summary.run_id
-        / "episode-0001"
-        / "provider_attempts.jsonl"
+        tmp_path / "traces" / "valid" / summary.run_id / "episode-0001" / "provider_attempts.jsonl"
     )
     attempts = [json.loads(line) for line in attempts_path.read_text().splitlines()]
     first = attempts[1]["outbound_images"][-1]
@@ -578,7 +574,7 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     assert first["content_sha256"] == second["content_sha256"]
 
 
-def test_same_response_observe_plus_mutation_executes_independently(
+def test_same_response_observe_plus_mutation_is_rejected_without_side_effects(
     tmp_path: Path,
 ) -> None:
     class BatchTransport(FakeTransport):
@@ -631,16 +627,16 @@ def test_same_response_observe_plus_mutation_executes_independently(
     summary = runner.run()
 
     assert summary.episodes[0].success is False
-    assert env.step_count == 1
-    assert counts["screenshot"] == 1
+    assert env.step_count == 0
+    assert counts["screenshot"] == 0
     action_result = next(
         message
         for message in transport.seen_messages[1]
         if isinstance(message, ToolResultMessage) and message.tool_call_id == "action-batch"
     )
-    assert action_result.is_error is False
+    assert action_result.is_error is True
     assert action_result.data is not None
-    assert action_result.data["success"] is True
+    assert action_result.data["error_code"] == "model_observation_batch_rejected"
 
 
 def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(
@@ -665,6 +661,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
 
     class TasksetAdapter:
         backend_id = "alfworld:taskset-entry"
+
         def __init__(self) -> None:
             self.current_state = initial_state
             self.generation = 0
@@ -845,11 +842,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
         ledgers.append(rows)
     attempt_ids = [{row["model_attempt_id"] for row in rows} for rows in ledgers]
     image_hashes = [
-        {
-            binding["content_sha256"]
-            for row in rows
-            for binding in row["outbound_images"]
-        }
+        {binding["content_sha256"] for row in rows for binding in row["outbound_images"]}
         for rows in ledgers
     ]
     assert attempt_ids[0].isdisjoint(attempt_ids[1])
@@ -887,7 +880,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
     assert summary.episodes[0].steps == 2
     assert summary.episodes[0].failure_reason == "benchmark_env_step_limit"
     assert fake_env.step_count == 2
-    assert transport.call_count == 4
+    assert transport.call_count == 5
 
 
 def test_runner_stops_on_terminal_outcome_before_next_llm_call(tmp_path: Path) -> None:
@@ -1231,10 +1224,7 @@ def test_taskset_reset_terminal_stops_before_model_and_transport(
     ]
     assert all(row["classification"] is None for row in payload["subtasks"])
     assert not (
-        runner.run_dir
-        / "taskset-reset-terminal"
-        / "subtask-01"
-        / "model_trace.jsonl"
+        runner.run_dir / "taskset-reset-terminal" / "subtask-01" / "model_trace.jsonl"
     ).exists()
 
 
@@ -1416,14 +1406,9 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
     assert payload["subtasks"][0]["execution_status"] == "executed"
     assert payload["subtasks"][0]["classification"] == "agent_success"
     assert payload["subtasks"][1]["not_run_reason"] == "goal_advance_failure"
-    assert payload["subtasks"][2]["not_run_reason"] == (
-        "prior_infrastructure_failure"
-    )
+    assert payload["subtasks"][2]["not_run_reason"] == ("prior_infrastructure_failure")
     assert payload["subtasks"][1]["classification"] is None
     assert payload["subtasks"][2]["classification"] is None
     assert not (
-        runner.run_dir
-        / "taskset-goal-terminal"
-        / "subtask-02"
-        / "model_trace.jsonl"
+        runner.run_dir / "taskset-goal-terminal" / "subtask-02" / "model_trace.jsonl"
     ).exists()

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.application import (
     ResourceBinding,
     ResourceLifetime,
@@ -34,7 +34,8 @@ class AlfworldApplicationEntry:
         transport_factory: Callable[[], Any] | None,
         event_sink: Any,
     ) -> None:
-        registry = build_universal_tool_registry(
+        registry = build_tool_registry(
+            environment="alfworld",
             memory_mode=memory_mode,
             runtime_memory_root=runtime_root / "memory",
         )

@@ -4,6 +4,30 @@
 
 ### Added
 
+- Added `homemaster --gateway --alfworld`, which keeps HomeMaster/Gateway in the
+  project environment and starts the existing ALFWorld environment through a
+  small loopback HTTP worker in its own configured Python environment. The
+  Gateway owns one fixed episode and one exclusive session, forces a real
+  `observe` call after every attempted navigation/manipulation backend action,
+  and sends the same observation image to the model and Feishu. Feishu progress
+  now shows an optional model-created task plan, semantic navigation/manipulation
+  updates, their correlated images, and model replies; internal usage updates,
+  thinking, raw tool lifecycle events, and observation-protocol corrections that
+  never reached the backend stay in JSONL only. Model-authored reply text is
+  forwarded byte-for-byte without trimming. Ordinary Gateway,
+  ALFWorld, and Coworker compose explicit environment-specific tool registries.
+  `alfworld_gateway.allow_offscreen_object_navigation` now preserves that V1.8
+  point-navigation behavior by default while allowing memory-search experiments
+  to reject strict-invisible non-receptacles before any THOR action; offscreen
+  receptacles remain navigable. The managed worker reports the canonical policy
+  in readiness and health, persists every runtime THOR action event for an
+  independent external-state gate, and fails closed on frozen/current receptacle
+  metadata drift. HomeMaster structured memory remains controlled by
+  `memory.enabled` rather than the legacy benchmark `memory_mode`; successful
+  environment tool results now include only their opaque run-bound memory
+  evidence refs in actual model-visible content, so the model can legally call
+  `add_memory` without receiving object IDs, containment, poses, or trace data.
+
 - Made HomeMaster self-contained for server migration: the complete verified `mem0ai==2.0.13` runtime and Apache-2.0
   license are vendored into the repository and wheel with per-file integrity enforcement, while the separate `mem0ai`
   distribution dependency is removed. Deleted the unused `src/openharness` package and upstream-only tests/generator,

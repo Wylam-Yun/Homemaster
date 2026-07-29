@@ -73,13 +73,15 @@ def _result_from_step(
     evidence_refs: tuple[str, ...] = (),
 ) -> ToolResultMessage:
     data = step_result.execution_feedback.to_model_payload()
+    backend_action_count = int(getattr(step_result, "backend_action_count", 0))
     outcome = run_context.deps.get("alfworld_episode_outcome")
     if outcome is not None:
-        outcome.backend_action_count += int(getattr(step_result, "backend_action_count", 0))
+        outcome.backend_action_count += backend_action_count
     return _receipt_tool_result(
         name=step_result.tool_name,
         success=step_result.success,
         data=data,
+        backend_attempted=backend_action_count > 0,
         failure_reason=step_result.failure_reason,
         is_error=step_result.execution_feedback.terminal,
         evidence_refs=evidence_refs,
@@ -98,9 +100,7 @@ def _validation_failure(
         success=False,
         error="invalid_tool_arguments",
         object_label=str(arguments.get("object") or "") or None,
-        target_label=str(
-            arguments.get("target") or arguments.get("target_receptacle") or ""
-        )
+        target_label=str(arguments.get("target") or arguments.get("target_receptacle") or "")
         or None,
     )
     data = feedback.to_model_payload()
@@ -139,9 +139,7 @@ def _exec_go_to(
     grounded_args = _with_grounding_metadata(grounded, {"target": target_grounding})
     if _env_type(run_context) == "AlfredTWEnv":
         try:
-            command = _translator(run_context).navigate(
-                target_receptacle=target_grounding.value
-            )
+            command = _translator(run_context).navigate(target_receptacle=target_grounding.value)
         except TranslatorValidationError as exc:
             return _validation_failure(
                 tool_name="robot_go_to",
@@ -244,16 +242,19 @@ def _receipt_tool_result(
     failure_reason: str | None = None,
     is_error: bool | None = None,
     evidence_refs: tuple[str, ...] = (),
+    backend_attempted: bool = False,
 ) -> ToolResultMessage:
+    model_data = dict(data)
     if evidence_refs:
-        data = {**data, "evidence_refs": list(evidence_refs)}
-    content = [ContentBlock(text=_json_dumps(data))]
+        model_data["evidence_refs"] = list(evidence_refs)
+    machine_data = {**model_data, "backend_attempted": backend_attempted}
+    content = [ContentBlock(text=_json_dumps(model_data))]
     return ToolResultMessage(
         tool_call_id="",
         name=name,
         content=content,
         is_error=(False if success else bool(is_error)),
-        data=data,
+        data=machine_data,
     )
 
 

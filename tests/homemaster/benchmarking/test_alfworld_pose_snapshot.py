@@ -30,6 +30,7 @@ def _inputs(*, reverse: bool = False) -> ScanPolicyInput:
         SceneObjectScanInput(
             exact_object_id="Drawer|1",
             object_type="Drawer",
+            receptacle=True,
             position=(1.0, 0.5, 1.0),
             parent_receptacle_ids=(),
             receptacle_object_ids=("Mug|1",),
@@ -40,6 +41,7 @@ def _inputs(*, reverse: bool = False) -> ScanPolicyInput:
         SceneObjectScanInput(
             exact_object_id="Mug|1",
             object_type="Mug",
+            receptacle=False,
             position=(1.1, 0.6, 1.1),
             parent_receptacle_ids=("Drawer|1",),
             receptacle_object_ids=(),
@@ -50,6 +52,7 @@ def _inputs(*, reverse: bool = False) -> ScanPolicyInput:
         SceneObjectScanInput(
             exact_object_id="Cabinet|1",
             object_type="Cabinet",
+            receptacle=True,
             position=(2.0, 0.0, 2.0),
             parent_receptacle_ids=(),
             receptacle_object_ids=(),
@@ -95,16 +98,10 @@ def _inputs(*, reverse: bool = False) -> ScanPolicyInput:
 def test_oracle_pose_match_accepts_thor_normalization_but_rejects_real_drift() -> None:
     requested = OraclePose(-5.5, 0.9010564, 1.0, 183.164758, -12.88501)
 
-    assert oracle_pose_matches(
-        OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -12.0), requested
-    )
+    assert oracle_pose_matches(OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -12.0), requested)
     assert oracle_pose_matches(OraclePose(0, 0.9, 0, 0.0, 0), OraclePose(0, 0.9, 0, 360, 0))
-    assert not oracle_pose_matches(
-        OraclePose(-5.499, 0.9010564, 1.0, 183.164764, -12.0), requested
-    )
-    assert not oracle_pose_matches(
-        OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -11.0), requested
-    )
+    assert not oracle_pose_matches(OraclePose(-5.499, 0.9010564, 1.0, 183.164764, -12.0), requested)
+    assert not oracle_pose_matches(OraclePose(-5.5, 0.9010564, 1.0, 183.164764, -11.0), requested)
 
 
 def test_scan_plan_is_canonical_and_merges_initial_pose_provenance() -> None:
@@ -126,9 +123,7 @@ def test_scan_plan_is_canonical_and_merges_initial_pose_provenance() -> None:
 def test_scan_policy_rejects_non_finite_reachable_and_broken_containment() -> None:
     base = _inputs()
     with pytest.raises(ValueError, match="finite"):
-        SceneScanPlanBuilder().build(
-            replace(base, reachable_payload=b'[{"x":NaN,"y":0,"z":1}]')
-        )
+        SceneScanPlanBuilder().build(replace(base, reachable_payload=b'[{"x":NaN,"y":0,"z":1}]'))
 
     broken = replace(
         base.objects[0],
@@ -139,9 +134,7 @@ def test_scan_policy_rejects_non_finite_reachable_and_broken_containment() -> No
 
 
 def test_pose_hash_includes_y_and_vocabulary_is_pinned() -> None:
-    assert pose_sha256(OraclePose(1, 2, 3, 4, 5)) != pose_sha256(
-        OraclePose(1, 2.5, 3, 4, 5)
-    )
+    assert pose_sha256(OraclePose(1, 2, 3, 4, 5)) != pose_sha256(OraclePose(1, 2.5, 3, 4, 5))
     vocabulary = load_public_object_vocabulary()
     assert len(vocabulary.object_types) == 25
     assert vocabulary.canonical_sha256 == (
@@ -206,29 +199,41 @@ def test_snapshot_rejects_invalid_published_row_and_store_distinguishes_overlays
     store = FrozenOraclePoseStore()
     store.publish(snapshot)
 
-    assert store.get_pose(
-        scene_generation=1,
-        scene_reset_fingerprint=_sha("scene"),
-        exact_anchor_id="Drawer|1",
-    ).status == "ok"
-    assert store.get_pose(
-        scene_generation=1,
-        scene_reset_fingerprint=_sha("scene"),
-        exact_anchor_id="missing",
-    ).status == "absent"
-    assert store.get_pose(
-        scene_generation=2,
-        scene_reset_fingerprint=_sha("scene"),
-        exact_anchor_id="Drawer|1",
-    ).status == "stale"
-
-    for status in ("relocated", "malformed", "stale", "error"):
-        store.set_overlay("Drawer|1", status=status, evidence_ref=f"overlay/{status}.json")
-        assert store.get_pose(
+    assert (
+        store.get_pose(
             scene_generation=1,
             scene_reset_fingerprint=_sha("scene"),
             exact_anchor_id="Drawer|1",
-        ).status == status
+        ).status
+        == "ok"
+    )
+    assert (
+        store.get_pose(
+            scene_generation=1,
+            scene_reset_fingerprint=_sha("scene"),
+            exact_anchor_id="missing",
+        ).status
+        == "absent"
+    )
+    assert (
+        store.get_pose(
+            scene_generation=2,
+            scene_reset_fingerprint=_sha("scene"),
+            exact_anchor_id="Drawer|1",
+        ).status
+        == "stale"
+    )
+
+    for status in ("relocated", "malformed", "stale", "error"):
+        store.set_overlay("Drawer|1", status=status, evidence_ref=f"overlay/{status}.json")
+        assert (
+            store.get_pose(
+                scene_generation=1,
+                scene_reset_fingerprint=_sha("scene"),
+                exact_anchor_id="Drawer|1",
+            ).status
+            == status
+        )
 
     with pytest.raises(ValueError):
         replace(snapshot.entries[0], status="ok")

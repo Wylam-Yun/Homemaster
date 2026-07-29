@@ -188,6 +188,25 @@ YAML 单项混拼。`gateway.feishu.domain` 只允许 `feishu` 或 `lark`；完�
 0 且唯一 canary 精确匹配一次。媒体、reaction、群状态、reconnect 和 `lark` domain 仍为 `UNVERIFIED`。
 localized post、真实 card `header/elements` 入站解析及 Markdown 链接/多表格完整 renderer 尚未迁移完成。
 
+### 飞书驱动 ALFWorld
+
+ALFWorld 具身模式复用同一个飞书 Gateway，但不会把 ALFWorld/Torch 重装进 HomeMaster 环境。
+HomeMaster 通过 loopback HTTP 启动配置中指定的 ALFWorld Python worker；Gateway 独占绑定一个固定
+episode 和一个飞书 session，进程退出时一并关闭 worker、Unity 和可选的 Xvfb。
+
+```bash
+# 真实路径只写在 ignored、mode-0600 的 config/homemaster.yaml：
+# alfworld_gateway.python_executable / asset_root / data_root /
+# config_path / trial_manifest / display
+PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --alfworld \
+  --config config/homemaster.yaml
+```
+
+模型若调用 `task_planner`，飞书会展示结构化子任务；未调用时不会拦截或强制重试。每次真正触达
+backend 的 `robot_go_to` / `robot_manipulate` 后，Runtime 要求模型单独调用 `observe`。飞书按事件顺序
+展示语义动作说明及其对应图片，并转发模型可见回复；`usage.update`、thinking、原始
+tool started/completed 等内部事件只保留在 JSONL trace，不发送给用户。
+
 ## 跑一个任务
 
 实时输出模式：
@@ -272,7 +291,14 @@ post_change_anomaly <TICKET_PATH 的绝对路径输出>
 
 `AlfredThorEnv` 模式使用真实 THOR scene state 评测高层规划。V1.8 在模型循环前验证 exact trial manifest，执行 controlled-time reset scan，并原子发布 immutable Oracle pose snapshot；公开工具保持为 `robot_go_to`、`robot_manipulate`、`robot_verify` 和 `task_progress_check`。
 
-`robot_go_to` 先验证当前成功 Provider 请求与 THOR event 的 frame 绑定，再从 frozen scene index 解析语义目标：优先选择当前 strict-visible 实例，没有可见匹配时允许使用同一 reset snapshot 中的唯一 exact pose 尝试一次离屏导航。返回 event 必须让准确目标 strict-visible，否则按 Harness 导航失败终止。导航校验把 physical world 和 ALFWorld control state 分开；持有物随 agent 移动的 geometry 会规范化，但 inventory、`isPickedUp`、containment 和任务状态仍参与完整性检查。所有 manipulation 通过统一外部动作网关和强类型反馈返回，内部 objectId、坐标、候选和 snapshot authority 不进入 Provider body。
+`robot_go_to` 先验证当前成功 Provider 请求与 THOR event 的 frame 绑定，再从 frozen scene index
+解析语义目标：优先选择当前 strict-visible 实例，默认允许使用同一 reset snapshot 中的唯一 exact
+pose 尝试一次离屏导航。`alfworld_gateway.allow_offscreen_object_navigation: false` 可用于位置记忆实验：
+strict-invisible non-receptacle 在任何 THOR 动作前返回 `target_not_visible`，offscreen receptacle
+仍可作为搜索锚点导航；默认 `true` 保留 V1.8 点导航能力。冻结与当前 receptacle metadata 必须一致，
+返回 event 必须让准确目标 strict-visible。内部 objectId、containment、坐标、候选和 snapshot
+authority 不进入 Provider body；只有可供 `add_memory` 回传的 run-bound opaque evidence ref 会进入
+模型 tool-result content。
 
 ```bash
 export ALFWORLD_DATA=/path/to/alfworld/data
@@ -342,8 +368,8 @@ non-live 验证，具体外部 API/设备符号保持 `UNVERIFIED`，hkust4 测�
 ## 架构
 
 默认入口是 **ApplicationRuntime**（`src/homemaster/application/`），其内部使用统一
-AgentRuntime 和 application-owned ToolExecutor。CLI、Interactive、ALFWorld 与 Coworker 共享同一个
-ordinary-name Registry；每个 run 只冻结 provider request、generation 和环境绑定，不再冻结工具子集。
+AgentRuntime 和 application-owned ToolExecutor。CLI、Interactive、ALFWorld 与 Coworker 共享同一套
+ordinary-name 工具协议，但在 composition 时只组合通用工具与当前显式环境的工具。
 
 **Tool 系统**：Home 正式 alias 包括 `robot_go_to` 与显式 `observe`。`observe({})` 是 Home、ALFWorld
 和 Coworker 共用的当前画面截图工具：成功时模型只收到一张 PNG，不含文字、DOM、状态或审计元数据；它只用于
@@ -357,11 +383,13 @@ ordinary-name Registry；每个 run 只冻结 provider request、generation 和�
 `load_skill(name=...)` 读取完整 `SKILL.md`；Skill 正文不会预加载，`/<skill-name>` 继续支持参数和已配置
 模型覆盖。
 
-**默认工具**：universal Registry 提供文件、`bash`、联网、
+**默认工具**：本地机器人 Registry 提供文件、`bash`、联网、
 LSP、图片、计划、配置、Cron、后台任务、子 agent 和团队。后台 Cron 用
 `homemaster cron start|status|stop` 管理；child worker 显式继承父应用配置。远程
 `ask_user_question` 会把 session 置为等待态，并在下一条 channel 消息到达后恢复，而不是占住 webhook。
-Home、ALFWorld 与 Coworker 入口看到相同普通名称集合；环境只注入 Backend，不筛选工具。
+普通 Gateway 只披露通用工具；本地机器人、ALFWorld 与 Coworker 分别只追加自己的环境工具。
+`--gateway --alfworld` 因此包含 `robot_go_to`、`robot_manipulate`、`robot_verify` 与 `observe`，
+但不包含 Coworker 浏览器工具。
 
 **MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
 结果并加入 application Registry；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、
@@ -376,7 +404,8 @@ disconnect/emergency-stop fencing 阻止等待动作，并把已开始动作标�
 固定 `feishu-owner`，同时保留 typed tenant/channel/chat/thread/sender identity 与 delivery context，确定性路由到
 application-owned session，并只向现有 `ApplicationRuntime.run(RunRequest)` 提交请求。bounded priority
 bus 对 progress 合并/淘汰，MEDIA/final/error/cancel 保留并反压；远程 progress 只能来自严格
-allowlist、文本不改写的公共事件投影，终态 `RunResult` 只发送一次 final。每条 outbound 在 egress 重新
+allowlist 的公共事件投影；ALFWorld 只投影可选计划、语义动作进度、动作后媒体和模型回复，不投影
+usage、thinking 或原始工具生命周期名。终态 `RunResult` 只发送一次 final。每条 outbound 在 egress 重新
 核对 generation；shutdown 在一个 deadline 内处理 drain、子进程 channel 和 service join。默认配置关闭
 Gateway。安装 `gateway` extra，在 ignored、mode-0600 的真实 YAML 中填写 `app_id/app_secret` 后运行：
 

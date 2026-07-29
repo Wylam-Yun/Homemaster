@@ -9,7 +9,7 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import AssistantMessage
 from homemaster.application import (
@@ -137,7 +137,7 @@ class CoworkerApplicationEntry:
         event_sink: Any,
         sync_backend_adapter: Any,
     ) -> None:
-        registry = build_universal_tool_registry()
+        registry = build_tool_registry(environment="coworker")
         bus = EventBus(public_projector=build_coworker_stream_projector())
         scope = RunResourceScope()
         if not callable(getattr(sync_backend_adapter, "submit", None)):
@@ -201,9 +201,7 @@ class CoworkerApplicationEntry:
             raise RuntimeError("Coworker application entry is closed")
         thread_adapter = request.dependencies.get("sync_backend_adapter")
         if thread_adapter is None or not callable(getattr(thread_adapter, "run", None)):
-            raise ValueError(
-                "Coworker runs require a borrowed thread-owned sync_backend_adapter"
-            )
+            raise ValueError("Coworker runs require a borrowed thread-owned sync_backend_adapter")
         return self._runner.run(self.application.run(request))
 
     def close(self) -> None:

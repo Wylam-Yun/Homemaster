@@ -158,6 +158,20 @@ def test_gateway_projection_preserves_secrets_queries_and_host_paths_in_free_tex
     )
 
 
+def test_gateway_projection_preserves_assistant_reply_bytes_exactly() -> None:
+    reply = "  模型原回复\n第二行  "
+
+    projected = PublicEventProjection().project(
+        _event(
+            "assistant.reply",
+            payload={"reply": reply, "finish_reason": "tool_calls"},
+        )
+    )
+
+    assert projected is not None
+    assert projected.content == reply
+
+
 @pytest.mark.asyncio
 async def test_bounded_stream_backpressures_and_closes_without_subscribers() -> None:
     bus = EventBus(capacity=1)
@@ -322,9 +336,7 @@ def test_coworker_projector_preserves_free_text_and_structurally_summarizes_tool
             "assistant.reply",
             payload={"reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"},
         )
-    ) == AssistantTextDelta(
-        text="https://example.invalid/file?X-Amz-Signature=deadbeef"
-    )
+    ) == AssistantTextDelta(text="https://example.invalid/file?X-Amz-Signature=deadbeef")
 
     terminal = project(
         _event(
@@ -348,46 +360,93 @@ def test_coworker_projector_preserves_free_text_and_structurally_summarizes_tool
     assert secret not in failure.message
 
 
-def test_gateway_projection_is_allowlisted_correlated_and_preserves_values() -> None:
-    secret = "configured-provider-secret"
+def test_gateway_projection_drops_internal_telemetry_and_raw_tool_events() -> None:
     projection = PublicEventProjection()
-    event = _event(
-        "tool.call_completed",
-        name="observe",
-        tool_call_id="call-1",
-        payload={
-            "result": "done",
-            "usage": {
-                "nested": [
-                    {
-                        "api_key": "raw-key",
-                        "token": secret,
-                        "path": "/private/work/result.png",
-                        "uri": "https://example.invalid/file?token=raw",
-                        "safe": "ready",
-                    }
-                ]
-            },
-            "data": {
-                "token": secret,
-                "path": "/private/work/result.png",
-                "uri": "https://example.invalid/file?token=raw",
-            },
-        },
+    assert projection.project(_event("usage.update", payload={"total_tokens": 42})) is None
+    assert (
+        projection.project(
+            _event(
+                "tool.call_started",
+                name="robot_go_to",
+                payload={"arguments": {"target": "pencil"}},
+            )
+        )
+        is None
+    )
+    assert (
+        projection.project(
+            _event(
+                "tool.call_failed",
+                name="robot_manipulate",
+                payload={
+                    "result": "must observe first",
+                    "data": {
+                        "status": "invalid",
+                        "error_code": "model_observation_protocol_rejected",
+                        "backend_attempted": False,
+                    },
+                },
+            )
+        )
+        is None
+    )
+    assert (
+        projection.project(
+            _event(
+                "tool.call_completed",
+                name="unrelated_tool",
+                payload={"result": "raw", "data": {"success": True}},
+            )
+        )
+        is None
     )
 
-    public = projection.project(event)
 
-    assert public is not None
-    assert public.session_id == "session-a"
-    assert public.run_id == "run-a"
-    assert public.turn_index == 0
-    assert public.correlation_id == "call-1"
-    encoded = json.dumps(public.to_dict())
-    assert secret in encoded
-    assert "raw-key" in encoded
-    assert "/private/work" in encoded
-    assert "?token=" in encoded
+def test_gateway_projection_renders_plan_and_embodied_progress() -> None:
+    projection = PublicEventProjection()
+    plan = projection.project(
+        _event(
+            "tool.call_completed",
+            name="task_planner",
+            payload={
+                "data": {
+                    "subtasks": [
+                        {"id": "1", "description": "找到 Pencil"},
+                        {"id": "2", "description": "拿起 Pencil"},
+                    ]
+                }
+            },
+        )
+    )
+    navigation = projection.project(
+        _event(
+            "tool.call_completed",
+            name="robot_go_to",
+            payload={"data": {"success": True, "target": "pencil"}},
+        )
+    )
+    manipulation = projection.project(
+        _event(
+            "tool.call_completed",
+            name="robot_manipulate",
+            payload={
+                "data": {
+                    "success": True,
+                    "action": "put",
+                    "object": "pencil 1",
+                    "target": "shelf",
+                }
+            },
+        )
+    )
+
+    assert plan is not None
+    assert plan.content == "执行计划：\n1. 找到 Pencil\n2. 拿起 Pencil"
+    assert navigation is not None
+    assert navigation.content.startswith("已导航到 pencil。")
+    assert manipulation is not None
+    assert "pencil 1" in manipulation.content
+    assert "shelf" in manipulation.content
 
 
 def test_gateway_projection_rejects_private_and_unknown_events() -> None:

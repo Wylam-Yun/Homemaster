@@ -95,9 +95,7 @@ class SessionRuntime:
             raise ValueError("session and agent state ids differ")
         if not self.agent_state.session_id:
             self.agent_state.session_id = self.session.session_id
-        self.canonical_evidence_refs = _validated_evidence_refs(
-            self.canonical_evidence_refs
-        )
+        self.canonical_evidence_refs = _validated_evidence_refs(self.canonical_evidence_refs)
         self.turn_lock = asyncio.Lock()
         self.state_lock = threading.RLock()
         self.active_task: asyncio.Task[Any] | None = None
@@ -383,7 +381,9 @@ class SessionManager:
         self._backend = (
             backend
             if backend is not None
-            else SessionFileBackend(session_root) if session_root is not None else None
+            else SessionFileBackend(session_root)
+            if session_root is not None
+            else None
         )
         self._manager_lock = asyncio.Lock()
 
@@ -573,11 +573,15 @@ def _snapshot_payload(
     model: str,
     system_prompt: str,
 ) -> dict[str, Any]:
+    unconsumed_call_id = runtime.agent_state.unconsumed_observation_tool_call_id
     payload = runtime.session.to_snapshot_dict(
         agent_state=runtime.agent_state,
         task_state_store=runtime.task_state_store,
         model=model,
         system_prompt=system_prompt,
+        preserve_image_tool_call_ids=(
+            frozenset({unconsumed_call_id}) if unconsumed_call_id is not None else frozenset()
+        ),
     )
     payload.update(
         {

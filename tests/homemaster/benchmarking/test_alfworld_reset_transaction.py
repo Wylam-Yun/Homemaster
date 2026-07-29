@@ -61,6 +61,7 @@ def _object() -> SceneObjectScanInput:
     return SceneObjectScanInput(
         exact_object_id="Mug|1",
         object_type="Mug",
+        receptacle=False,
         position=(1.0, 0.8, 1.0),
         parent_receptacle_ids=(),
         receptacle_object_ids=(),
@@ -191,11 +192,14 @@ def test_reset_transaction_executes_full_sequence_and_publishes_once() -> None:
         "ChangeTimeScale",
     ]
     assert backend.close_calls == 0
-    assert store.get_pose(
-        scene_generation=1,
-        scene_reset_fingerprint=_sha("scene"),
-        exact_anchor_id="Mug|1",
-    ).status == "ok"
+    assert (
+        store.get_pose(
+            scene_generation=1,
+            scene_reset_fingerprint=_sha("scene"),
+            exact_anchor_id="Mug|1",
+        ).status
+        == "ok"
+    )
 
 
 def test_reset_accepts_thor_pose_normalization_and_stores_returned_pose() -> None:
@@ -210,16 +214,17 @@ def test_reset_accepts_thor_pose_normalization_and_stores_returned_pose() -> Non
     )
     store = FrozenOraclePoseStore()
 
-    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(
-        _transaction_input()
-    )
+    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(_transaction_input())
 
     assert result.ready
-    assert store.get_pose(
-        scene_generation=1,
-        scene_reset_fingerprint=_sha("scene"),
-        exact_anchor_id="Mug|1",
-    ).pose == NORMALIZED_SCAN_POSE
+    assert (
+        store.get_pose(
+            scene_generation=1,
+            scene_reset_fingerprint=_sha("scene"),
+            exact_anchor_id="Mug|1",
+        ).pose
+        == NORMALIZED_SCAN_POSE
+    )
 
 
 def test_reset_failure_recovers_time_and_never_publishes_partial_snapshot() -> None:
@@ -233,9 +238,7 @@ def test_reset_failure_recovers_time_and_never_publishes_partial_snapshot() -> N
         ]
     )
     store = FrozenOraclePoseStore()
-    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(
-        _transaction_input()
-    )
+    result = AlfworldResetTransaction(backend=backend, pose_store=store).run(_transaction_input())
 
     assert not result.ready
     assert result.evidence_ref is None
@@ -357,13 +360,9 @@ def test_reset_persists_recomputable_snapshot_ledger_and_events(tmp_path: Path) 
         event_payload = json.loads((tmp_path / response["event_ref"]).read_text())
         assert _json_sha(event_payload) == response["event_payload_sha256"]
         assert _json_sha(event_payload["world_payload"]) == event_payload["world_sha256"]
-        assert (
-            _json_sha(event_payload["control_payload"])
-            == event_payload["control_sha256"]
-        )
+        assert _json_sha(event_payload["control_payload"]) == event_payload["control_sha256"]
     assert sorted(ledger["event_files"]) == sorted(
-        path.relative_to(tmp_path).as_posix()
-        for path in (tmp_path / "events").glob("*.json")
+        path.relative_to(tmp_path).as_posix() for path in (tmp_path / "events").glob("*.json")
     )
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.tools import (
@@ -128,25 +128,55 @@ def build_universal_tool_registry(
     memory_mode: str = "disabled",
     memory_enabled: bool = True,
 ) -> ToolRegistry:
-    """Build the single Registry shared by Home, ALFWorld, and Coworker."""
+    """Compatibility builder for the historical local-robot CLI surface."""
 
-    selected = _select_universal_tools(
-        {
-            "home": _home_tools(
-                world_path=world_path,
-                memory_path=memory_path,
-                runtime_memory_root=runtime_memory_root,
-                memory_enabled=memory_enabled,
-            ),
-            "alfworld": _alfworld_tools(
-                memory_mode=memory_mode,
-                memory_path=memory_path,
-                runtime_memory_root=runtime_memory_root,
-            ),
-            "coworker": _coworker_tools(),
-        }
+    return build_tool_registry(
+        environment="local_robot",
+        world_path=world_path,
+        memory_path=memory_path,
+        runtime_memory_root=runtime_memory_root,
+        memory_mode=memory_mode,
+        memory_enabled=memory_enabled,
     )
 
+
+def build_tool_registry(
+    *,
+    environment: Literal["local_robot", "alfworld", "coworker"] | None,
+    world_path: Path | None = None,
+    memory_path: Path | None = None,
+    runtime_memory_root: Path | None = None,
+    memory_mode: str = "disabled",
+    memory_enabled: bool = True,
+) -> ToolRegistry:
+    """Compose common tools with exactly one explicit environment tool set."""
+
+    home_tools = _home_tools(
+        world_path=world_path,
+        memory_path=memory_path,
+        runtime_memory_root=runtime_memory_root,
+        memory_enabled=memory_enabled,
+    )
+    robot_names = {"robot_go_to", "robot_manipulate", "robot_verify"}
+    sources: dict[str, tuple[RegisteredTool, ...]] = {
+        "home": tuple(tool for tool in home_tools if tool.definition.model_alias not in robot_names)
+    }
+    if environment == "local_robot":
+        sources["local_robot"] = tuple(
+            tool for tool in home_tools if tool.definition.model_alias in robot_names
+        )
+    elif environment == "alfworld":
+        sources["alfworld"] = _alfworld_tools(
+            memory_mode=memory_mode,
+            memory_path=memory_path,
+            runtime_memory_root=runtime_memory_root,
+        )
+    elif environment == "coworker":
+        sources["coworker"] = _coworker_tools()
+    elif environment is not None:
+        raise ValueError(f"unsupported tool environment: {environment}")
+
+    selected = _select_universal_tools(sources)
     registry = ToolRegistry()
     registry.register_many(from_registered_tool(tool) for tool in selected)
     return registry
@@ -170,7 +200,8 @@ def _select_universal_tools(
         if (
             collision is None
             or len(source_names) != len(set(source_names))
-            or set(source_names) != collision[1]
+            or not set(source_names).issubset(collision[1])
+            or collision[0] not in source_names
         ):
             raise ValueError(
                 f"unapproved duplicate tool name {name!r} from sources {source_names!r}"
@@ -351,6 +382,9 @@ def _adapted_tool(
         ),
         resource_key=f"{environment}:backend" if state_effects else None,
         required_capabilities=required_capabilities,
+        requires_model_observation=(
+            environment == "alfworld" and alias in {"robot_go_to", "robot_manipulate"}
+        ),
     )
     verifier = None
     if policy.execution_proof is not ExecutionProof.NONE:
@@ -445,4 +479,8 @@ def _coworker_task_tool(spec: Any, *, planner: bool) -> Any:
     return spec.model_copy(update={"executor": executor})
 
 
-__all__ = ["CoworkerScreenshotBackend", "build_universal_tool_registry"]
+__all__ = [
+    "CoworkerScreenshotBackend",
+    "build_tool_registry",
+    "build_universal_tool_registry",
+]

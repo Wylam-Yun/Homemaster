@@ -1,0 +1,3 @@
+A state-changing environment action was attempted.
+Before taking another action or giving a final answer, call `observe`
+and use the returned visual evidence to evaluate the action outcome.

@@ -108,11 +108,23 @@ def test_definition_is_deeply_immutable_serializable_and_manifest_is_derived() -
         "input_schema": snapshot["input_schema"],
     }
     assert len(definition.snapshot_sha256) == 64
-    assert definition.snapshot_sha256 == _definition(input_schema={
-        "type": "object",
-        "properties": {"text": {"type": "string", "enum": ["a", "b"]}},
-        "required": ["text"],
-    }).snapshot_sha256
+    assert (
+        definition.snapshot_sha256
+        == _definition(
+            input_schema={
+                "type": "object",
+                "properties": {"text": {"type": "string", "enum": ["a", "b"]}},
+                "required": ["text"],
+            }
+        ).snapshot_sha256
+    )
+
+
+def test_model_observation_flag_is_canonical_but_not_provider_visible() -> None:
+    definition = _definition(requires_model_observation=True)
+
+    assert definition.to_dict()["requires_model_observation"] is True
+    assert "requires_model_observation" not in definition.to_model_manifest()
 
 
 def test_registered_tool_keeps_capabilities_out_of_definition_snapshot() -> None:
@@ -120,9 +132,7 @@ def test_registered_tool_keeps_capabilities_out_of_definition_snapshot() -> None
     verifier = Verifier()
     registered = RegisteredTool(
         definition=_definition(
-            verification_policy=VerificationPolicy(
-                execution_proof=ExecutionProof.EXTERNAL_STATE
-            )
+            verification_policy=VerificationPolicy(execution_proof=ExecutionProof.EXTERNAL_STATE)
         ),
         executor=executor,
         verifier=verifier,
@@ -157,6 +167,7 @@ def test_registered_tool_keeps_capabilities_out_of_definition_snapshot() -> None
         ({"state_effects": ("robot.move", "robot.move")}, "unique"),
         ({"state_effects": "robot.move"}, "sequence of tokens"),
         ({"resource_key": "robot:one"}, "requires concurrency_policy"),
+        ({"requires_model_observation": "yes"}, "must be a boolean"),
         (
             {"concurrency_policy": ConcurrencyPolicy.RESOURCE_KEY},
             "resource_key must be",
@@ -186,6 +197,5 @@ def test_contract_module_has_no_benchmark_dependency() -> None:
 
     source_names = set(contracts.__dict__)
     assert not any(
-        name.startswith("Alfworld") or name.startswith("Coworker")
-        for name in source_names
+        name.startswith("Alfworld") or name.startswith("Coworker") for name in source_names
     )

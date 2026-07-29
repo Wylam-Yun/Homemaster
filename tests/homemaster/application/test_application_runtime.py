@@ -300,8 +300,10 @@ class _ProcedureEvidenceTransport:
                 ref
                 for message in messages
                 if message.role == "tool" and message.name == "read_observation"
-                for ref in (message.data or {}).get("evidence_refs", [])
-                if ref.startswith("memory-evidence-")
+                for ref in re.findall(
+                    r"memory-evidence-[0-9a-f]{32}",
+                    "\n".join(block.text for block in message.content if block.text),
+                )
             ]
             assert len(refs) == 2
             for delta in _tool(

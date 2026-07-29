@@ -56,6 +56,7 @@ class FakeAdapter:
             translated_command=command,
             success=True,
             state=self.state,
+            backend_action_count=1,
             execution_feedback=make_execution_feedback(
                 action=action,  # type: ignore[arg-type]
                 success=True,
@@ -82,6 +83,7 @@ class FakeAdapter:
             translated_command=f"go to target {target}",
             success=True,
             state=self.state,
+            backend_action_count=1,
             execution_feedback=make_execution_feedback(
                 action="navigate",
                 success=True,
@@ -108,6 +110,7 @@ class FakeAdapter:
             translated_command=f"thor {action}",
             success=True,
             state=self.state,
+            backend_action_count=1,
             execution_feedback=make_execution_feedback(
                 action=action,  # type: ignore[arg-type]
                 success=True,
@@ -199,6 +202,8 @@ def test_thor_go_to_uses_oracle_adapter_boundary() -> None:
     assert adapter.go_to_calls == ["remotecontrol 1"]
     assert _payload(result)["target"] == "remotecontrol 1"
     assert _payload(result)["target_state"] == "visible"
+    assert result.data["backend_attempted"] is True
+    assert "backend_attempted" not in _payload(result)
 
 
 def test_typed_payload_is_the_only_model_projection() -> None:
@@ -213,7 +218,10 @@ def test_typed_payload_is_the_only_model_projection() -> None:
     )
 
     payload = _payload(result)
-    assert payload == result.data
+    assert payload == {
+        key: value for key, value in result.data.items() if key != "backend_attempted"
+    }
+    assert result.data["backend_attempted"] is True
     encoded = json.dumps(payload, sort_keys=True)
     for forbidden in (
         "tool_args",
@@ -282,9 +290,7 @@ def test_trace_keeps_internal_evidence_while_model_projection_stays_safe() -> No
         execution_feedback=make_execution_feedback(
             action="navigate", success=True, target_label="shelf 1"
         ),
-        trace_events=(
-            {"event": "move_result", "object_id": "Shelf|1"},
-        ),
+        trace_events=({"event": "move_result", "object_id": "Shelf|1"},),
     )
 
     _write_trace(context, step)

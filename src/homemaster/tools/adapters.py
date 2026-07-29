@@ -70,6 +70,7 @@ def from_registered_tool(registered: Any) -> FunctionTool:
         execute=execute,
         read_only=read_only,
         verification_required=verification_policy.execution_proof.value != "none",
+        requires_model_observation=definition.requires_model_observation,
         external_terminal_owner=(
             verification_policy.terminal_rule.value == "external_terminal_owner"
         ),

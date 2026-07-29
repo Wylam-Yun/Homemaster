@@ -516,7 +516,11 @@ async def test_gateway_relays_only_projected_public_progress(tmp_path) -> None:
         session_id=session_id,
         run_id="run-public",
         turn_index=1,
-        payload={"reply": "public progress", "provider_private": "must-not-leak"},
+        payload={
+            "reply": "public progress",
+            "finish_reason": "tool_calls",
+            "provider_private": "must-not-leak",
+        },
         gateway_generation=1,
     )
     await application.event_bus.aemit(private)
@@ -536,7 +540,7 @@ async def test_gateway_relays_only_projected_public_progress(tmp_path) -> None:
 
     assert application.event_bus.events == [private, progress]
     assert channel.sent[0].kind is ChannelEventKind.PROGRESS
-    assert channel.sent[0].content == "tool.call_started"
+    assert channel.sent[0].content == "public progress"
     assert "provider_private" not in channel.sent[0].metadata
 
     application.release.set()
@@ -725,13 +729,13 @@ async def test_public_event_backlog_keeps_producer_gateway_generation(tmp_path) 
     for generation, call_id in ((1, "stale"), (2, "current")):
         await application.event_bus.aemit(
             RuntimeEvent(
-                type="tool.call_started",
+                type="tool.call_completed",
                 session_id=route.session_id,
                 run_id=f"run-{generation}",
                 turn_index=1,
                 tool_call_id=call_id,
-                name="observe",
-                payload={},
+                name="robot_go_to",
+                payload={"data": {"success": True, "target": "pencil"}},
                 gateway_generation=generation,
             )
         )

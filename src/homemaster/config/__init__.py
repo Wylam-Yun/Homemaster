@@ -6,6 +6,7 @@ from homemaster.config.config import (
     DEFAULT_PROVIDER_NAME,
     HOMEMASTER_CONFIG_PATH,
     REPO_ROOT,
+    AlfworldGatewayConfig,
     ApiFormatName,
     ChannelPrincipalConfig,
     ConfigError,
@@ -38,6 +39,7 @@ from homemaster.config.observability import SCHEMA_VERSION, ObservabilityConfig
 
 __all__ = [
     "ApiFormatName",
+    "AlfworldGatewayConfig",
     "ConfigError",
     "ContextPolicyConfig",
     "DEFAULT_CONTEXT_WINDOW_TOKENS",

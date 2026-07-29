@@ -148,6 +148,7 @@ class SceneScanPlan:
 class SceneObjectScanInput:
     exact_object_id: str
     object_type: str
+    receptacle: bool | None
     position: tuple[float, float, float]
     parent_receptacle_ids: tuple[str, ...]
     receptacle_object_ids: tuple[str, ...]
@@ -158,6 +159,8 @@ class SceneObjectScanInput:
     def __post_init__(self) -> None:
         _require_nonempty("exact_object_id", self.exact_object_id)
         _require_nonempty("object_type", self.object_type)
+        if self.receptacle is not None and not isinstance(self.receptacle, bool):
+            raise ValueError("receptacle must be a boolean or None")
         if len(self.position) != 3 or not all(
             math.isfinite(float(value)) for value in self.position
         ):
@@ -239,9 +242,7 @@ class SceneScanPlanBuilder:
         addressability = _addressability(objects, set(policy.public_semantic_vocabulary))
         scan_policy_sha256 = _scan_policy_sha256(policy, objects, cache, addressability)
 
-        pose_provenances: dict[OraclePose, set[ScanPoseProvenance]] = {
-            policy.initial_pose: set()
-        }
+        pose_provenances: dict[OraclePose, set[ScanPoseProvenance]] = {policy.initial_pose: set()}
         for exact_object_id in sorted(objects):
             if not addressability[exact_object_id].addressable:
                 continue

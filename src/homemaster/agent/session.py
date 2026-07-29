@@ -43,9 +43,15 @@ class AgentSession:
         model: str,
         system_prompt: str,
         strip_images: bool = True,
+        preserve_image_tool_call_ids: frozenset[str] = frozenset(),
     ) -> dict[str, Any]:
         messages = [
-            _message_to_dict(message, strip_images=strip_images, iter_index=index)
+            _message_to_dict(
+                message,
+                strip_images=strip_images,
+                iter_index=index,
+                preserve_image_tool_call_ids=preserve_image_tool_call_ids,
+            )
             for index, message in enumerate(self._messages)
         ]
         return {
@@ -97,11 +103,16 @@ def _message_to_dict(
     *,
     strip_images: bool,
     iter_index: int,
+    preserve_image_tool_call_ids: frozenset[str],
 ) -> dict[str, Any]:
     payload = message.model_dump(mode="json")
     if not strip_images:
         return payload
     tool_name = getattr(message, "name", getattr(message, "role", "unknown"))
+    preserve_images = (
+        isinstance(message, ToolResultMessage)
+        and message.tool_call_id in preserve_image_tool_call_ids
+    )
     payload["content"] = [
         (
             AgentSession._strip_image_for_persistence(
@@ -109,7 +120,7 @@ def _message_to_dict(
                 tool_name=tool_name,
                 iter_index=iter_index,
             ).model_dump(mode="json")
-            if isinstance(block, dict) and block.get("type") == "image"
+            if (isinstance(block, dict) and block.get("type") == "image" and not preserve_images)
             else block
         )
         for block in payload.get("content", [])

@@ -28,6 +28,7 @@ def test_help_exposes_only_final_commands() -> None:
     assert "--resume" in result.stdout
     assert "--continue" in result.stdout
     assert "--gateway" in result.stdout
+    assert "--alfworld" in result.stdout
     assert "--config" in result.stdout
 
 

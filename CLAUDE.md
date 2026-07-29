@@ -51,6 +51,10 @@
   `wait_for` 冒充总 deadline。未全部完成只返回 false，不能提前标 close complete。
 - Public progress 的 Gateway generation 必须在 RunRequest/event 生产时固化到 RuntimeEvent；消费 backlog
   时只核对事件携带的 generation 与 current generation，禁止读取 current 值后给旧事件重新贴标签。
+- 公共投影没有用户语义内容时必须丢弃事件，禁止用内部 event type 作为 fallback 文本。usage、thinking
+  和 raw tool lifecycle 只留内部 JSONL；具身动作进度必须与其后 observe MEDIA 用源 tool-call ID 关联。
+- 任何依赖 `backend_attempted` 建立后续协议的工具适配层，都必须把该 machine-only 字段保留到 canonical
+  `ToolResultMessage.data`，并在真实 serialized envelope 上测试；模型可见正文是否包含该字段不影响机器协议。
 - 所有 progress、final、error、cancel 文本必须经过同一 public projection；projection 负责事件类型与字段
   allowlist、ownership、generation 和 artifact 边界，不改写已选中的文本值。
 
@@ -108,6 +112,10 @@
 - 工具返回中供模型继续决策的 ID、records、状态和错误细节必须进入 provider 实际序列化的 tool-result
   `content`；只写内部 `data`/metadata/event 不算模型可见。回归必须在下一次真实 transport 请求边界解析并
   断言这些字段，禁止用 executor result 或 runtime trace 代替。
+- 模型下一轮必须回传的 opaque evidence ref/receipt/handle 必须进入具体 Provider transport 最终发送的
+  tool-result `content`，并只披露格式严格验证过的最小 token；fake transport 直接读取
+  `ToolResultMessage.data` 不算证据。测试必须从 content 解析该 token 完成一次真实后续 mutation，同时
+  负向断言内部 objectId、containment、pose、hash 和 trace 未随 token 外泄。
 - Package-data 功能必须构建并安装 wheel，再逐项枚举资源；源码 checkout 的 import/resource 测试不能
   证明发布包完整。
 - 默认 profile 的 wheel 门必须安装 wheel 声明的核心依赖，并在源码 checkout 外真实 import、构造 profile、

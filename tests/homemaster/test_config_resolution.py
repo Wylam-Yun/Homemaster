@@ -12,6 +12,7 @@ import homemaster.config as config_module
 from homemaster.channels.impl.feishu import FeishuApiService
 from homemaster.cli import doctor as doctor_module
 from homemaster.config import (
+    AlfworldGatewayConfig,
     FeishuChannelConfig,
     GatewayConfig,
     ProviderProfileConfig,
@@ -24,9 +25,9 @@ from homemaster.config.config import REPO_ROOT
 def test_default_config_path_accepts_installed_cli_environment_override(tmp_path: Path) -> None:
     configured = tmp_path / "homemaster.yaml"
 
-    assert config_impl._default_config_path(
-        {"HOMEMASTER_CONFIG_PATH": str(configured)}
-    ) == configured
+    assert (
+        config_impl._default_config_path({"HOMEMASTER_CONFIG_PATH": str(configured)}) == configured
+    )
     assert config_impl._default_config_path({}) == REPO_ROOT / "config" / "homemaster.yaml"
 
 
@@ -184,9 +185,7 @@ def test_config_has_no_runtime_secret_collection_api_and_keeps_authoritative_val
     assert not hasattr(config_module, "configured_sensitive_values")
     assert config.providers.items[0].api_keys == ("provider-secret",)
     assert config.mcp.servers["local"].env["MCP_TOKEN"] == "mcp-env-secret"
-    assert config.mcp.servers["remote"].headers["Authorization"] == (
-        "Bearer mcp-header-secret"
-    )
+    assert config.mcp.servers["remote"].headers["Authorization"] == ("Bearer mcp-header-secret")
     assert str(config.mcp.servers["remote"].url) == (
         "https://mcp-user:mcp-password@example.test/mcp"
     )
@@ -479,3 +478,40 @@ extensions:
         assert "extensions.approvals.0.expected_sha256" in message
     else:
         raise AssertionError("untyped extension approval pins must fail")
+
+
+def test_alfworld_gateway_config_is_strict_and_paths_are_required_on_use(
+    tmp_path: Path,
+) -> None:
+    config = AlfworldGatewayConfig(
+        asset_root=tmp_path / "assets",
+        data_root=tmp_path / "data",
+        config_path=tmp_path / "base.yaml",
+        python_executable=tmp_path / "hm_alfworld" / "bin" / "python",
+        trial_manifest=tmp_path / "trials.json",
+        display=":102",
+    )
+    assert config.allow_offscreen_object_navigation is True
+    assert (
+        AlfworldGatewayConfig(
+            allow_offscreen_object_navigation=False
+        ).allow_offscreen_object_navigation
+        is False
+    )
+
+    assert config.require_runtime_paths() == (
+        tmp_path / "assets",
+        tmp_path / "data",
+        tmp_path / "base.yaml",
+        tmp_path / "hm_alfworld" / "bin" / "python",
+        tmp_path / "trials.json",
+    )
+    with pytest.raises(
+        ValueError,
+        match="asset_root.*data_root.*config_path.*python_executable.*trial_manifest",
+    ):
+        AlfworldGatewayConfig().require_runtime_paths()
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        AlfworldGatewayConfig.model_validate({"unknown": True})
+    with pytest.raises(ValueError, match="explicit X display"):
+        AlfworldGatewayConfig(display="102")
