@@ -5,11 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.browser.contracts import BrowserSession
+from homemaster.browser.contracts import BrowserSession, BrowserSessionError
 from homemaster.browser.playwright_session import PlaywrightBrowserSession
 from homemaster.browser.policy import BrowserPolicy
 from homemaster.browser.tools import build_browser_registered_tools, build_browser_run_registry
-from homemaster.tools.base import ToolRegistry, ToolRegistryError
+from homemaster.tools.adapters import from_registered_tool
+from homemaster.tools.base import ToolExecutionContext, ToolRegistry, ToolRegistryError
 
 EXPECTED_METHODS = {
     "navigate",
@@ -19,6 +20,7 @@ EXPECTED_METHODS = {
     "check",
     "uncheck",
     "click",
+    "backfill",
     "wait",
     "screenshot",
     "aclose",
@@ -62,6 +64,7 @@ def test_browser_registered_tools_lock_schema_and_execution_matrix() -> None:
         "browser_check",
         "browser_uncheck",
         "browser_click",
+        "browser_backfill",
         "browser_wait",
         "observe",
     )
@@ -76,6 +79,7 @@ def test_browser_registered_tools_lock_schema_and_execution_matrix() -> None:
         "browser_check": ("snapshot_id", "element_id"),
         "browser_uncheck": ("snapshot_id", "element_id"),
         "browser_click": ("snapshot_id", "element_id"),
+        "browser_backfill": ("snapshot_id", "element_id"),
         "browser_wait": ("condition",),
         "observe": (),
     }
@@ -86,6 +90,7 @@ def test_browser_registered_tools_lock_schema_and_execution_matrix() -> None:
         "browser_check": ("browser.dom_write",),
         "browser_uncheck": ("browser.dom_write",),
         "browser_click": ("browser.interact",),
+        "browser_backfill": ("browser.dom_write",),
     }
     for name, definition in definitions.items():
         assert definition.resource_key == "browser:backend"
@@ -102,6 +107,19 @@ def test_browser_registered_tools_lock_schema_and_execution_matrix() -> None:
             assert definition.required_capabilities == ("device.read",)
             expected_proof = "structured_receipt" if name == "browser_wait" else "none"
             assert definition.verification_policy.execution_proof.value == expected_proof
+    observation_actions = {
+        name for name, definition in definitions.items() if definition.requires_model_observation
+    }
+    assert observation_actions == {
+        "browser_navigate",
+        "browser_fill",
+        "browser_select",
+        "browser_check",
+        "browser_uncheck",
+        "browser_click",
+        "browser_backfill",
+        "browser_wait",
+    }
 
 
 def test_browser_run_registry_is_frozen() -> None:
@@ -110,3 +128,26 @@ def test_browser_run_registry_is_frozen() -> None:
     assert registry.frozen is True
     with pytest.raises(ToolRegistryError, match="frozen"):
         registry.register_many(())
+
+
+@pytest.mark.asyncio
+async def test_failed_browser_action_preserves_executor_error(tmp_path: Path) -> None:
+    class _ObscuredSession:
+        async def click(self, snapshot_id: str, element_id: str):
+            del snapshot_id, element_id
+            raise BrowserSessionError("target_obscured", "target is obscured")
+
+    registered = next(
+        tool
+        for tool in build_browser_registered_tools(_ObscuredSession())
+        if tool.definition.model_alias == "browser_click"
+    )
+    tool = from_registered_tool(registered)
+    arguments = tool.input_model(snapshot_id="snapshot-1", element_id="element-1")
+
+    result = await tool.execute(arguments, ToolExecutionContext(tmp_path))
+
+    assert result.is_error is True
+    assert result.metadata["status"] == "failure"
+    assert result.metadata["error_code"] == "target_obscured"
+    assert result.output == "target is obscured"

@@ -8,6 +8,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import (
@@ -549,6 +550,42 @@ class AlfworldGatewayConfig(BaseModel):
         )
 
 
+class BrowserGatewayConfig(BaseModel):
+    """Deployment-owned Browser Gateway target and Playwright policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_url: str | None = None
+    allowed_origins: tuple[str, ...] = ()
+    headless: bool = True
+    action_timeout_ms: int = Field(default=10_000, ge=1)
+    navigation_timeout_ms: int = Field(default=20_000, ge=1)
+    wait_timeout_ms: int = Field(default=10_000, ge=1)
+
+    @model_validator(mode="after")
+    def _start_origin_is_allowed(self) -> BrowserGatewayConfig:
+        if self.start_url is None:
+            return self
+        start_origin = _http_origin(self.start_url, label="browser_gateway.start_url")
+        origins = tuple(
+            _http_origin(value, label="browser_gateway.allowed_origins")
+            for value in self.allowed_origins
+        )
+        if len(origins) != len(set(origins)):
+            raise ValueError("browser_gateway.allowed_origins must be unique")
+        if start_origin not in origins:
+            raise ValueError("browser_gateway start_url origin must be in allowed_origins")
+        self.allowed_origins = origins
+        return self
+
+    def require_runtime(self) -> tuple[str, tuple[str, ...]]:
+        if self.start_url is None:
+            raise ValueError("Browser Gateway requires configured start_url")
+        if not self.allowed_origins:
+            raise ValueError("Browser Gateway requires configured allowed_origins")
+        return self.start_url, self.allowed_origins
+
+
 class ExtensionApprovalConfig(BaseModel):
     """Deployment-owned pin and grants for one trusted local extension."""
 
@@ -604,6 +641,7 @@ class HomeMasterConfig(BaseModel):
     permissions: PermissionSettingsConfig = Field(default_factory=PermissionSettingsConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     alfworld_gateway: AlfworldGatewayConfig = Field(default_factory=AlfworldGatewayConfig)
+    browser_gateway: BrowserGatewayConfig = Field(default_factory=BrowserGatewayConfig)
     extensions: ExtensionsConfig = Field(default_factory=ExtensionsConfig)
 
     _config_path: Path | None = PrivateAttr(default=None)
@@ -645,6 +683,17 @@ class HomeMasterConfig(BaseModel):
         label = name or self.providers.default
         suffix = f" with kind {kind!r}" if kind else ""
         raise ConfigError(f"provider {label!r}{suffix} not found")
+
+
+def _http_origin(value: str, *, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty URL")
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError(f"{label} must be an absolute HTTP(S) URL")
+    default_port = 80 if parsed.scheme == "http" else 443
+    suffix = f":{parsed.port}" if parsed.port is not None and parsed.port != default_port else ""
+    return f"{parsed.scheme}://{parsed.hostname.lower()}{suffix}"
 
 
 def load_config(

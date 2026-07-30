@@ -37,6 +37,7 @@ from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.mem0_store import Mem0MemoryStore
 from homemaster.memory.migration import MemoryMigrationCoordinator
+from homemaster.prompts.loader import PromptId
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
 from homemaster.tools.adapters import from_registered_tool
@@ -115,11 +116,21 @@ def create_home_application(
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
     feishu_group_operations: FeishuGroupOperations | None = None,
-    tool_environment: Literal["local_robot", "alfworld", "coworker"] | None = "local_robot",
+    tool_environment: Literal["local_robot", "alfworld", "coworker", "browser"] | None = (
+        "local_robot"
+    ),
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
     resolved = config or load_config()
+    if tool_environment == "browser":
+        resolved = resolved.model_copy(
+            update={
+                "prompts": resolved.prompts.model_copy(
+                    update={"agent_system_prompt": PromptId.BROWSER_GATEWAY.value}
+                )
+            }
+        )
     label = run_label or f"cli-{uuid.uuid4().hex[:12]}"
     run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
     registry = build_tool_registry(

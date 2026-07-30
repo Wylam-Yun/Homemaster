@@ -50,6 +50,7 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "r=files('homemaster.skills').joinpath('builtin'); "
                 "assert r.joinpath('fetch_object','SKILL.md').is_file(); "
                 "assert r.joinpath('check_object_state','SKILL.md').is_file(); "
+                "assert r.joinpath('change-ticket-executor','SKILL.md').is_file(); "
                 "b=files('homemaster.skills').joinpath('bundled','content'); "
                 "expected={'commit.md','debug.md','diagnose.md','plan.md','review.md',"
                 "'simplify.md','skill-creator.md','test.md'}; "

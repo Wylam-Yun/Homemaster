@@ -364,6 +364,35 @@ uv run homemaster --gateway --config config/homemaster.yaml
 `homemaster --gateway` 仅运行飞书/Lark Gateway，不启动交互 shell。兼容入口
 `homemaster gateway --config ...` 保持可用。
 
+### Browser Gateway
+
+在同一份 ignored 配置中增加允许的 Ant Design Pro Mock UI 入口：
+
+```yaml
+browser_gateway:
+  start_url: http://127.0.0.1:8000/dashboard/automation
+  allowed_origins:
+    - http://127.0.0.1:8000
+  headless: true
+  action_timeout_ms: 15000
+  navigation_timeout_ms: 30000
+  wait_timeout_ms: 10000
+```
+
+`start_url` 必须属于 `allowed_origins`。一个 Gateway 进程只选择一个环境；Browser 与
+ALFWorld 不能同时启用：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --browser \
+  --config config/homemaster.yaml
+```
+
+Browser profile 保留 Home 通用工具，并按 run 增加九个 `browser_*` 工具和
+session-bound `observe`。变更单任务先用 `load_skill(name="change-ticket-executor")` 加载
+唯一通用 Skill；具体 SOP 只从飞书正文链接的票据读取。写操作、wait 和图片回填后必须
+`observe`；截图继续沿用现有 Gateway MEDIA 出站链路。详见
+[Browser Gateway 用户指南](browser-gateway-user-guide.md)。
+
 私聊、群聊和 thread 按 tenant/channel/chat/thread/sender 生成稳定 session；权限相同但会话仍按 sender
 隔离。malformed、合成 bot sender 和重复消息在附件下载/reaction 前拒绝。媒体先写入受 containment、
 no-follow 和非零 regular-file 校验的根目录。出站媒体使用 opaque artifact handle，base64 在形成公开

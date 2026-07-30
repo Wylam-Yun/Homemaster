@@ -1,5 +1,54 @@
 # Engineering Pitfalls
 
+## 2026-07-29 - Clipboard 回填接受事件和 DOM 变化仍会误报成功
+
+### 症状与根因
+
+回填工具收到页面的 `preventDefault()`，随后也观察到 DOM hash 变化，因此返回成功；但坏控件
+只是显示“读取失败”文本，没有生成截图预览。原判据只证明页面处理了 paste 事件并发生某种变化，
+没有证明目标 PNG 真正进入回填内容，属于外部终态假阳性。
+
+### 修法与教训
+
+发送前锁定 PNG 字节和 SHA-256，paste 后等待页面出现与该 PNG 完全相同的 image data URL；
+成功回执同时给出 source 和 preview SHA-256。测试必须包含一个会接受事件并改变错误 DOM、但不
+生成图片的对抗控件，并断言 `backfill_rejected`。验证外部写入时要核对目标内容同一性，不能用
+“事件被接收”或“任意状态变化”替代。
+
+### 参考
+
+- `src/homemaster/browser/playwright_session.py`
+- `tests/homemaster/browser/fixtures/controls.html`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `tests/homemaster/integration/test_generic_browser_ant_runtime.py`
+
+## 2026-07-29 - 浏览器首屏外目标误报遮挡，失败回执又被 verifier 掩盖
+
+### 症状与根因
+
+fixture 和工具单测全绿，但真实 Ant Design Pro 页面上的“确认执行”和“确认回填”返回
+`target_obscured`，后续 wait 超时。目标本身没有被 overlay 覆盖，只是位于当前 viewport 外；
+actionability 检查在 Playwright 滚动前就用 `elementFromPoint` 判定遮挡，把屏幕外坐标当成了
+遮挡。浏览器 executor 正确返回失败后，结构化回执 verifier 又无条件构造 `PASSED`；失败结果
+没有 evidence ref，构造异常被通用 adapter 转成 `verification_pending`，原始错误因此被二次
+异常掩盖。
+
+### 修法与教训
+
+解析并核对元素身份后，先调用 Playwright `scroll_into_view_if_needed()`，再刷新 visible、enabled
+和 obscured 状态；真实首屏外按钮回归必须完成点击并读取 DOM 变化。结构化回执 verifier 只认证
+成功 executor 的 evidence receipt；executor 已失败时返回未完成认证记录，保留原始 status、error
+code 和 backend-attempted 语义。端到端门必须同时检查逐动作 JSONL 和页面外部终态，不能只看
+provider 最终回复或 verifier 状态。
+
+### 参考
+
+- `src/homemaster/browser/playwright_session.py`
+- `src/homemaster/browser/tools.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `tests/homemaster/browser/test_contracts_and_tools.py`
+- `tests/homemaster/integration/test_generic_browser_ant_runtime.py`
+
 ## 2026-07-29 - 记忆证据只在内部 message.data，真实 Provider 无法自主写入记忆
 
 ### 症状与根因

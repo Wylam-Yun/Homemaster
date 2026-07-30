@@ -118,6 +118,8 @@ class BrowserSession(Protocol):
 
     async def click(self, snapshot_id: str, element_id: str) -> Mapping[str, object]: ...
 
+    async def backfill(self, snapshot_id: str, element_id: str) -> Mapping[str, object]: ...
+
     async def wait(self, condition: Mapping[str, object]) -> Mapping[str, object]: ...
 
     async def screenshot(self) -> bytes: ...
@@ -136,6 +138,7 @@ def audit_browser_session_implementation(implementation: object) -> None:
             "check",
             "uncheck",
             "click",
+            "backfill",
             "wait",
             "screenshot",
             "aclose",

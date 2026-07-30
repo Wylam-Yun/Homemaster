@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import time
@@ -56,6 +57,7 @@ class PlaywrightBrowserSession:
         self._context: Any = None
         self._page: Any = None
         self._video: Any = None
+        self._origin_violation: BrowserSessionError | None = None
 
     @property
     def fenced(self) -> bool:
@@ -79,6 +81,7 @@ class PlaywrightBrowserSession:
                 record_video_dir=str(self.video_dir),
                 record_video_size={"width": 1280, "height": 720},
             )
+            await self._context.route("**/*", self._route_request)
             await self._context.tracing.start(screenshots=True, snapshots=True, sources=False)
             self._page = await self._context.new_page()
             self._video = self._page.video
@@ -116,6 +119,7 @@ class PlaywrightBrowserSession:
             self.generation += 1
             self._snapshots.invalidate()
             final_url = self._page.url
+            self.policy.validate_final_url(final_url)
             return {
                 "requested_url": requested,
                 "final_url": final_url,
@@ -302,6 +306,7 @@ class PlaywrightBrowserSession:
             await element.handle.click(timeout=self.policy.action_timeout_ms)
             await self._page.wait_for_timeout(50)
             after_url = self._page.url
+            self.policy.validate_final_url(after_url)
             after_hash = await self._dom_hash()
             if after_url != before_url:
                 self.generation += 1
@@ -320,6 +325,102 @@ class PlaywrightBrowserSession:
             {"snapshot_id": snapshot_id, "element_id": element_id},
             action,
             timeout_ms=self.policy.action_timeout_ms,
+            mutating=True,
+        )
+
+    async def backfill(self, snapshot_id: str, element_id: str) -> Mapping[str, object]:
+        async def action() -> Mapping[str, object]:
+            element, state = await self._target(snapshot_id, element_id)
+            if not bool(state["editable"]) or element.control_type not in {
+                "input",
+                "text",
+                "textarea",
+                "contenteditable",
+            }:
+                raise BrowserSessionError(
+                    "unsupported_control", "target cannot receive a clipboard backfill"
+                )
+            png = await self._page.screenshot(type="png", timeout=self.policy.action_timeout_ms)
+            png_base64 = base64.b64encode(png).decode("ascii")
+            expected_data_url = f"data:image/png;base64,{png_base64}"
+            expected_sha256 = hashlib.sha256(png).hexdigest()
+            before_hash = await self._dom_hash()
+            paste = dict(
+                await element.handle.evaluate(
+                    """
+                    (el, payload) => {
+                      const binary = atob(payload.base64);
+                      const bytes = new Uint8Array(binary.length);
+                      for (let index = 0; index < binary.length; index += 1) {
+                        bytes[index] = binary.charCodeAt(index);
+                      }
+                      const file = new File([bytes], payload.fileName, {
+                        type: payload.mimeType,
+                      });
+                      const clipboard = new DataTransfer();
+                      clipboard.items.add(file);
+                      const event = new ClipboardEvent('paste', {
+                        bubbles: true,
+                        cancelable: true,
+                        clipboardData: clipboard,
+                      });
+                      el.focus();
+                      const dispatchReturned = el.dispatchEvent(event);
+                      return {
+                        default_prevented: event.defaultPrevented,
+                        dispatch_returned: dispatchReturned,
+                        clipboard_file_count: event.clipboardData.files.length,
+                        clipboard_item_count: event.clipboardData.items.length,
+                      };
+                    }
+                    """,
+                    {
+                        "base64": png_base64,
+                        "fileName": "homemaster-browser-backfill.png",
+                        "mimeType": "image/png",
+                    },
+                )
+            )
+            self._snapshots.invalidate()
+            deadline = time.monotonic() + self.policy.action_timeout_ms / 1000
+            after_hash = await self._dom_hash()
+            preview_match = await self._has_exact_image_preview(expected_data_url)
+            while (after_hash == before_hash or not preview_match) and time.monotonic() < deadline:
+                await self._page.wait_for_timeout(25)
+                after_hash = await self._dom_hash()
+                preview_match = await self._has_exact_image_preview(expected_data_url)
+            paste_accepted = bool(paste.get("default_prevented"))
+            dom_changed = before_hash != after_hash
+            if not paste_accepted or not dom_changed or not preview_match:
+                raise BrowserSessionError(
+                    "backfill_rejected",
+                    "page did not render the exact clipboard image backfill",
+                    details={
+                        "paste_accepted": paste_accepted,
+                        "dom_changed": dom_changed,
+                        "preview_match": preview_match,
+                        "clipboard_file_count": int(paste.get("clipboard_file_count", 0)),
+                    },
+                    backend_attempted=True,
+                )
+            return self._receipt(
+                element,
+                mime_type="image/png",
+                byte_count=len(png),
+                sha256=expected_sha256,
+                preview_match=True,
+                preview_sha256=expected_sha256,
+                clipboard_file_count=int(paste["clipboard_file_count"]),
+                clipboard_item_count=int(paste["clipboard_item_count"]),
+                paste_accepted=True,
+                dom_changed=True,
+            )
+
+        return await self._execute(
+            "backfill",
+            {"snapshot_id": snapshot_id, "element_id": element_id},
+            action,
+            timeout_ms=self.policy.action_timeout_ms + 1_000,
             mutating=True,
         )
 
@@ -450,6 +551,7 @@ class PlaywrightBrowserSession:
         connected = bool(await element.handle.evaluate("el => el.isConnected"))
         if not connected:
             raise BrowserSessionError("stale_ref", "target element is detached")
+        await element.handle.scroll_into_view_if_needed(timeout=self.policy.action_timeout_ms)
         state = await current_state(element)
         current_fingerprint = fingerprint_from_state(state, frame_id=element.frame_id)
         if current_fingerprint != element.fingerprint:
@@ -527,6 +629,32 @@ class PlaywrightBrowserSession:
         content = await self._page.content()
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
+    async def _has_exact_image_preview(self, expected_data_url: str) -> bool:
+        return bool(
+            await self._page.locator("img").evaluate_all(
+                "(images, expected) => images.some((image) => image.src === expected)",
+                expected_data_url,
+            )
+        )
+
+    async def _route_request(self, route: Any, request: Any) -> None:
+        if request.is_navigation_request() and request.frame.parent_frame is None:
+            try:
+                self.policy.validate_final_url(request.url)
+            except BrowserSessionError as exc:
+                self._origin_violation = exc
+                self._fenced = True
+                self._snapshots.invalidate()
+                self._write_event(
+                    "origin_violation",
+                    {"url": request.url},
+                    error_code=exc.code,
+                    outcome="blocked",
+                )
+                await route.abort()
+                return
+        await route.continue_()
+
     async def _wait_for_dom_stable(self) -> bool:
         started = time.monotonic()
         deadline = started + min(self.policy.navigation_timeout_ms / 1000, 5.0)
@@ -594,6 +722,16 @@ class PlaywrightBrowserSession:
                 )
                 raise
             except Exception as exc:
+                if self._origin_violation is not None:
+                    violation = self._origin_violation
+                    self._write_event(
+                        operation,
+                        arguments,
+                        started=started,
+                        error_code=violation.code,
+                        outcome="failure",
+                    )
+                    raise violation from exc
                 if mutating:
                     self._fenced = True
                     self._snapshots.invalidate()
@@ -623,6 +761,13 @@ class PlaywrightBrowserSession:
                 "session_fenced",
                 "browser session was fenced after an uncertain operation",
             )
+        if self._page is not None and self._page.url != "about:blank":
+            try:
+                self.policy.validate_final_url(self._page.url)
+            except BrowserSessionError:
+                self._fenced = True
+                self._snapshots.invalidate()
+                raise
 
     async def _cleanup_started_resources(self, *, save_artifacts: bool) -> None:
         if self._context is not None:

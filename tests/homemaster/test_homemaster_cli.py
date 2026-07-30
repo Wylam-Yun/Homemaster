@@ -67,6 +67,34 @@ def test_gateway_alfworld_flag_selects_alfworld_environment(
     assert captured == [(config, {"environment": "alfworld"})]
 
 
+def test_gateway_browser_flag_selects_browser_environment(monkeypatch, tmp_path: Path) -> None:
+    cli_module = importlib.import_module("homemaster.cli.app")
+    captured = []
+    config_path = tmp_path / "homemaster.yaml"
+    config = object()
+    monkeypatch.setattr(cli_module, "load_config", lambda _path: config)
+    monkeypatch.setattr(
+        cli_module,
+        "run_gateway",
+        lambda value, **kwargs: captured.append((value, kwargs)),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["--gateway", "--browser", "--config", str(config_path)],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured == [(config, {"environment": "browser"})]
+
+
+def test_gateway_environment_flags_are_mutually_exclusive() -> None:
+    result = CliRunner().invoke(app, ["--gateway", "--alfworld", "--browser"])
+
+    assert result.exit_code != 0
+    assert "--alfworld and --browser are mutually exclusive" in result.output
+
+
 def test_gateway_flag_rejects_one_shot_options() -> None:
     result = CliRunner().invoke(app, ["--gateway", "--print", "hello"])
 
@@ -86,3 +114,10 @@ def test_alfworld_requires_gateway_flag() -> None:
 
     assert result.exit_code != 0
     assert "--alfworld requires --gateway" in result.output
+
+
+def test_browser_requires_gateway_flag() -> None:
+    result = CliRunner().invoke(app, ["--browser"])
+
+    assert result.exit_code != 0
+    assert "--browser requires --gateway" in result.output

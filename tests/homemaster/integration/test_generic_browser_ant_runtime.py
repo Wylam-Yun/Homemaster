@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import base64
 import hashlib
 import os
 from pathlib import Path
@@ -10,14 +12,27 @@ import pytest
 from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
-from homemaster.application import RunRequest, RunStatus
 from homemaster.application.factory import create_application
 from homemaster.application.session import SessionManager
+from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.browser.factory import PlaywrightBrowserSessionFactory
 from homemaster.browser.policy import BrowserPolicy
+from homemaster.channels.bridge import ChannelBridge
+from homemaster.channels.bus import BoundedPriorityBus
+from homemaster.channels.contracts import (
+    ChannelDeliveryContext,
+    ChannelEventKind,
+    ChannelIdentity,
+    InboundMessage,
+)
+from homemaster.channels.router import AttachmentPolicy, ChannelRouter
 from homemaster.config import ContextPolicyConfig, HomeMasterConfig, ProviderProfileConfig
 from homemaster.events.bus import EventBus
 from homemaster.events.sinks import JsonlTraceSink
+from homemaster.gateway.auth import AuthenticatedPrincipal
+from homemaster.gateway.browser import BrowserGatewayApplication
+from homemaster.gateway.runtime import GatewayRuntime
+from homemaster.prompts.loader import PromptId, load_prompt
 from homemaster.providers.attempts import ProviderAttemptRecord
 from homemaster.providers.transports.types import TransportDelta
 
@@ -54,6 +69,10 @@ class _DeterministicBrowserTransport:
         self.independent_console = ""
         self.independent_command = ""
         self.observe_image_seen = False
+        self.observe_image_count = 0
+        self.backfill_confirmed = False
+        self.backfill_receipt_sha256 = ""
+        self.backfill_preview_sha256 = ""
 
     async def stream(
         self,
@@ -94,11 +113,16 @@ class _DeterministicBrowserTransport:
                 "browser_navigate",
                 {"url": f"{self.origin}/dashboard/automation"},
             )
-        if index in {1, 3, 5, 7}:
-            label = tuple(VALUES)[(index - 1) // 2]
+        if index in {1, 4, 7, 10, 13, 16, 18, 21, 24}:
+            if index == 21:
+                self.backfill_receipt_sha256 = str(messages[-1].data["sha256"])
+            return self._call("observe", {})
+        if index in {2, 5, 8, 11}:
+            self._record_observe_image(messages)
+            label = tuple(VALUES)[(index - 2) // 3]
             return self._call("browser_inspect", {"name": label})
-        if index in {2, 4, 6, 8}:
-            label = tuple(VALUES)[(index - 2) // 2]
+        if index in {3, 6, 9, 12}:
+            label = tuple(VALUES)[(index - 3) // 3]
             snapshot_id, element_id = _single_ref(messages[-1], label)
             return self._call(
                 "browser_fill",
@@ -108,15 +132,17 @@ class _DeterministicBrowserTransport:
                     "value": VALUES[label],
                 },
             )
-        if index == 9:
+        if index == 14:
+            self._record_observe_image(messages)
             return self._call("browser_inspect", {"name": "确认执行"})
-        if index == 10:
+        if index == 15:
             snapshot_id, element_id = _single_ref(messages[-1], "确认执行")
             return self._call(
                 "browser_click",
                 {"snapshot_id": snapshot_id, "element_id": element_id},
             )
-        if index == 11:
+        if index == 17:
+            self._record_observe_image(messages)
             return self._call(
                 "browser_wait",
                 {
@@ -127,18 +153,49 @@ class _DeterministicBrowserTransport:
                     }
                 },
             )
-        if index == 12:
+        if index == 19:
+            self._record_observe_image(messages)
+            return self._call("browser_inspect", {"name": "自动化执行回填截图"})
+        if index == 20:
+            snapshot_id, element_id = _single_ref(messages[-1], "自动化执行回填截图")
+            return self._call(
+                "browser_backfill",
+                {"snapshot_id": snapshot_id, "element_id": element_id},
+            )
+        if index == 22:
+            self._record_observe_image(messages)
+            return self._call("browser_inspect", {"name": "确认回填"})
+        if index == 23:
+            snapshot_id, element_id = _single_ref(messages[-1], "确认回填")
+            return self._call(
+                "browser_click",
+                {"snapshot_id": snapshot_id, "element_id": element_id},
+            )
+        if index == 25:
+            self._record_observe_image(messages)
             page = self.factory.sessions[0]._page
             self.independent_dom = {
                 name: await page.locator(f"#{name}").input_value() for name in VALUES
             }
             self.independent_console = await page.get_by_test_id("execution-console").inner_text()
             self.independent_command = await page.get_by_test_id("command-preview").inner_text()
-            return self._call("observe", {})
-        if index == 13:
-            self.observe_image_seen = any(block.type == "image" for block in messages[-1].content)
+            self.backfill_confirmed = (
+                await page.get_by_text("已确认回填", exact=True).count()
+            ) == 1
+            preview_src = await page.get_by_alt_text(
+                "自动化执行回填截图预览", exact=True
+            ).get_attribute("src")
+            assert preview_src is not None and preview_src.startswith("data:image/png;base64,")
+            self.backfill_preview_sha256 = hashlib.sha256(
+                base64.b64decode(preview_src.split(",", 1)[1])
+            ).hexdigest()
             return None
         raise AssertionError(f"unexpected deterministic provider iteration {index}")
+
+    def _record_observe_image(self, messages) -> None:
+        image_seen = any(block.type == "image" for block in messages[-1].content)
+        self.observe_image_seen = self.observe_image_seen or image_seen
+        self.observe_image_count += int(image_seen)
 
     def _call(self, name: str, arguments: dict[str, object]) -> ToolCall:
         return ToolCall(id=f"call-{self.iteration}-{name}", name=name, arguments=arguments)
@@ -151,7 +208,7 @@ def _single_ref(message, expected_name: str) -> tuple[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_generic_application_runtime_completes_real_ant_automation(tmp_path: Path) -> None:
+async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Path) -> None:
     assert ANT_ORIGIN is not None
     registry = build_universal_tool_registry(
         world_path=None,
@@ -185,7 +242,7 @@ async def test_generic_application_runtime_completes_real_ant_automation(tmp_pat
         return ContextAssembler(
             provider=profile,
             policy=ContextPolicyConfig(),
-            system_prompt="Use the browser tools.",
+            system_prompt=load_prompt(PromptId.BROWSER_GATEWAY),
             summary_client=provider,
         )
 
@@ -196,42 +253,119 @@ async def test_generic_application_runtime_completes_real_ant_automation(tmp_pat
         session_manager=SessionManager(session_root=tmp_path / "sessions"),
         provider_factory=lambda _request, _run_id: transport,
         context_assembler_factory=context_factory,
-    )
-    try:
-        result = await application.run(
-            RunRequest(
-                text="Complete the deterministic Automation task.",
-                profile="home",
-                dependencies={"browser_session_factory": factory},
+        artifact_publisher=ArtifactPublisher(
+            ToolOutputStore(
+                tmp_path / "gateway-artifacts",
+                quota_bytes=100 * 1024 * 1024,
+                ttl_seconds=3_600,
             )
-        )
+        ),
+    )
+    gateway_bus = BoundedPriorityBus(capacity=128)
+    browser_application = BrowserGatewayApplication(application, factory)
+    bridge = ChannelBridge(
+        application=browser_application,
+        bus=gateway_bus,
+        router=ChannelRouter(),
+        attachment_policy=AttachmentPolicy((tmp_path,)),
+        profile="browser",
+    )
+    gateway = GatewayRuntime(bridge=bridge, bus=gateway_bus)
+    identity = ChannelIdentity(
+        tenant_id="tenant-ant-demo",
+        channel="feishu",
+        chat_id="oc-ant-demo",
+        sender_id="ou-ant-owner",
+    )
+    delivery_context = ChannelDeliveryContext(
+        receive_id_type="open_id",
+        receive_id="ou-ant-owner",
+        source_message_id="om-ant-ticket",
+    )
+    inbound = InboundMessage(
+        identity=identity,
+        principal=AuthenticatedPrincipal(
+            tenant_id=identity.tenant_id,
+            principal_id="feishu-ant-owner",
+            channel="feishu",
+            roles=("local_operator",),
+            capabilities=("device.read", "device.control", "network.http"),
+        ),
+        content="读取 https://docs.example/change/CASE-02 并执行 Ant 自动化变更单。",
+        correlation_id="om-ant-ticket",
+        delivery_context=delivery_context,
+    )
+    public_events = asyncio.create_task(gateway._public_event_loop())
+    outbound = []
+    try:
+        session_id = await gateway.submit(inbound)
+        while True:
+            message = await asyncio.wait_for(gateway_bus.receive_outbound(), timeout=60)
+            outbound.append(message)
+            media_count = sum(item.kind is ChannelEventKind.MEDIA for item in outbound)
+            final_seen = any(item.kind is ChannelEventKind.FINAL for item in outbound)
+            if media_count == 9 and final_seen:
+                break
     finally:
+        public_events.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await public_events
         await application.aclose()
         trace.close()
         unsubscribe()
 
-    assert result.status is RunStatus.REPLIED
-    assert result.final_reply == "completed"
+    media = [item for item in outbound if item.kind is ChannelEventKind.MEDIA]
+    final = [item for item in outbound if item.kind is ChannelEventKind.FINAL]
+    assert len(media) == 9
+    assert len(final) == 1 and final[0].content == "completed"
+    assert all(item.identity == identity for item in (*media, *final))
+    assert all(item.session_id == session_id for item in (*media, *final))
+    assert all(item.generation == 1 for item in (*media, *final))
+    assert all(item.delivery_context == delivery_context for item in (*media, *final))
+    assert all(len(item.attachments) == 1 for item in media)
     assert transport.independent_dom == VALUES
     assert "执行状态：SUCCESS (exitCode=0)" in transport.independent_console
     assert all(value in transport.independent_command for value in VALUES.values())
     assert transport.observe_image_seen is True
+    assert transport.observe_image_count == 9
+    assert transport.backfill_confirmed is True
+    assert transport.backfill_receipt_sha256 == transport.backfill_preview_sha256
     assert transport.tool_calls == [
         "browser_navigate",
+        "observe",
         "browser_inspect",
         "browser_fill",
+        "observe",
         "browser_inspect",
         "browser_fill",
+        "observe",
         "browser_inspect",
         "browser_fill",
+        "observe",
         "browser_inspect",
         "browser_fill",
+        "observe",
         "browser_inspect",
         "browser_click",
+        "observe",
         "browser_wait",
         "observe",
+        "browser_inspect",
+        "browser_backfill",
+        "observe",
+        "browser_inspect",
+        "browser_click",
+        "observe",
     ]
-    assert all("browser_inspect" in manifest for manifest in transport.manifests)
+    assert len(transport.manifests) == len(transport.tool_calls) + 1
+    assert all(
+        tool_name in manifest
+        for tool_name, manifest in zip(
+            transport.tool_calls,
+            transport.manifests[: len(transport.tool_calls)],
+            strict=True,
+        )
+    )
     assert len(factory.sessions) == 1 and factory.sessions[0].closed
     assert factory.sessions[0].video_path is not None
     assert factory.sessions[0].video_path.stat().st_size > 0
