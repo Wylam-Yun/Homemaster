@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Prepared the Browser Gateway branch for main integration by restoring Ruff-clean configuration
+  exports and teaching the legacy-term cleanup guard to exclude the intentional Browser benchmark
+  trajectory vocabulary and vendored third-party sources. This keeps the guard focused on HomeMaster
+  product architecture without weakening its coverage of ordinary product files.
+
 ### Added
 
 - Added `homemaster --gateway --browser`, preserving the existing Feishu Channel and Home general

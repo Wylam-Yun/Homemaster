@@ -49,14 +49,18 @@ SKIP_DIRS = frozenset(
         ".pytest_cache/",
         ".venv/",
         "apps/case02_openenv/",
+        "data/browser_demo/",
         "data/coworker_demo/",
         "docs/superpowers/plans/",
         "docs/superpowers/specs/",
         "plan/",
         "scripts/coworker_demo/",
+        "src/homemaster/benchmarking/browser_demo/",
         "src/homemaster/benchmarking/coworker_demo/",
         "tests/case02_openenv/",
+        "tests/homemaster/benchmarking/browser_demo/",
         "tests/homemaster/benchmarking/coworker_demo/",
+        "third_party/",
     }
 )
 
