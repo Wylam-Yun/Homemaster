@@ -15,6 +15,9 @@
 
 ## Gateway 远程边界纪律
 
+- 浏览器 clipboard 回填成功必须验证目标内容与发送字节完全一致，并在回执中核对两侧 SHA-256；
+  `preventDefault`、clipboard item 数量或任意 DOM 变化都不能单独证明回填成功。对抗测试必须覆盖
+  “接受 paste 并显示错误状态、但未生成目标内容”的控件。
 - 飞书部署订阅的每个事件都必须有准确 dispatcher 注册：业务事件进入 typed ingress，非业务访问事件使用
   显式 no-op ACK，未知事件 fail closed。用锁定真实 SDK payload 逐事件断言 ACK 和副作用；一个消息事件
   `SUCCESS` 不能证明其他订阅也会 ACK，更不能证明 Runtime 或出站终态。
@@ -77,6 +80,13 @@
   解析、下载、落盘、队列拒绝、异常或取消都 rollback，并测试同 ID 失败后重投成功、成功后重投拒绝。
 
 ## 测试工作区纪律
+
+- 浏览器 actionability 的 obscured 判断必须在目标滚入 viewport 后基于刷新状态执行；inspect
+  时的首屏外坐标不能直接作为动作拒绝依据。回归必须用真实首屏外控件完成一次点击或回填并读取
+  DOM 终态，不能只断言 inspect 返回目标。
+- verifier 不得把 executor 失败认证成成功，也不得用 verifier 自身异常覆盖原始工具错误。没有
+  成功 backend receipt 时保留 executor 的 status/error/outcome certainty；测试必须从最终模型可见
+  ToolResult 断言原始错误码，而不是只直接调用 executor。
 
 - 迁移完成态不得只信任 journal/manifest 的 identity/status；逐组件核对锁定 source/target、publication、
   digest schema，以及所有已发布目标的存在和结构。发布时在适用的旧 store 锁或一致性 snapshot 下复制，并在

@@ -106,6 +106,9 @@ class _Session:
     async def click(self, snapshot_id, element_id):
         return {"interaction_verified": True}
 
+    async def backfill(self, snapshot_id, element_id):
+        return {"paste_accepted": True}
+
     async def wait(self, condition):
         return {"matched": True}
 
@@ -262,6 +265,7 @@ async def test_enabled_and_disabled_runs_use_isolated_immutable_tool_views(tmp_p
         "browser_check",
         "browser_uncheck",
         "browser_click",
+        "browser_backfill",
         "browser_wait",
     }
     assert "observe" in enabled_names and "observe" in disabled_names

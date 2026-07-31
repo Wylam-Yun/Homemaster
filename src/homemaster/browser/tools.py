@@ -61,7 +61,7 @@ class _BrowserToolExecutor:
                         str(arguments["option"]),
                     )
                 )
-            elif self._operation in {"check", "uncheck", "click"}:
+            elif self._operation in {"check", "uncheck", "click", "backfill"}:
                 method = getattr(self._session, self._operation)
                 data = dict(
                     await method(str(arguments["snapshot_id"]), str(arguments["element_id"]))
@@ -108,6 +108,8 @@ class _ObserveExecutor:
 class _ReceiptVerifier:
     async def verify(self, result: ToolExecutionResult, context: Any) -> VerificationRecord:
         del context
+        if not result.success:
+            return VerificationRecord()
         return VerificationRecord(
             status=VerificationStatus.PASSED,
             detail="browser receipt recorded",
@@ -196,6 +198,15 @@ def build_browser_registered_tools(session: object) -> tuple[RegisteredTool, ...
             ExecutionProof.STRUCTURED_RECEIPT,
         ),
         (
+            "browser_backfill",
+            "Paste a screenshot of the current page into one backfill control.",
+            _object_schema(_REF_PROPERTIES, ("snapshot_id", "element_id")),
+            "backfill",
+            ("browser.dom_write",),
+            ("device.control",),
+            ExecutionProof.STRUCTURED_RECEIPT,
+        ),
+        (
             "browser_wait",
             "Wait for a bounded page condition and report the last observed state.",
             _object_schema(
@@ -272,6 +283,7 @@ def build_browser_run_registry(base: ToolRegistry, session: object) -> ToolRegis
         "browser_check",
         "browser_uncheck",
         "browser_click",
+        "browser_backfill",
         "browser_wait",
         "observe",
     }
@@ -308,6 +320,17 @@ def _registered(
         resource_key="browser:backend",
         state_effects=effects,
         required_capabilities=capabilities,
+        requires_model_observation=name
+        in {
+            "browser_navigate",
+            "browser_fill",
+            "browser_select",
+            "browser_check",
+            "browser_uncheck",
+            "browser_click",
+            "browser_backfill",
+            "browser_wait",
+        },
     )
     return RegisteredTool(
         definition=definition,

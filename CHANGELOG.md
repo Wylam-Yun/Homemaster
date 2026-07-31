@@ -2,7 +2,30 @@
 
 ## Unreleased
 
+### Fixed
+
+- Prepared the Browser Gateway branch for main integration by restoring Ruff-clean configuration
+  exports and teaching the legacy-term cleanup guard to exclude the intentional Browser benchmark
+  trajectory vocabulary and vendored third-party sources. This keeps the guard focused on HomeMaster
+  product architecture without weakening its coverage of ordinary product files.
+
 ### Added
+
+- Added `homemaster --gateway --browser`, preserving the existing Feishu Channel and Home general
+  tools while injecting a run-scoped, origin-restricted Playwright session. The browser surface now
+  includes semantic inspect/actions, mandatory post-action `observe`, and `browser_backfill`, which
+  pastes a current-page PNG into an editable evidence control only when the page accepts the paste
+  and renders a preview with the exact same SHA-256. Delayed disallowed main-frame navigation is
+  aborted before dispatch and fences the session. Browser runs have no tool-iteration limit, without
+  adding a Browser-specific numeric budget. Added one generic `change-ticket-executor` Skill whose SOP is read dynamically
+  from the ticket URL, plus separate complete normal and anomaly/rollback GT for the Ant Design Pro
+  Mock UI demo; ticket digest and per-`sop_step_id` provenance are checked against the source, while
+  unexecuted full-normal and rollback UI branches stay `UNVERIFIED`. The independent live Mock gate
+  now crosses authenticated Feishu DTO, ChannelBridge, BrowserGatewayApplication and ApplicationRuntime
+  in one run, verifying four per-field DOM values, command preview,
+  `SUCCESS (exitCode=0)`, nine observation images, screenshot preview and confirmed backfill, nonempty
+  JSONL/trace/WebM artifacts, and browser cleanup. Browser and ALFWorld Gateway modes are mutually
+  exclusive; no Feishu Channel implementation was changed.
 
 - Added `homemaster --gateway --alfworld`, which keeps HomeMaster/Gateway in the
   project environment and starts the existing ALFWorld environment through a

@@ -142,7 +142,7 @@ def build_universal_tool_registry(
 
 def build_tool_registry(
     *,
-    environment: Literal["local_robot", "alfworld", "coworker"] | None,
+    environment: Literal["local_robot", "alfworld", "coworker", "browser"] | None,
     world_path: Path | None = None,
     memory_path: Path | None = None,
     runtime_memory_root: Path | None = None,
@@ -173,6 +173,8 @@ def build_tool_registry(
         )
     elif environment == "coworker":
         sources["coworker"] = _coworker_tools()
+    elif environment == "browser":
+        pass
     elif environment is not None:
         raise ValueError(f"unsupported tool environment: {environment}")
 

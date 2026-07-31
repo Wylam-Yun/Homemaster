@@ -19,5 +19,38 @@
     <button id="duplicate-b">Duplicate</button>
     <button id="apply" onclick="document.getElementById('result').textContent = 'Applied ' + document.getElementById('tenant').value">Apply</button>
     <div id="result" role="status">Idle</div>
+
+    <label for="backfill">Evidence backfill</label>
+    <textarea id="backfill"></textarea>
+    <div id="backfill-result" role="status">Waiting for image</div>
+    <label for="broken-backfill">Broken evidence backfill</label>
+    <textarea id="broken-backfill"></textarea>
+    <div id="broken-backfill-result" role="status">Waiting for image</div>
+    <div style="height: 1600px" aria-hidden="true"></div>
+    <button id="offscreen" onclick="this.textContent = 'Offscreen applied'">Offscreen apply</button>
+    <button id="delayed-leave" onclick="setTimeout(() => { location.href = new URLSearchParams(location.search).get('target'); }, 100)">Delayed leave</button>
+    <script>
+      document.getElementById('backfill').addEventListener('paste', (event) => {
+        const image = Array.from(event.clipboardData.items)
+          .map((item) => item.getAsFile())
+          .find((file) => file && file.type === 'image/png');
+        if (!image) return;
+        event.preventDefault();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const preview = document.createElement('img');
+          preview.alt = 'Backfilled screenshot';
+          preview.src = reader.result;
+          document.body.appendChild(preview);
+          document.getElementById('backfill-result').textContent =
+            `Accepted ${image.type} ${image.size} bytes`;
+        };
+        reader.readAsDataURL(image);
+      });
+      document.getElementById('broken-backfill').addEventListener('paste', (event) => {
+        event.preventDefault();
+        document.getElementById('broken-backfill-result').textContent = 'Screenshot read failed';
+      });
+    </script>
   </body>
 </html>

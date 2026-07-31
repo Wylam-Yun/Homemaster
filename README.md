@@ -207,6 +207,29 @@ backend 的 `robot_go_to` / `robot_manipulate` 后，Runtime 要求模型单独�
 展示语义动作说明及其对应图片，并转发模型可见回复；`usage.update`、thinking、原始
 tool started/completed 等内部事件只保留在 JSONL trace，不发送给用户。
 
+### 飞书驱动通用浏览器
+
+Browser 模式复用现有飞书 Gateway 和 Home 通用工具，并为每个 run 创建隔离的
+Playwright session。它不加载 ALFWorld 或 Coworker 旧工具：
+
+```bash
+# 先在 ignored、mode-0600 的 config/homemaster.yaml 配置 browser_gateway。
+PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --browser \
+  --config config/homemaster.yaml
+```
+
+飞书正文可以直接包含变更单 URL。模型会加载唯一通用
+`change-ticket-executor` Skill，从票据自然语言动态提取步骤、参数、验收和回滚；Skill 和
+browser prompt 都不包含具体业务 SOP。每次浏览器写操作后，Runtime 强制单独调用
+`observe`，现有 Gateway 媒体链把截图发回飞书；`browser_backfill` 还能把当前页面 PNG
+粘贴到 Mock UI 的回填控件，并要求页面预览与原 PNG 的 SHA-256 完全一致。Browser run
+不设置工具迭代次数上限；`--browser` 与 `--alfworld`
+互斥。当前验收只证明 Ant Design Pro Mock UI 的页面操作和回填，不代表真实业务系统变更。
+
+配置、演示输入和终态判据见
+[Browser Gateway 用户指南](docs/browser-gateway-user-guide.md)，实现不变量见
+[通用浏览器架构](docs/architecture/generic-browser-tools-phase1.md)。
+
 ## 跑一个任务
 
 实时输出模式：

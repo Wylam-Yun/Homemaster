@@ -13,6 +13,7 @@ from homemaster.channels.impl.feishu import FeishuApiService
 from homemaster.cli import doctor as doctor_module
 from homemaster.config import (
     AlfworldGatewayConfig,
+    BrowserGatewayConfig,
     FeishuChannelConfig,
     GatewayConfig,
     ProviderProfileConfig,
@@ -515,3 +516,24 @@ def test_alfworld_gateway_config_is_strict_and_paths_are_required_on_use(
         AlfworldGatewayConfig.model_validate({"unknown": True})
     with pytest.raises(ValueError, match="explicit X display"):
         AlfworldGatewayConfig(display="102")
+
+
+def test_browser_gateway_config_is_strict_and_requires_start_url() -> None:
+    config = BrowserGatewayConfig(
+        start_url="http://127.0.0.1:8000/dashboard/automation",
+        allowed_origins=("http://127.0.0.1:8000",),
+        headless=False,
+    )
+    assert config.require_runtime() == (
+        "http://127.0.0.1:8000/dashboard/automation",
+        ("http://127.0.0.1:8000",),
+    )
+    with pytest.raises(ValueError, match="start_url"):
+        BrowserGatewayConfig().require_runtime()
+    with pytest.raises(ValueError, match="start_url origin"):
+        BrowserGatewayConfig(
+            start_url="http://127.0.0.1:8000/dashboard/automation",
+            allowed_origins=("http://127.0.0.1:9000",),
+        )
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        BrowserGatewayConfig.model_validate({"unknown": True})

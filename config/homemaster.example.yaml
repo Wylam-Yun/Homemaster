@@ -248,6 +248,16 @@ alfworld_gateway:
   # other offscreen objects fail before any THOR action.
   allow_offscreen_object_navigation: true
 
+# Optional Ant Design Pro Mock UI mode for `homemaster --gateway --browser`.
+browser_gateway:
+  start_url: http://127.0.0.1:8000/dashboard/automation
+  allowed_origins:
+    - http://127.0.0.1:8000
+  headless: true
+  action_timeout_ms: 10000
+  navigation_timeout_ms: 20000
+  wait_timeout_ms: 10000
+
 # Trusted local Python extensions are disabled unless every approval field is pinned.
 extensions:
   approvals: []

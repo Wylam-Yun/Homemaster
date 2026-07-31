@@ -59,6 +59,13 @@ def main_callback(
             help="Use the configured fixed ALFWorld environment for Gateway runs.",
         ),
     ] = False,
+    browser: Annotated[
+        bool,
+        typer.Option(
+            "--browser",
+            help="Use the configured Ant browser environment for Gateway runs.",
+        ),
+    ] = False,
     config_path: Annotated[
         Path | None,
         typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
@@ -105,6 +112,8 @@ def main_callback(
         return
     try:
         if gateway:
+            if alfworld and browser:
+                raise typer.BadParameter("--alfworld and --browser are mutually exclusive")
             if any(
                 (
                     print_prompt is not None,
@@ -122,11 +131,13 @@ def main_callback(
                 )
             run_gateway(
                 load_config(config_path),
-                environment="alfworld" if alfworld else None,
+                environment="alfworld" if alfworld else "browser" if browser else None,
             )
             return
         if alfworld:
             raise typer.BadParameter("--alfworld requires --gateway")
+        if browser:
+            raise typer.BadParameter("--browser requires --gateway")
         if config_path is not None:
             raise typer.BadParameter("--config requires --gateway")
         resolved_format = parse_output_format(output_format)

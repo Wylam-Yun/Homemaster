@@ -6,7 +6,7 @@ import json
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import pytest
 
@@ -99,6 +99,36 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
         )
         assert waited["matched"] is True
 
+        backfill_snapshot = await session.inspect({"name": "Evidence backfill"})
+        backfill = _find(backfill_snapshot, "Evidence backfill")
+        pasted = await session.backfill(backfill_snapshot.snapshot_id, backfill.element_id)
+        assert pasted["mime_type"] == "image/png"
+        assert pasted["byte_count"] > 0
+        assert len(pasted["sha256"]) == 64
+        assert pasted["clipboard_file_count"] == 1
+        assert pasted["paste_accepted"] is True
+        assert pasted["dom_changed"] is True
+        assert pasted["preview_match"] is True
+        assert pasted["preview_sha256"] == pasted["sha256"]
+        accepted = await session.wait(
+            {"kind": "text_present", "value": "Accepted image/png", "timeout_ms": 2_000}
+        )
+        assert accepted["matched"] is True
+
+        plain_snapshot = await session.inspect({"name": "TenantId"})
+        plain = _find(plain_snapshot, "TenantId")
+        with pytest.raises(BrowserSessionError) as rejected:
+            await session.backfill(plain_snapshot.snapshot_id, plain.element_id)
+        assert rejected.value.code == "backfill_rejected"
+        assert rejected.value.backend_attempted is True
+
+        broken_snapshot = await session.inspect({"name": "Broken evidence backfill"})
+        broken = _find(broken_snapshot, "Broken evidence backfill")
+        with pytest.raises(BrowserSessionError) as broken_result:
+            await session.backfill(broken_snapshot.snapshot_id, broken.element_id)
+        assert broken_result.value.code == "backfill_rejected"
+        assert broken_result.value.details["preview_match"] is False
+
         png = await session.screenshot()
         assert png.startswith(b"\x89PNG\r\n\x1a\n")
     finally:
@@ -139,6 +169,73 @@ async def test_infrastructure_timeout_fences_session(tmp_path: Path, control_ori
         assert fenced.value.code == "session_fenced"
     finally:
         await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_offscreen_target_scrolls_into_view_before_actionability_check(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="offscreen",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/controls.html")
+        snapshot = await session.inspect({"name": "Offscreen apply"})
+        target = _find(snapshot, "Offscreen apply")
+
+        receipt = await session.click(snapshot.snapshot_id, target.element_id)
+
+        assert receipt["interaction_verified"] is True
+        assert await target.handle.inner_text() == "Offscreen applied"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_delayed_cross_origin_navigation_is_blocked_and_fences_session(
+    tmp_path: Path, control_origin: str
+) -> None:
+    request_count = 0
+
+    class _TargetHandler(_QuietHandler):
+        def do_GET(self):
+            nonlocal request_count
+            request_count += 1
+            super().do_GET()
+
+    root = Path(__file__).parent / "fixtures"
+    handler = functools.partial(_TargetHandler, directory=str(root))
+    target_server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    target_thread = threading.Thread(target=target_server.serve_forever, daemon=True)
+    target_thread.start()
+    target = f"http://127.0.0.1:{target_server.server_port}/controls.html"
+    session = PlaywrightBrowserSession(
+        session_id="origin-fence",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        query = urlencode({"target": target})
+        await session.navigate(f"{control_origin}/controls.html?{query}")
+        snapshot = await session.inspect({"name": "Delayed leave"})
+        button = _find(snapshot, "Delayed leave")
+        await session.click(snapshot.snapshot_id, button.element_id)
+        await asyncio.sleep(0.3)
+
+        assert session.fenced is True
+        assert request_count == 0
+        with pytest.raises(BrowserSessionError) as fenced:
+            await session.inspect({})
+        assert fenced.value.code == "session_fenced"
+    finally:
+        await session.aclose()
+        target_server.shutdown()
+        target_server.server_close()
+        target_thread.join(timeout=2)
 
 
 @pytest.mark.asyncio

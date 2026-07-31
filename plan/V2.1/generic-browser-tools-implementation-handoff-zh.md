@@ -1,5 +1,10 @@
 # HomeMaster V2.1 通用浏览器工具层实施交接
 
+> 2026-07-29 更新：本交接是第一阶段历史记录，已由
+> `plan/V2.2/browser-gateway-ant-implementation-plan-zh.md` 取代。V2.2 已接入
+> `--gateway --browser`、通用变更单 Skill、`browser_backfill` 和 Ant Mock 外部门；
+> 不再按本文的 `ANT_GATE_BLOCKED` 状态判断当前实现。
+
 ## 当前状态
 
 - 日期：2026-07-27

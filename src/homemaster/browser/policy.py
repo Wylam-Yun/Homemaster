@@ -46,6 +46,22 @@ class BrowserPolicy:
             )
         return url
 
+    def validate_final_url(self, url: str) -> str:
+        try:
+            origin = _origin(url)
+        except ValueError as exc:
+            raise BrowserSessionError(
+                "origin_not_allowed", str(exc), backend_attempted=True
+            ) from exc
+        if origin not in self.allowed_origins:
+            raise BrowserSessionError(
+                "origin_not_allowed",
+                f"final origin {origin!r} is not allowed for this run",
+                details={"origin": origin, "allowed_origins": list(self.allowed_origins)},
+                backend_attempted=True,
+            )
+        return url
+
 
 def _origin(value: str) -> str:
     if not isinstance(value, str) or not value.strip():

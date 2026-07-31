@@ -1,9 +1,10 @@
-# Generic Browser Tools Phase-One Architecture
+# Generic Browser Gateway Architecture
 
 ## Status
 
-This document describes an experimental, default-hidden feasibility path. It is not a released browser API.
-Coworker still uses its existing driver until phase two removes that duplicate responsibility.
+The generic browser layer is available through the explicit
+`homemaster --gateway --browser` deployment mode. It remains isolated from Coworker's legacy driver;
+the browser mode does not load Coworker tools or migrate that environment.
 
 ## Ownership And Data Flow
 
@@ -23,8 +24,11 @@ RunRequest dependency
   -> run-scope close
 ```
 
-The application Registry is never mutated to toggle a run. All nine tools use `resource_key=browser:backend`, so DOM
-actions and screenshots cannot interleave within a session.
+`BrowserGatewayApplication` wraps the authoritative `RunRequest` created by `ChannelBridge`, preserving
+Feishu text, session, generation, delivery context and permission subject while adding only
+`profile=browser` and the configured session factory. The application Registry is never mutated to
+toggle a run. All ten session-bound tools use `resource_key=browser:backend`, so DOM actions and
+screenshots cannot interleave within a session.
 
 ## Phase-One Contracts
 
@@ -34,10 +38,28 @@ actions and screenshots cannot interleave within a session.
 - Navigation and every successful write invalidate the current snapshot. A new inspect is required before another
   write.
 - Fill, select and binary actions read the live DOM after the action. Click proves interaction, not business success.
+- Target actions scroll the resolved element into view before refreshing visibility, enabled and obscured state.
+- `browser_backfill` captures a PNG and dispatches it as a clipboard file to an editable target. Success requires the
+  page to accept the paste, a subsequent DOM change and an image preview with the exact same data URL. The receipt
+  contains MIME type, size, source SHA-256 and matching preview SHA-256, never bytes.
+- Main-frame navigation requests are checked before network dispatch. A disallowed origin is aborted, recorded and
+  immediately fences the run-owned session, including delayed page-initiated navigation.
 - Infrastructure timeout or cancellation fences the session; it is not retried or reused.
 - `observe` captures the same page and remains image-only.
+- Navigate, mutation, backfill and wait results establish an observation barrier. The next provider tool call is
+  restricted to `observe`; its canonical image also flows through Gateway MEDIA to Feishu.
 - Session creation, provider construction failure, interface audit failure, run completion and application close all
   converge on the same run-owned cleanup stack.
+
+## Ticket Skill Boundary
+
+The browser prompt contains environment and observation rules only. Change-ticket tasks load the single
+`change-ticket-executor` Skill, which defines a generic ticket-reading, plan-locking, terminal-verification,
+review-image, backfill and rollback meta-workflow. Concrete fields, commands, steps and GT node IDs are absent from
+both prompt and Skill; they come from the ticket text read with Home general tools. The current demo's complete normal
+and anomaly/rollback GT is stored separately under `data/browser_demo/case_02/`. Its ticket SHA-256 and every
+`sop_step_id` mapping are validated against the source ticket. The normal implementation is `VERIFIED`; the full
+normal and anomaly/rollback UI execution remain `UNVERIFIED`.
 
 ## Evidence
 
@@ -45,12 +67,10 @@ Each operation appends one JSONL row with input, duration, outcome, error code, 
 tracing captures screenshots and DOM snapshots, and the context records a run-owned WebM. These are execution facts;
 business success still requires an independent page-state assertion.
 
-## Deliberate Limits
+## Deployment Limits
 
-Phase one allows only injected trusted HTTP(S) origins and is for local fixtures. Redirect, popup and per-frame
-production policy are not complete. Cross-origin iframe collection is only a capability probe. Snapshot revisions,
-stable re-identification, bounded history, Shadow DOM completeness and timeout recovery are phase-two work.
-
-ARIA combobox selection is implemented but remains unverified against the real Ant Design Select until the Ant dev
-page can run. The current milestone must not be advertised through README or a user guide until the real Ant gate and
-the later Coworker migration are complete.
+The configured start URL and every navigation remain restricted to injected HTTP(S) origins, including the final URL
+after redirects. Popup policy, full cross-origin frame policy, snapshot revision history, Shadow DOM completeness and
+timeout recovery remain outside this delivery. The verified Ant target is a deterministic Mock UI; UI success is not
+evidence of a real backend business change. Native fixture selection is verified, while any untested external Ant
+Select variant remains `UNVERIFIED` until exercised in that exact runtime.
