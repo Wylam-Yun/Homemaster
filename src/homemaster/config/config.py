@@ -284,7 +284,6 @@ class Mem0Config(BaseModel):
 
     collection_name: str = "homemaster_memory_qwen3_4096_v1"
     fastembed_cache_path: Path = REPO_ROOT / ".cache" / "homemaster" / "fastembed"
-    embedding_dimensions: int = Field(default=4096, gt=0)
     search_limit: int = Field(default=5, ge=1, le=20)
     search_threshold: float = Field(default=0.1, ge=0, le=1)
 
@@ -315,6 +314,7 @@ class MemoryConfig(BaseModel):
     user_char_limit: int = Field(default=1375, gt=0)
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
+    embedding_dimensions: int = Field(default=4096, gt=0)
     mem0: Mem0Config = Field(default_factory=Mem0Config)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
@@ -335,6 +335,13 @@ class MemoryConfig(BaseModel):
             legacy_fields.append("memory.mem0.qdrant_path")
         if "history_db_path" in mem0:
             legacy_fields.append("memory.mem0.history_db_path")
+        if "embedding_dimensions" in mem0:
+            if "embedding_dimensions" in data:
+                raise ValueError(
+                    "memory.embedding_dimensions cannot be combined with "
+                    "memory.mem0.embedding_dimensions"
+                )
+            data["embedding_dimensions"] = mem0.pop("embedding_dimensions")
         if has_data_root and legacy_fields:
             raise ValueError("memory.data_root cannot be combined with legacy memory path fields")
 
@@ -399,6 +406,10 @@ class MemoryConfig(BaseModel):
     @property
     def qdrant_path(self) -> Path:
         return self.data_root / "qdrant"
+
+    @property
+    def mindmemos_qdrant_path(self) -> Path:
+        return self.data_root / "mindmemos" / "qdrant"
 
     @property
     def history_db_path(self) -> Path:

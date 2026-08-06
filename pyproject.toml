@@ -2,19 +2,29 @@
 name = "homemaster"
 version = "0.1.0"
 description = "LLM-first generic agent runtime with home-robot domain tools"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
+  "aiokafka>=0.14.0",
   "anthropic>=0.40,<1.0",
   "bm25s>=0.2",
   "croniter>=2.0.0",
-  "httpx>=0.28",
-  "jieba>=0.42",
+  "fastapi>=0.136.1",
+  "httpx>=0.28.1",
+  "jieba>=0.42.1",
   "jsonschema>=4.23,<5",
+  "litellm>=1.85.0",
+  "neo4j>=6.2.0",
+  "numpy>=2.3.5",
+  "omegaconf",
   "openai>=1.90,<3.0",
+  "opentelemetry-api>=1.42.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.42.0",
+  "opentelemetry-sdk>=1.42.0",
   "pillow>=10,<13",
   "posthog>=7.14.0",
   "protobuf>=5.29.6,<7.0.0",
   "pydantic>=2.7",
+  "python-dotenv>=1.2.2",
   "pytz>=2024.1",
   "qdrant-client==1.18.0",
   "pyyaml>=6.0",
@@ -22,7 +32,10 @@ dependencies = [
   "fastembed==0.8.0",
   "spacy==3.8.14",
   "sqlalchemy>=2.0.31",
+  "structlog>=25.5.0",
   "typer>=0.12",
+  "traced>=0.1.5",
+  "uvicorn>=0.47.0",
   "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
@@ -59,8 +72,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src", "third_party/mem0ai-2.0.13"]
-include = ["homemaster*", "mem0*"]
+where = ["src", "third_party/mem0ai-2.0.13", "third_party/MindMemOS/src/mindmemos"]
+include = ["homemaster*", "mem0*", "mindmemos*"]
 
 [tool.setuptools]
 license-files = ["THIRD_PARTY_NOTICES.md", "third_party/mem0ai-2.0.13/LICENSE"]
@@ -94,7 +107,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = ["third_party/mem0ai-2.0.13/mem0"]
+exclude = ["third_party/mem0ai-2.0.13/mem0", "third_party/MindMemOS"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -1,9 +1,35 @@
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
+import tomllib
 import zipfile
 from pathlib import Path
+
+
+def _requirement_name(requirement: str) -> str:
+    return re.split(r"[<>=!~; \[]", requirement, maxsplit=1)[0].lower()
+
+
+def test_homemaster_declares_vendored_mindmemos_runtime_dependencies() -> None:
+    repo = Path(__file__).resolve().parents[3]
+    homemaster = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
+    mindmemos = tomllib.loads(
+        (repo / "third_party/MindMemOS/src/mindmemos/pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    declared = {
+        _requirement_name(requirement)
+        for requirement in homemaster["project"]["dependencies"]
+    }
+    required = {
+        _requirement_name(requirement)
+        for requirement in mindmemos["project"]["dependencies"]
+    }
+    assert required <= declared
+    assert homemaster["project"]["requires-python"] == ">=3.11,<3.14"
 
 
 def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Path) -> None:
@@ -19,6 +45,7 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
     )
     wheel = next(dist.glob("homemaster-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
+        assert "mindmemos/__init__.py" in archive.namelist()
         metadata_name = next(
             name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
         )
@@ -66,6 +93,12 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "names=set(build_universal_tool_registry().all_names()); "
                 "assert tools <= names; "
                 "assert {'skill','skill_view'}.isdisjoint(names); "
+                "import mindmemos; "
+                "assert mindmemos.__file__; "
+                "from mindmemos.pipelines import create_pipeline; "
+                "from mindmemos.typing import AddPipelineInput, DialogueMessage; "
+                "assert callable(create_pipeline); "
+                "assert AddPipelineInput(messages=[DialogueMessage(role='user', content='hi')]); "
                 "print('PASS')"
             ),
         ],

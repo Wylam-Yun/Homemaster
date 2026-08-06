@@ -37,7 +37,7 @@
 
 此外，`MemoryEvidenceLedger` 独立保存记忆写入证据与 provenance。
 
-因此，本次“替换 mem0”当前只指替换 `Mem0MemoryStore` 这一层，不自动包含 file memory、runtime object memory 或 evidence ledger。
+因此，本次目标是完整替换并最终移除 Homemaster 对 mem0 的运行时、代码、配置、打包和数据依赖。当前 mem0 所承载的业务能力边界主要是由 `Mem0MemoryStore` 提供的结构化长期记忆，因此迁移以该能力边界为起点，但实施不止替换该类，还包括工具层、生命周期、配置、迁移、测试和 vendored 依赖的完整清理。`FileMemoryStore`、`RuntimeMemoryStore` 和 `MemoryEvidenceLedger` 不属于 mem0，第一阶段暂时保留；是否进一步并入 MindMemOS 单独决策。
 
 ### 2.2 当前 mem0 数据规模
 

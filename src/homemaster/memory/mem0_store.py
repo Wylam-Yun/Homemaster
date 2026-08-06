@@ -549,7 +549,7 @@ class Mem0MemoryStore:
                 "config": {
                     "path": str(memory.qdrant_path),
                     "collection_name": mem0.collection_name,
-                    "embedding_model_dims": mem0.embedding_dimensions,
+                    "embedding_model_dims": memory.embedding_dimensions,
                     "on_disk": True,
                 },
             },
@@ -559,7 +559,7 @@ class Mem0MemoryStore:
                     "model": provider.model,
                     "api_key": provider.api_keys[0],
                     "openai_base_url": provider.base_url,
-                    "embedding_dims": mem0.embedding_dimensions,
+                    "embedding_dims": memory.embedding_dimensions,
                 },
             },
             "llm": {

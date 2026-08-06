@@ -125,11 +125,11 @@ memory:
   user_char_limit: 1375
   memory_char_limit: 2200
   embedding_provider_name: MemoryEmbedding
+  embedding_dimensions: 4096
   mem0:
     collection_name: homemaster_memory_qwen3_4096_v1
     # Persistent local BM25 cache. This stays inside the checkout and is ignored by Git.
     fastembed_cache_path: .cache/homemaster/fastembed
-    embedding_dimensions: 4096
     search_limit: 5
     search_threshold: 0.1
 

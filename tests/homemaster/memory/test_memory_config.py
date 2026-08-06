@@ -6,9 +6,8 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
-
 from homemaster.config import HomeMasterConfig, ProviderProfileConfig
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -38,13 +37,17 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert config.memory.user_char_limit == 1375
     assert config.memory.memory_char_limit == 2200
     assert config.memory.embedding_provider_name == "MemoryEmbedding"
+    assert config.memory.embedding_dimensions == 4096
     assert config.memory.qdrant_path == config.memory.data_root / "qdrant"
+    assert config.memory.mindmemos_qdrant_path == (
+        config.memory.data_root / "mindmemos" / "qdrant"
+    )
     assert config.memory.history_db_path == config.memory.data_root / "history.sqlite3"
     assert config.memory.evidence_db_path == config.memory.data_root / "evidence.sqlite3"
     assert config.memory.mem0.fastembed_cache_path == (
         REPO_ROOT / ".cache" / "homemaster" / "fastembed"
     )
-    assert config.memory.mem0.embedding_dimensions == 4096
+    assert "embedding_dimensions" not in type(config.memory.mem0).model_fields
     assert config.memory.mem0.search_limit == 5
     assert config.memory.mem0.search_threshold == pytest.approx(0.1)
     assert not hasattr(config.memory, "backend")
@@ -55,7 +58,7 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     [
         ({"user_char_limit": 0}, "greater than 0"),
         ({"memory_char_limit": 0}, "greater than 0"),
-        ({"mem0": {"embedding_dimensions": 0}}, "greater than 0"),
+        ({"embedding_dimensions": 0}, "greater than 0"),
         ({"mem0": {"search_limit": 0}}, "greater than or equal to 1"),
         ({"mem0": {"search_limit": 21}}, "less than or equal to 20"),
         ({"mem0": {"search_threshold": -0.01}}, "greater than or equal to 0"),
