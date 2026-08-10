@@ -229,6 +229,7 @@ def _memory_backend_check() -> DoctorCheck:
                 "migration_status": migration.status,
                 "data_root": str(migration.data_root),
                 "legacy_fields": list(migration.legacy_fields),
+                **_neo4j_details(config),
             },
         )
     return DoctorCheck(
@@ -241,8 +242,27 @@ def _memory_backend_check() -> DoctorCheck:
             "embedding_provider_name": config.memory.embedding_provider_name,
             "qdrant_path": str(config.memory.mindmemos_qdrant_path),
             "data_root": str(config.memory.data_root),
+            **_neo4j_details(config),
         },
     )
+
+
+def _neo4j_details(config: Any) -> dict[str, Any]:
+    neo4j = config.memory.neo4j
+    details: dict[str, Any] = {
+        "neo4j_mode": neo4j.mode,
+        "neo4j_uri": neo4j.uri,
+        "neo4j_username": neo4j.username,
+        "neo4j_database": neo4j.database,
+    }
+    if neo4j.mode == "managed_local":
+        details.update(
+            {
+                "neo4j_home": str(neo4j.home),
+                "java_home": str(neo4j.java_home),
+            }
+        )
+    return details
 
 
 def _ignored_paths_check() -> DoctorCheck:

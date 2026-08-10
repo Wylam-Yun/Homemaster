@@ -275,6 +275,61 @@ class MemoryMigrationSpec(BaseModel):
         return _private_absolute_path(value)
 
 
+class MemoryNeo4jConfig(BaseModel):
+    """Neo4j connection and optional HomeMaster-owned local process settings."""
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+    mode: Literal["external", "managed_local"] = "external"
+    home: Path | None = None
+    java_home: Path | None = None
+    uri: str = "bolt://127.0.0.1:7687"
+    username: str = "neo4j"
+    password: SecretStr = SecretStr("")
+    database: str = "neo4j"
+    start_timeout_seconds: float = Field(default=60.0, gt=0)
+    stop_timeout_seconds: float = Field(default=30.0, gt=0)
+
+    @field_validator("home", "java_home")
+    @classmethod
+    def _expand_optional_paths(cls, value: Path | None) -> Path | None:
+        return _private_absolute_path(value) if value is not None else None
+
+    @field_validator("username", "database")
+    @classmethod
+    def _non_empty_text(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Neo4j username and database must not be blank")
+        return stripped
+
+    @field_validator("uri")
+    @classmethod
+    def _valid_bolt_uri(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"bolt", "neo4j"} or not parsed.hostname:
+            raise ValueError("Neo4j uri must be an absolute bolt/neo4j URI")
+        return value
+
+    @model_validator(mode="after")
+    def _managed_local_has_runtime_inputs(self) -> MemoryNeo4jConfig:
+        if self.mode != "managed_local":
+            return self
+        missing: list[str] = []
+        if self.home is None:
+            missing.append("home")
+        if self.java_home is None:
+            missing.append("java_home")
+        if not self.password.get_secret_value():
+            missing.append("password")
+        if missing:
+            raise ValueError(
+                "managed_local Neo4j requires home, java_home, and password; missing "
+                + ", ".join(missing)
+            )
+        return self
+
+
 class MemoryConfig(BaseModel):
     """File memory and embedded MindMemOS configuration."""
 
@@ -289,6 +344,7 @@ class MemoryConfig(BaseModel):
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
     embedding_dimensions: int = Field(default=4096, gt=0)
+    neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
     @model_validator(mode="before")
@@ -367,6 +423,10 @@ class MemoryConfig(BaseModel):
     @property
     def mindmemos_qdrant_path(self) -> Path:
         return self.data_root / "mindmemos" / "qdrant"
+
+    @property
+    def neo4j_runtime_root(self) -> Path:
+        return self.data_root / "mindmemos" / "neo4j" / "runtime"
 
     @property
     def evidence_db_path(self) -> Path:

@@ -43,7 +43,16 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
             "default_provider_name": "Mimo",
             "default_embedding_provider_name": "MemoryEmbedding",
         },
-        memory={"data_root": tmp_path / "memory", "embedding_dimensions": 4096},
+        memory={
+            "data_root": tmp_path / "memory",
+            "embedding_dimensions": 4096,
+            "neo4j": {
+                "uri": "bolt://neo4j.internal:7687",
+                "username": "homemaster",
+                "password": "neo4j-test-password",
+                "database": "memory",
+            },
+        },
         provider_client={"timeout_s": 90, "max_retries": 3},
     )
 
@@ -64,6 +73,10 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert embedding.dimensions == 4096
     assert mapped.embed_model_router.dimensions_supported_models == ["Qwen/Qwen3-Embedding-8B"]
     assert mapped.database.qdrant.vector_size == 4096
+    assert mapped.database.neo4j.uri == "bolt://neo4j.internal:7687"
+    assert mapped.database.neo4j.username == "homemaster"
+    assert mapped.database.neo4j.password == "neo4j-test-password"
+    assert mapped.database.neo4j.database == "memory"
     schema_path = Path(mapped.algo_config.add.schema.entity_modeling_path)
     assert schema_path.is_file()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))

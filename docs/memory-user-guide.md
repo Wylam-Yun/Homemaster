@@ -35,6 +35,14 @@ memory:
   data_root: ~/.homemaster/memory
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
+  neo4j:
+    mode: managed_local
+    home: /absolute/path/to/neo4j-community
+    java_home: /absolute/path/to/jdk-21
+    uri: bolt://127.0.0.1:7687
+    username: neo4j
+    password: replace-with-private-password
+    database: neo4j
 ```
 
 目录固定派生为：
@@ -46,10 +54,28 @@ memory:
   files/MEMORY.md
   mindmemos/qdrant/
   mindmemos/cache/jieba/
+  mindmemos/neo4j/runtime/
   evidence.sqlite3
 ```
 
-Neo4j 连接由 vendored MindMemOS 的数据库配置提供，不在 `memory.data_root` 内伪装成本地文件。
+`neo4j.mode: managed_local` 由 HomeMaster 管理同一节点上的私有 Neo4j。第一个 HomeMaster 进程启动服务，每个
+进程持有独立 lease；中间进程退出不会停止服务，最后一个进程退出才停止。异常退出遗留的 lease 会在下次启动
+时按 PID 和进程启动标识清理。若首次启动恰好在取得 DBMS 身份前崩溃，后续 HomeMaster 会复用已就绪服务，
+但为避免误停外部替换服务，不会自动取得它的 stop 所有权。安装目录、Java 21 和认证信息来自上述私有 YAML；
+密码使用 `SecretStr`，不会进入 doctor 输出或对象 repr。`config/homemaster.yaml` 必须保持 mode 0600 且不提交 Git。
+
+`neo4j.mode: external` 保留原行为：HomeMaster 只连接 `uri`，既不启动也不停止外部 Neo4j。托管模式只支持同一
+节点共享；不要让不同节点用同一组 Neo4j 数据目录。Neo4j 的 `server.directories.data` 应指向该节点专属的
+持久目录，尤其不能与另一节点上仍在运行的 Neo4j 共用 `store_lock`。图数据仍按 Neo4j 的备份流程单独备份。
+
+全新 Neo4j 数据目录在第一次启动前，还要把 YAML 中的同一个密码写入 Neo4j（已启动过的数据库应使用正常的
+密码修改流程，不能再用 initial-password）：
+
+```bash
+JAVA_HOME=/absolute/path/to/jdk-21 \
+  /absolute/path/to/neo4j-community/bin/neo4j-admin \
+  dbms set-initial-password 'replace-with-private-password'
+```
 
 ## 换服务器与旧目录迁移
 
@@ -140,7 +166,8 @@ provider；Qdrant 为本地存储，Neo4j 使用已配置连接。
 - `memory_conflict`：同一 identity 已存在不同记录；先 search/get，再 update。
 - `memory_stale_observation`：较早证据不能覆盖较新值。
 - `memory_outbound_blocked`：待 embedding 文本包含禁止出站内容。
-- `memory_backend_unavailable`：chat/embedding provider、Qdrant 或 Neo4j 初始化失败；文件记忆仍可用。
+- `memory_backend_unavailable`：chat/embedding provider、Qdrant 或 Neo4j 初始化失败。托管模式会在进入 shell
+  前终止启动并报告原因；external 模式维持原有降级行为。
 - `memory_outcome_unknown`：mutation 已可能开始但终态无法确认；禁止自动重试，先 get/search/raw 诊断。
 - `memory_record_corrupt`：记录结构损坏或版本不支持；search 会隔离并报告脱敏 diagnostic，get 会拒绝。
 - `memory_external_drift`：人工编辑后的文件无法按规范无损往返；查看 drift backup 后修复。
@@ -151,5 +178,6 @@ provider；Qdrant 为本地存储，Neo4j 使用已配置连接。
 uv run homemaster doctor --json | jq '.checks[] | select(.name == "memory_backend")'
 ```
 
-该检查只报告导入、配置和文件迁移是否 ready，并以 `probe=not_opened` 明示没有启动 backend；实际 Qdrant、
-Neo4j、chat 和 embedding 可用性由 HomeMaster 启动边界验证。
+该检查只报告导入、配置和文件迁移是否 ready，并以 `probe=not_opened` 明示没有启动 backend；它会显示
+`neo4j_mode`、URI 和托管安装路径，但不显示密码。实际 Qdrant、Neo4j、chat 和 embedding 可用性由
+HomeMaster 启动边界验证。

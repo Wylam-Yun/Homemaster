@@ -126,6 +126,19 @@ memory:
   memory_char_limit: 2200
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
+  # Use managed_local when HomeMaster should share one private Neo4j process
+  # across all HomeMaster instances on the same node. Keep the real password
+  # only in the gitignored config/homemaster.yaml (chmod 600).
+  neo4j:
+    mode: external
+    home: null
+    java_home: null
+    uri: bolt://127.0.0.1:7687
+    username: neo4j
+    password: ""
+    database: neo4j
+    start_timeout_seconds: 60
+    stop_timeout_seconds: 30
 
 observability:
   console_enabled: true

@@ -11,6 +11,11 @@
 
 ### Added
 
+- Added an optional HomeMaster-managed private Neo4j lifecycle for embedded MindMemOS. Multiple HomeMaster processes on
+  one node share the service through a file lock and per-process leases: the first starts it, stale leases are recovered,
+  and the last clean exit stops it. Managed startup now precedes MindMemOS startup, failures block entry into the shell,
+  doctor remains read-only and redacts the YAML password, and `external` mode preserves caller-owned Neo4j behavior.
+
 - Replaced the application-owned `Mem0MemoryStore` path with embedded MindMemOS native schema pipelines while keeping
   the six public memory tool contracts and SOUL/USER/MEMORY file ownership unchanged. Facts map to MindMemOS `fact`;
   procedures map to `experience` with the complete HomeMaster record preserved in metadata. Add/search/get/update/delete

@@ -78,6 +78,15 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
     timeout = int(config.provider_client.timeout_s)
     retries = config.provider_client.max_retries
     dimensions = config.memory.embedding_dimensions
+    neo4j = config.memory.neo4j
+    neo4j_mapping: dict[str, Any] = {
+        "uri": neo4j.uri,
+        "username": neo4j.username,
+        "database": neo4j.database,
+    }
+    password = neo4j.password.get_secret_value()
+    if password:
+        neo4j_mapping["password"] = password
     mapped = build(
         MemoryConfig,
         {
@@ -107,7 +116,10 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                 ],
                 "dimensions_supported_models": [embedding.model],
             },
-            "database": {"qdrant": {"vector_size": dimensions}},
+            "database": {
+                "qdrant": {"vector_size": dimensions},
+                "neo4j": neo4j_mapping,
+            },
             "algo_config": {
                 "add": {
                     "schema": {

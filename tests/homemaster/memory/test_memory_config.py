@@ -47,6 +47,41 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert not hasattr(config.memory, "backend")
 
 
+def test_memory_config_accepts_private_managed_neo4j_credentials(tmp_path: Path) -> None:
+    neo4j_home = tmp_path / "neo4j-home"
+    java_home = tmp_path / "java-home"
+    config = HomeMasterConfig(
+        memory={
+            "data_root": tmp_path / "memory",
+            "neo4j": {
+                "mode": "managed_local",
+                "home": neo4j_home,
+                "java_home": java_home,
+                "uri": "bolt://127.0.0.1:7687",
+                "username": "neo4j",
+                "password": "private-test-password",
+                "database": "neo4j",
+                "start_timeout_seconds": 12,
+                "stop_timeout_seconds": 7,
+            },
+        }
+    )
+
+    assert config.memory.neo4j.mode == "managed_local"
+    assert config.memory.neo4j.home == neo4j_home
+    assert config.memory.neo4j.java_home == java_home
+    assert config.memory.neo4j.password.get_secret_value() == "private-test-password"
+    assert "private-test-password" not in repr(config.memory.neo4j)
+    assert config.memory.neo4j_runtime_root == (
+        tmp_path / "memory" / "mindmemos" / "neo4j" / "runtime"
+    )
+
+
+def test_managed_neo4j_requires_home_java_and_password() -> None:
+    with pytest.raises(ValidationError, match="managed_local.*home.*java_home.*password"):
+        HomeMasterConfig(memory={"neo4j": {"mode": "managed_local"}})
+
+
 @pytest.mark.parametrize(
     ("payload", "message"),
     [

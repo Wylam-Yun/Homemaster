@@ -1,9 +1,10 @@
 # V2.1 Memory System Architecture
 
-Home composition owns `FileMemoryStore`, `FrozenMemoryContextService`, `MemoryEvidenceLedger` and
-`EmbeddedMindMemOS`. They start before the first run, enter `application_services`, and close in reverse ownership
-order. Tools resolve them only from `ToolExecutionContext.services`; there is no backend selector or process-global
-HomeMaster store.
+Home composition owns `FileMemoryStore`, `FrozenMemoryContextService`, `MemoryEvidenceLedger`, optional
+`ManagedNeo4jRuntime`, and `EmbeddedMindMemOS`. They start before the first run, enter `application_services`, and close
+in reverse ownership order. In managed mode the order is Neo4j start, then MindMemOS start; shutdown is MindMemOS close,
+then Neo4j lease release. Tools resolve them only from `ToolExecutionContext.services`; there is no backend selector or
+process-global HomeMaster store.
 
 ## Ownership
 
@@ -12,6 +13,7 @@ SOUL / USER / MEMORY -> FileMemoryStore -> memory.data_root/files
 evidence refs         -> MemoryEvidenceLedger -> memory.data_root/evidence.sqlite3
 fact / procedure      -> EmbeddedMindMemOS -> MindMemOS native pipelines
                                            -> local Qdrant + configured Neo4j
+managed local Neo4j   -> ManagedNeo4jRuntime -> file lock + per-process leases
 ```
 
 SOUL/USER/MEMORY remain file-owned. `MemoryMigrationCoordinator` only publishes legacy file memory and verifies the
@@ -50,8 +52,13 @@ preventing truncated entity JSON.
 
 `EmbeddedMindMemOS` is a lifecycle and configuration adapter, not a second memory engine. It creates MindMemOS native
 add/search/get/update/delete pipelines, maps HomeMaster chat and embedding providers into MindMemOS config, disables
-telemetry and Kafka, and owns Qdrant/Neo4j cleanup. Feedback, dreaming and skill evolution remain outside the current
-structured-memory tool surface.
+telemetry and Kafka, and owns native pipeline cleanup. In `managed_local` mode, `ManagedNeo4jRuntime` serializes lifecycle
+transitions with an asynchronously acquired `flock`, prunes stale same-node leases using PID start identity, starts the
+service for the first client, and stops only after the last client exits. The owner marker is written as a start intent
+before launch and promoted by that same start operation with Neo4j's `dbms.info()` server ID after readiness; stop
+requires the current ID to match. An incomplete `starting` intent never grants stop ownership. A reachable service
+without a valid matching HomeMaster owner marker is treated as external and is never stopped.
+Feedback, dreaming and skill evolution remain outside the current structured-memory tool surface.
 
 ## Tool Contracts
 

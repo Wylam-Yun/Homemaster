@@ -39,6 +39,14 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         memory:
           data_root: {tmp_path / "memory-data"}
           embedding_dimensions: 8
+          neo4j:
+            mode: managed_local
+            home: {tmp_path / "neo4j-home"}
+            java_home: {tmp_path / "java-home"}
+            uri: bolt://127.0.0.1:7687
+            username: neo4j
+            password: doctor-neo4j-secret
+            database: neo4j
         """,
         encoding="utf-8",
     )
@@ -57,10 +65,15 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert memory["status"] == "PASS"
     assert memory["details"]["probe"] == "not_opened"
     assert memory["details"]["qdrant_path"].endswith("mindmemos/qdrant")
+    assert memory["details"]["neo4j_mode"] == "managed_local"
+    assert memory["details"]["neo4j_uri"] == "bolt://127.0.0.1:7687"
+    assert memory["details"]["neo4j_home"].endswith("neo4j-home")
+    assert memory["details"]["java_home"].endswith("java-home")
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" in encoded
     assert "doctor-embedding-secret" in encoded
+    assert "doctor-neo4j-secret" not in encoded
 
 
 def test_doctor_ignores_global_legacy_files_for_explicit_data_root(
@@ -92,6 +105,7 @@ def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> No
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" in encoded
     assert "doctor-embedding-secret" in encoded
+    assert "doctor-neo4j-secret" not in encoded
 
 
 def test_cli_doctor_text_reports_pass_warn_fail() -> None:

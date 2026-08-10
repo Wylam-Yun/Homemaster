@@ -74,6 +74,11 @@ uv run homemaster memory migrate --config config/homemaster.yaml
 迁移只处理旧 SOUL/USER/MEMORY 文件并保留旧源；旧 mem0 Qdrant/history 数据不会读取或迁移。
 `doctor` 只报告文件迁移状态，不会创建目录或打开 MindMemOS。
 
+设置 `memory.neo4j.mode: managed_local` 后，同一节点上的多个 HomeMaster 进程共享一套私有 Neo4j：首个
+进程自动启动，最后一个进程退出时自动停止；`external` 模式则只连接既有服务。托管模式需要在 gitignored、
+mode-0600 的 `config/homemaster.yaml` 中配置 Neo4j 安装目录、Java 21、URI 和密码。完整示例与同节点约束见
+[记忆用户指南](docs/memory-user-guide.md)。
+
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
 ## 体检
