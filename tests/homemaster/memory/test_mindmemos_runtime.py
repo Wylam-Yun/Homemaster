@@ -77,6 +77,7 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert mapped.database.neo4j.username == "homemaster"
     assert mapped.database.neo4j.password == "neo4j-test-password"
     assert mapped.database.neo4j.database == "memory"
+    assert mapped.algo_config.add.schema.merge.enable_entity_merge_decision is False
     schema_path = Path(mapped.algo_config.add.schema.entity_modeling_path)
     assert schema_path.is_file()
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -116,6 +117,106 @@ def test_homemaster_schema_prompt_requires_native_entity_output() -> None:
     assert '"message_mapping":' not in rendered
     assert len(rendered) < 3000
     assert "至少一个非 episodes 实体" in rendered
+
+
+def test_typed_fact_generation_overrides_llm_type_and_identity() -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "object", "name": "HM100::0002::筛选待发货订单"},
+        "predicate": "web_operation_steps",
+        "value": {"steps": ["打开订单", "点击筛选"]},
+        "source": "user_statement",
+    }
+
+    generated = module._typed_entity_generation(
+        record,
+        "输入时间：2026-08-10 23:00:00",
+    )
+
+    assert generated["edges"] == []
+    assert generated["entities"] == [
+        {
+            "name": "HM100::0002::筛选待发货订单::web_operation_steps",
+            "entity_type": "fact",
+            "description": (
+                "HM100::0002::筛选待发货订单 的 web_operation_steps 是 "
+                '{"steps":["打开订单","点击筛选"]}'
+            ),
+            "properties": [
+                {
+                    "property_name": "fact_value",
+                    "value": (
+                        "HM100::0002::筛选待发货订单 的 web_operation_steps 是 "
+                        '{"steps":["打开订单","点击筛选"]}'
+                    ),
+                    "time": "2026-08-10",
+                }
+            ],
+        }
+    ]
+
+
+def test_typed_procedure_generation_preserves_procedure_type() -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    record = {
+        "schema_version": 1,
+        "memory_type": "procedure",
+        "name": "导出订单",
+        "entry_url": "https://example.test/orders",
+        "steps": [{"order": 1, "action": "click", "target": {"name": "导出"}}],
+        "success_condition": "看到下载完成",
+        "source": "environment_observation",
+    }
+
+    generated = module._typed_entity_generation(record, "2026-08-10 23:00:00")
+
+    entity = generated["entities"][0]
+    assert entity["name"] == "导出订单"
+    assert entity["entity_type"] == "task_experience"
+    assert entity["properties"][0]["property_name"] == "task_experience"
+    assert entity["properties"][0]["time"] == "2026-08-10"
+
+
+@pytest.mark.asyncio
+async def test_typed_llm_client_replaces_wrong_entity_generation() -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "object", "name": "HM100::0002"},
+        "predicate": "web_operation_steps",
+        "value": {"steps": ["点击筛选"]},
+        "source": "user_statement",
+    }
+
+    class FakeResponse:
+        def __init__(self) -> None:
+            self.parsed = {
+                "entities": [{"name": "wrong", "entity_type": "task_experience"}],
+                "edges": [{"source": "wrong", "target": "other"}],
+            }
+
+        def model_copy(self, *, update: dict[str, Any]) -> Any:
+            return SimpleNamespace(**update)
+
+    class FakeDelegate:
+        async def chat(self, *_args: Any, **_kwargs: Any) -> FakeResponse:
+            return FakeResponse()
+
+    token = module._TYPED_RECORD.set(record)
+    try:
+        response = await module._TypedSchemaLlmClient(FakeDelegate()).chat(
+            "memory.add.entity_generation",
+            [{"role": "user", "content": "输入时间：2026-08-10 23:00:00"}],
+        )
+    finally:
+        module._TYPED_RECORD.reset(token)
+
+    assert response.parsed["edges"] == []
+    assert response.parsed["entities"][0]["name"] == "HM100::0002::web_operation_steps"
+    assert response.parsed["entities"][0]["entity_type"] == "fact"
 
 
 @pytest.mark.asyncio

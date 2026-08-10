@@ -81,6 +81,11 @@
 
 ## 测试工作区纪律
 
+- 已通过 typed schema 和 evidence 校验的结构化记录进入 LLM pipeline 后，类型、identity 和完整 record 仍以
+  调用方 typed payload 为唯一真理源；必须在 LLM 抽取输出后确定性投影并逐条 raw readback，禁止只靠 prompt
+  要求模型保持 fact/procedure 类型。语义近似不得触发跨 identity 合并；连续写入两个相近但不同 identity 的
+  真环境用例，分别断言准确 ID 和原始 record，单个成功样本不能证明类型门可靠。
+
 - 浏览器 actionability 的 obscured 判断必须在目标滚入 viewport 后基于刷新状态执行；inspect
   时的首屏外坐标不能直接作为动作拒绝依据。回归必须用真实首屏外控件完成一次点击或回填并读取
   DOM 终态，不能只断言 inspect 返回目标。

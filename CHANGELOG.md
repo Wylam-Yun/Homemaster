@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Made validated HomeMaster `FactRecord` and `ProcedureRecord` types authoritative across the MindMemOS LLM extraction
+  boundary. Entity-generation output is now deterministically projected from request-scoped `record_json`, fact identity
+  uses the complete `<subject>::<predicate>`, and cross-identity semantic entity merge is disabled. This prevents
+  procedural-looking fact values from being reclassified as `task_experience` or merged into a nearby fact before raw
+  terminal readback.
+
 - Prepared the Browser Gateway branch for main integration by restoring Ruff-clean configuration
   exports and teaching the legacy-term cleanup guard to exclude the intentional Browser benchmark
   trajectory vocabulary and vendored third-party sources. This keeps the guard focused on HomeMaster

@@ -1,5 +1,29 @@
 # Engineering Pitfalls
 
+## 2026-08-10 - Typed fact 被 LLM 改判为 procedure 并误合并已有实体
+
+### 症状与根因
+
+第一条包含网页步骤的 `FactRecord` 写入成功，第二条同 schema 记录却在完整 pipeline 和数据库写入后返回
+`memory_backend_rejected: MindMemOS add returned no raw memory`。真实 trace 显示 entity generation 把明确的
+fact 生成成 `task_experience`，随后语义 merge 又把它判为已有 fact 的更新候选。HomeMaster 虽然在 prompt 中
+要求“非流程前缀一律 fact”，但没有在 LLM 输出后锁定 typed record 的类型和 identity；模型遵守 prompt 的偶然
+成功被误当成接口保证。
+
+### 修法与教训
+
+以经过 Pydantic 和 evidence 校验的 `record_json` 为唯一类型与 identity 真理源。native entity-generation 调用
+仍保留，但其 parsed entity 必须在 pipeline 边界确定性投影：FactRecord 固定为 `fact` 和
+`<完整 subject>::<predicate>`，ProcedureRecord 固定为 `task_experience` 和准确流程名。关闭跨 identity 的
+LLM entity merge；同 identity 更新只依赖原生 exact candidate。验收必须连续写入至少两个语义相近但 identity
+不同的记录，逐条核对 raw ID 和原始 record，不能只测一个幸运样本。
+
+### 参考
+
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `tests/homemaster/memory/test_mindmemos_runtime.py`
+- `scripts/memory_recall_benchmark.py`
+
 ## 2026-08-06 - 源码已删除 Mem0，但增量构建的 wheel 仍包含完整 Mem0 包
 
 ### 症状与根因

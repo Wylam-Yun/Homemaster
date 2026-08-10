@@ -50,6 +50,13 @@ prompt requires `entities` and `edges`, forbids episodic-only output, and is exp
 the request language prompt set. Chat output defaults to 8192 tokens when the HomeMaster provider does not set a limit,
 preventing truncated entity JSON.
 
+The validated `record_json` remains authoritative after LLM extraction. A request-scoped typed projection replaces the
+entity-generation parse with exactly one deterministic entity: `FactRecord` becomes `fact` with identity
+`<full subject name>::<predicate>`, while `ProcedureRecord` becomes `task_experience` with its exact procedure name.
+This prevents procedural-looking fact values from being reclassified by the model. Cross-identity LLM entity merge is
+disabled; native exact-name resolution still handles the same identity. Tool success still requires raw memory readback
+to equal the complete original record.
+
 `EmbeddedMindMemOS` is a lifecycle and configuration adapter, not a second memory engine. It creates MindMemOS native
 add/search/get/update/delete pipelines, maps HomeMaster chat and embedding providers into MindMemOS config, disables
 telemetry and Kafka, and owns native pipeline cleanup. In `managed_local` mode, `ManagedNeo4jRuntime` serializes lifecycle

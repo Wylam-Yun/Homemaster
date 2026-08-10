@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,6 +52,116 @@ _HOMEMASTER_ENTITY_GENERATION_PROMPT = """
 5. time 使用输入时间的日期部分。edges 没有明确关系时返回空数组。
 6. 不要输出 message_mapping、解释、Markdown 或代码围栏。
 """.strip()
+
+_TYPED_RECORD: ContextVar[dict[str, Any] | None] = ContextVar(
+    "homemaster_mindmemos_typed_record",
+    default=None,
+)
+
+
+def _typed_entity_generation(record: dict[str, Any], prompt: str) -> dict[str, Any]:
+    """Project one validated HomeMaster record into the native schema deterministically."""
+
+    date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", prompt)
+    memory_date = date_match.group(1) if date_match else "1970-01-01"
+    memory_type = record.get("memory_type")
+    if memory_type == "fact":
+        subject = record.get("subject")
+        predicate = record.get("predicate")
+        if not isinstance(subject, dict) or not isinstance(subject.get("name"), str):
+            raise ValueError("typed fact is missing subject.name")
+        if not isinstance(predicate, str) or not predicate:
+            raise ValueError("typed fact is missing predicate")
+        subject_name = subject["name"]
+        value_json = json.dumps(
+            record.get("value"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        description = f"{subject_name} 的 {predicate} 是 {value_json}"
+        return {
+            "entities": [
+                {
+                    "name": f"{subject_name}::{predicate}",
+                    "entity_type": "fact",
+                    "description": description,
+                    "properties": [
+                        {
+                            "property_name": "fact_value",
+                            "value": description,
+                            "time": memory_date,
+                        }
+                    ],
+                }
+            ],
+            "edges": [],
+        }
+    if memory_type == "procedure":
+        name = record.get("name")
+        if not isinstance(name, str) or not name:
+            raise ValueError("typed procedure is missing name")
+        value = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return {
+            "entities": [
+                {
+                    "name": name,
+                    "entity_type": "task_experience",
+                    "description": value,
+                    "properties": [
+                        {
+                            "property_name": "task_experience",
+                            "value": value,
+                            "time": memory_date,
+                        }
+                    ],
+                }
+            ],
+            "edges": [],
+        }
+    raise ValueError("typed record memory_type must be fact or procedure")
+
+
+def _typed_record_from_metadata(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not metadata or metadata.get("homemaster_memory_type") not in {"fact", "procedure"}:
+        return None
+    value = metadata.get("record_json")
+    if not isinstance(value, str):
+        return None
+    try:
+        record = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    return record if isinstance(record, dict) else None
+
+
+class _TypedSchemaLlmClient:
+    """Keep native LLM stages while making typed entity output authoritative."""
+
+    def __init__(self, delegate: Any) -> None:
+        self._delegate = delegate
+
+    async def chat(
+        self,
+        task: str,
+        messages: list[dict[str, Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        response = await self._delegate.chat(task, messages, *args, **kwargs)
+        record = _TYPED_RECORD.get()
+        if task != "memory.add.entity_generation" or record is None:
+            return response
+        prompt = "\n".join(
+            str(message.get("content", "")) for message in messages if isinstance(message, dict)
+        )
+        parsed = _typed_entity_generation(record, prompt)
+        return response.model_copy(
+            update={
+                "content": json.dumps(parsed, ensure_ascii=False, separators=(",", ":")),
+                "parsed": parsed,
+            }
+        )
 
 
 def _litellm_model(api_format: str, model: str) -> str:
@@ -128,6 +241,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                             "enable_schema_selection": False,
                             "episode_search_fields_augment": False,
                         },
+                        "merge": {"enable_entity_merge_decision": False},
                     }
                 }
             },
@@ -254,7 +368,7 @@ class EmbeddedMindMemOS:
                 db_writer=writer,
                 recorder=recorder,
                 add_buffer=AddRecordBuffer(clients=clients),
-                llm_client=get_llm_client(),
+                llm_client=_TypedSchemaLlmClient(get_llm_client()),
                 embed_client=embed_client,
                 prompt_set=build_mindmemos_add_prompts(mapped.algo_config.common.prompt_language),
             )
@@ -341,6 +455,8 @@ class EmbeddedMindMemOS:
             ),
             operation="homemaster.mindmemos.add",
         )
+        typed_record = _typed_record_from_metadata(metadata)
+        token = _TYPED_RECORD.set(typed_record)
         try:
             return await self._add_pipeline.add_sync(
                 payload,
@@ -353,6 +469,8 @@ class EmbeddedMindMemOS:
                 operation="homemaster.mindmemos.add",
             )
             raise
+        finally:
+            _TYPED_RECORD.reset(token)
 
     async def search(
         self,
