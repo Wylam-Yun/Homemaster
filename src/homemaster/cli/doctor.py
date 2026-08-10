@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +21,6 @@ from homemaster.config import (
     load_config,
 )
 from homemaster.memory.migration import MemoryMigrationCoordinator
-from homemaster.memory.vendor_integrity import verify_vendored_mem0
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
 from homemaster.providers.llm_client import LLMClient, LLMClientError
 
@@ -99,18 +97,14 @@ def _import_checks() -> list[DoctorCheck]:
         "typer",
         "bm25s",
         "jieba",
-        "mem0",
+        "mindmemos",
         "fastembed",
         "qdrant_client",
     ]
     checks: list[DoctorCheck] = []
     for module in modules:
         try:
-            if module == "mem0":
-                os.environ["MEM0_TELEMETRY"] = "False"
-                verify_vendored_mem0()
-            else:
-                importlib.import_module(module)
+            importlib.import_module(module)
         except Exception as exc:  # pragma: no cover - exact import failure is environment-specific
             checks.append(
                 DoctorCheck(
@@ -121,8 +115,7 @@ def _import_checks() -> list[DoctorCheck]:
                 )
             )
         else:
-            message = "vendored package bytes verified" if module == "mem0" else "import ok"
-            checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message=message))
+            checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message="import ok"))
     return checks
 
 
@@ -245,9 +238,8 @@ def _memory_backend_check() -> DoctorCheck:
         details={
             "enabled": True,
             "probe": "not_opened",
-            "collection_name": config.memory.mem0.collection_name,
             "embedding_provider_name": config.memory.embedding_provider_name,
-            "fastembed_cache_path": str(config.memory.mem0.fastembed_cache_path),
+            "qdrant_path": str(config.memory.mindmemos_qdrant_path),
             "data_root": str(config.memory.data_root),
         },
     )

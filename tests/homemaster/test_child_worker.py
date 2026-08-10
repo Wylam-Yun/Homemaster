@@ -117,6 +117,8 @@ runtime_paths:
 observability:
   trace_dir: {tmp_path / "trace"}
   session_dir: {tmp_path / "sessions"}
+memory:
+  data_root: {tmp_path / "memory"}
 """,
             encoding="utf-8",
         )

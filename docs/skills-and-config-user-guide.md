@@ -95,14 +95,12 @@ memory:
   enabled: true
   data_root: ~/.homemaster/memory
   embedding_provider_name: MemoryEmbedding
-  mem0:
-    collection_name: homemaster_memory_qwen3_4096_v1
-    embedding_dimensions: 4096
+  embedding_dimensions: 4096
 ```
 
 `search_memories` 的 query 与版本化 search text 会发送到这个第三方 endpoint；API key、opaque
-evidence ref、procedure URL query/fragment 和真实 input value 会在出站前拒绝或剔除。mem0 extraction
-固定 `infer=False`，embedded Qdrant 和离线 BM25 不联网。运行 `uv run homemaster doctor --json` 可查看
+evidence ref、procedure URL query/fragment 和真实 input value 会在出站前拒绝或剔除。结构化记录通过
+embedded MindMemOS 原生 schema pipeline 写入本地 Qdrant 和 Neo4j。运行 `uv run homemaster doctor --json` 可查看
 `memory_backend` 的静态配置与迁移状态；doctor 不打开 backend。实际启动失败时五个结构化工具统一返回
 `memory_backend_unavailable`，文件 `memory` 工具仍可用。
 `memory.enabled: false` 会一起移除六工具和 frozen 文件上下文，不会静默切换到第二个 backend。完整用法见

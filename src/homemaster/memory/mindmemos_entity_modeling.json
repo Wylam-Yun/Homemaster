@@ -1,0 +1,49 @@
+[
+  {
+    "entity_type": "fact",
+    "entity_description": "A complete HomeMaster external-world FactRecord about an object, device, room, place, service, account, or other non-user subject.",
+    "entity_instruction": "When the input states a subject's predicate and value, ALWAYS create exactly one fact entity. Use a stable entity name in the form '<subject name>::<predicate>'. Preserve the stated value exactly. Do not turn user profile information into this entity.",
+    "search_weight": 1.0,
+    "static_property": {
+      "name": "Stable '<subject name>::<predicate>' identity for this fact",
+      "subject_name": "The exact subject name",
+      "subject_type": "One of object, device, room, place, service, account, or other",
+      "predicate": "The lowercase snake_case predicate"
+    },
+    "dynamic_property": {
+      "fact_value": {
+        "type": "string",
+        "desc": "The complete self-contained fact in the form '<subject name> <predicate> <value>'. Preserve the value and all location or state details exactly.",
+        "example": "相机电池 location 书房右侧第二层抽屉"
+      }
+    }
+  },
+  {
+    "entity_type": "task_experience",
+    "entity_description": "A reusable HomeMaster ProcedureRecord that was verified successfully in the environment.",
+    "entity_instruction": "When the input describes a named workflow with an entry URL and ordered steps, ALWAYS create exactly one task_experience entity. Preserve the safe URL, ordered actions, targets, expectations, outputs, and success condition. Never invent input values or credentials.",
+    "search_weight": 1.0,
+    "static_property": {
+      "name": "Exact procedure name",
+      "entry_url": "Safe absolute entry URL without credentials or session data"
+    },
+    "dynamic_property": {
+      "task_experience": {
+        "type": "string",
+        "desc": "The complete reusable procedure as one self-contained ordered workflow, including its name, safe entry URL, steps, verification expectations, outputs, and final success condition.",
+        "example": "流程 查询设备状态，入口 https://example.test/devices，步骤 1.open:{...}；2.extract:{...}"
+      }
+    }
+  },
+  {
+    "entity_type": "episodes",
+    "entity_description": "MANDATORY: create exactly one episode entity for every input segment as the original input backup.",
+    "entity_instruction": "Use a concise topic summary as the name. The description and input_messages are filled by the system.",
+    "search_weight": 0.5,
+    "static_property": {
+      "detail": "Detailed objective description of the input",
+      "input_messages": "Raw input context; leave blank because the system fills it"
+    },
+    "dynamic_property": {}
+  }
+]

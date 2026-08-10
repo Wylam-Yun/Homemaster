@@ -128,6 +128,8 @@
   负向断言内部 objectId、containment、pose、hash 和 trace 未随 token 外泄。
 - Package-data 功能必须构建并安装 wheel，再逐项枚举资源；源码 checkout 的 import/resource 测试不能
   证明发布包完整。
+- 删除 package 或 package data 后，从空 `build/dist/egg-info` 构建并枚举 wheel ZIP；setuptools 增量构建
+  不会自动清除旧 `build/lib`，源码已删除和构建成功都不能证明 wheel 未携带陈旧包。
 - 默认 profile 的 wheel 门必须安装 wheel 声明的核心依赖，并在源码 checkout 外真实 import、构造 profile、
   逐项核对默认工具；只用 `--no-deps` 枚举 package data 会掩盖默认工具缺失运行依赖和 optional extra
   的 eager import。
@@ -188,6 +190,11 @@
   extension cleanup，并把 hook/cleanup 状态写入字段受限、文本精确的结构化 trace。
 
 ## Provider 外部门纪律
+
+- 外部 schema pipeline 的 metadata 必须按真实 raw record 结构读取，不能假定请求 metadata 原样位于顶层。
+  原生 pipeline 若会按语言或阶段重建 prompt，必须在真实调用点验证显式 prompt 仍生效；构造时注入成功不等于
+  执行时使用。结构化写入验收必须从返回候选 ID 回读 raw memory，并逐个断言目标类型、完整 record 和 CRUD
+  可复用 ID，episodic fallback、事件日志或成功返回码都不能替代。
 
 - Anthropic流式响应的实时 delta只用于展示 text/thinking；可执行工具名与参数必须以 SDK最终消息中的
   `tool_use.name/input`为唯一真理源。不得同时维护第二套生产参数聚合器，也不得解析正文 XML样式工具标记执行。

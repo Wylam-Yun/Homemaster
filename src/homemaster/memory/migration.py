@@ -21,7 +21,7 @@ from homemaster.config import MemoryConfig
 logger = logging.getLogger(__name__)
 
 MIGRATION_SCHEMA = "homemaster-memory-migration-v1"
-ComponentName = Literal["files", "qdrant", "history", "evidence"]
+ComponentName = Literal["files", "evidence"]
 
 
 class MemoryMigrationError(RuntimeError):
@@ -99,7 +99,7 @@ class MemoryMigrationCoordinator:
                 self._validate_completed_manifest(manifest, deep=True)
                 return manifest
             journal = self._load_or_plan_journal()
-            for name in ("files", "qdrant", "history", "evidence"):
+            for name in ("files", "evidence"):
                 component = journal["components"][name]
                 if component["status"] == "completed":
                     continue
@@ -183,8 +183,6 @@ class MemoryMigrationCoordinator:
         spec = self.config.migration_spec
         return {
             "files": (spec.files_source, self.config.files_root),
-            "qdrant": (spec.qdrant_source, self.config.qdrant_path),
-            "history": (spec.history_source, self.config.history_db_path),
             "evidence": (spec.evidence_source, self.config.evidence_db_path),
         }
 
@@ -273,8 +271,6 @@ class MemoryMigrationCoordinator:
         fields = set(self.config.migration_spec.explicit_legacy_fields)
         return {
             "files": "memory.root",
-            "qdrant": "memory.mem0.qdrant_path",
-            "history": "memory.mem0.history_db_path",
             "evidence": "memory.evidence_db_path",
         }[name] in fields
 
@@ -295,10 +291,8 @@ class MemoryMigrationCoordinator:
                     raise MemoryMigrationError(
                         "memory_migration_invalid_files", f"file memory is missing {filename}"
                     ) from exc
-        elif name in {"history", "evidence"}:
+        elif name == "evidence":
             _validate_sqlite(path)
-        elif name == "qdrant":
-            _qdrant_snapshot(path)
 
     def _validate_identity(self, payload: dict[str, Any]) -> None:
         if payload.get("schema_version") != MIGRATION_SCHEMA:
@@ -361,21 +355,11 @@ class MemoryMigrationCoordinator:
                 self._validate_component_read_only(name, target)
 
     def _validate_component_read_only(self, name: ComponentName, path: Path) -> None:
-        if name == "qdrant":
-            if not path.is_dir():
-                raise MemoryMigrationError(
-                    "memory_migration_invalid_qdrant", "Qdrant component is not a directory"
-                )
-            _inventory_digest(path)
-            return
         self._validate_component(name, path)
 
     def _component_digest(self, name: ComponentName, path: Path) -> str:
-        if name in {"history", "evidence"}:
+        if name == "evidence":
             return _sqlite_digest(path)
-        if name == "qdrant":
-            encoded = json.dumps(_qdrant_snapshot(path), sort_keys=True, separators=(",", ":"))
-            return hashlib.sha256(encoded.encode()).hexdigest()
         return _inventory_digest(path)
 
     @contextmanager
@@ -437,63 +421,6 @@ def _sqlite_digest(path: Path) -> str:
             "memory_migration_invalid_sqlite", "SQLite snapshot digest failed"
         ) from exc
     return hashlib.sha256(statements.encode()).hexdigest()
-
-
-def _qdrant_snapshot(path: Path) -> dict[str, Any]:
-    if not path.is_dir():
-        raise MemoryMigrationError(
-            "memory_migration_invalid_qdrant", "Qdrant component is not a directory"
-        )
-    from qdrant_client import QdrantClient
-
-    client = QdrantClient(path=str(path))
-    try:
-        snapshot: dict[str, Any] = {}
-        collections = sorted(item.name for item in client.get_collections().collections)
-        for collection in collections:
-            count = int(client.count(collection, exact=True).count)
-            points: list[dict[str, Any]] = []
-            offset = None
-            while True:
-                rows, offset = client.scroll(
-                    collection,
-                    limit=256,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=True,
-                )
-                points.extend(
-                    sorted(
-                        (
-                            {
-                                "id": str(row.id),
-                                "payload": row.payload,
-                                "vectors": sorted(row.vector)
-                                if isinstance(row.vector, dict)
-                                else [""],
-                            }
-                            for row in rows
-                        ),
-                        key=lambda item: item["id"],
-                    )
-                )
-                if offset is None:
-                    break
-            if len(points) != count:
-                raise MemoryMigrationError(
-                    "memory_migration_invalid_qdrant",
-                    f"Qdrant collection {collection!r} count mismatch",
-                )
-            snapshot[collection] = {"count": count, "points": points}
-        return snapshot
-    except MemoryMigrationError:
-        raise
-    except Exception as exc:
-        raise MemoryMigrationError(
-            "memory_migration_invalid_qdrant", f"Qdrant inspection failed: {type(exc).__name__}"
-        ) from exc
-    finally:
-        client.close()
 
 
 def _copy_component(source: Path, target: Path) -> None:

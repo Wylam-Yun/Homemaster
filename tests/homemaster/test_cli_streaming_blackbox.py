@@ -9,6 +9,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -234,6 +235,7 @@ def _start_cli(base_url: str, output_format: str) -> subprocess.Popen[bytes]:
     env = os.environ.copy()
     env.update(
         {
+            "HOME": tempfile.mkdtemp(prefix="homemaster-cli-blackbox-"),
             "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
             "HOMEMASTER_MIMO_BASE_URL": base_url,
             "HOMEMASTER_MIMO_MODEL": "blackbox-model",

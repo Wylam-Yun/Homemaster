@@ -1,4 +1,4 @@
-"""Deterministic mem0 text, JSON, index, and identity derivation."""
+"""Deterministic structured-memory text, JSON, index, and identity derivation."""
 
 from __future__ import annotations
 

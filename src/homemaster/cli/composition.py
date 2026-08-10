@@ -35,8 +35,8 @@ from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.memory.context_service import FrozenMemoryContextService
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
-from homemaster.memory.mem0_store import Mem0MemoryStore
 from homemaster.memory.migration import MemoryMigrationCoordinator
+from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.prompts.loader import PromptId
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
@@ -278,14 +278,14 @@ def _finish_home_application(
     file_memory_store: FileMemoryStore | None = None
     frozen_memory_context: FrozenMemoryContextService | None = None
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
-    mem0_memory_store: Mem0MemoryStore | None = None
+    mindmemos: EmbeddedMindMemOS | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
     if resolved.memory.enabled:
         memory_migration = MemoryMigrationCoordinator(resolved.memory)
         file_memory_store = FileMemoryStore(resolved.memory)
         frozen_memory_context = FrozenMemoryContextService(file_memory_store)
         memory_evidence_ledger = MemoryEvidenceLedger(resolved.memory.evidence_db_path)
-        mem0_memory_store = Mem0MemoryStore(resolved)
+        mindmemos = EmbeddedMindMemOS(resolved)
         scope.bind(
             ResourceBinding.owned(
                 "file-memory-store",
@@ -302,8 +302,8 @@ def _finish_home_application(
         )
         scope.bind(
             ResourceBinding.owned(
-                "mem0-memory-store",
-                mem0_memory_store,
+                "embedded-mindmemos",
+                mindmemos,
                 lifetime=ResourceLifetime.APPLICATION,
             )
         )
@@ -311,12 +311,12 @@ def _finish_home_application(
         async def start_file_memory(_application: ApplicationRuntime) -> None:
             assert file_memory_store is not None
             assert memory_evidence_ledger is not None
-            assert mem0_memory_store is not None
+            assert mindmemos is not None
             assert memory_migration is not None
             memory_migration.ensure_ready(auto_migrate=True)
             file_memory_store.start()
             memory_evidence_ledger.start()
-            mem0_memory_store.start()
+            await mindmemos.start()
 
         starter_steps.append(start_file_memory)
     if resolved.mcp.servers:
@@ -387,7 +387,7 @@ def _finish_home_application(
                     "file_memory_store": file_memory_store,
                     "frozen_memory_context": frozen_memory_context,
                     "memory_evidence_ledger": memory_evidence_ledger,
-                    "mem0_memory_store": mem0_memory_store,
+                    "mindmemos": mindmemos,
                     "memory_migration": memory_migration,
                     "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
                     / "memory_operations.jsonl",
@@ -395,7 +395,7 @@ def _finish_home_application(
                 if file_memory_store is not None
                 and frozen_memory_context is not None
                 and memory_evidence_ledger is not None
-                and mem0_memory_store is not None
+                and mindmemos is not None
                 else {}
             ),
             **_image_provider_services(resolved),

@@ -50,6 +50,7 @@ def _config(tmp_path: Path, *, explicit_skill: bool = False) -> HomeMasterConfig
         explicit_dirs.append(str(skill_root))
     return HomeMasterConfig.model_validate(
         {
+            "memory": {"data_root": str(tmp_path / "memory")},
             "runtime": {"runtime_root": str(tmp_path / "runs")},
             "observability": {"session_dir": str(tmp_path / "sessions")},
             "skills": {

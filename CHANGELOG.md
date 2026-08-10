@@ -11,6 +11,15 @@
 
 ### Added
 
+- Replaced the application-owned `Mem0MemoryStore` path with embedded MindMemOS native schema pipelines while keeping
+  the six public memory tool contracts and SOUL/USER/MEMORY file ownership unchanged. Facts map to MindMemOS `fact`;
+  procedures map to `experience` with the complete HomeMaster record preserved in metadata. Add/search/get/update/delete
+  now return raw reusable memory IDs and verify raw terminal state. Added HomeMaster fact/task-experience schemas, a
+  compact extraction prompt honored by the vendored pipeline, nested request-metadata decoding, application lifecycle
+  wiring, and real Qdrant/Neo4j/chat/embedding CRUD coverage. Removed the mem0 runtime, dependency packaging, integrity
+  manifest, configuration, tests and Qdrant/history migration branches because old mem0 data intentionally starts fresh
+  and is not migrated; legacy SOUL/USER/MEMORY file migration remains supported.
+
 - Added `homemaster --gateway --browser`, preserving the existing Feishu Channel and Home general
   tools while injecting a run-scoped, origin-restricted Playwright session. The browser surface now
   includes semantic inspect/actions, mandatory post-action `observe`, and `browser_backfill`, which

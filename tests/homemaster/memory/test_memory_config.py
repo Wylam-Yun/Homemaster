@@ -6,8 +6,9 @@ import tomllib
 from pathlib import Path
 
 import pytest
-from homemaster.config import HomeMasterConfig, ProviderProfileConfig
 from pydantic import ValidationError
+
+from homemaster.config import HomeMasterConfig, ProviderProfileConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -38,18 +39,11 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert config.memory.memory_char_limit == 2200
     assert config.memory.embedding_provider_name == "MemoryEmbedding"
     assert config.memory.embedding_dimensions == 4096
-    assert config.memory.qdrant_path == config.memory.data_root / "qdrant"
     assert config.memory.mindmemos_qdrant_path == (
         config.memory.data_root / "mindmemos" / "qdrant"
     )
-    assert config.memory.history_db_path == config.memory.data_root / "history.sqlite3"
     assert config.memory.evidence_db_path == config.memory.data_root / "evidence.sqlite3"
-    assert config.memory.mem0.fastembed_cache_path == (
-        REPO_ROOT / ".cache" / "homemaster" / "fastembed"
-    )
-    assert "embedding_dimensions" not in type(config.memory.mem0).model_fields
-    assert config.memory.mem0.search_limit == 5
-    assert config.memory.mem0.search_threshold == pytest.approx(0.1)
+    assert not hasattr(config.memory, "mem0")
     assert not hasattr(config.memory, "backend")
 
 
@@ -59,10 +53,6 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
         ({"user_char_limit": 0}, "greater than 0"),
         ({"memory_char_limit": 0}, "greater than 0"),
         ({"embedding_dimensions": 0}, "greater than 0"),
-        ({"mem0": {"search_limit": 0}}, "greater than or equal to 1"),
-        ({"mem0": {"search_limit": 21}}, "less than or equal to 20"),
-        ({"mem0": {"search_threshold": -0.01}}, "greater than or equal to 0"),
-        ({"mem0": {"search_threshold": 1.01}}, "less than or equal to 1"),
         ({"soul_file": "../SOUL.md"}, "plain file name"),
     ],
 )
@@ -82,28 +72,25 @@ def test_disabled_memory_does_not_require_embedding_provider() -> None:
     assert config.memory.enabled is False
 
 
-def test_memory_config_captures_legacy_paths_only_as_migration_inputs(tmp_path: Path) -> None:
-    config = HomeMasterConfig(
-        memory={
-            "root": tmp_path / "old-files",
-            "mem0": {
-                "qdrant_path": tmp_path / "old-qdrant",
-                "history_db_path": tmp_path / "old-history.sqlite3",
-            },
-        }
-    )
+def test_memory_config_captures_legacy_file_path_only_as_migration_input(tmp_path: Path) -> None:
+    config = HomeMasterConfig(memory={"root": tmp_path / "old-files"})
 
     assert config.memory.data_root == Path("~/.homemaster/memory").expanduser()
     assert config.memory.migration_spec.files_source == tmp_path / "old-files"
-    assert config.memory.migration_spec.qdrant_source == tmp_path / "old-qdrant"
-    assert config.memory.migration_spec.history_source == tmp_path / "old-history.sqlite3"
-    assert config.memory.migration_spec.explicit_legacy_fields == (
-        "memory.root",
-        "memory.mem0.qdrant_path",
-        "memory.mem0.history_db_path",
-    )
+    assert config.memory.migration_spec.explicit_legacy_fields == ("memory.root",)
     assert "root" not in config.memory.model_fields_set
-    assert "qdrant_path" not in type(config.memory.mem0).model_fields
+    assert not hasattr(config.memory, "mem0")
+
+
+def test_explicit_data_root_does_not_probe_global_legacy_file_memory(tmp_path: Path) -> None:
+    config = HomeMasterConfig(memory={"data_root": tmp_path / "memory"})
+
+    assert config.memory.migration_spec.files_source == tmp_path / "memory" / "files"
+
+
+def test_memory_config_rejects_removed_mem0_settings() -> None:
+    with pytest.raises(ValidationError, match="mem0"):
+        HomeMasterConfig(memory={"mem0": {"qdrant_path": "/tmp/old-qdrant"}})
 
 
 def test_memory_config_rejects_mixed_new_and_legacy_path_fields(tmp_path: Path) -> None:

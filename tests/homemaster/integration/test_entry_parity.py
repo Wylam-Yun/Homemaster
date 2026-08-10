@@ -43,6 +43,7 @@ class FakeTransport:
 def _config(tmp_path: Path):
     config = HomeMasterConfig.model_validate(
         {
+            "memory": {"data_root": str(tmp_path / "memory")},
             "providers": {
                 "default": "Mimo",
                 "items": [

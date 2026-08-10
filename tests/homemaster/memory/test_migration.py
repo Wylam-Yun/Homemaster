@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import json
 import shutil
-import sqlite3
 from pathlib import Path
 
 import pytest
-from qdrant_client import QdrantClient, models
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
@@ -20,14 +18,6 @@ def _legacy_files(path: Path, marker: str = "legacy") -> None:
     (path / "SOUL.md").write_text(f"soul-{marker}", encoding="utf-8")
     (path / "USER.md").write_text(f"user-{marker}", encoding="utf-8")
     (path / "MEMORY.md").write_text(f"memory-{marker}", encoding="utf-8")
-
-
-def _sqlite(path: Path, value: str) -> None:
-    connection = sqlite3.connect(path)
-    connection.execute("CREATE TABLE item (value TEXT NOT NULL)")
-    connection.execute("INSERT INTO item VALUES (?)", (value,))
-    connection.commit()
-    connection.close()
 
 
 def test_inspect_is_read_only_and_finds_historical_default(
@@ -54,15 +44,8 @@ def test_component_migration_preserves_source_and_is_idempotent(
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     old_files = tmp_path / "legacy-files"
-    old_history = tmp_path / "legacy-history.sqlite3"
     _legacy_files(old_files)
-    _sqlite(old_history, "history-terminal-state")
-    config = MemoryConfig.model_validate(
-        {
-            "root": old_files,
-            "mem0": {"history_db_path": old_history},
-        }
-    )
+    config = MemoryConfig.model_validate({"root": old_files})
     coordinator = MemoryMigrationCoordinator(config)
 
     first = coordinator.ensure_ready(auto_migrate=True)
@@ -71,16 +54,9 @@ def test_component_migration_preserves_source_and_is_idempotent(
     assert first == second
     assert first["status"] == "completed"
     assert first["components"]["files"]["publication"] == "copied"
-    assert first["components"]["history"]["publication"] == "copied"
+    assert set(first["components"]) == {"files", "evidence"}
     assert old_files.joinpath("USER.md").read_text(encoding="utf-8") == "user-legacy"
     assert config.user_path.read_text(encoding="utf-8") == "user-legacy"
-    connection = sqlite3.connect(f"file:{config.history_db_path}?mode=ro", uri=True)
-    try:
-        assert connection.execute("SELECT value FROM item").fetchone() == (
-            "history-terminal-state",
-        )
-    finally:
-        connection.close()
     assert (
         json.loads(coordinator.manifest_path.read_text())["migration_id"] == first["migration_id"]
     )
@@ -170,63 +146,6 @@ def test_existing_different_target_fails_closed_without_changing_either_side(
     assert caught.value.code == "memory_migration_conflict"
     assert source.joinpath("MEMORY.md").read_bytes() == source_before
     assert config.memory_path.read_bytes() == target_before
-
-
-def test_corrupt_sqlite_is_rejected_before_publication(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    corrupt = tmp_path / "corrupt.sqlite3"
-    corrupt.write_bytes(b"not sqlite")
-    config = MemoryConfig.model_validate({"mem0": {"history_db_path": corrupt}})
-
-    with pytest.raises(MemoryMigrationError) as caught:
-        MemoryMigrationCoordinator(config).ensure_ready(auto_migrate=True)
-
-    assert caught.value.code == "memory_migration_invalid_sqlite"
-    assert not config.history_db_path.exists()
-    assert corrupt.read_bytes() == b"not sqlite"
-
-
-def test_real_qdrant_component_copy_preserves_ids_payloads_and_named_vectors(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    source = tmp_path / "legacy-qdrant"
-    client = QdrantClient(path=str(source))
-    client.create_collection(
-        "memory",
-        vectors_config={"dense": models.VectorParams(size=2, distance=models.Distance.COSINE)},
-        sparse_vectors_config={"bm25": models.SparseVectorParams()},
-    )
-    client.upsert(
-        "memory",
-        [
-            models.PointStruct(
-                id=7,
-                vector={
-                    "dense": [0.5, 0.25],
-                    "bm25": models.SparseVector(indices=[1, 4], values=[0.7, 0.3]),
-                },
-                payload={"kind": "fact", "text": "terminal-state"},
-            )
-        ],
-    )
-    client.close()
-    config = MemoryConfig.model_validate({"mem0": {"qdrant_path": source}})
-
-    manifest = MemoryMigrationCoordinator(config).ensure_ready(auto_migrate=True)
-
-    target = QdrantClient(path=str(config.qdrant_path))
-    try:
-        points = target.retrieve("memory", [7], with_payload=True, with_vectors=True)
-        assert target.count("memory", exact=True).count == 1
-        assert points[0].id == 7
-        assert points[0].payload == {"kind": "fact", "text": "terminal-state"}
-        assert set(points[0].vector) == {"dense", "bm25"}
-    finally:
-        target.close()
-    assert manifest["components"]["qdrant"]["publication"] == "copied"
 
 
 def test_memory_migrate_cli_returns_typed_receipt_and_terminal_files(

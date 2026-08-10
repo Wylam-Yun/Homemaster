@@ -266,43 +266,17 @@ class MemoryMigrationSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     files_source: Path
-    qdrant_source: Path
-    history_source: Path
     evidence_source: Path
     explicit_legacy_fields: tuple[str, ...] = ()
 
-    @field_validator("files_source", "qdrant_source", "history_source", "evidence_source")
+    @field_validator("files_source", "evidence_source")
     @classmethod
     def _expand_paths(cls, value: Path) -> Path:
         return _private_absolute_path(value)
-
-
-class Mem0Config(BaseModel):
-    """HomeMaster-owned embedded mem0/Qdrant configuration."""
-
-    model_config = ConfigDict(extra="forbid", validate_default=True)
-
-    collection_name: str = "homemaster_memory_qwen3_4096_v1"
-    fastembed_cache_path: Path = REPO_ROOT / ".cache" / "homemaster" / "fastembed"
-    search_limit: int = Field(default=5, ge=1, le=20)
-    search_threshold: float = Field(default=0.1, ge=0, le=1)
-
-    @field_validator("fastembed_cache_path")
-    @classmethod
-    def _expand_paths(cls, value: Path) -> Path:
-        return _private_absolute_path(value)
-
-    @field_validator("collection_name")
-    @classmethod
-    def _validate_collection_name(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("collection_name must not be blank")
-        return stripped
 
 
 class MemoryConfig(BaseModel):
-    """V2.1 file memory and product-owned mem0 configuration."""
+    """File memory and embedded MindMemOS configuration."""
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
@@ -315,7 +289,6 @@ class MemoryConfig(BaseModel):
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
     embedding_dimensions: int = Field(default=4096, gt=0)
-    mem0: Mem0Config = Field(default_factory=Mem0Config)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
     @model_validator(mode="before")
@@ -326,35 +299,23 @@ class MemoryConfig(BaseModel):
         data = dict(value)
         if "migration_spec" in data:
             raise ValueError("memory.migration_spec is internal")
-        mem0 = dict(data.get("mem0") or {})
         has_data_root = "data_root" in data
         legacy_fields: list[str] = []
         if "root" in data:
             legacy_fields.append("memory.root")
-        if "qdrant_path" in mem0:
-            legacy_fields.append("memory.mem0.qdrant_path")
-        if "history_db_path" in mem0:
-            legacy_fields.append("memory.mem0.history_db_path")
-        if "embedding_dimensions" in mem0:
-            if "embedding_dimensions" in data:
-                raise ValueError(
-                    "memory.embedding_dimensions cannot be combined with "
-                    "memory.mem0.embedding_dimensions"
-                )
-            data["embedding_dimensions"] = mem0.pop("embedding_dimensions")
         if has_data_root and legacy_fields:
             raise ValueError("memory.data_root cannot be combined with legacy memory path fields")
 
         data_root = _private_absolute_path(Path(data.get("data_root", "~/.homemaster/memory")))
-        files_source = Path(data.pop("root", "~/.homemaster/memories"))
-        qdrant_source = Path(mem0.pop("qdrant_path", data_root / "qdrant"))
-        history_source = Path(mem0.pop("history_db_path", data_root / "history.sqlite3"))
-        data["mem0"] = mem0
+        files_source = Path(
+            data.pop(
+                "root",
+                data_root / "files" if has_data_root else "~/.homemaster/memories",
+            )
+        )
         data["data_root"] = data_root
         data["migration_spec"] = {
             "files_source": files_source,
-            "qdrant_source": qdrant_source,
-            "history_source": history_source,
             "evidence_source": data_root / "evidence.sqlite3",
             "explicit_legacy_fields": tuple(legacy_fields),
         }
@@ -404,16 +365,8 @@ class MemoryConfig(BaseModel):
         return self.files_root
 
     @property
-    def qdrant_path(self) -> Path:
-        return self.data_root / "qdrant"
-
-    @property
     def mindmemos_qdrant_path(self) -> Path:
         return self.data_root / "mindmemos" / "qdrant"
-
-    @property
-    def history_db_path(self) -> Path:
-        return self.data_root / "history.sqlite3"
 
     @property
     def evidence_db_path(self) -> Path:

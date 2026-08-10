@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import random
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
 
@@ -93,6 +93,15 @@ def _override(explicit: Any, default: Any) -> Any:
     """Return the explicit override when provided, else the (request-scoped) default."""
 
     return explicit if explicit is not None else default
+
+
+def _request_prompt_set(detected_language: str, explicit: AddPromptSet | None) -> AddPromptSet:
+    """Keep request-language prompts while honoring an injected entity extractor prompt."""
+
+    selected = get_add_prompts(detected_language)
+    if explicit is None:
+        return selected
+    return replace(selected, entity_generation=explicit.entity_generation)
 
 
 @register(type="add", name="schema_add")
@@ -619,7 +628,7 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
             sample_text,
             fallback=get_config().algo_config.common.prompt_language,
         )
-        request_prompts = get_add_prompts(detected_lang)
+        request_prompts = _request_prompt_set(detected_lang, self._explicit_prompts)
 
         detect_force = force or add_record_ops.force_generation(records)
         window_size = rt.chunker.streaming_window_size
@@ -894,7 +903,7 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
             conversation_text,
             fallback=get_config().algo_config.common.prompt_language,
         )
-        request_prompts = get_add_prompts(detected_lang)
+        request_prompts = _request_prompt_set(detected_lang, self._explicit_prompts)
 
         episode_context = add_record_ops.context(records, context)
         event_at = add_record_ops.records_datetime(records)

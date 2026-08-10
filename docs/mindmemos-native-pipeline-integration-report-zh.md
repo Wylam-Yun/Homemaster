@@ -1,6 +1,6 @@
 # MindMemOS 原生 Pipeline 调用与 Homemaster 集成报告
 
-> 文档目的：说明当前 vendored MindMemOS 的功能边界、每项功能的 Python 原生调用方法、依赖和数据副作用，为后续 Homemaster 设计提供依据。  
+> 文档目的：说明 vendored MindMemOS 的功能边界、Python 原生调用方法、依赖和数据副作用，并记录 HomeMaster 已完成的 embedded 集成。
 > 代码基线：`Homemaster` 的 `mindmem` 分支，以及 `third_party/MindMemOS` 当前源码。  
 > 结论口径：区分“源码提供”“单元测试通过”“真实外部依赖端到端验证通过”，避免把接口存在等同于功能已经可用。
 
@@ -21,7 +21,7 @@ src/homemaster/memory/mindmemos_runtime.py
 - `search()`：调用原生 `search_pipeline.search()`。
 - `close()`：关闭 Neo4j/Qdrant 并清理 MindMemOS 全局配置和模型路由缓存。
 
-MindMemOS 源码还提供 get、update、delete、feedback、dreaming、skill version store、skill evolution，但这些尚未全部接进 `EmbeddedMindMemOS` 的公开方法。
+`EmbeddedMindMemOS` 已接入 get、update 和 delete。feedback、dreaming、skill version store、skill evolution 仍留待后续阶段。
 
 当前真实验证结果：
 
@@ -235,7 +235,9 @@ result = await schema_add_pipeline.add_sync(
 
 依赖：LLM、embedding、Qdrant、Neo4j。  
 写入：raw memory、entity/property graph、向量、source relation、add operation record。  
-注意：当前 `runtime.add()` 尚未开放 `metadata` 和 `event_timestamp_ms` 参数，后续应透传，而不是重写 add pipeline。
+当前 `EmbeddedMindMemOS.add()` 已透传 `metadata` 和 `event_timestamp_ms`，并在工具层从
+`request_metadata.record_metadata[]` 回读完整 HomeMaster record。不要重写 add pipeline；新的调用方字段
+应继续通过原生 `AddPipelineInput` 透传。
 
 异步 add 会把请求投递给 Kafka worker；当前 `kafka.enabled=False`，因此 embedded 第一阶段只用 `mode="sync"`。
 
@@ -709,18 +711,18 @@ await client.memory.feedback(...)
 
 SDK 文档中出现的某些 convenience 字段属于 API/service 层，不保证与 `AddPipelineInput` 一一对应；做 embedded 集成时必须以 `mindmemos.typing` 和具体 pipeline 方法签名为准。
 
-## 14. 后续设计前必须解决的阻断点
+## 14. 当前集成状态与后续边界
 
-这次集成并不是“git 进来、换个配置就全部完成”。基础 add/search 确实接近这个复杂度，但完整替代 mem0 还需要解决以下明确问题：
+这次集成并不是“git 进来、换个配置就全部完成”。当前结构化记忆替换已经完成以下边界：
 
-1. **生命周期接入**：`EmbeddedMindMemOS` 尚未挂进 Homemaster 正式启动/关闭流程。
-2. **接口补全**：wrapper 目前只有 add/search，缺 get/update/delete/feedback/dreaming/skill。
-3. **ID 语义**：schema aggregate view ID 与 raw memory ID 必须同时保留且禁止混用。
+1. **生命周期接入**：`EmbeddedMindMemOS` 已挂进 HomeMaster 正式启动/关闭流程。
+2. **接口补全**：wrapper 已有 add/search/get/update/delete；feedback/dreaming/skill 后续再接。
+3. **ID 语义**：工具只返回可供 CRUD 使用的 raw memory ID，禁止把 schema aggregate view ID 返回给 Agent。
 4. **文件/URL ingestion**：MindMemOS 当前只记 source ref，正文解析要由 Homemaster 提供。
 5. **审计数据正确性**：add/search record 必须记录实际 raw writes 和实际 recalled inputs。
 6. **skill trajectory**：必须把 agent 的 skill injection、任务轨迹、分数接进 operation record。
 7. **dreaming provider 兼容**：relation detection prompt 至少要产生一个非 system message，并增加失败可观测性。
-8. **旧 mem0 迁移面**：除了 `Mem0MemoryStore`，还要逐一判断 file memory、runtime object memory、evidence ledger 是否属于 MindMemOS 的替换范围；它们不是因为 vendored MindMemOS 就自动迁移。
+8. **旧 mem0 数据**：明确不迁移。FileMemoryStore 和 EvidenceLedger 保持原 owner，新 MindMemOS 从空数据库开始。
 
 ## 15. 主要源码索引
 
@@ -739,4 +741,3 @@ SDK 文档中出现的某些 convenience 字段属于 API/service 层，不保�
 - Skill version store：`third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/skill/version_store.py`
 - Skill evolution：`third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/skill/evolution.py`
 - Python HTTP SDK 参考：`third_party/MindMemOS/skills/mindmemos-cli/references/python-sdk.md`
-

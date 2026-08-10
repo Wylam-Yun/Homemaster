@@ -1,5 +1,48 @@
 # Engineering Pitfalls
 
+## 2026-08-06 - 源码已删除 Mem0，但增量构建的 wheel 仍包含完整 Mem0 包
+
+### 症状与根因
+
+Git diff 已删除 vendored Mem0，生产源码搜索也没有引用，但 `uv build --wheel` 生成的 wheel 仍有完整
+`mem0/`。根因是 setuptools 复用了旧 `build/lib/mem0`；增量 `build_py` 会复制当前包，却不会删除上次构建
+留下、这次已经从源码消失的包。只检查源码、依赖元数据或构建返回码都会误报清理完成。
+
+### 修法与教训
+
+删除包或 package data 后必须从空 `build/dist/egg-info` 构建，并直接枚举 wheel ZIP。断言被删除的顶层包
+文件数为零，同时断言替代 runtime、配置资源和依赖元数据存在。发布终态以 wheel 内容为准，不以工作树搜索
+或 setuptools 的成功返回码为准。
+
+### 参考
+
+- `pyproject.toml`
+- `tests/homemaster/skills/test_installed_package.py`
+
+## 2026-08-06 - MindMemOS schema add 成功但工具层拿不到结构化记录
+
+### 症状与根因
+
+真实 schema add 完成了 LLM、embedding、Qdrant 和 Neo4j 调用，但 `add_memory` 返回
+`memory_backend_rejected`。第一层原因是 MindMemOS 把调用方 metadata 包在
+`request_metadata.record_metadata[]`，工具层只读顶层。修正后仍偶发只得到 episodic ID；进一步取证发现
+schema add 按语言重新取得默认 prompt，覆盖了显式注入的 HomeMaster entity prompt。默认长 prompt 又会让
+当前模型只输出 `message_mapping` 或截断 JSON，最终没有 fact/experience raw memory。
+
+### 修法与教训
+
+按真实 raw memory 结构逐层解包 request metadata；schema add 合并语言 prompt 时必须保留显式
+`entity_generation` 覆盖。HomeMaster 使用只输出 `entities/edges` 的短提示、专用 fact/task_experience schema
+和明确输出 token 上限。验收必须从原生返回 ID 逐个读取 raw memory，断言 mem_type、record_json 和后续
+get/update/delete 可用，不能以 add event、episodic fallback 或 pipeline 成功日志为门。
+
+### 参考
+
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `src/homemaster/tools/memory_tools.py`
+- `third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/add/schema/schema_add.py`
+- `tests/homemaster/memory/test_memory_tools.py`
+
 ## 2026-07-29 - Clipboard 回填接受事件和 DOM 变化仍会误报成功
 
 ### 症状与根因

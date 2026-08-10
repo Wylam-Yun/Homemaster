@@ -21,8 +21,6 @@ from homemaster.memory.file_store import (
 def _store(tmp_path: Path, **updates: object) -> FileMemoryStore:
     payload: dict[str, object] = {
         "data_root": tmp_path / "memory-data",
-        "mem0": {
-        },
     }
     payload.update(updates)
     store = FileMemoryStore(MemoryConfig.model_validate(payload))

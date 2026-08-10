@@ -72,11 +72,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["src", "third_party/mem0ai-2.0.13", "third_party/MindMemOS/src/mindmemos"]
-include = ["homemaster*", "mem0*", "mindmemos*"]
+where = ["src", "third_party/MindMemOS/src/mindmemos"]
+include = ["homemaster*", "mindmemos*"]
 
 [tool.setuptools]
-license-files = ["THIRD_PARTY_NOTICES.md", "third_party/mem0ai-2.0.13/LICENSE"]
+license-files = ["THIRD_PARTY_NOTICES.md"]
 
 [tool.setuptools.package-data]
 homemaster = [
@@ -107,7 +107,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = ["third_party/mem0ai-2.0.13/mem0", "third_party/MindMemOS"]
+exclude = ["third_party/MindMemOS"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

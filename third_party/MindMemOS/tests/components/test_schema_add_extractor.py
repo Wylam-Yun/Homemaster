@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import mindmemos.components.extractor._records as records
 import pytest
+from mindmemos.pipelines.add.schema.schema_add import _request_prompt_set
+from mindmemos.prompts import get_add_prompts
 from mindmemos.components.extractor.schema._schema_utils import (
     build_episode_entity,
     build_filtered_schema,
@@ -25,6 +27,21 @@ def make_context() -> MemoryRequestContext:
         user_id="fallback-user",
         session_id="fallback-session",
     )
+
+
+def test_schema_add_request_prompt_honors_explicit_entity_generation() -> None:
+    explicit = get_add_prompts("EN")
+    explicit = type(explicit)(
+        **{
+            field: ("compact entity prompt" if field == "entity_generation" else getattr(explicit, field))
+            for field in explicit.__dataclass_fields__
+        }
+    )
+
+    selected = _request_prompt_set("ZH", explicit)
+
+    assert selected.entity_generation == "compact entity prompt"
+    assert selected.episode_description == get_add_prompts("ZH").episode_description
 
 
 def test_record_operators_restore_context_and_conversation_text() -> None:

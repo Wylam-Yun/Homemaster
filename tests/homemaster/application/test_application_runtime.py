@@ -39,7 +39,7 @@ from homemaster.extensions import (
     LoadedExtension,
 )
 from homemaster.memory.evidence import MemoryEvidenceLedger
-from homemaster.memory.mem0_store import Mem0MemoryStore, MemorySearchResult, StoredMemory
+from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.memory.models import FactRecord
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
@@ -202,47 +202,95 @@ class _MemoryEvidenceTransport:
             yield delta
 
 
-class _RecordingMem0Store(Mem0MemoryStore):
+class _RecordingMindMemOS(EmbeddedMindMemOS):
     def __init__(self) -> None:
         self.calls: list[tuple[FactRecord, int]] = []
+        self.records: dict[str, dict[str, object]] = {}
 
-    async def add(self, record, *, provenance_seq):
+    async def add(self, messages, context, **kwargs):
+        del context
+        metadata = kwargs["metadata"]
+        record = (
+            FactRecord.model_validate(json.loads(metadata["record_json"]))
+            if metadata["homemaster_memory_type"] == "fact"
+            else SimpleNamespace(
+                memory_type="procedure",
+                name=json.loads(metadata["record_json"])["name"],
+            )
+        )
+        provenance_seq = int(metadata["provenance_seq"])
         self.calls.append((record, provenance_seq))
-        return StoredMemory(
-            memory_id="memory-runtime-1",
-            memory_type=record.memory_type,
-            record=record,
-            created_at="2026-07-27T00:00:00Z",
-            updated_at="2026-07-27T00:00:00Z",
+        memory_id = f"memory-runtime-{len(self.calls)}"
+        self.records[memory_id] = dict(metadata)
+        return SimpleNamespace(
+            status="ok",
+            memories=[
+                SimpleNamespace(
+                    memory_id=memory_id,
+                    related_memory_ids=[memory_id],
+                    memory_type=record.memory_type,
+                    content=messages[0].text,
+                )
+            ],
+        )
+
+    async def get_raw(self, memory_id, context):
+        del context
+        metadata = self.records.get(memory_id)
+        if metadata is None:
+            return None
+        return SimpleNamespace(
+            memory_id=memory_id,
+            mem_type="experience" if metadata["homemaster_memory_type"] == "procedure" else "fact",
+            metadata={
+                "request_metadata": {
+                    "add_record_ids": ["add-1"],
+                    "record_metadata": [metadata],
+                }
+            },
+            created_at=None,
+            update_at=None,
+            status="active",
         )
 
 
-class _MemoryRecallStore(Mem0MemoryStore):
+class _MemoryRecallStore(EmbeddedMindMemOS):
     def __init__(self) -> None:
         pass
 
-    async def search_with_diagnostics(self, query, **kwargs):
+    async def search(self, query, context, **kwargs):
+        from mindmemos.typing import MemorySearchItem
+
+        del context
         assert query == "钥匙在哪里"
-        assert kwargs["memory_type"] == "fact"
-        return MemorySearchResult(
-            records=(
-                StoredMemory(
-                    memory_id="memory-recall-1",
+        assert kwargs["filters"] == {"mem_type": "fact"}
+        return SimpleNamespace(
+            status="ok",
+            memories=[
+                MemorySearchItem(
+                    id="memory-recall-1",
+                    memory="钥匙 的 location 是玄关抽屉",
                     memory_type="fact",
-                    record=FactRecord(
-                        memory_type="fact",
-                        subject={"type": "object", "name": "钥匙"},
-                        predicate="location",
-                        value={"container": "玄关抽屉"},
-                        source="user_statement",
-                    ),
-                    created_at="2026-07-28T00:00:00Z",
-                    updated_at="2026-07-28T00:00:00Z",
-                    score=0.98,
-                    match_sources=("semantic", "bm25"),
-                ),
-            ),
-            diagnostics=(),
+                    last_update_at="2026-07-28 00:00:00",
+                )
+            ],
+        )
+
+    async def get_raw(self, memory_id, context):
+        del context
+        record = FactRecord(
+            memory_type="fact",
+            subject={"type": "object", "name": "钥匙"},
+            predicate="location",
+            value={"container": "玄关抽屉"},
+            source="user_statement",
+        )
+        return SimpleNamespace(
+            memory_id=memory_id,
+            metadata={"request_metadata": {"record_json": record.model_dump_json()}},
+            created_at=None,
+            update_at=None,
+            status="active",
         )
 
 
@@ -633,7 +681,7 @@ def _application(
 async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_path) -> None:
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
-    store = _RecordingMem0Store()
+    store = _RecordingMindMemOS()
     transport = _MemoryEvidenceTransport()
     app = _application(
         tmp_path,
@@ -641,7 +689,7 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
         {"钥匙在玄关抽屉": transport},
         application_services={
             "memory_evidence_ledger": ledger,
-            "mem0_memory_store": store,
+            "mindmemos": store,
         },
     )
 
@@ -684,7 +732,7 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
         tmp_path,
         list(build_memory_tools()),
         {"钥匙在哪里": transport},
-        application_services={"mem0_memory_store": _MemoryRecallStore()},
+        application_services={"mindmemos": _MemoryRecallStore()},
     )
 
     result = await app.run(
@@ -701,7 +749,7 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
 async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_path) -> None:
     ledger = MemoryEvidenceLedger(tmp_path / "procedure-evidence.sqlite3")
     ledger.start()
-    store = _RecordingMem0Store()
+    store = _RecordingMindMemOS()
     transport = _ProcedureEvidenceTransport()
     app = _application(
         tmp_path,
@@ -709,7 +757,7 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
         {"学习查看告警流程": transport},
         application_services={
             "memory_evidence_ledger": ledger,
-            "mem0_memory_store": store,
+            "mindmemos": store,
         },
     )
 

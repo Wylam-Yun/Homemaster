@@ -38,9 +38,7 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
               api_keys: [doctor-embedding-secret]
         memory:
           data_root: {tmp_path / "memory-data"}
-          mem0:
-            embedding_dimensions: 8
-            collection_name: doctor_memory_8_v1
+          embedding_dimensions: 8
         """,
         encoding="utf-8",
     )
@@ -58,14 +56,14 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     memory = next(check for check in payload["checks"] if check["name"] == "memory_backend")
     assert memory["status"] == "PASS"
     assert memory["details"]["probe"] == "not_opened"
-    assert memory["details"]["fastembed_cache_path"].endswith(".cache/homemaster/fastembed")
+    assert memory["details"]["qdrant_path"].endswith("mindmemos/qdrant")
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" in encoded
     assert "doctor-embedding-secret" in encoded
 
 
-def test_doctor_reports_migration_required_without_writing(
+def test_doctor_ignores_global_legacy_files_for_explicit_data_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / ".homemaster" / "memories"
@@ -79,9 +77,8 @@ def test_doctor_reports_migration_required_without_writing(
 
     after = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))
     memory = next(check for check in report.checks if check.name == "memory_backend")
-    assert memory.status == "WARN"
-    assert memory.details["migration_status"] == "migration_required"
-    assert "migration_required" in memory.message
+    assert memory.status == "PASS"
+    assert memory.details["probe"] == "not_opened"
     assert before == after
     assert not target.exists()
 
@@ -121,7 +118,7 @@ def test_doctor_ready_state_does_not_materialize_backend_or_cache(
     assert not (tmp_path / "memory-data").exists()
 
 
-def test_doctor_verifies_vendored_mem0_before_package_execution(
+def test_doctor_checks_embedded_mindmemos_import(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from homemaster.cli import doctor as doctor_module
@@ -129,19 +126,14 @@ def test_doctor_verifies_vendored_mem0_before_package_execution(
     events: list[str] = []
     original_import = doctor_module.importlib.import_module
 
-    def verify() -> Path:
-        events.append("verify")
-        return Path("/verified/mem0")
-
     def tracked_import(name: str):
-        if name == "mem0":
+        if name == "mindmemos":
             events.append("import")
         return original_import(name)
 
-    monkeypatch.setattr(doctor_module, "verify_vendored_mem0", verify)
     monkeypatch.setattr(doctor_module.importlib, "import_module", tracked_import)
 
     checks = doctor_module._import_checks()
 
-    assert next(check for check in checks if check.name == "import:mem0").status == "PASS"
-    assert events == ["verify"]
+    assert next(check for check in checks if check.name == "import:mindmemos").status == "PASS"
+    assert events == ["import"]

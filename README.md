@@ -57,25 +57,22 @@ mode 0600 且不进入 Git。
 
 默认 Home profile 提供 `memory`、`add_memory`、`search_memories`、`get_memory`、`update_memory`、
 `delete_memory`。SOUL/USER/MEMORY 固定注入 session 快照；fact/procedure 使用 application-owned
-mem0 + embedded Qdrant，并合并 metadata exact、SiliconFlow semantic 和离线 BM25。写入必须绑定当前
-Runtime 的 opaque evidence，所有 mutation 以 SDK receipt 加独立文件/Qdrant 终态读回为成功门。旧
+`EmbeddedMindMemOS` 调用 MindMemOS 原生 schema pipeline，数据写入本地 Qdrant 和 Neo4j。写入必须绑定当前
+Runtime 的 opaque evidence，所有 mutation 都要经过原生返回状态和 raw memory 终态读回。旧
 `memory_retriever/memory_writer` 只保留在 benchmark memory mode。配置、工具示例、隐私和诊断见
 [记忆用户指南](docs/memory-user-guide.md)，owner、不变量与数据流见
 [记忆系统架构](docs/architecture/memory-system.md)。
 
-离线 BM25 工件随源码和 wheel 分发。首次启动会在项目 `.cache/homemaster/fastembed` 解包经哈希锁定的
-`Qdrant/bm25` 文件，整个目录已被 Git 忽略；迁移服务器时不需要复制 `/tmp/fastembed_cache` 或联网下载。
-
-`mem0ai==2.0.13` 的完整 Python runtime 也随 HomeMaster 源码和 wheel 分发，不再单独安装 `mem0ai`
-distribution。持久记忆与代码解耦，统一位于 `memory.data_root`（默认 `~/.homemaster/memory`）的
-`files/`、`qdrant/`、`history.sqlite3` 和 `evidence.sqlite3`。换服务器时安装 HomeMaster wheel，再独立复制
-整个 data root 即可。旧版 `~/.homemaster/memories` 可执行：
+持久记忆与代码解耦，统一位于 `memory.data_root`（默认 `~/.homemaster/memory`）的 `files/`、
+`mindmemos/qdrant/` 和 `evidence.sqlite3`。MindMemOS 同时连接配置中的 Neo4j。旧版
+`~/.homemaster/memories` 文件记忆可执行：
 
 ```bash
 uv run homemaster memory migrate --config config/homemaster.yaml
 ```
 
-迁移保留旧源；`doctor` 只报告 `migration_required`，不会创建目录或打开 Qdrant。
+迁移只处理旧 SOUL/USER/MEMORY 文件并保留旧源；旧 mem0 Qdrant/history 数据不会读取或迁移。
+`doctor` 只报告文件迁移状态，不会创建目录或打开 MindMemOS。
 
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
@@ -92,7 +89,7 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli doctor --live
 - API 配置是否可读
 - Mimo 最小 JSON 调用
 - Qwen3 MemoryEmbedding `/v1/embeddings` 调用
-- vendored mem0 字节完整性、迁移状态与 backend 配置；`doctor` 不打开 Qdrant、创建数据库或物化 BM25 cache
+- embedded MindMemOS 导入、文件迁移状态与 backend 配置；`doctor` 不打开 Qdrant 或 Neo4j
 
 ## 配置与 Skills
 
