@@ -11,6 +11,12 @@
 
 ### Added
 
+- Designed a reproducible 100-record memory recall benchmark that will write synthetic website-operation facts through
+  the real serial `homemaster -p` surface, checkpoint every externally confirmed mutation, and separately score exact
+  retrieval, paraphrased retrieval, distractor discrimination, and natural memory-tool routing. The locked design keeps
+  synthetic procedures typed as user-stated facts, retains test records by explicit request, and forbids automatic retry
+  after an outcome-unknown write.
+
 - Added an optional HomeMaster-managed private Neo4j lifecycle for embedded MindMemOS. Multiple HomeMaster processes on
   one node share the service through a file lock and per-process leases: the first starts it, stale leases are recovered,
   and the last clean exit stops it. Managed startup now precedes MindMemOS startup, failures block entry into the shell,
