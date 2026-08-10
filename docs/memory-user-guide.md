@@ -151,6 +151,48 @@ SiliconFlow embedding endpoint，因此不要搜索凭证、token、cookie、内
 records、value、match sources 和错误）会作为 tool result 进入下一次模型上下文；不是只返回一句 succeeded。
 文件 `memory` 工具同样把 entries/usage 等完整结果放进模型可见的 tool result。
 
+## 100 条召回基准
+
+仓库提供 `scripts/memory_recall_benchmark.py`，通过公开的 `homemaster -p` 入口串行写入 100 条合成网页操作
+事实，再分别测试强制检索、改写检索、近似干扰项和自然工具路由。测试流程被保存为普通
+`source=user_statement` fact；它们不是经过浏览器验证的 procedure，不能当成真实网站操作说明。
+
+```bash
+cd /hpc2hdd/home/wyuan140/weilin_workspace/Homemaster
+
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  generate --run-id hm100-20260810
+
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  write --run-id hm100-20260810
+
+# 中断后只继续尚未确认的序号
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  resume --run-id hm100-20260810
+
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  evaluate --run-id hm100-20260810
+
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  status --run-id hm100-20260810
+
+# 无人值守：先完成 100 条写入，再执行恰好 100 次精确召回
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  overnight --run-id hm100-20260810 --recall-cases 100
+```
+
+每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `add_memory`
+`tool_completed` receipt，并在确认外部终态后更新 checkpoint。按当前 schema pipeline 的实测速度，100 条可能
+耗时 5–6 小时并产生约百万级 chat tokens。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达
+backend 但终态未知的 mutation。
+
+`overnight` 只有在 checkpoint 达到 100/100 后才开始召回；写入失败或终态未知时以非零状态停止，不会带着
+不完整数据继续评分。默认的 100 个 case 是每条记录一次精确 fact 检索。
+
+运行产物位于 `~/.homemaster/benchmarks/<run-id>/`，目录权限为 0700，trace/checkpoint/report 为 0600。
+当前版本没有 cleanup/delete 子命令；测试记录会保留在当前配置的真实记忆库中。自然问题没有调用
+`search_memories` 时会计为 agent routing failure，而不是 MindMemOS retrieval miss。
+
 ## 文件与隐私
 
 data root 和文件记忆目录为 0700，文件、lock、backup、Qdrant/evidence DB 为本机私有且不进入 Git。USER/MEMORY

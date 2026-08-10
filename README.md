@@ -79,6 +79,17 @@ uv run homemaster memory migrate --config config/homemaster.yaml
 mode-0600 的 `config/homemaster.yaml` 中配置 Neo4j 安装目录、Java 21、URI 和密码。完整示例与同节点约束见
 [记忆用户指南](docs/memory-user-guide.md)。
 
+可用公开 `homemaster -p` 串行运行 100 条合成网页操作 fact 的召回基准：
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py generate --run-id hm100-test
+PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
+  overnight --run-id hm100-test --recall-cases 100
+```
+
+基准支持 checkpoint/resume，区分 MindMemOS 检索失败和 HomeMaster 自然工具路由失败。当前版本按要求保留测试
+记录，不提供自动清理；耗时、费用、产物位置和完整命令见[记忆用户指南](docs/memory-user-guide.md)。
+
 配置好之后，用 `doctor --live` 检查，不要先直接跑。
 
 ## 体检
