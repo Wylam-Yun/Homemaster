@@ -525,7 +525,10 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
 
 ### Changed
 
+- 将模型可见记忆工具重命名为职责明确的 `context_memory`、`mindmemos_search`、`mindmemos_add`、
+  `mindmemos_update` 和 `mindmemos_delete`，并重写描述以直接说明作用、返回内容和调用时机。搜索结果已包含
+  完整记录，因此移除冗余的模型可见 `get_memory`；底层 raw-ID 读取继续供搜索、更新和写后验证使用。
 - `EmbeddedMindMemOS` 在保留 typed Schema Add 的同时持有独立 Vanilla Add pipeline，共享既有 Qdrant、
   Neo4j、LLM、Embedding 与 operation recorder。
-- `search_memories` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
+- `mindmemos_search` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
   记录 fail closed，使自动沉淀经验能在新进程中被真实 LLM 召回。

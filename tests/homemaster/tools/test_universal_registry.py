@@ -129,7 +129,12 @@ def test_alfworld_registry_uses_alfworld_robot_contract() -> None:
 def test_alfworld_structured_memory_surface_is_controlled_only_by_memory_enabled() -> None:
     from homemaster.adapters.profiles import build_tool_registry
 
-    structured = {"add_memory", "search_memories", "get_memory", "update_memory"}
+    structured = {
+        "mindmemos_add",
+        "mindmemos_search",
+        "mindmemos_update",
+        "mindmemos_delete",
+    }
     legacy = {"memory_retriever", "memory_writer"}
 
     enabled = set(

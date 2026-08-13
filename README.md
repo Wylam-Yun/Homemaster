@@ -55,8 +55,8 @@ mode 0600 且不进入 Git。
 
 ## V2.1 记忆系统
 
-默认 Home profile 提供 `memory`、`add_memory`、`search_memories`、`get_memory`、`update_memory`、
-`delete_memory`。SOUL/USER/MEMORY 固定注入 session 快照；fact/procedure 使用 application-owned
+默认 Home profile 提供 `context_memory`、`mindmemos_search`、`mindmemos_add`、`mindmemos_update` 和
+`mindmemos_delete`。SOUL/USER/MEMORY 固定注入 session 快照；fact/procedure 使用 application-owned
 `EmbeddedMindMemOS` 调用 MindMemOS 原生 schema pipeline，数据写入本地 Qdrant 和 Neo4j。写入必须绑定当前
 Runtime 的 opaque evidence，所有 mutation 都要经过原生返回状态和 raw memory 终态读回。旧
 `memory_retriever/memory_writer` 只保留在 benchmark memory mode。配置、工具示例、隐私和诊断见
@@ -338,7 +338,7 @@ pose 尝试一次离屏导航。`alfworld_gateway.allow_offscreen_object_navigat
 strict-invisible non-receptacle 在任何 THOR 动作前返回 `target_not_visible`，offscreen receptacle
 仍可作为搜索锚点导航；默认 `true` 保留 V1.8 点导航能力。冻结与当前 receptacle metadata 必须一致，
 返回 event 必须让准确目标 strict-visible。内部 objectId、containment、坐标、候选和 snapshot
-authority 不进入 Provider body；只有可供 `add_memory` 回传的 run-bound opaque evidence ref 会进入
+authority 不进入 Provider body；只有可供 `mindmemos_add` 回传的 run-bound opaque evidence ref 会进入
 模型 tool-result content。
 
 ```bash

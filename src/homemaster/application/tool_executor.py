@@ -22,12 +22,11 @@ from homemaster.tools.executor import ToolExecutor
 
 _MEMORY_TOOL_NAMES = frozenset(
     {
-        "memory",
-        "add_memory",
-        "search_memories",
-        "get_memory",
-        "update_memory",
-        "delete_memory",
+        "context_memory",
+        "mindmemos_add",
+        "mindmemos_search",
+        "mindmemos_update",
+        "mindmemos_delete",
     }
 )
 
@@ -176,7 +175,8 @@ class ApplicationToolExecutor:
                     {
                         "memory_evidence_refs": memory_evidence_refs,
                         "instruction": (
-                            "Use these opaque refs only for add_memory or update_memory "
+                            "Use these opaque refs only for mindmemos_add or "
+                            "mindmemos_update "
                             "when the current tool result directly supports the record."
                         ),
                     },
@@ -230,12 +230,11 @@ class ApplicationToolExecutor:
         result: ToolResult,
     ) -> ToolResult:
         if result.is_error or call.name in {
-            "memory",
-            "add_memory",
-            "search_memories",
-            "get_memory",
-            "update_memory",
-            "delete_memory",
+            "context_memory",
+            "mindmemos_add",
+            "mindmemos_search",
+            "mindmemos_update",
+            "mindmemos_delete",
         }:
             return result
         if not bool(result.metadata.get("backend_attempted")):

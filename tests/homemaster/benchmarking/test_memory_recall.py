@@ -31,11 +31,11 @@ def _tool_events(record: object, memory_id: str = "memory-1") -> str:
     }
     return "\n".join(
         (
-            json.dumps({"type": "tool_started", "tool_name": "add_memory"}),
+            json.dumps({"type": "tool_started", "tool_name": "mindmemos_add"}),
             json.dumps(
                 {
                     "type": "tool_completed",
-                    "tool_name": "add_memory",
+                    "tool_name": "mindmemos_add",
                     "output": json.dumps(payload, ensure_ascii=False),
                 },
                 ensure_ascii=False,
@@ -83,8 +83,8 @@ def test_generate_run_uses_private_permissions(tmp_path: Path) -> None:
 
 
 def test_parse_stream_events_ignores_non_json_lines() -> None:
-    events = parse_stream_events('noise\n{"type":"tool_started","tool_name":"add_memory"}\n')
-    assert events == ({"type": "tool_started", "tool_name": "add_memory"},)
+    events = parse_stream_events('noise\n{"type":"tool_started","tool_name":"mindmemos_add"}\n')
+    assert events == ({"type": "tool_started", "tool_name": "mindmemos_add"},)
 
 
 def test_write_prompt_locks_fact_and_forbids_other_tools() -> None:
@@ -92,9 +92,9 @@ def test_write_prompt_locks_fact_and_forbids_other_tools() -> None:
     prompt = build_write_prompt(record)
 
     assert record.subject in prompt
-    assert "add_memory" in prompt
+    assert "mindmemos_add" in prompt
     assert "只调用一次" in prompt
-    assert "不要调用 search_memories" in prompt
+    assert "不要调用 mindmemos_search" in prompt
 
 
 def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> None:
@@ -143,7 +143,11 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
     ("stdout", "timed_out", "expected_state"),
     [
         ("", True, "safe_to_retry"),
-        (json.dumps({"type": "tool_started", "tool_name": "add_memory"}), True, "outcome_unknown"),
+        (
+            json.dumps({"type": "tool_started", "tool_name": "mindmemos_add"}),
+            True,
+            "outcome_unknown",
+        ),
         (json.dumps({"type": "result", "final_reply": "完成"}), False, "safe_to_retry"),
     ],
 )
@@ -181,7 +185,7 @@ def test_evaluate_search_events_scores_rank_and_step_order() -> None:
             json.dumps(
                 {
                     "type": "tool_started",
-                    "tool_name": "search_memories",
+                    "tool_name": "mindmemos_search",
                     "tool_input": {"query": record.website},
                 },
                 ensure_ascii=False,
@@ -189,7 +193,7 @@ def test_evaluate_search_events_scores_rank_and_step_order() -> None:
             json.dumps(
                 {
                     "type": "tool_completed",
-                    "tool_name": "search_memories",
+                    "tool_name": "mindmemos_search",
                     "output": json.dumps(
                         {
                             "success": True,
@@ -234,7 +238,7 @@ def test_evaluation_case_distribution_and_natural_sampling() -> None:
     assert sum(case.suite == "paraphrase" for case in cases) == 70
     assert sum(case.suite == "distractor" for case in cases) == 20
     assert sum(case.suite == "natural" for case in cases) == 30
-    assert all("search_memories" not in case.prompt for case in cases if case.suite == "natural")
+    assert all("mindmemos_search" not in case.prompt for case in cases if case.suite == "natural")
 
 
 def test_status_never_exposes_cleanup(tmp_path: Path) -> None:

@@ -25,14 +25,14 @@ legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and
 ```text
 canonical user turn / verified tool result
   -> MemoryEvidenceLedger issues opaque ordered evidence ref
-  -> add_memory/update_memory validates FactRecord or ProcedureRecord and evidence
+  -> mindmemos_add/mindmemos_update validates FactRecord or ProcedureRecord and evidence
   -> deterministic TextMessage + metadata(record_json, provenance_seq, homemaster_memory_type)
   -> EmbeddedMindMemOS.add()
   -> MindMemOS schema_add.add_sync()
   -> raw memory readback by persistent ID
   -> complete JSON ToolResultMessage.content
 
-search_memories
+mindmemos_search
   -> EmbeddedMindMemOS.search()
   -> MindMemOS search_pipeline.search()
   -> raw memory read by each returned ID
@@ -43,7 +43,7 @@ search_memories
 
 HomeMaster `fact` maps to MindMemOS `fact`. HomeMaster `procedure` maps to MindMemOS `experience`, while metadata keeps
 `homemaster_memory_type=procedure` and the complete serialized `ProcedureRecord`. The model only receives raw memory IDs
-that can be passed to get, update and delete; episodic or aggregate view IDs are not returned as structured record IDs.
+that can be passed to update and delete; episodic or aggregate view IDs are not returned as structured record IDs.
 
 MindMemOS schema add is configured with HomeMaster's `fact` and `task_experience` entity schemas. The compact extraction
 prompt requires `entities` and `edges`, forbids episodic-only output, and is explicitly preserved when MindMemOS selects
@@ -69,7 +69,7 @@ Feedback, dreaming and skill evolution remain outside the current structured-mem
 
 ## Tool Contracts
 
-All six memory tools project their full structured result into `ToolResultMessage.content`; the same payload remains in
+All five model-visible memory tools project their full structured result into `ToolResultMessage.content`; the same payload remains in
 `data` for internal consumers. Provider transports serialize `content`, so IDs, records, receipts and typed errors must
 not exist only in metadata.
 
@@ -94,11 +94,11 @@ Trace：结束 Session 时直接读取当前 `HomeApplicationBundle.trace_path`�
 `vanilla_add` pipeline。Transport、usage、内部 ID 和重复终态不会进入模型；完整原始轨迹只保留在
 `runtime_events.jsonl`。
 
-`EmbeddedMindMemOS` 同时持有既有 `schema_add` 和新增 `vanilla_add`；typed `add_memory` 继续走 Schema
+`EmbeddedMindMemOS` 同时持有既有 `schema_add` 和新增 `vanilla_add`；typed `mindmemos_add` 继续走 Schema
 Add，Session 经验只走 Vanilla Add。两者共享 application-owned Qdrant、Neo4j、reader、writer、recorder、
 LLM 和 embedding client。Job ID 由 session ID、精选消息的 SHA-256 和 extractor version 组成；已完成
 Job 不重复提交。第一版不提供后台 outbox、跨 Application Trace 合并或严格 exactly-once。
 
-原生 Vanilla experience 没有 typed Schema Add 的 `record_json`。`search_memories` 仅对
+原生 Vanilla experience 没有 typed Schema Add 的 `record_json`。`mindmemos_search` 仅对
 `mem_extract_type=vanilla`、`mem_type=experience`、`status=active` 且正文非空的记录建立公开投影，并沿用既有
 `procedure` 类型返回正文和来源 Session；其他损坏或缺失 `record_json` 的 Schema 记录仍 fail closed。

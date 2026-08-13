@@ -46,8 +46,8 @@ alfworld_gateway:
   allow_offscreen_object_navigation: false
 ```
 
-模型可自主使用 HomeMaster 结构化 `add_memory`、`search_memories`、`get_memory` 和
-`update_memory`。运行时只把当前环境操作产生的 opaque evidence ref 加入模型可见 tool result，
+模型可自主使用 HomeMaster 结构化 `mindmemos_add`、`mindmemos_search`、`mindmemos_update` 和
+`mindmemos_delete`。运行时只把当前环境操作产生的 opaque evidence ref 加入模型可见 tool result，
 不披露 exact object ID、containment、pose 或内部 trace；不强制模型写入或检索。ALFWorld 的 legacy
 benchmark `memory_mode` 继续保持 disabled，避免出现第二套 memory writer。
 

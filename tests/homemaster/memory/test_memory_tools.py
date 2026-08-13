@@ -17,6 +17,13 @@ from homemaster.tools.base import ToolExecutionContext
 from homemaster.tools.memory_tools import AddMemoryInput, build_memory_tools
 
 MEMORY_TOOL_NAMES = {
+    "context_memory",
+    "mindmemos_add",
+    "mindmemos_search",
+    "mindmemos_update",
+    "mindmemos_delete",
+}
+LEGACY_MEMORY_TOOL_NAMES = {
     "memory",
     "add_memory",
     "search_memories",
@@ -26,9 +33,10 @@ MEMORY_TOOL_NAMES = {
 }
 
 
-def test_default_home_surface_has_exactly_six_new_memory_tools() -> None:
+def test_default_home_surface_has_exactly_five_memory_tools() -> None:
     names = set(build_universal_tool_registry().all_names())
     assert MEMORY_TOOL_NAMES <= names
+    assert not (LEGACY_MEMORY_TOOL_NAMES & names)
     assert "memory_retriever" not in names
     assert "memory_writer" not in names
     disabled = set(build_universal_tool_registry(memory_enabled=False).all_names())
@@ -49,14 +57,17 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
     tools = build_memory_tools()
     assert {tool.definition.model_alias for tool in tools} == MEMORY_TOOL_NAMES
     by_name = {tool.definition.model_alias: tool for tool in tools}
-    assert by_name["memory"].definition.required_capabilities == ("tool.read", "tool.mutate")
-    assert by_name["memory"].definition.state_effects == ("memory.write",)
-    memory_description = by_name["memory"].definition.description
-    assert "this tool has no read action" in memory_description
-    action_schema = by_name["memory"].definition.input_schema["properties"]["action"]
+    assert by_name["context_memory"].definition.required_capabilities == (
+        "tool.read",
+        "tool.mutate",
+    )
+    assert by_name["context_memory"].definition.state_effects == ("memory.write",)
+    memory_description = by_name["context_memory"].definition.description
+    assert "injected into future sessions" in memory_description
+    action_schema = by_name["context_memory"].definition.input_schema["properties"]["action"]
     action_enum = next(item["enum"] for item in action_schema["anyOf"] if "enum" in item)
     assert set(action_enum) == {"add", "update", "delete"}
-    for name in ("add_memory", "update_memory", "delete_memory"):
+    for name in ("mindmemos_add", "mindmemos_update", "mindmemos_delete"):
         assert "tool.mutate" in by_name[name].definition.required_capabilities
     for tool in tools:
         schema = tool.definition.input_schema
@@ -64,9 +75,10 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
         forbidden = {"tenant_id", "session_id", "run_id", "metadata", "dedupe_key"}
         assert not (forbidden & set(properties))
 
-    search_description = by_name["search_memories"].definition.description
-    assert "One call combines exact metadata with MindMemOS retrieval" in search_description
-    assert "do not repeat it unless" in search_description
+    search_description = by_name["mindmemos_search"].definition.description
+    assert "Search long-term memory by meaning" in search_description
+    assert "experiences learned from past sessions" in search_description
+    assert "Search again" in search_description
 
 
 def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
@@ -75,7 +87,7 @@ def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
         for tool in build_memory_tools()
     }
 
-    add_schema = by_name["add_memory"]
+    add_schema = by_name["mindmemos_add"]
     record_schema = add_schema["properties"]["record"]
     object_union = next(item for item in record_schema["anyOf"] if "oneOf" in item)
     assert object_union["discriminator"]["propertyName"] == "memory_type"
@@ -99,7 +111,7 @@ def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
         "name",
         "id",
     }
-    search_schema = by_name["search_memories"]
+    search_schema = by_name["mindmemos_search"]
     subject_schema = search_schema["properties"]["subject"]["anyOf"][0]
     assert set(subject_schema["properties"]) == {
         "type",
@@ -140,7 +152,9 @@ async def test_file_memory_mutation_requires_tool_mutate_and_uses_service(tmp_pa
     store = FileMemoryStore(MemoryConfig(data_root=tmp_path / "memory"))
     store.start()
     executor = next(
-        tool.executor for tool in build_memory_tools() if tool.definition.model_alias == "memory"
+        tool.executor
+        for tool in build_memory_tools()
+        if tool.definition.model_alias == "context_memory"
     )
     context = ToolExecutionContext(
         tmp_path,
@@ -187,7 +201,7 @@ async def test_file_memory_mutation_requires_tool_mutate_and_uses_service(tmp_pa
         for line in (tmp_path / "memory_operations.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert [row["payload"]["return_status"] for row in rows] == ["failure", "success"]
-    assert rows[-1]["payload"]["operation"] == "memory"
+    assert rows[-1]["payload"]["operation"] == "context_memory"
     encoded = json.dumps(rows, ensure_ascii=False)
     assert "偏好简洁回答" not in encoded
     assert "content" not in encoded
@@ -255,7 +269,7 @@ async def test_search_memories_uses_embedded_mindmemos_and_returns_original_reco
     executor = next(
         tool.executor
         for tool in build_memory_tools()
-        if tool.definition.model_alias == "search_memories"
+        if tool.definition.model_alias == "mindmemos_search"
     )
     context = ToolExecutionContext(
         tmp_path,
@@ -351,7 +365,7 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
     executor = next(
         tool.executor
         for tool in build_memory_tools()
-        if tool.definition.model_alias == "search_memories"
+        if tool.definition.model_alias == "mindmemos_search"
     )
     context = ToolExecutionContext(
         tmp_path,
@@ -497,7 +511,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     )
     executors = {tool.definition.model_alias: tool.executor for tool in build_memory_tools()}
 
-    added = await executors["add_memory"].execute(
+    added = await executors["mindmemos_add"].execute(
         {
             "memory_type": "fact",
             "record": record,
@@ -505,11 +519,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         },
         context,
     )
-    fetched = await executors["get_memory"].execute(
-        {"memory_id": "raw-memory-1"},
-        context,
-    )
-    updated = await executors["update_memory"].execute(
+    updated = await executors["mindmemos_update"].execute(
         {
             "memory_id": "raw-memory-1",
             "record": replacement,
@@ -517,15 +527,13 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         },
         context,
     )
-    deleted = await executors["delete_memory"].execute(
+    deleted = await executors["mindmemos_delete"].execute(
         {"memory_id": "raw-memory-2"},
         context,
     )
 
     assert added.success
     assert added.data["memory_id"] == "raw-memory-1"
-    assert fetched.success
-    assert fetched.data["record"] == record
     assert updated.success
     assert updated.data["memory_id"] == "raw-memory-2"
     assert deleted.success

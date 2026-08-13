@@ -132,10 +132,6 @@ class SearchMemoriesInput(_MemoryToolInput):
     name: str | None = None
 
 
-class GetMemoryInput(_MemoryToolInput):
-    memory_id: _NonEmptyText
-
-
 class UpdateMemoryInput(_MemoryToolInput):
     memory_id: _NonEmptyText
     record: MemoryRecordInput = Field(
@@ -169,9 +165,9 @@ class MemoryAuditExecutor:
             if callable(dynamic)
             else self.operation
             not in {
-                "add_memory",
-                "update_memory",
-                "delete_memory",
+                "mindmemos_add",
+                "mindmemos_update",
+                "mindmemos_delete",
             }
         )
 
@@ -480,22 +476,6 @@ def _vanilla_experience_payload(
         "match_sources": ["semantic"],
         "verified_terminal_state": True,
     }
-
-
-class GetMemoryExecutor:
-    async def execute(
-        self, arguments: Mapping[str, object], context: ToolExecutionContext
-    ) -> ToolExecutionResult:
-        try:
-            memory_id = _required_string(arguments, "memory_id")
-            store = _service(context, "mindmemos", EmbeddedMindMemOS)
-            raw = await store.get_raw(memory_id, _mindmemos_context(context))
-            parsed = _mindmemos_record(raw)
-        except Exception as exc:
-            return _failure("memory_backend_unavailable", str(exc))
-        if raw is None or parsed is None or getattr(raw, "status", "active") != "active":
-            return _failure("memory_not_found", "memory id was not found")
-        return _success("get", _mindmemos_raw_payload(raw, parsed))
 
 
 class UpdateMemoryExecutor:
@@ -859,55 +839,47 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
     return (
         RegisteredTool(
             _definition(
-                "memory",
-                "Update curated user-profile or persistent-memory entries. Their frozen contents are already present in the current session context and this tool has no read action. Use target=user only for stable identity, preferences, communication and usage habits; use target=memory for recent events, decisions, results and cross-session unfinished work. Object locations, device state and reusable procedures belong in the structured MindMemOS tools. Writes persist immediately, are independently read back from disk, and affect only new session snapshots. Requires tool.mutate.",
+                "context_memory",
+                "Save compact, high-signal notes that are injected into future sessions. Use target='user' for the user's identity, preferences, communication style, and stable habits. Use target='memory' for recent decisions, results, and unfinished work that should carry across sessions. Do not use this for searchable external facts, procedures, or past task experiences; use the MindMemOS tools for those.",
                 FileMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("memory", FileMemoryExecutor(), FileMemoryInput),
+            MemoryAuditExecutor("context_memory", FileMemoryExecutor(), FileMemoryInput),
         ),
         RegisteredTool(
             _definition(
-                "add_memory",
-                "Store only structured external-world facts (such as object locations or device state) and reusable, environment-verified procedures. Never use this for the user's identity, preferences, habits, health guidance or long-term schedule; those must use memory(target=user). Recent events, decisions, results and unfinished work must use memory(target=memory). Supply one complete FactRecord or ProcedureRecord with infer=false and current opaque evidence refs. Never supply metadata, scope, IDs, dedupe keys, timestamps, confidence or credentials.",
+                "mindmemos_add",
+                "Store a verified external fact or reusable procedure in searchable long-term memory. Use this for stable information learned from the environment, such as an object location, device state, or a procedure that has actually succeeded. Do not use it for user preferences, temporary task progress, or unverified guesses.",
                 AddMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("add_memory", AddMemoryExecutor(), AddMemoryInput),
+            MemoryAuditExecutor("mindmemos_add", AddMemoryExecutor(), AddMemoryInput),
         ),
         RegisteredTool(
             _definition(
-                "search_memories",
-                "Search structured external facts, reusable procedures, and Session-derived experiences that are not already present in the current context. Session-derived experiences use memory_type=procedure; omit memory_type when both facts and experience may be relevant. One call combines exact metadata with MindMemOS retrieval, so use one query covering the current request and do not repeat it unless the requested information or search hints change. This does not search SOUL, USER or MEMORY files. Only pass returned raw memory IDs to get, update or delete.",
+                "mindmemos_search",
+                "Search long-term memory by meaning. Returns ranked external facts, verified procedures, and experiences learned from past sessions. Use it when the current request may benefit from prior knowledge or previous attempts. Search again with different wording or follow-up queries when earlier results reveal useful clues.",
                 SearchMemoriesInput,
             ),
-            MemoryAuditExecutor("search_memories", SearchMemoriesExecutor(), SearchMemoriesInput),
+            MemoryAuditExecutor("mindmemos_search", SearchMemoriesExecutor(), SearchMemoriesInput),
         ),
         RegisteredTool(
             _definition(
-                "get_memory",
-                "Fetch a complete fact or procedure only by an exact ID returned by add or search. Use it before executing a procedure or confirming an item for update/delete; it is not semantic search and IDs must never be guessed.",
-                GetMemoryInput,
-            ),
-            MemoryAuditExecutor("get_memory", GetMemoryExecutor(), GetMemoryInput),
-        ),
-        RegisteredTool(
-            _definition(
-                "update_memory",
-                "Replace one existing memory in place with a complete validated record, normally after search/get. Update facts only from confirmed corrections or newer observations; update a procedure only after the entire new path succeeds. Partial patches and unconfirmed information are forbidden, and current opaque evidence refs are required.",
+                "mindmemos_update",
+                "Replace an existing long-term memory with a complete corrected record. Use this when a stored fact is confirmed wrong or outdated, or when a verified procedure has been replaced by a better successful procedure. Take the memory ID from mindmemos_search.",
                 UpdateMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("update_memory", UpdateMemoryExecutor(), UpdateMemoryInput),
+            MemoryAuditExecutor("mindmemos_update", UpdateMemoryExecutor(), UpdateMemoryInput),
         ),
         RegisteredTool(
             _definition(
-                "delete_memory",
-                "Delete one exact memory only when the user explicitly requests it or the record is confirmed wrong, duplicate or permanently obsolete. Search/get first, never guess an ID, and never perform delete-all; there is no automatic forgetting.",
+                "mindmemos_delete",
+                "Delete one long-term memory by its exact ID. Use this when the user asks to forget it or when the memory is confirmed wrong, duplicated, or permanently obsolete. Take the memory ID from mindmemos_search; prefer mindmemos_update when the information has merely changed.",
                 DeleteMemoryInput,
                 mutating=True,
             ),
-            MemoryAuditExecutor("delete_memory", DeleteMemoryExecutor(), DeleteMemoryInput),
+            MemoryAuditExecutor("mindmemos_delete", DeleteMemoryExecutor(), DeleteMemoryInput),
         ),
     )
 

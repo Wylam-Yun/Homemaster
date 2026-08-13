@@ -469,8 +469,8 @@ def build_write_prompt(record: BenchmarkRecord) -> str:
     payload = json.dumps(record.tool_record, ensure_ascii=False, separators=(",", ":"))
     return (
         "这是 HomeMaster 记忆召回基准的一条合成测试事实。请使用当前 user_statement evidence，"
-        "只调用一次 add_memory，把下面完整 JSON 作为 fact 保存。"
-        "不要调用 search_memories、get_memory、update_memory、delete_memory、"
+        "只调用一次 mindmemos_add，把下面完整 JSON 作为 fact 保存。"
+        "不要调用 mindmemos_search、mindmemos_update、mindmemos_delete、"
         "observe、机器人或浏览器工具。"
         "不要改写 subject、predicate、value 或 source。工具完成后只报告真实 status 和 memory_id。\n"
         f"{payload}"
@@ -547,13 +547,13 @@ def _inspect_write(
 ) -> tuple[str, dict[str, Any] | None, str]:
     events = parse_stream_events(completed.stdout)
     started = any(
-        event.get("type") == "tool_started" and event.get("tool_name") == "add_memory"
+        event.get("type") == "tool_started" and event.get("tool_name") == "mindmemos_add"
         for event in events
     )
     completions = [
         event
         for event in events
-        if event.get("type") == "tool_completed" and event.get("tool_name") == "add_memory"
+        if event.get("type") == "tool_completed" and event.get("tool_name") == "mindmemos_add"
     ]
     if completions:
         receipt = _decoded_output(completions[-1])
@@ -574,8 +574,12 @@ def _inspect_write(
                 return "safe_to_retry", receipt, "backend was not attempted"
             return "outcome_unknown", receipt, "mutation receipt was incomplete or mismatched"
     if started:
-        return "outcome_unknown", None, "add_memory started without confirmed terminal receipt"
-    return "safe_to_retry", None, "add_memory did not start"
+        return (
+            "outcome_unknown",
+            None,
+            "mindmemos_add started without confirmed terminal receipt",
+        )
+    return "safe_to_retry", None, "mindmemos_add did not start"
 
 
 def write_run(
@@ -717,7 +721,7 @@ def evaluation_cases(records: Sequence[BenchmarkRecord]) -> tuple[EvaluationCase
 
 def _forced_prompt(query: str) -> str:
     return (
-        "这是记忆召回基准查询。请只调用一次 search_memories，"
+        "这是记忆召回基准查询。请只调用一次 mindmemos_search，"
         "且参数 memory_type 必须准确设置为 fact，"
         f"查询内容：{query}。不要调用 observe、机器人或浏览器工具。"
         "根据返回记录报告完整、有序的 steps 和 memory_id，不要自行补充步骤。"
@@ -737,7 +741,7 @@ def evaluate_search_events(
     ]
     ranked: list[dict[str, Any]] = []
     for event in events:
-        if event.get("type") != "tool_completed" or event.get("tool_name") != "search_memories":
+        if event.get("type") != "tool_completed" or event.get("tool_name") != "mindmemos_search":
             continue
         output = _decoded_output(event)
         if output is None:
@@ -778,7 +782,7 @@ def evaluate_search_events(
         "duplicate_subject": len(subject_matches) > 1,
         "returned_ids": ids,
         "called_tools": tool_names,
-        "called_search_memories": "search_memories" in tool_names,
+        "called_search_memories": "mindmemos_search" in tool_names,
         "incorrect_environment_tool": incorrect_environment_tool,
         "final_answer_steps_in_order": steps_in_order,
         "final_reply": final_reply,

@@ -183,7 +183,7 @@ class _MemoryEvidenceTransport:
             self.evidence_ref = match.group(0)
             for delta in _tool(
                 "memory-add-1",
-                "add_memory",
+                "mindmemos_add",
                 {
                     "memory_type": "fact",
                     "record": {
@@ -304,7 +304,7 @@ class _MemoryRecallTransport:
         if len(self.calls) == 1:
             for delta in _tool(
                 "memory-search-1",
-                "search_memories",
+                "mindmemos_search",
                 {"query": "钥匙在哪里", "memory_type": "fact"},
             ):
                 yield delta
@@ -312,7 +312,7 @@ class _MemoryRecallTransport:
         tool_message = next(
             message
             for message in messages
-            if message.role == "tool" and message.name == "search_memories"
+            if message.role == "tool" and message.name == "mindmemos_search"
         )
         payload = json.loads(tool_message.content[0].text)
         assert payload["records"][0]["memory_id"] == "memory-recall-1"
@@ -356,7 +356,7 @@ class _ProcedureEvidenceTransport:
             assert len(refs) == 2
             for delta in _tool(
                 "procedure-add",
-                "add_memory",
+                "mindmemos_add",
                 {
                     "memory_type": "procedure",
                     "record": {
@@ -714,7 +714,7 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     add_result = next(
         message
         for message in transport.calls[1]["messages"]
-        if message.role == "tool" and message.name == "add_memory"
+        if message.role == "tool" and message.name == "mindmemos_add"
     )
     add_payload = json.loads(add_result.content[0].text)
     assert add_payload["memory_id"] == "memory-runtime-1"

@@ -9,7 +9,7 @@ HomeMaster 使用三层本地文件记忆和一个结构化检索库：
 - `MEMORY.md`：近期事件、决定、结果和跨会话未完成事项。
 - embedded MindMemOS：外部世界 fact 和可复用 procedure；原生 schema pipeline 使用本地 Qdrant 与 Neo4j。
 
-SOUL、USER、MEMORY 在 session 第一次组装上下文时冻结。`memory` 写入会立即持久化，但当前 session 的
+SOUL、USER、MEMORY 在 session 第一次组装上下文时冻结。`context_memory` 写入会立即持久化，但当前 session 的
 system prompt 不变；新 session 才看到新快照。结构化检索不授予设备或网页权限，执行时仍必须实时观察并走
 对应工具的权限和终态验证。
 
@@ -99,9 +99,9 @@ coordinator 自动完成或恢复迁移。
 旧 `memory.root` 仅作为文件记忆的一次迁移输入兼容；不要与新 `memory.data_root` 同时配置。
 `memory.mem0` 已删除且配置会被拒绝。
 
-## 六个工具
+## 五个工具
 
-### `memory`
+### `context_memory`
 
 原子修改 USER/MEMORY。`target=user|memory`；单操作使用 `action=add|update|delete`，`update/delete` 用唯一
 `match`；多操作使用 `operations` batch。USER/MEMORY 的冻结快照已经进入当前 session 上下文，因此模型工具
@@ -111,14 +111,14 @@ coordinator 自动完成或恢复迁移。
 {"target":"user","action":"add","content":"用户偏好简洁的中文回答"}
 ```
 
-### `add_memory` / `update_memory`
+### `mindmemos_add` / `mindmemos_update`
 
 保存完整 `FactRecord` 或 `ProcedureRecord`。模型不能提交 tenant/session/run、metadata、dedupe key、时间戳或
 provenance。两种 source 都必须使用 Runtime 发放的 opaque evidence ref：`user_statement` 只绑定当前用户
 turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工具结果。procedure 仅接受环境证据，并要求
 按顺序覆盖每一步和最终成功观测。更新是完整替换，不支持 partial patch。
 工具参数说明与执行校验来自同一组 Pydantic 模型；`predicate` 使用英文小写 snake_case，例如 `location`。
-用户身份、偏好、习惯、健康建议和长期安排必须写入 `memory(target=user)`，不能作为结构化 fact。
+用户身份、偏好、习惯、健康建议和长期安排必须写入 `context_memory(target=user)`，不能作为结构化 fact。
 
 ```json
 {
@@ -134,24 +134,26 @@ turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工�
 }
 ```
 
-### `search_memories` / `get_memory` / `delete_memory`
+### `mindmemos_search` / `mindmemos_delete`
 
-`search_memories` 调用 MindMemOS 原生 search pipeline，并在工具边界按 fact/procedure 字段过滤。默认 limit
+`mindmemos_search` 按语义搜索长期记忆，返回按相关性排序的外部事实、已验证流程和历史 Session 经验。它调用
+MindMemOS 原生 search pipeline，并在工具边界按 fact/procedure 字段过滤。默认 limit
 为 5，最大 20；可提供 subject/predicate 或 entry_url/name hints。query 会发送给配置的
 SiliconFlow embedding endpoint，因此不要搜索凭证、token、cookie、内部地址或 evidence ref；产品边界会在发包前
 拒绝明显敏感内容。
 Session 自动沉淀的 Vanilla experience 在公开工具中作为 `procedure` 返回；检索这类可复用经验时使用
 `memory_type=procedure`，不确定是事实还是经验时省略 `memory_type`。
 候选的 `record_json` 缺字段、损坏或 schema version 不支持时，该条不会作为正常命中返回；响应的
-`diagnostics` 只包含稳定错误码、脱敏 ID hash 和命中分支，不回显损坏 payload。准确 ID 的 `get_memory`
-仍会 fail closed 返回 `memory_record_corrupt`。
+`diagnostics` 只包含稳定错误码、脱敏 ID hash 和命中分支，不回显损坏 payload。搜索结果已经包含完整 record
+或完整 Vanilla experience 正文，因此不再提供单独的模型可见 get 工具；底层准确 ID 读取仍由搜索、更新和
+写后终态验证内部使用。
 
-`get_memory` 只接受 add/search 返回的准确 ID。`delete_memory` 只用于用户明确要求、已确认错误/重复或永久失效
-的记录；没有 delete-all，也没有第一版自动遗忘。
+`mindmemos_delete` 只接受 `mindmemos_search` 返回的准确 ID，并只用于用户明确要求、已确认错误/重复或永久失效
+的记录；如果信息只是变化，优先使用 `mindmemos_update`。没有 delete-all，也没有第一版自动遗忘。
 
-这五个结构化工具按需执行，不会在每轮用户消息前自动搜索。模型调用工具后，完整 JSON（包括 memory ID、
+这四个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 memory ID、
 records、value、match sources 和错误）会作为 tool result 进入下一次模型上下文；不是只返回一句 succeeded。
-文件 `memory` 工具同样把 entries/usage 等完整结果放进模型可见的 tool result。
+`context_memory` 同样把 entries/usage 等完整结果放进模型可见的 tool result。
 
 ## 100 条召回基准
 
@@ -183,7 +185,7 @@ PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
   overnight --run-id hm100-20260810 --recall-cases 100
 ```
 
-每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `add_memory`
+每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `mindmemos_add`
 `tool_completed` receipt，并在确认外部终态后更新 checkpoint。按当前 schema pipeline 的实测速度，100 条可能
 耗时 5–6 小时并产生约百万级 chat tokens。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达
 backend 但终态未知的 mutation。
@@ -193,7 +195,7 @@ backend 但终态未知的 mutation。
 
 运行产物位于 `~/.homemaster/benchmarks/<run-id>/`，目录权限为 0700，trace/checkpoint/report 为 0600。
 当前版本没有 cleanup/delete 子命令；测试记录会保留在当前配置的真实记忆库中。自然问题没有调用
-`search_memories` 时会计为 agent routing failure，而不是 MindMemOS retrieval miss。
+`mindmemos_search` 时会计为 agent routing failure，而不是 MindMemOS retrieval miss。
 
 ## 文件与隐私
 
