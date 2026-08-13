@@ -1,5 +1,25 @@
 # Engineering Pitfalls
 
+## 2026-08-13 - 隐藏 reasoning 让无可见输出的断线请求无法重试
+
+### 症状与根因
+
+终端没有显示任何模型正文，流式连接断开后却没有自动重试，同时错误文本为空。Runtime 用 `deltas` 是否非空
+判断响应是否已经开始；Anthropic 路径会把非空 reasoning delta 加入该列表，但终端只展示 text delta，因此
+内部状态与用户可见状态不一致。SDK 外层网络异常又可能没有消息，而错误提取没有检查异常链或类型名。
+
+### 修法与教训
+
+重试门按 delta 语义区分：只有隐藏 reasoning 且没有任何 commit 时，可丢弃该 reasoning 并用冻结请求重试一次；
+正文、工具、完成信息或外部副作用出现后仍禁止重试。错误提取沿异常链寻找非空消息，最后以异常类型名兜底。
+
+### 参考
+
+- `src/homemaster/agent/generic_runtime.py`
+- `src/homemaster/providers/llm_client.py`
+- `tests/homemaster/test_generic_agent_runtime.py`
+- `tests/homemaster/test_llm_client.py`
+
 ## 2026-08-10 - Typed fact 被 LLM 改判为 procedure 并误合并已有实体
 
 ### 症状与根因

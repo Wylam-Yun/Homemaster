@@ -10,10 +10,11 @@ from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.config import ProviderProfileConfig
 from homemaster.events.trace import json_compatible_copy
 from homemaster.providers.attempts import ListProviderAttemptSink
-from homemaster.providers.errors import LLMProviderError, LLMRateLimitError
+from homemaster.providers.errors import LLMNetworkError, LLMProviderError, LLMRateLimitError
 from homemaster.providers.llm_client import (
     LLMClient,
     LLMProviderResponseError,
+    _map_sdk_error,
     extract_json_payload,
 )
 
@@ -582,3 +583,20 @@ async def test_llm_client_selects_one_requested_key_without_internal_rotation() 
     assert len(constructions) == 1
     assert constructions[0]["api_key"] == "key-two"
     assert len(requests) == 1
+
+
+def test_sdk_error_uses_nonempty_message_from_exception_chain() -> None:
+    outer = ConnectionError()
+    outer.__cause__ = TimeoutError("upstream stream read timed out")
+
+    mapped = _map_sdk_error(outer)
+
+    assert isinstance(mapped, LLMNetworkError)
+    assert mapped.message == "upstream stream read timed out"
+
+
+def test_sdk_error_uses_exception_type_when_chain_messages_are_empty() -> None:
+    mapped = _map_sdk_error(TimeoutError())
+
+    assert isinstance(mapped, LLMNetworkError)
+    assert mapped.message == "TimeoutError"

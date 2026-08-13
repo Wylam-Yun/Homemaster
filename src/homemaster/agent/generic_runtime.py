@@ -1194,7 +1194,11 @@ def _provider_retry_allowed(
     commit_state: AttemptCommitState,
     attempt: ProviderAttemptRecord | None,
 ) -> bool:
-    if not isinstance(error, LLMClientError) or attempt is None or deltas:
+    if (
+        not isinstance(error, LLMClientError)
+        or attempt is None
+        or any(not _reasoning_only_delta(delta) for delta in deltas)
+    ):
         return False
     if any(
         (
@@ -1210,4 +1214,16 @@ def _provider_retry_allowed(
     return (
         failure in _RETRYABLE_PROVIDER_FAILURES
         and (attempt.error_type, attempt.cause_code) == failure
+    )
+
+
+def _reasoning_only_delta(delta: Any) -> bool:
+    return bool(getattr(delta, "reasoning_delta", None)) and not any(
+        (
+            getattr(delta, "text_delta", None),
+            getattr(delta, "tool_call_delta", None),
+            getattr(delta, "finish_reason", None),
+            getattr(delta, "usage", None),
+            getattr(delta, "provider_metadata", None),
+        )
     )

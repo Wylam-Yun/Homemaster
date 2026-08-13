@@ -67,13 +67,43 @@ Runtime 可以按照 MindMemOS 的输入长度限制进行确定性裁剪。裁�
 2. 当前 TaskState；
 3. Compact Summary 中与当前进度最接近的内容。
 
-### 2.4 自动召回与 Agent 补充搜索相互独立
+### 2.4 自动召回不按记忆类型过滤
+
+自动召回调用 MindMemOS Vanilla Search 时不传 `filters`，在当前
+`MemoryRequestContext` 所限定的租户和项目空间内检索全部 active memories。
+Runtime 不预先判断当前任务需要事实、流程或其他原生记忆类型，也不因为无法识别
+某种记忆类型而丢弃 MindMemOS 返回的结果。
+
+`fact` 和 `procedure` 是 HomeMaster 的结构化记忆业务类型。其中：
+
+```text
+HomeMaster fact      -> MindMemOS mem_type = "fact"
+HomeMaster procedure -> MindMemOS mem_type = "experience"
+```
+
+MindMemOS 没有名为 `procedure` 的原生记忆类型。上述映射只服务于 HomeMaster 的
+结构化写入、读取和 Agent 精确补充搜索，不构成 Runtime 自动召回的过滤条件。
+
+因此自动召回固定使用：
+
+```text
+top_k = 3
+search_pipeline = "vanilla"
+rerank = false
+filters = None
+```
+
+Agent 后续调用 `mindmemos_search` 时仍可按需指定 `memory_type`：未指定时搜索全部
+active memories；明确指定 `fact` 或 `procedure` 时，才分别过滤 MindMemOS 的
+`fact` 或 `experience`。
+
+### 2.5 自动召回与 Agent 补充搜索相互独立
 
 自动召回完成后，`mindmemos_search` 继续作为普通工具提供给 Agent。
 
 Agent 可以根据自动召回结果和任务进展决定是否补充搜索。补充搜索由 Agent 自主生成 Query，不受 `require_recall` 限制。
 
-### 2.5 自动召回不写入长期记忆
+### 2.6 自动召回不写入长期记忆
 
 Compact 只负责压缩上下文，不触发 `mindmemos_add`，也不自动把 Compact 前的执行轨迹写入 MindMemOS。
 
@@ -266,6 +296,8 @@ Agent 不参与自动召回的 Query 构造、Search 调用和状态转换。
 负责：
 
 - 执行 Vanilla Search；
+- 自动召回时在当前 `MemoryRequestContext` 的数据边界内搜索全部 active memories，
+  不按 `mem_type` 过滤；
 - 每次最多返回 Top-3；
 - 同时服务 Runtime 自动召回和 Agent 补充搜索。
 
@@ -311,6 +343,8 @@ Agent 不参与自动召回的 Query 构造、Search 调用和状态转换。
 12. Agent 仍可自主调用 `mindmemos_search`，其结果通过正常 ToolResultMessage 进入上下文；
 13. Compact 不触发长期记忆写入；
 14. 本功能不限制 Agent 的补充搜索自由。
+15. 自动召回不传 `filters`，不得只召回 HomeMaster `fact`、`procedure` 或任一
+    MindMemOS 原生 `mem_type`；Agent 明确指定 `memory_type` 的补充搜索除外。
 
 ## 十一、后续增强方向
 

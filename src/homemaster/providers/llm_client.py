@@ -452,24 +452,34 @@ def _map_sdk_error(exc: Exception) -> LLMClientError:
 
 
 def _extract_error_message(exc: Exception) -> str:
-    response = getattr(exc, "response", None)
-    if response is not None:
-        try:
-            payload = response.json()
-        except Exception:
-            payload = None
-        if isinstance(payload, dict):
-            error = payload.get("error")
-            if isinstance(error, dict) and isinstance(error.get("message"), str):
-                return error["message"]
-            if isinstance(error, str):
-                return error
-            if isinstance(payload.get("message"), str):
-                return payload["message"]
-    message = getattr(exc, "message", None)
-    if isinstance(message, str) and message.strip():
-        return message
-    return str(exc)
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        if response is not None:
+            try:
+                payload = response.json()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict):
+                error = payload.get("error")
+                if isinstance(error, dict) and isinstance(error.get("message"), str):
+                    if error["message"].strip():
+                        return error["message"]
+                if isinstance(error, str) and error.strip():
+                    return error
+                message = payload.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message
+        message = getattr(current, "message", None)
+        if isinstance(message, str) and message.strip():
+            return message
+        rendered = str(current)
+        if rendered.strip():
+            return rendered
+        current = current.__cause__ or current.__context__
+    return type(exc).__name__
 
 
 def _request_sha256(kwargs: dict[str, Any]) -> str:

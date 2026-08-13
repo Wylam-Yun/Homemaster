@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Retried one frozen provider request when a transient stream failure follows only hidden reasoning,
+  while continuing to block retries after visible text, tool calls, completion data, or committed
+  effects. Empty SDK error messages now fall back through the exception chain and exception type.
+
 - Made validated HomeMaster `FactRecord` and `ProcedureRecord` types authoritative across the MindMemOS LLM extraction
   boundary. Entity-generation output is now deterministically projected from request-scoped `record_json`, fact identity
   uses the complete `<subject>::<predicate>`, and cross-identity semantic entity merge is disabled. This prevents

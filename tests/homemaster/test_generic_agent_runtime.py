@@ -159,10 +159,12 @@ class AuditedRetryTransport:
         *,
         first_error: Exception,
         partial_delta: bool = False,
+        reasoning_delta: bool = False,
         change_retry_hash: bool = False,
     ) -> None:
         self.first_error = first_error
         self.partial_delta = partial_delta
+        self.reasoning_delta = reasoning_delta
         self.change_retry_hash = change_retry_hash
         self.call_count = 0
         self.key_indices: list[int] = []
@@ -203,6 +205,8 @@ class AuditedRetryTransport:
         if call_index == 0:
             if self.partial_delta:
                 yield TransportDelta(type="transport.delta", text_delta="partial")
+            if self.reasoning_delta:
+                yield TransportDelta(type="transport.delta", reasoning_delta="hidden thought")
             assert isinstance(self.first_error, Exception)
             error_type = getattr(self.first_error, "error_type", None)
             cause_code = getattr(self.first_error, "cause_code", None)
@@ -942,6 +946,30 @@ def test_runtime_does_not_retry_after_partial_provider_delta() -> None:
     assert result.error_code == "transport_error"
     assert transport.call_count == 1
     assert [message.role for message in result.session.messages] == ["user"]
+
+
+def test_runtime_retries_after_reasoning_only_provider_delta() -> None:
+    transport = AuditedRetryTransport(
+        first_error=LLMNetworkError(
+            error_type="network_error",
+            message="connection reset",
+            cause_code="transient_network",
+        ),
+        reasoning_delta=True,
+    )
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = asyncio.run(runtime.run(AgentSession(session_id="reasoning-retry"), "hello"))
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert transport.call_count == 2
+    assert sum(event.type == "transport.request_retrying" for event in result.events) == 1
 
 
 def test_runtime_does_not_reactive_compact_after_partial_provider_delta() -> None:
