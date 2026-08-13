@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -29,6 +30,44 @@ async def test_recall_latch_round_trips_snapshot(tmp_path) -> None:
         await manager.save("persist-recall", generation=generation)
 
     restored = await SessionManager(session_root=tmp_path).resume("persist-recall")
+    assert restored.require_recall is False
+
+
+@pytest.mark.asyncio
+async def test_required_recall_latch_round_trips_snapshot(tmp_path) -> None:
+    manager = SessionManager(session_root=tmp_path)
+    runtime = await manager.open_or_resume("persist-required-recall")
+    await manager.save("persist-required-recall", generation=runtime.generation)
+
+    restored = await SessionManager(session_root=tmp_path).resume("persist-required-recall")
+
+    assert restored.require_recall is True
+
+
+def test_blank_run_request_is_rejected_before_automatic_recall() -> None:
+    from homemaster.application.contracts import RunRequest
+
+    with pytest.raises(ValueError, match="run text must be non-empty"):
+        RunRequest(text="   ")
+
+
+@pytest.mark.asyncio
+async def test_legacy_snapshot_without_recall_latch_restores_false(tmp_path) -> None:
+    manager = SessionManager(session_root=tmp_path)
+    runtime = await manager.open_or_resume("legacy-recall")
+    await manager.save("legacy-recall", generation=runtime.generation)
+    revision_path = (
+        tmp_path / "legacy-recall" / "revisions" / "00000000000000000001.json"
+    )
+    payload = json.loads(revision_path.read_text(encoding="utf-8"))
+    payload.pop("require_recall")
+    revision_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    restored = await SessionManager(session_root=tmp_path).resume("legacy-recall")
+
     assert restored.require_recall is False
 
 

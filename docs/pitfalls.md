@@ -1,5 +1,27 @@
 # Engineering Pitfalls
 
+## 2026-08-13 - 共享 deadline 把 backend 主动 TimeoutError 误判为总预算耗尽
+
+### 症状与根因
+
+自动召回在没有 Run deadline 时，MindMemOS 主动抛出的 `TimeoutError` 会正常走 best-effort
+错误路径；一旦设置一个尚有充足剩余时间的共享 deadline，同一异常却被转换成
+`AutomaticRecallRunDeadlineExceeded` 并阻断 Provider。根因是 helper 在 `asyncio.timeout()` 外统一
+捕获 `TimeoutError`，没有区分“上下文自身到期”和“被 await 的 backend 主动抛出”。
+最初参数化测试又因嵌套条件表达式优先级构造错误，没有真正注入 backend timeout，形成假绿。
+
+### 修法与教训
+
+保留 `asyncio.Timeout` 对象，只在 `timeout.expired()` 为 true 时转换成 Run deadline 异常；
+backend 主动 `TimeoutError` 原样交给 best-effort 分支。验收必须在“存在但未到期的 deadline”下
+注入 backend timeout，并与真正阻塞到 deadline 的用例正交对照。参数化异常数据用显式映射，
+不用难以审计的嵌套条件表达式。
+
+### 参考
+
+- `src/homemaster/application/runtime.py`
+- `tests/homemaster/application/test_application_runtime.py`
+
 ## 2026-08-13 - 隐藏 reasoning 让无可见输出的断线请求无法重试
 
 ### 症状与根因

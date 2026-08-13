@@ -716,13 +716,19 @@ Timeout decision: deferred; no recall-specific timeout added in V2.5.
 
 1. `test_automatic_recall_precedes_first_provider_request`
 2. `test_new_session_query_is_exact_user_text`
-3. `test_runtime_reports_only_actual_compaction[True]` and manual compact integration coverage
-4. `test_post_compact_query_has_stable_sections`
+3. `test_manual_compact_rearms_only_the_next_real_user_run` and
+   `test_runtime_reports_only_actual_compaction[True]`
+4. `test_manual_compact_rearms_only_the_next_real_user_run` and
+   `test_post_compact_query_has_stable_sections`
 5. `test_automatic_recall_precedes_first_provider_request`
 6. `test_automatic_recall_precedes_first_provider_request`
-7. `test_automatic_recall_best_effort_outcomes_do_not_block_provider` plus shared deadline tests
+7. `test_automatic_recall_best_effort_outcomes_do_not_block_provider`,
+   `test_blank_run_request_is_rejected_before_automatic_recall`, and
+   `test_automatic_recall_uses_existing_run_deadline`
 8. `test_new_session_starts_with_recall_required`
-9. `test_recall_latch_round_trips_snapshot`
+9. `test_recall_latch_round_trips_snapshot`,
+   `test_required_recall_latch_round_trips_snapshot`, and
+   `test_legacy_snapshot_without_recall_latch_restores_false`
 10. `test_new_session_starts_with_recall_required`
 11. `test_automatic_recall_runs_once_per_session_and_survives_resume`
 12. `test_runtime_projects_memory_search_records_into_model_tool_content`

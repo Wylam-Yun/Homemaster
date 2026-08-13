@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Distinguished a MindMemOS backend-raised `TimeoutError` from expiry of the shared run deadline,
+  so a backend timeout remains a best-effort automatic-recall error while an actually exhausted
+  run budget still prevents a Provider request with no time remaining.
+
 - Retried one frozen provider request when a transient stream failure follows only hidden reasoning,
   while continuing to block retries after visible text, tool calls, completion data, or committed
   effects. Empty SDK error messages now fall back through the exception chain and exception type.

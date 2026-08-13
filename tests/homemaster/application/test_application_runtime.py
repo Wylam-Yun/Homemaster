@@ -19,7 +19,7 @@ import pytest
 from PIL import Image
 
 from homemaster.agent.context import ContextAssembler
-from homemaster.agent.messages import ToolCall
+from homemaster.agent.messages import AssistantMessage, ContentBlock, ToolCall, UserMessage
 from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequest, RunStatus
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import (
@@ -145,6 +145,9 @@ class _AutomaticRecallTransport(_FakeTransport):
         self.order.append("provider")
         async for delta in super().stream(*args, **kwargs):
             yield delta
+
+    async def complete(self, *_args, **_kwargs):
+        return AssistantMessage(content=[ContentBlock(text="compact summary")])
 
 
 class _AutomaticRecallRetryTransport:
@@ -834,16 +837,20 @@ async def test_automatic_recall_precedes_first_provider_request(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["empty", "error", "unavailable"])
+@pytest.mark.parametrize("mode", ["empty", "error", "backend-timeout", "unavailable"])
 async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
     tmp_path, mode
 ) -> None:
     order: list[str] = []
     services: dict[str, object] = {}
     if mode != "unavailable":
+        errors = {
+            "error": RuntimeError("recall backend failed"),
+            "backend-timeout": TimeoutError("backend timed out"),
+        }
         services["mindmemos"] = _AutomaticRecallStore(
             order,
-            error=RuntimeError("recall backend failed") if mode == "error" else None,
+            error=errors.get(mode),
         )
     transport = _AutomaticRecallTransport(order)
     app = _application(
@@ -853,7 +860,13 @@ async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
         application_services=services,
     )
 
-    result = await app.run(RunRequest(text=mode, session_id=f"recall-{mode}"))
+    result = await app.run(
+        RunRequest(
+            text=mode,
+            session_id=f"recall-{mode}",
+            run_policy=RunPolicy(deadline_s=10 if mode == "backend-timeout" else None),
+        )
+    )
 
     assert result.status is RunStatus.REPLIED
     assert order[-1] == "provider"
@@ -865,7 +878,9 @@ async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
         if event.type == "memory.automatic_recall"
     ]
     assert len(events) == 1
-    assert events[0].payload["status"] == mode
+    assert events[0].payload["status"] == (
+        "error" if mode == "backend-timeout" else mode
+    )
     await app.aclose()
 
 
@@ -889,6 +904,56 @@ async def test_automatic_recall_runs_once_per_session_and_survives_resume(tmp_pa
     assert "<memory-context>" not in _request_text(second.calls[0]["messages"])
     restored = await SessionManager(session_root=tmp_path).resume("repeat")
     assert restored.require_recall is False
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_manual_compact_rearms_only_the_next_real_user_run(tmp_path) -> None:
+    order: list[str] = []
+    store = _AutomaticRecallStore(order)
+    first = _AutomaticRecallTransport(order)
+    second = _AutomaticRecallTransport(order)
+    app = _application(
+        tmp_path,
+        [],
+        {"first": first, "after compact": second},
+        application_services={"mindmemos": store},
+    )
+
+    await app.run(RunRequest(text="first", session_id="compact-recall"))
+    runtime = app.session_manager.get("compact-recall")
+    runtime.task_state_store.create_or_replace_plan(
+        goal="recover alert",
+        subtasks=[{"id": "inspect", "description": "inspect current alert"}],
+        current_subtask="inspect",
+        next_focus="read alert details",
+    )
+    for index in range(8):
+        runtime.session.append(UserMessage.from_text(f"history {index} " + "x" * 600))
+        runtime.session.append(
+            AssistantMessage(content=[ContentBlock(text=f"result {index} " + "y" * 600)])
+        )
+
+    compact = await app.compact("compact-recall")
+
+    assert compact.triggered is True
+    assert len(store.calls) == 1
+    assert runtime.require_recall is True
+
+    await app.run(
+        RunRequest(
+            text="after compact",
+            session_id="compact-recall",
+            resume=True,
+        )
+    )
+
+    assert len(store.calls) == 2
+    query = store.calls[1][0]
+    assert query.startswith("[Compact Summary]\ncompact summary\n\n")
+    assert "[Current Task State]\n" in query
+    assert query.endswith("[Current User Message]\nafter compact")
+    assert runtime.require_recall is False
     await app.aclose()
 
 

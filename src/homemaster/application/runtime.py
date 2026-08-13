@@ -974,10 +974,13 @@ async def _await_with_remaining_deadline(awaitable: Any, deadline: Any) -> Any:
         if inspect.iscoroutine(awaitable):
             awaitable.close()
         raise AutomaticRecallRunDeadlineExceeded("automatic recall exceeded the run deadline")
+    timeout = asyncio.timeout(remaining)
     try:
-        async with asyncio.timeout(remaining):
+        async with timeout:
             return await awaitable
     except TimeoutError as exc:
+        if not timeout.expired():
+            raise
         raise AutomaticRecallRunDeadlineExceeded(
             "automatic recall exceeded the run deadline"
         ) from exc

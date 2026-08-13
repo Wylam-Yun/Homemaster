@@ -1,5 +1,11 @@
 # HomeMaster Agent Rules
 
+## 共享 deadline 异常分类纪律
+
+- 用 `asyncio.timeout()` 共享总预算时，只在该 `Timeout` 对象的 `expired()` 为 true 时把
+  `TimeoutError` 分类为总 deadline 耗尽；被 await 的 backend 主动抛出的同类异常必须保留
+  backend 语义。测试必须在存在但未到期的 deadline 下注入 backend timeout，并与真正到期对照。
+
 ## V2.0 精确运行时文本纪律
 
 - 已锁定 owner 决策为 candidate 2：经过现有认证、权限、tenant/session/run ownership、事件字段
