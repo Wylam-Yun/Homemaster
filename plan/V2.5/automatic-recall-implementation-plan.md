@@ -712,6 +712,13 @@ identity assertions.
 
 Timeout decision: deferred; no recall-specific timeout added in V2.5.
 
+Real hit validation used isolated tenant `v25-auto-recall-validation-20260813`. One schema-add
+`fact` and one native Vanilla `experience` were written through the real LLM, embedding, Qdrant,
+and Neo4j composition. Their exact raw IDs were independently read back as active, each exact ID
+was returned by a `top_k=3`, `search_pipeline="vanilla"`, `rerank=False`, `filters=None` search,
+and each ID appeared in the rendered `<memory-context>`. Test memories were then deleted by exact
+ID and independently read back with terminal `status="archived"`.
+
 ## Acceptance criteria audit
 
 1. `test_automatic_recall_precedes_first_provider_request`
