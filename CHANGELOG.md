@@ -514,3 +514,18 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
 - V1.8 本次设计提交的聚焦 ALFWorld/Runner/Dispatcher 回归为 `145 passed`；排除已证明在 `22cb122` 就会失败的 cleanup guard 后，其余全仓为 `351 passed, 1 skipped`，compileall 和文档 hash/fence/placeholder/secret/diff 门通过。完整 pytest 仍显示该唯一预存 guard FAIL（它全局禁用通用词 `deterministic`，而未修改的 V1.7 spec/既有测试已包含该词）；Ruff lint 的 39 项和 format 的 41 个文件也全部来自未修改的 `src/`/`tests/`，本设计任务未擅自修复。
 - ALFWorld benchmark 单测与接口回归通过；真实 Shelf 1-6 exploration 全部达到 put 外部终态和 goal `1/1`。
 - Shelf 3/4/6 在独立 Xvfb 产品 Harness 进程中分别通过 THOR return code、inventory、`isPickedUp`、准确 parent/child、goal 和最终图片像素门。
+# 2026-08-13
+
+### Added
+
+- 交互 Session 在 `/exit`、EOF、提示符 Ctrl+C 和 `/new` 时自动汇总当前 Application Trace，并通过
+  MindMemOS 原生 Vanilla Add 沉淀长期经验；输入 Envelope 与轻量 Job 记录持久保存在
+  `memory.data_root/experience_jobs`，Add 失败不阻止退出。
+- 新增 `homemaster --debug`，显示 Session Finalizer 的事件数量、输入路径、耗时和实际 Memory operation。
+
+### Changed
+
+- `EmbeddedMindMemOS` 在保留 typed Schema Add 的同时持有独立 Vanilla Add pipeline，共享既有 Qdrant、
+  Neo4j、LLM、Embedding 与 operation recorder。
+- `search_memories` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
+  记录 fail closed，使自动沉淀经验能在新进程中被真实 LLM 召回。

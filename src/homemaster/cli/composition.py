@@ -27,6 +27,7 @@ from homemaster.events.sinks import (
     JsonlTraceSink,
     MessagesLogSink,
 )
+from homemaster.events.third_party_logging import ThirdPartyLogCapture
 from homemaster.extensions.contracts import ExtensionApproval
 from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
@@ -62,6 +63,7 @@ class HomeApplicationBundle:
     extension_reloader: ExtensionReloader | None = None
     live_rendered: bool = False
     tool_services: HomeToolServices | None = None
+    mindmemos: EmbeddedMindMemOS | None = None
 
 
 class HomeCliBackend:
@@ -267,6 +269,19 @@ def _finish_home_application(
     mcp_manager: McpClientManager | None = None
     mcp_audit_path: Path | None = None
     starter_steps: list[Any] = []
+    third_party_logs = ThirdPartyLogCapture(run_dir / "third_party.log")
+    scope.bind(
+        ResourceBinding.owned(
+            "third-party-log-capture",
+            third_party_logs,
+            lifetime=ResourceLifetime.APPLICATION,
+        )
+    )
+
+    async def start_third_party_logs(_application: ApplicationRuntime) -> None:
+        third_party_logs.start()
+
+    starter_steps.append(start_third_party_logs)
     service_state_root = Path(resolved.observability.session_dir).expanduser().resolve().parent
     tool_services = HomeToolServices(resolved, state_root=service_state_root)
     scope.bind(
@@ -290,6 +305,7 @@ def _finish_home_application(
         if resolved.memory.neo4j.mode == "managed_local":
             managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
         mindmemos = EmbeddedMindMemOS(resolved)
+        mindmemos._third_party_logs = third_party_logs
         scope.bind(
             ResourceBinding.owned(
                 "file-memory-store",
@@ -436,6 +452,7 @@ def _finish_home_application(
         extension_reloader=extension_reloader,
         live_rendered=live_rendered,
         tool_services=tool_services,
+        mindmemos=mindmemos,
     )
 
 

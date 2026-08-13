@@ -77,6 +77,7 @@ class TurnGrouper:
             is_user = ref.role == "user"
             is_assistant = ref.role == "assistant"
             is_system = ref.role == "system"
+            is_tool = ref.role == "tool"
 
             # System messages attach to current turn, never start one
             if is_system:
@@ -85,6 +86,10 @@ class TurnGrouper:
                 else:
                     # System message before any user/assistant — buffer it
                     current_refs.append(ref)
+                continue
+
+            if is_tool:
+                current_refs.append(ref)
                 continue
 
             # Check time gap for consecutive same-role messages

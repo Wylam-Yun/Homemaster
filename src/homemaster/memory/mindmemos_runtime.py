@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from homemaster.config import HomeMasterConfig
+from homemaster.events.third_party_logging import ThirdPartyLogCapture
 
 _ENTITY_MODELING_PATH = Path(__file__).with_name("mindmemos_entity_modeling.json")
 _HOMEMASTER_ENTITY_GENERATION_PROMPT = """
@@ -268,12 +270,14 @@ class EmbeddedMindMemOS:
 
     def __init__(self, config: HomeMasterConfig) -> None:
         self._config = config
+        self._third_party_logs: ThirdPartyLogCapture | None = None
         self._mindmemos_config: Any | None = None
         self._qdrant: Any | None = None
         self._neo4j: Any | None = None
         self._recorder: Any | None = None
         self._reader: Any | None = None
         self._add_pipeline: Any | None = None
+        self._vanilla_add_pipeline: Any | None = None
         self._search_pipeline: Any | None = None
         self._get_pipeline: Any | None = None
         self._update_pipeline: Any | None = None
@@ -317,23 +321,32 @@ class EmbeddedMindMemOS:
         self.jieba_cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.jieba_cache_path, 0o700)
 
-        import jieba
+        import_capture = (
+            self._third_party_logs.capture_dependency_imports()
+            if self._third_party_logs is not None
+            else nullcontext()
+        )
+        with import_capture:
+            import jieba
+            from mindmemos.config import init_config_value, reset_config
+            from mindmemos.infra.db import (
+                Neo4jStore,
+                QdrantStore,
+                SkillVersionRepository,
+            )
+            from mindmemos.llm import get_embed_client, get_llm_client
+            from mindmemos.llm.router import clear_router_cache
+            from mindmemos.pipelines import create_pipeline
+            from mindmemos.pipelines.memory_db import (
+                AddRecordBuffer,
+                AddRecordStore,
+                MemoryDbReader,
+                MemoryDbWriter,
+                MemoryOperationRecorder,
+            )
+            from qdrant_client import AsyncQdrantClient
 
         jieba.dt.tmp_dir = str(self.jieba_cache_path)
-
-        from mindmemos.config import init_config_value, reset_config
-        from mindmemos.infra.db import Neo4jStore, QdrantStore, SkillVersionRepository
-        from mindmemos.llm import get_embed_client, get_llm_client
-        from mindmemos.llm.router import clear_router_cache
-        from mindmemos.pipelines import create_pipeline
-        from mindmemos.pipelines.memory_db import (
-            AddRecordBuffer,
-            AddRecordStore,
-            MemoryDbReader,
-            MemoryDbWriter,
-            MemoryOperationRecorder,
-        )
-        from qdrant_client import AsyncQdrantClient
 
         try:
             mapped = build_mindmemos_config(self._config)
@@ -371,6 +384,15 @@ class EmbeddedMindMemOS:
                 llm_client=_TypedSchemaLlmClient(get_llm_client()),
                 embed_client=embed_client,
                 prompt_set=build_mindmemos_add_prompts(mapped.algo_config.common.prompt_language),
+            )
+            vanilla_add_pipeline = create_pipeline(
+                type="add",
+                name="vanilla_add",
+                db_reader=reader,
+                db_writer=writer,
+                recorder=recorder,
+                llm_client=get_llm_client(),
+                embed_client=embed_client,
             )
             search_pipeline = create_pipeline(
                 type="search",
@@ -412,6 +434,7 @@ class EmbeddedMindMemOS:
         self._recorder = recorder
         self._reader = reader
         self._add_pipeline = add_pipeline
+        self._vanilla_add_pipeline = vanilla_add_pipeline
         self._search_pipeline = search_pipeline
         self._get_pipeline = get_pipeline
         self._update_pipeline = update_pipeline
@@ -471,6 +494,50 @@ class EmbeddedMindMemOS:
             raise
         finally:
             _TYPED_RECORD.reset(token)
+
+    async def add_vanilla(
+        self,
+        messages: list[Any],
+        context: Any,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        """Extract free-form experience memories with native Vanilla Add."""
+
+        from mindmemos.pipelines.memory_db import suppress_recording_errors, utcnow
+        from mindmemos.typing import AddPipelineInput
+
+        if self._vanilla_add_pipeline is None or self._recorder is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        payload = AddPipelineInput(
+            messages=messages,
+            mode="sync",
+            force_generation=True,
+            metadata=metadata or {},
+        )
+        add_record_id = str(uuid4())
+        await suppress_recording_errors(
+            self._recorder.record_add_input(
+                payload,
+                ctx=context,
+                request_submitted_at=utcnow(),
+                add_record_id=add_record_id,
+                status="processing",
+            ),
+            operation="homemaster.mindmemos.vanilla_add",
+        )
+        try:
+            return await self._vanilla_add_pipeline.add_sync(
+                payload,
+                context,
+                add_record_id=add_record_id,
+            )
+        except Exception as exc:
+            await suppress_recording_errors(
+                self._recorder.mark_add_failed(context, add_record_id, str(exc)),
+                operation="homemaster.mindmemos.vanilla_add",
+            )
+            raise
 
     async def search(
         self,
@@ -576,6 +643,7 @@ class EmbeddedMindMemOS:
         self._recorder = None
         self._reader = None
         self._add_pipeline = None
+        self._vanilla_add_pipeline = None
         self._search_pipeline = None
         self._get_pipeline = None
         self._update_pipeline = None

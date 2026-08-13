@@ -216,6 +216,23 @@ class TestSystemMessages:
                 assert m.is_extractable is True
 
 
+class TestToolMessages:
+    def test_tool_result_stays_in_user_assistant_turn(self) -> None:
+        msgs = [
+            _dm("user", "validate file"),
+            _dm("assistant", "[thinking] run parser"),
+            _dm("tool", "status: failed\nJSONDecodeError"),
+            _dm("assistant", "fixed and verified"),
+        ]
+
+        turns = TurnGrouper().group(list(enumerate(msgs)))
+
+        assert len(turns) == 1
+        assert turns[0].boundary == "complete"
+        assert _roles(turns) == [["user", "assistant", "tool", "assistant"]]
+        assert all(message.is_extractable for message in turns[0].messages)
+
+
 # 9. Boundary metadata
 
 

@@ -85,3 +85,20 @@ must not be automatically retried.
 File prompt order remains base system prompt, Assistant Identity (SOUL), User Profile (USER), Persistent Memory (MEMORY).
 A session owns one immutable snapshot; file mutations affect new sessions only. Structured memories are searched on
 demand and never grant device, browser or environment authority.
+# Session experience finalization
+
+交互 Shell 持有一个轻量 `SessionFinalizer`。它不新增第二份 Session Trace，也不改变既有 Application
+Trace：结束 Session 时直接读取当前 `HomeApplicationBundle.trace_path`，按 `session_id` 过滤并排除
+`transport.delta`。筛选后的事件组成仅驻留内存的 `TaskTraceEnvelope`，再由 renderer 选择用户输入、
+模型思考、非空助手回复以及工具成功/失败结果，转换为带角色的 `DialogueMessage` 后交给应用持有的原生
+`vanilla_add` pipeline。Transport、usage、内部 ID 和重复终态不会进入模型；完整原始轨迹只保留在
+`runtime_events.jsonl`。
+
+`EmbeddedMindMemOS` 同时持有既有 `schema_add` 和新增 `vanilla_add`；typed `add_memory` 继续走 Schema
+Add，Session 经验只走 Vanilla Add。两者共享 application-owned Qdrant、Neo4j、reader、writer、recorder、
+LLM 和 embedding client。Job ID 由 session ID、精选消息的 SHA-256 和 extractor version 组成；已完成
+Job 不重复提交。第一版不提供后台 outbox、跨 Application Trace 合并或严格 exactly-once。
+
+原生 Vanilla experience 没有 typed Schema Add 的 `record_json`。`search_memories` 仅对
+`mem_extract_type=vanilla`、`mem_type=experience`、`status=active` 且正文非空的记录建立公开投影，并沿用既有
+`procedure` 类型返回正文和来源 Session；其他损坏或缺失 `record_json` 的 Schema 记录仍 fail closed。

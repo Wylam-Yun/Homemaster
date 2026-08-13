@@ -77,9 +77,13 @@ def _install_shell(monkeypatch, tmp_path: Path):
     application = RecordingApplication()
     bundle = SimpleNamespace(
         application=application,
-        config=SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=None)),
+        config=SimpleNamespace(
+            runtime=SimpleNamespace(max_tool_iterations=None),
+            memory=SimpleNamespace(data_root=tmp_path / "memory"),
+        ),
         trace_path=tmp_path / "runtime_events.jsonl",
         skill_registry=object(),
+        mindmemos=None,
     )
     monkeypatch.setattr(module, "create_home_application", lambda **kwargs: bundle)
     monkeypatch.setattr(
@@ -88,6 +92,31 @@ def _install_shell(monkeypatch, tmp_path: Path):
         lambda live=False: SimpleNamespace(has_failures=False),
     )
     return application, bundle
+
+
+def _install_finalizer(monkeypatch, bundle):
+    module = importlib.import_module("homemaster.cli.interactive_shell")
+    calls = []
+
+    class RecordingFinalizer:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        async def finalize(self, session_id, exit_reason):
+            calls.append((session_id, exit_reason))
+            return SimpleNamespace(
+                status="completed",
+                operations=(),
+                collected_events=3,
+                excluded_transport_deltas=2,
+                rendered_messages=4,
+                duration_ms=4.0,
+                error=None,
+            )
+
+    bundle.mindmemos = object()
+    monkeypatch.setattr(module, "SessionFinalizer", RecordingFinalizer)
+    return calls
 
 
 def test_shell_exits_and_closes_owned_application_once(monkeypatch, tmp_path) -> None:
@@ -114,6 +143,21 @@ def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_
     assert "Assistant: reply-1" in result.stdout
     assert "Assistant: reply-2" in result.stdout
     assert application.closed == 1
+
+
+def test_shell_sends_json_and_ticket_text_to_normal_agent(monkeypatch, tmp_path) -> None:
+    application, _ = _install_shell(monkeypatch, tmp_path)
+    utterances = [
+        "检查 tmp/manual_experience_test.json",
+        "检查 /tmp/manual_experience_test.json",
+        "执行这个 ticket 变更单 /tmp/manual_experience_test.json",
+    ]
+
+    result = CliRunner().invoke(app, ["shell"], input="\n".join([*utterances, "/exit", ""]))
+
+    assert result.exit_code == 0
+    assert [request.text for request in application.requests] == utterances
+    assert "Invalid change ticket" not in result.stdout
 
 
 def test_shell_compact_and_status_use_typed_application_controls(
@@ -146,6 +190,21 @@ def test_shell_new_resets_resume_policy_without_rebuilding_application(
     assert result.exit_code == 0
     assert application.requests[0].session_id != application.requests[1].session_id
     assert application.requests[1].resume is False
+    assert application.closed == 1
+
+
+def test_shell_finalizes_old_and_current_sessions(monkeypatch, tmp_path) -> None:
+    application, bundle = _install_shell(monkeypatch, tmp_path)
+    calls = _install_finalizer(monkeypatch, bundle)
+
+    result = CliRunner().invoke(app, ["shell"], input="first\n/new\nsecond\n/exit\n")
+
+    assert result.exit_code == 0
+    assert [item[1] for item in calls if item[0] != "init"] == [
+        "new_session",
+        "user_exit",
+    ]
+    assert result.stdout.count("Vanilla Add completed: 0 operations") == 2
     assert application.closed == 1
 
 

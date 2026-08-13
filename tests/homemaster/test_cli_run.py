@@ -373,7 +373,9 @@ def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:
     result = CliRunner().invoke(app, [])
 
     assert result.exit_code == 0
-    assert calls == [{"resume_session_id": None, "continue_latest": False}]
+    assert calls == [
+        {"resume_session_id": None, "continue_latest": False, "debug": False}
+    ]
 
 
 def test_result_status_controls_process_exit(monkeypatch, tmp_path: Path) -> None:

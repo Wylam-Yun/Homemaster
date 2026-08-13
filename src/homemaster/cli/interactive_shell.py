@@ -8,11 +8,9 @@ import typer
 
 from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunStatus
-from homemaster.benchmarking.coworker_demo.turn import run_coworker_turn
-from homemaster.benchmarking.coworker_demo.types import CoworkerAttemptError, TicketRouteKind
 from homemaster.cli.composition import HomeCliBackend, create_home_application
-from homemaster.cli.coworker_router import route_coworker_ticket
 from homemaster.cli.doctor import render_doctor_text, run_doctor
+from homemaster.experience import SessionFinalizer
 from homemaster.skills.commands import resolve_skill_command
 
 
@@ -20,6 +18,7 @@ def run_interactive_shell(
     *,
     resume_session_id: str | None = None,
     continue_latest: bool = False,
+    debug: bool = False,
 ) -> None:
     _enable_line_editing()
     typer.echo("HomeMaster V1.9")
@@ -38,10 +37,46 @@ def run_interactive_shell(
     session_open = False
     last_status = "idle"
     last_run_id: str | None = None
+    finalizer = (
+        SessionFinalizer(
+            trace_path=bundle.trace_path,
+            data_root=bundle.config.memory.data_root,
+            mindmemos=bundle.mindmemos,
+        )
+        if getattr(bundle, "mindmemos", None) is not None
+        else None
+    )
 
     with asyncio.Runner() as runner:
         async def ask_user(question: str) -> str:
             return await asyncio.to_thread(input, f"{question}\nanswer> ")
+
+        def finalize(reason: str) -> None:
+            if not session_open or finalizer is None:
+                return
+            typer.echo(f"[experience] Finalizing session {session_id}")
+            result = runner.run(finalizer.finalize(session_id, reason))
+            if result.status == "failed":
+                typer.echo(f"[experience] Vanilla Add failed: {result.error}")
+                return
+            typer.echo(
+                f"[experience] Vanilla Add completed: {len(result.operations)} operations"
+            )
+            if debug:
+                typer.echo(
+                    "DEBUG experience: "
+                    f"events={result.collected_events} "
+                    f"excluded_transport_deltas={result.excluded_transport_deltas} "
+                    f"rendered_messages={result.rendered_messages} "
+                    f"duration_ms={result.duration_ms:.0f}"
+                )
+                for operation in result.operations:
+                    typer.echo(
+                        f"[experience][{operation.operation.upper()}]\n"
+                        f"memory_id: {operation.memory_id}\n"
+                        f"memory_type: {operation.memory_type}\n"
+                        f"content:\n{operation.content}"
+                    )
 
         try:
             if continue_latest:
@@ -61,20 +96,24 @@ def run_interactive_shell(
                 try:
                     utterance = input("homemaster> ").strip()
                 except EOFError:
+                    finalize("eof")
                     typer.echo("Goodbye")
                     return
                 except KeyboardInterrupt:
+                    finalize("shell_interrupt")
                     typer.echo("\nGoodbye")
                     return
                 if not utterance:
                     continue
                 if utterance == "/exit":
+                    finalize("user_exit")
                     typer.echo("Goodbye")
                     return
                 if utterance == "/help":
                     typer.echo(_render_help())
                     continue
                 if utterance == "/new":
+                    finalize("new_session")
                     session_id = new_session_id()
                     backend = HomeCliBackend(world_path=None, memory_path=None)
                     session_open = False
@@ -129,20 +168,6 @@ def run_interactive_shell(
                     typer.echo(f"Skill invocation failed: {exc}")
                     continue
 
-                ticket_route = route_coworker_ticket(utterance)
-                if ticket_route.kind == TicketRouteKind.INVALID_TICKET_INTENT:
-                    last_status = "failed"
-                    typer.echo(f"Invalid change ticket: {ticket_route.message}")
-                    continue
-                if ticket_route.kind == TicketRouteKind.VALID_TICKET:
-                    coworker = _run_coworker(ticket_route)
-                    if coworker is None:
-                        last_status = "failed"
-                        continue
-                    last_status = coworker.status
-                    last_run_id = coworker.run_id
-                    continue
-
                 try:
                     result = runner.run(
                         application.run(
@@ -192,29 +217,6 @@ def run_interactive_shell(
                     typer.echo("Run cancelled.")
         finally:
             runner.run(application.aclose())
-
-
-def _run_coworker(ticket_route):
-    try:
-        result = run_coworker_turn(ticket_route)
-    except CoworkerAttemptError as exc:
-        typer.echo(f"Change execution failed: {exc.error_type}")
-        typer.echo(f"Artifacts: {exc.run_root}")
-        return None
-    except Exception as exc:
-        typer.echo(f"Change execution failed: {exc}")
-        return None
-    typer.echo(f"Assistant: {result.final_reply}")
-    typer.echo(
-        "Scores: "
-        f"trajectory={result.trajectory_score:.1f}, "
-        f"result={result.result_score:.1f}, overall={result.overall_score:.1f}"
-    )
-    typer.echo(f"Formal success: {result.formal_success}")
-    typer.echo(f"Artifacts: {result.artifact_path}")
-    if result.video_path:
-        typer.echo(f"Video: {result.video_path}")
-    return result
 
 
 def _enable_line_editing() -> None:

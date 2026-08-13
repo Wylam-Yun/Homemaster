@@ -45,6 +45,10 @@ def child_worker_command(
 @app.callback(invoke_without_command=True)
 def main_callback(
     ctx: typer.Context,
+    debug: Annotated[
+        bool,
+        typer.Option("--debug", help="Enable DEBUG logs and experience finalizer details."),
+    ] = False,
     gateway: Annotated[
         bool,
         typer.Option(
@@ -174,9 +178,11 @@ def main_callback(
             raise typer.BadParameter("--provider-name/--model require --print or --dry-run")
         if output_format is not None:
             raise typer.BadParameter("--output-format requires --print or --dry-run")
+        setup_logging(level="DEBUG" if debug else "INFO")
         run_interactive_shell(
             resume_session_id=resume_session_id,
             continue_latest=continue_latest,
+            debug=debug,
         )
     except (typer.Exit, typer.BadParameter, SystemExit):
         raise

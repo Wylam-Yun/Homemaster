@@ -79,6 +79,11 @@ uv run homemaster memory migrate --config config/homemaster.yaml
 mode-0600 的 `config/homemaster.yaml` 中配置 Neo4j 安装目录、Java 21、URI 和密码。完整示例与同节点约束见
 [记忆用户指南](docs/memory-user-guide.md)。
 
+交互 Shell 会在 `/exit`、EOF、提示符 Ctrl+C 或 `/new` 时，从当前 Application 的
+`runtime_events.jsonl` 汇总旧 Session 轨迹并交给 MindMemOS 原生 Vanilla Add。输入快照和轻量 Job
+记录保存在 `memory.data_root/experience_jobs/`；运行中的 Ctrl+C 仍只取消当前 Run。使用
+`homemaster --debug` 可显示事件数量、Envelope 路径、耗时及每个实际 Memory operation。
+
 可用公开 `homemaster -p` 串行运行 100 条合成网页操作 fact 的召回基准：
 
 ```bash

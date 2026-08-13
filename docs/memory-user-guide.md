@@ -140,6 +140,8 @@ turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工�
 为 5，最大 20；可提供 subject/predicate 或 entry_url/name hints。query 会发送给配置的
 SiliconFlow embedding endpoint，因此不要搜索凭证、token、cookie、内部地址或 evidence ref；产品边界会在发包前
 拒绝明显敏感内容。
+Session 自动沉淀的 Vanilla experience 在公开工具中作为 `procedure` 返回；检索这类可复用经验时使用
+`memory_type=procedure`，不确定是事实还是经验时省略 `memory_type`。
 候选的 `record_json` 缺字段、损坏或 schema version 不支持时，该条不会作为正常命中返回；响应的
 `diagnostics` 只包含稳定错误码、脱敏 ID hash 和命中分支，不回显损坏 payload。准确 ID 的 `get_memory`
 仍会 fail closed 返回 `memory_record_corrupt`。
@@ -223,3 +225,29 @@ uv run homemaster doctor --json | jq '.checks[] | select(.name == "memory_backen
 该检查只报告导入、配置和文件迁移是否 ready，并以 `probe=not_opened` 明示没有启动 backend；它会显示
 `neo4j_mode`、URI 和托管安装路径，但不显示密码。实际 Qdrant、Neo4j、chat 和 embedding 可用性由
 HomeMaster 启动边界验证。
+# Session 结束后自动沉淀经验
+
+交互运行 `homemaster` 时，以下操作会结束当前 Session 并自动调用 MindMemOS Vanilla Add：
+
+- `/exit`；
+- 输入 EOF；
+- 在提示符处按 Ctrl+C；
+- `/new`，旧 Session 沉淀完成后创建新 Session。
+
+Run 执行期间按 Ctrl+C 只取消当前 Run，不结束 Session。HomeMaster 从当前 Application 的
+`runtime_events.jsonl` 按 `session_id` 收集事件，构造仅驻留内存的 `TaskTraceEnvelope`，再精选用户输入、
+模型思考、助手回复和工具结果作为带角色的 MindMemOS 输入。内部 ID、transport、usage 和重复终态不会
+发送给模型，也不会另存 `task_trace.json`。
+
+同目录的 `job.json` 记录 `pending/completed`、原始 operation 和 memory ID。Add 失败会显示错误，但不会
+阻止 Shell 退出或 `/new`。Vanilla Add 自主决定执行 `add/reinforcement/update/merge/skip`，因此一个
+Session 可能产生零条、一条或多条 Memory。
+
+调试时使用：
+
+```bash
+homemaster --debug
+```
+
+该选项显示收集事件数、排除的 delta 数、渲染消息数、处理耗时以及每条实际 Memory 的完整内容；它与
+显示完整模型思考和工具结果的 `--verbose` 不是同一功能。

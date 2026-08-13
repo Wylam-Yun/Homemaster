@@ -118,7 +118,13 @@ class AddMemoryInput(_MemoryToolInput):
 
 class SearchMemoriesInput(_MemoryToolInput):
     query: _NonEmptyText
-    memory_type: Literal["fact", "procedure"] | None = None
+    memory_type: Literal["fact", "procedure"] | None = Field(
+        default=None,
+        description=(
+            "Use fact for external-world state; use procedure for reusable guidance and "
+            "Session-derived experience memories. Omit when both may be relevant."
+        ),
+    )
     limit: int = Field(default=5, ge=1, le=20)
     subject: Subject | None = None
     predicate: str | None = None
@@ -318,6 +324,10 @@ class SearchMemoriesExecutor:
                 raw = await store.get_raw(hit.id, memory_context)
                 parsed = _mindmemos_record(raw)
                 if parsed is None:
+                    vanilla_payload = _vanilla_experience_payload(hit, raw, arguments)
+                    if vanilla_payload is not None:
+                        records.append(vanilla_payload)
+                        continue
                     diagnostics.append(
                         {
                             "code": "memory_record_corrupt",
@@ -417,6 +427,53 @@ def _mindmemos_payload(hit: Any, raw: Any, record: MemoryRecord) -> dict[str, ob
         "memory_id": hit.id,
         "memory_type": record.memory_type,
         "record": record.model_dump(mode="json"),
+        "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
+        "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
+        "score": getattr(hit, "score", None),
+        "match_sources": ["semantic"],
+        "verified_terminal_state": True,
+    }
+
+
+def _vanilla_experience_payload(
+    hit: Any, raw: Any, arguments: Mapping[str, object]
+) -> dict[str, object] | None:
+    """Project native Vanilla experience memories without weakening Schema validation."""
+    if (
+        raw is None
+        or getattr(raw, "mem_extract_type", None) != "vanilla"
+        or getattr(raw, "mem_type", None) != "experience"
+        or getattr(raw, "status", "active") != "active"
+    ):
+        return None
+    content = getattr(raw, "content", None)
+    if not isinstance(content, str) or not content.strip():
+        return None
+    if arguments.get("memory_type") not in {None, "procedure"}:
+        return None
+    if any(arguments.get(key) is not None for key in ("subject", "predicate", "entry_url", "name")):
+        return None
+
+    metadata = _mindmemos_request_metadata(raw)
+    source = {
+        key: metadata[key]
+        for key in (
+            "source_type",
+            "source_session_id",
+            "input_hash",
+            "trace_schema_version",
+            "trace_hash",
+            "extractor_version",
+        )
+        if key in metadata
+    }
+    created_at = getattr(raw, "created_at", None)
+    updated_at = getattr(raw, "update_at", None)
+    return {
+        "memory_id": hit.id,
+        "memory_type": "procedure",
+        "content": content,
+        "source": source,
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
         "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
         "score": getattr(hit, "score", None),
@@ -821,7 +878,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "search_memories",
-                "Search structured external facts and reusable procedures that are not already present in the current context. One call combines exact metadata with MindMemOS retrieval, so use one query covering the current request and do not repeat it unless the requested information or search hints change. This does not search SOUL, USER or MEMORY files. Only pass returned raw memory IDs to get, update or delete.",
+                "Search structured external facts, reusable procedures, and Session-derived experiences that are not already present in the current context. Session-derived experiences use memory_type=procedure; omit memory_type when both facts and experience may be relevant. One call combines exact metadata with MindMemOS retrieval, so use one query covering the current request and do not repeat it unless the requested information or search hints change. This does not search SOUL, USER or MEMORY files. Only pass returned raw memory IDs to get, update or delete.",
                 SearchMemoriesInput,
             ),
             MemoryAuditExecutor("search_memories", SearchMemoriesExecutor(), SearchMemoriesInput),

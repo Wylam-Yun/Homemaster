@@ -290,6 +290,107 @@ async def test_search_memories_uses_embedded_mindmemos_and_returns_original_reco
 
 
 @pytest.mark.asyncio
+async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path) -> None:
+    from mindmemos.typing import MemorySearchItem
+
+    content = "外部写操作超时后结果未知，不能自动重试，应先只读查询真实终态。"
+
+    class FakeMindMemOS(EmbeddedMindMemOS):
+        def __init__(self) -> None:
+            pass
+
+        async def search(self, query, context, **kwargs):
+            return SimpleNamespace(
+                status="ok",
+                memories=[
+                    MemorySearchItem(
+                        id="experience-1",
+                        memory=content,
+                        memory_type="experience",
+                        last_update_at="2026-08-13 00:00:00",
+                    ),
+                    MemorySearchItem(
+                        id="malformed-schema-1",
+                        memory="invalid",
+                        memory_type="fact",
+                        last_update_at="2026-08-13 00:00:00",
+                    ),
+                ],
+            )
+
+        async def get_raw(self, memory_id, context):
+            if memory_id == "experience-1":
+                return SimpleNamespace(
+                    memory_id=memory_id,
+                    mem_extract_type="vanilla",
+                    mem_type="experience",
+                    content=content,
+                    status="active",
+                    session_id="session-source",
+                    metadata={
+                        "request_metadata": {
+                            "source_type": "homemaster_task_trace",
+                            "source_session_id": "session-source",
+                            "trace_schema_version": "homemaster-task-trace-v1",
+                        }
+                    },
+                    created_at=None,
+                    update_at=None,
+                )
+            return SimpleNamespace(
+                memory_id=memory_id,
+                mem_extract_type="schema",
+                mem_type="fact",
+                content="invalid",
+                status="active",
+                metadata={"request_metadata": {"record_json": "not-json"}},
+                created_at=None,
+                update_at=None,
+            )
+
+    executor = next(
+        tool.executor
+        for tool in build_memory_tools()
+        if tool.definition.model_alias == "search_memories"
+    )
+    context = ToolExecutionContext(
+        tmp_path,
+        metadata={
+            "services": {"mindmemos": FakeMindMemOS()},
+            "permission_subject": type(
+                "Subject",
+                (),
+                {"tenant_id": "tenant-a", "capabilities": ("tool.read",)},
+            )(),
+            "session_id": "session-a",
+            "run_id": "run-a",
+            "turn_index": 2,
+            "tool_call_id": "call-search",
+        },
+    )
+
+    result = await executor.execute(
+        {"query": "写操作超时", "memory_type": "procedure", "limit": 5}, context
+    )
+
+    assert result.success
+    assert result.data["count"] == 1
+    record = result.data["records"][0]
+    assert record["memory_id"] == "experience-1"
+    assert record["memory_type"] == "procedure"
+    assert record["content"] == content
+    assert dict(record["source"]) == {
+        "source_type": "homemaster_task_trace",
+        "source_session_id": "session-source",
+        "trace_schema_version": "homemaster-task-trace-v1",
+    }
+    assert record["match_sources"] == ("semantic",)
+    assert record["verified_terminal_state"] is True
+    assert len(result.data["diagnostics"]) == 1
+    assert result.data["diagnostics"][0]["code"] == "memory_record_corrupt"
+
+
+@pytest.mark.asyncio
 async def test_structured_memory_crud_uses_embedded_mindmemos(
     tmp_path: Path,
 ) -> None:
