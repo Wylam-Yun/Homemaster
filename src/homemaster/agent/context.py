@@ -342,6 +342,11 @@ class ContextAssembler:
         self._skill_registry = skill_registry
         self._frozen_memory_context = frozen_memory_context
         self._runtime_evidence_refs = tuple(runtime_evidence_refs)
+        self._automatic_memory_context: str | None = None
+
+    def bind_automatic_memory_context(self, text: str | None) -> None:
+        normalized = text.strip() if isinstance(text, str) else ""
+        self._automatic_memory_context = normalized or None
 
     def bind_runtime_evidence(self, refs: tuple[str, ...]) -> None:
         self._runtime_evidence_refs = tuple(refs)
@@ -398,6 +403,8 @@ class ContextAssembler:
         ]
 
         prelude_texts: list[str] = []
+        if self._automatic_memory_context is not None:
+            prelude_texts.append(self._automatic_memory_context)
         if evidence_prelude := self._runtime_evidence_prelude():
             prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages
@@ -500,6 +507,8 @@ class ContextAssembler:
             if item.placement is not ContextPlacement.TRACE_ONLY
         ]
         prelude_texts: list[str] = []
+        if self._automatic_memory_context is not None:
+            prelude_texts.append(self._automatic_memory_context)
         if evidence_prelude := self._runtime_evidence_prelude():
             prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages

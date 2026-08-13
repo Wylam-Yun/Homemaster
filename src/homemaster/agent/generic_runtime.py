@@ -14,6 +14,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from homemaster.agent.context import ContextMetrics
 from homemaster.agent.interrupt import InterruptController
 from homemaster.agent.messages import (
     ContentBlock,
@@ -127,6 +128,7 @@ class AgentRuntime:
         tool_registry: ToolRegistry | None = None,
         cancellation_token: Any = None,
         deadline: Any = None,
+        on_compaction: Callable[[ContextMetrics], Any] | None = None,
     ) -> GenericRunResult:
         """Execute one agent run: user input -> model -> tool loop -> final reply."""
 
@@ -299,6 +301,10 @@ class AgentRuntime:
                                 "kind": composed.metrics.compaction_kind,
                             },
                         )
+                        if on_compaction is not None:
+                            callback_result = on_compaction(composed.metrics)
+                            if inspect.isawaitable(callback_result):
+                                await callback_result
                         save_snapshot()
 
                 if agent_state.pending_model_observation is not None:

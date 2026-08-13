@@ -696,3 +696,38 @@ If the real benchmark was not run, include the recorded missing dependency rathe
 - No recall-specific numeric timeout is introduced.
 - Ruff and the full offline test suite pass.
 - Real latency is measured and recorded, or explicitly marked `NOT RUN` with the missing dependency.
+
+## Measured real MindMemOS smoke result
+
+Backend/config: `embedded-mindmemos-managed-local-real-config`, using the private
+`config/homemaster.yaml`, HomeMaster-managed local Neo4j, persistent local Qdrant, and the configured
+SiliconFlow embedding endpoint. The search returned status `ok` on all six calls with result counts
+`[0, 0, 0, 0, 0, 0]`; every individual call therefore satisfied the Top-3 bound and tenant/session
+identity assertions.
+
+- Cold: `6088.888904079795 ms`
+- Warm: `[274.6669854968786, 241.82595405727625, 228.53021509945393, 443.8064293935895, 242.58476588875055] ms`
+- Warm p50: `242.58476588875055 ms`
+- Warm maximum: `443.8064293935895 ms`
+
+Timeout decision: deferred; no recall-specific timeout added in V2.5.
+
+## Acceptance criteria audit
+
+1. `test_automatic_recall_precedes_first_provider_request`
+2. `test_new_session_query_is_exact_user_text`
+3. `test_runtime_reports_only_actual_compaction[True]` and manual compact integration coverage
+4. `test_post_compact_query_has_stable_sections`
+5. `test_automatic_recall_precedes_first_provider_request`
+6. `test_automatic_recall_precedes_first_provider_request`
+7. `test_automatic_recall_best_effort_outcomes_do_not_block_provider` plus shared deadline tests
+8. `test_new_session_starts_with_recall_required`
+9. `test_recall_latch_round_trips_snapshot`
+10. `test_new_session_starts_with_recall_required`
+11. `test_automatic_recall_runs_once_per_session_and_survives_resume`
+12. `test_runtime_projects_memory_search_records_into_model_tool_content`
+13. Existing Session finalization and compact integration tests
+14. `test_runtime_projects_memory_search_records_into_model_tool_content`
+15. `test_automatic_recall_precedes_first_provider_request`,
+    `test_context_preserves_unknown_native_memory_types`, and
+    `test_runtime_projects_memory_search_records_into_model_tool_content`

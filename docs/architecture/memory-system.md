@@ -1,4 +1,4 @@
-# V2.1 Memory System Architecture
+# V2.5 Memory System Architecture
 
 Home composition owns `FileMemoryStore`, `FrozenMemoryContextService`, `MemoryEvidenceLedger`, optional
 `ManagedNeo4jRuntime`, and `EmbeddedMindMemOS`. They start before the first run, enter `application_services`, and close
@@ -23,6 +23,13 @@ legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and
 ## Structured Flow
 
 ```text
+new Session / first user turn after completed Compact
+  -> SessionRuntime.require_recall generation-fenced latch
+  -> ApplicationRuntime builds deterministic query
+  -> EmbeddedMindMemOS.search(top_k=3, vanilla, rerank=false, filters=None)
+  -> run-scoped ContextAssembler memory prelude
+  -> first Provider request; no tool messages or persistent history mutation
+
 canonical user turn / verified tool result
   -> MemoryEvidenceLedger issues opaque ordered evidence ref
   -> mindmemos_add/mindmemos_update validates FactRecord or ProcedureRecord and evidence

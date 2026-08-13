@@ -22,7 +22,10 @@ from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
 from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequest, RunStatus
 from homemaster.application.resources import ResourceCleanupError
-from homemaster.application.runtime import ApplicationRuntime
+from homemaster.application.runtime import (
+    ApplicationRuntime,
+    AutomaticRecallRunDeadlineExceeded,
+)
 from homemaster.application.session import SessionManager
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
@@ -44,6 +47,7 @@ from homemaster.memory.models import FactRecord
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
+from homemaster.providers.errors import LLMNetworkError
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.tools import make_task_progress_check_tool
@@ -100,6 +104,84 @@ class _FakeTransport:
                 )
             )
         for delta in response:
+            yield delta
+
+
+class _AutomaticRecallStore(EmbeddedMindMemOS):
+    def __init__(self, order, *, memories=(), error=None) -> None:
+        self.order = order
+        self.memories = list(memories)
+        self.error = error
+        self.calls: list[tuple[str, Any, dict[str, Any]]] = []
+
+    async def search(self, query, context, **kwargs):
+        self.order.append("search")
+        self.calls.append((query, context, kwargs))
+        if self.error is not None:
+            raise self.error
+        return SimpleNamespace(status="ok", memories=list(self.memories))
+
+
+class _BlockingAutomaticRecallStore(EmbeddedMindMemOS):
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.cancelled = False
+
+    async def search(self, *_args, **_kwargs):
+        self.entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
+class _AutomaticRecallTransport(_FakeTransport):
+    def __init__(self, order) -> None:
+        super().__init__([_text("完成")])
+        self.order = order
+
+    async def stream(self, *args, **kwargs):
+        self.order.append("provider")
+        async for delta in super().stream(*args, **kwargs):
+            yield delta
+
+
+class _AutomaticRecallRetryTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(
+        self,
+        messages,
+        *,
+        tools=None,
+        attempt_sink=None,
+        model_attempt_id="attempt",
+        **_kwargs,
+    ):
+        self.calls.append({"messages": messages, "tools": tools})
+        request_hash = hashlib.sha256(repr((messages, tools)).encode()).hexdigest()
+        failed = len(self.calls) == 1
+        if attempt_sink is not None:
+            attempt_sink.record_attempt(
+                ProviderAttemptRecord(
+                    model_attempt_id=model_attempt_id,
+                    request_sha256=request_hash,
+                    outbound_images=(),
+                    stripped_images=False,
+                    response_completed=not failed,
+                    error_type="network_error" if failed else None,
+                    cause_code="transient_network" if failed else None,
+                )
+            )
+        if failed:
+            raise LLMNetworkError(
+                error_type="network_error",
+                message="connection reset",
+                cause_code="transient_network",
+            )
+        for delta in _text("done"):
             yield delta
 
 
@@ -256,14 +338,14 @@ class _RecordingMindMemOS(EmbeddedMindMemOS):
 
 class _MemoryRecallStore(EmbeddedMindMemOS):
     def __init__(self) -> None:
-        pass
+        self.search_calls: list[tuple[str, dict[str, Any]]] = []
 
     async def search(self, query, context, **kwargs):
         from mindmemos.typing import MemorySearchItem
 
         del context
         assert query == "钥匙在哪里"
-        assert kwargs["filters"] == {"mem_type": "fact"}
+        self.search_calls.append((query, kwargs))
         return SimpleNamespace(
             status="ok",
             memories=[
@@ -614,6 +696,12 @@ def _tool(call_id: str, name: str, arguments: dict[str, Any]) -> list[TransportD
     ]
 
 
+def _request_text(messages) -> str:
+    return "\n".join(
+        block.text for message in messages for block in message.content if block.text
+    )
+
+
 def _application(
     tmp_path,
     tools: list[RegisteredTool],
@@ -678,6 +766,233 @@ def _application(
 
 
 @pytest.mark.asyncio
+async def test_automatic_recall_precedes_first_provider_request(tmp_path) -> None:
+    from mindmemos.typing import MemorySearchItem
+
+    order: list[str] = []
+    store = _AutomaticRecallStore(
+        order,
+        memories=[
+            MemorySearchItem(
+                id="profile-1",
+                memory="用户偏好中文",
+                memory_type="profile",
+                last_update_at="2026-08-13 10:00:00",
+            ),
+            MemorySearchItem(
+                id="experience-1",
+                memory="先检查告警详情",
+                memory_type="experience",
+                last_update_at="2026-08-13 11:00:00",
+            ),
+        ],
+    )
+    transport = _AutomaticRecallTransport(order)
+    app = _application(
+        tmp_path,
+        [],
+        {"处理告警": transport},
+        application_services={"mindmemos": store},
+    )
+    request = RunRequest(
+        text="处理告警",
+        session_id="automatic-recall",
+        profile="home",
+        permission_subject=PermissionSubject(
+            subject_id="operator-a",
+            tenant_id="tenant-a",
+            channel="test",
+            capabilities=(),
+        ),
+    )
+
+    result = await app.run(request)
+
+    assert result.status is RunStatus.REPLIED
+    assert order == ["search", "provider"]
+    query, context, kwargs = store.calls[0]
+    assert query == request.text
+    assert context.account_id == "tenant-a"
+    assert context.session_id == "automatic-recall"
+    assert kwargs == {
+        "top_k": 3,
+        "search_pipeline": "vanilla",
+        "rerank": False,
+        "filters": None,
+    }
+    first_messages = transport.calls[0]["messages"]
+    request_text = _request_text(first_messages)
+    assert "profile-1" in request_text
+    assert "experience-1" in request_text
+    assert request_text.count("<memory-context>") == 1
+    assert first_messages[-1].content[0].text == request.text
+    assert all(message.role != "tool" for message in first_messages)
+    runtime = app.session_manager.get("automatic-recall")
+    assert runtime.require_recall is False
+    assert all(not getattr(message, "tool_calls", []) for message in runtime.session.messages)
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["empty", "error", "unavailable"])
+async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
+    tmp_path, mode
+) -> None:
+    order: list[str] = []
+    services: dict[str, object] = {}
+    if mode != "unavailable":
+        services["mindmemos"] = _AutomaticRecallStore(
+            order,
+            error=RuntimeError("recall backend failed") if mode == "error" else None,
+        )
+    transport = _AutomaticRecallTransport(order)
+    app = _application(
+        tmp_path,
+        [],
+        {mode: transport},
+        application_services=services,
+    )
+
+    result = await app.run(RunRequest(text=mode, session_id=f"recall-{mode}"))
+
+    assert result.status is RunStatus.REPLIED
+    assert order[-1] == "provider"
+    assert "<memory-context>" not in _request_text(transport.calls[0]["messages"])
+    assert app.session_manager.get(f"recall-{mode}").require_recall is False
+    events = [
+        event
+        for event in app.event_bus.events
+        if event.type == "memory.automatic_recall"
+    ]
+    assert len(events) == 1
+    assert events[0].payload["status"] == mode
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_automatic_recall_runs_once_per_session_and_survives_resume(tmp_path) -> None:
+    order: list[str] = []
+    store = _AutomaticRecallStore(order)
+    first = _AutomaticRecallTransport(order)
+    second = _AutomaticRecallTransport(order)
+    app = _application(
+        tmp_path,
+        [],
+        {"first": first, "second": second},
+        application_services={"mindmemos": store},
+    )
+
+    await app.run(RunRequest(text="first", session_id="repeat"))
+    await app.run(RunRequest(text="second", session_id="repeat", resume=True))
+
+    assert len(store.calls) == 1
+    assert "<memory-context>" not in _request_text(second.calls[0]["messages"])
+    restored = await SessionManager(session_root=tmp_path).resume("repeat")
+    assert restored.require_recall is False
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_automatic_recall_tenant_and_session_identity_never_crosses(tmp_path) -> None:
+    order: list[str] = []
+    store = _AutomaticRecallStore(order)
+    transports = {
+        "tenant-a": _AutomaticRecallTransport(order),
+        "tenant-b": _AutomaticRecallTransport(order),
+    }
+    app = _application(
+        tmp_path,
+        [],
+        transports,
+        application_services={"mindmemos": store},
+    )
+
+    for tenant in ("tenant-a", "tenant-b"):
+        await app.run(
+            RunRequest(
+                text=tenant,
+                session_id=f"session-{tenant}",
+                permission_subject=PermissionSubject(
+                    subject_id=f"subject-{tenant}",
+                    tenant_id=tenant,
+                    channel="test",
+                    capabilities=(),
+                ),
+            )
+        )
+
+    assert len(store.calls) == 2
+    for tenant, (_, context, _) in zip(("tenant-a", "tenant-b"), store.calls, strict=True):
+        assert (context.account_id, context.project_id, context.user_id) == (
+            tenant,
+            tenant,
+            tenant,
+        )
+        assert context.session_id == f"session-{tenant}"
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_provider_retry_reuses_recalled_context_without_repeating_search(tmp_path) -> None:
+    from mindmemos.typing import MemorySearchItem
+
+    order: list[str] = []
+    store = _AutomaticRecallStore(
+        order,
+        memories=[
+            MemorySearchItem(
+                id="retry-memory",
+                memory="stable",
+                memory_type="profile",
+                last_update_at="2026-08-13 12:00:00",
+            )
+        ],
+    )
+    transport = _AutomaticRecallRetryTransport()
+    app = _application(
+        tmp_path,
+        [],
+        {"retry": transport},
+        application_services={"mindmemos": store},
+    )
+
+    result = await app.run(RunRequest(text="retry", session_id="recall-retry"))
+
+    assert result.status is RunStatus.REPLIED
+    assert len(store.calls) == 1
+    assert len(transport.calls) == 2
+    assert transport.calls[0]["messages"] == transport.calls[1]["messages"]
+    assert _request_text(transport.calls[0]["messages"]).count("retry-memory") == 1
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_automatic_recall_uses_existing_run_deadline(tmp_path) -> None:
+    store = _BlockingAutomaticRecallStore()
+    transport = _FakeTransport([_text("must not run")])
+    app = _application(
+        tmp_path,
+        [],
+        {"deadline": transport},
+        application_services={"mindmemos": store},
+    )
+
+    with pytest.raises(AutomaticRecallRunDeadlineExceeded):
+        await app.run(
+            RunRequest(
+                text="deadline",
+                session_id="recall-deadline",
+                run_policy=RunPolicy(deadline_s=0.5),
+            )
+        )
+
+    assert store.entered.is_set()
+    assert store.cancelled is True
+    assert transport.calls == []
+    await app.aclose()
+
+
+@pytest.mark.asyncio
 async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_path) -> None:
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
@@ -728,11 +1043,12 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     tmp_path,
 ) -> None:
     transport = _MemoryRecallTransport()
+    store = _MemoryRecallStore()
     app = _application(
         tmp_path,
         list(build_memory_tools()),
         {"钥匙在哪里": transport},
-        application_services={"mindmemos": _MemoryRecallStore()},
+        application_services={"mindmemos": store},
     )
 
     result = await app.run(
@@ -742,6 +1058,16 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "钥匙在玄关抽屉"
     assert len(transport.calls) == 2
+    assert len(store.search_calls) == 2
+    assert store.search_calls[0][1]["filters"] is None
+    assert store.search_calls[0][1]["top_k"] == 3
+    assert store.search_calls[1][1]["filters"] == {"mem_type": "fact"}
+    tool_results = [
+        message
+        for message in transport.calls[1]["messages"]
+        if message.role == "tool" and message.name == "mindmemos_search"
+    ]
+    assert len(tool_results) == 1
     await app.aclose()
 
 
@@ -1098,7 +1424,7 @@ async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_
     assert transport.calls[0]["tools"][0]["name"] == "echo"
     status = app.status(result.session_id)
     assert status.active is False
-    assert status.revision == 1
+    assert status.revision == 2
     roles = [
         message.role for message in app.session_manager.get(result.session_id).session.messages
     ]
@@ -1423,7 +1749,7 @@ async def test_provider_that_swallows_cancellation_cannot_publish_late_events(
     assert result.error_code == "stale_generation"
     assert tuple(app.event_bus.events) == events_before_cancel
     assert runtime.last_result is None
-    assert runtime.revision == 0
+    assert runtime.revision == 1
     await app.event_bus.aclose()
 
 
@@ -1607,7 +1933,7 @@ async def test_same_session_turns_are_serialized(tmp_path) -> None:
     assert (await second_run).status is RunStatus.REPLIED
 
     runtime = app.session_manager.get("shared")
-    assert runtime.revision == 2
+    assert runtime.revision == 3
     assert [message.role for message in runtime.session.messages] == [
         "user",
         "assistant",

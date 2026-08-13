@@ -53,7 +53,13 @@ mode 0600 且不进入 Git。
 - Mimo：用于 agent loop、检索 query、编排、总结。
 - `MemoryEmbedding`：正式部署使用 SiliconFlow `Qwen/Qwen3-Embedding-8B` 的 `/v1/embeddings` 生成 4096 维向量。
 
-## V2.1 记忆系统
+## V2.5 记忆系统
+
+新 Session 的第一条用户消息，以及 Compact 实际完成后的下一条真实用户消息，会在首次
+Provider 请求前自动运行一次 MindMemOS Vanilla Search。Runtime 使用 `top_k=3`、`rerank=false`
+和 `filters=None`，将返回的原生记忆作为仅当前 run 可见的 `<memory-context>` 注入；它不会
+伪造 tool call，也不会写入 `session.messages`。同一 Session 的普通后续轮不会重复自动搜索，
+但 Agent 仍可使用 `mindmemos_search` 进行带真实 `ToolResultMessage` 的补充搜索。
 
 默认 Home profile 提供 `context_memory`、`mindmemos_search`、`mindmemos_add`、`mindmemos_update` 和
 `mindmemos_delete`。SOUL/USER/MEMORY 固定注入 session 快照；fact/procedure 使用 application-owned

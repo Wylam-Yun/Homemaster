@@ -38,6 +38,11 @@ from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.extensions.contracts import AggregatedHookResult, HookEvent
 from homemaster.extensions.hook_runner import HookRunner
+from homemaster.memory.automatic_recall import (
+    build_automatic_recall_context,
+    build_automatic_recall_query,
+    build_mindmemos_request_context,
+)
 from homemaster.providers.attempts import ListProviderAttemptSink
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
@@ -86,6 +91,10 @@ class Deadline:
         if self._expires_at is None:
             return None
         return max(0.0, self._expires_at - time.monotonic())
+
+
+class AutomaticRecallRunDeadlineExceeded(TimeoutError):
+    """The shared run deadline expired while automatic recall was pending."""
 
 
 class _FencedAgentSession:
@@ -402,6 +411,28 @@ class ApplicationRuntime:
                     ),
                     initial_memory_evidence_refs=current_user_evidence,
                 )
+                try:
+                    recall_attempted, automatic_memory_context = await self._automatic_recall(
+                        request=request,
+                        runtime=runtime,
+                        generation=generation,
+                        run_id=run_id,
+                        task_state_store=task_state_store,
+                        event_sink=run_event_sink,
+                        deadline=executor.deadline,
+                    )
+                    if recall_attempted:
+                        await self._save_if_configured(session_id, generation)
+                except asyncio.CancelledError:
+                    raise
+                except SessionGenerationError:
+                    raise
+                if automatic_memory_context:
+                    bind_automatic_memory_context = getattr(
+                        assembler, "bind_automatic_memory_context", None
+                    )
+                    if callable(bind_automatic_memory_context):
+                        bind_automatic_memory_context(automatic_memory_context)
                 fenced_session = _FencedAgentSession(
                     self.session_manager,
                     runtime,
@@ -419,6 +450,11 @@ class ApplicationRuntime:
                         ListProviderAttemptSink,
                     ),
                 )
+
+                async def rearm_recall_after_compaction(_metrics: Any) -> None:
+                    runtime.require_recall_after_compaction(generation)
+                    await self._save_if_configured(session_id, generation)
+
                 try:
                     generic = await agent.run(
                         fenced_session,
@@ -433,6 +469,7 @@ class ApplicationRuntime:
                         tool_registry=run_registry,
                         cancellation_token=runtime.cancellation,
                         deadline=executor.deadline,
+                        on_compaction=rearm_recall_after_compaction,
                     )
                 except asyncio.CancelledError:
                     return RunResult(
@@ -474,6 +511,80 @@ class ApplicationRuntime:
                         error_code="stale_generation",
                     )
                 return result
+
+    async def _automatic_recall(
+        self,
+        *,
+        request: RunRequest,
+        runtime: SessionRuntime,
+        generation: int,
+        run_id: str,
+        task_state_store: TaskStateStore,
+        event_sink: Any,
+        deadline: Any,
+    ) -> tuple[bool, str | None]:
+        if not runtime.consume_recall(generation):
+            return False, None
+
+        services = getattr(self.settings, "application_services", {})
+        service = services.get("mindmemos") if isinstance(services, Mapping) else None
+        search = getattr(service, "search", None)
+        if not callable(search):
+            await _emit_automatic_recall_event(
+                event_sink,
+                session_id=runtime.session.session_id,
+                run_id=run_id,
+                status="unavailable",
+                count=0,
+            )
+            return True, None
+
+        query = build_automatic_recall_query(
+            current_user_message=request.text,
+            messages=runtime.session.messages,
+            task_state_store=task_state_store,
+        )
+        context = build_mindmemos_request_context(
+            request_id=f"automatic-recall:{run_id}",
+            tenant_id=request.permission_subject.tenant_id,
+            session_id=runtime.session.session_id,
+        )
+        try:
+            result = await _await_with_remaining_deadline(
+                search(
+                    query,
+                    context,
+                    top_k=3,
+                    search_pipeline="vanilla",
+                    rerank=False,
+                    filters=None,
+                ),
+                deadline,
+            )
+        except AutomaticRecallRunDeadlineExceeded:
+            raise
+        except (asyncio.CancelledError, SessionGenerationError):
+            raise
+        except Exception as exc:
+            await _emit_automatic_recall_event(
+                event_sink,
+                session_id=runtime.session.session_id,
+                run_id=run_id,
+                status="error",
+                count=0,
+                error=str(exc),
+            )
+            return True, None
+
+        memories = list(getattr(result, "memories", ()))[:3]
+        await _emit_automatic_recall_event(
+            event_sink,
+            session_id=runtime.session.session_id,
+            run_id=run_id,
+            status="ok" if memories else "empty",
+            count=len(memories),
+        )
+        return True, build_automatic_recall_context(memories)
 
     def _register_user_memory_evidence(
         self,
@@ -565,6 +676,8 @@ class ApplicationRuntime:
                         force_compact=runtime.consume_compaction(generation),
                     )
                 )
+                if composed.metrics.compaction_triggered:
+                    runtime.require_recall_after_compaction(generation)
                 revision = await self._save_if_configured(session_id, generation)
                 return CompactionResult(
                     session_id=session_id,
@@ -851,6 +964,52 @@ async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+async def _await_with_remaining_deadline(awaitable: Any, deadline: Any) -> Any:
+    remaining = deadline.remaining_s() if deadline is not None else None
+    if remaining is None:
+        return await awaitable
+    if remaining <= 0:
+        if inspect.iscoroutine(awaitable):
+            awaitable.close()
+        raise AutomaticRecallRunDeadlineExceeded("automatic recall exceeded the run deadline")
+    try:
+        async with asyncio.timeout(remaining):
+            return await awaitable
+    except TimeoutError as exc:
+        raise AutomaticRecallRunDeadlineExceeded(
+            "automatic recall exceeded the run deadline"
+        ) from exc
+
+
+async def _emit_automatic_recall_event(
+    event_sink: Any,
+    *,
+    session_id: str,
+    run_id: str,
+    status: str,
+    count: int,
+    error: str | None = None,
+) -> None:
+    if event_sink is None:
+        return
+    event = RuntimeEvent(
+        type="memory.automatic_recall",
+        session_id=session_id,
+        run_id=run_id,
+        turn_index=None,
+        payload={"status": status, "count": count, "error": error},
+    )
+    aemit = getattr(event_sink, "aemit", None)
+    if callable(aemit):
+        await aemit(event)
+        return
+    emit = getattr(event_sink, "emit", None)
+    if callable(emit):
+        result = emit(event)
+        if inspect.isawaitable(result):
+            await result
 
 
 def _provider_binding(value: Any, *, run_id: str) -> ResourceBinding:

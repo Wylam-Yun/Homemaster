@@ -172,9 +172,9 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
     resumed, revision, messages = asyncio.run(second_process())
 
     assert initial.status is RunStatus.REPLIED
-    assert compact.revision == 2
+    assert compact.revision == 3
     assert resumed.status is RunStatus.REPLIED
-    assert revision == 3
+    assert revision == 4
     assert [message.role for message in messages] == [
         "user",
         "assistant",

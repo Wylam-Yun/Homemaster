@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from homemaster.agent.context import ComposedContext, ContextMetrics
 from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult
 from homemaster.agent.messages import (
     AssistantMessage,
@@ -256,6 +257,43 @@ class FakeToolExecutor:
                 )
             )
         return results
+
+
+@pytest.mark.parametrize("triggered", [True, False])
+def test_runtime_reports_only_actual_compaction(triggered: bool) -> None:
+    class Assembler:
+        async def aprepare(self, *, session, tools, **_kwargs):
+            return ComposedContext(
+                messages=session.messages,
+                system_prompt="system",
+                tools=tools,
+                metrics=ContextMetrics(
+                    estimated_tokens=10,
+                    compaction_triggered=triggered,
+                    compaction_kind="manual_summary" if triggered else "none",
+                ),
+            )
+
+    transport = FakeTransport()
+    transport.queue_text("done")
+    notices: list[str] = []
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        context_assembler=Assembler(),
+    )
+
+    result = asyncio.run(
+        runtime.run(
+            AgentSession(session_id=f"compact-{triggered}"),
+            "continue",
+            on_compaction=lambda metrics: notices.append(metrics.compaction_kind),
+        )
+    )
+
+    assert result.status == "replied"
+    assert notices == (["manual_summary"] if triggered else [])
 
 
 @pytest.mark.asyncio

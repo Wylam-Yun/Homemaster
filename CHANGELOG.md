@@ -21,6 +21,13 @@
 
 ### Added
 
+- Added V2.5 automatic experience recall before the first Provider request of a new Session and the
+  first real user turn after completed compaction. A durable generation-fenced Session latch drives
+  one direct MindMemOS Vanilla Top-3 search with no type filter; native results are injected once as
+  run-scoped model context without fake tool messages. Empty, unavailable, and ordinary-error paths
+  remain best effort, Provider retry reuses the frozen context, and manual, threshold, and reactive
+  compaction re-arm only the next user run.
+
 - Added a reproducible 100-record memory recall benchmark that writes synthetic website-operation facts through the real
   serial `homemaster -p` surface, checkpoints every externally confirmed mutation, and separately scores exact retrieval,
   paraphrased retrieval, distractor discrimination, and natural memory-tool routing. Synthetic procedures remain typed

@@ -8,6 +8,31 @@ from homemaster.application.session import SessionConflictError, SessionManager
 
 
 @pytest.mark.asyncio
+async def test_new_session_starts_with_recall_required() -> None:
+    manager = SessionManager()
+    runtime = await manager.open_or_resume("new-recall")
+
+    assert runtime.require_recall is True
+    async with manager.turn("new-recall") as (_, generation, _):
+        assert runtime.consume_recall(generation) is True
+        assert runtime.consume_recall(generation) is False
+        runtime.require_recall_after_compaction(generation)
+        assert runtime.require_recall is True
+
+
+@pytest.mark.asyncio
+async def test_recall_latch_round_trips_snapshot(tmp_path) -> None:
+    manager = SessionManager(session_root=tmp_path)
+    runtime = await manager.open_or_resume("persist-recall")
+    async with manager.turn("persist-recall") as (_, generation, _):
+        assert runtime.consume_recall(generation) is True
+        await manager.save("persist-recall", generation=generation)
+
+    restored = await SessionManager(session_root=tmp_path).resume("persist-recall")
+    assert restored.require_recall is False
+
+
+@pytest.mark.asyncio
 async def test_default_sessions_are_new_and_resume_requires_explicit_id(tmp_path) -> None:
     manager = SessionManager(session_root=tmp_path)
 

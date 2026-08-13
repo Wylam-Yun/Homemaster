@@ -305,7 +305,7 @@ def test_coworker_entry_retries_and_preserves_child_run_identity(tmp_path: Path)
     assert transport_run_ids == [result.run_id]
     assert backend.bound_run_id == result.run_id
     assert backend.bound_generation == 1
-    assert sink.event_types[0] == "runtime.turn_started"
+    assert sink.event_types[:2] == ["memory.automatic_recall", "runtime.turn_started"]
     assert "runtime.turn_completed" in sink.event_types
     assert set(sink.thread_ids) == {sync_backend.owner_thread_id}
     assert backend.closed is False

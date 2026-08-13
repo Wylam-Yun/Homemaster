@@ -23,6 +23,7 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "assistant.reply",
         "context.compaction",
         "context.length_error",
+        "memory.automatic_recall",
         "usage.update",
         "transport.request_started",
         "transport.delta",

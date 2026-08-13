@@ -41,6 +41,37 @@ def _text(context) -> str:
 
 
 @pytest.mark.asyncio
+async def test_automatic_memory_context_is_prelude_not_history() -> None:
+    manager = SessionManager()
+    runtime = await manager.open_or_resume("recall-context")
+    runtime.session.append(UserMessage.from_text("当前任务"))
+    assembler = _assembler()
+    assembler.bind_automatic_memory_context(
+        '<memory-context>\n[{"id":"memory-1"}]\n</memory-context>'
+    )
+
+    composed = assembler.prepare(
+        session=runtime.session,
+        agent_state=runtime.agent_state,
+        task_state_store=runtime.task_state_store,
+        tools=[],
+    )
+
+    assert _text(composed).count("<memory-context>") == 1
+    assert runtime.session.messages[-1].content[0].text == "当前任务"
+    assert composed.messages[-1].content[0].text == "当前任务"
+
+
+def test_automatic_context_does_not_leak_between_assemblers() -> None:
+    first = _assembler()
+    second = _assembler()
+    first.bind_automatic_memory_context("<memory-context>first</memory-context>")
+
+    assert first._automatic_memory_context is not None
+    assert second._automatic_memory_context is None
+
+
+@pytest.mark.asyncio
 async def test_context_reprojects_exact_session_task_store_each_iteration() -> None:
     manager = SessionManager()
     runtime = await manager.open_or_resume("scope")
