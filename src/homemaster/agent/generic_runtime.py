@@ -59,11 +59,8 @@ _CONTEXT_LENGTH_KEYWORDS = (
     "context window",
     "exceeds the available context size",
 )
-_RETRYABLE_PROVIDER_FAILURES = {
-    ("network_error", "transient_network"),
-    ("rate_limit", "rate_limit"),
-    ("stream_protocol_error", "message_delta_before_message_start"),
-}
+_PROVIDER_MAX_ATTEMPTS = 8
+_PROVIDER_RETRY_BASE_DELAY_S = 3.0
 _CANCEL_JOIN_GRACE_S = 1.0
 
 
@@ -383,22 +380,31 @@ class AgentRuntime:
                                 await _close_stream(stream, deadline=deadline)
                         except Exception as exc:
                             failed_attempt = _last_provider_attempt(attempt_sink)
-                            if attempt_index == 0 and _provider_retry_allowed(
-                                error=exc,
-                                deltas=deltas,
-                                commit_state=attempt_commit_state,
-                                attempt=failed_attempt,
+                            if (
+                                attempt_index < _PROVIDER_MAX_ATTEMPTS - 1
+                                and _provider_retry_allowed(
+                                    error=exc,
+                                    deltas=deltas,
+                                    commit_state=attempt_commit_state,
+                                    attempt=failed_attempt,
+                                )
                             ):
                                 assert failed_attempt is not None
-                                first_request_sha256 = failed_attempt.request_sha256
-                                attempt_index = 1
+                                if first_request_sha256 is None:
+                                    first_request_sha256 = failed_attempt.request_sha256
+                                delay_s = _provider_retry_delay(attempt_index)
+                                attempt_index += 1
                                 await emit(
                                     "transport.request_retrying",
                                     payload={
+                                        "attempt": attempt_index + 1,
+                                        "max_attempts": _PROVIDER_MAX_ATTEMPTS,
+                                        "delay_seconds": delay_s,
                                         "cause_code": failed_attempt.cause_code,
                                         "first_model_attempt_id": (failed_attempt.model_attempt_id),
                                     },
                                 )
+                                await _sleep_for_provider_retry(delay_s, deadline=deadline)
                                 continue
                             raise
 
@@ -1217,10 +1223,29 @@ def _provider_retry_allowed(
     if attempt.response_completed or attempt.stripped_images:
         return False
     failure = (error.error_type, error.cause_code)
-    return (
-        failure in _RETRYABLE_PROVIDER_FAILURES
-        and (attempt.error_type, attempt.cause_code) == failure
-    )
+    return (attempt.error_type, attempt.cause_code) == failure
+
+
+def _provider_retry_delay(attempt_index: int) -> float:
+    """Return the delay before the next attempt after a failed attempt."""
+
+    if attempt_index <= 0:
+        return 0.0
+    return _PROVIDER_RETRY_BASE_DELAY_S * (2 ** (attempt_index - 1))
+
+
+async def _sleep_for_provider_retry(delay_s: float, *, deadline: Any = None) -> None:
+    if deadline is None:
+        await asyncio.sleep(delay_s)
+        return
+    remaining = deadline.remaining_s()
+    if remaining is None:
+        await asyncio.sleep(delay_s)
+        return
+    if remaining <= 0:
+        raise TimeoutError("provider retry deadline expired")
+    async with asyncio.timeout(remaining):
+        await asyncio.sleep(delay_s)
 
 
 def _reasoning_only_delta(delta: Any) -> bool:

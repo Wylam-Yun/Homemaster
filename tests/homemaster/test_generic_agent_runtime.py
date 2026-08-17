@@ -159,11 +159,13 @@ class AuditedRetryTransport:
         self,
         *,
         first_error: Exception,
+        fail_attempts: int = 1,
         partial_delta: bool = False,
         reasoning_delta: bool = False,
         change_retry_hash: bool = False,
     ) -> None:
         self.first_error = first_error
+        self.fail_attempts = fail_attempts
         self.partial_delta = partial_delta
         self.reasoning_delta = reasoning_delta
         self.change_retry_hash = change_retry_hash
@@ -203,10 +205,10 @@ class AuditedRetryTransport:
         self.request_hashes.append(request_sha256)
         call_index = self.call_count
         self.call_count += 1
-        if call_index == 0:
-            if self.partial_delta:
+        if call_index < self.fail_attempts:
+            if call_index == 0 and self.partial_delta:
                 yield TransportDelta(type="transport.delta", text_delta="partial")
-            if self.reasoning_delta:
+            if call_index == 0 and self.reasoning_delta:
                 yield TransportDelta(type="transport.delta", reasoning_delta="hidden thought")
             assert isinstance(self.first_error, Exception)
             error_type = getattr(self.first_error, "error_type", None)
@@ -944,9 +946,7 @@ def test_runtime_retries_one_frozen_retryable_provider_attempt() -> None:
     ],
     ids=["auth", "generic-provider"],
 )
-def test_runtime_does_not_retry_closed_nonretryable_provider_errors(
-    error: Exception,
-) -> None:
+def test_runtime_retries_provider_errors(error: Exception) -> None:
     transport = AuditedRetryTransport(first_error=error)
     runtime = AgentRuntime(
         transport=transport,
@@ -957,8 +957,81 @@ def test_runtime_does_not_retry_closed_nonretryable_provider_errors(
 
     result = asyncio.run(runtime.run(AgentSession(session_id="no-retry"), "hello"))
 
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert transport.call_count == 2
+    assert transport.request_hashes[0] == transport.request_hashes[1]
+    assert sum(event.type == "transport.request_retrying" for event in result.events) == 1
+
+
+def test_runtime_retries_provider_error_with_exponential_backoff(monkeypatch) -> None:
+    delays: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("homemaster.agent.generic_runtime.asyncio.sleep", fake_sleep)
+    transport = AuditedRetryTransport(
+        first_error=LLMProviderError(
+            error_type="provider_error",
+            message="Upstream Response Error",
+            cause_code="provider_error",
+        ),
+        fail_attempts=8,
+    )
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = asyncio.run(runtime.run(AgentSession(session_id="retry-backoff"), "hello"))
+
     assert result.status == "failed"
     assert result.error_code == "transport_error"
+    assert transport.call_count == 8
+    assert delays == [0.0, 3.0, 6.0, 12.0, 24.0, 48.0, 96.0]
+    assert len(set(transport.attempt_ids)) == 8
+    assert len(set(transport.request_hashes)) == 1
+    retry_events = [event for event in result.events if event.type == "transport.request_retrying"]
+    assert len(retry_events) == 7
+    assert [event.payload["attempt"] for event in retry_events] == list(range(2, 9))
+    assert all(event.payload["max_attempts"] == 8 for event in retry_events)
+
+
+def test_runtime_stops_provider_retry_when_run_deadline_expires() -> None:
+    class SequencedDeadline:
+        def __init__(self) -> None:
+            self.remaining = iter((1.0, 1.0, 0.0))
+
+        def remaining_s(self) -> float:
+            return next(self.remaining, 0.0)
+
+    transport = AuditedRetryTransport(
+        first_error=LLMProviderError(
+            error_type="provider_error",
+            message="Upstream Response Error",
+            cause_code="provider_error",
+        )
+    )
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = asyncio.run(
+        runtime.run(
+            AgentSession(session_id="retry-deadline"),
+            "hello",
+            deadline=SequencedDeadline(),
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "deadline_exceeded"
     assert transport.call_count == 1
 
 

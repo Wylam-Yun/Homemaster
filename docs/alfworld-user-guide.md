@@ -168,7 +168,7 @@ generic `mug` 会优先选择当前可见 Mug；全部离屏时选择 frozen ful
 
 ## Provider 重试
 
-每个 LLM attempt 都记录独立 attempt ID、准确 serialized request hash 和 ordered image hashes。LLM client 本身不轮换 key、不剥离图片重试。Runtime 最多重试一次，且只接受 transient network、rate limit 或历史已知的 `message_delta_before_message_start` stream protocol error；认证错误、partial response、普通 provider error 和请求 bytes 漂移不会重试。
+每个 LLM attempt 都记录独立 attempt ID、准确 serialized request hash 和 ordered image hashes。LLM client 本身不轮换 key、不剥离图片重试。Provider 请求失败且尚未产生可见正文、工具调用或提交副作用时，Runtime 最多执行 8 次总请求：第一次失败后立即重试，之后按 3、6、12、24、48、96 秒指数退避。没有真正发出 provider 请求的本地错误、partial response、请求 bytes 漂移或 run deadline 到期不会重试。
 
 ## Taskset 行为
 

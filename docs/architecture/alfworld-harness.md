@@ -94,15 +94,9 @@ error, terminal, classification, score_eligible, detail
 
 ## Provider 尝试与重试
 
-`LLMClient` 每次调用只选择一个 key、发送一个请求并产生一个 `ProviderAttemptRecord`；它不内部轮换 key，也不删除图片后重试。GenericRuntime 最多拥有一次重试，且仅允许以下闭集：
+`LLMClient` 每次调用只选择一个 key、发送一个请求并产生一个 `ProviderAttemptRecord`；它不内部轮换 key，也不删除图片后重试。GenericRuntime 在 provider 请求真正开始、且尚未产生可见正文、工具调用或提交副作用时，最多执行 8 次总请求。第一次失败后立即重试，之后等待 3、6、12、24、48、96 秒再重试。
 
-```text
-network_error / transient_network
-rate_limit / rate_limit
-stream_protocol_error / message_delta_before_message_start
-```
-
-重试前要求 assistant/tool/external 三个 commit flag 都为 false，且第二次请求的 serialized hash 与第一次完全相同。每次 attempt 有独立 ID 和 call-scoped sink。partial delta、认证错误、普通 provider error、request hash 漂移均不重试。
+重试前要求 assistant/tool/external 三个 commit flag 都为 false，且每次请求的 serialized hash 与第一次完全相同。每次 attempt 有独立 ID 和 call-scoped sink。没有真正发出 provider 请求的本地错误、partial delta、已完成响应、图片剥离、请求 hash 漂移或 run deadline 到期均不重试。
 
 ## Runner、Taskset 与计数
 

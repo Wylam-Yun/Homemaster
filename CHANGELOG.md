@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Changed provider retry from a single closed error whitelist to up to eight total frozen-request
+  attempts for provider failures. The first retry is immediate, subsequent retries use 3/6/12/24/48/96
+  second backoff, and retries still stop after visible output, tool or external commits, request-hash
+  drift, or the shared run deadline.
+
 - Kept the legacy-term cleanup guard focused on product architecture by explicitly exempting the
   real MindMemOS recall boundary test and third-party logging boundary test, where `pipeline` is
   part of an external typed API or dependency vocabulary rather than a HomeMaster legacy layer.
