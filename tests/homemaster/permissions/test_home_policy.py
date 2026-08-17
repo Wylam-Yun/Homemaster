@@ -81,7 +81,7 @@ def test_path_and_command_denies_precede_explicit_allow(tmp_path: Path) -> None:
     checker = PermissionChecker(
         PermissionSettingsConfig(
             mode=PermissionMode.FULL_AUTO,
-            allowed_tools=("bash",),
+            allowed_tools=("terminal",),
             denied_commands=("rm -rf *",),
             path_rules=({"pattern": str(tmp_path / "blocked"), "allow": False},),
         )
@@ -89,14 +89,14 @@ def test_path_and_command_denies_precede_explicit_allow(tmp_path: Path) -> None:
     context = _context(tmp_path, ("tool.mutate", "process.exec"))
 
     path = checker.evaluate_tool(
-        tool_name="bash",
+        tool_name="terminal",
         is_read_only=False,
         required_capabilities=("tool.mutate", "process.exec"),
         arguments={"cwd": "blocked"},
         context=context,
     )
     command = checker.evaluate_tool(
-        tool_name="bash",
+        tool_name="terminal",
         is_read_only=False,
         required_capabilities=("tool.mutate", "process.exec"),
         arguments={"command": "rm -rf workspace"},

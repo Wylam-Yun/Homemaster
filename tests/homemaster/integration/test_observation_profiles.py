@@ -15,7 +15,7 @@ def test_environment_registries_expose_only_the_selected_surface() -> None:
     alfworld = set(build_tool_registry(environment="alfworld").all_names())
     coworker = set(build_tool_registry(environment="coworker").all_names())
 
-    assert {"bash", "observe", "ask_user_question"} <= common
+    assert {"terminal", "search_files", "observe", "ask_user_question"} <= common
     assert not {"robot_go_to", "browser_navigate"} & common
     assert {"robot_go_to", "robot_manipulate"} <= local_robot
     assert "browser_navigate" not in local_robot

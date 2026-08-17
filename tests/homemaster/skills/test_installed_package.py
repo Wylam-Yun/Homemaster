@@ -16,17 +16,13 @@ def test_homemaster_declares_vendored_mindmemos_runtime_dependencies() -> None:
     repo = Path(__file__).resolve().parents[3]
     homemaster = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
     mindmemos = tomllib.loads(
-        (repo / "third_party/MindMemOS/src/mindmemos/pyproject.toml").read_text(
-            encoding="utf-8"
-        )
+        (repo / "third_party/MindMemOS/src/mindmemos/pyproject.toml").read_text(encoding="utf-8")
     )
     declared = {
-        _requirement_name(requirement)
-        for requirement in homemaster["project"]["dependencies"]
+        _requirement_name(requirement) for requirement in homemaster["project"]["dependencies"]
     }
     required = {
-        _requirement_name(requirement)
-        for requirement in mindmemos["project"]["dependencies"]
+        _requirement_name(requirement) for requirement in mindmemos["project"]["dependencies"]
     }
     assert required <= declared
     assert homemaster["project"]["requires-python"] == ">=3.11,<3.14"
@@ -50,9 +46,7 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
         assert "homemaster/memory/mindmemos_runtime.py" in names
         assert "homemaster/memory/mindmemos_entity_modeling.json" in names
         assert not any(name.startswith("mem0/") for name in names)
-        metadata_name = next(
-            name for name in names if name.endswith(".dist-info/METADATA")
-        )
+        metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
         metadata = archive.read(metadata_name).decode("utf-8")
     assert "Requires-Dist: mem0ai" not in metadata
     assert (
@@ -88,13 +82,14 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "'simplify.md','skill-creator.md','test.md'}; "
                 "assert {p.name for p in b.iterdir() if p.is_file()} == expected; "
                 "from homemaster.adapters import build_universal_tool_registry; "
-                "tools=set('bash ask_user_question read_file write_file edit_file notebook_edit "
-                "lsp mcp_auth glob grep image_to_text image_generation load_skill tool_search "
+                "tools=set('terminal ask_user_question read_file write_file edit_file "
+                "notebook_edit "
+                "lsp mcp_auth search_files image_to_text image_generation load_skill tool_search "
                 "web_fetch web_search config brief sleep enter_worktree exit_worktree todo_write "
                 "enter_plan_mode exit_plan_mode cron_create cron_list cron_delete cron_toggle "
                 "remote_trigger task_create task_get task_list task_stop task_output task_update "
                 "agent send_message team_create team_delete'.split()); "
-                "assert len(tools) == 39; "
+                "assert len(tools) == 38; "
                 "names=set(build_universal_tool_registry().all_names()); "
                 "assert tools <= names; "
                 "assert {'skill','skill_view'}.isdisjoint(names); "

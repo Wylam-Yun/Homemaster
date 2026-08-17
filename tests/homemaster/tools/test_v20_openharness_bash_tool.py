@@ -24,7 +24,7 @@ async def _execute(
     return await execute(
         tool_registry,
         root,
-        "bash",
+        "terminal",
         arguments,
         capabilities=("tool.read", "tool.mutate", "tool.auto", "process.exec"),
         path_rules=path_rules,
@@ -32,8 +32,20 @@ async def _execute(
     )
 
 
-def test_universal_registry_registers_bash() -> None:
-    assert "bash" in registry().all_names()
+def test_universal_registry_registers_terminal() -> None:
+    names = set(registry().all_names())
+
+    assert "terminal" in names
+    assert "bash" not in names
+
+
+def test_terminal_and_search_descriptions_define_hermes_style_boundary() -> None:
+    terminal = registry().get("terminal").description
+    search = registry().get("search_files").description
+
+    assert "use search_files" in terminal
+    assert "ordinary" in search
+    assert "terminal" in search
 
 
 def test_shell_argv_uses_native_bash_on_macos(monkeypatch: pytest.MonkeyPatch) -> None:

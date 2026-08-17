@@ -192,7 +192,7 @@ def test_composed_registry_preserves_execution_safety_capabilities() -> None:
 
     registry = build_universal_tool_registry()
 
-    assert set(registry.get("bash").required_capabilities) >= {
+    assert set(registry.get("terminal").required_capabilities) >= {
         "tool.mutate",
         "process.exec",
     }
@@ -212,7 +212,7 @@ def test_universal_builder_rejects_unapproved_cross_source_name_collision(
     )[0]
     monkeypatch.setattr(profiles, "_coworker_tools", lambda: (duplicate,))
 
-    with pytest.raises(ValueError, match="unapproved duplicate tool name 'bash'"):
+    with pytest.raises(ValueError, match="unapproved duplicate tool name 'terminal'"):
         profiles.build_tool_registry(environment="coworker")
 
 

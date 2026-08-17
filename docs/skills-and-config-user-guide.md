@@ -15,7 +15,7 @@ homemaster -p "列出可用工具" --output-format stream-json | jq -c .
 flush，最后恰好一行 `type=result`。若启动阶段无法形成 `RunResult`，则最多输出
 一行 typed `type=error`，不伪造 result。交互模式使用 Rich 展示模型等待、助手
 Markdown、工具开始/结束、错误、状态与压缩进度；机器输出 stdout 不含 ANSI。
-Rich 完整显示 Bash command，成功只显示状态，失败详情最多 500 字符并带明确截断标记；机器结果不截断。
+Rich 完整显示 terminal command，成功只显示状态，失败详情最多 500 字符并带明确截断标记；机器结果不截断。
 
 ## Provider 配置
 
@@ -195,10 +195,26 @@ uv run homemaster --dry-run -p '列出 Skills' --output-format json
 `~/.homemaster/skills` 同文件系统 staging；任一冲突会在复制前阻塞，发布或 fresh Registry 验证失败会
 回滚本次目录。成功后仍应从新进程逐名调用 `load_skill(name=...)`，并按相对文件列表与 SHA-256 对比上游。
 
-新增或修改 `SKILL.md` 后会动态发现，不需要重启。Home profile 的 `bash`、文件和联网工具可以按 Skill
+新增或修改 `SKILL.md` 后会动态发现，不需要重启。Home profile 的 `terminal`、`search_files`、文件和联网工具可以按 Skill
 说明执行非交互脚本、解压、Git 以及项目隔离依赖安装，但必须遵守项目依赖管理：Python 使用临时/项目
 虚拟环境和 lock 工具，禁止裸全局 `pip install -U`；npm 安装在目标项目或 Skill 自己的隔离目录。
 命令返回码为 0 只证明进程成功，工作流还必须用独立文件、版本或外部状态读取确认终态。
+
+## 终端与文件搜索
+
+`terminal` 是模型可完全控制的命令入口。模型自己选择 `rg`、`grep`、`find` 或系统中的其他程序；HomeMaster
+不会因为某个程序不可用而偷偷替换命令，失败时会返回真实退出码，模型可以根据结果改用其他程序。
+
+`search_files` 是普通搜索的结构化快捷入口。`target=content` 搜索内容，`target=files` 搜索文件名；
+`include_hidden`、`respect_gitignore`、`file_glob`、`limit` 和 `timeout_seconds` 都可以明确指定。Runtime
+优先使用 `rg`，再按搜索目标回退到 `grep` 或 `find`，并通过与 `terminal` 相同的进程组监督层执行，因此超时
+会真正终止搜索及其子进程，而不是只返回一条超时文字。
+
+例如：
+
+```json
+{"pattern":"银杏-4827-KM","path":".","target":"content","timeout_seconds":120}
+```
 
 后台 Cron scheduler 由以下命令管理：
 

@@ -31,7 +31,7 @@ from homemaster.domain.tools import (
 from homemaster.task_state.tools import make_task_planner_tool, make_task_progress_check_tool
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
-from homemaster.tools.bash import build_bash_tool
+from homemaster.tools.bash import build_terminal_tool
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
@@ -221,7 +221,7 @@ def _home_tools(
     memory_enabled: bool = True,
 ) -> tuple[RegisteredTool, ...]:
     tools = [
-        build_bash_tool(),
+        build_terminal_tool(),
         *build_core_tools(),
         *build_file_tools(),
         *(build_memory_tools() if memory_enabled else ()),

@@ -3,7 +3,7 @@
 from tests.homemaster.tools.universal_harness import registry
 
 OPENHARNESS_DEFAULT_TOOL_NAMES = (
-    "bash",
+    "terminal",
     "ask_user_question",
     "read_file",
     "write_file",
@@ -11,8 +11,7 @@ OPENHARNESS_DEFAULT_TOOL_NAMES = (
     "notebook_edit",
     "lsp",
     "mcp_auth",
-    "glob",
-    "grep",
+    "search_files",
     "image_to_text",
     "image_generation",
     "load_skill",

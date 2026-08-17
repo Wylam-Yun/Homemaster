@@ -1,5 +1,28 @@
 # Engineering Pitfalls
 
+## 2026-08-17 - Search schema timeout was never connected to the Python scanner
+
+### 症状与根因
+
+The model-visible `grep` schema advertised a 20-second timeout, but its executor synchronously walked
+`Path.glob()` results and read every file inside the HomeMaster process without consuming that argument. A
+large real search therefore ran for minutes. Because the executor had no suspension point during the scan, wrapping
+the call at a higher layer could not cancel that work; the event-loop thread remained occupied until the scan ended.
+
+### 修法与教训
+
+Keep two explicit search surfaces: `terminal` for a model-selected complete command and `search_files` for
+structured intent. The latter may choose `rg`, `grep`, or `find`, but must submit the generated command to the
+same process-group supervisor as `terminal`, return the real engine/return code/timeout metadata, and fail when
+a fallback cannot preserve requested semantics. A timeout in a schema is not evidence until a black-box test
+proves the external process and every child are gone.
+
+### 参考
+
+- `src/homemaster/tools/bash.py`
+- `src/homemaster/tools/file_tools.py`
+- `tests/homemaster/tools/test_v20_openharness_file_tools.py`
+
 ## 2026-08-13 - 共享 deadline 把 backend 主动 TimeoutError 误判为总预算耗尽
 
 ### 症状与根因

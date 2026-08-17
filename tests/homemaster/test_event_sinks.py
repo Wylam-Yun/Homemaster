@@ -397,7 +397,7 @@ def test_stream_json_sink_preserves_configured_secret_under_innocuous_key() -> N
     }
 
 
-def test_rich_renderer_prints_complete_bash_command_and_omits_success_body() -> None:
+def test_rich_renderer_prints_complete_terminal_command_and_omits_success_body() -> None:
     module = _load_module("homemaster.cli.rich_renderer")
     output = StringIO()
     renderer = module.RichOutputRenderer(
@@ -410,11 +410,11 @@ def test_rich_renderer_prints_complete_bash_command_and_omits_success_body() -> 
         "&& find . -name SKILL.md -type f"
     )
 
-    renderer.render(ToolExecutionStarted("bash", {"command": command}))
-    renderer.render(ToolExecutionCompleted("bash", "large internal result body"))
+    renderer.render(ToolExecutionStarted("terminal", {"command": command}))
+    renderer.render(ToolExecutionCompleted("terminal", "large internal result body"))
 
     rendered = output.getvalue()
-    assert f"bash command={command}" in rendered.replace("\n", "")
+    assert f"terminal command={command}" in rendered.replace("\n", "")
     assert "[exact-rich-canary]" in rendered
     assert "执行成功" in rendered
     assert "large internal result body" not in rendered
@@ -430,7 +430,7 @@ def test_rich_renderer_bounds_failure_detail_without_changing_machine_event() ->
     )
     complete = "failure-head-" + ("x" * 2000) + "-failure-tail"
     event = ToolExecutionCompleted(
-        "bash",
+        "terminal",
         complete,
         is_error=True,
         metadata={"returncode": 19},

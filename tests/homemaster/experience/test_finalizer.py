@@ -87,21 +87,21 @@ def _write_semantic_events(path: Path) -> None:
             "type": "assistant.reply",
             "payload": {
                 "reply": "",
-                "tool_calls": [{"id": "SECRET-CALL-ID", "name": "bash"}],
+                "tool_calls": [{"id": "SECRET-CALL-ID", "name": "terminal"}],
                 "usage": {"input_tokens": 999},
             },
         },
         {
             **common,
             "type": "tool.call_started",
-            "name": "bash",
+            "name": "terminal",
             "tool_call_id": "SECRET-CALL-ID",
             "payload": {"arguments": {"command": "python parse.py"}},
         },
         {
             **common,
             "type": "tool.call_failed",
-            "name": "bash",
+            "name": "terminal",
             "tool_call_id": "SECRET-CALL-ID",
             "payload": {
                 "args": {"command": "python parse.py"},
@@ -146,7 +146,7 @@ async def test_finalizer_renders_selected_dialogue_without_internal_ids(tmp_path
     ]
     assert messages[0].content == "修复 JSON"
     assert messages[1].content == "[thinking]\n先验证失败原因"
-    assert "bash" in messages[2].content
+    assert "terminal" in messages[2].content
     assert "python parse.py" in messages[2].content
     assert "JSONDecodeError: missing brace" in messages[2].content
     assert messages[3].content == "已经修复"

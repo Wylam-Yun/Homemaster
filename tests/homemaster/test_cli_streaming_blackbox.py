@@ -424,7 +424,7 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(
     with _blocked_anthropic_server(
         tool_then_text=True,
         gate_first_response=True,
-        tool_name="bash",
+        tool_name="terminal",
         tool_input={"command": command},
     ) as (base_url, state):
         env = os.environ.copy()
@@ -479,14 +479,14 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(
             _wait_until(lambda: "Model working" in _capture_pane(session), timeout=10)
             state.allow_response.set()
             assert state.second_request.wait(60), _capture_pane(session)
-            _wait_until(lambda: "bash" in _capture_pane(session), timeout=10)
+            _wait_until(lambda: "terminal" in _capture_pane(session), timeout=10)
             assert state.first_delta_sent.wait(60), _capture_pane(session)
             _wait_until(lambda: "hello" in _capture_pane(session), timeout=10)
             state.release.set()
             _wait_until(lambda: _capture_pane(session).count("homemaster>") >= 2)
             final_screen = _capture_pane(session)
             unwrapped = final_screen.replace("\n", "")
-            assert "bash" in final_screen
+            assert "terminal" in final_screen
             assert "RICH_HEAD_0123456789" in unwrapped
             assert "RICH_TAIL_9876543210" in unwrapped
             assert "RICH_RESULT_BODY_MUST_BE_HIDDEN" not in final_screen

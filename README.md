@@ -430,13 +430,19 @@ ordinary-name 工具协议，但在 composition 时只组合通用工具与当�
 `load_skill(name=...)` 读取完整 `SKILL.md`；Skill 正文不会预加载，`/<skill-name>` 继续支持参数和已配置
 模型覆盖。
 
-**默认工具**：本地机器人 Registry 提供文件、`bash`、联网、
+**默认工具**：本地机器人 Registry 提供文件、`terminal`、`search_files`、联网、
 LSP、图片、计划、配置、Cron、后台任务、子 agent 和团队。后台 Cron 用
 `homemaster cron start|status|stop` 管理；child worker 显式继承父应用配置。远程
 `ask_user_question` 会把 session 置为等待态，并在下一条 channel 消息到达后恢复，而不是占住 webhook。
 普通 Gateway 只披露通用工具；本地机器人、ALFWorld 与 Coworker 分别只追加自己的环境工具。
 `--gateway --alfworld` 因此包含 `robot_go_to`、`robot_manipulate`、`robot_verify` 与 `observe`，
 但不包含 Coworker 浏览器工具。
+
+`terminal` 让模型自己选择系统命令和参数，HomeMaster 只负责工作目录、权限、超时、取消、进程组清理、
+退出码和输出限制。`search_files` 是便捷入口：模型描述内容或文件名搜索，Runtime 在执行环境中优先使用
+`rg`，按目标回退到 `grep` 或 `find`，并在结果 metadata 中记录实际引擎。搜索范围通过
+`include_hidden`、`respect_gitignore`、`file_glob`、`limit` 和 `timeout_seconds` 显式控制；需要精确命令时使用
+`terminal`，不要依赖隐式的 Runtime 命令替换。
 
 **MCP**：application-owned manager 在首次真实 run 前连接 stdio/HTTP server，原子注册 discovery
 结果并加入 application Registry；Skills 发现不等待 MCP。资源入口为 `list_mcp_resources`、

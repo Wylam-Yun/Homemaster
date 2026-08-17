@@ -280,7 +280,7 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     assert preview["external_io"] is False
     tool_names = [tool["name"] for tool in preview["tools"]]
     assert tool_names[:6] == [
-        "bash",
+        "terminal",
         "brief",
         "sleep",
         "tool_search",
@@ -373,9 +373,7 @@ def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:
     result = CliRunner().invoke(app, [])
 
     assert result.exit_code == 0
-    assert calls == [
-        {"resume_session_id": None, "continue_latest": False, "debug": False}
-    ]
+    assert calls == [{"resume_session_id": None, "continue_latest": False, "debug": False}]
 
 
 def test_result_status_controls_process_exit(monkeypatch, tmp_path: Path) -> None:

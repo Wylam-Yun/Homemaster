@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
+import shlex
+import shutil
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
+from homemaster.tools.bash import BashExecutor
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
@@ -140,8 +142,10 @@ class FileWriteVerifier:
         path_value = result.data.get("path")
         expected_bytes = result.data.get("byte_count")
         expected_sha256 = result.data.get("sha256")
-        if not isinstance(path_value, str) or not isinstance(expected_bytes, int) or not isinstance(
-            expected_sha256, str
+        if (
+            not isinstance(path_value, str)
+            or not isinstance(expected_bytes, int)
+            or not isinstance(expected_sha256, str)
         ):
             return VerificationRecord(
                 status=VerificationStatus.FAILED,
@@ -171,79 +175,155 @@ class FileWriteVerifier:
         )
 
 
-class GlobExecutor:
+class SearchFilesExecutor:
     async def execute(
         self,
         arguments: Mapping[str, object],
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
         pattern = _string(arguments, "pattern")
-        root = resolve_context_tool_path(context, _optional_string(arguments, "root") or ".")
-        limit = _integer(arguments, "limit", default=200)
-        if not root.exists() or not root.is_dir():
-            return ToolExecutionResult(
-                status=ToolExecutionStatus.SUCCESS,
-                text="(no matches)",
-                data={"matches": []},
-            )
-        try:
-            matches = sorted(
-                str(path.relative_to(root))
-                for path in root.glob(pattern)
-                if path.exists()
-            )[:limit]
-        except (OSError, ValueError) as exc:
-            return _failure("glob_failed", f"Unable to glob {root}: {exc}")
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS,
-            text="\n".join(matches) if matches else "(no matches)",
-            data={"matches": matches, "root": str(root)},
-        )
-
-
-class GrepExecutor:
-    async def execute(
-        self,
-        arguments: Mapping[str, object],
-        context: ToolExecutionContext,
-    ) -> ToolExecutionResult:
-        pattern = _string(arguments, "pattern")
-        root = resolve_context_tool_path(context, _optional_string(arguments, "root") or ".")
-        file_glob = _string(arguments, "file_glob", default="**/*")
+        root = resolve_context_tool_path(context, _optional_string(arguments, "path") or ".")
+        target = _string(arguments, "target", default="content")
+        file_glob = _optional_string(arguments, "file_glob")
         case_sensitive = _boolean(arguments, "case_sensitive", default=True)
+        include_hidden = _boolean(arguments, "include_hidden", default=True)
+        respect_gitignore = _boolean(arguments, "respect_gitignore", default=False)
         limit = _integer(arguments, "limit", default=200)
+        timeout_seconds = _integer(arguments, "timeout_seconds", default=60)
         if not root.exists():
             return _failure("search_root_missing", f"Search root does not exist: {root}")
-        try:
-            expression = re.compile(pattern, 0 if case_sensitive else re.IGNORECASE)
-        except re.error as exc:
-            return _failure("invalid_regex", f"invalid regex pattern {pattern!r}: {exc}")
-        paths = [root] if root.is_file() else root.glob(file_glob)
-        display_base = root.parent if root.is_file() else root
-        matches: list[str] = []
-        for path in paths:
-            if len(matches) >= limit or not path.is_file():
-                continue
-            try:
-                raw = path.read_bytes()
-            except OSError:
-                continue
-            if b"\x00" in raw:
-                continue
-            try:
-                text = raw.decode("utf-8", errors="strict")
-            except UnicodeDecodeError:
-                continue
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                if expression.search(line):
-                    matches.append(f"{path.relative_to(display_base)}:{line_number}:{line}")
-                    if len(matches) >= limit:
-                        break
+        engine_path = _select_search_engine(target)
+        if engine_path is None:
+            required = "rg or grep" if target == "content" else "rg or find"
+            return _failure(
+                "search_program_unavailable",
+                f"search_files requires {required} in the execution environment",
+            )
+        engine = Path(engine_path).name
+        if respect_gitignore and engine != "rg":
+            return _failure(
+                "search_semantics_unsupported",
+                f"{engine} cannot preserve respect_gitignore=true; use terminal or install rg",
+            )
+        command = _build_search_command(
+            engine_path=engine_path,
+            target=target,
+            pattern=pattern,
+            file_glob=file_glob,
+            case_sensitive=case_sensitive,
+            include_hidden=include_hidden,
+            respect_gitignore=respect_gitignore,
+            search_path=root.name if root.is_file() else ".",
+        )
+        cwd = root.parent if root.is_file() else root
+        result = await BashExecutor().execute(
+            {
+                "command": command,
+                "cwd": str(cwd),
+                "timeout_seconds": timeout_seconds,
+            },
+            context,
+        )
+        returncode = result.data.get("returncode")
+        if result.status is not ToolExecutionStatus.SUCCESS and returncode != 1:
+            return ToolExecutionResult(
+                status=result.status,
+                text=result.text,
+                data={**result.data, "engine": engine, "target": target, "path": str(root)},
+                error=result.error,
+                retryable=result.retryable,
+                backend_attempted=result.backend_attempted,
+            )
+        raw_lines = [] if result.text == "(no output)" else result.text.splitlines()
+        output_was_truncated = "...[truncated]..." in raw_lines
+        raw_lines = [line for line in raw_lines if line != "...[truncated]..."]
+        normalized = [_normalize_search_line(line) for line in raw_lines]
+        matches = normalized[:limit]
         return ToolExecutionResult(
             status=ToolExecutionStatus.SUCCESS,
             text="\n".join(matches) if matches else "(no matches)",
-            data={"matches": matches, "root": str(root)},
+            data={
+                "matches": matches,
+                "path": str(root),
+                "target": target,
+                "engine": engine,
+                "returncode": returncode,
+                "timed_out": False,
+                "truncated": output_was_truncated or len(normalized) > limit,
+            },
+            backend_attempted=True,
         )
+
+
+def _select_search_engine(target: str) -> str | None:
+    candidates = ("rg", "grep") if target == "content" else ("rg", "find")
+    for candidate in candidates:
+        path = shutil.which(candidate)
+        if path is not None:
+            return path
+    return None
+
+
+def _build_search_command(
+    *,
+    engine_path: str,
+    target: str,
+    pattern: str,
+    file_glob: str | None,
+    case_sensitive: bool,
+    include_hidden: bool,
+    respect_gitignore: bool,
+    search_path: str,
+) -> str:
+    engine = Path(engine_path).name
+    executable = shlex.quote(engine_path)
+    quoted_pattern = shlex.quote(pattern)
+    quoted_path = shlex.quote(search_path)
+    if target == "content" and engine == "rg":
+        parts = [
+            executable,
+            "--line-number",
+            "--no-heading",
+            "--with-filename",
+            "--color",
+            "never",
+        ]
+        if not case_sensitive:
+            parts.append("--ignore-case")
+        if include_hidden:
+            parts.append("--hidden")
+        if not respect_gitignore:
+            parts.append("--no-ignore")
+        if file_glob is not None:
+            parts.extend(("--glob", shlex.quote(file_glob)))
+        parts.extend(("--", quoted_pattern, quoted_path))
+        return " ".join(parts)
+    if target == "content":
+        flags = "-RInH" if case_sensitive else "-RInHi"
+        parts = [executable, flags, "-I"]
+        if not include_hidden:
+            parts.append("--exclude-dir=.*")
+        if file_glob is not None:
+            parts.append(f"--include={shlex.quote(file_glob)}")
+        parts.extend(("--", quoted_pattern, quoted_path))
+        return " ".join(parts)
+    if engine == "rg":
+        parts = [executable, "--files"]
+        if include_hidden:
+            parts.append("--hidden")
+        if not respect_gitignore:
+            parts.append("--no-ignore")
+        parts.extend(("--glob", quoted_pattern, quoted_path))
+        return " ".join(parts)
+    parts = [executable, quoted_path]
+    if not include_hidden:
+        parts.extend(("-not", "-path", shlex.quote("*/.*")))
+    parts.extend(("-type", "f", "-name", quoted_pattern))
+    return " ".join(parts)
+
+
+def _normalize_search_line(line: str) -> str:
+    return line[2:] if line.startswith("./") else line
 
 
 def build_file_tools() -> tuple[RegisteredTool, ...]:
@@ -263,8 +343,7 @@ def build_file_tools() -> tuple[RegisteredTool, ...]:
             FileWriteVerifier(),
             resource_key_resolver=path_resource_key,
         ),
-        RegisteredTool(_glob_definition(), GlobExecutor()),
-        RegisteredTool(_grep_definition(), GrepExecutor()),
+        RegisteredTool(_search_files_definition(), SearchFilesExecutor()),
     )
 
 
@@ -323,42 +402,46 @@ def _edit_definition() -> ToolDefinition:
     )
 
 
-def _glob_definition() -> ToolDefinition:
+def _search_files_definition() -> ToolDefinition:
     return _definition(
-        "glob",
-        "List files matching a glob pattern.",
+        "search_files",
+        (
+            "Search file contents or find files by name. Use this instead of writing "
+            "grep/rg/find/ls "
+            "in terminal for ordinary searches. Content searches use a regular expression; file "
+            "searches use a glob pattern. HomeMaster prefers rg and falls back to grep/find in the "
+            "execution environment, records the actual engine, and applies a real timeout. Use "
+            "terminal when you need to choose the exact program, command, or pipeline."
+        ),
         {
             "type": "object",
             "properties": {
-                "pattern": {"type": "string", "description": "Glob pattern relative to root"},
-                "root": {"type": ["string", "null"], "default": None},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 5000, "default": 200},
-            },
-            "required": ["pattern"],
-            "additionalProperties": False,
-        },
-        required_capabilities=("filesystem.read",),
-    )
-
-
-def _grep_definition() -> ToolDefinition:
-    return _definition(
-        "grep",
-        "Search file contents with a regular expression.",
-        {
-            "type": "object",
-            "properties": {
-                "pattern": {"type": "string", "description": "Regular expression to search for"},
-                "root": {"type": ["string", "null"], "default": None},
-                "file_glob": {"type": "string", "default": "**/*"},
+                "pattern": {
+                    "type": "string",
+                    "description": "Regex for content search or glob for file-name search",
+                },
+                "path": {"type": ["string", "null"], "default": None},
+                "target": {
+                    "type": "string",
+                    "enum": ["content", "files"],
+                    "default": "content",
+                },
+                "file_glob": {"type": ["string", "null"], "default": None},
                 "case_sensitive": {"type": "boolean", "default": True},
+                "include_hidden": {"type": "boolean", "default": True},
+                "respect_gitignore": {"type": "boolean", "default": False},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 2000, "default": 200},
-                "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 120, "default": 20},
+                "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 600,
+                    "default": 60,
+                },
             },
             "required": ["pattern"],
             "additionalProperties": False,
         },
-        required_capabilities=("filesystem.read",),
+        required_capabilities=("filesystem.read", "process.exec"),
     )
 
 

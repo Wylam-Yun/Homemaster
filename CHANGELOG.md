@@ -29,6 +29,12 @@
 
 ### Added
 
+- Added the Hermes-style dual search surface: `terminal` lets the model choose the complete command, while
+  `search_files` selects `rg`/`grep`/`find` in the execution environment and runs through the real process-group
+  timeout and cancellation supervisor. Renamed the model-facing `bash` entry to `terminal` and removed the
+  model-visible Python `grep`/`glob` entries so large searches no longer block the HomeMaster process behind an
+  unused timeout field.
+
 - Added V2.5 automatic experience recall before the first Provider request of a new Session and the
   first real user turn after completed compaction. A durable generation-fenced Session latch drives
   one direct MindMemOS Vanilla Top-3 search with no type filter; native results are injected once as

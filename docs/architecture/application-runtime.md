@@ -130,6 +130,12 @@ stop、close 和超时必须终止整个进程组并等待真实子进程退出�
 `mcp.manage`。`config(action="show")` 仍受 registered tool 权限和 typed schema 约束；进入模型消息与
 JSONL trace 的已选字段保持原值，不按 key、URL 或配置字面值改写。
 
+Home 的命令与搜索工具共用同一执行边界：`terminal` 接收模型选择的完整命令；`search_files` 根据结构化
+参数在实际执行环境中选择 `rg`、`grep` 或 `find`，然后把生成的命令交给 `terminal` 的进程监督实现。两者
+都使用真实墙钟 timeout、独立进程组、输出上限、取消清理和外部返回码。搜索结果 metadata 必须记录实际
+引擎、路径、目标、返回码和 truncation；程序不可用或 fallback 无法保持请求语义时返回明确失败，不能静默
+替换命令或范围。
+
 输入 schema 校验失败时工具不进入 permission、resource lease 或 backend。模型可见结果与 metadata 使用
 同一结构化 payload：稳定错误码、工具名、实际收到的参数键、缺失的必填字段、逐项校验问题和
 `backend_attempted=false`。工具边界只报告这些可观测事实，不推断 Provider、文本格式或参数丢失来源，

@@ -368,13 +368,22 @@ def _integer(arguments: Mapping[str, object], name: str, *, default: int) -> int
     return value
 
 
-def build_bash_tool() -> RegisteredTool:
-    """Create the HomeMaster Bash registration."""
+def build_terminal_tool() -> RegisteredTool:
+    """Create the model-facing HomeMaster terminal registration."""
 
     definition = ToolDefinition(
-        internal_id="homemaster.bash.v1",
-        model_alias="bash",
-        description="Run a shell command in the local repository.",
+        internal_id="homemaster.terminal.v1",
+        model_alias="terminal",
+        description=(
+            "Execute a complete command in the local repository shell. For ordinary content or "
+            "file-name searches, use search_files instead of writing grep/rg/find/ls in terminal. "
+            "Use terminal for builds, installs, git, processes, scripts, network, package "
+            "managers, "
+            "or searches that need exact command control. Choose the program and arguments "
+            "yourself; "
+            "HomeMaster reports the real exit code and does not replace unavailable commands. "
+            "Commands are non-interactive and have a real timeout; use non-interactive flags."
+        ),
         input_schema={
             "type": "object",
             "properties": {
@@ -407,4 +416,4 @@ def build_bash_tool() -> RegisteredTool:
     return RegisteredTool(definition, BashExecutor())
 
 
-__all__ = ["build_bash_tool"]
+__all__ = ["build_terminal_tool"]
