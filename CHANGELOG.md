@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Kept the legacy-term cleanup guard focused on product architecture by explicitly exempting the
+  real MindMemOS recall boundary test and third-party logging boundary test, where `pipeline` is
+  part of an external typed API or dependency vocabulary rather than a HomeMaster legacy layer.
+
 - Distinguished a MindMemOS backend-raised `TimeoutError` from expiry of the shared run deadline,
   so a backend timeout remains a best-effort automatic-recall error while an actually exhausted
   run budget still prevents a Provider request with no time remaining.
