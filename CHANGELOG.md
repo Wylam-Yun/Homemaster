@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- Rewrote the top-level README from scratch: capability overview, architecture diagram and module
+  table, quickstart, CLI reference, run modes, memory/skills/MCP/security/benchmark sections with
+  links into the existing user guides, an honest current-boundaries section, and no machine-local
+  absolute paths. All referenced files, tool names, and CLI commands were re-verified against the
+  current code; in particular the public memory tool count is corrected to the five actually
+  registered tools (`context_memory`, `mindmemos_search/add/update/delete`), replacing the stale
+  "six public tools" wording inherited from before the model-facing memory tool refactor.
+
 ### Fixed
 
 - Changed provider retry from a single closed error whitelist to up to eight total frozen-request
