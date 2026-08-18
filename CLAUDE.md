@@ -1,5 +1,14 @@
 # HomeMaster Agent Rules
 
+## Graceful cleanup 信号纪律
+
+- 区分 session rotate 与 process shutdown：`/new` 只能把旧 Session 收尾排入 application-owned FIFO 后立即
+  返回，禁止等待 queue idle；只有 terminal exit 才 drain。不要用“Session 结束”这个共同表象合并两种边界。
+- terminal queue drain 和 owned-resource close 前，生命周期 owner 必须显式接管 SIGINT；repeated SIGINT
+  不得绕过已经承诺的清理阶段。后台 Session finalization 不得接管 SIGINT，普通 run 的取消语义保持不变。
+- 信号回归必须把真实 SIGINT 分别注入耗时 finalizer 和 close 边界，断言信号后的外部可见完成状态、退出码和
+  resource close 次数；只 mock handler、只看“开始清理”日志或只断言协程被调用都不算完成证据。
+
 ## 共享 deadline 异常分类纪律
 
 - 用 `asyncio.timeout()` 共享总预算时，只在该 `Timeout` 对象的 `expired()` 为 true 时把

@@ -153,10 +153,12 @@ provenance，也不能提交 evidence ref。工具从当前 execution scope 内�
 application 只有一个 worker，严格串行执行原有 Schema Add 和 Qdrant raw 精确回读。
 任务失败写入 `memory.data_root/mindmemos/add_jobs.jsonl`，不会自动重试，也不会阻断队列后续任务。
 
-正常 one-shot/Gateway/Application 退出会封住新入队并 drain 已 accepted 任务。交互 Shell 在 Session Finalizer
-之前先 drain，所以顺序固定为结构化 Add 清空，再执行 Vanilla Add、implicit feedback 和可选 dreaming。
-当前 run 被 Ctrl+C 取消不会取消已经 accepted 的任务；进程崩溃、断电或 `kill -9` 仍可能丢失内存队列。
-这一实现不需要 Kafka、Docker、SQLite 队列、并发 worker 或 retry。
+结构化 Add 和交互 Session Finalizer 共用同一个 application-owned FIFO，所以 Schema Add、Vanilla Add、
+implicit feedback 和可选 dreaming 互相排它。`/new` 只把旧 Session finalization 排在当时已 accepted 的 Add
+之后，随即创建新 Session；下一条用户任务可以继续执行，后续 Add 自然排在该 finalization 后面。正常
+one-shot/Gateway/Application 退出会封住新入队并 drain 全部已 accepted 工作。当前 run 被 Ctrl+C 取消不会
+取消队列任务；进程崩溃、断电或 `kill -9` 仍可能丢失内存队列。这一实现不需要 Kafka、Docker、SQLite
+队列、并发 worker 或 retry。
 
 `mindmemos_update` 先读取准确 ID：存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
 旧版本并写入 `DERIVED_FROM`，同时更新 metadata、memory/entity 向量和图关系，不重新运行 Schema Add；不存在
@@ -293,12 +295,18 @@ HomeMaster 启动边界验证。
 - `/exit`；
 - 输入 EOF；
 - 在提示符处按 Ctrl+C；
-- `/new`，旧 Session 沉淀完成后创建新 Session。
+- `/new`，旧 Session 收尾入队后立即创建新 Session。
 
 Run 执行期间按 Ctrl+C 只取消当前 Run，不结束 Session。HomeMaster 从当前 Application 的
 `runtime_events.jsonl` 按 `session_id` 收集事件，构造仅驻留内存的 `TaskTraceEnvelope`，再精选用户输入、
 模型思考、助手回复和工具结果作为带角色的 MindMemOS 输入。内部 ID、transport、usage 和重复终态不会
 发送给模型，也不会另存 `task_trace.json`。
+
+`/exit`、EOF 或提示符 Ctrl+C 触发终态 drain 后，HomeMaster 会等待 FIFO 中所有结构化 Add 和 Session
+finalization，再关闭 application；此时重复 Ctrl+C 被忽略，第一次会显示提示。由 `/new` 入队的后台
+finalization 不拥有 SIGINT：如果它与一个普通 Run 同时推进，Ctrl+C 仍只取消该 Run，不取消记忆任务。
+`kill -9`、断电和进程崩溃仍会强制终止。`zh_core_web_sm` 缺失日志是可选中文 NER 的降级警告，不是进程
+被结束的原因。
 
 同目录的 `job.json` 分阶段记录 Vanilla Add、implicit feedback、dreaming 计数和 dreaming 结果。Add 成功
 后会自动处理 operation-record 中同一用户尚未处理的纠正/不满/偏好变化；失败只重试未完成阶段，不会重复

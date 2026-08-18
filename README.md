@@ -225,9 +225,10 @@ HomeMaster 记忆分两层：
   `MEMORY.md`（近期事件与跨会话事项），session 首次组装上下文时冻结快照。
 - **embedded MindMemOS** — 外部世界 fact 与可复用 procedure 的结构化检索库，原生 schema pipeline
   写入本地 Qdrant 与 Neo4j。`mindmemos_add` 校验当前 Runtime evidence 后进入应用内单 worker FIFO，
-  立即返回 `accepted + job_id`；正常退出会先 drain 并逐条做 raw memory 终态回读。update、delete、
-  feedback 等 mutation 仍在工具调用内完成终态确认。结构化更新以完整 record 为唯一真理源，展示正文由
-  record 确定性生成；当前轮 evidence 由 Runtime 内部绑定，不要求模型读取或回传 evidence ID。
+  立即返回 `accepted + job_id`；`/new` 把旧 Session finalization 排入同一 FIFO 后立即切换，正常退出才
+  drain 全部记忆工作并逐条做终态回读。update、delete、feedback 等 mutation 仍在工具调用内完成终态确认。
+  结构化更新以完整 record 为唯一真理源，展示正文由 record 确定性生成；当前轮 evidence 由 Runtime 内部
+  绑定，不要求模型读取或回传 evidence ID。
 
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
 自动执行一次 MindMemOS 召回（`top_k=3`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；

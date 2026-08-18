@@ -1,5 +1,53 @@
 # Engineering Pitfalls
 
+## 2026-08-18 - 把 `/new` 当成进程退出 drain，异步 Add 又在 Session 边界同步阻塞
+
+### 症状与根因
+
+`mindmemos_add` 已立即返回 accepted，但用户输入 `/new` 后只看到 `Finalizing session`，无法开始下一项任务。
+真实 receipt 显示第一条重复 Add 仍为 processing、第二条为 queued。根因不是 FIFO 排它，而是 Shell 把
+`/new`、`/exit`、EOF 和提示符 Ctrl+C 全部调用同一个同步 `finalize()`：先 `wait_idle()`，再 inline 运行
+Vanilla Add、implicit feedback 和 dreaming。错误的上游假设是“Session 结束都等价于进程关闭”；事实上
+`/new` 只轮换 Session，application 和 memory worker 都继续存活。
+
+### 修法与教训
+
+把 Session finalization 作为 typed work item 排入现有 memory FIFO，而不是另建队列或共享锁。这样顺序固定为
+旧 structured Add、旧 Session finalization、后续 structured Add，最大 memory 并发仍为 1。`/new` 只做同步
+`put_nowait` 并立即切换；`/exit`、EOF、提示符 Ctrl+C 和 application close 才 drain。测试必须让旧 finalizer
+暂停，并断言下一 Session 的真实 run 在它完成前已开始；同时逐项断言 FIFO 顺序、最大并发、失败后继续和
+close 等待终态。
+
+### 参考
+
+- `src/homemaster/memory/add_queue.py`
+- `src/homemaster/cli/interactive_shell.py`
+- `tests/homemaster/memory/test_add_queue.py`
+- `tests/homemaster/test_cli_interactive.py`
+
+## 2026-08-18 - 第二次 Ctrl+C 越过 Session finalization，留下 pending experience job
+
+### 症状与根因
+
+交互 Shell 已显示 `[experience] Finalizing session ...`，MindMemOS 也输出了可选中文 NER 模型缺失警告；用户
+再次按 Ctrl+C 后进程以中断退出，对应 experience `job.json` 的 Vanilla Add、implicit feedback 和 dreaming
+阶段仍为 pending。NER 警告只证明 finalizer 已经开始，并不负责退出。根因是 Shell 直接调用
+`asyncio.Runner.run(drain_and_finalize())`，最后又直接调用 `runner.run(application.aclose())`，两个清理边界
+都没有拥有 SIGINT；第二个信号沿 Python 默认 handler 抛出 `KeyboardInterrupt`，越过了队列排空和后续阶段。
+
+### 修法与教训
+
+Graceful terminal cleanup 必须显式拥有自己的信号语义。Interactive Shell 用一个连续 SIGINT guard 覆盖
+terminal finalization admission 和 FIFO drain；application close 使用独立保护。后台 `/new` finalization 不
+接管信号。测试用真实 `signal.raise_signal(SIGINT)` 分别打进 terminal finalizer 和 close 协程，断言信号后的
+代码实际完成、应用只关闭一次且退出码为零；另一条测试证明普通 run 的 SIGINT 仍会取消 run。
+
+### 参考
+
+- `src/homemaster/cli/interactive_shell.py`
+- `tests/homemaster/test_cli_interactive.py`
+- `docs/memory-user-guide.md`
+
 ## 2026-08-18 - Feedback 正文已纠正但权威 record 仍是旧值，模型又复用跨 run evidence
 
 ### 症状与根因

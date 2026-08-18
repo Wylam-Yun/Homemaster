@@ -26,8 +26,16 @@ MCP manager；每个 run 冻结 provider request、generation 和 borrowed envir
 公开 `mindmemos_add` 的后台任务由 application 而不是 run 持有。工具完成 record、权限和当前 scope evidence
 校验后只做内存 FIFO admission，返回 `accepted + job_id`；单 worker 随后执行 Schema Add 和 raw readback。
 因此 run cancellation 不传播到已 accepted job。Application resource LIFO 顺序保证 close 先 seal/drain Add
-队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer 还会先等待队列 idle，再运行 Vanilla Add、
-implicit feedback 和可选 dreaming。队列不持久化、不并发、不重试；异常进程终止可能丢任务。
+队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer 也是该 FIFO 的 typed work item，所以顺序为
+当时已 accepted 的 structured Add、旧 Session 的 Vanilla Add/implicit feedback/dreaming、之后 accepted 的
+新 Add，三者不会重叠。`/new` 只做同步 `put_nowait` 后切换 Session；terminal exit 才等待 queue idle。队列
+不持久化、不并发、不重试；异常进程终止可能丢任务。
+
+Interactive Shell 对 SIGINT 的 ownership 随生命周期切换。提示符或普通 run 使用默认 handler：提示符 Ctrl+C
+进入 terminal drain，run 中 Ctrl+C 只取消当前 run。terminal exit 的 finalization admission 和 queue drain
+共用一个连续的临时忽略 handler，application close 也有独立保护；repeated SIGINT 因此不能越过已承诺的
+cleanup。`/new` 的 finalization 在后台 FIFO 中运行，不安装 handler，也不会吞掉当前 run 的 Ctrl+C。强制
+终止和进程故障不属于 graceful shutdown 保证。
 
 `observe` 是普通的 canonical tool，隐藏 stable id 为 `homemaster.observe.v1`。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
 以 `ResultProjection.IMAGE_ONLY` 交给 provider；模型消息恰好只有一个 image block。截图不进入 action

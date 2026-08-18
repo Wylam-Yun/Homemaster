@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import signal
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import typer
 
@@ -53,20 +56,12 @@ def run_interactive_shell(
         async def ask_user(question: str) -> str:
             return await asyncio.to_thread(input, f"{question}\nanswer> ")
 
-        def finalize(reason: str) -> None:
-            if not session_open or finalizer is None:
-                return
-            typer.echo(f"[experience] Finalizing session {session_id}")
-
-            async def drain_and_finalize():
-                if bundle.memory_add_queue is not None:
-                    await bundle.memory_add_queue.wait_idle()
-                return await finalizer.finalize(session_id, reason)
-
-            result = runner.run(drain_and_finalize())
+        async def run_finalization(finalized_session_id: str, reason: str) -> None:
+            typer.echo(f"[experience] Finalizing session {finalized_session_id}")
+            result = await finalizer.finalize(finalized_session_id, reason)
             if result.status == "failed":
                 typer.echo(f"[experience] Vanilla Add failed: {result.error}")
-                return
+                raise RuntimeError(result.error or "Session finalization failed")
             typer.echo(
                 f"[experience] Vanilla Add completed: {len(result.operations)} operations"
             )
@@ -86,6 +81,35 @@ def run_interactive_shell(
                         f"content:\n{operation.content}"
                     )
 
+        def enqueue_finalization(reason: str) -> None:
+            if not session_open or finalizer is None:
+                return
+            if bundle.memory_add_queue is None:
+                raise RuntimeError("Session finalization requires the application memory queue")
+            finalized_session_id = session_id
+
+            async def work() -> None:
+                await run_finalization(finalized_session_id, reason)
+
+            receipt = bundle.memory_add_queue.enqueue_work(
+                job_type="session_finalization",
+                session_id=finalized_session_id,
+                work=work,
+            )
+            typer.echo(
+                f"[experience] Queued session finalization {finalized_session_id} "
+                f"({receipt.job_id})"
+            )
+
+        def finalize_for_exit(reason: str) -> None:
+            with _ignore_sigint_during_cleanup(
+                "[experience] Finalization in progress; "
+                "Ctrl+C ignored until memory work completes."
+            ):
+                enqueue_finalization(reason)
+                if bundle.memory_add_queue is not None:
+                    runner.run(bundle.memory_add_queue.wait_idle())
+
         try:
             if continue_latest:
                 session_ids = application.session_manager.list_session_ids()
@@ -104,24 +128,24 @@ def run_interactive_shell(
                 try:
                     utterance = input("homemaster> ").strip()
                 except EOFError:
-                    finalize("eof")
+                    finalize_for_exit("eof")
                     typer.echo("Goodbye")
                     return
                 except KeyboardInterrupt:
-                    finalize("shell_interrupt")
+                    finalize_for_exit("shell_interrupt")
                     typer.echo("\nGoodbye")
                     return
                 if not utterance:
                     continue
                 if utterance == "/exit":
-                    finalize("user_exit")
+                    finalize_for_exit("user_exit")
                     typer.echo("Goodbye")
                     return
                 if utterance == "/help":
                     typer.echo(_render_help())
                     continue
                 if utterance == "/new":
-                    finalize("new_session")
+                    enqueue_finalization("new_session")
                     session_id = new_session_id()
                     backend = HomeCliBackend(world_path=None, memory_path=None)
                     session_open = False
@@ -224,7 +248,29 @@ def run_interactive_shell(
                 if result.status is RunStatus.CANCELLED:
                     typer.echo("Run cancelled.")
         finally:
-            runner.run(application.aclose())
+            with _ignore_sigint_during_cleanup(
+                "Shutdown in progress; Ctrl+C ignored until cleanup completes."
+            ):
+                runner.run(application.aclose())
+
+
+@contextmanager
+def _ignore_sigint_during_cleanup(message: str) -> Iterator[None]:
+    previous_handler = signal.getsignal(signal.SIGINT)
+    notice_emitted = False
+
+    def ignore_sigint(signum, frame) -> None:
+        del signum, frame
+        nonlocal notice_emitted
+        if not notice_emitted:
+            typer.echo(message)
+            notice_emitted = True
+
+    signal.signal(signal.SIGINT, ignore_sigint)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 def _enable_line_editing() -> None:

@@ -49,7 +49,7 @@ class FinalizeResult:
 
 
 class SessionFinalizer:
-    """Lightweight, synchronous session finalizer owned by the interactive shell."""
+    """Resumable session finalizer scheduled by the interactive shell."""
 
     def __init__(
         self,
