@@ -42,6 +42,8 @@ def run_interactive_shell(
             trace_path=bundle.trace_path,
             data_root=bundle.config.memory.data_root,
             mindmemos=bundle.mindmemos,
+            dreaming_coordinator=getattr(bundle, "dreaming_coordinator", None),
+            event_sink=getattr(application, "event_bus", None),
         )
         if getattr(bundle, "mindmemos", None) is not None
         else None

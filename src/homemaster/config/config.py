@@ -344,6 +344,7 @@ class MemoryConfig(BaseModel):
     memory_char_limit: int = Field(default=2200, gt=0)
     embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
     embedding_dimensions: int = Field(default=4096, gt=0)
+    dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 

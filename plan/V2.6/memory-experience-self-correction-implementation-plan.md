@@ -1,6 +1,6 @@
 # HomeMaster V2.6 记忆经验自纠错实施计划
 
-> 状态：待实施。本文只定义实施顺序和验收门，不代表功能已经完成。
+> 状态：已实施；direct update/history follow-up 按 owner 后续决策并入本计划。
 >
 > 需求真理源：`plan/V2.6/memory-experience-self-correction-spec.md`
 >
@@ -8,7 +8,8 @@
 
 ## 1. 目标
 
-在不重写现有 add/search/get/update/delete、不引入 Skill Evolution、Kafka 或定时 cron 的前提下，完成三条链路：
+在不引入 Skill Evolution、Kafka 或定时 cron 的前提下，完成 self-correction 三条链路，并将 direct update
+扩展为 Schema/Vanilla 自动分流且提供版本历史查询：
 
 1. 模型在对话中调用一个新增工具 `mindmemos_feedback`，提交用户给出的具体但尚不能直接映射为一次精确 update/delete 的反馈；HomeMaster 自动附上导致本次调用的冻结 provider messages 和其中实际展示过的 raw memories。
 2. Session 结束时，现有 `add_vanilla` 成功落库后自动调用 MindMemOS implicit feedback，从 `add_record_v1` / `search_record_v1` 读取尚未处理的会话记录。
@@ -32,7 +33,8 @@ MVP 采用方案 ①；接口只预留按 `project_id + user_id` 隔离的能力
 ## 3. 不变量
 
 - 模型只给 `mindmemos_feedback` 传 `feedback`；不能传 messages、tenant/project/session、raw ID 或 mutation action。
-- direct update 的边界不变：已知唯一 raw memory ID，并且完整替换 record 已确定时使用 `mindmemos_update`。
+- direct update 仍要求唯一 raw memory ID；结构化结果传完整 replacement record，Vanilla 结果传完整 content，
+  backend 以旧记录是否存在合法 `record_json` 为准自动分流。
 - direct delete 的边界不变：用户明确要求忘掉已唯一定位的 raw memory 时使用 `mindmemos_delete`。
 - 只有具体反馈足以支持纠正、缩小适用范围或声明过时时，才调用 `mindmemos_feedback`；“你记错了”但没有正确事实或删除意图时先澄清。
 - explicit feedback 使用成功 provider attempt 的准确 `frozen_messages`，不重新读取 live session，不固定截取最近 N 轮。
@@ -311,7 +313,7 @@ uv run ruff check src/homemaster/memory/feedback_context.py \
 5. snapshot 没有 recalled memories 时允许空列表进入原生 planner search-decision。
 6. provider-visible tool result content 包含每个 action 的 action/target/result/status/reason 和验证状态，不只放内部 metadata。
 7. 一个 action 失败时工具整体 `is_error=true`，不能让另一个成功 action掩盖。
-8. direct update/delete 既有测试保持不变，证明新工具没有接管其边界。
+8. direct update 覆盖 Schema versioned 与 Vanilla in-place 两条路径；delete 既有测试保持不变。
 
 工具 description 锁定为以下文本，实施时不要缩写成抽象的 `Submit feedback`：
 
@@ -720,7 +722,8 @@ git diff --check
 
 - `mindmemos_feedback` 的调用边界、schema 和完整 description 通过真实 provider tool routing。
 - explicit feedback 收到准确 frozen messages 和实际可见 raw memories，未展示/伪造 ID 无法 mutation。
-- direct update/delete 语义和回归不变。
+- direct update 以 `record_json` 自动分流，Schema 版本化且不重跑 Schema Add，Vanilla 原地复用原生 update；
+  direct delete 语义和回归不变。
 - session-end add 成功后才触发 implicit feedback，输入只来自 MindMemOS operation records。
 - 8 条计数持久、跨进程互斥、重启可恢复，当前批目标在 claim 时锁定且不会漂移。
 - dreaming 用 `session_id=None` 扫 scope，以 pending add records 为 seeds，并可带入相关旧 active memories。

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 if TYPE_CHECKING:
     from homemaster.extensions.hook_runner import HookRunner
+    from homemaster.tools.contracts import ToolExecutionResult
 
 _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _STABLE_ID_RE = re.compile(r"^homemaster\.[a-z][a-z0-9_]*\.v[1-9][0-9]*$")
@@ -74,6 +75,7 @@ class ToolResult:
     output: str
     is_error: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
+    canonical_result: ToolExecutionResult | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.output, str):
@@ -211,6 +213,9 @@ def normalize_tool_result(value: Any) -> ToolResult:
         metadata = _plain_json(dict(getattr(value, "data", None) or {}))
         return ToolResult(output, bool(getattr(value, "is_error", False)), metadata)
 
+    from homemaster.tools.contracts import ToolExecutionResult
+
+    canonical_result = value if isinstance(value, ToolExecutionResult) else None
     data = _plain_json(dict(getattr(value, "data", None) or {}))
     images = getattr(value, "images", ())
     attachments = getattr(value, "attachments", ())
@@ -271,7 +276,7 @@ def normalize_tool_result(value: Any) -> ToolResult:
         }
         if renderable:
             output = json.dumps(renderable, ensure_ascii=False, sort_keys=True)
-    return ToolResult(output, is_error, data)
+    return ToolResult(output, is_error, data, canonical_result)
 
 
 def _schema_model(tool_name: str, schema: Mapping[str, Any]) -> type[BaseModel]:

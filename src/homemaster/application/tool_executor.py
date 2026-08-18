@@ -20,13 +20,16 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 
+
 _MEMORY_TOOL_NAMES = frozenset(
     {
         "context_memory",
         "mindmemos_add",
         "mindmemos_search",
+        "mindmemos_history",
         "mindmemos_update",
         "mindmemos_delete",
+        "mindmemos_feedback",
     }
 )
 
@@ -80,7 +83,6 @@ class ApplicationToolExecutor:
         tool_calls: list[ToolCall],
         run_context: RunContext | None = None,
     ) -> list[ToolResultMessage]:
-        del run_context
         observer = self._request.dependencies.get("tool_dispatch_observer")
         calls: list[tuple[ToolCall, ToolExecutionContext]] = []
         messages: list[ToolResultMessage | None] = []
@@ -92,7 +94,7 @@ class ApplicationToolExecutor:
                     messages.append(terminal)
                     continue
             messages.append(None)
-            calls.append((call, self._context_for(call)))
+            calls.append((call, self._context_for(call, run_context=run_context)))
 
         results = await self._executor.execute_many(calls)
         result_index = 0
@@ -110,16 +112,23 @@ class ApplicationToolExecutor:
             messages[index] = self._message(call, result)
         return [message for message in messages if message is not None]
 
-    def _context_for(self, call: ToolCall) -> ToolExecutionContext:
+    def _context_for(
+        self,
+        call: ToolCall,
+        *,
+        run_context: RunContext | None,
+    ) -> ToolExecutionContext:
         tool = self._registry.get(call.name)
         stable_id = tool.stable_id if tool is not None else "homemaster.unknown.v1"
         deps = dict(getattr(self._settings, "application_services", {}))
         deps.update(self._request.dependencies)
+        if run_context is not None:
+            deps.update(run_context.deps)
         deps["task_state_store"] = self._task_state_store
         deps["task_completion_guard"] = self._completion_guard
         deps["current_tool_call_id"] = call.id
         _bind_backend(deps, self._request.profile, self._backend)
-        run_context = RunContext(
+        tool_run_context = RunContext(
             session_id=self._runtime.session.session_id,
             run_id=self._run_id,
             turn_index=self._agent_state.turn_index,
@@ -128,11 +137,15 @@ class ApplicationToolExecutor:
             deps=deps,
             cancellation_token=self._runtime.cancellation,
         )
+        feedback_by_call = deps.get("memory_feedback_context_by_tool_call_id", {})
+        feedback_context = (
+            feedback_by_call.get(call.id) if isinstance(feedback_by_call, dict) else None
+        )
         metadata = {
             **deps,
             "services": deps,
             "tool_registry": self._registry,
-            "run_context": run_context,
+            "run_context": tool_run_context,
             "backend": self._backend,
             "session_id": self._runtime.session.session_id,
             "run_id": self._run_id,
@@ -144,6 +157,8 @@ class ApplicationToolExecutor:
             "domain_observer": self._request.dependencies.get("domain_observer"),
             "deadline": self,
         }
+        if feedback_context is not None:
+            metadata["memory_feedback_context"] = feedback_context
         return ToolExecutionContext(self._working_directory, metadata=metadata)
 
     def remaining_s(self) -> float | None:
@@ -156,53 +171,55 @@ class ApplicationToolExecutor:
         return self
 
     def _message(self, call: ToolCall, result: ToolResult) -> ToolResultMessage:
+        canonical_result = result.canonical_result
         data = dict(result.metadata)
         if call.name in _MEMORY_TOOL_NAMES and data:
             model_payload = dict(data)
             if result.output:
                 model_payload.setdefault("text", result.output)
-            model_text = json.dumps(
-                model_payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
+            content = [
+                ContentBlock(
+                    text=json.dumps(
+                        model_payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                )
+            ]
+            is_error = result.is_error
+        elif canonical_result is not None:
+            projected = canonical_result.to_message(tool_call_id=call.id, name=call.name)
+            content = list(projected.content)
+            is_error = projected.is_error
+            memory_evidence_refs = _memory_evidence_refs(data.get("evidence_refs"))
+            if memory_evidence_refs:
+                content.append(ContentBlock(text=_memory_evidence_text(memory_evidence_refs)))
         else:
             model_text = result.output
             memory_evidence_refs = _memory_evidence_refs(data.get("evidence_refs"))
             if memory_evidence_refs:
-                evidence_text = json.dumps(
-                    {
-                        "memory_evidence_refs": memory_evidence_refs,
-                        "instruction": (
-                            "Use these opaque refs only for mindmemos_add or "
-                            "mindmemos_update "
-                            "when the current tool result directly supports the record."
-                        ),
-                    },
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
+                evidence_text = _memory_evidence_text(memory_evidence_refs)
                 model_text = "\n".join(item for item in (model_text, evidence_text) if item)
-        content = [ContentBlock(text=model_text)] if model_text else []
-        for image in data.get("images", []):
-            if isinstance(image, dict) and image.get("data_base64"):
-                content.append(
-                    ContentBlock(
-                        type="image",
-                        source={
-                            "type": "base64",
-                            "media_type": image.get("media_type", "image/png"),
-                            "data": image["data_base64"],
-                        },
+            content = [ContentBlock(text=model_text)] if model_text else []
+            for image in data.get("images", []):
+                if isinstance(image, dict) and image.get("data_base64"):
+                    content.append(
+                        ContentBlock(
+                            type="image",
+                            source={
+                                "type": "base64",
+                                "media_type": image.get("media_type", "image/png"),
+                                "data": image["data_base64"],
+                            },
+                        )
                     )
-                )
+            is_error = result.is_error
         data.pop("images", None)
         data.pop("attachments", None)
         if self._artifact_publisher is not None:
             artifacts = self._artifact_publisher.publish(
-                result,
+                canonical_result or result,
                 tenant_id=self._request.permission_subject.tenant_id,
                 session_id=self._runtime.session.session_id,
                 run_id=self._run_id,
@@ -213,7 +230,7 @@ class ApplicationToolExecutor:
             tool_call_id=call.id,
             name=call.name,
             content=content,
-            is_error=result.is_error,
+            is_error=is_error,
             data=data,
         )
 
@@ -233,6 +250,7 @@ class ApplicationToolExecutor:
             "context_memory",
             "mindmemos_add",
             "mindmemos_search",
+            "mindmemos_history",
             "mindmemos_update",
             "mindmemos_delete",
         }:
@@ -301,6 +319,21 @@ def _memory_evidence_refs(value: object) -> list[str]:
         if len(suffix) == 32 and all(character in "0123456789abcdef" for character in suffix):
             refs.append(item)
     return list(dict.fromkeys(refs))
+
+
+def _memory_evidence_text(refs: list[str]) -> str:
+    return json.dumps(
+        {
+            "memory_evidence_refs": refs,
+            "instruction": (
+                "Use these opaque refs only for mindmemos_add or mindmemos_update "
+                "when the current tool result directly supports the record."
+            ),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 class _CompletionGuard:

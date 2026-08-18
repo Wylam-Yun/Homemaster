@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -399,3 +400,173 @@ async def test_embedded_mindmemos_add_and_search_record_pipeline_calls(tmp_path:
     assert delete_result.status == "ok"
     assert calls["reader_get"] == (context, "raw-memory-1")
     assert raw_memory.memory_id == "raw-memory-1"
+
+
+@pytest.mark.asyncio
+async def test_versioned_update_builds_native_memory_entity_and_lineage_plan(
+    tmp_path: Path,
+) -> None:
+    from mindmemos.typing import MemoryDbWritePlan, MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(
+        HomeMasterConfig(memory={"data_root": tmp_path / "memory", "embedding_dimensions": 8})
+    )
+    now = datetime(2026, 8, 17, tzinfo=UTC)
+    old_record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "other", "name": "Aurora-A18", "id": None},
+        "predicate": "package_manager",
+        "value": "conda",
+        "source": "user_statement",
+    }
+    current = SimpleNamespace(
+        memory_id="old",
+        content='Aurora-A18 的 package_manager 是 "conda"',
+        mem_type="fact",
+        mem_extract_type="schema",
+        status="active",
+        metadata={
+            "request_metadata": {
+                "add_record_ids": ["add-old"],
+                "record_metadata": [{"record_json": json.dumps(old_record)}],
+            },
+            "entity_name": "Aurora-A18::package_manager",
+        },
+        validate_from=now,
+        validate_to=None,
+        root_id=["old"],
+        property_name="fact_value",
+        entity_id="entity-1",
+        entity_type="fact",
+        created_at=now,
+    )
+    calls: dict[str, Any] = {}
+
+    class FakeEntityState:
+        def to_entity_view(self, *, project_id: str):
+            return SimpleNamespace(
+                entity_name="Aurora-A18::package_manager",
+                entity_type="fact",
+                created_at=now,
+                metadata={"search_fields": ["Aurora package manager"]},
+            )
+
+    class FakeReader:
+        async def get_memory(self, context: Any, memory_id: str):
+            return current if memory_id == "old" else None
+
+        async def get_entity_with_memories(self, context: Any, entity_id: str):
+            assert entity_id == "entity-1"
+            return FakeEntityState()
+
+    class FakeBuilder:
+        async def build(self, **kwargs: Any):
+            calls["build"] = kwargs
+            return MemoryDbWritePlan(
+                memories=kwargs["memories"],
+                entities=kwargs["entities"],
+                relationships=kwargs["relationships"],
+            )
+
+    class FakeWriter:
+        async def apply_mutation_plan(self, context: Any, plan: Any, *, consistency: str):
+            calls["plan"] = plan
+            calls["consistency"] = consistency
+            return SimpleNamespace(
+                memory_ids=[plan.memory_writes[0].memory.memory_id],
+                mutations=[SimpleNamespace(changed=True)],
+                errors=[],
+            )
+
+    runtime._reader = FakeReader()
+    runtime._writer = FakeWriter()
+    runtime._schema_write_plan_builder = FakeBuilder()
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+    new_record = {**old_record, "value": "uv"}
+
+    result = await runtime.update_versioned(
+        memory_id="old",
+        content='Aurora-A18 的 package_manager 是 "uv"',
+        metadata={
+            "record_json": json.dumps(new_record),
+            "memory_type": "fact",
+            "provenance_seq": 2,
+        },
+        context=context,
+    )
+
+    assert result.status == "ok"
+    assert result.memory_id != "old"
+    build = calls["build"]
+    new_memory = build["memories"][0]
+    assert new_memory.parent_ids == ["old"]
+    assert new_memory.root_id == ["old"]
+    assert new_memory.content.endswith('"uv"')
+    record_metadata = new_memory.metadata["request_metadata"]["record_metadata"][0]
+    assert json.loads(record_metadata["record_json"])["value"] == "uv"
+    assert record_metadata["provenance_seq"] == 2
+    assert build["entities"][0].description.endswith('"uv"')
+    assert {relationship.rel_type for relationship in build["relationships"]} == {
+        "HAS_PROPERTY_MEMORY",
+        "MENTIONS",
+        "DERIVED_FROM",
+    }
+    plan = calls["plan"]
+    assert plan.memory_updates[0].memory_id == "old"
+    assert plan.memory_updates[0].status == "archived"
+    assert plan.memory_updates[0].metadata_patch["derived_to"] == result.memory_id
+    assert calls["consistency"] == "strong"
+
+
+@pytest.mark.asyncio
+async def test_history_reads_entire_lineage_component_and_orders_newest_first(
+    tmp_path: Path,
+) -> None:
+    from mindmemos.typing import MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(
+        HomeMasterConfig(memory={"data_root": tmp_path / "memory", "embedding_dimensions": 8})
+    )
+    old = SimpleNamespace(
+        memory_id="old",
+        created_at=datetime(2026, 8, 17, tzinfo=UTC),
+        update_at=None,
+    )
+    new = SimpleNamespace(
+        memory_id="new",
+        created_at=datetime(2026, 8, 18, tzinfo=UTC),
+        update_at=None,
+    )
+
+    class FakeReader:
+        async def get_memory(self, context: Any, memory_id: str):
+            return {"old": old, "new": new}.get(memory_id)
+
+    class FakeNeo4j:
+        async def run_read(self, query: str, **kwargs: Any):
+            assert "DERIVED_FROM*0.." in query
+            assert kwargs == {"project_id": "project-1", "memory_id": "old"}
+            return [{"memory_id": "old"}, {"memory_id": "new"}]
+
+    runtime._reader = FakeReader()
+    runtime._neo4j = FakeNeo4j()
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+
+    versions = await runtime.get_history("old", context)
+
+    assert [version.memory_id for version in versions] == ["new", "old"]

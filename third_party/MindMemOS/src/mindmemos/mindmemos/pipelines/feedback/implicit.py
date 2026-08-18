@@ -92,6 +92,7 @@ class ImplicitFeedbackHandler:
 
             valid_signals = [signal for signal in result.signals if 0 <= signal.round_index < len(material.rounds)]
             valid_signals.sort(key=lambda item: item.round_index)
+            session_actions = []
             for round_index, grouped in groupby(valid_signals, key=lambda item: item.round_index):
                 signals = list(grouped)
                 if not signals:
@@ -111,8 +112,10 @@ class ImplicitFeedbackHandler:
                     actions=len(planned),
                     elapsed=round(plan_elapsed, 2),
                 )
-                actions.extend(await self._executor.execute(planned, context))
-            await self._collector.mark_feedback_processed(context, material.source_add_record_ids)
+                session_actions.extend(await self._executor.execute(planned, context))
+            actions.extend(session_actions)
+            if not any(action.status == "error" for action in session_actions):
+                await self._collector.mark_feedback_processed(context, material.source_add_record_ids)
 
         total_elapsed = time.monotonic() - t0
         logger.info(
@@ -122,8 +125,9 @@ class ImplicitFeedbackHandler:
             sessions=len(sessions),
             elapsed=round(total_elapsed, 2),
         )
+        failed = [action for action in actions if action.status == "error"]
         return FeedbackPipelineResult(
-            status="ok",
+            status="error" if failed else "ok",
             message=f"processed {signal_count} implicit feedback signals in {len(sessions)} sessions",
             actions=actions,
         )

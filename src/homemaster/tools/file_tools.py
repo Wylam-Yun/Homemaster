@@ -411,7 +411,7 @@ def _search_files_definition() -> ToolDefinition:
             "in terminal for ordinary searches. Content searches use a regular expression; file "
             "searches use a glob pattern. HomeMaster prefers rg and falls back to grep/find in the "
             "execution environment, records the actual engine, and applies a real timeout. Use "
-            "terminal when you need to choose the exact program, command, or pipeline."
+            "terminal when you need to choose the exact program, command, or command sequence."
         ),
         {
             "type": "object",

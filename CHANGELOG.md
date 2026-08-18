@@ -8,9 +8,8 @@
   table, quickstart, CLI reference, run modes, memory/skills/MCP/security/benchmark sections with
   links into the existing user guides, an honest current-boundaries section, and no machine-local
   absolute paths. All referenced files, tool names, and CLI commands were re-verified against the
-  current code; in particular the public memory tool count is corrected to the five actually
-  registered tools (`context_memory`, `mindmemos_search/add/update/delete`), replacing the stale
-  "six public tools" wording inherited from before the model-facing memory tool refactor.
+  current code; the public memory tool count now matches the seven registered tools
+  (`context_memory`, `mindmemos_search/history/add/update/delete/feedback`).
 
 ### Fixed
 
@@ -43,6 +42,20 @@
   product architecture without weakening its coverage of ordinary product files.
 
 ### Added
+
+- Added one unified `mindmemos_update` dispatch boundary and `mindmemos_history`. Memories with a
+  valid `record_json` now receive a deterministic linked version that updates content, structured
+  metadata, memory/entity vectors and Neo4j relationships without re-running Schema Add; Vanilla
+  memories continue to use native in-place update. Corrupt structured metadata fails closed, and
+  history returns active and archived Qdrant records connected by `DERIVED_FROM`.
+
+- Added V2.6 memory self-correction: one `mindmemos_feedback` tool binds the successful provider
+  attempt's frozen visible recall context, revalidates every raw target, and exposes per-action
+  terminal receipts. Session finalization now resumes independently across Vanilla Add, native
+  implicit feedback, and a persistent per-project/user dreaming batch; the configurable default
+  threshold is eight confirmed ordinary additions, failures retain pending work, and only verified
+  raw/lineage/consolidation terminal states consume a batch. Vendored MindMemOS now returns truthful
+  typed feedback/dreaming outcomes and sends non-empty user messages to the Mimo/Anthropic route.
 
 - Added the Hermes-style dual search surface: `terminal` lets the model choose the complete command, while
   `search_files` selects `rg`/`grep`/`find` in the execution environment and runs through the real process-group

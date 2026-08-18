@@ -6,11 +6,16 @@ from types import SimpleNamespace
 import pytest
 from mindmemos.config import DreamingConfig, TextProcessingConfig
 from mindmemos.infra.db import QdrantRecord
-from mindmemos.pipelines.dreaming.default import DefaultDreamingPipeline
+from mindmemos.pipelines.dreaming.default import ConsolidationScope, DefaultDreamingPipeline
 from mindmemos.typing.activity import ActivityScope, RecentActivityBundle, WrittenMemoryRef
-from mindmemos.typing.algo import ConsolidationAction, ConsolidationCreate, ConsolidationLink, ConsolidationMerge
+from mindmemos.typing.algo import (
+    ConsolidationAction,
+    ConsolidationCreate,
+    ConsolidationLink,
+    ConsolidationMerge,
+)
 from mindmemos.typing.memory import GraphNeighborScope, MemoryRequestContext, MemoryView
-from mindmemos.typing.service import DreamingPipelineInput
+from mindmemos.typing.service import DreamingActionReceipt, DreamingPipelineInput
 
 
 class FakeReader:
@@ -126,6 +131,9 @@ class FakeLLM:
         self.calls = 0
 
     async def chat(self, **_kwargs):
+        messages = _kwargs["messages"]
+        if not any(message["role"] == "user" and message["content"].strip() for message in messages):
+            raise RuntimeError("provider requires a non-empty user message")
         self.calls += 1
         if self.calls % 2 == 1:
             return SimpleNamespace(
@@ -144,6 +152,11 @@ class FakeLLM:
                 )
             )
         return SimpleNamespace(parsed=self.action)
+
+
+class RejectingLLM:
+    async def chat(self, **_kwargs):
+        raise RuntimeError("provider rejected request")
 
 
 class FakeActivityCollector:
@@ -235,6 +248,15 @@ def pipeline(
     return pipe, reader, writer
 
 
+def test_dreaming_input_round_trips_seed_add_record_ids():
+    payload = DreamingPipelineInput(
+        mode="sync",
+        seed_add_record_ids=["add-m1", "add-m2"],
+    )
+
+    assert DreamingPipelineInput.model_validate(payload.model_dump()) == payload
+
+
 @pytest.mark.asyncio
 async def test_dreaming_archives_exact_duplicates_before_llm_actions():
     memories = [
@@ -248,6 +270,108 @@ async def test_dreaming_archives_exact_duplicates_before_llm_actions():
     assert result.status == "ok"
     assert writer.deleted == [("m2", "duplicate_of:m1")]
     assert writer.plans == []
+
+
+@pytest.mark.asyncio
+async def test_dreaming_provider_failure_does_not_complete_add_records():
+    memories = [
+        memory("m1", content="Alice likes tea", created_offset=1),
+        memory("m2", content="Alice likes coffee", created_offset=2),
+    ]
+    pipe, _reader, writer = pipeline(memories=memories, action=ConsolidationAction())
+    pipe._llm_client = RejectingLLM()
+
+    result = await pipe.dream_sync(DreamingPipelineInput(mode="sync"), ctx())
+
+    assert result.status == "error"
+    assert result.outcome == "failed"
+    assert result.errors
+    assert writer.add_record_patches == []
+
+
+@pytest.mark.asyncio
+async def test_exact_duplicate_mutation_failure_returns_typed_failure(monkeypatch):
+    memories = [
+        memory("m1", content="Alice likes tea", content_hash="same", created_offset=1),
+        memory("m2", content="Alice likes tea", content_hash="same", created_offset=2),
+    ]
+    pipe, _reader, writer = pipeline(memories=memories, action=ConsolidationAction())
+
+    async def reject_mutation(*_args, **_kwargs):
+        raise RuntimeError("qdrant rejected archive")
+
+    monkeypatch.setattr(pipe, "_apply_memory_deletes", reject_mutation)
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    assert result.status == "error"
+    assert result.outcome == "failed"
+    assert result.completed_add_record_ids == []
+    assert "qdrant rejected archive" in result.errors[0]
+    assert writer.add_record_patches == []
+
+
+@pytest.mark.asyncio
+async def test_failed_scope_does_not_block_other_scope_completion(monkeypatch):
+    memories = [
+        memory("m1", content="Alice likes tea"),
+        memory("m2", content="Alice likes coffee"),
+        memory("m3", content="Bob likes tea", entity_id="entity-2"),
+        memory("m4", content="Bob likes coffee", entity_id="entity-2"),
+    ]
+    pipe, _reader, writer = pipeline(memories=memories, action=ConsolidationAction())
+    scopes = [
+        (
+            ConsolidationScope(
+                entity_id="entity-1",
+                property_name="preference",
+                score=2,
+                seed_memory_ids=("m1", "m2"),
+                add_record_ids=("add-a",),
+                primary_memory_id="m1",
+            ),
+            memories[:2],
+        ),
+        (
+            ConsolidationScope(
+                entity_id="entity-2",
+                property_name="preference",
+                score=2,
+                seed_memory_ids=("m3", "m4"),
+                add_record_ids=("add-b",),
+                primary_memory_id="m3",
+            ),
+            memories[2:],
+        ),
+    ]
+
+    async def fixed_clusters(*_args, **_kwargs):
+        return scopes
+
+    async def per_scope_receipts(_context, cluster_memories, _archived):
+        if cluster_memories[0].memory_id == "m1":
+            return [
+                DreamingActionReceipt(
+                    action="archive",
+                    target_memory_ids=["m2"],
+                    status="error",
+                    error="archive rejected",
+                )
+            ]
+        return []
+
+    async def no_issues(_context):
+        return []
+
+    monkeypatch.setattr(pipe, "_cluster_hot_memories", fixed_clusters)
+    monkeypatch.setattr(pipe, "_apply_exact_duplicate_archives", per_scope_receipts)
+    monkeypatch.setattr(pipe, "_call_relation_detection_llm", no_issues)
+
+    result = await pipe.dream_sync(DreamingPipelineInput(), ctx())
+
+    assert result.status == "error"
+    assert result.completed_add_record_ids == ["add-b"]
+    assert [item[0] for item in writer.add_record_patches] == ["add-b"]
 
 
 @pytest.mark.asyncio
@@ -272,6 +396,67 @@ async def test_dreaming_skips_done_add_records_when_clustering_hot_memories():
     assert "ORDER BY coalesce(neighbor.update_at, neighbor.created_at) DESC" in query
     assert "LIMIT $entity_probe_limit" in query
     assert params["entity_probe_limit"] == pipe._cfg.max_entity_memory_count + 1
+
+
+@pytest.mark.asyncio
+async def test_dreaming_locked_seeds_read_add_records_without_lookback_scan():
+    memories = [
+        memory("m1", content="Alice likes tea"),
+        memory("m2", content="Alice likes coffee"),
+    ]
+    pipe, reader, _writer = pipeline(memories=memories, action=ConsolidationAction())
+    reader.add_record_payloads = {
+        "old-add-1": {
+            "memories": [
+                {"operation": "add", "memory_id": "m1", "content": "Alice likes tea"}
+            ]
+        },
+        "old-add-2": {
+            "memories": [
+                {
+                    "operation": "add",
+                    "memory_id": "m2",
+                    "content": "Alice likes coffee",
+                }
+            ]
+        },
+    }
+
+    clusters = await pipe._cluster_hot_memories(
+        ctx(), seed_add_record_ids=["old-add-1", "old-add-2"]
+    )
+
+    assert len(clusters) == 1
+    assert clusters[0][0].add_record_ids == ("old-add-1", "old-add-2")
+
+
+@pytest.mark.asyncio
+async def test_dreaming_no_cluster_completes_locked_seed_add_records(monkeypatch):
+    memories = [memory("m1", content="One standalone memory")]
+    pipe, reader, writer = pipeline(memories=memories, action=ConsolidationAction())
+    reader.add_record_payloads = {
+        "add-m1": {
+            "memories": [
+                {"operation": "add", "memory_id": "m1", "content": memories[0].content}
+            ]
+        }
+    }
+
+    async def no_graph_clusters(_query: str, **_params):
+        return []
+
+    monkeypatch.setattr(reader, "_run_neo4j_read", no_graph_clusters)
+    reader._clients.neo4j.run_read = no_graph_clusters
+
+    result = await pipe.dream_sync(
+        DreamingPipelineInput(seed_add_record_ids=["add-m1"]), ctx()
+    )
+
+    assert result.status == "ok"
+    assert result.outcome == "no_action"
+    assert result.reviewed_add_record_ids == ["add-m1"]
+    assert result.completed_add_record_ids == ["add-m1"]
+    assert [item[0] for item in writer.add_record_patches] == ["add-m1"]
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,7 @@ def test_memory_config_defaults_are_single_backend_and_expand_private_paths() ->
     assert config.memory.memory_char_limit == 2200
     assert config.memory.embedding_provider_name == "MemoryEmbedding"
     assert config.memory.embedding_dimensions == 4096
+    assert config.memory.dreaming_memory_threshold == 8
     assert config.memory.mindmemos_qdrant_path == (
         config.memory.data_root / "mindmemos" / "qdrant"
     )
@@ -94,6 +95,11 @@ def test_managed_neo4j_requires_home_java_and_password() -> None:
 def test_memory_config_rejects_invalid_values(payload: dict[str, object], message: str) -> None:
     with pytest.raises(ValidationError, match=message):
         HomeMasterConfig(memory=payload)
+
+
+def test_memory_config_rejects_non_positive_dreaming_threshold() -> None:
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        HomeMasterConfig(memory={"dreaming_memory_threshold": 0})
 
 
 def test_enabled_memory_requires_named_embedding_provider_with_embedding_kind() -> None:

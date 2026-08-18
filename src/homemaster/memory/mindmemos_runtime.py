@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from contextvars import ContextVar
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -59,6 +60,42 @@ _TYPED_RECORD: ContextVar[dict[str, Any] | None] = ContextVar(
     "homemaster_mindmemos_typed_record",
     default=None,
 )
+
+
+@dataclass(frozen=True)
+class RecordedAddResult:
+    add_record_id: str
+    result: Any
+
+
+def _updated_schema_metadata(
+    current: Mapping[str, Any] | None,
+    replacement: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Replace HomeMaster request metadata while preserving native schema bookkeeping."""
+
+    merged = dict(current or {})
+    request_metadata = merged.get("request_metadata")
+    if not isinstance(request_metadata, Mapping):
+        merged["request_metadata"] = dict(replacement)
+        return merged
+    request_copy = dict(request_metadata)
+    record_metadata = request_copy.get("record_metadata")
+    if isinstance(record_metadata, Sequence) and not isinstance(record_metadata, (str, bytes)):
+        items = [dict(item) for item in record_metadata if isinstance(item, Mapping)]
+        replaced = False
+        for index, item in enumerate(items):
+            if "record_json" in item:
+                items[index] = {**item, **replacement}
+                replaced = True
+                break
+        if not replaced:
+            items.append(dict(replacement))
+        request_copy["record_metadata"] = items
+    else:
+        request_copy.update(replacement)
+    merged["request_metadata"] = request_copy
+    return merged
 
 
 def _typed_entity_generation(record: dict[str, Any], prompt: str) -> dict[str, Any]:
@@ -276,12 +313,16 @@ class EmbeddedMindMemOS:
         self._neo4j: Any | None = None
         self._recorder: Any | None = None
         self._reader: Any | None = None
+        self._writer: Any | None = None
+        self._schema_write_plan_builder: Any | None = None
         self._add_pipeline: Any | None = None
         self._vanilla_add_pipeline: Any | None = None
         self._search_pipeline: Any | None = None
         self._get_pipeline: Any | None = None
         self._update_pipeline: Any | None = None
         self._delete_pipeline: Any | None = None
+        self._feedback_pipeline: Any | None = None
+        self._dreaming_pipeline: Any | None = None
         self._unavailable_cause: str | None = None
 
     @property
@@ -328,6 +369,17 @@ class EmbeddedMindMemOS:
         )
         with import_capture:
             import jieba
+            from mindmemos.components.activity import RecentActivityCollector
+            from mindmemos.components.extractor.schema._schema_write_plan import (
+                SchemaWritePlanBuilder,
+            )
+            from mindmemos.components.feedback import (
+                DefaultExplicitFeedbackPlanner,
+                ImplicitFeedbackActionPlanner,
+                ImplicitFeedbackQueryRewriter,
+                ImplicitFeedbackSignalDetector,
+            )
+            from mindmemos.components.text import SparseVectorEncoder, get_text_preprocessor
             from mindmemos.config import init_config_value, reset_config
             from mindmemos.infra.db import (
                 Neo4jStore,
@@ -337,6 +389,13 @@ class EmbeddedMindMemOS:
             from mindmemos.llm import get_embed_client, get_llm_client
             from mindmemos.llm.router import clear_router_cache
             from mindmemos.pipelines import create_pipeline
+            from mindmemos.pipelines.dreaming.default import DefaultDreamingPipeline
+            from mindmemos.pipelines.feedback.executor import FeedbackActionExecutor
+            from mindmemos.pipelines.feedback.explicit import ExplicitFeedbackHandler
+            from mindmemos.pipelines.feedback.implicit import (
+                ImplicitFeedbackHandler,
+                ImplicitFeedbackRecordCollector,
+            )
             from mindmemos.pipelines.memory_db import (
                 AddRecordBuffer,
                 AddRecordStore,
@@ -366,9 +425,21 @@ class EmbeddedMindMemOS:
             skill = SkillVersionRepository(mapped.database.qdrant, engine=store.engine)
             await skill.ensure_schema()
             clients = SimpleNamespace(qdrant=store, neo4j=neo4j, skill=skill)
+            llm_client = get_llm_client()
             embed_client = get_embed_client()
             reader = MemoryDbReader(clients=clients)
             writer = MemoryDbWriter(clients=clients, embed_client=embed_client)
+            text_config = mapped.algo_config.text_processing
+
+            async def embed_texts(task: str, texts: list[str]) -> list[list[float]]:
+                response = await embed_client.embed(task=task, text=texts)
+                return response.embeddings
+
+            schema_write_plan_builder = SchemaWritePlanBuilder(
+                text_preprocessor=get_text_preprocessor(text_config),
+                sparse_encoder=SparseVectorEncoder(text_config),
+                embed_texts=embed_texts,
+            )
             add_record_store = AddRecordStore(clients=clients)
             recorder = MemoryOperationRecorder(
                 add_record_store=add_record_store,
@@ -381,7 +452,7 @@ class EmbeddedMindMemOS:
                 db_writer=writer,
                 recorder=recorder,
                 add_buffer=AddRecordBuffer(clients=clients),
-                llm_client=_TypedSchemaLlmClient(get_llm_client()),
+                llm_client=_TypedSchemaLlmClient(llm_client),
                 embed_client=embed_client,
                 prompt_set=build_mindmemos_add_prompts(mapped.algo_config.common.prompt_language),
             )
@@ -391,7 +462,7 @@ class EmbeddedMindMemOS:
                 db_reader=reader,
                 db_writer=writer,
                 recorder=recorder,
-                llm_client=get_llm_client(),
+                llm_client=llm_client,
                 embed_client=embed_client,
             )
             search_pipeline = create_pipeline(
@@ -419,6 +490,47 @@ class EmbeddedMindMemOS:
                 db_reader=reader,
                 db_writer=writer,
             )
+            feedback_executor = FeedbackActionExecutor(
+                db_reader=reader,
+                db_writer=writer,
+                embed_client=embed_client,
+            )
+            activity_collector = RecentActivityCollector(store)
+            feedback_pipeline = create_pipeline(
+                type="feedback",
+                name="default_feedback",
+                explicit_handler=ExplicitFeedbackHandler(
+                    planner=DefaultExplicitFeedbackPlanner(llm_client=llm_client),
+                    executor=feedback_executor,
+                    search_pipeline=search_pipeline,
+                ),
+                implicit_handler=ImplicitFeedbackHandler(
+                    collector=ImplicitFeedbackRecordCollector(
+                        memory_reader=reader,
+                        memory_writer=writer,
+                        activity_collector=activity_collector,
+                        clients=clients,
+                        query_rewriter=ImplicitFeedbackQueryRewriter(
+                            llm_client=llm_client
+                        ),
+                        search_pipeline=search_pipeline,
+                    ),
+                    signal_detector=ImplicitFeedbackSignalDetector(
+                        llm_client=llm_client
+                    ),
+                    action_planner=ImplicitFeedbackActionPlanner(
+                        llm_client=llm_client
+                    ),
+                    executor=feedback_executor,
+                ),
+            )
+            dreaming_pipeline = DefaultDreamingPipeline(
+                llm_client=llm_client,
+                embed_client=embed_client,
+                activity_collector=activity_collector,
+                db_reader=reader,
+                db_writer=writer,
+            )
         except Exception as exc:
             try:
                 await neo4j.close()
@@ -433,12 +545,16 @@ class EmbeddedMindMemOS:
         self._neo4j = neo4j
         self._recorder = recorder
         self._reader = reader
+        self._writer = writer
+        self._schema_write_plan_builder = schema_write_plan_builder
         self._add_pipeline = add_pipeline
         self._vanilla_add_pipeline = vanilla_add_pipeline
         self._search_pipeline = search_pipeline
         self._get_pipeline = get_pipeline
         self._update_pipeline = update_pipeline
         self._delete_pipeline = delete_pipeline
+        self._feedback_pipeline = feedback_pipeline
+        self._dreaming_pipeline = dreaming_pipeline
         self._unavailable_cause = None
 
     async def add(
@@ -527,11 +643,12 @@ class EmbeddedMindMemOS:
             operation="homemaster.mindmemos.vanilla_add",
         )
         try:
-            return await self._vanilla_add_pipeline.add_sync(
+            result = await self._vanilla_add_pipeline.add_sync(
                 payload,
                 context,
                 add_record_id=add_record_id,
             )
+            return RecordedAddResult(add_record_id=add_record_id, result=result)
         except Exception as exc:
             await suppress_recording_errors(
                 self._recorder.mark_add_failed(context, add_record_id, str(exc)),
@@ -612,12 +729,233 @@ class EmbeddedMindMemOS:
             context,
         )
 
+    async def update_versioned(
+        self,
+        *,
+        memory_id: str,
+        content: str,
+        metadata: dict[str, Any],
+        context: Any,
+    ) -> Any:
+        """Create one deterministic schema version without re-running Schema Add."""
+
+        from datetime import UTC, datetime
+
+        from mindmemos.components.extractor.schema import property_relationships
+        from mindmemos.typing import (
+            REL_DERIVED_FROM,
+            EntityWrite,
+            GraphNodeRef,
+            GraphRelationship,
+            MemoryDbMutationPlan,
+            MemoryDbUpdateCommand,
+            MemoryWrite,
+        )
+
+        if self._reader is None or self._writer is None or self._schema_write_plan_builder is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        current = await self._reader.get_memory(context, memory_id)
+        if current is None:
+            return SimpleNamespace(
+                status="error",
+                message=f"memory not found: {memory_id}",
+                memory_id=None,
+            )
+        if current.status != "active":
+            return SimpleNamespace(
+                status="error",
+                message=f"memory is not active (status={current.status}): {memory_id}",
+                memory_id=None,
+            )
+        if not current.entity_id or not current.property_name:
+            return SimpleNamespace(
+                status="error",
+                message="structured memory is missing entity linkage",
+                memory_id=None,
+            )
+        entity_state = await self._reader.get_entity_with_memories(context, current.entity_id)
+        if entity_state is None:
+            return SimpleNamespace(
+                status="error",
+                message=f"entity not found: {current.entity_id}",
+                memory_id=None,
+            )
+
+        record_value = metadata.get("record_json")
+        try:
+            record = json.loads(record_value) if isinstance(record_value, str) else None
+            projected = _typed_entity_generation(record, "") if isinstance(record, dict) else None
+            entity_description = projected["entities"][0]["description"]
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            return SimpleNamespace(
+                status="error",
+                message=f"invalid structured replacement metadata: {exc}",
+                memory_id=None,
+            )
+
+        now = datetime.now(UTC)
+        new_memory_id = str(uuid4())
+        new_memory = MemoryWrite(
+            memory_id=new_memory_id,
+            account_id=context.account_id,
+            project_id=context.project_id,
+            api_key_uuid=context.api_key_uuid,
+            user_id=context.user_id,
+            app_id=context.app_id,
+            session_id=context.session_id,
+            agent_id=context.agent_id,
+            request_id=context.request_id,
+            content=content,
+            mem_type=current.mem_type,
+            mem_extract_type=current.mem_extract_type or "schema",
+            mem_extract_version="homemaster_versioned_update_v1",
+            metadata=_updated_schema_metadata(current.metadata, metadata),
+            validate_from=current.validate_from,
+            validate_to=current.validate_to,
+            created_at=now,
+            parent_ids=[current.memory_id],
+            root_id=current.root_id or [current.memory_id],
+            property_name=current.property_name,
+            entity_id=current.entity_id,
+            entity_type=current.entity_type,
+        )
+        entity_view = entity_state.to_entity_view(project_id=context.project_id)
+        entity = EntityWrite(
+            entity_id=current.entity_id,
+            account_id=context.account_id,
+            project_id=context.project_id,
+            api_key_uuid=context.api_key_uuid,
+            user_id=context.user_id,
+            app_id=context.app_id,
+            session_id=context.session_id,
+            agent_id=context.agent_id,
+            request_id=context.request_id,
+            entity_name=entity_view.entity_name,
+            entity_type=entity_view.entity_type,
+            description=str(entity_description),
+            created_at=entity_view.created_at or current.created_at or now,
+            update_at=now,
+            metadata=dict(entity_view.metadata),
+        )
+        relationships = [
+            *property_relationships(context.project_id, current.entity_id, new_memory),
+            GraphRelationship(
+                source=GraphNodeRef(
+                    kind="Memory", project_id=context.project_id, node_id=new_memory_id
+                ),
+                target=GraphNodeRef(
+                    kind="Memory", project_id=context.project_id, node_id=current.memory_id
+                ),
+                rel_type=REL_DERIVED_FROM,
+                project_id=context.project_id,
+                metadata={"reason": "direct_structured_update", "created_at": now.isoformat()},
+            ),
+        ]
+        write_plan = await self._schema_write_plan_builder.build(
+            memories=[new_memory],
+            entities=[entity],
+            relationships=relationships,
+            project_id=context.project_id,
+            entity_context_memories=[new_memory],
+        )
+        mutation_plan = MemoryDbMutationPlan.from_write_plan(write_plan)
+        mutation_plan.memory_updates = [
+            MemoryDbUpdateCommand(
+                memory_id=current.memory_id,
+                status="archived",
+                reason="direct_structured_update",
+                metadata_patch={"derived_to": new_memory_id},
+            )
+        ]
+        result = await self._writer.apply_mutation_plan(
+            context,
+            mutation_plan,
+            consistency="strong",
+        )
+        mutation = result.mutations[0] if result.mutations else None
+        changed = new_memory_id in result.memory_ids and bool(mutation and mutation.changed)
+        return SimpleNamespace(
+            status="ok" if changed and not result.errors else "error",
+            message="; ".join(result.errors) if result.errors else None,
+            memory_id=new_memory_id if changed else None,
+        )
+
+    async def get_history(self, memory_id: str, context: Any) -> list[Any]:
+        """Return every Qdrant version connected to one memory through DERIVED_FROM."""
+
+        if self._reader is None or self._neo4j is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        seed = await self._reader.get_memory(context, memory_id)
+        if seed is None:
+            return []
+        rows = await self._neo4j.run_read(
+            """
+            MATCH (seed:Memory {project_id: $project_id, memory_id: $memory_id})
+            OPTIONAL MATCH (seed)-[:DERIVED_FROM*0..]-(version:Memory {project_id: $project_id})
+            RETURN DISTINCT coalesce(version.memory_id, seed.memory_id) AS memory_id
+            """,
+            project_id=context.project_id,
+            memory_id=memory_id,
+        )
+        ids = list(
+            dict.fromkeys(
+                str(row.get("memory_id"))
+                for row in rows
+                if isinstance(row.get("memory_id"), str) and row.get("memory_id")
+            )
+        )
+        if memory_id not in ids:
+            ids.append(memory_id)
+        versions = []
+        for version_id in ids:
+            raw = await self._reader.get_memory(context, version_id)
+            if raw is not None:
+                versions.append(raw)
+        return sorted(
+            versions,
+            key=lambda item: str(item.created_at or item.update_at or ""),
+            reverse=True,
+        )
+
     async def get_raw(self, memory_id: str, context: Any) -> Any:
         """Read one raw memory by its persistent memory ID."""
 
         if self._reader is None:
             raise RuntimeError("embedded MindMemOS is not started")
         return await self._reader.get_memory(context, memory_id)
+
+    async def has_memory_lineage(
+        self,
+        *,
+        source_memory_id: str,
+        target_memory_id: str,
+        relationship: str,
+        context: Any,
+    ) -> bool:
+        if self._neo4j is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        rows = await self._neo4j.run_read(
+            """
+            MATCH (source:Memory {project_id: $project_id, memory_id: $source_memory_id})
+                  -[relation]->
+                  (target:Memory {project_id: $project_id, memory_id: $target_memory_id})
+            WHERE type(relation) = $relationship
+               OR relation.relation_type = $relationship
+            RETURN count(relation) AS relation_count
+            """,
+            project_id=context.project_id,
+            source_memory_id=source_memory_id,
+            target_memory_id=target_memory_id,
+            relationship=relationship,
+        )
+        return bool(rows and int(rows[0].get("relation_count", 0)) > 0)
+
+    async def get_add_records(
+        self, add_record_ids: list[str], context: Any
+    ) -> list[Any]:
+        if self._reader is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        return await self._reader.get_add_records_by_ids(context, add_record_ids)
 
     async def delete(self, memory_id: str, context: Any) -> Any:
         """Archive one raw memory through the native delete pipeline."""
@@ -628,6 +966,55 @@ class EmbeddedMindMemOS:
             raise RuntimeError("embedded MindMemOS is not started")
         return await self._delete_pipeline.delete(
             DeletePipelineInput(memory_id=memory_id),
+            context,
+        )
+
+    async def feedback_explicit(
+        self,
+        *,
+        feedback: str,
+        messages: list[Any],
+        recalled_memories: list[Any],
+        context: Any,
+    ) -> Any:
+        from mindmemos.typing import FeedbackPipelineInput
+
+        if self._feedback_pipeline is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        return await self._feedback_pipeline.feedback_sync(
+            FeedbackPipelineInput(
+                feedback=feedback,
+                messages=messages,
+                recalled_memories=recalled_memories,
+                mode="sync",
+            ),
+            context,
+        )
+
+    async def feedback_implicit(self, context: Any) -> Any:
+        from mindmemos.typing import FeedbackPipelineInput
+
+        if self._feedback_pipeline is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        return await self._feedback_pipeline.feedback_sync(
+            FeedbackPipelineInput(mode="sync"), context
+        )
+
+    async def dream(
+        self,
+        *,
+        seed_add_record_ids: list[str],
+        context: Any,
+    ) -> Any:
+        from mindmemos.typing import DreamingPipelineInput
+
+        if self._dreaming_pipeline is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        return await self._dreaming_pipeline.dream_sync(
+            DreamingPipelineInput(
+                mode="sync",
+                seed_add_record_ids=seed_add_record_ids,
+            ),
             context,
         )
 
@@ -642,12 +1029,16 @@ class EmbeddedMindMemOS:
         self._neo4j = None
         self._recorder = None
         self._reader = None
+        self._writer = None
+        self._schema_write_plan_builder = None
         self._add_pipeline = None
         self._vanilla_add_pipeline = None
         self._search_pipeline = None
         self._get_pipeline = None
         self._update_pipeline = None
         self._delete_pipeline = None
+        self._feedback_pipeline = None
+        self._dreaming_pipeline = None
         try:
             if neo4j is not None:
                 await neo4j.close()
@@ -660,6 +1051,7 @@ class EmbeddedMindMemOS:
 
 __all__ = [
     "EmbeddedMindMemOS",
+    "RecordedAddResult",
     "build_mindmemos_add_prompts",
     "build_mindmemos_config",
 ]

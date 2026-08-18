@@ -42,8 +42,6 @@ Safety rules:
 - Return only JSON.
 - Do not invent memory IDs.
 
-Memory cluster:
-{context}
 """
 
 

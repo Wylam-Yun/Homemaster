@@ -72,6 +72,12 @@ class FakeExecutor:
         return actions
 
 
+class FailingExecutor:
+    async def execute(self, actions: list[FeedbackActionResult], context: MemoryRequestContext):
+        del context
+        return [action.model_copy(update={"status": "error"}) for action in actions]
+
+
 class FakeLlmClient:
     def __init__(self, *contents: str) -> None:
         self.contents = list(contents)
@@ -317,6 +323,34 @@ async def test_explicit_feedback_uses_injected_planner() -> None:
     assert result.status == "ok"
     assert result.actions[0].action == "update"
     assert result.actions[0].after_content == "User uses uv."
+
+
+@pytest.mark.asyncio
+async def test_explicit_feedback_action_failure_sets_top_level_error() -> None:
+    pipeline = DefaultFeedbackPipeline(
+        explicit_handler=ExplicitFeedbackHandler(
+            planner=FakePlanner(),
+            executor=FailingExecutor(),
+        )
+    )
+
+    result = await pipeline.feedback(
+        FeedbackPipelineInput(
+            feedback="not conda, uv",
+            messages=[DialogueMessage(role="user", content="not conda, uv")],
+            recalled_memories=[
+                MemorySearchItem(
+                    id="mem-1",
+                    memory="User uses conda.",
+                    last_update_at="2026-06-01 00:00:00",
+                )
+            ],
+        ),
+        make_context(),
+    )
+
+    assert result.status == "error"
+    assert result.actions[0].status == "error"
 
 
 @pytest.mark.asyncio

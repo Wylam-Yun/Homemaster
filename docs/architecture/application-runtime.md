@@ -148,6 +148,27 @@ session 后把用户答案追加到完整历史。停止判据解析实际序列
 
 ALFWorld 和 Coworker 不再创建环境 ToolView；composition 直接生成 common + 当前环境的 Registry，
 并绑定对应 Backend。
+
+### Frozen memory feedback context
+
+每次 `ApplicationRuntime.run()` 只创建一个 run-level `RunContext`。自动召回保存模型可见文本和对应 raw
+`MemorySearchItem`；`mindmemos_search` executor 按 tool-call ID 保存实际投影给模型的命中。Provider 重试
+始终复用同一 frozen request body。只有某次成功 attempt 返回 `mindmemos_feedback` tool call 时，
+`AgentRuntime` 才从该 attempt 的 frozen messages 构造 `FeedbackContextSnapshot`，并绑定到准确 tool-call ID。
+
+```text
+successful frozen provider messages
+  + automatic recalled raw records
+  + visible mindmemos_search tool-result call IDs only
+  -> deep-copied FeedbackContextSnapshot
+  -> per-tool RunContext copy
+  -> mindmemos_feedback revalidation and native explicit feedback flow
+```
+
+被 compaction 移除的 search result、只出现在普通文本中的 ID、另一个 tool call 的记录都不会进入 snapshot。
+`ApplicationToolExecutor` 为每次调用复制 deps，但保留既有 completion guard、permission subject 和 event sink，
+因此并发工具不能互相替换反馈证据。工具结果中的 action、raw IDs、return status 和
+`terminal_verified` 进入下一次真实 provider request 的 `ToolResultMessage.content`。
 固定 benchmark skill、manifest 与 scorer 输入仍由 benchmark owner 管理，不参与运行时工具授权。
 
 ## MCP Lifecycle And Data Flow

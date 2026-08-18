@@ -118,6 +118,7 @@ runtime_defaults:
 
 memory:
   enabled: true
+  dreaming_memory_threshold: 8
   data_root: ~/.homemaster/memory
   soul_file: SOUL.md
   user_file: USER.md

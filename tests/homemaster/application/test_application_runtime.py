@@ -406,6 +406,75 @@ class _MemoryRecallTransport:
             yield delta
 
 
+class _MemoryHistoryStore(EmbeddedMindMemOS):
+    def __init__(self) -> None:
+        pass
+
+    async def search(self, query, context, **kwargs):
+        del query, context, kwargs
+        return SimpleNamespace(status="ok", memories=[])
+
+    async def get_history(self, memory_id, context):
+        del context
+        assert memory_id == "memory-current"
+
+        def version(version_id: str, value: str, status: str):
+            record = FactRecord(
+                memory_type="fact",
+                subject={"type": "other", "name": "Aurora-A18"},
+                predicate="package_manager",
+                value=value,
+                source="user_statement",
+            )
+            return SimpleNamespace(
+                memory_id=version_id,
+                content=f'Aurora-A18 的 package_manager 是 "{value}"',
+                metadata={"request_metadata": {"record_json": record.model_dump_json()}},
+                created_at=None,
+                update_at=None,
+                status=status,
+            )
+
+        return [
+            version("memory-current", "uv", "active"),
+            version("memory-old", "conda", "archived"),
+        ]
+
+
+class _MemoryHistoryTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def stream(self, messages, *, tools=None, **kwargs):
+        del kwargs
+        self.calls.append({"messages": messages, "tools": tools})
+        if len(self.calls) == 1:
+            names = {
+                tool.get("name") if isinstance(tool, dict) else getattr(tool, "model_alias", None)
+                for tool in tools
+            }
+            assert "mindmemos_history" in names
+            for delta in _tool(
+                "memory-history-1",
+                "mindmemos_history",
+                {"memory_id": "memory-current"},
+            ):
+                yield delta
+            return
+        tool_message = next(
+            message
+            for message in messages
+            if message.role == "tool" and message.name == "mindmemos_history"
+        )
+        payload = json.loads(tool_message.content[0].text)
+        assert [version["record"]["value"] for version in payload["versions"]] == [
+            "uv",
+            "conda",
+        ]
+        for delta in _text("之前使用 conda，现在使用 uv"):
+            yield delta
+
+
 class _ObservationExecutor:
     async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments, context
@@ -1133,6 +1202,26 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
         if message.role == "tool" and message.name == "mindmemos_search"
     ]
     assert len(tool_results) == 1
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+async def test_runtime_projects_memory_history_into_model_tool_content(tmp_path) -> None:
+    transport = _MemoryHistoryTransport()
+    app = _application(
+        tmp_path,
+        list(build_memory_tools()),
+        {"之前用的什么": transport},
+        application_services={"mindmemos": _MemoryHistoryStore()},
+    )
+
+    result = await app.run(
+        RunRequest(text="之前用的什么", session_id="memory-history-runtime", profile="home")
+    )
+
+    assert result.status is RunStatus.REPLIED
+    assert result.final_reply == "之前使用 conda，现在使用 uv"
+    assert len(transport.calls) == 2
     await app.aclose()
 
 

@@ -386,6 +386,21 @@ class DreamingPipelineInput(BaseModel):
     mode: AddMode = Field(default="async")
     """Execution mode. ``async`` queues work; ``sync`` runs consolidation inline."""
 
+    seed_add_record_ids: list[str] = Field(default_factory=list)
+    """Pending add records that define this locked consolidation batch."""
+
+
+class DreamingActionReceipt(BaseModel):
+    """One externally verifiable dreaming mutation receipt."""
+
+    action: Literal["create", "update", "merge", "archive", "link"]
+    target_memory_ids: list[str] = Field(default_factory=list)
+    result_memory_ids: list[str] = Field(default_factory=list)
+    status: ServiceResultStatus
+    reason: str | None = None
+    error: str | None = None
+    relationship: str | None = None
+
 
 class DreamingPipelineResult(BaseModel):
     status: ServiceResultStatus
@@ -393,3 +408,11 @@ class DreamingPipelineResult(BaseModel):
 
     message: str | None = None
     """Dreaming message."""
+
+    outcome: Literal["actions", "no_action", "failed"] = "no_action"
+    scopes: int = 0
+    clusters: int = 0
+    actions: list[DreamingActionReceipt] = Field(default_factory=list)
+    reviewed_add_record_ids: list[str] = Field(default_factory=list)
+    completed_add_record_ids: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)

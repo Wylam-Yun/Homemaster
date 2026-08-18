@@ -1,5 +1,31 @@
 # Engineering Pitfalls
 
+## 2026-08-18 - Direct structured update 重跑 Schema Add，阻塞近四分钟且历史链名不副实
+
+### 症状与根因
+
+用户把 `Aurora-A18.package_manager` 从 `conda` 改为 `uv` 时，模型已经给出准确 raw ID 和完整
+`FactRecord`，`mindmemos_update` 却先归档旧记录，再调用完整 Schema Add。真实 trace 中 update 耗时
+232.6 秒，六次 LLM 阶段占绝大部分。MindMemOS 原生 update 虽快，但公开输入只有 content；直接使用会让
+正文变成 `uv` 而 HomeMaster 权威 `metadata.record_json.value` 仍是 `conda`。同时 direct update 保存了两个
+raw ID，却没有建立文档声称的 `DERIVED_FROM`，普通单测只断言第二次 add 和旧 ID 归档，因此没有发现
+“保存了旧记录”不等于“存在可查询版本链”。
+
+### 修法与教训
+
+以旧 raw memory 是否存在合法 `record_json` 作为确定性分流：不存在时复用原生 in-place update；存在且合法时
+由完整 typed record 生成一次 native DB mutation plan，同步 content、request metadata、memory/entity vectors、
+`HAS_PROPERTY_MEMORY`、`MENTIONS` 和 `DERIVED_FROM`，再归档旧 ID；存在但损坏时零 mutation fail closed。
+版本链必须由独立 history 工具从 Neo4j 关系遍历并逐个回读 Qdrant，不能用“旧记录还在”代替 lineage 验证。
+验收逐路径断言外部 raw 状态、准确 record、同/新 ID 语义和真实图关系，并确认 Schema update 没有 Add 调用。
+
+### 参考
+
+- `src/homemaster/tools/memory_tools.py`
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `tests/homemaster/memory/test_memory_tools.py`
+- `tests/homemaster/memory/test_mindmemos_runtime.py`
+
 ## 2026-08-17 - Search schema timeout was never connected to the Python scanner
 
 ### 症状与根因

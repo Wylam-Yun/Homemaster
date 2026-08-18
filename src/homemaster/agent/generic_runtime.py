@@ -426,6 +426,11 @@ class AgentRuntime:
                         ):
                             raise RuntimeError("provider retry changed the frozen request body")
                         assistant_msg = aggregate_deltas(deltas)
+                        _bind_provider_attempt_contexts(
+                            assistant_msg.tool_calls,
+                            frozen_messages,
+                            run_context,
+                        )
                         break
                 except Exception as exc:
                     if (
@@ -1078,6 +1083,23 @@ class AgentRuntime:
 
 def _cancelled(interrupt: InterruptController, cancellation_token: Any) -> bool:
     return interrupt.cancelled or bool(getattr(cancellation_token, "cancelled", False))
+
+
+def _bind_provider_attempt_contexts(
+    tool_calls: list[ToolCall],
+    frozen_messages: list[Any],
+    run_context: RunContext | None,
+) -> None:
+    if run_context is None:
+        return
+    binder = run_context.deps.get("provider_attempt_context_binder")
+    if not callable(binder):
+        return
+    binder(
+        tool_calls=tool_calls,
+        frozen_messages=frozen_messages,
+        deps=run_context.deps,
+    )
 
 
 async def _consume_stream(

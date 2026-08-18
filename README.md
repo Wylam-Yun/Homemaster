@@ -42,7 +42,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 - **领域机器人工具** — `robot_go_to`、`robot_manipulate`、`robot_verify`、`task_progress_check`
   和共用的画面截图工具 `observe`。
 - **分层记忆系统** — `SOUL.md` / `USER.md` / `MEMORY.md` 三层本地文件记忆 + embedded MindMemOS
-  结构化检索（本地 Qdrant + Neo4j），新会话首个请求前自动召回相关经验。
+  结构化检索（本地 Qdrant + Neo4j）；支持自动召回、用户反馈纠正、会话结束隐式反馈，以及每 8 条有效
+  新增记忆触发的可恢复 dreaming。
 - **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发与建群/改名；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
@@ -228,8 +229,15 @@ HomeMaster 记忆分两层：
 
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
 自动执行一次 MindMemOS 召回（`top_k=3`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；
-Agent 仍可用 `mindmemos_search` 主动补充搜索。公开记忆工具共五个：
-`context_memory`、`mindmemos_search`、`mindmemos_add`、`mindmemos_update`、`mindmemos_delete`。
+Agent 仍可用 `mindmemos_search` 主动补充搜索，并用 `mindmemos_history` 按准确 ID 查看 active/archived
+版本链。用户给出纠正但具体 mutation 尚未确定时，模型调用 `mindmemos_feedback`，其目标只能来自该次成功
+provider request 实际可见的 raw recall。公开记忆工具共七个：`context_memory`、`mindmemos_search`、
+`mindmemos_history`、`mindmemos_add`、`mindmemos_update`、`mindmemos_delete`、`mindmemos_feedback`。
+
+交互 Session 结束后，HomeMaster 在 Vanilla Add 写后回读成功的基础上运行 operation-record implicit
+feedback；同一 project/user 每累计 8 条有效普通新增 raw memory 后运行一次 native dreaming。计数与 pending
+batch 持久化，失败在下次启动或 finalization 重试，只有 per-action raw/lineage 与 add-record 终态全部通过
+才消费批次。阈值可用 `memory.dreaming_memory_threshold` 配置。
 
 持久数据统一位于 `memory.data_root`（默认 `~/.homemaster/memory`）。`memory.neo4j.mode:
 managed_local` 下同节点多进程共享一套托管 Neo4j（首启自动拉起、末个进程退出自动停止），

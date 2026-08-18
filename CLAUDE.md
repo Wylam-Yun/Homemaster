@@ -206,6 +206,11 @@
 
 ## Provider 外部门纪律
 
+- 同一 update surface 覆盖文本与 Schema 记忆时，必须先读取旧 raw record 再按权威结构字段分流：结构字段
+  不存在才允许文本原地更新，存在且合法则同步正文、完整结构 metadata、向量和图关系，存在但损坏必须
+  fail closed。禁止用 content-only update 修改含结构副本的记录，也禁止为已经完整校验的 replacement record
+  重跑提取型 Add pipeline。声称保留版本必须真实写入 lineage，并提供从图关系到 raw 终态的查询验收。
+
 - 外部 schema pipeline 的 metadata 必须按真实 raw record 结构读取，不能假定请求 metadata 原样位于顶层。
   原生 pipeline 若会按语言或阶段重建 prompt，必须在真实调用点验证显式 prompt 仍生效；构造时注入成功不等于
   执行时使用。结构化写入验收必须从返回候选 ID 回读 raw memory，并逐个断言目标类型、完整 record 和 CRUD

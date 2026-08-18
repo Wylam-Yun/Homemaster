@@ -30,8 +30,6 @@ Return JSON matching the existing ConsolidationAction schema with creates, updat
 
 For every update, archive, merge, and link action, fill its reason field with a concise explanation based only on the provided content and effective_time. For archive actions, the reason must explicitly state the same subject, same property/relation, archived effective_time, replacement effective_time, and why the replacement is current.
 
-Focused issue group:
-{groups}
 """
 
 

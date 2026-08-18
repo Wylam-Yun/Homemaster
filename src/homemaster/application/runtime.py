@@ -17,6 +17,7 @@ from homemaster.agent.compact import strip_old_images
 from homemaster.agent.context import ComposedContext, ContextAssembler
 from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult
 from homemaster.agent.messages import Message
+from homemaster.agent.normalized import RunContext
 from homemaster.agent.state import AgentState
 from homemaster.application.contracts import (
     ResourceBinding,
@@ -43,6 +44,7 @@ from homemaster.memory.automatic_recall import (
     build_automatic_recall_query,
     build_mindmemos_request_context,
 )
+from homemaster.memory.feedback_context import bind_feedback_contexts
 from homemaster.providers.attempts import ListProviderAttemptSink
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
@@ -375,6 +377,7 @@ class ApplicationRuntime:
                     _provider_binding(provider_value, run_id=run_id)
                 ).resource
                 assembler = self.context_assembler_factory(request, provider)
+                assembler.bind_working_directory(self._working_directory)
                 agent_state = runtime.agent_state.model_copy(deep=True)
                 agent_state.run_id = run_id
                 current_user_evidence = self._register_user_memory_evidence(
@@ -412,7 +415,11 @@ class ApplicationRuntime:
                     initial_memory_evidence_refs=current_user_evidence,
                 )
                 try:
-                    recall_attempted, automatic_memory_context = await self._automatic_recall(
+                    (
+                        recall_attempted,
+                        automatic_memory_context,
+                        automatic_recalled_memories,
+                    ) = await self._automatic_recall(
                         request=request,
                         runtime=runtime,
                         generation=generation,
@@ -433,6 +440,26 @@ class ApplicationRuntime:
                     )
                     if callable(bind_automatic_memory_context):
                         bind_automatic_memory_context(automatic_memory_context)
+                bind_automatic_recalled_memories = getattr(
+                    assembler, "bind_automatic_recalled_memories", None
+                )
+                if callable(bind_automatic_recalled_memories):
+                    bind_automatic_recalled_memories(automatic_recalled_memories)
+                run_context = RunContext(
+                    session_id=session_id,
+                    run_id=run_id,
+                    turn_index=agent_state.turn_index,
+                    settings=self.settings,
+                    event_sink=run_event_sink,
+                    deps={
+                        "task_state_store": task_state_store,
+                        "automatic_recalled_memories": automatic_recalled_memories,
+                        "recalled_memories_by_tool_call_id": {},
+                        "memory_feedback_context_by_tool_call_id": {},
+                        "provider_attempt_context_binder": bind_feedback_contexts,
+                    },
+                    cancellation_token=runtime.cancellation,
+                )
                 fenced_session = _FencedAgentSession(
                     self.session_manager,
                     runtime,
@@ -459,7 +486,7 @@ class ApplicationRuntime:
                     generic = await agent.run(
                         fenced_session,
                         request.text,
-                        None,
+                        run_context,
                         event_sink=run_event_sink,
                         run_id=run_id,
                         settings=self.settings,
@@ -522,9 +549,9 @@ class ApplicationRuntime:
         task_state_store: TaskStateStore,
         event_sink: Any,
         deadline: Any,
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[bool, str | None, tuple[Any, ...]]:
         if not runtime.consume_recall(generation):
-            return False, None
+            return False, None, ()
 
         services = getattr(self.settings, "application_services", {})
         service = services.get("mindmemos") if isinstance(services, Mapping) else None
@@ -537,7 +564,7 @@ class ApplicationRuntime:
                 status="unavailable",
                 count=0,
             )
-            return True, None
+            return True, None, ()
 
         query = build_automatic_recall_query(
             current_user_message=request.text,
@@ -574,7 +601,7 @@ class ApplicationRuntime:
                 count=0,
                 error=str(exc),
             )
-            return True, None
+            return True, None, ()
 
         memories = list(getattr(result, "memories", ()))[:3]
         await _emit_automatic_recall_event(
@@ -584,7 +611,7 @@ class ApplicationRuntime:
             status="ok" if memories else "empty",
             count=len(memories),
         )
-        return True, build_automatic_recall_context(memories)
+        return True, build_automatic_recall_context(memories), tuple(memories)
 
     def _register_user_memory_evidence(
         self,

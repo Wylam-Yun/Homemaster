@@ -1,4 +1,4 @@
-# HomeMaster V2.5 记忆用户指南
+# HomeMaster V2.6 记忆用户指南
 
 ## 自动经验召回
 
@@ -47,6 +47,7 @@ memory:
   data_root: ~/.homemaster/memory
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
+  dreaming_memory_threshold: 8
   neo4j:
     mode: managed_local
     home: /absolute/path/to/neo4j-community
@@ -66,6 +67,7 @@ memory:
   files/MEMORY.md
   mindmemos/qdrant/
   mindmemos/cache/jieba/
+  mindmemos/dreaming_state/
   mindmemos/neo4j/runtime/
   evidence.sqlite3
 ```
@@ -111,7 +113,7 @@ coordinator 自动完成或恢复迁移。
 旧 `memory.root` 仅作为文件记忆的一次迁移输入兼容；不要与新 `memory.data_root` 同时配置。
 `memory.mem0` 已删除且配置会被拒绝。
 
-## 五个工具
+## 七个工具
 
 ### `context_memory`
 
@@ -146,7 +148,17 @@ turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工�
 }
 ```
 
-### `mindmemos_search` / `mindmemos_delete`
+`mindmemos_update` 先读取准确 ID：存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
+旧版本并写入 `DERIVED_FROM`，同时更新 metadata、memory/entity 向量和图关系，不重新运行 Schema Add；不存在
+`record_json` 时要求完整 `content`，复用 MindMemOS 原生原地更新并保持同一 ID。`record_json` 存在但损坏时
+直接报错，不能降级成 Vanilla。结构化更新不能改变 subject/predicate 或 procedure identity；这种变化应新增
+新记忆并归档旧记忆。
+
+```json
+{"memory_id":"<raw-id>","content":"Aurora-A18 now uses uv.","evidence_refs":["memory-evidence-<opaque>"]}
+```
+
+### `mindmemos_search` / `mindmemos_history` / `mindmemos_delete`
 
 `mindmemos_search` 按语义搜索长期记忆，返回按相关性排序的外部事实、已验证流程和历史 Session 经验。它调用
 MindMemOS 原生 search pipeline，并在工具边界按 fact/procedure 字段过滤。默认 limit
@@ -160,10 +172,28 @@ Session 自动沉淀的 Vanilla experience 在公开工具中作为 `procedure` 
 或完整 Vanilla experience 正文，因此不再提供单独的模型可见 get 工具；底层准确 ID 读取仍由搜索、更新和
 写后终态验证内部使用。
 
+`mindmemos_history` 接受 `mindmemos_search` 或 update receipt 返回的准确 ID，沿 Neo4j `DERIVED_FROM` 查询整个
+已链接分量，再逐个回读 Qdrant，按新到旧返回 active/archived 正文和结构化 record。普通 search 仍只返回
+active 记忆。升级前已经归档但没有 lineage 的旧记录不会被猜测性拼进版本链。
+
 `mindmemos_delete` 只接受 `mindmemos_search` 返回的准确 ID，并只用于用户明确要求、已确认错误/重复或永久失效
 的记录；如果信息只是变化，优先使用 `mindmemos_update`。没有 delete-all，也没有第一版自动遗忘。
 
-这四个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 memory ID、
+### `mindmemos_feedback`
+
+当用户给出明确纠正但没有指定准确 raw ID 或具体 add/update/delete 动作时，模型使用这个工具。例如：
+
+```json
+{"feedback":"不是 conda，用户现在使用 uv"}
+```
+
+工具没有 `memory_id` 参数。它只使用本次成功 provider request 中实际可见的自动召回和
+`mindmemos_search` raw records；已经被压缩掉的搜索结果、文本中手写的 ID、schema 聚合 ID、wrong-scope、
+archived 或内容已变化的记录都不能作为 mutation 目标。反馈 pipeline 可规划 `add`、版本化 `update`、
+`delete` 或 `noop`。每个 action 都返回 `status`、target/result IDs 和 `terminal_verified`；任一 action
+失败时整个工具返回错误。已知准确 ID 和确定替换内容时，仍优先使用确定性的 `mindmemos_update`。
+
+这六个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 memory ID、
 records、value、match sources 和错误）会作为 tool result 进入下一次模型上下文；不是只返回一句 succeeded。
 `context_memory` 同样把 entries/usage 等完整结果放进模型可见的 tool result。
 
@@ -253,9 +283,15 @@ Run 执行期间按 Ctrl+C 只取消当前 Run，不结束 Session。HomeMaster 
 模型思考、助手回复和工具结果作为带角色的 MindMemOS 输入。内部 ID、transport、usage 和重复终态不会
 发送给模型，也不会另存 `task_trace.json`。
 
-同目录的 `job.json` 记录 `pending/completed`、原始 operation 和 memory ID。Add 失败会显示错误，但不会
-阻止 Shell 退出或 `/new`。Vanilla Add 自主决定执行 `add/reinforcement/update/merge/skip`，因此一个
-Session 可能产生零条、一条或多条 Memory。
+同目录的 `job.json` 分阶段记录 Vanilla Add、implicit feedback、dreaming 计数和 dreaming 结果。Add 成功
+后会自动处理 operation-record 中同一用户尚未处理的纠正/不满/偏好变化；失败只重试未完成阶段，不会重复
+已经确认的 Add。Vanilla Add 自主决定执行 `add/reinforcement/update/merge/skip`，因此一个 Session 可能
+产生零条、一条或多条 Memory。
+
+同一 project/user 自上次成功 dreaming 后，每累计 `dreaming_memory_threshold` 条已回读 active 的普通
+Session 新增 raw memory（默认 8）触发一次批量去重、冲突处理和合并。批次先持久化为 pending；只有 pipeline
+返回成功、每个 action 的 raw/lineage 终态和每个 add record 的 consolidation 状态都通过，才推进水位。
+失败或进程退出会在下次 HomeMaster 启动或 Session finalization 重试，不会创建每日定时任务。
 
 调试时使用：
 

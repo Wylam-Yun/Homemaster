@@ -52,7 +52,12 @@ class ExplicitFeedbackHandler:
 
         planned_actions = await self._planner.plan(inp)
         actions = await self._executor.execute(planned_actions, context)
-        return FeedbackPipelineResult(status="ok", message=None, actions=actions)
+        failed = [action for action in actions if action.status == "error"]
+        return FeedbackPipelineResult(
+            status="error" if failed else "ok",
+            message=f"{len(failed)} feedback action(s) failed" if failed else None,
+            actions=actions,
+        )
 
     @property
     def _search_pipeline(self) -> SearchPipeline:

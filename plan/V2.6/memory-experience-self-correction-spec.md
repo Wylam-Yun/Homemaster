@@ -2,8 +2,8 @@
 
 ## 0. 文档状态
 
-- 日期：2026-08-17
-- 状态：设计边界已确认，待实施
+- 日期：2026-08-18
+- 状态：已实施并通过真实 Qdrant、Neo4j 与 provider 终态验证
 - 目标阶段：STAGE 03 · 会改 —— 经验级自纠错
 - 运行方式：HomeMaster embedded/local MindMemOS，同步 pipeline，不引入 Kafka
 - 真理源：本文件定义 V2.6 的实施范围、触发条件、行为边界和验收标准
@@ -67,10 +67,15 @@ V2.6 在现有记忆新增、召回和 CRUD 能力之上补齐经验纠错与后
 + 完整替换内容，或明确删除意图
 ```
 
-`DefaultUpdatePipeline` 对现有 active memory 原地修改 content。该能力是确定性管理动作，不负责搜索、
-识别反馈、判断是否应新增或选择其他记忆动作。
+HomeMaster direct update 读取 raw memory 后按 `record_json` 自动分流：
 
-本轮不改变 direct update/delete 的公开语义。
+- `record_json` 不存在：调用 `DefaultUpdatePipeline` 对 active Vanilla memory 原地修改 content/vector；
+- `record_json` 存在且通过 HomeMaster Schema 校验：要求完整 replacement record，确定性创建新版本、同步
+  metadata、memory/entity vectors 和图关系，归档旧版本并建立 `DERIVED_FROM`，不重新运行 Schema Add；
+- `record_json` 存在但损坏：fail closed，不得当作 Vanilla 更新。
+
+结构化 replacement 的 identity 不得变化。历史版本通过 `mindmemos_history(memory_id)` 查询，普通搜索继续只返回
+active memory；没有真实 lineage 的旧归档记录不得猜测性拼接。
 
 ### 3.2 Explicit feedback
 
@@ -88,8 +93,8 @@ feedback text
 add / update / delete / noop
 ```
 
-MindMemOS feedback executor 的 `update` 与 direct update 不同：它创建新 memory 版本、归档旧 memory，并建立
-`DERIVED_FROM` lineage。该版本化行为保持 MindMemOS 原生实现，不在 HomeMaster 中复制。
+MindMemOS feedback executor 的 `update` 继续使用 MindMemOS 原生版本化实现。Direct structured update 也保留
+版本，但由 HomeMaster 将已经验证的 typed record 确定性映射成 DB plan，避免再次调用 Schema Add 的 LLM 阶段。
 
 以下情况不得自动执行 mutation：
 
@@ -520,10 +525,12 @@ typed error
 
 ### 8.1 Direct update 回归
 
-1. 已知 raw memory ID 和新内容时，existing `update()` 仍原地修改 active memory；
-2. 返回状态成功；
-3. `get_raw()` 读取到准确新内容；
-4. unrelated memory 不发生变化。
+1. 无 `record_json` 的 Vanilla raw ID 和新 content 调用原生 `update()`，同一 ID 保持 active 且正文准确；
+2. 有合法 `record_json` 的 raw ID 和完整 replacement record 创建新 active ID，旧 ID archived；
+3. structured 新记录的 content、record_json、provenance、memory/entity vectors 和图关系同步更新；
+4. Neo4j 存在 `new-[:DERIVED_FROM]->old`，`mindmemos_history` 从任一端返回两个真实版本；
+5. `record_json` 存在但损坏时零 mutation；
+6. unrelated memory 不发生变化。
 
 ### 8.2 Explicit feedback
 

@@ -100,7 +100,7 @@ class MemoryEvidenceLedger:
         self,
         refs: Sequence[str],
         *,
-        expected_kind: EvidenceKind,
+        expected_kind: EvidenceKind | None,
         tenant_id: str,
         session_id: str,
         run_id: str,
@@ -110,7 +110,7 @@ class MemoryEvidenceLedger:
             raise MemoryEvidenceError("memory_evidence_missing", "evidence refs are required")
         evidence = tuple(self._get(ref) for ref in refs)
         if any(
-            item.kind != expected_kind
+            (expected_kind is not None and item.kind != expected_kind)
             or item.tenant_id != tenant_id
             or item.session_id != session_id
             or item.run_id != run_id

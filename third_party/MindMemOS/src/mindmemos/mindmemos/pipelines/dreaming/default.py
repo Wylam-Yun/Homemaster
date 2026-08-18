@@ -45,7 +45,7 @@ from ...typing.memory import (
     MemoryWrite,
     VectorWrite,
 )
-from ...typing.service import DreamingPipelineInput, DreamingPipelineResult
+from ...typing.service import DreamingActionReceipt, DreamingPipelineInput, DreamingPipelineResult
 from ..base import MemoryDbPipelineMixin
 from ..registry import register
 
@@ -109,80 +109,186 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         )
         return DreamingPipelineResult(status="queued", message="consolidation queued")
 
-    async def dream_sync(self, _inp: DreamingPipelineInput, context: MemoryRequestContext) -> DreamingPipelineResult:
-        summary = await self._consolidate_memory(context)
-        return DreamingPipelineResult(status="ok", message=f"consolidation complete: {summary}")
+    async def dream_sync(self, inp: DreamingPipelineInput, context: MemoryRequestContext) -> DreamingPipelineResult:
+        return await self._consolidate_memory(context, seed_add_record_ids=inp.seed_add_record_ids)
 
     # -- main orchestration --------------------------------------------------
 
     @traced("dreaming.consolidate")
-    async def _consolidate_memory(self, context: MemoryRequestContext) -> dict[str, int]:
+    async def _consolidate_memory(
+        self,
+        context: MemoryRequestContext,
+        *,
+        seed_add_record_ids: list[str] | None = None,
+    ) -> DreamingPipelineResult:
         run_id = str(uuid4())
 
-        clusters = await self._cluster_hot_memories(context)
+        clusters = await self._cluster_hot_memories(context, seed_add_record_ids=seed_add_record_ids)
         if self._cfg.max_scopes_per_run is not None:
             clusters = clusters[: self._cfg.max_scopes_per_run]
-        summary = {"scopes": len(clusters), "clusters": 0, "actions": 0, "add_records_done": 0}
+        if not clusters and seed_add_record_ids:
+            locked_ids = list(dict.fromkeys(seed_add_record_ids))
+            records = await self.db_reader.get_add_records_by_ids(context, locked_ids)
+            by_id = {record.point_id: record for record in records}
+            missing = [add_record_id for add_record_id in locked_ids if add_record_id not in by_id]
+            if missing:
+                return DreamingPipelineResult(
+                    status="error",
+                    outcome="failed",
+                    message="locked dreaming add records are missing",
+                    reviewed_add_record_ids=sorted(by_id),
+                    errors=[f"missing add record: {add_record_id}" for add_record_id in missing],
+                )
+            pending_ids = tuple(
+                add_record_id
+                for add_record_id in locked_ids
+                if (by_id[add_record_id].payload or {}).get("consolidation_status")
+                != "done"
+            )
+            marked: set[str] = set()
+            await self._mark_scope_add_records_done(
+                context,
+                ConsolidationScope(
+                    entity_id=None,
+                    property_name=None,
+                    score=0,
+                    add_record_ids=pending_ids,
+                ),
+                run_id,
+                marked,
+            )
+            return DreamingPipelineResult(
+                status="ok",
+                outcome="no_action",
+                message="no consolidation scope found",
+                reviewed_add_record_ids=locked_ids,
+                completed_add_record_ids=locked_ids,
+            )
+        receipts: list[DreamingActionReceipt] = []
+        errors: list[str] = []
+        reviewed_add_record_ids: set[str] = set()
+        completed_add_record_ids: set[str] = set()
+        processed_clusters = 0
         archived_memory_ids: set[str] = set()
         marked_add_record_ids: set[str] = set()
         state_lock = asyncio.Lock()
         sem = asyncio.Semaphore(max(1, int(self._cfg.concurrency or 1)))
 
         async def _process_cluster(scope: ConsolidationScope, memories: list[MemoryView]) -> None:
-            if len(memories) < self._cfg.min_cluster_size:
-                async with state_lock:
-                    summary["add_records_done"] += await self._mark_scope_add_records_done(
-                        context, scope, run_id, marked_add_record_ids
-                    )
-                return
-
+            nonlocal processed_clusters
+            scope_receipts: list[DreamingActionReceipt] = []
             async with state_lock:
-                deterministic = await self._apply_exact_duplicate_archives(context, memories, archived_memory_ids)
-                memories = [m for m in memories if m.memory_id not in archived_memory_ids]
+                reviewed_add_record_ids.update(scope.add_record_ids)
             if len(memories) < self._cfg.min_cluster_size:
                 async with state_lock:
-                    summary["clusters"] += 1
-                    summary["actions"] += deterministic
-                    summary["add_records_done"] += await self._mark_scope_add_records_done(
+                    await self._mark_scope_add_records_done(
                         context, scope, run_id, marked_add_record_ids
                     )
+                    completed_add_record_ids.update(scope.add_record_ids)
                 return
 
-            # ── LLM #1: relation detection ──
-            issue_groups = await self._call_relation_detection_llm(self._build_cluster_context(scope, memories))
+            try:
+                async with state_lock:
+                    deterministic = await self._apply_exact_duplicate_archives(
+                        context, memories, archived_memory_ids
+                    )
+                    scope_receipts.extend(deterministic)
+                    memories = [
+                        memory
+                        for memory in memories
+                        if memory.memory_id not in archived_memory_ids
+                    ]
+                if len(memories) < self._cfg.min_cluster_size:
+                    async with state_lock:
+                        receipts.extend(scope_receipts)
+                        failed = [
+                            receipt
+                            for receipt in scope_receipts
+                            if receipt.status == "error"
+                        ]
+                        if failed:
+                            errors.extend(
+                                receipt.error or "dreaming action failed"
+                                for receipt in failed
+                            )
+                            return
+                        processed_clusters += 1
+                        await self._mark_scope_add_records_done(
+                            context, scope, run_id, marked_add_record_ids
+                        )
+                        completed_add_record_ids.update(scope.add_record_ids)
+                    return
 
-            # ── LLM #2: focused action planning for each detected issue group ──
-            if issue_groups is not None:
+                issue_groups = await self._call_relation_detection_llm(
+                    self._build_cluster_context(scope, memories)
+                )
+
                 issue_group_list = self._aggregate_detected_issue_groups(issue_groups, memories, scope)
                 for issue_group in issue_group_list:
                     actions = await self._call_action_planning_llm(
                         self._build_group_context(scope, memories, issue_group)
                     )
-                    if actions is None:
-                        continue
-                    group_action_count = self._count_actions(actions)
-                    if not group_action_count:
-                        continue
                     async with state_lock:
-                        await self._apply_actions(context, actions, memories, archived_memory_ids)
-                        summary["actions"] += group_action_count
+                        scope_receipts.extend(
+                            await self._apply_actions(
+                                context,
+                                actions,
+                                memories,
+                                archived_memory_ids,
+                            )
+                        )
+            except Exception as exc:
+                async with state_lock:
+                    receipts.extend(scope_receipts)
+                    errors.append(f"{type(exc).__name__}: {exc}")
+                return
             async with state_lock:
-                summary["add_records_done"] += await self._mark_scope_add_records_done(
+                receipts.extend(scope_receipts)
+                failed = [
+                    receipt for receipt in scope_receipts if receipt.status == "error"
+                ]
+                if failed:
+                    errors.extend(receipt.error or "dreaming action failed" for receipt in failed)
+                    return
+                await self._mark_scope_add_records_done(
                     context, scope, run_id, marked_add_record_ids
                 )
-                summary["clusters"] += 1
-                summary["actions"] += deterministic
+                completed_add_record_ids.update(scope.add_record_ids)
+                processed_clusters += 1
 
         async def _wrapped(scope: ConsolidationScope, memories: list[MemoryView]) -> None:
             async with sem:
                 await _process_cluster(scope, memories)
 
         await asyncio.gather(*[_wrapped(scope, memories) for scope, memories in clusters])
-        return summary
+        if errors:
+            return DreamingPipelineResult(
+                status="error",
+                outcome="failed",
+                message="dreaming failed",
+                scopes=len(clusters),
+                clusters=processed_clusters,
+                actions=receipts,
+                reviewed_add_record_ids=sorted(reviewed_add_record_ids),
+                completed_add_record_ids=sorted(completed_add_record_ids),
+                errors=errors,
+            )
+        return DreamingPipelineResult(
+            status="ok",
+            outcome="actions" if receipts else "no_action",
+            message="consolidation complete",
+            scopes=len(clusters),
+            clusters=processed_clusters,
+            actions=receipts,
+            reviewed_add_record_ids=sorted(reviewed_add_record_ids),
+            completed_add_record_ids=sorted(completed_add_record_ids),
+        )
 
     async def _cluster_hot_memories(
         self,
         context: MemoryRequestContext,
+        *,
+        seed_add_record_ids: list[str] | None = None,
     ) -> list[tuple[ConsolidationScope, list[MemoryView]]]:
         """Per-entity grouping over hot memories with noise filtering.
 
@@ -195,29 +301,56 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         """
         # Step 1: collect hot seed memories (same as before)
         seed_add_records_by_memory_id: dict[str, set[str]] = {}
-        bundle = await self._get_activity_collector().collect(
-            ActivityScope(
-                project_id=context.project_id,
-                user_id=context.user_id or None,
-                session_id=context.session_id or None,
-                agent_id=context.agent_id or None,
-                app_id=context.app_id or None,
-            ),
-            lookback=timedelta(days=self._cfg.lookback_days),
-            window_end=datetime.now(UTC),
-            max_records=_optional_positive_int(self._cfg.max_seed_memories),
-        )
-        pending_add_record_ids = await self._pending_consolidation_add_record_ids(
-            context,
-            [rid for written in bundle.written_memories for rid in written.add_record_ids],
-        )
-        for written in bundle.written_memories:
-            if not written.memory_id:
-                continue
-            add_record_ids = [rid for rid in written.add_record_ids if rid in pending_add_record_ids]
-            if not add_record_ids:
-                continue
-            seed_add_records_by_memory_id.setdefault(written.memory_id, set()).update(add_record_ids)
+        if seed_add_record_ids:
+            records = await self.db_reader.get_add_records_by_ids(
+                context, list(dict.fromkeys(seed_add_record_ids))
+            )
+            for record in records:
+                payload = record.payload or {}
+                if payload.get("consolidation_status") == "done":
+                    continue
+                for item in payload.get("memories") or []:
+                    if not isinstance(item, dict) or item.get("operation") != "add":
+                        continue
+                    memory_id = item.get("memory_id")
+                    if memory_id:
+                        seed_add_records_by_memory_id.setdefault(
+                            str(memory_id), set()
+                        ).add(record.point_id)
+        else:
+            bundle = await self._get_activity_collector().collect(
+                ActivityScope(
+                    project_id=context.project_id,
+                    user_id=context.user_id or None,
+                    session_id=context.session_id or None,
+                    agent_id=context.agent_id or None,
+                    app_id=context.app_id or None,
+                ),
+                lookback=timedelta(days=self._cfg.lookback_days),
+                window_end=datetime.now(UTC),
+                max_records=_optional_positive_int(self._cfg.max_seed_memories),
+            )
+            pending_add_record_ids = await self._pending_consolidation_add_record_ids(
+                context,
+                [
+                    rid
+                    for written in bundle.written_memories
+                    for rid in written.add_record_ids
+                ],
+            )
+            for written in bundle.written_memories:
+                if not written.memory_id:
+                    continue
+                add_record_ids = [
+                    rid
+                    for rid in written.add_record_ids
+                    if rid in pending_add_record_ids
+                ]
+                if not add_record_ids:
+                    continue
+                seed_add_records_by_memory_id.setdefault(
+                    written.memory_id, set()
+                ).update(add_record_ids)
 
         seed_memory_ids = tuple(seed_add_records_by_memory_id.keys())
         if not seed_memory_ids:
@@ -378,13 +511,13 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         context: MemoryRequestContext,
         memories: list[MemoryView],
         archived_memory_ids: set[str],
-    ) -> int:
+    ) -> list[DreamingActionReceipt]:
         by_hash: dict[str, list[MemoryView]] = {}
         for m in memories:
             h = m.metadata.get("content_hash")
             if h:
                 by_hash.setdefault(str(h), []).append(m)
-        archived = 0
+        receipts: list[DreamingActionReceipt] = []
         for duplicates in by_hash.values():
             if len(duplicates) < 2:
                 continue
@@ -403,8 +536,16 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
                     ],
                 )
                 archived_memory_ids.add(dup.memory_id)
-                archived += 1
-        return archived
+                receipts.append(
+                    DreamingActionReceipt(
+                        action="archive",
+                        target_memory_ids=[dup.memory_id],
+                        result_memory_ids=[duplicates[0].memory_id],
+                        status="ok",
+                        reason=f"duplicate_of:{duplicates[0].memory_id}",
+                    )
+                )
+        return receipts
 
     async def _apply_memory_updates(
         self,
@@ -413,11 +554,12 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
     ) -> None:
         if not commands:
             return
-        await self.db_writer.apply_mutation_plan(
+        result = await self.db_writer.apply_mutation_plan(
             context,
             MemoryDbMutationPlan(memory_updates=commands),
             consistency=self._consistency,
         )
+        _raise_for_mutation_errors(result)
 
     async def _apply_memory_deletes(
         self,
@@ -426,21 +568,23 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
     ) -> None:
         if not commands:
             return
-        await self.db_writer.apply_mutation_plan(
+        result = await self.db_writer.apply_mutation_plan(
             context,
             MemoryDbMutationPlan(memory_deletes=commands),
             consistency=self._consistency,
         )
+        _raise_for_mutation_errors(result)
 
     async def _apply_write_plan(self, context: MemoryRequestContext, plan: MemoryDbWritePlan) -> None:
         mutation_plan = MemoryDbMutationPlan.from_write_plan(plan)
         if not mutation_plan.has_writes():
             return
-        await self.db_writer.apply_mutation_plan(
+        result = await self.db_writer.apply_mutation_plan(
             context,
             mutation_plan,
             consistency=self._consistency,
         )
+        _raise_for_mutation_errors(result)
 
     # -- LLM prompt builders -------------------------------------------------
 
@@ -508,47 +652,45 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
 
     # -- LLM #1: relation detection ------------------------------------------
 
-    async def _call_relation_detection_llm(self, context_str: str) -> list[DetectedMemoryIssueGroup] | None:
-        prompt = RELATION_DETECTION_PROMPT.format(context=context_str)
-        try:
-            kwargs: dict[str, Any] = {}
-            if self._cfg.consolidation_model:
-                kwargs["model"] = self._cfg.consolidation_model
-            result = await self._llm_client.chat(
-                task="memory_relation_detection",
-                messages=[{"role": "system", "content": prompt}],
-                format_parser=relation_detection_parser,
-                **kwargs,
-            )
-            parsed = result.parsed
-            if hasattr(parsed, "issue_groups"):
-                return parsed.issue_groups
-            if hasattr(parsed, "candidates"):
-                groups: list[DetectedMemoryIssueGroup] = []
-                for candidate in parsed.candidates:
-                    if getattr(candidate, "candidate_type", None) != "needs_consolidation":
-                        continue
-                    primary_id = getattr(candidate, "primary_memory_id", "")
-                    neighbor_id = getattr(candidate, "neighbor_memory_id", "")
-                    groups.append(
-                        DetectedMemoryIssueGroup(
-                            issue_type="ambiguous",
-                            memory_ids=[primary_id, neighbor_id],
-                            subject_hint=getattr(candidate, "subject_hint", None),
-                            predicate_hint=getattr(candidate, "predicate_hint", None),
-                            value_hints={
-                                primary_id: getattr(candidate, "primary_value_hint", "") or "",
-                                neighbor_id: getattr(candidate, "neighbor_value_hint", "") or "",
-                            },
-                            confidence=getattr(candidate, "confidence", "medium") or "medium",
-                            reason=getattr(candidate, "reason", ""),
-                        )
+    async def _call_relation_detection_llm(self, context_str: str) -> list[DetectedMemoryIssueGroup]:
+        kwargs: dict[str, Any] = {}
+        if self._cfg.consolidation_model:
+            kwargs["model"] = self._cfg.consolidation_model
+        result = await self._llm_client.chat(
+            task="memory_relation_detection",
+            messages=[
+                {"role": "system", "content": RELATION_DETECTION_PROMPT},
+                {"role": "user", "content": context_str},
+            ],
+            format_parser=relation_detection_parser,
+            **kwargs,
+        )
+        parsed = result.parsed
+        if hasattr(parsed, "issue_groups"):
+            return parsed.issue_groups
+        if hasattr(parsed, "candidates"):
+            groups: list[DetectedMemoryIssueGroup] = []
+            for candidate in parsed.candidates:
+                if getattr(candidate, "candidate_type", None) != "needs_consolidation":
+                    continue
+                primary_id = getattr(candidate, "primary_memory_id", "")
+                neighbor_id = getattr(candidate, "neighbor_memory_id", "")
+                groups.append(
+                    DetectedMemoryIssueGroup(
+                        issue_type="ambiguous",
+                        memory_ids=[primary_id, neighbor_id],
+                        subject_hint=getattr(candidate, "subject_hint", None),
+                        predicate_hint=getattr(candidate, "predicate_hint", None),
+                        value_hints={
+                            primary_id: getattr(candidate, "primary_value_hint", "") or "",
+                            neighbor_id: getattr(candidate, "neighbor_value_hint", "") or "",
+                        },
+                        confidence=getattr(candidate, "confidence", "medium") or "medium",
+                        reason=getattr(candidate, "reason", ""),
                     )
-                return groups
-            return None
-        except Exception:
-            logger.warning("dreaming relation detection llm failed", exc_info=True)
-            return None
+                )
+            return groups
+        raise ValueError("relation detection returned no typed issue groups")
 
     def _aggregate_detected_issue_groups(
         self,
@@ -600,8 +742,7 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
 
     # -- LLM #2: action planning ---------------------------------------------
 
-    async def _call_action_planning_llm(self, group_context: str) -> ConsolidationAction | None:
-        prompt = ACTION_PLANNING_PROMPT.format(groups=group_context)
+    async def _call_action_planning_llm(self, group_context: str) -> ConsolidationAction:
         _parse_attempts = 0
         _max_parse_attempts = 5
 
@@ -612,34 +753,36 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
                 return ConsolidationAction()
             return action_planning_parser(content)
 
-        try:
-            kwargs: dict[str, Any] = {}
-            if self._cfg.consolidation_model:
-                kwargs["model"] = self._cfg.consolidation_model
-            result = await self._llm_client.chat(
+        kwargs: dict[str, Any] = {}
+        if self._cfg.consolidation_model:
+            kwargs["model"] = self._cfg.consolidation_model
+        result = await self._llm_client.chat(
                 task="memory_action_planning",
-                messages=[{"role": "system", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": ACTION_PLANNING_PROMPT},
+                    {"role": "user", "content": group_context},
+                ],
                 format_parser=_bounded_parser,
                 **kwargs,
             )
-            debug_dir = os.getenv("MINDMEMOS_DREAMING_ACTION_DEBUG_DIR")
-            if debug_dir:
-                try:
-                    Path(debug_dir).mkdir(parents=True, exist_ok=True)
-                    debug_path = Path(debug_dir) / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}_{uuid4().hex}.json"
-                    debug_payload = {
-                        "task": "memory_action_planning",
-                        "prompt": prompt,
-                        "raw_response": result.content,
-                        "parsed": result.parsed.model_dump(mode="json") if result.parsed is not None else None,
-                    }
-                    debug_path.write_text(json.dumps(debug_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-                except Exception:
-                    logger.warning("dreaming action debug logging failed", exc_info=True)
-            return result.parsed
-        except Exception:
-            logger.warning("dreaming action planning llm failed", exc_info=True)
-            return None
+        debug_dir = os.getenv("MINDMEMOS_DREAMING_ACTION_DEBUG_DIR")
+        if debug_dir:
+            try:
+                Path(debug_dir).mkdir(parents=True, exist_ok=True)
+                debug_path = Path(debug_dir) / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}_{uuid4().hex}.json"
+                debug_payload = {
+                    "task": "memory_action_planning",
+                    "system_prompt": ACTION_PLANNING_PROMPT,
+                    "user_content": group_context,
+                    "raw_response": result.content,
+                    "parsed": result.parsed.model_dump(mode="json") if result.parsed is not None else None,
+                }
+                debug_path.write_text(json.dumps(debug_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                logger.warning("dreaming action debug logging failed", exc_info=True)
+        if not isinstance(result.parsed, ConsolidationAction):
+            raise ValueError("action planning returned no typed action plan")
+        return result.parsed
 
     # -- apply actions --------------------------------------------------------
 
@@ -649,10 +792,11 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         actions,
         cluster_memories,
         archived_memory_ids,
-    ) -> None:
+    ) -> list[DreamingActionReceipt]:
         now = datetime.now(UTC)
         mem_by_id = {m.memory_id: m for m in cluster_memories}
         created_by_source_set: dict[tuple[str, ...], str] = {}
+        receipts: list[DreamingActionReceipt] = []
 
         creates = [self._memory_from_create(context, c, now, mem_by_id) for c in actions.creates]
         merge_creates = [self._memory_from_merge(context, m, now, mem_by_id) for m in actions.merges]
@@ -664,9 +808,29 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
 
         if all_creates:
             await self._write_new_memories(context, all_creates, cluster_memories)
+        for create, memory in zip(actions.creates, creates, strict=False):
+            receipts.append(
+                DreamingActionReceipt(
+                    action="create",
+                    target_memory_ids=list(create.evidence_memory_ids),
+                    result_memory_ids=[] if memory is None else [memory.memory_id],
+                    status="error" if memory is None else "ok",
+                    reason=create.reason,
+                    error="invalid create action" if memory is None else None,
+                )
+            )
 
         for update in actions.updates:
             if update.memory_id not in mem_by_id or update.memory_id in archived_memory_ids:
+                receipts.append(
+                    DreamingActionReceipt(
+                        action="update",
+                        target_memory_ids=[update.memory_id],
+                        status="error",
+                        reason=getattr(update, "reason", None),
+                        error="update target is not an active cluster memory",
+                    )
+                )
                 continue
             metadata_patch = dict(update.metadata_patch)
             await self._apply_memory_updates(
@@ -681,11 +845,22 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
                     )
                 ],
             )
+            receipts.append(
+                DreamingActionReceipt(
+                    action="update",
+                    target_memory_ids=[update.memory_id],
+                    result_memory_ids=[update.memory_id],
+                    status="ok",
+                    reason=getattr(update, "reason", None),
+                )
+            )
 
         for merge in actions.merges:
             replacement_id = created_by_source_set.get(tuple(sorted(merge.source_memory_ids)))
+            merge_error = replacement_id is None
             for source_id in merge.source_memory_ids:
                 if source_id not in mem_by_id or source_id in archived_memory_ids:
+                    merge_error = True
                     continue
                 await self._apply_memory_deletes(
                     context,
@@ -698,9 +873,28 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
                     ],
                 )
                 archived_memory_ids.add(source_id)
+            receipts.append(
+                DreamingActionReceipt(
+                    action="merge",
+                    target_memory_ids=list(merge.source_memory_ids),
+                    result_memory_ids=[replacement_id] if replacement_id else [],
+                    status="error" if merge_error else "ok",
+                    reason=merge.merge_reason,
+                    error="merge source or replacement is invalid" if merge_error else None,
+                )
+            )
 
         for archive in actions.archives:
             if archive.memory_id not in mem_by_id or archive.memory_id in archived_memory_ids:
+                receipts.append(
+                    DreamingActionReceipt(
+                        action="archive",
+                        target_memory_ids=[archive.memory_id],
+                        status="error",
+                        reason=archive.reason,
+                        error="archive target is not an active cluster memory",
+                    )
+                )
                 continue
             reason = archive.reason or "consolidated"
             if archive.replacement_memory_id:
@@ -710,18 +904,45 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
                 [MemoryDbDeleteCommand(memory_id=archive.memory_id, reason=reason, consistency=self._consistency)],
             )
             archived_memory_ids.add(archive.memory_id)
+            receipts.append(
+                DreamingActionReceipt(
+                    action="archive",
+                    target_memory_ids=[archive.memory_id],
+                    result_memory_ids=(
+                        [archive.replacement_memory_id]
+                        if archive.replacement_memory_id
+                        else []
+                    ),
+                    status="ok",
+                    reason=archive.reason,
+                )
+            )
 
         link_relationships = []
         for link in actions.links:
             if link.source_kind == "Memory" and link.source_id in archived_memory_ids:
+                receipts.append(_invalid_link_receipt(link, "link source was archived"))
                 continue
             if link.target_kind == "Memory" and link.target_id in archived_memory_ids:
+                receipts.append(_invalid_link_receipt(link, "link target was archived"))
                 continue
             rel = self._relationship_from_link(context, link, mem_by_id)
             if rel is not None:
                 link_relationships.append(rel)
+                receipts.append(
+                    DreamingActionReceipt(
+                        action="link",
+                        target_memory_ids=[link.source_id, link.target_id],
+                        status="ok",
+                        reason=link.reason,
+                        relationship=link.relation_type,
+                    )
+                )
+            else:
+                receipts.append(_invalid_link_receipt(link, "link references an unknown memory"))
         if link_relationships:
             await self._apply_write_plan(context, MemoryDbWritePlan(relationships=link_relationships))
+        return receipts
 
     # -- marking helpers ------------------------------------------------------
 
@@ -921,6 +1142,23 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
 # =============================================================================
 # module-level helpers
 # =============================================================================
+
+
+def _raise_for_mutation_errors(result: Any) -> None:
+    errors = list(getattr(result, "errors", None) or [])
+    if errors:
+        raise RuntimeError("; ".join(str(error) for error in errors))
+
+
+def _invalid_link_receipt(link: Any, error: str) -> DreamingActionReceipt:
+    return DreamingActionReceipt(
+        action="link",
+        target_memory_ids=[link.source_id, link.target_id],
+        status="error",
+        reason=link.reason,
+        error=error,
+        relationship=link.relation_type,
+    )
 
 
 def _memory_effective_time(memory: MemoryView) -> datetime:

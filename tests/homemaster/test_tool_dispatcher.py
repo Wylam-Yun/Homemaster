@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.messages import ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
+from homemaster.application.tool_executor import ApplicationToolExecutor
 from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.results import ToolResult
 from homemaster.tools.spec import ToolSpec
@@ -285,3 +287,10 @@ def test_dispatch_failure_preserves_data_for_model_context() -> None:
     assert message.data["observation"] == "You are in the kitchen."
     assert "Nothing happens." in message.content[0].text
     assert "admissible_commands" not in message.content[0].text
+
+
+def test_production_dispatchers_keep_generic_runtime_contract() -> None:
+    for implementation in (ApplicationToolExecutor, ToolDispatcher):
+        parameters = inspect.signature(implementation.dispatch).parameters
+        assert "tool_calls" in parameters
+        assert "run_context" in parameters

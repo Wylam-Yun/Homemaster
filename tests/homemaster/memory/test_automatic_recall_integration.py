@@ -76,7 +76,7 @@ async def test_real_automatic_recall_smoke_benchmark() -> None:
                     "source_session_id": nonce,
                 },
             )
-            experience_result_ids = _result_ids(experience_result)
+            experience_result_ids = _result_ids(experience_result.result)
             created_ids.extend(experience_result_ids)
             experience_ids = await _active_ids(
                 store,

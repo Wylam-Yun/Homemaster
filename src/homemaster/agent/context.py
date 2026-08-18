@@ -8,6 +8,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
+from pathlib import Path
 from typing import Any, Protocol
 
 from homemaster.agent.compact import (
@@ -320,6 +321,7 @@ class ComposedContext:
     system_prompt: str
     tools: list[dict] | None
     metrics: ContextMetrics
+    automatic_recalled_memories: tuple[Any, ...] = ()
 
 
 class ContextAssembler:
@@ -343,10 +345,21 @@ class ContextAssembler:
         self._frozen_memory_context = frozen_memory_context
         self._runtime_evidence_refs = tuple(runtime_evidence_refs)
         self._automatic_memory_context: str | None = None
+        self._automatic_recalled_memories: tuple[Any, ...] = ()
+        self._working_directory: Path | None = None
+
+    def bind_working_directory(self, working_directory: Path) -> None:
+        resolved = working_directory.expanduser().resolve(strict=True)
+        if not resolved.is_dir():
+            raise ValueError("working directory must be a directory")
+        self._working_directory = resolved
 
     def bind_automatic_memory_context(self, text: str | None) -> None:
         normalized = text.strip() if isinstance(text, str) else ""
         self._automatic_memory_context = normalized or None
+
+    def bind_automatic_recalled_memories(self, memories: tuple[Any, ...]) -> None:
+        self._automatic_recalled_memories = tuple(memories)
 
     def bind_runtime_evidence(self, refs: tuple[str, ...]) -> None:
         self._runtime_evidence_refs = tuple(refs)
@@ -365,10 +378,22 @@ class ContextAssembler:
         )
 
     def _session_system_prompt(self, session_id: str) -> str:
-        if self._frozen_memory_context is None:
-            return self._system_prompt
-        memory = self._frozen_memory_context.snapshot(session_id).strip()
-        return self._system_prompt if not memory else f"{self._system_prompt}\n\n{memory}"
+        parts = [self._system_prompt]
+        if self._working_directory is not None:
+            path = json.dumps(str(self._working_directory), ensure_ascii=False)
+            parts.append(
+                f"Current workspace: {path}.\n"
+                "Relative paths passed to terminal and file tools resolve from this workspace "
+                "unless a tool call explicitly supplies another working directory.\n"
+                "A host, device, environment, or project named by the user is not automatically "
+                "this workspace. Do not operate on the current workspace on behalf of that target "
+                "unless model-visible evidence explicitly connects them."
+            )
+        if self._frozen_memory_context is not None:
+            memory = self._frozen_memory_context.snapshot(session_id).strip()
+            if memory:
+                parts.append(memory)
+        return "\n\n".join(parts)
 
     def _budget(self) -> ContextBudget:
         return ContextBudget(
@@ -481,6 +506,7 @@ class ContextAssembler:
                 compaction_triggered=compaction_triggered,
                 compaction_kind=compaction_kind,
             ),
+            automatic_recalled_memories=self._automatic_recalled_memories,
         )
 
     async def aprepare(
@@ -583,6 +609,7 @@ class ContextAssembler:
                 compaction_triggered=compaction_triggered,
                 compaction_kind=compaction_kind,
             ),
+            automatic_recalled_memories=self._automatic_recalled_memories,
         )
 
     def _build_providers(

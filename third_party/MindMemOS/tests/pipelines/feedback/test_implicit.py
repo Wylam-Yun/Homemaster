@@ -322,6 +322,12 @@ class FakeExecutor:
         return actions
 
 
+class FailingExecutor(FakeExecutor):
+    async def execute(self, actions: list[FeedbackActionResult], context: MemoryRequestContext):
+        self.actions.extend(actions)
+        return [action.model_copy(update={"status": "error"}) for action in actions]
+
+
 @pytest.mark.asyncio
 async def test_implicit_collector_groups_session_messages_and_dedupes_memories() -> None:
     clients = FakeDatabaseClients()
@@ -560,6 +566,55 @@ async def test_implicit_handler_collects_sessions_and_detects_signals() -> None:
     assert [signal.category for signal in action_planner.calls[0][1]] == ["long_term", "task_temporary"]
     assert action_planner.calls[0][2][0].id == "mem-1"
     assert executor.actions == result.actions
+
+
+@pytest.mark.asyncio
+async def test_implicit_handler_does_not_mark_failed_session_processed() -> None:
+    class MarkingCollector(FakeCollector):
+        def __init__(self) -> None:
+            self.marked: list[str] = []
+
+        async def collect(self, context: MemoryRequestContext):
+            del context
+            return [
+                ImplicitFeedbackSessionMaterial(
+                    session_id="session-1",
+                    rounds=[
+                        {
+                            "messages": [
+                                {"role": "user", "content": "Use uv, not conda."},
+                                {"role": "assistant", "content": "Understood."},
+                            ]
+                        }
+                    ],
+                    memories=[
+                        {
+                            "id": "mem-1",
+                            "memory": "User uses conda.",
+                            "last_update_at": "2026-06-01 00:00:00",
+                        }
+                    ],
+                    source_add_record_ids=["add-1"],
+                )
+            ]
+
+        async def mark_feedback_processed(self, context: MemoryRequestContext, add_record_ids: list[str]):
+            del context
+            self.marked.extend(add_record_ids)
+
+    collector = MarkingCollector()
+    handler = ImplicitFeedbackHandler(
+        collector=collector,
+        signal_detector=FakeSignalDetector(),
+        action_planner=FakeActionPlanner(),
+        executor=FailingExecutor(),
+    )
+
+    result = await handler.run(FeedbackPipelineInput(), make_context())
+
+    assert result.status == "error"
+    assert result.actions[0].status == "error"
+    assert collector.marked == []
 
 
 @pytest.mark.asyncio

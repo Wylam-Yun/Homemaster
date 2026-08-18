@@ -28,6 +28,7 @@ from homemaster.events.sinks import (
     MessagesLogSink,
 )
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
+from homemaster.experience import DreamingCoordinator, DreamingStateStore
 from homemaster.extensions.contracts import ExtensionApproval
 from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
@@ -64,6 +65,7 @@ class HomeApplicationBundle:
     live_rendered: bool = False
     tool_services: HomeToolServices | None = None
     mindmemos: EmbeddedMindMemOS | None = None
+    dreaming_coordinator: DreamingCoordinator | None = None
 
 
 class HomeCliBackend:
@@ -296,6 +298,7 @@ def _finish_home_application(
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
     managed_neo4j: ManagedNeo4jRuntime | None = None
     mindmemos: EmbeddedMindMemOS | None = None
+    dreaming_coordinator: DreamingCoordinator | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
     if resolved.memory.enabled:
         memory_migration = MemoryMigrationCoordinator(resolved.memory)
@@ -305,6 +308,14 @@ def _finish_home_application(
         if resolved.memory.neo4j.mode == "managed_local":
             managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
         mindmemos = EmbeddedMindMemOS(resolved)
+        dreaming_coordinator = DreamingCoordinator(
+            store=DreamingStateStore(
+                resolved.memory.data_root,
+                threshold=resolved.memory.dreaming_memory_threshold,
+            ),
+            mindmemos=mindmemos,
+            event_sink=bus,
+        )
         mindmemos._third_party_logs = third_party_logs
         scope.bind(
             ResourceBinding.owned(
@@ -350,6 +361,23 @@ def _finish_home_application(
             if managed_neo4j is not None and not mindmemos.available:
                 cause = mindmemos.unavailable_cause or "unknown startup failure"
                 raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
+            from mindmemos.typing import MemoryRequestContext
+
+            assert dreaming_coordinator is not None
+            await dreaming_coordinator.retry_pending(
+                project_id="local",
+                user_id="local",
+                context_template=MemoryRequestContext(
+                    request_id="startup-dreaming-recovery",
+                    account_id="local",
+                    project_id="local",
+                    api_key_uuid="embedded-local",
+                    user_id="local",
+                    app_id="homemaster",
+                    session_id=None,
+                    agent_id="homemaster",
+                ),
+            )
 
         starter_steps.append(start_file_memory)
     if resolved.mcp.servers:
@@ -421,6 +449,7 @@ def _finish_home_application(
                     "frozen_memory_context": frozen_memory_context,
                     "memory_evidence_ledger": memory_evidence_ledger,
                     "mindmemos": mindmemos,
+                    "dreaming_coordinator": dreaming_coordinator,
                     "memory_migration": memory_migration,
                     **(
                         {"managed_neo4j": managed_neo4j}
@@ -453,6 +482,7 @@ def _finish_home_application(
         live_rendered=live_rendered,
         tool_services=tool_services,
         mindmemos=mindmemos,
+        dreaming_coordinator=dreaming_coordinator,
     )
 
 
