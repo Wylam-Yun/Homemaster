@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -200,6 +201,11 @@ async def test_finalizer_collects_session_and_persists_vanilla_result(tmp_path: 
     assert result.rendered_messages == 3
     assert not list((tmp_path / "memory" / "experience_jobs").glob("*/task_trace.json"))
     assert len(mindmemos.calls) == 1
+    messages, _, _ = mindmemos.calls[0]
+    assert [message.timestamp for message in messages[:2]] == [
+        int(datetime(2026, 8, 12, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000),
+        int(datetime(2026, 8, 12, 10, 0, 3, tzinfo=timezone.utc).timestamp() * 1000),
+    ]
 
     jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
     job = json.loads(jobs[0].read_text(encoding="utf-8"))

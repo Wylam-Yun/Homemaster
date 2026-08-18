@@ -401,20 +401,37 @@ class SessionFinalizer:
         for event in envelope.events:
             event_type = event.get("type")
             payload = event.get("payload") or {}
+            timestamp = _timestamp_millis(event.get("timestamp"))
             if event_type == "runtime.turn_started":
                 text = payload.get("user_text")
                 if isinstance(text, str) and text.strip():
-                    messages.append(DialogueMessage(role="user", content=text.strip()))
+                    messages.append(
+                        DialogueMessage(
+                            role="user",
+                            content=text.strip(),
+                            timestamp=timestamp,
+                        )
+                    )
             elif event_type == "assistant.thinking":
                 text = payload.get("thinking")
                 if isinstance(text, str) and text.strip():
                     messages.append(
-                        DialogueMessage(role="assistant", content=f"[thinking]\n{text.strip()}")
+                        DialogueMessage(
+                            role="assistant",
+                            content=f"[thinking]\n{text.strip()}",
+                            timestamp=timestamp,
+                        )
                     )
             elif event_type == "assistant.reply":
                 text = payload.get("reply")
                 if isinstance(text, str) and text.strip():
-                    messages.append(DialogueMessage(role="assistant", content=text.strip()))
+                    messages.append(
+                        DialogueMessage(
+                            role="assistant",
+                            content=text.strip(),
+                            timestamp=timestamp,
+                        )
+                    )
             elif event_type in {"tool.call_completed", "tool.call_failed"}:
                 name = event.get("name") or "tool"
                 status = "failed" if event_type == "tool.call_failed" else "success"
@@ -428,7 +445,13 @@ class SessionFinalizer:
                     )
                 if result not in (None, ""):
                     parts.append(f"result:\n{result}")
-                messages.append(DialogueMessage(role="tool", content="\n".join(parts)))
+                messages.append(
+                    DialogueMessage(
+                        role="tool",
+                        content="\n".join(parts),
+                        timestamp=timestamp,
+                    )
+                )
         messages.append(
             DialogueMessage(role="system", content=f"Session ended: {envelope.exit_reason}")
         )
@@ -457,3 +480,18 @@ class SessionFinalizer:
                 os.close(directory_fd)
         finally:
             temp.unlink(missing_ok=True)
+
+
+def _timestamp_millis(value: object) -> int | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return int(parsed.timestamp() * 1000)

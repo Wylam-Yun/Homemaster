@@ -757,3 +757,10 @@ git diff --check
 实施顺序：先加入正文正确但 `record_json` 陈旧的失败测试、Schema feedback 缺 replacement 的拒绝测试和旧 ref
 不再出现在工具 schema/provider context 的测试；再扩展 MindMemOS action/search DTO、planner prompt、structured
 update handler、HomeMaster verifier 和 ledger scope lookup；最后运行真实 provider + Qdrant + Neo4j 黑盒门。
+
+实施结果（2026-08-18）：上述不变量已落地。聚焦 application/memory/experience/vendored-feedback 回归为
+`191 passed, 1 skipped`；额外 registry/runtime/package/benchmark/shell 回归为 `65 passed`，Ruff、compileall 和
+`git diff --check` 通过。真实门从单值 `value="uv"` 开始，用自然语言纠正为“在线开发用 uv、离线交付用
+Poetry”，真实 provider 只调用一次 `mindmemos_feedback` 且没有 evidence ref。planner 对召回到的两个同源 raw
+版本分别更新，测试逐 action 读回准确 `record_json`、canonical content、old archived/new active、
+`DERIVED_FROM` 和实体描述，并确认 unrelated 记录未变化；结果为 `1 passed in 436.55s`。
