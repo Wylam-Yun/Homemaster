@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC
 
@@ -468,7 +470,32 @@ def _to_memory_search_item(hit: MemoryDbSearchHit, *, lineage: MemoryLineage | N
         event_time=format_memory_event_time(memory, fallback_to_source_timestamp=True) if memory else None,
         source_timestamp=format_source_timestamp(memory) if memory else None,
         lineage=lineage,
+        structured_record=_structured_record(memory.metadata if memory else None),
     )
+
+
+def _structured_record(metadata: Mapping[str, object] | None) -> dict[str, object] | None:
+    def find(value: object) -> str | None:
+        if isinstance(value, Mapping):
+            if isinstance(value.get("record_json"), str):
+                return value["record_json"]
+            for child in value.values():
+                if (found := find(child)) is not None:
+                    return found
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for child in value:
+                if (found := find(child)) is not None:
+                    return found
+        return None
+
+    raw = find(metadata)
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _ordered_archived_ids(lineage_by_id: dict[str, list[str]], *, existing_ids: set[str]) -> list[str]:

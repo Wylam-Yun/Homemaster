@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -13,6 +14,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
+
+from homemaster.config import load_config
+from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
+from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+from homemaster.memory.models import MEMORY_RECORD_ADAPTER
 
 RecordKind = Literal["target", "near_distractor", "unrelated_distractor"]
 
@@ -96,6 +102,10 @@ class CommandRunner(Protocol):
         env: Mapping[str, str],
         timeout: float,
     ) -> CompletedCommand: ...
+
+
+class WriteTerminalVerifier(Protocol):
+    def __call__(self, job_id: str, record: BenchmarkRecord) -> dict[str, Any] | None: ...
 
 
 @dataclass(frozen=True)
@@ -543,7 +553,9 @@ def _records_equal(actual: object, expected: Mapping[str, Any]) -> bool:
 
 
 def _inspect_write(
-    completed: CompletedCommand, record: BenchmarkRecord
+    completed: CompletedCommand,
+    record: BenchmarkRecord,
+    terminal_verifier: WriteTerminalVerifier,
 ) -> tuple[str, dict[str, Any] | None, str]:
     events = parse_stream_events(completed.stdout)
     started = any(
@@ -558,21 +570,41 @@ def _inspect_write(
     if completions:
         receipt = _decoded_output(completions[-1])
         if receipt is not None:
-            valid = (
+            accepted = (
                 completed.returncode == 0
                 and receipt.get("success") is True
                 and receipt.get("status") == "success"
-                and receipt.get("verified_terminal_state") is True
+                and receipt.get("domain_status") == "accepted"
+                and receipt.get("verified_terminal_state") is False
                 and receipt.get("backend_attempted") is True
-                and isinstance(receipt.get("memory_id"), str)
-                and bool(str(receipt["memory_id"]).strip())
-                and _records_equal(receipt.get("record"), record.tool_record)
+                and isinstance(receipt.get("job_id"), str)
+                and bool(str(receipt["job_id"]).strip())
+                and "memory_id" not in receipt
             )
-            if valid:
-                return "confirmed", receipt, "confirmed terminal receipt"
+            if accepted:
+                try:
+                    terminal = terminal_verifier(str(receipt["job_id"]), record)
+                except Exception as exc:
+                    return (
+                        "outcome_unknown",
+                        receipt,
+                        f"terminal verification failed: {type(exc).__name__}: {exc}",
+                    )
+                valid_terminal = bool(
+                    terminal is not None
+                    and terminal.get("job_id") == receipt["job_id"]
+                    and terminal.get("status") == "completed"
+                    and terminal.get("verified_terminal_state") is True
+                    and isinstance(terminal.get("memory_id"), str)
+                    and bool(str(terminal["memory_id"]).strip())
+                    and _records_equal(terminal.get("record"), record.tool_record)
+                )
+                if valid_terminal:
+                    return "confirmed", terminal, "confirmed post-exit raw terminal state"
+                return "outcome_unknown", receipt, "accepted job has no matching terminal state"
             if receipt.get("backend_attempted") is False:
                 return "safe_to_retry", receipt, "backend was not attempted"
-            return "outcome_unknown", receipt, "mutation receipt was incomplete or mismatched"
+            return "outcome_unknown", receipt, "acceptance receipt was incomplete or mismatched"
     if started:
         return (
             "outcome_unknown",
@@ -589,6 +621,7 @@ def write_run(
     timeout_seconds: float,
     max_records: int | None = None,
     runner: CommandRunner = run_command,
+    terminal_verifier: WriteTerminalVerifier | None = None,
 ) -> dict[str, Any]:
     records = load_dataset(paths.dataset)
     checkpoint = json.loads(paths.checkpoint.read_text(encoding="utf-8"))
@@ -618,7 +651,11 @@ def write_run(
         completed = runner(command, cwd=repo_root, env=environment, timeout=timeout_seconds)
         _write_private_text(paths.raw / f"write-{record.index:04d}.stdout.jsonl", completed.stdout)
         _write_private_text(paths.raw / f"write-{record.index:04d}.stderr.log", completed.stderr)
-        state, receipt, reason = _inspect_write(completed, record)
+        state, receipt, reason = _inspect_write(
+            completed,
+            record,
+            terminal_verifier or _verify_accepted_write,
+        )
         result = {
             "index": record.index,
             "subject": record.subject,
@@ -655,6 +692,89 @@ def write_run(
         "confirmed_total": len(confirmed),
         "remaining": len(records) - len(confirmed),
     }
+
+
+def _verify_accepted_write(job_id: str, record: BenchmarkRecord) -> dict[str, Any] | None:
+    config = load_config()
+    job_log = config.memory.data_root / "mindmemos" / "add_jobs.jsonl"
+    completed = None
+    for event in _read_jsonl(job_log):
+        if event.get("event") != "memory_add_job":
+            continue
+        payload = event.get("payload")
+        if (
+            isinstance(payload, Mapping)
+            and payload.get("job_id") == job_id
+            and payload.get("status") in {"completed", "failed"}
+        ):
+            completed = dict(payload)
+    if completed is None or completed.get("status") != "completed":
+        return None
+    memory_id = completed.get("memory_id")
+    if not isinstance(memory_id, str) or not memory_id:
+        return None
+    raw_record = asyncio.run(_read_raw_record(config, memory_id, job_id))
+    if raw_record is None or not _records_equal(raw_record, record.tool_record):
+        return None
+    return {
+        "job_id": job_id,
+        "status": "completed",
+        "memory_id": memory_id,
+        "record": raw_record,
+        "verified_terminal_state": True,
+    }
+
+
+async def _read_raw_record(config: Any, memory_id: str, job_id: str) -> dict[str, Any] | None:
+    managed = (
+        ManagedNeo4jRuntime(config.memory) if config.memory.neo4j.mode == "managed_local" else None
+    )
+    store = EmbeddedMindMemOS(config)
+    try:
+        if managed is not None:
+            await managed.start()
+        await store.start()
+        if not store.available:
+            raise RuntimeError(store.unavailable_cause or "MindMemOS is unavailable")
+        from mindmemos.typing import MemoryRequestContext
+
+        context = MemoryRequestContext(
+            request_id=f"benchmark-verify-{job_id}",
+            account_id="local",
+            project_id="local",
+            api_key_uuid="embedded-local",
+            user_id="local",
+            app_id="homemaster",
+            session_id=None,
+            agent_id="homemaster",
+        )
+        raw = await store.get_raw(memory_id, context)
+        if raw is None or getattr(raw, "status", None) != "active":
+            return None
+        metadata = getattr(raw, "metadata", None)
+        if not isinstance(metadata, Mapping):
+            return None
+        request = metadata.get("request_metadata")
+        if not isinstance(request, Mapping):
+            return None
+        records = request.get("record_metadata")
+        candidates = (
+            records
+            if isinstance(records, Sequence) and not isinstance(records, (str, bytes))
+            else (request,)
+        )
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping) or not isinstance(
+                candidate.get("record_json"), str
+            ):
+                continue
+            parsed = MEMORY_RECORD_ADAPTER.validate_json(candidate["record_json"])
+            return parsed.model_dump(mode="json")
+        return None
+    finally:
+        await store.close()
+        if managed is not None:
+            await managed.close()
 
 
 def _provider_call_counts(stderr: str) -> dict[str, int]:

@@ -128,9 +128,9 @@ coordinator 自动完成或恢复迁移。
 ### `mindmemos_add` / `mindmemos_update`
 
 保存完整 `FactRecord` 或 `ProcedureRecord`。模型不能提交 tenant/session/run、metadata、dedupe key、时间戳或
-provenance。两种 source 都必须使用 Runtime 发放的 opaque evidence ref：`user_statement` 只绑定当前用户
-turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工具结果。procedure 仅接受环境证据，并要求
-按顺序覆盖每一步和最终成功观测。更新是完整替换，不支持 partial patch。
+provenance，也不能提交 evidence ref。工具从当前 execution scope 内部选择 evidence：`user_statement` 只绑定
+当前用户 turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工具结果。procedure 仅接受环境
+证据，并要求按顺序覆盖每一步和最终成功观测。更新是完整替换，不支持 partial patch。
 工具参数说明与执行校验来自同一组 Pydantic 模型；`predicate` 使用英文小写 snake_case，例如 `location`。
 用户身份、偏好、习惯、健康建议和长期安排必须写入 `context_memory(target=user)`，不能作为结构化 fact。
 
@@ -143,10 +143,20 @@ turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工�
     "predicate": "location",
     "value": {"container": "冰箱", "position": "第二层"},
     "source": "environment_observation"
-  },
-  "evidence_refs": ["memory-evidence-<opaque>"]
+  }
 }
 ```
+
+`mindmemos_add` 在上述校验完成后把不可变 record、provenance 和 request context 放入应用内 FIFO，并立即
+返回领域状态 `accepted`、不透明 `job_id` 和 `verified_terminal_state=false`；此时没有 `memory_id`，紧接着搜索
+也可能尚不可见。统一 provider/stream envelope 表示为 `status=success, domain_status=accepted`。单个
+application 只有一个 worker，严格串行执行原有 Schema Add 和 Qdrant raw 精确回读。
+任务失败写入 `memory.data_root/mindmemos/add_jobs.jsonl`，不会自动重试，也不会阻断队列后续任务。
+
+正常 one-shot/Gateway/Application 退出会封住新入队并 drain 已 accepted 任务。交互 Shell 在 Session Finalizer
+之前先 drain，所以顺序固定为结构化 Add 清空，再执行 Vanilla Add、implicit feedback 和可选 dreaming。
+当前 run 被 Ctrl+C 取消不会取消已经 accepted 的任务；进程崩溃、断电或 `kill -9` 仍可能丢失内存队列。
+这一实现不需要 Kafka、Docker、SQLite 队列、并发 worker 或 retry。
 
 `mindmemos_update` 先读取准确 ID：存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
 旧版本并写入 `DERIVED_FROM`，同时更新 metadata、memory/entity 向量和图关系，不重新运行 Schema Add；不存在
@@ -155,7 +165,7 @@ turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工�
 新记忆并归档旧记忆。
 
 ```json
-{"memory_id":"<raw-id>","content":"Aurora-A18 now uses uv.","evidence_refs":["memory-evidence-<opaque>"]}
+{"memory_id":"<raw-id>","content":"Aurora-A18 now uses uv."}
 ```
 
 ### `mindmemos_search` / `mindmemos_history` / `mindmemos_delete`
@@ -184,7 +194,7 @@ active 记忆。升级前已经归档但没有 lineage 的旧记录不会被猜�
 当用户给出明确纠正但没有指定准确 raw ID 或具体 add/update/delete 动作时，模型使用这个工具。例如：
 
 ```json
-{"feedback":"不是 conda，用户现在使用 uv"}
+{"feedback":"不是所有环境都统一用 uv：在线开发用 uv，离线交付继续用 Poetry"}
 ```
 
 工具没有 `memory_id` 参数。它只使用本次成功 provider request 中实际可见的自动召回和
@@ -193,7 +203,13 @@ archived 或内容已变化的记录都不能作为 mutation 目标。反馈 pip
 `delete` 或 `noop`。每个 action 都返回 `status`、target/result IDs 和 `terminal_verified`；任一 action
 失败时整个工具返回错误。已知准确 ID 和确定替换内容时，仍优先使用确定性的 `mindmemos_update`。
 
-这六个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 memory ID、
+如果被纠正的是结构化记忆，feedback planner 必须给出完整的新 record。系统不会把一句新正文和旧
+`record_json` 拼在一起：新正文固定由新 record 生成，并在成功前同时回读比较正文、完整 record、旧/新状态和
+`DERIVED_FROM`。例如原来内部 `value="uv"`，上述纠正成功后内部 value 也必须同时表达“在线 uv、离线
+Poetry”，不能只让显示文字变长。evidence ID 不属于工具参数，模型看不到也不需要填写；Runtime 只从当前
+tenant/session/run/turn 自动选择匹配的用户陈述或环境观察。
+
+这六个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 Add 的 job ID、其他操作的 memory ID、
 records、value、match sources 和错误）会作为 tool result 进入下一次模型上下文；不是只返回一句 succeeded。
 `context_memory` 同样把 entries/usage 等完整结果放进模型可见的 tool result。
 
@@ -228,7 +244,8 @@ PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
 ```
 
 每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `mindmemos_add`
-`tool_completed` receipt，并在确认外部终态后更新 checkpoint。按当前 schema pipeline 的实测速度，100 条可能
+`accepted` receipt。one-shot 正常退出 drain 后，脚本按 `job_id` 核对 completed job，再独立打开真实 Qdrant
+按 `memory_id` 回读并比较完整 record；两道门都通过才更新 checkpoint。按当前 schema pipeline 的实测速度，100 条可能
 耗时 5–6 小时并产生约百万级 chat tokens。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达
 backend 但终态未知的 mutation。
 
@@ -250,7 +267,7 @@ provider；Qdrant 为本地存储，Neo4j 使用已配置连接。
 
 ## 常见错误
 
-- `memory_evidence_missing/invalid`：ref 缺失、伪造、跨 tenant/session/run/turn，或 procedure 证据不完整。
+- `memory_evidence_missing/invalid`：当前 execution scope 没有匹配证据，或 procedure 证据不完整。
 - `memory_conflict`：同一 identity 已存在不同记录；先 search/get，再 update。
 - `memory_stale_observation`：较早证据不能覆盖较新值。
 - `memory_outbound_blocked`：待 embedding 文本包含禁止出站内容。

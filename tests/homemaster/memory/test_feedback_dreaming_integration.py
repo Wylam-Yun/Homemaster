@@ -34,11 +34,88 @@ def live_config(tmp_path: Path):
                     "dreaming_memory_threshold": 8,
                 }
             ),
-            "runtime": config.runtime.model_copy(
-                update={"runtime_root": tmp_path / "runtime"}
-            ),
+            "runtime": config.runtime.model_copy(update={"runtime_root": tmp_path / "runtime"}),
         }
     )
+
+
+@pytest.mark.live_api
+@pytest.mark.asyncio
+async def test_real_application_close_drains_two_accepted_structured_adds(live_config) -> None:
+    nonce = "v27-async-add-" + uuid.uuid4().hex[:10]
+    records = (
+        FactRecord(
+            memory_type="fact",
+            subject={"type": "other", "name": f"{nonce}-first"},
+            predicate="queue_position",
+            value="first",
+            source="user_statement",
+        ),
+        FactRecord(
+            memory_type="fact",
+            subject={"type": "other", "name": f"{nonce}-second"},
+            predicate="queue_position",
+            value="second",
+            source="user_statement",
+        ),
+    )
+    bundle = create_home_application(
+        config=live_config,
+        run_label=nonce,
+        progress=False,
+        quiet=True,
+        tool_environment=None,
+    )
+    await bundle.application.start()
+    assert bundle.memory_add_queue is not None
+    context = _memory_context(nonce, session_id=nonce)
+    receipts = [
+        await bundle.memory_add_queue.enqueue(
+            record=record,
+            provenance_seq=index,
+            context=context,
+            run_id=nonce,
+        )
+        for index, record in enumerate(records, start=1)
+    ]
+    assert len({receipt.job_id for receipt in receipts}) == 2
+    audit_path = live_config.memory.data_root / "mindmemos" / "add_jobs.jsonl"
+    queued = [json.loads(line)["payload"] for line in audit_path.read_text().splitlines()]
+    for receipt in receipts:
+        assert [event["status"] for event in queued if event["job_id"] == receipt.job_id] == [
+            "queued"
+        ]
+
+    await bundle.application.aclose()
+
+    events = [json.loads(line)["payload"] for line in audit_path.read_text().splitlines()]
+    terminal = {
+        event["job_id"]: event for event in events if event["status"] in {"completed", "failed"}
+    }
+    for receipt in receipts:
+        assert terminal[receipt.job_id]["status"] == "completed"
+        assert terminal[receipt.job_id]["memory_id"]
+
+    verifier = create_home_application(
+        config=live_config,
+        run_label=f"{nonce}-verify",
+        progress=False,
+        quiet=True,
+        tool_environment=None,
+    )
+    await verifier.application.start()
+    try:
+        assert verifier.mindmemos is not None
+        for receipt, expected in zip(receipts, records, strict=True):
+            memory_id = terminal[receipt.job_id]["memory_id"]
+            raw = await verifier.mindmemos.get_raw(memory_id, context)
+            assert raw is not None and raw.status == "active"
+            metadata = _real_request_metadata(raw.metadata)
+            assert json.loads(metadata["record_json"]) == expected.model_dump(mode="json")
+            deleted = await verifier.mindmemos.delete(memory_id, context)
+            assert deleted.status == "ok"
+    finally:
+        await verifier.application.aclose()
 
 
 @pytest.mark.live_api
@@ -158,7 +235,7 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
             context,
             subject=nonce,
             predicate="package_manager",
-            value="conda",
+            value="uv",
         )
         unrelated_id = await _add_fact(
             store,
@@ -175,7 +252,8 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
         result = await application.run(
             RunRequest(
                 text=(
-                    f"The recalled memory about {nonce} is wrong. I use uv, not conda. "
+                    f"The recalled memory about {nonce} is too broad. Online development uses "
+                    "uv, but offline delivery must keep using Poetry or its package build fails. "
                     "You must call mindmemos_feedback exactly once with this correction; "
                     "do not call mindmemos_update or any other memory mutation tool."
                 ),
@@ -193,31 +271,60 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
         ]
         assert len(explicit_events) == 1
         actions = explicit_events[0].payload["actions"]
-        assert len(actions) == 1
-        action = actions[0]
-        assert action["action"] == "update"
-        assert action["status"] == "ok"
-        assert action["terminal_verified"] is True
-        assert action["target_memory_id"] == old_id
-        new_id = action["result_memory_id"]
-        created_ids.append(new_id)
+        assert actions
+        target_ids = [action["target_memory_id"] for action in actions]
+        assert len(target_ids) == len(set(target_ids))
+        assert old_id in target_ids
+        assert unrelated_id not in target_ids
 
-        old = await store.get_raw(old_id, context)
-        new = await store.get_raw(new_id, context)
+        for action in actions:
+            assert action["action"] == "update"
+            assert action["status"] == "ok"
+            assert action["terminal_verified"] is True
+            replacement = FactRecord.model_validate(action["replacement_record"])
+            assert replacement.subject.name == nonce
+            assert replacement.predicate == "package_manager"
+            replacement_value = json.dumps(replacement.value, ensure_ascii=False)
+            assert replacement.value != "uv"
+            assert "uv" in replacement_value.lower()
+            assert "poetry" in replacement_value.lower()
+            new_id = action["result_memory_id"]
+            created_ids.append(new_id)
+
+            old = await store.get_raw(action["target_memory_id"], context)
+            new = await store.get_raw(new_id, context)
+            assert old is not None and old.status == "archived"
+            assert new is not None and new.status == "active"
+            request_metadata = _real_request_metadata(new.metadata)
+            persisted_record = FactRecord.model_validate_json(request_metadata["record_json"])
+            assert persisted_record == replacement
+            assert new.content == serialize_record(replacement, provenance_seq=0).text
+            assert action["after_content"] == new.content
+            assert "uv" in new.content.lower()
+            assert "poetry" in new.content.lower()
+            assert await store.has_memory_lineage(
+                source_memory_id=new_id,
+                target_memory_id=action["target_memory_id"],
+                relationship="DERIVED_FROM",
+                context=context,
+            )
+            assert store._neo4j is not None
+            entity_rows = await store._neo4j.run_read(
+                """
+                MATCH (entity:Entity {project_id: $project_id, entity_id: $entity_id})
+                RETURN entity.description AS description
+                """,
+                project_id=context.project_id,
+                entity_id=new.entity_id,
+            )
+            assert len(entity_rows) == 1
+            assert "uv" in entity_rows[0]["description"].lower()
+            assert "poetry" in entity_rows[0]["description"].lower()
+
         unrelated_after = await store.get_raw(unrelated_id, context)
-        assert old is not None and old.status == "archived"
-        assert new is not None and new.status == "active"
-        assert "uv" in new.content.lower()
-        assert "conda" not in new.content.lower()
         assert unrelated_after is not None
         assert unrelated_after.status == "active"
         assert unrelated_after.content == unrelated_content
-        assert await store.has_memory_lineage(
-            source_memory_id=new_id,
-            target_memory_id=old_id,
-            relationship="DERIVED_FROM",
-            context=context,
-        )
     finally:
         if bundle.mindmemos is not None:
             cleanup_context = _memory_context(nonce, session_id=nonce)
@@ -282,18 +389,14 @@ async def test_real_dreaming_no_action_consumes_verified_batch(live_config) -> N
             memory_ids=tuple(memory_ids),
         )
         assert outcome == "no_action"
-        add_records = await bundle.mindmemos.get_add_records(
-            [recorded.add_record_id], context
-        )
+        add_records = await bundle.mindmemos.get_add_records([recorded.add_record_id], context)
         assert len(add_records) == 1
         assert add_records[0].payload["consolidation_status"] == "done"
         state = DreamingStateStore(live_config.memory.data_root, threshold=1).read(
             project_id="local", user_id="local"
         )
         assert state["pending"] is False
-        assert state["last_successful_watermark"]["add_record_ids"] == [
-            recorded.add_record_id
-        ]
+        assert state["last_successful_watermark"]["add_record_ids"] == [recorded.add_record_id]
     finally:
         await application.aclose()
 

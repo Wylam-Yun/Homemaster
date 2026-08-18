@@ -403,6 +403,67 @@ async def test_embedded_mindmemos_add_and_search_record_pipeline_calls(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_add_record_requires_exact_raw_terminal_readback() -> None:
+    from homemaster.memory.models import FactRecord, Subject
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    record = FactRecord(
+        subject=Subject(type="device", name="Aurora-A18"),
+        predicate="package_manager",
+        value="uv",
+        source="user_statement",
+    )
+    calls: list[str] = []
+
+    class Runtime(module.EmbeddedMindMemOS):
+        def __init__(self) -> None:
+            pass
+
+        async def add(self, messages, context, **kwargs):
+            del messages, context
+            calls.append("add")
+            assert kwargs["metadata"]["provenance_seq"] == 4
+            return SimpleNamespace(
+                memories=[
+                    SimpleNamespace(
+                        memory_id="episode-1",
+                        related_memory_ids=["episode-1", "raw-1"],
+                    )
+                ]
+            )
+
+        async def get_raw(self, memory_id, context):
+            del context
+            calls.append(f"get:{memory_id}")
+            if memory_id == "episode-1":
+                return SimpleNamespace(memory_id=memory_id, mem_type="episodic")
+            return SimpleNamespace(
+                memory_id=memory_id,
+                mem_type="fact",
+                metadata={
+                    "request_metadata": {
+                        "record_metadata": [
+                            {"record_json": record.model_dump_json()}
+                        ]
+                    }
+                },
+                created_at=None,
+                update_at=None,
+            )
+
+    result = await Runtime().add_record(
+        record,
+        provenance_seq=4,
+        context=SimpleNamespace(request_id="request-1"),
+    )
+
+    assert result["memory_id"] == "raw-1"
+    assert result["record"] == record.model_dump(mode="json")
+    assert result["verified_terminal_state"] is True
+    assert calls == ["add", "get:episode-1", "get:raw-1"]
+
+
+@pytest.mark.asyncio
 async def test_versioned_update_builds_native_memory_entity_and_lineage_plan(
     tmp_path: Path,
 ) -> None:
@@ -570,3 +631,64 @@ async def test_history_reads_entire_lineage_component_and_orders_newest_first(
     versions = await runtime.get_history("old", context)
 
     assert [version.memory_id for version in versions] == ["new", "old"]
+
+
+@pytest.mark.asyncio
+async def test_structured_feedback_derives_content_from_replacement_record(tmp_path: Path) -> None:
+    from mindmemos.typing import FeedbackUpdateAction, MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(
+        HomeMasterConfig(memory={"data_root": tmp_path / "memory", "embedding_dimensions": 8})
+    )
+    old_record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "device", "name": "Lumen-Q27", "id": None},
+        "predicate": "package_manager",
+        "value": "uv",
+        "source": "user_statement",
+    }
+    replacement = {**old_record, "value": {"online": "uv", "offline": "Poetry"}}
+    current = SimpleNamespace(
+        metadata={
+            "request_metadata": {
+                "record_metadata": [
+                    {"record_json": json.dumps(old_record), "provenance_seq": 10}
+                ]
+            }
+        }
+    )
+    calls: list[dict[str, Any]] = []
+
+    async def update_versioned(**kwargs: Any):
+        calls.append(kwargs)
+        return SimpleNamespace(status="ok", memory_id="new", message=None)
+
+    runtime.update_versioned = update_versioned  # type: ignore[method-assign]
+    action = FeedbackUpdateAction(
+        target_memory_id="old",
+        before_content='Lumen-Q27 的 package_manager 是 "uv"',
+        after_content="planner text must not be persisted",
+        replacement_record=replacement,
+    )
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+
+    result = await runtime._execute_structured_feedback_update(action, current, context)
+
+    assert result.status == "ok"
+    assert result.result_memory_id == "new"
+    assert result.after_content == (
+        'Lumen-Q27 的 package_manager 是 {"offline":"Poetry","online":"uv"}'
+    )
+    assert result.replacement_record == replacement
+    assert len(calls) == 1
+    assert calls[0]["content"] == result.after_content
+    assert json.loads(calls[0]["metadata"]["record_json"]) == replacement
+    assert calls[0]["metadata"]["provenance_seq"] == 11

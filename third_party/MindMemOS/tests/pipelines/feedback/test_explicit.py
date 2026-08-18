@@ -269,6 +269,14 @@ async def test_explicit_feedback_uses_llm_planner_for_actions() -> None:
               "target_memory_id": "mem-1",
               "before_content": "User uses conda.",
               "after_content": "User uses uv.",
+              "replacement_record": {
+                "schema_version": 1,
+                "memory_type": "fact",
+                "subject": {"type": "device", "name": "Lumen-Q27", "id": null},
+                "predicate": "package_manager",
+                "value": "uv",
+                "source": "user_statement"
+              },
               "reason": "user corrected package manager"
             }
           ]
@@ -299,6 +307,7 @@ async def test_explicit_feedback_uses_llm_planner_for_actions() -> None:
     assert result.actions[0].target_memory_id == "mem-1"
     assert result.actions[0].before_content == "User uses conda."
     assert result.actions[0].after_content == "User uses uv."
+    assert result.actions[0].replacement_record["value"] == "uv"
     assert llm_client.tasks == ["feedback.explicit.search_decision", "feedback.explicit.plan"]
     assert llm_client.messages[1][0]["role"] == "system"
 
@@ -446,3 +455,33 @@ async def test_feedback_executor_runs_add_update_and_delete_actions() -> None:
     assert update_write_plan.relationships[0].rel_type == "DERIVED_FROM"
     assert update_write_plan.relationships[0].source.node_id == update_memory[0].memory_id
     assert update_write_plan.relationships[0].target.node_id == "mem-1"
+
+
+@pytest.mark.asyncio
+async def test_feedback_executor_fails_closed_for_structured_update_without_record() -> None:
+    db_reader = FakeDbReader()
+    db_reader.memory.metadata = {
+        "request_metadata": {"record_json": '{"memory_type":"fact","value":"conda"}'}
+    }
+    db_writer = FakeDbWriter()
+    executor = FeedbackActionExecutor(
+        db_reader=db_reader,
+        db_writer=db_writer,
+        embed_client=FakeEmbedClient(),
+        text_preprocessor=FakeTextPreprocessor(),
+        sparse_encoder=FakeSparseEncoder(),
+    )
+
+    results = await executor.execute(
+        [
+            FeedbackUpdateAction(
+                target_memory_id="mem-1",
+                before_content="User uses conda.",
+                after_content="User uses uv.",
+            )
+        ],
+        make_context(),
+    )
+
+    assert results[0].status == "error"
+    assert db_writer.mutation_plans == []

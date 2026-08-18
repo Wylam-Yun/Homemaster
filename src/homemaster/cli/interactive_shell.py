@@ -57,7 +57,13 @@ def run_interactive_shell(
             if not session_open or finalizer is None:
                 return
             typer.echo(f"[experience] Finalizing session {session_id}")
-            result = runner.run(finalizer.finalize(session_id, reason))
+
+            async def drain_and_finalize():
+                if bundle.memory_add_queue is not None:
+                    await bundle.memory_add_queue.wait_idle()
+                return await finalizer.finalize(session_id, reason)
+
+            result = runner.run(drain_and_finalize())
             if result.status == "failed":
                 typer.echo(f"[experience] Vanilla Add failed: {result.error}")
                 return

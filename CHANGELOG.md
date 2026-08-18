@@ -4,6 +4,14 @@
 
 ### Changed
 
+- Changed model-visible structured `mindmemos_add` to application-owned asynchronous acceptance.
+  Validated calls now return `accepted` with an opaque `job_id` immediately, then one FIFO worker
+  runs Schema Add and exact Qdrant raw readback. Clean shutdown drains accepted jobs before
+  MindMemOS closes and before interactive Vanilla Add/implicit feedback/dreaming finalization;
+  crashes and `SIGKILL` may still lose process-local work. The queue adds no Kafka, Docker,
+  durable broker, concurrency or retry. The recall benchmark now confirms each accepted job from
+  its post-exit job record and an independent raw readback instead of treating acceptance as persistence.
+
 - Rewrote the top-level README from scratch: capability overview, architecture diagram and module
   table, quickstart, CLI reference, run modes, memory/skills/MCP/security/benchmark sections with
   links into the existing user guides, an honest current-boundaries section, and no machine-local
@@ -12,6 +20,19 @@
   (`context_memory`, `mindmemos_search/history/add/update/delete/feedback`).
 
 ### Fixed
+
+- Made structured feedback updates replace the complete canonical record instead of changing only
+  display content while retaining stale `record_json`. Structured feedback now reuses the
+  deterministic versioned writer and verifies canonical content, exact record metadata, archived
+  old/active new states and `DERIVED_FROM`. Memory add/update tools no longer expose or accept
+  opaque evidence refs; the Runtime selects current tenant/session/run/turn evidence internally,
+  preventing a model from reusing an evidence token from an earlier run.
+
+- Bound the runtime's authoritative working directory into the existing system prompt so the model
+  can distinguish the current workspace from a separately named project or environment. Canonical
+  tool results now retain their provider projection through the migration adapter, exposing status,
+  return codes, cwd and structured errors in actual Anthropic/OpenAI tool-result content while
+  preserving the established memory-result and internal metadata shapes.
 
 - Changed provider retry from a single closed error whitelist to up to eight total frozen-request
   attempts for provider failures. The first retry is immediate, subsequent retries use 3/6/12/24/48/96

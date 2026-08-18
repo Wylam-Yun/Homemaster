@@ -23,6 +23,12 @@ ordinary-name `ToolRegistry`、无 session 状态的 `ToolExecutor`、EventBus�
 config/plan/Cron/task/team/child 服务、device connection pool、physical-device lease manager 和可选
 MCP manager；每个 run 冻结 provider request、generation 和 borrowed environment binding，不冻结工具子集。
 
+公开 `mindmemos_add` 的后台任务由 application 而不是 run 持有。工具完成 record、权限和当前 scope evidence
+校验后只做内存 FIFO admission，返回 `accepted + job_id`；单 worker 随后执行 Schema Add 和 raw readback。
+因此 run cancellation 不传播到已 accepted job。Application resource LIFO 顺序保证 close 先 seal/drain Add
+队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer 还会先等待队列 idle，再运行 Vanilla Add、
+implicit feedback 和可选 dreaming。队列不持久化、不并发、不重试；异常进程终止可能丢任务。
+
 `observe` 是普通的 canonical tool，隐藏 stable id 为 `homemaster.observe.v1`。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
 以 `ResultProjection.IMAGE_ONLY` 交给 provider；模型消息恰好只有一个 image block。截图不进入 action
 执行链的授权、freshness、completion 或 provider-binding 状态，因此不会影响 Coworker DOM 或 ALFWorld
@@ -129,6 +135,21 @@ stop、close 和超时必须终止整个进程组并等待真实子进程退出�
 管理面除 `tool.mutate` 外按职责独立要求 `process.spawn`、`scheduler.manage`、`config.mutate` 或
 `mcp.manage`。`config(action="show")` 仍受 registered tool 权限和 typed schema 约束；进入模型消息与
 JSONL trace 的已选字段保持原值，不按 key、URL 或配置字面值改写。
+
+### 模型上下文与工具结果投影
+
+`ApplicationRuntime` 只解析一次 authoritative working directory，并把同一个绝对路径同时交给工具执行器和
+`ContextAssembler`。Assembler 直接把当前 workspace、相对路径解析规则和“用户命名目标不自动等于当前
+workspace”写入现有 system prompt；顺序固定为基础 agent prompt、workspace 事实、冻结的 identity/profile/
+persistent memory。自动召回、证据、任务状态和预算仍位于原有 `# Runtime Context` prelude，不经
+`ContextPlacement.SYSTEM_PROMPT`，也不改变召回时机或 session history。
+
+registered executor 返回的 canonical `ToolExecutionResult` 经通用 adapter 时保留原值；application 消息边界
+调用其统一 provider projection，使状态、业务 data、cwd、外部返回码和结构化错误进入真实 tool-result
+`content`。扁平 `ToolResult.metadata` 继续供 completion guard、observer 和既有内部消费者使用。memory 工具
+保持已经公开的顶层 `memory_id/records/versions` 模型形状，图片仍成为 provider image block，附件原始字节只
+交给 artifact publisher。Anthropic/OpenAI transport 只负责序列化 `ToolResultMessage.content`，不解释或拼接
+内部 `data`。
 
 Home 的命令与搜索工具共用同一执行边界：`terminal` 接收模型选择的完整命令；`search_files` 根据结构化
 参数在实际执行环境中选择 `rg`、`grep` 或 `find`，然后把生成的命令交给 `terminal` 的进程监督实现。两者

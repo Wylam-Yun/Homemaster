@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -40,6 +42,7 @@ class FeedbackActionExecutor:
         text_config: TextProcessingConfig | None = None,
         text_preprocessor: TextPreprocessor | None = None,
         sparse_encoder: SparseVectorEncoder | None = None,
+        structured_update_handler: object | None = None,
     ) -> None:
         self._db_reader = db_reader
         self._db_writer = db_writer
@@ -47,6 +50,7 @@ class FeedbackActionExecutor:
         self._text_config = text_config
         self._text_preprocessor = text_preprocessor
         self._sparse_encoder = sparse_encoder
+        self._structured_update_handler = structured_update_handler
 
     async def execute(
         self,
@@ -117,6 +121,19 @@ class FeedbackActionExecutor:
         memory = await self._db_reader.get_memory(context, action.target_memory_id)
         if memory is None:
             return action.model_copy(update={"result_memory_id": action.target_memory_id, "status": "error"})
+
+        if _structured_record(memory.metadata) is not None:
+            handler = self._structured_update_handler
+            if action.replacement_record is None or not callable(handler):
+                return action.model_copy(
+                    update={"result_memory_id": action.target_memory_id, "status": "error"}
+                )
+            try:
+                return await handler(action, memory, context)
+            except Exception:
+                return action.model_copy(
+                    update={"result_memory_id": action.target_memory_id, "status": "error"}
+                )
 
         # 创建新版本记忆
         new_memory_id = str(uuid4())
@@ -285,3 +302,28 @@ def _feedback_metadata(reason: str | None, now: datetime) -> dict[str, str]:
     if reason:
         metadata["feedback_reason"] = reason
     return metadata
+
+
+def _structured_record(metadata: Mapping[str, object] | None) -> dict[str, object] | None:
+    def find(value: object) -> str | None:
+        if isinstance(value, Mapping):
+            direct = value.get("record_json")
+            if isinstance(direct, str):
+                return direct
+            for child in value.values():
+                if (found := find(child)) is not None:
+                    return found
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for child in value:
+                if (found := find(child)) is not None:
+                    return found
+        return None
+
+    raw = find(metadata)
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None

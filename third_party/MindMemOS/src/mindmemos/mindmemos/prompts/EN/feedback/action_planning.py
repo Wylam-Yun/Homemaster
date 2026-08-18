@@ -38,6 +38,10 @@ Rules:
 - When long-term signals are expressed without an explicit scope, keep after_content general. Do not narrow it to the current round context during update or scope-union.
 - Durable memory content must not include unbounded temporal wording unless the user gave a concrete time range or version range. Avoid phrases such as "from now on", "以后", "之后", "目前", "当前", "now", "currently", "recently", "today", or "this time" in long-term memory unless they are part of an explicit bounded condition. Write timeless durable memories instead. Example: write "代码注释使用中文。" rather than "从现在开始，代码注释都用中文。"
 - Before returning an action, check that after_content satisfies all rules above, including language, explicit scope, temporal wording, scope union/conflict handling, scenario preconditions, and durability. If after_content violates any rule, revise it until it satisfies the rules.
+- If the target memory contains structured_record, an update action MUST include replacement_record as the complete
+  corrected record. Preserve its schema_version, memory_type, identity fields and source; change only fields supported
+  by the feedback. after_content must describe the same fact, but storage will derive canonical content from
+  replacement_record. Never update a structured target with after_content alone.
 - Return JSON only.
 
 Category-specific rules:
@@ -79,6 +83,7 @@ Action object formats:
     "target_memory_id": "one of memories[].id",
     "before_content": "old memory content copied from the target memory",
     "after_content": "new corrected or supplemented memory content",
+    "replacement_record": "complete corrected memories[].structured_record, required for structured targets",
     "reason": "short reason for this action",
     "status": "ok"
   }
@@ -124,6 +129,10 @@ Rules:
 - When long-term feedback is expressed without an explicit scope, keep after_content general. Do not narrow it to the current round context during update or scope-union.
 - Durable memory content must not include unbounded temporal wording unless the user gave a concrete time range or version range. Avoid phrases such as "from now on", "以后", "之后", "目前", "当前", "now", "currently", "recently", "today", or "this time" unless they are part of an explicit bounded condition. Write timeless durable memories instead.
 - Before returning an action, check that after_content satisfies all rules above, including language, explicit scope, temporal wording, scope union/conflict handling, and durability. If after_content violates any rule, revise it until it satisfies the rules.
+- If the target memory contains structured_record, an update action MUST include replacement_record as the complete
+  corrected record. Preserve its schema_version, memory_type, identity fields and source; change only fields supported
+  by the feedback. after_content must describe the same fact, but storage will derive canonical content from
+  replacement_record. Never update a structured target with after_content alone.
 - Return JSON only.
 
 Action object formats:
@@ -140,6 +149,7 @@ Action object formats:
     "target_memory_id": "one of recalled_memories[].id",
     "before_content": "old memory content copied from the target memory",
     "after_content": "new corrected or supplemented memory content",
+    "replacement_record": "complete corrected recalled_memories[].structured_record, required for structured targets",
     "reason": "short reason for this action",
     "status": "ok"
   }

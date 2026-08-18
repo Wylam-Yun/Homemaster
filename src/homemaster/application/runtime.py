@@ -386,9 +386,6 @@ class ApplicationRuntime:
                     run_id=run_id,
                     turn_index=agent_state.turn_index,
                 )
-                bind_runtime_evidence = getattr(assembler, "bind_runtime_evidence", None)
-                if callable(bind_runtime_evidence):
-                    bind_runtime_evidence(current_user_evidence)
                 task_state_store = TaskStateStore.from_snapshot_dict(
                     runtime.task_state_store.to_snapshot_dict()
                 )

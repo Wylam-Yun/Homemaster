@@ -115,6 +115,9 @@ class MemorySearchItem(BaseModel):
     lineage: MemoryLineage | None = None
     """Version lineage metadata populated by vanilla search."""
 
+    structured_record: dict[str, Any] | None = None
+    """Optional caller-owned canonical record for a structured raw memory."""
+
 
 class AddPipelineInput(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
@@ -318,6 +321,9 @@ class FeedbackUpdateAction(BaseModel):
 
     after_content: str
     """Content after the change."""
+
+    replacement_record: dict[str, Any] | None = None
+    """Complete canonical record required when the target is structured."""
 
     reason: str | None = None
     """Reason for the action."""

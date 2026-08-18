@@ -16,6 +16,8 @@ from uuid import uuid4
 
 from homemaster.config import HomeMasterConfig
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
+from homemaster.memory.models import MEMORY_RECORD_ADAPTER, MemoryRecord
+from homemaster.memory.serialization import serialize_record
 
 _ENTITY_MODELING_PATH = Path(__file__).with_name("mindmemos_entity_modeling.json")
 _HOMEMASTER_ENTITY_GENERATION_PROMPT = """
@@ -59,6 +61,9 @@ _HOMEMASTER_ENTITY_GENERATION_PROMPT = """
 _TYPED_RECORD: ContextVar[dict[str, Any] | None] = ContextVar(
     "homemaster_mindmemos_typed_record",
     default=None,
+)
+_FEEDBACK_PROVENANCE_SEQ: ContextVar[int | None] = ContextVar(
+    "homemaster_feedback_provenance_seq", default=None
 )
 
 
@@ -172,6 +177,53 @@ def _typed_record_from_metadata(metadata: dict[str, Any] | None) -> dict[str, An
     except json.JSONDecodeError:
         return None
     return record if isinstance(record, dict) else None
+
+
+def _record_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Find HomeMaster record metadata inside native request metadata shapes."""
+
+    if not isinstance(metadata, Mapping):
+        return {}
+    if isinstance(metadata.get("record_json"), str):
+        return dict(metadata)
+    for value in metadata.values():
+        if isinstance(value, Mapping):
+            if found := _record_metadata(value):
+                return found
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for item in value:
+                if isinstance(item, Mapping) and (found := _record_metadata(item)):
+                    return found
+    return {}
+
+
+def _record_from_raw_memory(raw: Any) -> MemoryRecord | None:
+    metadata = getattr(raw, "metadata", None)
+    if not isinstance(metadata, Mapping):
+        return None
+    nested = metadata.get("request_metadata")
+    if isinstance(nested, Mapping):
+        record_metadata = nested.get("record_metadata")
+        if isinstance(record_metadata, Sequence) and not isinstance(
+            record_metadata, (str, bytes)
+        ):
+            metadata = next(
+                (
+                    item
+                    for item in record_metadata
+                    if isinstance(item, Mapping) and "record_json" in item
+                ),
+                nested,
+            )
+        else:
+            metadata = nested
+    value = metadata.get("record_json")
+    if not isinstance(value, str):
+        return None
+    try:
+        return MEMORY_RECORD_ADAPTER.validate_json(value)
+    except ValueError:
+        return None
 
 
 class _TypedSchemaLlmClient:
@@ -494,6 +546,7 @@ class EmbeddedMindMemOS:
                 db_reader=reader,
                 db_writer=writer,
                 embed_client=embed_client,
+                structured_update_handler=self._execute_structured_feedback_update,
             )
             activity_collector = RecentActivityCollector(store)
             feedback_pipeline = create_pipeline(
@@ -610,6 +663,62 @@ class EmbeddedMindMemOS:
             raise
         finally:
             _TYPED_RECORD.reset(token)
+
+    async def add_record(
+        self,
+        record: MemoryRecord,
+        *,
+        provenance_seq: int,
+        context: Any,
+    ) -> dict[str, object]:
+        """Persist one validated HomeMaster record and verify its raw terminal state."""
+
+        from mindmemos.typing import TextMessage
+
+        serialized = serialize_record(record, provenance_seq=provenance_seq)
+        result = await self.add(
+            [TextMessage(text=serialized.text)],
+            context,
+            force_generation=True,
+            metadata={
+                **serialized.metadata,
+                "homemaster_memory_type": record.memory_type,
+            },
+        )
+        candidate_ids: list[str] = []
+        for event in result.memories:
+            candidate_ids.extend(
+                item
+                for item in getattr(event, "related_memory_ids", [])
+                if isinstance(item, str) and item
+            )
+            event_id = getattr(event, "memory_id", None)
+            if isinstance(event_id, str) and event_id:
+                candidate_ids.append(event_id)
+        expected_type = "experience" if record.memory_type == "procedure" else record.memory_type
+        for memory_id in dict.fromkeys(candidate_ids):
+            raw = await self.get_raw(memory_id, context)
+            if getattr(raw, "mem_type", None) != expected_type:
+                continue
+            parsed = _record_from_raw_memory(raw)
+            if parsed == record:
+                created_at = getattr(raw, "created_at", None)
+                updated_at = getattr(raw, "update_at", None)
+                return {
+                    "memory_id": raw.memory_id,
+                    "memory_type": record.memory_type,
+                    "record": record.model_dump(mode="json"),
+                    "created_at": (
+                        created_at.isoformat() if hasattr(created_at, "isoformat") else None
+                    ),
+                    "updated_at": (
+                        updated_at.isoformat() if hasattr(updated_at, "isoformat") else None
+                    ),
+                    "score": None,
+                    "match_sources": [],
+                    "verified_terminal_state": True,
+                }
+        raise RuntimeError("MindMemOS Add returned no verified raw memory")
 
     async def add_vanilla(
         self,
@@ -880,6 +989,59 @@ class EmbeddedMindMemOS:
             memory_id=new_memory_id if changed else None,
         )
 
+    async def _execute_structured_feedback_update(
+        self,
+        action: Any,
+        current: Any,
+        context: Any,
+    ) -> Any:
+        """Apply a feedback replacement through the canonical Schema writer."""
+
+        current_metadata = _record_metadata(getattr(current, "metadata", None))
+        try:
+            current_record = MEMORY_RECORD_ADAPTER.validate_json(current_metadata["record_json"])
+            replacement_record = MEMORY_RECORD_ADAPTER.validate_python(action.replacement_record)
+        except (KeyError, TypeError, ValueError):
+            return action.model_copy(
+                update={"result_memory_id": action.target_memory_id, "status": "error"}
+            )
+        current_seq = int(current_metadata.get("provenance_seq", 0))
+        provenance_seq = _FEEDBACK_PROVENANCE_SEQ.get()
+        if provenance_seq is None:
+            provenance_seq = current_seq + 1
+        current_serialized = serialize_record(current_record, provenance_seq=current_seq)
+        replacement = serialize_record(replacement_record, provenance_seq=provenance_seq)
+        if (
+            current_record.memory_type != replacement_record.memory_type
+            or current_serialized.dedupe_key != replacement.dedupe_key
+            or replacement_record.source != current_record.source
+            or provenance_seq <= current_seq
+        ):
+            return action.model_copy(
+                update={"result_memory_id": action.target_memory_id, "status": "error"}
+            )
+        result = await self.update_versioned(
+            memory_id=action.target_memory_id,
+            content=replacement.text,
+            metadata={
+                **replacement.metadata,
+                "homemaster_memory_type": replacement_record.memory_type,
+            },
+            context=context,
+        )
+        if result.status != "ok" or not isinstance(result.memory_id, str):
+            return action.model_copy(
+                update={"result_memory_id": action.target_memory_id, "status": "error"}
+            )
+        return action.model_copy(
+            update={
+                "result_memory_id": result.memory_id,
+                "after_content": replacement.text,
+                "replacement_record": replacement_record.model_dump(mode="json"),
+                "status": "ok",
+            }
+        )
+
     async def get_history(self, memory_id: str, context: Any) -> list[Any]:
         """Return every Qdrant version connected to one memory through DERIVED_FROM."""
 
@@ -975,21 +1137,26 @@ class EmbeddedMindMemOS:
         feedback: str,
         messages: list[Any],
         recalled_memories: list[Any],
+        provenance_seq: int,
         context: Any,
     ) -> Any:
         from mindmemos.typing import FeedbackPipelineInput
 
         if self._feedback_pipeline is None:
             raise RuntimeError("embedded MindMemOS is not started")
-        return await self._feedback_pipeline.feedback_sync(
-            FeedbackPipelineInput(
-                feedback=feedback,
-                messages=messages,
-                recalled_memories=recalled_memories,
-                mode="sync",
-            ),
-            context,
-        )
+        token = _FEEDBACK_PROVENANCE_SEQ.set(provenance_seq)
+        try:
+            return await self._feedback_pipeline.feedback_sync(
+                FeedbackPipelineInput(
+                    feedback=feedback,
+                    messages=messages,
+                    recalled_memories=recalled_memories,
+                    mode="sync",
+                ),
+                context,
+            )
+        finally:
+            _FEEDBACK_PROVENANCE_SEQ.reset(token)
 
     async def feedback_implicit(self, context: Any) -> Any:
         from mindmemos.typing import FeedbackPipelineInput

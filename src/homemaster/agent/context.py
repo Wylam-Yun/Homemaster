@@ -334,7 +334,6 @@ class ContextAssembler:
         summary_client: Any = None,
         skill_registry: Any | None = None,
         frozen_memory_context: Any | None = None,
-        runtime_evidence_refs: tuple[str, ...] = (),
     ) -> None:
         self._provider = provider
         self._policy = policy
@@ -343,7 +342,6 @@ class ContextAssembler:
         self._summary_client = summary_client
         self._skill_registry = skill_registry
         self._frozen_memory_context = frozen_memory_context
-        self._runtime_evidence_refs = tuple(runtime_evidence_refs)
         self._automatic_memory_context: str | None = None
         self._automatic_recalled_memories: tuple[Any, ...] = ()
         self._working_directory: Path | None = None
@@ -360,22 +358,6 @@ class ContextAssembler:
 
     def bind_automatic_recalled_memories(self, memories: tuple[Any, ...]) -> None:
         self._automatic_recalled_memories = tuple(memories)
-
-    def bind_runtime_evidence(self, refs: tuple[str, ...]) -> None:
-        self._runtime_evidence_refs = tuple(refs)
-
-    def _runtime_evidence_prelude(self) -> str | None:
-        if not self._runtime_evidence_refs:
-            return None
-        return "# Current Run Memory Evidence\n" + _json_text(
-            {
-                "user_statement_refs": list(self._runtime_evidence_refs),
-                "instruction": (
-                    "Use these opaque refs only when a memory record is directly supported "
-                    "by the current canonical user turn."
-                ),
-            }
-        )
 
     def _session_system_prompt(self, session_id: str) -> str:
         parts = [self._system_prompt]
@@ -430,8 +412,6 @@ class ContextAssembler:
         prelude_texts: list[str] = []
         if self._automatic_memory_context is not None:
             prelude_texts.append(self._automatic_memory_context)
-        if evidence_prelude := self._runtime_evidence_prelude():
-            prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages
         for item in items:
             rendered = item.render(item.mode)
@@ -535,8 +515,6 @@ class ContextAssembler:
         prelude_texts: list[str] = []
         if self._automatic_memory_context is not None:
             prelude_texts.append(self._automatic_memory_context)
-        if evidence_prelude := self._runtime_evidence_prelude():
-            prelude_texts.append(evidence_prelude)
         conversation_messages: list[Message] = session.messages
         for item in items:
             rendered = item.render(item.mode)

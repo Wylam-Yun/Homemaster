@@ -224,8 +224,10 @@ HomeMaster 记忆分两层：
 - **三层本地文件记忆** — `SOUL.md`（部署者维护的稳定人格）、`USER.md`（用户身份与偏好）、
   `MEMORY.md`（近期事件与跨会话事项），session 首次组装上下文时冻结快照。
 - **embedded MindMemOS** — 外部世界 fact 与可复用 procedure 的结构化检索库，原生 schema pipeline
-  写入本地 Qdrant 与 Neo4j；写入必须绑定当前 Runtime 的 opaque evidence，所有 mutation 经原生
-  返回状态和 raw memory 终态读回确认。
+  写入本地 Qdrant 与 Neo4j。`mindmemos_add` 校验当前 Runtime evidence 后进入应用内单 worker FIFO，
+  立即返回 `accepted + job_id`；正常退出会先 drain 并逐条做 raw memory 终态回读。update、delete、
+  feedback 等 mutation 仍在工具调用内完成终态确认。结构化更新以完整 record 为唯一真理源，展示正文由
+  record 确定性生成；当前轮 evidence 由 Runtime 内部绑定，不要求模型读取或回传 evidence ID。
 
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
 自动执行一次 MindMemOS 召回（`top_k=3`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；
@@ -233,6 +235,10 @@ Agent 仍可用 `mindmemos_search` 主动补充搜索，并用 `mindmemos_histor
 版本链。用户给出纠正但具体 mutation 尚未确定时，模型调用 `mindmemos_feedback`，其目标只能来自该次成功
 provider request 实际可见的 raw recall。公开记忆工具共七个：`context_memory`、`mindmemos_search`、
 `mindmemos_history`、`mindmemos_add`、`mindmemos_update`、`mindmemos_delete`、`mindmemos_feedback`。
+
+异步 Add 队列只存在于当前进程：不使用 Kafka、Docker 或持久化 broker，不并发、不自动重试。正常
+one-shot/Gateway/Application close 会等待已 accepted 的任务；交互 Shell 会先等结构化 Add 清空，再依次运行
+Vanilla Add、implicit feedback 和可选 dreaming。进程崩溃、断电或 `kill -9` 仍可能丢失尚未完成的任务。
 
 交互 Session 结束后，HomeMaster 在 Vanilla Add 写后回读成功的基础上运行 operation-record implicit
 feedback；同一 project/user 每累计 8 条有效普通新增 raw memory 后运行一次 native dreaming。计数与 pending

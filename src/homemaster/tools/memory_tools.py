@@ -21,6 +21,7 @@ from pydantic import (
 )
 
 from homemaster.events.trace import append_jsonl_event
+from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.evidence import MemoryEvidenceError, MemoryEvidenceLedger
 from homemaster.memory.file_store import (
     FileMemoryError,
@@ -105,10 +106,6 @@ class AddMemoryInput(_MemoryToolInput):
             "be lowercase English snake_case, such as location."
         )
     )
-    evidence_refs: tuple[_NonEmptyText, ...] = Field(
-        min_length=1, json_schema_extra={"uniqueItems": True}
-    )
-
     @model_validator(mode="after")
     def _memory_types_match(self) -> AddMemoryInput:
         if self.memory_type != self.record.memory_type:
@@ -148,10 +145,6 @@ class UpdateMemoryInput(_MemoryToolInput):
             "but no record. Omit for a structured FactRecord or ProcedureRecord."
         ),
     )
-    evidence_refs: tuple[_NonEmptyText, ...] = Field(
-        min_length=1, json_schema_extra={"uniqueItems": True}
-    )
-
     @model_validator(mode="after")
     def _exactly_one_replacement(self) -> UpdateMemoryInput:
         if (self.record is None) == (self.content is None):
@@ -294,27 +287,20 @@ class AddMemoryExecutor:
         parsed = _record(arguments.get("record"), arguments.get("memory_type"))
         if isinstance(parsed, ToolExecutionResult):
             return parsed
-        evidence = _validated_evidence(context, parsed, arguments.get("evidence_refs"))
+        evidence = _validated_evidence(context, parsed)
         if isinstance(evidence, ToolExecutionResult):
             return evidence
         try:
-            store = _service(context, "mindmemos", EmbeddedMindMemOS)
-            memory_context = _mindmemos_context(context)
-            item = await _add_mindmemos_record(
-                store,
-                parsed,
+            queue = _service(context, "memory_add_queue", MemoryAddQueue)
+            receipt = await queue.enqueue(
+                record=parsed,
                 provenance_seq=max(entry.provenance_seq for entry in evidence),
-                context=memory_context,
+                context=_mindmemos_context(context),
+                run_id=context.run_id,
             )
         except Exception as exc:
-            return _failure("memory_backend_unavailable", str(exc), attempted=True)
-        if item is None:
-            return _failure(
-                "memory_backend_rejected",
-                "MindMemOS add returned no raw memory",
-                attempted=True,
-            )
-        return _success("add", item, attempted=True)
+            return _failure("memory_backend_unavailable", str(exc))
+        return _accepted("add", receipt.job_id)
 
 
 class SearchMemoriesExecutor:
@@ -368,7 +354,14 @@ class SearchMemoriesExecutor:
                 if not _record_matches(parsed, arguments):
                     continue
                 records.append(_mindmemos_payload(hit, raw, parsed))
-                visible_hits.append(hit)
+                visible_hits.append(
+                    hit.model_copy(
+                        update={"structured_record": parsed.model_dump(mode="json")},
+                        deep=True,
+                    )
+                    if callable(getattr(hit, "model_copy", None))
+                    else hit
+                )
         except Exception as exc:
             return _failure("memory_backend_unavailable", str(exc))
         run_context = context.metadata.get("run_context")
@@ -445,11 +438,32 @@ class FeedbackMemoryExecutor:
                         "memory_feedback_recalled_memory_invalid",
                         "feedback context contains an unavailable or changed raw memory",
                     )
-                verified_recalled.append(item)
+                record = _mindmemos_record(raw)
+                verified_recalled.append(
+                    item.model_copy(
+                        update={
+                            "structured_record": (
+                                record.model_dump(mode="json") if record is not None else None
+                            )
+                        },
+                        deep=True,
+                    )
+                    if callable(getattr(item, "model_copy", None))
+                    else item
+                )
+            evidence = _validated_untyped_evidence(context)
+            if isinstance(evidence, ToolExecutionResult):
+                await _emit_feedback_event(
+                    context,
+                    "memory.feedback.explicit.failed",
+                    {"request_id": context.tool_call_id, "error": "evidence_missing"},
+                )
+                return evidence
             result = await store.feedback_explicit(
                 feedback=feedback,
                 messages=snapshot_to_dialogue_messages(snapshot),
                 recalled_memories=verified_recalled,
+                provenance_seq=max(item.provenance_seq for item in evidence),
                 context=memory_context,
             )
             receipts = []
@@ -523,12 +537,29 @@ async def _verify_feedback_action(store: Any, context: Any, action: Any) -> bool
     if action.action == "update":
         old = await store.get_raw(action.target_memory_id, context)
         new = await store.get_raw(action.result_memory_id, context)
+        old_record = _mindmemos_record(old)
+        expected_record = (
+            _record(action.replacement_record, None)
+            if action.replacement_record is not None
+            else None
+        )
+        structured_terminal_ok = True
+        if old_record is not None:
+            if expected_record is None or isinstance(expected_record, ToolExecutionResult):
+                structured_terminal_ok = False
+            else:
+                expected_content = serialize_record(expected_record, provenance_seq=0).text
+                structured_terminal_ok = bool(
+                    _mindmemos_record(new) == expected_record
+                    and getattr(new, "content", None) == expected_content
+                )
         return bool(
             old is not None
             and getattr(old, "status", None) == "archived"
             and new is not None
             and getattr(new, "status", None) == "active"
             and getattr(new, "content", None) == action.after_content
+            and structured_terminal_ok
             and await store.has_memory_lineage(
                 source_memory_id=action.result_memory_id,
                 target_memory_id=action.target_memory_id,
@@ -756,7 +787,7 @@ class UpdateMemoryExecutor:
         parsed = _record(arguments.get("record"), None)
         if isinstance(parsed, ToolExecutionResult):
             return parsed
-        evidence = _validated_evidence(context, parsed, arguments.get("evidence_refs"))
+        evidence = _validated_evidence(context, parsed)
         if isinstance(evidence, ToolExecutionResult):
             return evidence
         provenance_seq = max(entry.provenance_seq for entry in evidence)
@@ -841,7 +872,7 @@ class UpdateMemoryExecutor:
                 "Vanilla memory requires replacement content",
                 attempted=True,
             )
-        evidence = _validated_untyped_evidence(context, arguments.get("evidence_refs"))
+        evidence = _validated_untyped_evidence(context)
         if isinstance(evidence, ToolExecutionResult):
             return evidence
         result = await store.update(current.memory_id, content, memory_context)
@@ -946,46 +977,6 @@ class DeleteMemoryExecutor:
         )
 
 
-async def _add_mindmemos_record(
-    store: EmbeddedMindMemOS,
-    record: MemoryRecord,
-    *,
-    provenance_seq: int,
-    context: Any,
-) -> dict[str, object] | None:
-    from mindmemos.typing import TextMessage
-
-    serialized = serialize_record(record, provenance_seq=provenance_seq)
-    metadata = {
-        **serialized.metadata,
-        "homemaster_memory_type": record.memory_type,
-    }
-    result = await store.add(
-        [TextMessage(text=serialized.text)],
-        context,
-        force_generation=True,
-        metadata=metadata,
-    )
-    candidate_ids: list[str] = []
-    for event in result.memories:
-        candidate_ids.extend(
-            item
-            for item in getattr(event, "related_memory_ids", [])
-            if isinstance(item, str) and item
-        )
-        event_id = getattr(event, "memory_id", None)
-        if isinstance(event_id, str) and event_id:
-            candidate_ids.append(event_id)
-    for memory_id in dict.fromkeys(candidate_ids):
-        raw = await store.get_raw(memory_id, context)
-        if getattr(raw, "mem_type", None) != _mindmemos_memory_type(record.memory_type):
-            continue
-        parsed = _mindmemos_record(raw)
-        if parsed == record:
-            return _mindmemos_raw_payload(raw, parsed)
-    return None
-
-
 def _mindmemos_raw_payload(raw: Any, record: MemoryRecord) -> dict[str, object]:
     created_at = getattr(raw, "created_at", None)
     updated_at = getattr(raw, "update_at", None)
@@ -1002,23 +993,19 @@ def _mindmemos_raw_payload(raw: Any, record: MemoryRecord) -> dict[str, object]:
 
 
 def _validated_evidence(
-    context: ToolExecutionContext, record: MemoryRecord, raw_refs: object
+    context: ToolExecutionContext, record: MemoryRecord
 ) -> tuple[Any, ...] | ToolExecutionResult:
-    if not isinstance(raw_refs, Sequence) or isinstance(raw_refs, str):
-        return _failure("memory_evidence_missing", "evidence_refs are required")
-    refs = [item for item in raw_refs if isinstance(item, str) and item]
-    if len(refs) != len(raw_refs):
-        return _failure("memory_evidence_invalid", "evidence refs must be non-empty strings")
     subject = context.permission_subject
     try:
-        evidence = _service(context, "memory_evidence_ledger", MemoryEvidenceLedger).validate(
-            refs,
-            expected_kind=record.source,
+        evidence = _service(context, "memory_evidence_ledger", MemoryEvidenceLedger).for_scope(
+            kind=record.source,
             tenant_id=subject.tenant_id,
             session_id=context.session_id,
             run_id=context.run_id,
             turn_id=f"turn-{context.turn_index}",
         )
+        if not evidence:
+            return _failure("memory_evidence_missing", "current execution has no matching evidence")
         if record.memory_type == "procedure":
             if len(evidence) < len(record.steps) + 1:
                 return _failure(
@@ -1037,22 +1024,23 @@ def _validated_evidence(
 
 
 def _validated_untyped_evidence(
-    context: ToolExecutionContext, raw_refs: object
+    context: ToolExecutionContext,
 ) -> tuple[Any, ...] | ToolExecutionResult:
-    if not isinstance(raw_refs, Sequence) or isinstance(raw_refs, str):
-        return _failure("memory_evidence_missing", "evidence_refs are required")
-    refs = [item for item in raw_refs if isinstance(item, str) and item]
-    if len(refs) != len(raw_refs):
-        return _failure("memory_evidence_invalid", "evidence refs must be non-empty strings")
     subject = context.permission_subject
     try:
-        return _service(context, "memory_evidence_ledger", MemoryEvidenceLedger).validate(
-            refs,
-            expected_kind=None,
+        evidence = _service(context, "memory_evidence_ledger", MemoryEvidenceLedger).for_scope(
+            kind="user_statement",
             tenant_id=subject.tenant_id,
             session_id=context.session_id,
             run_id=context.run_id,
             turn_id=f"turn-{context.turn_index}",
+        )
+        return (
+            evidence
+            if evidence
+            else _failure(
+                "memory_evidence_missing", "current execution has no user-statement evidence"
+            )
         )
     except MemoryEvidenceError as exc:
         return _failure(exc.code, str(exc))
@@ -1114,6 +1102,21 @@ def _success(
         text=f"memory {operation} succeeded",
         data=payload,
         backend_attempted=attempted,
+    )
+
+
+def _accepted(operation: str, job_id: str) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text=f"memory {operation} accepted",
+        data={
+            "success": True,
+            "operation": operation,
+            "status": "accepted",
+            "job_id": job_id,
+            "verified_terminal_state": False,
+        },
+        backend_attempted=True,
     )
 
 
@@ -1256,7 +1259,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "mindmemos_add",
-                "Store a verified external fact or reusable procedure in searchable long-term memory. Use this for stable information learned from the environment, such as an object location, device state, or a procedure that has actually succeeded. Do not use it for user preferences, temporary task progress, or unverified guesses.",
+                "Queue a verified external fact or reusable procedure for searchable long-term memory. A successful call returns an accepted job ID; persistence completes asynchronously and immediate search may not see it yet. Use this for stable information learned from the environment, such as an object location, device state, or a procedure that has actually succeeded. Do not use it for user preferences, temporary task progress, or unverified guesses.",
                 AddMemoryInput,
                 mutating=True,
             ),

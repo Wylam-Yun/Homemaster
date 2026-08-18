@@ -345,7 +345,7 @@ class DreamingCoordinator:
         self, result: Any, batch: DreamingBatch, context: Any
     ) -> None:
         if result.status != "ok" or result.outcome not in {"actions", "no_action"}:
-            raise RuntimeError(result.message or "dreaming pipeline failed")
+            raise RuntimeError(result.message or "dreaming execution failed")
         if result.errors or any(action.status != "ok" for action in result.actions):
             raise RuntimeError("dreaming returned failed actions")
         for action in result.actions:

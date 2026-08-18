@@ -1,5 +1,57 @@
 # Engineering Pitfalls
 
+## 2026-08-18 - Feedback 正文已纠正但权威 record 仍是旧值，模型又复用跨 run evidence
+
+### 症状与根因
+
+用户把 `Lumen-Q27.package_manager` 从笼统的 `uv` 纠正为“在线开发用 uv、离线交付用 Poetry”。原生
+feedback executor 创建的新版本正文正确，却复制旧 metadata，使 `record_json.value` 仍为 `uv`；HomeMaster
+只检查正文、active/archived 和 lineage，因而误报成功。模型从 history 发现矛盾后删除了新版本，又把上一次
+run 的 `memory-evidence-*` 传给 add/update，scope 校验正确拒绝，最终留下不完整状态。单看工具成功日志或正文
+都发现不了这个错误。
+
+### 修法与教训
+
+Schema feedback update 必须携带完整 `replacement_record`，由 HomeMaster 校验 type、identity 和 source 后，
+用 `serialize_record()` 生成正文并复用确定性的 versioned writer；成功门同时读取 Qdrant 的新旧状态、准确
+`record_json`、canonical content 和 Neo4j `DERIVED_FROM`。模型不再选择 evidence ref：add/update schema 和
+provider context 都不暴露它，executor 只从 ledger 按当前 tenant/session/run/turn/source 取证。真实验收使用
+原值 `uv` 到“在线 uv、离线 Poetry”的纠正，逐项检查 record、正文、实体描述和版本链。
+
+### 参考
+
+- `src/homemaster/tools/memory_tools.py`
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/feedback/executor.py`
+- `tests/homemaster/memory/test_feedback_dreaming_integration.py`
+
+## 2026-08-18 - 工具 cwd 只在执行器内可见，迁移 adapter 又丢掉 canonical provider receipt
+
+### 症状与根因
+
+用户询问另一个项目 Aurora-A18 “装依赖的第一步”时，模型把 HomeMaster 当前目录当成目标，执行了
+`uv venv`，随后在超时后用 `--clear` 重建已有 `.venv`。Runtime 已经锁定 cwd，terminal/file 也都从该路径
+解析相对路径，但 cwd 没进入 system prompt，模型只能从 `ls` 和 `pyproject.toml` 猜目标归属。与此同时，
+terminal 已返回包含 cwd、returncode、timeout 和结构化 error 的 `ToolExecutionResult`，通用迁移 adapter 却把
+它降成文本 output 与内部 metadata；application 只把 output 放入 content，而 Anthropic/OpenAI transport
+不会发送 `message.data`。因此每一步 trace 都显示工具“正常返回”，模型下一轮实际只看到部分文本。
+
+### 修法与教训
+
+从 Runtime 的同一个 authoritative working directory 同时驱动工具和现有 system prompt，明确相对路径规则，
+并声明对话中命名的主机、设备、环境或项目不会自动绑定当前 workspace。不要为此启用尚未落地的通用
+`ContextPlacement.SYSTEM_PROMPT` 分拣体系。通用 adapter 必须保留 canonical result 到 application 消息边界，
+再调用唯一 provider projection；memory 的既有顶层结果和内部扁平 metadata 保持兼容。验收必须真实执行
+`pwd` 和非零退出命令，再从 Anthropic 与 OpenAI 最终 request 的 tool-result content 解析 cwd、状态、返回码
+和 error，不能读取 executor result 或 `message.data` 冒充模型可见。
+
+### 参考
+
+- `src/homemaster/agent/context.py`
+- `src/homemaster/application/runtime.py`
+- `src/homemaster/application/tool_executor.py`
+- `tests/homemaster/application/test_runtime_context_projection.py`
+
 ## 2026-08-18 - Direct structured update 重跑 Schema Add，阻塞近四分钟且历史链名不副实
 
 ### 症状与根因

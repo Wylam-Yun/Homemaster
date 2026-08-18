@@ -137,7 +137,15 @@
 - 工具返回中供模型继续决策的 ID、records、状态和错误细节必须进入 provider 实际序列化的 tool-result
   `content`；只写内部 `data`/metadata/event 不算模型可见。回归必须在下一次真实 transport 请求边界解析并
   断言这些字段，禁止用 executor result 或 runtime trace 代替。
-- 模型下一轮必须回传的 opaque evidence ref/receipt/handle 必须进入具体 Provider transport 最终发送的
+- canonical `ToolExecutionResult` 穿过通用迁移 adapter 时必须保留原始模型投影，直到 application 统一生成
+  `ToolResultMessage`；不得先压扁成 `output + metadata` 再让 provider 只发送 output。兼容用的扁平 metadata
+  可以保留，但不能替代 canonical provider content；同时回归成功、非零返回码和媒体结果。
+- 结构化记忆 mutation 必须以完整 typed record 为唯一真理源，展示 content 只由该 record 确定性生成；终态
+  同时回读比较 content、完整 record、版本状态和 lineage，禁止正文更新但 `record_json` 沿用旧值。
+- Runtime 能按 tenant/session/run/turn 和来源确定的 provenance 不得交给模型搬运 opaque ref；从公开 schema、
+  provider messages 和 tool result 中移除该 ref，并在 executor 内按当前 scope 选择。回归必须负向扫描最终
+  provider 请求，并用旧 run ref 无法影响新 mutation 的用例证明隔离。
+- 协议确实要求模型下一轮回传的 opaque receipt/handle 必须进入具体 Provider transport 最终发送的
   tool-result `content`，并只披露格式严格验证过的最小 token；fake transport 直接读取
   `ToolResultMessage.data` 不算证据。测试必须从 content 解析该 token 完成一次真实后续 mutation，同时
   负向断言内部 objectId、containment、pose、hash 和 trace 未随 token 外泄。

@@ -120,6 +120,30 @@ class MemoryEvidenceLedger:
             raise MemoryEvidenceError("memory_evidence_invalid", "evidence scope or kind mismatch")
         return evidence
 
+    def for_scope(
+        self,
+        *,
+        kind: EvidenceKind,
+        tenant_id: str,
+        session_id: str,
+        run_id: str,
+        turn_id: str,
+    ) -> tuple[MemoryEvidence, ...]:
+        """Return successful evidence owned by the current execution scope."""
+
+        rows = self._require_connection().execute(
+            """SELECT ref, provenance_seq, kind, tenant_id, session_id, run_id,
+                      turn_id, tool_call_id
+               FROM memory_evidence
+               WHERE kind = ? AND tenant_id = ? AND session_id = ?
+                 AND run_id = ? AND turn_id = ?
+                 AND status = 'success'
+                 AND verification IN ('passed', 'read_observation')
+               ORDER BY provenance_seq""",
+            (kind, tenant_id, session_id, run_id, turn_id),
+        ).fetchall()
+        return tuple(MemoryEvidence(*row) for row in rows)
+
     def _get(self, ref: str) -> MemoryEvidence:
         row = (
             self._require_connection()

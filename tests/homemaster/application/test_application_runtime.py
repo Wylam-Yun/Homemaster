@@ -41,6 +41,7 @@ from homemaster.extensions import (
     HookSpec,
     LoadedExtension,
 )
+from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.memory.models import FactRecord
@@ -254,7 +255,6 @@ class _FailingCloseTransport(_FakeTransport):
 class _MemoryEvidenceTransport:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
-        self.evidence_ref: str | None = None
 
     async def stream(self, messages, *, tools=None, **kwargs):
         del kwargs
@@ -263,9 +263,8 @@ class _MemoryEvidenceTransport:
             context_text = "\n".join(
                 block.text for message in messages for block in message.content if block.text
             )
-            match = re.search(r"memory-evidence-[0-9a-f]{32}", context_text)
-            assert match is not None
-            self.evidence_ref = match.group(0)
+            assert re.search(r"memory-evidence-[0-9a-f]{32}", context_text) is None
+            assert "evidence_refs" not in json.dumps(tools, ensure_ascii=False)
             for delta in _tool(
                 "memory-add-1",
                 "mindmemos_add",
@@ -278,7 +277,6 @@ class _MemoryEvidenceTransport:
                         "value": {"container": "玄关抽屉"},
                         "source": "user_statement",
                     },
-                    "evidence_refs": [self.evidence_ref],
                 },
             ):
                 yield delta
@@ -498,16 +496,11 @@ class _ProcedureEvidenceTransport:
                     yield delta
             return
         if len(self.calls) == 2:
-            refs = [
-                ref
-                for message in messages
-                if message.role == "tool" and message.name == "read_observation"
-                for ref in re.findall(
-                    r"memory-evidence-[0-9a-f]{32}",
-                    "\n".join(block.text for block in message.content if block.text),
-                )
-            ]
-            assert len(refs) == 2
+            visible_text = "\n".join(
+                block.text for message in messages for block in message.content if block.text
+            )
+            assert re.search(r"memory-evidence-[0-9a-f]{32}", visible_text) is None
+            assert "evidence_refs" not in json.dumps(tools, ensure_ascii=False)
             for delta in _tool(
                 "procedure-add",
                 "mindmemos_add",
@@ -528,7 +521,6 @@ class _ProcedureEvidenceTransport:
                         "success": {"visible_text": "告警"},
                         "source": "environment_observation",
                     },
-                    "evidence_refs": refs,
                 },
             ):
                 yield delta
@@ -1131,6 +1123,8 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
     store = _RecordingMindMemOS()
+    queue = MemoryAddQueue(store, audit_path=tmp_path / "add-jobs.jsonl")
+    await queue.start()
     transport = _MemoryEvidenceTransport()
     app = _application(
         tmp_path,
@@ -1139,6 +1133,7 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
         application_services={
             "memory_evidence_ledger": ledger,
             "mindmemos": store,
+            "memory_add_queue": queue,
         },
     )
 
@@ -1152,22 +1147,26 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
 
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "记住了"
-    assert transport.evidence_ref is not None
+    await queue.wait_idle()
     assert len(store.calls) == 1
     record, provenance_seq = store.calls[0]
     assert record.value == {"container": "玄关抽屉"}
     assert provenance_seq > 0
     first_messages = transport.calls[0]["messages"]
     assert first_messages[-1].content[0].text == "钥匙在玄关抽屉"
-    assert transport.evidence_ref not in first_messages[-1].content[0].text
+    assert "memory-evidence-" not in first_messages[-1].content[0].text
     add_result = next(
         message
         for message in transport.calls[1]["messages"]
         if message.role == "tool" and message.name == "mindmemos_add"
     )
     add_payload = json.loads(add_result.content[0].text)
-    assert add_payload["memory_id"] == "memory-runtime-1"
-    assert add_payload["record"]["value"] == {"container": "玄关抽屉"}
+    assert add_payload["operation"] == "add"
+    assert add_payload["status"] == "success"
+    assert add_payload["domain_status"] == "accepted"
+    assert add_payload["job_id"]
+    assert add_payload["verified_terminal_state"] is False
+    await queue.aclose()
     await app.aclose()
     ledger.close()
 
@@ -1230,6 +1229,8 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
     ledger = MemoryEvidenceLedger(tmp_path / "procedure-evidence.sqlite3")
     ledger.start()
     store = _RecordingMindMemOS()
+    queue = MemoryAddQueue(store, audit_path=tmp_path / "procedure-add-jobs.jsonl")
+    await queue.start()
     transport = _ProcedureEvidenceTransport()
     app = _application(
         tmp_path,
@@ -1238,6 +1239,7 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
         application_services={
             "memory_evidence_ledger": ledger,
             "mindmemos": store,
+            "memory_add_queue": queue,
         },
     )
 
@@ -1247,12 +1249,14 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
 
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "流程已保存"
+    await queue.wait_idle()
     assert len(store.calls) == 1
     procedure, provenance_seq = store.calls[0]
     assert procedure.memory_type == "procedure"
     assert procedure.name == "查看告警"
     assert provenance_seq > 0
     assert len(transport.calls) == 3
+    await queue.aclose()
     await app.aclose()
     ledger.close()
 

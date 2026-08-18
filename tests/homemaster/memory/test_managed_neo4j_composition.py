@@ -78,8 +78,19 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
         async def close(self) -> None:
             calls.append("mindmemos.close")
 
+    class FakeMemoryAddQueue:
+        def __init__(self, _mindmemos: object, *, audit_path: Path) -> None:
+            assert audit_path.name == "add_jobs.jsonl"
+
+        async def start(self) -> None:
+            calls.append("queue.start")
+
+        async def aclose(self) -> None:
+            calls.append("queue.close")
+
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
+    monkeypatch.setattr(composition, "MemoryAddQueue", FakeMemoryAddQueue)
     bundle = composition.create_home_application(config=_config(tmp_path), run_label="managed")
 
     assert "managed_neo4j" in bundle.application.settings.application_services
@@ -89,6 +100,8 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
     assert calls == [
         "neo4j.start",
         "mindmemos.start",
+        "queue.start",
+        "queue.close",
         "mindmemos.close",
         "neo4j.close",
     ]

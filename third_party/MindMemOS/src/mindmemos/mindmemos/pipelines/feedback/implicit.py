@@ -6,7 +6,9 @@ analysis. It does not classify feedback signals or execute memory actions.
 
 from __future__ import annotations
 
+import json
 import time
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from itertools import groupby
 from typing import Any
@@ -355,7 +357,32 @@ def _memory_view_to_search_item(memory: MemoryView) -> MemorySearchItem:
         id=memory.memory_id,
         memory=memory.content,
         last_update_at=updated_at.strftime("%Y-%m-%d %H:%M:%S") if updated_at else "",
+        structured_record=_structured_record(memory.metadata),
     )
+
+
+def _structured_record(metadata: Mapping[str, object] | None) -> dict[str, object] | None:
+    def find(value: object) -> str | None:
+        if isinstance(value, Mapping):
+            if isinstance(value.get("record_json"), str):
+                return value["record_json"]
+            for child in value.values():
+                if (found := find(child)) is not None:
+                    return found
+        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            for child in value:
+                if (found := find(child)) is not None:
+                    return found
+        return None
+
+    raw = find(metadata)
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _search_event_time(event: SearchActivityEvent) -> str:

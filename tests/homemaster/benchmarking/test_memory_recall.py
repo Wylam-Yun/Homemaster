@@ -20,14 +20,14 @@ from homemaster.benchmarking.memory_recall import (
 )
 
 
-def _tool_events(record: object, memory_id: str = "memory-1") -> str:
+def _tool_events(job_id: str = "job-1") -> str:
     payload = {
         "success": True,
         "status": "success",
-        "verified_terminal_state": True,
+        "domain_status": "accepted",
+        "verified_terminal_state": False,
         "backend_attempted": True,
-        "memory_id": memory_id,
-        "record": record,
+        "job_id": job_id,
     }
     return "\n".join(
         (
@@ -102,12 +102,20 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
     records = load_dataset(paths.dataset)
     calls: list[list[str]] = []
 
+    def verify(job_id, record):
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "verified_terminal_state": True,
+            "memory_id": f"memory-{record.index}",
+            "record": record.tool_record,
+        }
+
     def runner(command, *, cwd, env, timeout):
         calls.append(list(command))
-        record = records[len(calls) - 1]
         return CompletedCommand(
             returncode=0,
-            stdout=_tool_events(record.tool_record, f"memory-{len(calls)}"),
+            stdout=_tool_events(f"job-{len(calls)}"),
             stderr="",
             elapsed_seconds=1.5,
             timed_out=False,
@@ -119,6 +127,7 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
         timeout_seconds=10,
         max_records=1,
         runner=runner,
+        terminal_verifier=verify,
     )
     second = write_run(
         paths=paths,
@@ -126,6 +135,7 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
         timeout_seconds=10,
         max_records=1,
         runner=runner,
+        terminal_verifier=verify,
     )
 
     assert first["confirmed"] == 1
@@ -171,6 +181,7 @@ def test_write_run_classifies_unconfirmed_mutations(
         timeout_seconds=10,
         max_records=1,
         runner=runner,
+        terminal_verifier=lambda job_id, record: None,
     )
 
     assert result["state"] == expected_state

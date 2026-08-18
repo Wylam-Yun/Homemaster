@@ -84,6 +84,7 @@ def _install_shell(monkeypatch, tmp_path: Path):
         trace_path=tmp_path / "runtime_events.jsonl",
         skill_registry=object(),
         mindmemos=None,
+        memory_add_queue=None,
     )
     monkeypatch.setattr(module, "create_home_application", lambda **kwargs: bundle)
     monkeypatch.setattr(
@@ -206,6 +207,26 @@ def test_shell_finalizes_old_and_current_sessions(monkeypatch, tmp_path) -> None
     ]
     assert result.stdout.count("Vanilla Add completed: 0 operations") == 2
     assert application.closed == 1
+
+
+def test_shell_waits_for_structured_adds_before_session_finalizer(
+    monkeypatch, tmp_path
+) -> None:
+    _, bundle = _install_shell(monkeypatch, tmp_path)
+    calls = _install_finalizer(monkeypatch, bundle)
+
+    class RecordingQueue:
+        async def wait_idle(self):
+            calls.append(("queue", "idle"))
+
+    bundle.memory_add_queue = RecordingQueue()
+
+    result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
+
+    assert result.exit_code == 0
+    ordered = [item for item in calls if item[0] != "init"]
+    assert ordered[0] == ("queue", "idle")
+    assert ordered[1][1] == "user_exit"
 
 
 def test_shell_events_reports_application_trace(monkeypatch, tmp_path) -> None:

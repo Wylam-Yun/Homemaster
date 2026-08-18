@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,6 +12,7 @@ import pytest
 from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.agent.messages import UserMessage
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
+from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.feedback_context import build_feedback_context_snapshot
 from homemaster.memory.file_store import FileMemoryStore
@@ -138,8 +140,8 @@ def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
         "memory_id",
         "record",
         "content",
-        "evidence_refs",
     }
+    assert "evidence_refs" not in add_schema["properties"]
     history_schema = by_name["mindmemos_history"]
     assert set(history_schema["properties"]) == {"memory_id"}
 
@@ -157,7 +159,6 @@ def test_add_memory_accepts_provider_encoded_record_string() -> None:
                     "source": "user_statement",
                 }
             ),
-            "evidence_refs": ["evidence-1"],
         }
     )
 
@@ -519,7 +520,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
 
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
-    first_evidence = ledger.register(
+    ledger.register(
         kind="environment_observation",
         tenant_id="tenant-a",
         session_id="session-a",
@@ -527,7 +528,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         turn_id="turn-1",
         tool_call_id="environment-call-1",
     )
-    second_evidence = ledger.register(
+    ledger.register(
         kind="environment_observation",
         tenant_id="tenant-a",
         session_id="session-a",
@@ -536,10 +537,16 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         tool_call_id="environment-call-2",
     )
     runtime = FakeMindMemOS()
+    add_queue = MemoryAddQueue(runtime, audit_path=tmp_path / "add_jobs.jsonl")
+    await add_queue.start()
     context = ToolExecutionContext(
         tmp_path,
         metadata={
-            "services": {"mindmemos": runtime, "memory_evidence_ledger": ledger},
+            "services": {
+                "mindmemos": runtime,
+                "memory_add_queue": add_queue,
+                "memory_evidence_ledger": ledger,
+            },
             "permission_subject": type(
                 "Subject",
                 (),
@@ -557,15 +564,14 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         {
             "memory_type": "fact",
             "record": record,
-            "evidence_refs": [first_evidence.ref],
         },
         context,
     )
+    await add_queue.wait_idle()
     updated = await executors["mindmemos_update"].execute(
         {
             "memory_id": "raw-memory-1",
             "record": replacement,
-            "evidence_refs": [second_evidence.ref],
         },
         context,
     )
@@ -575,7 +581,10 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     )
 
     assert added.success
-    assert added.data["memory_id"] == "raw-memory-1"
+    assert added.data["status"] == "accepted"
+    assert added.data["job_id"]
+    assert added.data["verified_terminal_state"] is False
+    assert "memory_id" not in added.data
     assert updated.success
     assert updated.data["memory_id"] == "raw-memory-2"
     assert deleted.success
@@ -586,6 +595,148 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     assert json.loads(version_call["metadata"]["record_json"])["value"] == "餐桌上"
     delete_ids = [payload[0] for operation, payload in calls if operation == "delete"]
     assert delete_ids == ["raw-memory-2"]
+    await add_queue.aclose()
+    ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
+    tmp_path: Path,
+) -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class Store:
+        async def add_record(self, record, *, provenance_seq, context):
+            del record, provenance_seq, context
+            entered.set()
+            await release.wait()
+            return {"memory_id": "raw-accepted"}
+
+    ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
+    ledger.start()
+    ledger.register(
+        kind="user_statement",
+        tenant_id="tenant-a",
+        session_id="session-a",
+        run_id="run-a",
+        turn_id="turn-1",
+    )
+    queue = MemoryAddQueue(Store(), audit_path=tmp_path / "add_jobs.jsonl")
+    await queue.start()
+    context = ToolExecutionContext(
+        tmp_path,
+        metadata={
+            "services": {
+                "memory_add_queue": queue,
+                "memory_evidence_ledger": ledger,
+            },
+            "permission_subject": type(
+                "Subject",
+                (),
+                {"tenant_id": "tenant-a", "capabilities": ("tool.read", "tool.mutate")},
+            )(),
+            "session_id": "session-a",
+            "run_id": "run-a",
+            "turn_index": 1,
+            "tool_call_id": "call-add",
+        },
+    )
+    executor = next(
+        tool.executor
+        for tool in build_memory_tools()
+        if tool.definition.model_alias == "mindmemos_add"
+    )
+
+    result = await executor.execute(
+        {
+            "memory_type": "fact",
+            "record": {
+                "memory_type": "fact",
+                "subject": {"type": "device", "name": "Aurora-A18"},
+                "predicate": "package_manager",
+                "value": "uv",
+                "source": "user_statement",
+            },
+        },
+        context,
+    )
+
+    assert result.success
+    assert result.data["status"] == "accepted"
+    assert result.data["verified_terminal_state"] is False
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    release.set()
+    await queue.aclose()
+    ledger.close()
+
+
+@pytest.mark.asyncio
+async def test_mindmemos_add_cannot_use_evidence_from_an_earlier_run(tmp_path: Path) -> None:
+    calls = 0
+
+    class Store:
+        async def add_record(self, record, *, provenance_seq, context):
+            nonlocal calls
+            del record, provenance_seq, context
+            calls += 1
+            return {"memory_id": "must-not-exist"}
+
+    ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
+    ledger.start()
+    ledger.register(
+        kind="user_statement",
+        tenant_id="tenant-a",
+        session_id="session-a",
+        run_id="run-old",
+        turn_id="turn-1",
+    )
+    queue = MemoryAddQueue(Store(), audit_path=tmp_path / "add_jobs.jsonl")
+    await queue.start()
+    context = ToolExecutionContext(
+        tmp_path,
+        metadata={
+            "services": {
+                "memory_add_queue": queue,
+                "memory_evidence_ledger": ledger,
+            },
+            "permission_subject": type(
+                "Subject",
+                (),
+                {"tenant_id": "tenant-a", "capabilities": ("tool.read", "tool.mutate")},
+            )(),
+            "session_id": "session-a",
+            "run_id": "run-current",
+            "turn_index": 1,
+            "tool_call_id": "call-add",
+        },
+    )
+    executor = next(
+        tool.executor
+        for tool in build_memory_tools()
+        if tool.definition.model_alias == "mindmemos_add"
+    )
+
+    result = await executor.execute(
+        {
+            "memory_type": "fact",
+            "record": {
+                "memory_type": "fact",
+                "subject": {"type": "device", "name": "Aurora-A18"},
+                "predicate": "package_manager",
+                "value": "uv",
+                "source": "user_statement",
+            },
+        },
+        context,
+    )
+
+    assert not result.success
+    assert result.error is not None
+    assert result.error.code == "memory_evidence_missing"
+    await queue.wait_idle()
+    assert calls == 0
+    await queue.aclose()
     ledger.close()
 
 
@@ -618,7 +769,7 @@ async def test_update_dispatches_vanilla_memory_to_native_update(tmp_path: Path)
 
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
-    evidence = ledger.register(
+    ledger.register(
         kind="user_statement",
         tenant_id="tenant-a",
         session_id="session-a",
@@ -651,7 +802,6 @@ async def test_update_dispatches_vanilla_memory_to_native_update(tmp_path: Path)
         {
             "memory_id": "vanilla-1",
             "content": "Aurora-A18 uses uv.",
-            "evidence_refs": [evidence.ref],
         },
         context,
     )
@@ -685,7 +835,7 @@ async def test_update_fails_closed_when_record_json_is_corrupt(tmp_path: Path) -
 
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
-    evidence = ledger.register(
+    ledger.register(
         kind="user_statement",
         tenant_id="tenant-a",
         session_id="session-a",
@@ -718,7 +868,6 @@ async def test_update_fails_closed_when_record_json_is_corrupt(tmp_path: Path) -
         {
             "memory_id": "broken-1",
             "content": "replacement",
-            "evidence_refs": [evidence.ref],
         },
         context,
     )
@@ -821,18 +970,29 @@ async def test_feedback_requires_snapshot_before_backend_call(tmp_path: Path) ->
 async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Path) -> None:
     from mindmemos.typing import FeedbackPipelineResult, FeedbackUpdateAction, MemorySearchItem
 
+    old_record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "device", "name": "Lumen-Q27", "id": None},
+        "predicate": "package_manager",
+        "value": "conda",
+        "source": "user_statement",
+    }
+    new_record = {**old_record, "value": {"online": "uv", "offline": "Poetry"}}
     old = SimpleNamespace(
         memory_id="old",
         project_id="tenant-a",
         user_id="tenant-a",
         content="User uses conda.",
+        metadata={"request_metadata": {"record_json": json.dumps(old_record)}},
         status="active",
     )
     new = SimpleNamespace(
         memory_id="new",
         project_id="tenant-a",
         user_id="tenant-a",
-        content="User uses uv.",
+        content='Lumen-Q27 的 package_manager 是 {"offline":"Poetry","online":"uv"}',
+        metadata={"request_metadata": {"record_json": json.dumps(new_record)}},
         status="active",
     )
 
@@ -854,7 +1014,8 @@ async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Pat
                         target_memory_id="old",
                         result_memory_id="new",
                         before_content="User uses conda.",
-                        after_content="User uses uv.",
+                        after_content=new.content,
+                        replacement_record=new_record,
                         status="ok",
                     )
                 ],
@@ -893,6 +1054,92 @@ async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Pat
     assert old.status == "archived"
     assert new.status == "active"
     assert store.feedback_calls[0]["feedback"] == "Use uv, not conda."
+
+
+@pytest.mark.asyncio
+async def test_feedback_rejects_schema_update_when_record_json_stays_stale(tmp_path: Path) -> None:
+    from mindmemos.typing import FeedbackPipelineResult, FeedbackUpdateAction, MemorySearchItem
+
+    old_record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "device", "name": "Lumen-Q27", "id": None},
+        "predicate": "package_manager",
+        "value": "uv",
+        "source": "user_statement",
+    }
+    replacement = {**old_record, "value": {"online": "uv", "offline": "Poetry"}}
+    old = SimpleNamespace(
+        memory_id="old",
+        project_id="tenant-a",
+        user_id="tenant-a",
+        content='Lumen-Q27 的 package_manager 是 "uv"',
+        metadata={"request_metadata": {"record_json": json.dumps(old_record)}},
+        status="active",
+    )
+    new = SimpleNamespace(
+        memory_id="new",
+        project_id="tenant-a",
+        user_id="tenant-a",
+        content="Lumen-Q27 在线开发使用 uv，离线交付使用 Poetry",
+        metadata={"request_metadata": {"record_json": json.dumps(old_record)}},
+        status="active",
+    )
+
+    class FakeMindMemOS(EmbeddedMindMemOS):
+        def __init__(self) -> None:
+            pass
+
+        async def get_raw(self, memory_id, context):
+            del context
+            return {"old": old, "new": new}.get(memory_id)
+
+        async def feedback_explicit(self, **kwargs):
+            del kwargs
+            old.status = "archived"
+            return FeedbackPipelineResult(
+                status="ok",
+                actions=[
+                    FeedbackUpdateAction(
+                        target_memory_id="old",
+                        result_memory_id="new",
+                        before_content=old.content,
+                        after_content=new.content,
+                        replacement_record=replacement,
+                        status="ok",
+                    )
+                ],
+            )
+
+        async def has_memory_lineage(self, **kwargs):
+            del kwargs
+            return True
+
+    store = FakeMindMemOS()
+    executor = next(
+        tool.executor
+        for tool in build_memory_tools()
+        if tool.definition.model_alias == "mindmemos_feedback"
+    )
+    context = _feedback_tool_context(tmp_path, store)
+    context.metadata["memory_feedback_context"] = build_feedback_context_snapshot(
+        [UserMessage.from_text("Online uses uv; offline uses Poetry.")],
+        automatic_recalled_memories=[
+            MemorySearchItem(
+                id="old",
+                memory=old.content,
+                last_update_at="2026-08-01 00:00:00",
+                structured_record=old_record,
+            )
+        ],
+    )
+
+    result = await executor.execute(
+        {"feedback": "Online uses uv; offline uses Poetry."}, context
+    )
+
+    assert not result.success
+    assert result.error.code == "memory_feedback_failed"
 
 
 @pytest.mark.parametrize(
@@ -981,10 +1228,19 @@ async def test_feedback_rejects_invalid_recalled_raw_without_backend_mutation(
 def _feedback_tool_context(
     tmp_path: Path, store: EmbeddedMindMemOS
 ) -> ToolExecutionContext:
+    ledger = MemoryEvidenceLedger(tmp_path / "feedback-evidence.sqlite3")
+    ledger.start()
+    ledger.register(
+        kind="user_statement",
+        tenant_id="tenant-a",
+        session_id="session-a",
+        run_id="run-a",
+        turn_id="turn-1",
+    )
     return ToolExecutionContext(
         tmp_path,
         metadata={
-            "services": {"mindmemos": store},
+            "services": {"mindmemos": store, "memory_evidence_ledger": ledger},
             "permission_subject": type(
                 "Subject",
                 (),

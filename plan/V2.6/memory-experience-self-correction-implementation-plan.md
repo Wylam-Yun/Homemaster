@@ -734,3 +734,26 @@ git diff --check
 - 全量非 live 测试、ruff、compileall、`git diff --check` 和真实外部终态门全部通过。
 - README、用户指南、两份架构文档和 CHANGELOG 与最终代码一致。
 - 最终 `git status --short` 中没有测试意外生成的 untracked 文件，也没有误暂存用户原有改动。
+
+## 15. Schema feedback 与 Runtime-owned evidence follow-up
+
+2026-08-18 的真实交互验收发现：native feedback update 能把 Schema memory 的 `content` 改成新结论，
+同时原样复制旧 `record_json`；HomeMaster 又只验证 content/status/lineage，因此错误报告成功。模型随后从 history
+发现正文与 record 冲突，并在旧 evidence ref 被拒后误删了新版本。这一链路属于发布阻断问题。
+
+本 follow-up 锁定以下不变量：
+
+1. Schema memory 以完整 `record_json` 为唯一真理源，`content` 只能由 `serialize_record()` 确定性生成；
+   Vanilla memory 没有 `record_json`，继续以 content 为真理源。
+2. Feedback planner 看到 raw memory 对应的完整 structured record；更新 Schema target 时必须返回完整
+   `replacement_record`。缺失、无效、改变 identity 或 source/evidence 不匹配时 fail closed，不能退回自由文本更新。
+3. Schema feedback 复用 HomeMaster `update_versioned()`，并以生成后的 content、完整 record、old archived、
+   new active 和 `DERIVED_FROM` 全部回读通过为成功门。
+4. `evidence_refs` 从模型可见的 add/update 参数和 provider context 删除。Evidence ledger 保留，但 executor 按当前
+   tenant/session/run/turn 和 record source 自动选择真实 evidence；不得读取上一轮 ref，也不得放宽 scope 校验。
+5. Vanilla direct update 使用当前用户陈述 evidence。Procedure add/update 只使用当前轮已验证的
+   `environment_observation` evidence，数量、顺序和最终成功要求保持不变。
+
+实施顺序：先加入正文正确但 `record_json` 陈旧的失败测试、Schema feedback 缺 replacement 的拒绝测试和旧 ref
+不再出现在工具 schema/provider context 的测试；再扩展 MindMemOS action/search DTO、planner prompt、structured
+update handler、HomeMaster verifier 和 ledger scope lookup；最后运行真实 provider + Qdrant + Neo4j 黑盒门。

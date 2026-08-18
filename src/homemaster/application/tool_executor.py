@@ -20,7 +20,6 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 
-
 _MEMORY_TOOL_NAMES = frozenset(
     {
         "context_memory",
@@ -192,15 +191,8 @@ class ApplicationToolExecutor:
             projected = canonical_result.to_message(tool_call_id=call.id, name=call.name)
             content = list(projected.content)
             is_error = projected.is_error
-            memory_evidence_refs = _memory_evidence_refs(data.get("evidence_refs"))
-            if memory_evidence_refs:
-                content.append(ContentBlock(text=_memory_evidence_text(memory_evidence_refs)))
         else:
             model_text = result.output
-            memory_evidence_refs = _memory_evidence_refs(data.get("evidence_refs"))
-            if memory_evidence_refs:
-                evidence_text = _memory_evidence_text(memory_evidence_refs)
-                model_text = "\n".join(item for item in (model_text, evidence_text) if item)
             content = [ContentBlock(text=model_text)] if model_text else []
             for image in data.get("images", []):
                 if isinstance(image, dict) and image.get("data_base64"):
@@ -301,39 +293,6 @@ def _bind_backend(deps: dict[str, object], profile: str, backend: object | None)
         deps.setdefault("alfworld_env", backend)
     elif profile == "coworker":
         deps.setdefault("coworker_backend", backend)
-
-
-def _memory_evidence_refs(value: object) -> list[str]:
-    raw = (
-        [value]
-        if isinstance(value, str)
-        else list(value)
-        if isinstance(value, list | tuple)
-        else []
-    )
-    refs: list[str] = []
-    for item in raw:
-        if not isinstance(item, str) or not item.startswith("memory-evidence-"):
-            continue
-        suffix = item.removeprefix("memory-evidence-")
-        if len(suffix) == 32 and all(character in "0123456789abcdef" for character in suffix):
-            refs.append(item)
-    return list(dict.fromkeys(refs))
-
-
-def _memory_evidence_text(refs: list[str]) -> str:
-    return json.dumps(
-        {
-            "memory_evidence_refs": refs,
-            "instruction": (
-                "Use these opaque refs only for mindmemos_add or mindmemos_update "
-                "when the current tool result directly supports the record."
-            ),
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
 
 
 class _CompletionGuard:
