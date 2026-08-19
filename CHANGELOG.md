@@ -4,6 +4,21 @@
 
 ### Changed
 
+- Unified semantic session completion behind `application.session(...)`. Interactive Shell, one-shot CLI, ALFWorld and
+  LoCoMo now close the same idempotent session scope, which admits the existing Session Finalizer to the
+  application-owned FIFO without waiting. `/new` can start the next session immediately; graceful application shutdown
+  drains accepted finalization before MindMemOS and Neo4j close. `ApplicationRuntime.run()` remains one turn and never
+  infers session completion. Gateway messages remain turns until that entry has an explicit reset/expiry event. A real
+  visual ALFWorld episode now finishes with formal success and persists four session-derived active memories with
+  verified Qdrant/Neo4j lineage before clean resource shutdown.
+
+- Routed the ALFWorld benchmark through the canonical HomeMaster application composition so visual episodes use the
+  same embedded MindMemOS, FIFO Add queue, automatic recall, evidence ledger and managed-Neo4j lifecycle as other
+  entries. The legacy ALFWorld `memory_mode` remains disabled only to prevent the obsolete second writer. Benchmark
+  runtime/session roots can now be isolated explicitly, and memory/Neo4j/Java paths written relative to YAML resolve
+  against that config file instead of the process cwd, making the harness portable between machines. Worktree-local
+  `.runtime/` assets are ignored to prevent Java, Neo4j binaries or live database state from entering a commit.
+
 - Changed `mindmemos_search` to accept and return the complete native MindMemOS type vocabulary instead of the reduced
   `fact|procedure` search view. Valid active `profile`, `fact`, `experience`, `episodic`, `tool_trace`,
   `skill_candidate`, and `file_knowledge` memories now preserve their native type and exact content; the existing LoCoMo
@@ -28,6 +43,18 @@
   (`context_memory`, `mindmemos_search/history/add/update/delete/feedback`).
 
 ### Fixed
+
+- Prevented one-shot and child-worker shutdown from admitting Session Finalizer work when the FIFO exists but embedded
+  MindMemOS did not become available. Admission now requires both queue readiness and memory-runtime readiness, so an
+  optional memory startup failure cannot append a late traceback to an otherwise valid CLI result.
+
+- Made the ALFWorld episode prompt expose the real `look_at_obj_in_light` goal semantics: the target must be held while
+  the named lamp is turned on. A complete visual Mimo run had valid provider/runtime/harness coverage but scored zero
+  because the model treated navigation plus `observe` as completion even though ALFWorld remained `won=false`.
+
+- Stopped the ALFWorld episode prompt from interpreting legacy `memory_mode=disabled` as canonical memory being
+  unavailable. The benchmark entry already requires embedded MindMemOS and its FIFO; prompts now accurately expose
+  automatic recall and registered memory tools while the legacy flag continues to disable only the obsolete writer.
 
 - Prevented repeated Ctrl+C from aborting interactive Session finalization or application close.
   During terminal exit drain the shell temporarily owns SIGINT, reports the first repeated interrupt,

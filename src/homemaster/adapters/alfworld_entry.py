@@ -2,23 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from homemaster.adapters.profiles import build_tool_registry
-from homemaster.application import (
-    ResourceBinding,
-    ResourceLifetime,
-    RunRequest,
-    RunResourceScope,
-    RunResult,
-    SessionManager,
-)
-from homemaster.application.factory import create_application
+from homemaster.application import RunRequest, RunResult
+from homemaster.cli.composition import HomeApplicationBundle, create_home_application
 from homemaster.config import HomeMasterConfig
-from homemaster.events.bus import EventBus
 
 
 class AlfworldApplicationEntry:
@@ -34,55 +24,55 @@ class AlfworldApplicationEntry:
         transport_factory: Callable[[], Any] | None,
         event_sink: Any,
     ) -> None:
-        registry = build_tool_registry(
-            environment="alfworld",
-            memory_mode=memory_mode,
-            runtime_memory_root=runtime_root / "memory",
-        )
-        bus = EventBus()
-        scope = RunResourceScope()
-        unsubscribe = bus.subscribe(event_sink.emit)
-        scope.bind(
-            ResourceBinding.owned(
-                "alfworld-event-subscription",
-                unsubscribe,
-                lifetime=ResourceLifetime.APPLICATION,
-                release=lambda callback: callback(),
+        if memory_mode != "disabled":
+            raise ValueError(
+                "legacy ALFWorld memory_mode must remain disabled; embedded MindMemOS is "
+                "controlled by memory.enabled"
             )
-        )
-        self.application = create_application(
+        self.bundle: HomeApplicationBundle = create_home_application(
             config=config,
-            registry=registry,
-            event_bus=bus,
-            session_manager=SessionManager(session_root=session_root),
-            provider_factory=(
-                (lambda request, run_id: transport_factory())
-                if transport_factory is not None
-                else None
-            ),
-            resource_scope=scope,
+            run_label=runtime_root.name,
+            quiet=True,
+            console_show_replies=False,
+            event_sink=event_sink,
+            tool_environment="alfworld",
+            runtime_root=runtime_root,
+            session_root=session_root,
         )
-        self.application.settings.runtime_root = runtime_root
-        self.application.settings.debug_root = runtime_root / "debug"
-        self.application.settings.results_root = runtime_root / "results"
-        self.application.settings.config_path = config.config_path
-        self.application.settings.prompts = config.prompts
-        self.application.settings.observability = config.observability
-        self.application.settings.embedding_provider_name = (
-            config.runtime_defaults.default_embedding_provider_name
-        )
+        if self.bundle.mindmemos is None or self.bundle.memory_add_queue is None:
+            raise RuntimeError("ALFWorld benchmark requires embedded MindMemOS")
+        self.application = self.bundle.application
+        if transport_factory is not None:
+            self.application.provider_factory = lambda _request, _run_id: transport_factory()
+        import asyncio
+
         self._runner = asyncio.Runner()
         self._closed = False
+        self._sessions: dict[str, Any] = {}
 
     def run(self, request: RunRequest) -> RunResult:
         if self._closed:
             raise RuntimeError("ALFWorld application entry is closed")
         return self._runner.run(self.application.run(request))
 
+    def begin_session(self, session_id: str, *, exit_reason: str = "alfworld_episode_end") -> None:
+        if session_id in self._sessions:
+            raise RuntimeError(f"ALFWorld session is already open: {session_id}")
+        self._sessions[session_id] = self.application.session(session_id, exit_reason=exit_reason)
+
+    def end_session(self, session_id: str) -> Any | None:
+        try:
+            session = self._sessions.pop(session_id)
+        except KeyError as exc:
+            raise RuntimeError(f"ALFWorld session is not open: {session_id}") from exc
+        return session.close()
+
     def close(self) -> None:
         if self._closed:
             return
         try:
+            for session_id in tuple(self._sessions):
+                self.end_session(session_id)
             self._runner.run(self.application.aclose())
         finally:
             self._runner.close()

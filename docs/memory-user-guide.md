@@ -25,6 +25,19 @@ SOUL、USER、MEMORY 在 session 第一次组装上下文时冻结。`context_me
 system prompt 不变；新 session 才看到新快照。结构化检索不授予设备或网页权限，执行时仍必须实时观察并走
 对应工具的权限和终态验证。
 
+## Session 结束与自动沉淀
+
+`ApplicationRuntime.run()` 只执行一轮交互，不代表 session 结束。具有明确结束点的入口统一通过
+`application.session(session_id)` 声明 session 生命周期：Shell 的 `/new`、EOF、interrupt 和 `/exit`，one-shot
+调用结束、普通 ALFWorld episode 结束、continuous ALFWorld taskset 整体结束，以及 LoCoMo source conversation
+结束时都会关闭该 scope。关闭操作幂等，只把 Session Finalizer 放入 application-owned FIFO，马上返回；因此
+Shell `/new` 不等待旧 session 的 Vanilla Add，可以直接开始下一段对话。
+
+正常 application shutdown 会先 seal/drain FIFO，再关闭 embedded MindMemOS 和 Neo4j。只有 FIFO 已启动且
+MindMemOS 确实 available 时才接收 finalization；memory runtime 未启动时 session close 是 no-op，不会把晚到的
+memory traceback 混入主任务结果。进程强杀仍可能丢失尚未执行的内存任务。Gateway 的单条消息只是 turn，当前
+没有 reset/expiry/end 事件，因此不会错误地逐消息 finalize。
+
 ## 配置
 
 复制模板并保持真实配置私有：
@@ -44,19 +57,25 @@ uv sync --all-extras
 ```yaml
 memory:
   enabled: true
-  data_root: ~/.homemaster/memory
+  data_root: ../.runtime/memory
   embedding_provider_name: MemoryEmbedding
   embedding_dimensions: 4096
   dreaming_memory_threshold: 8
   neo4j:
     mode: managed_local
-    home: /absolute/path/to/neo4j-community
-    java_home: /absolute/path/to/jdk-21
+    home: ../.runtime/neo4j
+    java_home: ../.runtime/java
     uri: bolt://127.0.0.1:7687
     username: neo4j
     password: replace-with-private-password
     database: neo4j
 ```
+
+以上三个相对路径都相对 `homemaster.yaml` 所在目录解析，与启动 cwd 无关；绝对路径仍保持原值。真实 YAML
+继续 gitignore 且 mode 0600，仓库只提交占位的 example。迁移机器时优先使用干净的 Java/Neo4j 发行包，
+不要复制正在使用的整个 Neo4j 安装目录：其 `conf/neo4j.conf`、`data/`、`logs/` 或 `run/` 可能已经夹带
+源机器绝对路径、PID、锁和数据库状态。启动前必须在目标机执行 `neo4j-admin server validate-config --verbose`
+并检查退出码为 0。
 
 目录固定派生为：
 
@@ -95,7 +114,8 @@ JAVA_HOME=/absolute/path/to/jdk-21 \
 
 HomeMaster wheel 包含 vendored MindMemOS runtime。换服务器时先关闭所有 HomeMaster/Gateway 进程，再备份
 `memory.data_root` 中的文件、Evidence 和 Qdrant 数据，并按 Neo4j 的备份流程单独备份图数据。代码升级和数据
-备份互不包含对方。
+备份互不包含对方。Neo4j 数据只按其备份/恢复流程迁移；Java 和 Neo4j binary distribution 在目标机重新铺设，
+不能把源机的 active installation directory 当成可移植发行包。
 
 旧版本若仍有 `~/.homemaster/memories`，先保留旧目录并运行：
 

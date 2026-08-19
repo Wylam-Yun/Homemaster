@@ -1,5 +1,55 @@
 # Engineering Pitfalls
 
+## 2026-08-19 - FIFO 已启动但 MindMemOS 未就绪，Session 结束污染主结果
+
+### 症状与根因
+
+统一 Session Finalizer 的 focused tests 全绿，但无完整 memory provider 的 one-shot/child-worker 黑盒测试在主结果
+之后向 stderr 打出 `embedded MindMemOS is not started` traceback。根因是 admission 只检查 FIFO worker 已启动；
+队列 readiness 不等于其下游 MindMemOS readiness。两者是同一数据流上的不同外部状态。
+
+### 修法与教训
+
+`SessionFinalizationController` 同时检查 queue started 与 composition 注入的 MindMemOS available predicate，任一
+不满足就不 admission。对带可选外部 backend 的异步队列，不能用“worker 存在”替代“下游服务可接受工作”；
+黑盒测试还必须断言主结果之后 stderr 无迟到异常。
+
+Ref：`src/homemaster/experience/session_finalization.py`、`tests/homemaster/test_cli_streaming_blackbox.py`。
+
+## 2026-08-19 - ALFWorld 链路完整跑通，但模型误解 look-at 任务而得零分
+
+### 症状与根因
+
+完整视觉测评的 Provider、MindMemOS、THOR、图片和清理门全部通过，harness 也判定 episode 可计分；但模型只在
+floorlamp 和多个 statue 之间导航并调用 `observe`，随后口头宣称完成，ALFWorld 始终 `won=false`。根因是 prompt
+只暴露自然语言“look at statue under the floorlamp”，没有暴露 ALFWorld 的真实终态：目标物必须在 inventory，
+灯必须打开且可见。模型把日常语言中的“看”错当成相机观察。
+
+### 修法与教训
+
+从明确 goal type、标准 episode ID 或标准任务文本识别 `look_at_obj_in_light`，提示模型先拿起目标，再在持有状态
+下打开指定灯；继续只以外部 `won=true` 判成功。benchmark 退出码、provider availability 和非空图片只能证明
+测评链路有效，不能证明 agent 完成任务；必须同时核验环境终态。
+
+Ref：`src/homemaster/benchmarking/alfworld/prompt.py`、run `alfworld-llm-memory-statue-20260819`。
+
+## 2026-08-19 - 复制 Neo4j 安装目录后目标机无法启动
+
+### 症状与根因
+
+ALFWorld 与 MindMemOS 的非 live 测试全绿，但目标机 production composition 在 managed Neo4j start 前失败，
+Bolt 7687 没有监听。复制的不是干净 Neo4j 发行包，而是源机器已使用的安装目录：`conf/neo4j.conf` 中
+`server.directories.data/logs/run` 固化为源机 HPC2 绝对路径，目录还夹带已有 `data/logs/run` 状态。
+`ManagedNeo4jRuntime` 只管理进程和 lease，按设计不会重写用户安装配置。
+
+### 修法与教训
+
+保留污染目录取证，从已校验 SHA-256 的官方归档重新铺设发行目录；在目标机运行
+`neo4j-admin server validate-config --verbose` 并核对退出码，再做 Bolt、DBMS identity 和关闭后无进程的
+黑盒门。数据只走 Neo4j 正式备份恢复，不能靠复制 active installation directory 迁移。
+
+Ref：`plan/alfworld-mindmemos-portable-benchmark-plan.md`、`docs/memory-user-guide.md`。
+
 ## 2026-08-19 - HomeMaster 缩减原生 memory type，把有效 tool_trace 误报为损坏
 
 ### 症状与根因

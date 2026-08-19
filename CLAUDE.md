@@ -1,5 +1,17 @@
 # HomeMaster Agent Rules
 
+## 异步 admission readiness 纪律
+
+- 向 application-owned queue 接受外部 backend 工作前，同时核对 queue worker 与下游 backend readiness；不能用
+  “FIFO 已启动”推导“MindMemOS/DB/API 可用”。可选 backend 未就绪时不得让迟到异常污染已经完成的主结果，
+  黑盒门要断言 terminal output 之后 stderr 无 traceback。
+
+## Benchmark goal 语义纪律
+
+- benchmark 的自然语言任务名不能替代正式 goal predicate。Prompt 必须公开达到终态所需的语义动作和关键
+  状态，但不得泄漏 exact object ID、坐标、hidden containment 或专家轨迹；测试要同时覆盖命中 goal type 和
+  普通任务不受影响。最终成功只认环境 `won=true`，模型口头声明、非空图片和 `observe` 都不能替代终态。
+
 ## Graceful cleanup 信号纪律
 
 - 区分 session rotate 与 process shutdown：`/new` 只能把旧 Session 收尾排入 application-owned FIFO 后立即
@@ -308,6 +320,10 @@
 
 ## ALFWorld 外部执行纪律
 
+- 跨机器部署 Java/Neo4j 时只铺设经过 hash 校验的干净发行包，不能复制正在使用的 installation directory。
+  启动前逐项扫描 `neo4j.conf` 的 data/logs/run 路径和安装目录内的 PID/锁/数据状态，并在目标机执行
+  `neo4j-admin server validate-config --verbose` 核对退出码；源码测试、import 成功或 binary version 相同
+  都不能替代该门。Neo4j 数据只用正式 backup/restore 迁移。
 - 把“已发出动作”和“外部世界已完成动作”分开。任何 THOR 功能都必须同时通过返回状态门和独立外部终态黑盒门；mock、内部 result、trace 或模型反馈不能代替外部终态。
 - 导航成功必须由同一个返回 event 证明：外部返回成功、requested/actual pose 一致、准确 objectId 的 `metadata.visible=true`、准确 objectId 的正面积 bbox，以及交付图片与该 event 的 RGB 像素一致。
 - Put 成功必须证明：外部返回成功、准确对象离开完整 inventory、`isPickedUp=false`、准确目标在对象 parent membership 中、准确对象在目标 child membership 中。返回与终态矛盾或读取缺失时立即停止为不确定，不得重试。

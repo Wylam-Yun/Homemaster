@@ -24,8 +24,41 @@ from homemaster.application.contracts import ResourceBinding, RunPolicy, RunRequ
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.application.runtime import (
     ApplicationRuntime,
+    ApplicationSession,
     AutomaticRecallRunDeadlineExceeded,
 )
+
+
+def test_application_session_notifies_end_once() -> None:
+    calls: list[tuple[str, str]] = []
+    application = SimpleNamespace(
+        session_end_handler=lambda session_id, reason: calls.append((session_id, reason))
+    )
+    session = ApplicationSession(application, "session-one", "benchmark_end")
+
+    first = session.close()
+    second = session.close()
+
+    assert first is None
+    assert second is None
+    assert session.closed is True
+    assert calls == [("session-one", "benchmark_end")]
+
+
+@pytest.mark.asyncio
+async def test_application_session_notifies_end_on_exception() -> None:
+    calls: list[tuple[str, str]] = []
+    application = SimpleNamespace(
+        session_end_handler=lambda session_id, reason: calls.append((session_id, reason))
+    )
+
+    with pytest.raises(RuntimeError, match="run failed"):
+        async with ApplicationSession(application, "session-failed", "episode_end"):
+            raise RuntimeError("run failed")
+
+    assert calls == [("session-failed", "episode_end")]
+
+
 from homemaster.application.session import SessionManager
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
@@ -722,9 +755,7 @@ def _tool(call_id: str, name: str, arguments: dict[str, Any]) -> list[TransportD
 
 
 def _request_text(messages) -> str:
-    return "\n".join(
-        block.text for message in messages for block in message.content if block.text
-    )
+    return "\n".join(block.text for message in messages for block in message.content if block.text)
 
 
 def _application(
@@ -860,9 +891,7 @@ async def test_automatic_recall_precedes_first_provider_request(tmp_path) -> Non
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["empty", "error", "backend-timeout", "unavailable"])
-async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
-    tmp_path, mode
-) -> None:
+async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(tmp_path, mode) -> None:
     order: list[str] = []
     services: dict[str, object] = {}
     if mode != "unavailable":
@@ -894,15 +923,9 @@ async def test_automatic_recall_best_effort_outcomes_do_not_block_provider(
     assert order[-1] == "provider"
     assert "<memory-context>" not in _request_text(transport.calls[0]["messages"])
     assert app.session_manager.get(f"recall-{mode}").require_recall is False
-    events = [
-        event
-        for event in app.event_bus.events
-        if event.type == "memory.automatic_recall"
-    ]
+    events = [event for event in app.event_bus.events if event.type == "memory.automatic_recall"]
     assert len(events) == 1
-    assert events[0].payload["status"] == (
-        "error" if mode == "backend-timeout" else mode
-    )
+    assert events[0].payload["status"] == ("error" if mode == "backend-timeout" else mode)
     await app.aclose()
 
 

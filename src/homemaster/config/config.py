@@ -742,6 +742,7 @@ def load_config(
         raise ConfigError(f"invalid HomeMaster YAML config: {path}{location}") from exc
     if not isinstance(payload, dict):
         raise ConfigError(f"HomeMaster config must be a YAML mapping: {path}")
+    payload = _anchor_config_relative_paths(payload, config_dir=path.parent)
     try:
         config = HomeMasterConfig.model_validate(payload)
     except ValidationError as exc:
@@ -768,6 +769,33 @@ def load_config(
             )
         )
     return _apply_env_overrides(config, cli_overrides=cli_overrides)
+
+
+def _anchor_config_relative_paths(payload: dict[str, Any], *, config_dir: Path) -> dict[str, Any]:
+    anchored = dict(payload)
+    raw_memory = anchored.get("memory")
+    if not isinstance(raw_memory, Mapping):
+        return anchored
+    memory = dict(raw_memory)
+    for key in ("data_root", "root"):
+        if key in memory:
+            memory[key] = _anchor_path(memory[key], config_dir=config_dir)
+    raw_neo4j = memory.get("neo4j")
+    if isinstance(raw_neo4j, Mapping):
+        neo4j = dict(raw_neo4j)
+        for key in ("home", "java_home"):
+            if key in neo4j and neo4j[key] is not None:
+                neo4j[key] = _anchor_path(neo4j[key], config_dir=config_dir)
+        memory["neo4j"] = neo4j
+    anchored["memory"] = memory
+    return anchored
+
+
+def _anchor_path(value: object, *, config_dir: Path) -> Path:
+    path = Path(str(value)).expanduser()
+    if not path.is_absolute():
+        path = config_dir / path
+    return path.resolve(strict=False)
 
 
 def _resolve_config_path(config_path: str | Path | None) -> Path:

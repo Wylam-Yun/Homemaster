@@ -23,6 +23,11 @@ index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝�
 `observe({})` 返回当前 frame 的一张 PNG，供模型自行确认画面；没有文字或状态 payload，也不会步进环境、改变
 评分状态，或成为 `robot_go_to` / `robot_manipulate` / `robot_verify` 的前置条件。
 
+ALFWorld 的自然语言任务名不一定等同于日常动作语义。对于 `look_at_obj_in_light`，目标终态是先拿起目标物，
+再在仍持有目标物时打开指定的 DeskLamp/FloorLamp；仅走到物体或灯旁并调用 `observe` 不会完成任务。Episode
+prompt 会公开这条 goal semantics，但不会披露 objectId、坐标、hidden containment 或专家轨迹；最终仍只以
+ALFWorld `won=true` 计成功。
+
 ## 飞书 Gateway 模式
 
 Gateway 进程继续运行在 HomeMaster 的项目 `.venv`；ALFWorld、AI2-THOR 与 Torch 留在
@@ -47,9 +52,16 @@ alfworld_gateway:
 ```
 
 模型可自主使用 HomeMaster 结构化 `mindmemos_add`、`mindmemos_search`、`mindmemos_update` 和
-`mindmemos_delete`。运行时只把当前环境操作产生的 opaque evidence ref 加入模型可见 tool result，
-不披露 exact object ID、containment、pose 或内部 trace；不强制模型写入或检索。ALFWorld 的 legacy
-benchmark `memory_mode` 继续保持 disabled，避免出现第二套 memory writer。
+`mindmemos_delete`。证据由 HomeMaster 在当前 tenant/session/run/turn 内部选择，不披露 exact object ID、
+containment、pose 或内部 trace。ALFWorld 只提供环境、动作和画面；记忆由完整 HomeMaster composition
+统一拥有。Benchmark 要求 `memory.enabled: true`，并 fail closed 检查 embedded MindMemOS 和 FIFO；ALFWorld
+的 legacy `memory_mode` 必须继续为 `disabled`，它只关闭已废弃的第二套文件 writer，不代表关闭 MindMemOS。
+每次 smoke 可以配置新的 `memory.data_root`，无需跨 run 复用记忆。
+
+真实验证 run `alfworld-session-finalizer-memory-20260819` 在一条视觉 episode 上得到 `won=true`、正式成功率
+1.0，并在 episode scope 关闭后通过统一 FIFO 完成 Session Finalizer。独立重启 verifier 后可读到 4 条 active
+memory（`fact`、`experience`、`tool_trace`、`skill_candidate`），每条 raw `session_id`、`source_session_id` 和
+Finalizer request ID 均匹配该 episode，Neo4j 同时存在对应 `EXTRACTED_FROM` 来源边。
 
 启动会验证固定 trial、reset 后状态和 worker readiness；一个 Gateway 进程只把该环境授予一个
 session，其他并发 session 明确失败。每个真正尝试过 backend 的导航或 manipulation 后：
@@ -65,7 +77,9 @@ token usage 或 `tool.call_started/completed` 这类内部事件；完整机器�
 
 ## 环境与输入
 
-项目要求 Python 3.11。THOR 需要可用 display；无桌面环境时使用 Xvfb。真实认证信息只放在本机忽略的 provider 配置或环境变量中，不写入命令、trace 或 manifest。
+项目要求 Python 3.11。THOR 需要可用 display；无桌面环境时使用 Xvfb。真实认证信息只放在本机忽略的
+provider 配置或环境变量中，不写入命令、trace 或 manifest。`memory.data_root`、`memory.neo4j.home` 和
+`memory.neo4j.java_home` 可写成相对路径，并统一相对 `homemaster.yaml` 所在目录解析，不能依赖启动 cwd。
 
 `AlfredThorEnv` 必须提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
 

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from homemaster.application import (
+    ApplicationSession,
     CompactionResult,
     RunResult,
     RunStatus,
@@ -54,6 +55,11 @@ class RecordingApplication:
         self.requests = []
         self.compactions: list[str] = []
         self.closed = 0
+        self.session_end_handler = None
+        self.close_callback = None
+
+    def session(self, session_id, *, exit_reason="session_end"):
+        return ApplicationSession(self, session_id, exit_reason)
 
     async def run(self, request):
         self.requests.append(request)
@@ -100,6 +106,8 @@ class RecordingApplication:
 
     async def aclose(self):
         self.closed += 1
+        if self.close_callback is not None:
+            await self.close_callback()
 
 
 def _install_shell(monkeypatch, tmp_path: Path):
@@ -125,8 +133,8 @@ def _install_shell(monkeypatch, tmp_path: Path):
     return application, bundle
 
 
-def _install_finalizer(monkeypatch, bundle):
-    module = importlib.import_module("homemaster.cli.interactive_shell")
+def _install_finalizer(monkeypatch, bundle, finalizer_type=None):
+    del monkeypatch
     calls = []
 
     class RecordingFinalizer:
@@ -145,10 +153,20 @@ def _install_finalizer(monkeypatch, bundle):
                 error=None,
             )
 
-    bundle.mindmemos = object()
+    finalizer = (finalizer_type or RecordingFinalizer)()
     if bundle.memory_add_queue is None:
         bundle.memory_add_queue = RecordingMemoryQueue(calls)
-    monkeypatch.setattr(module, "SessionFinalizer", RecordingFinalizer)
+
+    def enqueue(session_id, exit_reason):
+        async def work():
+            await finalizer.finalize(session_id, exit_reason)
+
+        return bundle.memory_add_queue.enqueue_work(
+            job_type="session_finalization", session_id=session_id, work=work
+        )
+
+    bundle.application.session_end_handler = enqueue
+    bundle.application.close_callback = bundle.memory_add_queue.wait_idle
     return calls
 
 
@@ -237,13 +255,11 @@ def test_shell_finalizes_old_and_current_sessions(monkeypatch, tmp_path) -> None
         "new_session",
         "user_exit",
     ]
-    assert result.stdout.count("Vanilla Add completed: 0 operations") == 2
+    assert result.stdout.count("Queued session finalization") == 2
     assert application.closed == 1
 
 
-def test_shell_enqueues_session_finalizer_before_exit_drain(
-    monkeypatch, tmp_path
-) -> None:
+def test_shell_enqueues_session_finalizer_before_exit_drain(monkeypatch, tmp_path) -> None:
     _, bundle = _install_shell(monkeypatch, tmp_path)
     calls = _install_finalizer(monkeypatch, bundle)
 
@@ -257,11 +273,8 @@ def test_shell_enqueues_session_finalizer_before_exit_drain(
     assert ordered[-1] == ("queue", "idle")
 
 
-def test_shell_new_runs_next_task_before_old_finalization_completes(
-    monkeypatch, tmp_path
-) -> None:
+def test_shell_new_runs_next_task_before_old_finalization_completes(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
-    module = importlib.import_module("homemaster.cli.interactive_shell")
     events = []
 
     class DelayedFinalizer:
@@ -290,26 +303,20 @@ def test_shell_new_runs_next_task_before_old_finalization_completes(
         return await original_run(request)
 
     application.run = recording_run
-    bundle.mindmemos = object()
     bundle.memory_add_queue = RecordingMemoryQueue(events)
-    monkeypatch.setattr(module, "SessionFinalizer", DelayedFinalizer)
+    _install_finalizer(monkeypatch, bundle, DelayedFinalizer)
 
     result = CliRunner().invoke(app, ["shell"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     names = [event[0] for event in events]
     assert names.index("next_run") < names.index("finalize_completed")
-    assert result.stdout.index("New session created.") < result.stdout.index(
-        "Vanilla Add completed"
-    )
+    assert "Queued session finalization" in result.stdout
     assert application.closed == 1
 
 
-def test_shell_ignores_sigint_during_session_finalization(
-    monkeypatch, tmp_path
-) -> None:
+def test_shell_ignores_sigint_during_session_finalization(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
-    module = importlib.import_module("homemaster.cli.interactive_shell")
     events = []
 
     class InterruptingFinalizer:
@@ -331,9 +338,8 @@ def test_shell_ignores_sigint_during_session_finalization(
                 error=None,
             )
 
-    bundle.mindmemos = object()
     bundle.memory_add_queue = RecordingMemoryQueue(events)
-    monkeypatch.setattr(module, "SessionFinalizer", InterruptingFinalizer)
+    _install_finalizer(monkeypatch, bundle, InterruptingFinalizer)
 
     result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
 
@@ -341,10 +347,10 @@ def test_shell_ignores_sigint_during_session_finalization(
     finalizer_events = [event for event in events if len(event) == 3]
     assert [event[2] for event in finalizer_events] == ["started", "completed"]
     assert application.closed == 1
-    assert result.stdout.count("Finalization in progress; Ctrl+C ignored") == 1
+    assert result.stdout.count("Shutdown in progress; Ctrl+C ignored") == 1
 
 
-def test_shell_restores_sigint_after_finalization_for_run_cancellation(
+def test_shell_handles_run_cancellation_after_async_finalization(
     monkeypatch, tmp_path
 ) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
@@ -354,8 +360,7 @@ def test_shell_restores_sigint_after_finalization_for_run_cancellation(
         if not application.requests:
             return await RecordingApplication.run(application, request)
         application.requests.append(request)
-        signal.raise_signal(signal.SIGINT)
-        await asyncio.sleep(0)
+        raise KeyboardInterrupt
 
     application.run = interrupt_second_run
 

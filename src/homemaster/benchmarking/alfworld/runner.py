@@ -139,9 +139,7 @@ class AlfworldBenchmarkRunner:
         trace = AlfworldTraceWriter(episode_dir)
         adapter.set_frame_dir(episode_dir / "frames")
         reset_result = (
-            adapter.reset(selection_entry=selection)
-            if selection is not None
-            else adapter.reset()
+            adapter.reset(selection_entry=selection) if selection is not None else adapter.reset()
         )
         if isinstance(reset_result, AlfworldResetResult):
             if not reset_result.ready:
@@ -184,6 +182,7 @@ class AlfworldBenchmarkRunner:
             transport_factory=self._transport_factory,
             event_sink=runtime_sink,
         )
+        entry.begin_session(episode_run_id, exit_reason="alfworld_episode_end")
         try:
             result = entry.run(
                 RunRequest(
@@ -203,9 +202,7 @@ class AlfworldBenchmarkRunner:
                         "alfworld_episode_outcome": outcome,
                         "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
                         "alfworld_semantic_judge_config": (
-                            self.config.alfworld_root
-                            / "configs"
-                            / "semantic_judge_agnes.yaml"
+                            self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                         ),
                         "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                         "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
@@ -217,6 +214,7 @@ class AlfworldBenchmarkRunner:
             session = entry.application.session_manager.get(episode_run_id).session
             trace.write_session_messages(session)
         finally:
+            entry.end_session(episode_run_id)
             entry.close()
             runtime_sink.close()
 
@@ -316,9 +314,7 @@ class AlfworldBenchmarkRunner:
             trial_root=trial_root,
         )
         if len(manifest.entries) != self.config.episodes:
-            raise ValueError(
-                "trial-selection entry count must equal the requested episode count"
-            )
+            raise ValueError("trial-selection entry count must equal the requested episode count")
         return manifest.entries
 
     def _build_pinned_adapter(self, selection: TrialSelectionEntry) -> AlfworldEnvAdapter:
@@ -715,6 +711,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 event_sink=runtime_sink,
             )
             application_session_id = f"{self.run_id}-{taskset.id}"
+            entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
 
             for idx, subtask in enumerate(taskset.subtasks):
                 selection, traj_data = trial_inputs[idx]
@@ -733,12 +730,9 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     )
                     if not isinstance(advance_result, AlfworldGoalAdvanceResult):
                         raise TypeError(
-                            "taskset adapter advance_goal must return "
-                            "AlfworldGoalAdvanceResult"
+                            "taskset adapter advance_goal must return AlfworldGoalAdvanceResult"
                         )
-                    benchmark_control_action_count += (
-                        advance_result.benchmark_control_action_count
-                    )
+                    benchmark_control_action_count += advance_result.benchmark_control_action_count
                     trace.write_event(
                         {
                             "event": (
@@ -752,12 +746,8 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                             "benchmark_control_action_count": (
                                 advance_result.benchmark_control_action_count
                             ),
-                            "before_scene_state_sha256": (
-                                advance_result.before_scene_state_sha256
-                            ),
-                            "after_scene_state_sha256": (
-                                advance_result.after_scene_state_sha256
-                            ),
+                            "before_scene_state_sha256": (advance_result.before_scene_state_sha256),
+                            "after_scene_state_sha256": (advance_result.after_scene_state_sha256),
                         }
                     )
                     if not advance_result.ready:
@@ -783,13 +773,9 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                             phase="goal_advance",
                             classification=classification,
                             subtask_index=idx,
-                            control_terminal_record=_goal_terminal_record(
-                                advance_result
-                            ),
+                            control_terminal_record=_goal_terminal_record(advance_result),
                             setup_backend_action_count=setup_backend_action_count,
-                            benchmark_control_action_count=(
-                                benchmark_control_action_count
-                            ),
+                            benchmark_control_action_count=(benchmark_control_action_count),
                             model_backend_action_count=sum(
                                 row.backend_action_count for row in subtask_results
                             ),
@@ -799,9 +785,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     state = advance_result.state
 
                 outcome = EpisodeOutcome()
-                subtask_run_id = (
-                    f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}"
-                )
+                subtask_run_id = f"{self.run_id}-{taskset.id}-subtask-{idx + 1:02d}"
                 trace.write_model_event(
                     {
                         "env_type": self.config.env_type,
@@ -824,6 +808,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     max_env_steps=self.config.max_env_steps,
                     observation_mode=self.config.observation_mode,
                     subtask_instruction=subtask.instruction,
+                    goal_type=subtask.goal_type,
                 )
                 result = entry.run(
                     RunRequest(
@@ -846,9 +831,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                             "alfworld_current_traj_data": traj_data,
                             "tool_dispatch_observer": AlfworldToolDispatchObserver(outcome),
                             "alfworld_semantic_judge_config": (
-                                self.config.alfworld_root
-                                / "configs"
-                                / "semantic_judge_agnes.yaml"
+                                self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                             ),
                             "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                             "provider_attempt_sink_factory": lambda path=(
@@ -857,17 +840,13 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                         },
                     )
                 )
-                session = entry.application.session_manager.get(
-                    application_session_id
-                ).session
+                session = entry.application.session_manager.get(application_session_id).session
                 trace.write_session_messages(session)
 
                 final_state = adapter.current_state
                 success = adapter.is_current_goal_satisfied()
                 runtime_failure_reason = (
-                    None
-                    if success
-                    else _subtask_failure_reason(result.error_code, final_state)
+                    None if success else _subtask_failure_reason(result.error_code, final_state)
                 )
                 classification = _episode_classification(
                     success=success,
@@ -875,9 +854,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     outcome=outcome,
                 )
                 score_eligible = classification in AGENT_SCORE_CLASSIFICATIONS
-                failure_reason = (
-                    runtime_failure_reason if score_eligible else classification
-                )
+                failure_reason = runtime_failure_reason if score_eligible else classification
                 subtask_results.append(
                     SubtaskResult(
                         index=idx,
@@ -889,9 +866,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                         failure_reason=failure_reason,
                         steps=final_state.step_index,
                         invalid_actions=final_state.invalid_action_count,
-                        goal_condition_success_rate=(
-                            adapter.current_goal_condition_success_rate()
-                        ),
+                        goal_condition_success_rate=(adapter.current_goal_condition_success_rate()),
                         runtime_status=result.status,
                         trace_path=trace.trace_path,
                         classification=classification,
@@ -924,9 +899,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                         subtask_index=idx,
                         control_terminal_record=None,
                         setup_backend_action_count=setup_backend_action_count,
-                        benchmark_control_action_count=(
-                            benchmark_control_action_count
-                        ),
+                        benchmark_control_action_count=(benchmark_control_action_count),
                         model_backend_action_count=sum(
                             row.backend_action_count for row in subtask_results
                         ),
@@ -1184,9 +1157,7 @@ def _taskset_root_terminal(
         benchmark_control_action_count=benchmark_control_action_count,
         model_backend_action_count=model_backend_action_count,
         total_backend_action_count=total_backend_action_count,
-        total_external_action_count=(
-            total_backend_action_count + benchmark_control_action_count
-        ),
+        total_external_action_count=(total_backend_action_count + benchmark_control_action_count),
     )
 
 
@@ -1199,9 +1170,7 @@ def _taskset_result(
     benchmark_control_action_count: int,
     root_terminal: TasksetRootTerminal | None,
 ) -> TasksetResult:
-    chain_success = len(subtasks) == len(taskset.subtasks) and all(
-        row.success for row in subtasks
-    )
+    chain_success = len(subtasks) == len(taskset.subtasks) and all(row.success for row in subtasks)
     return TasksetResult(
         taskset_id=taskset.id,
         floorplan=taskset.floorplan,

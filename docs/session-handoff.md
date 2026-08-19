@@ -2,6 +2,42 @@
 
 ## Current State
 
+Unified Session Finalization is implemented through idempotent `application.session(...)` scopes. Shell, one-shot,
+ALFWorld and LoCoMo now submit the existing Finalizer to the shared FIFO at their semantic session boundary; `/new`
+does not wait, while normal application close drains before MindMemOS/Neo4j. `run()` remains a turn operation and
+Gateway remains unfinalized per message because it has no explicit conversation-end event. Admission requires both a
+started FIFO and available embedded MindMemOS.
+
+ALFWorld benchmark portability work is active on `alfworld-benchmark-local` and mirrored to the hkust4 worktree
+`/home/haodong2/weilin/red_bird/Homemaster-alfworld` branch `alfworld-benchmark`. The adapter now delegates to canonical
+`create_home_application(tool_environment="alfworld")`, requires embedded MindMemOS plus its FIFO, and keeps legacy
+`memory_mode=disabled` solely to prevent the obsolete ALFWorld writer. ALFWorld itself remains unchanged and owns only
+environment/actions/images. Runtime and session roots can be supplied exactly; YAML memory/Neo4j/Java relative paths
+resolve against the config directory.
+
+On hkust4, the original copied Neo4j directory was preserved as `.runtime/neo4j-contaminated-20260819`; a clean verified
+Neo4j 2026.05.0 distribution and Temurin 21.0.11 now live under ignored `.runtime/neo4j` and `.runtime/java`. The private
+ignored `config/homemaster.yaml` points to those paths and to a fresh smoke memory root. That environment-qualification
+step made no model/chat call; the complete benchmark runs are recorded below.
+
+The first complete visual LLM evaluation is recorded under ignored run ID
+`alfworld-llm-memory-statue-20260819`. Its single score-eligible `valid_unseen` episode completed with valid provider,
+runtime and harness coverage, but scored zero with `classification=agent_model_failure` and `failure_reason=not_won`.
+Mimo navigated among the floorlamp and three statues and observed real frames, then incorrectly treated visual proximity
+as completion. It never took a statue and used the floorlamp, so ALFWorld never reported `won=true`. This is an agent task
+semantics failure, not an environment, navigation, provider or MindMemOS availability failure.
+
+Prompt composition now exposes the formal `look_at_obj_in_light` semantics without exposing expert actions or hidden
+scene identity: hold the target object, approach the named lamp, and turn it on while still holding the object. The same
+frozen trial then passed under run ID `alfworld-llm-memory-statue-semantics-20260819` with `agent_success`, external
+`won=true`, goal-condition success 1.0 and no invalid action.
+
+After unified session finalization was connected, the same frozen visual trial passed again under run ID
+`alfworld-session-finalizer-memory-20260819`. Its FIFO job `4655a03a-67a2-4852-b036-2134d43249d1` reached
+queued/processing/completed; experience job `3f231bc2facb95fb7585f876208da423b5985a934796a6259bc9050bf76d6311`
+completed and recorded four active memories. Independent application restart read all four from Qdrant with exact
+episode `session_id`, `source_session_id` and request ID, and read their `EXTRACTED_FROM` edges from Neo4j.
+
 `mindmemos_search` now uses all seven native MindMemOS memory types. It no longer maps `experience` to a public
 `procedure` type or reports valid `tool_trace` records as corrupt. This changes only search input/projection;
 model-authored `mindmemos_add` remains `fact|procedure`.
@@ -47,6 +83,37 @@ record/content plus old/new states and lineage. Add/update provider schemas and 
 `memory-evidence-*`; executors select current tenant/session/run/turn/source evidence from the ledger.
 
 ## Verification
+
+The hkust4 terminal gates pass: Neo4j config validation exits 0; production ALFWorld composition starts Bolt and
+MindMemOS, exposes the exact ALFWorld and six MindMemOS tools, then removes the listener/process on close. A real FIFO
+fact Add returns accepted/completed; a fresh verifier reads exact ID/content/native fact type from Qdrant and exactly one
+Memory, Source and `EXTRACTED_FROM` from Neo4j. Its provider log has one embedding call and zero chat calls. The isolated
+ALFWorld live smoke passes in 66.57s with reset, one rejected invisible target, one real Drawer navigation, a nonblank
+300x300 PNG, and worker/Unity/Xvfb cleanup. The final synced worktree passes 218 ALFWorld tests, 67
+config/composition/parity tests, Ruff, compileall and `git diff --check`. The final private Neo4j config gate also verifies
+loopback Bolt ready, HTTP disabled, MindMemOS available, clean close with zero Neo4j processes, and `.runtime/` ignored.
+
+The complete Mimo visual episode exits zero and produces a formal score. All 30 provider requests have completed
+responses with no provider error; 26 carry outbound images. The model issued 29 tool calls and six real model-driven
+THOR navigation actions after 36 setup actions. All seven captured 300x300 PNGs decode successfully and are nonblank.
+Canonical MindMemOS emitted `memory.automatic_recall` with `status=empty`, `count=0` and no error against the fresh
+memory root; Neo4j independently completed its Bolt handshake and database query. Final cleanup leaves zero Neo4j,
+Unity and `Xvfb :110` processes and no listener on port 7687.
+
+The fixed-semantics rerun has 12/12 completed provider responses, zero provider errors and 11 image-bearing requests.
+It made exactly five model backend actions after 36 setup actions: navigate to statue, take statue from shelf, navigate
+to the floorlamp twice, and use the floorlamp. The terminal action independently reports `inventory=["statue 1"]` and
+`target_state=toggled_on`; the run summary reports `success=true`, `classification=agent_success`,
+`goal_condition_success_rate=1.0`, and formal success rate 1.0. All seven 300x300 frames decode and are nonblank;
+automatic recall again completed without error. Final cleanup leaves zero Neo4j, Unity and `Xvfb :111` processes and
+no Bolt listener.
+
+The unified-finalizer rerun has 18/18 completed provider responses, zero provider errors and 17 image-bearing requests.
+All seven 300x300 PNG frames decode and have nonzero pixel variance. The formal episode summary reports success rate,
+goal-condition success, provider availability, runtime availability and harness coverage all 1.0. Finalizer drain took
+221.5 seconds and completed before process exit. The four persisted native types are `fact`, `experience`, `tool_trace`
+and `skill_candidate`; raw metadata and graph source edges agree on the episode lineage. Post-run and post-verifier
+checks found no THOR, `Xvfb :113`, Neo4j or benchmark process and no listener on port 7687.
 
 The existing LoCoMo store at `/tmp/homemaster/locomo-memory-100-20260818-v2` was opened through the production
 HomeMaster composition. A real `mindmemos_search` filtered by `tool_trace` returned exactly the two known Finalizer IDs
@@ -136,12 +203,16 @@ fully finalized.
 
 ## Next Step
 
+The one-episode visual benchmark gate is complete. Before a larger run, freeze the evaluation set and scoring protocol;
+continue requiring per-episode external `won=true`, valid coverage and complete resource cleanup.
+
 Any HomeMaster shell started before this change cannot hot-load the direct-flat Add contract. Start a fresh shell from
 this working tree before interactive verification; do not infer behavior from a pre-change process.
 
 ## Blockers
 
-No memory code blocker is known. Do not commit without fresh explicit authorization, and preserve the concurrent
+No memory, infrastructure or one-episode benchmark blocker is known. Do not commit without fresh explicit authorization,
+and preserve the concurrent
 provider and V2.7 async-add changes. Archived memories created by an older direct-update implementation without a real
 `DERIVED_FROM` edge cannot be reconstructed into history and must not be guessed. Keep the structured feedback
 exact-record/content/lineage terminal gate when changing the vendored executor. Optional Playwright/MCP environment

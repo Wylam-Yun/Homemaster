@@ -14,7 +14,7 @@ from typing import Any
 from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.cli.composition import create_home_application
 from homemaster.events.event_payloads import trace_event_payload
-from homemaster.experience import FinalizeResult, SessionFinalizer
+from homemaster.experience import FinalizeResult
 from homemaster.tools.contracts import PermissionSubject
 
 _SESSION_KEY = re.compile(r"session_(\d+)$")
@@ -279,20 +279,17 @@ class LocomoBenchmarkRunner:
             quiet=True,
             event_sink=trace,
             tool_environment=None,
+            memory_tenant_id=_memory_scope_key(selection.focal_speaker),
+            session_finalizer_trace_path=trace.finalizer_path,
         )
         if bundle.mindmemos is None or bundle.memory_add_queue is None:
             trace.close()
             raise RuntimeError("LoCoMo benchmark requires HomeMaster memory to be enabled")
         application = bundle.application
         memory_tenant_id = _memory_scope_key(selection.focal_speaker)
-        finalizer = SessionFinalizer(
-            trace_path=trace.finalizer_path,
-            data_root=bundle.config.memory.data_root,
-            mindmemos=bundle.mindmemos,
-            memory_tenant_id=memory_tenant_id,
-            dreaming_coordinator=bundle.dreaming_coordinator,
-            event_sink=application.event_bus,
-        )
+        if bundle.session_finalization is None:
+            trace.close()
+            raise RuntimeError("LoCoMo benchmark requires session finalization")
         subject = _benchmark_subject(memory_tenant_id)
         try:
             for session in selection.sessions:
@@ -302,25 +299,29 @@ class LocomoBenchmarkRunner:
                     session.source_timestamp,
                     finalizer_user_text=render_session_transcript(selection, session),
                 )
-                result = await application.run(
-                    RunRequest(
-                        text=render_session_prompt(selection, session),
-                        session_id=session_id,
-                        profile="home",
-                        provider_name=self.config.provider_name,
-                        model_override=self.config.model_override,
-                        run_policy=RunPolicy(
-                            max_tool_iterations=bundle.config.runtime.max_tool_iterations,
-                            deadline_s=self.config.run_deadline_seconds,
-                        ),
-                        permission_subject=subject,
-                        metadata={
-                            "benchmark": "locomo",
-                            "sample_id": selection.sample_id,
-                            "source_session": session.source_index,
-                        },
-                    )
+                session_scope = application.session(
+                    session_id, exit_reason="locomo_source_session_end"
                 )
+                async with session_scope:
+                    result = await application.run(
+                        RunRequest(
+                            text=render_session_prompt(selection, session),
+                            session_id=session_id,
+                            profile="home",
+                            provider_name=self.config.provider_name,
+                            model_override=self.config.model_override,
+                            run_policy=RunPolicy(
+                                max_tool_iterations=bundle.config.runtime.max_tool_iterations,
+                                deadline_s=self.config.run_deadline_seconds,
+                            ),
+                            permission_subject=subject,
+                            metadata={
+                                "benchmark": "locomo",
+                                "sample_id": selection.sample_id,
+                                "source_session": session.source_index,
+                            },
+                        )
+                    )
                 record = {
                     "record_type": "source_session",
                     "sample_id": selection.sample_id,
@@ -343,11 +344,9 @@ class LocomoBenchmarkRunner:
                         f"HomeMaster run failed for source session {session.source_index}: "
                         f"status={result.status}, error={result.error_code}"
                     )
-                finalized = await _enqueue_finalization(
-                    bundle.memory_add_queue,
-                    finalizer,
-                    session_id,
-                )
+                if session_scope.receipt is None:
+                    raise RuntimeError("source session finalization was not admitted")
+                finalized = await bundle.session_finalization.wait(session_scope.receipt)
                 record["finalization"] = _finalize_result_dict(finalized)
                 record["terminal_memory_readback"] = await _readback_operations(
                     bundle.mindmemos,
@@ -373,29 +372,31 @@ class LocomoBenchmarkRunner:
 
             for index, question in enumerate(selection.questions, start=1):
                 session_id = f"{run_id}-{selection.sample_id}-qa-{index}"
-                result = await application.run(
-                    RunRequest(
-                        text=(
-                            f"Answer this question about {selection.focal_speaker}'s prior "
-                            "conversation. Use recalled long-term memory or a memory search tool "
-                            f"when needed.\n\nQuestion: {question.question}"
-                        ),
-                        session_id=session_id,
-                        profile="home",
-                        provider_name=self.config.provider_name,
-                        model_override=self.config.model_override,
-                        run_policy=RunPolicy(
-                            max_tool_iterations=bundle.config.runtime.max_tool_iterations,
-                            deadline_s=self.config.run_deadline_seconds,
-                        ),
-                        permission_subject=subject,
-                        metadata={
-                            "benchmark": "locomo",
-                            "sample_id": selection.sample_id,
-                            "qa_probe": index,
-                        },
+                async with application.session(session_id, exit_reason="locomo_qa_session_end"):
+                    result = await application.run(
+                        RunRequest(
+                            text=(
+                                f"Answer this question about {selection.focal_speaker}'s prior "
+                                "conversation. Use recalled long-term memory or a memory "
+                                "search tool "
+                                f"when needed.\n\nQuestion: {question.question}"
+                            ),
+                            session_id=session_id,
+                            profile="home",
+                            provider_name=self.config.provider_name,
+                            model_override=self.config.model_override,
+                            run_policy=RunPolicy(
+                                max_tool_iterations=bundle.config.runtime.max_tool_iterations,
+                                deadline_s=self.config.run_deadline_seconds,
+                            ),
+                            permission_subject=subject,
+                            metadata={
+                                "benchmark": "locomo",
+                                "sample_id": selection.sample_id,
+                                "qa_probe": index,
+                            },
+                        )
                     )
-                )
                 qa_record = {
                     "record_type": "qa_probe",
                     "probe_index": index,
@@ -423,9 +424,7 @@ class LocomoBenchmarkRunner:
             except Exception as exc:
                 close_failure = f"{type(exc).__name__}: {exc}"
                 failure = (
-                    f"{failure}; application close: {close_failure}"
-                    if failure
-                    else close_failure
+                    f"{failure}; application close: {close_failure}" if failure else close_failure
                 )
             trace.close()
 
@@ -467,28 +466,6 @@ class LocomoBenchmarkRunner:
         if failure:
             raise RuntimeError(f"LoCoMo benchmark failed; see {summary_path}: {failure}")
         return summary
-
-
-async def _enqueue_finalization(
-    queue: Any,
-    finalizer: SessionFinalizer,
-    session_id: str,
-) -> FinalizeResult:
-    completed: dict[str, FinalizeResult] = {}
-
-    async def work() -> None:
-        completed["result"] = await finalizer.finalize(session_id, "locomo_source_session_end")
-
-    queue.enqueue_work(
-        job_type="session_finalization",
-        session_id=session_id,
-        work=work,
-    )
-    await queue.wait_idle()
-    result = completed.get("result")
-    if result is None:
-        raise RuntimeError(f"memory queue did not return finalization result for {session_id}")
-    return result
 
 
 async def _readback_operations(

@@ -32,6 +32,62 @@ def test_default_config_path_accepts_installed_cli_environment_override(tmp_path
     assert config_impl._default_config_path({}) == REPO_ROOT / "config" / "homemaster.yaml"
 
 
+def test_memory_runtime_paths_are_relative_to_config_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_dir = tmp_path / "deployment" / "config"
+    config_dir.mkdir(parents=True)
+    path = config_dir / "homemaster.yaml"
+    path.write_text(
+        """
+        memory:
+          enabled: true
+          data_root: ../.runtime/memory
+          neo4j:
+            mode: managed_local
+            home: ../.runtime/neo4j
+            java_home: ../.runtime/java
+            password: private-test-password
+        """,
+        encoding="utf-8",
+    )
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    monkeypatch.chdir(unrelated_cwd)
+
+    config = load_config(path)
+
+    runtime_root = tmp_path / "deployment" / ".runtime"
+    assert config.memory.data_root == runtime_root / "memory"
+    assert config.memory.neo4j.home == runtime_root / "neo4j"
+    assert config.memory.neo4j.java_home == runtime_root / "java"
+    assert config.memory.migration_spec.files_source == runtime_root / "memory" / "files"
+
+
+def test_absolute_memory_runtime_paths_remain_unchanged(tmp_path: Path) -> None:
+    absolute = tmp_path / "absolute"
+    path = tmp_path / "homemaster.yaml"
+    path.write_text(
+        f"""
+        memory:
+          data_root: {absolute / 'memory'}
+          neo4j:
+            mode: managed_local
+            home: {absolute / 'neo4j'}
+            java_home: {absolute / 'java'}
+            password: private-test-password
+        """,
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.memory.data_root == absolute / "memory"
+    assert config.memory.neo4j.home == absolute / "neo4j"
+    assert config.memory.neo4j.java_home == absolute / "java"
+
+
 def test_doctor_reports_external_config_path_without_repo_relative_assumption(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

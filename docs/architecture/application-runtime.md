@@ -32,6 +32,11 @@ MCP manager；每个 run 冻结 provider request、generation 和 borrowed envir
 新 Add，三者不会重叠。`/new` 只做同步 `put_nowait` 后切换 Session；terminal exit 才等待 queue idle。队列
 不持久化、不并发、不重试；异常进程终止可能丢任务。
 
+语义边界由入口显式持有的 `ApplicationSession` scope 决定，`ApplicationRuntime.run()` 仍只代表一个 turn。
+scope close 幂等，并通过通用 callback 交给 composition 中唯一的 `SessionFinalizationController`；application
+层不依赖 MindMemOS。Controller 仅在 FIFO started 且 embedded MindMemOS available 时 admission。Shell、one-shot、
+ALFWorld 和 LoCoMo 已接入；Gateway 尚无 reset/expiry/end event，因此单条消息不触发 finalization。
+
 Interactive Shell 对 SIGINT 的 ownership 随生命周期切换。提示符或普通 run 使用默认 handler：提示符 Ctrl+C
 进入 terminal drain，run 中 Ctrl+C 只取消当前 run。terminal exit 的 finalization admission 和 queue drain
 共用一个连续的临时忽略 handler，application close 也有独立保护；repeated SIGINT 因此不能越过已承诺的

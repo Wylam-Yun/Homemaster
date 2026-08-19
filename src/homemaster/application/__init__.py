@@ -22,6 +22,7 @@ from homemaster.application.resources import (
 )
 from homemaster.application.runtime import (
     ApplicationRuntime,
+    ApplicationSession,
     CompactionResult,
     SessionStatus,
 )
@@ -41,6 +42,7 @@ from homemaster.application.session import (
 __all__ = [
     "ApplicationResourceManager",
     "ApplicationRuntime",
+    "ApplicationSession",
     "EnvironmentBackend",
     "CancellationSource",
     "CompactionRequest",

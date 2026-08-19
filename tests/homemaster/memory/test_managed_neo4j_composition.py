@@ -6,6 +6,7 @@ import pytest
 
 from homemaster.cli import composition
 from homemaster.config import HomeMasterConfig
+from homemaster.experience import FinalizeResult
 
 
 def _config(tmp_path: Path) -> HomeMasterConfig:
@@ -105,6 +106,64 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
         "mindmemos.close",
         "neo4j.close",
     ]
+
+
+@pytest.mark.asyncio
+async def test_session_finalization_drains_before_memory_resources_close(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class FakeManagedNeo4jRuntime:
+        def __init__(self, _memory_config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            calls.append("neo4j.start")
+
+        async def close(self) -> None:
+            calls.append("neo4j.close")
+
+    class FakeEmbeddedMindMemOS:
+        available = True
+        unavailable_cause = None
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            calls.append("mindmemos.start")
+
+        async def close(self) -> None:
+            calls.append("mindmemos.close")
+
+    class FakeSessionFinalizer:
+        def __init__(self, **kwargs: object) -> None:
+            assert kwargs["memory_tenant_id"] == "benchmark-tenant"
+
+        async def finalize(self, session_id: str, exit_reason: str) -> FinalizeResult:
+            calls.append(f"finalize:{session_id}:{exit_reason}")
+            return FinalizeResult(session_id=session_id, status="completed")
+
+    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
+    monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
+    monkeypatch.setattr(composition, "SessionFinalizer", FakeSessionFinalizer)
+    bundle = composition.create_home_application(
+        config=_config(tmp_path),
+        run_label="session-finalization-order",
+        memory_tenant_id="benchmark-tenant",
+    )
+
+    await bundle.application.start()
+    scope = bundle.application.session("episode-one", exit_reason="episode_end")
+    receipt = scope.close()
+    assert receipt is not None
+    assert receipt.status == "accepted"
+    await bundle.application.aclose()
+
+    assert calls.index("finalize:episode-one:episode_end") < calls.index("mindmemos.close")
+    assert calls.index("mindmemos.close") < calls.index("neo4j.close")
 
 
 @pytest.mark.asyncio
