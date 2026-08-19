@@ -4,6 +4,12 @@
 
 ### Changed
 
+- Changed model-visible `mindmemos_add` from admission-only `accepted + job_id` to verified
+  `stored + memory_id`: the call waits only for exact Memory, BM25 and Neo4j provenance readback, while two
+  application-owned workers enrich the same ID with dense vectors and native Entity/`MENTIONS`. Internal pending state
+  is neither model input nor model output. Session Finalizer now enables Entity in both the Vanilla extractor and config,
+  allowing feedback/Dreaming benchmarks to receive graph scopes without delaying interactive Add on remote embeddings.
+
 - Changed `mindmemos_search` to accept and return the complete native MindMemOS type vocabulary instead of the reduced
   `fact|procedure` search view. Valid active `profile`, `fact`, `experience`, `episodic`, `tool_trace`,
   `skill_candidate`, and `file_knowledge` memories now preserve their native type and exact content; the existing LoCoMo
@@ -12,12 +18,9 @@
 
 - Replaced model-visible structured `mindmemos_add` with `content + memory_type` direct flat writes
   because its Schema/LLM extraction dominated Add latency while the public schema is not yet stable.
-  Validated calls still return `accepted + job_id` through the application-owned FIFO, but the worker
-  now writes exact content, memory embedding/BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`
-  directly, with no chat call, Entity, entity embedding or `MENTIONS`. Facts map to native `fact` and
-  procedures to `experience`; legacy structured memories remain readable/updateable. Session
-  finalization keeps native Vanilla Add with entities disabled. `/new`, clean drain, crash-loss and
-  no-broker/no-retry behavior are unchanged. The 100-record recall benchmark now writes its canonical
+  The initial write stores exact content, BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`
+  directly, with no chat call. Facts map to native `fact` and procedures to `experience`; legacy structured memories
+  remain readable/updateable. Dense and Entity enrichment now follow the stored-first contract above. The 100-record recall benchmark writes its canonical
   JSON as exact flat content and verifies raw content/type instead of requiring `record_json`.
 
 - Rewrote the top-level README from scratch: capability overview, architecture diagram and module
@@ -28,6 +31,10 @@
   (`context_memory`, `mindmemos_search/history/add/update/delete/feedback`).
 
 ### Fixed
+
+- Fixed stored-first memory enrichment falsely rejecting successful Qdrant dense-vector writes
+  when float32 persistence introduces normal round-trip precision differences; the readback gate
+  now checks dimensions, nonzero content, and per-value numerical tolerance before Entity enrichment.
 
 - Prevented repeated Ctrl+C from aborting interactive Session finalization or application close.
   During terminal exit drain the shell temporarily owns SIGINT, reports the first repeated interrupt,

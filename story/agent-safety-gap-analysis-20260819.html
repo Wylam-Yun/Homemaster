@@ -1,0 +1,1159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Homemaster 云运维 Agent 安全需求阻断点分析与参考方案" />
+<title>云运维 Agent 安全需求 · 现状与阻断点分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --ink: #172033;
+    --muted: #5d687a;
+    --faint: #8993a3;
+    --paper: #f5f7f9;
+    --white: #ffffff;
+    --line: #dce2e8;
+    --line-strong: #bdc8d3;
+    --nav: #111827;
+    --nav-soft: #1f2937;
+    --teal: #087f7a;
+    --teal-soft: #e5f5f3;
+    --blue: #285da8;
+    --blue-soft: #eaf1fb;
+    --amber: #a95f08;
+    --amber-soft: #fff3df;
+    --red: #b43b3b;
+    --red-soft: #fceaea;
+    --green: #25734b;
+    --green-soft: #e8f5ed;
+    --purple: #7050a5;
+    --purple-soft: #f0eafa;
+    --shadow: 0 12px 28px rgba(28, 40, 58, 0.08);
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 70px; scroll-snap-type: y proximity; }
+  body {
+    margin: 0;
+    font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.68;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, a { font: inherit; }
+  a { color: inherit; text-decoration: none; }
+  svg { width: 19px; height: 19px; stroke-width: 1.8; }
+  .wrap { width: min(1200px, calc(100% - 40px)); margin: 0 auto; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(17, 24, 39, 0.96);
+    border-bottom: 1px solid rgba(255,255,255,.1);
+    backdrop-filter: blur(14px);
+  }
+  nav .wrap { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: #fff; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .brand-mark { width: 25px; height: 25px; border: 2px solid #5eead4; display: grid; place-items: center; border-radius: 6px; }
+  .brand-mark::after { content: ""; width: 7px; height: 7px; background: #fbbf24; border-radius: 50%; }
+  .nav-links { display: flex; gap: 2px; list-style: none; margin: 0; padding: 0; }
+  .nav-links a { display: block; padding: 8px 10px; color: #aeb8c8; font-size: 13px; border-radius: 5px; }
+  .nav-links a:hover, .nav-links a.active { color: #fff; background: rgba(255,255,255,.09); }
+  .nav-toggle { display: none; width: 38px; height: 38px; align-items: center; justify-content: center; color: #fff; background: transparent; border: 1px solid #3b4658; border-radius: 6px; cursor: pointer; }
+
+  header {
+    min-height: 560px;
+    background: var(--nav);
+    color: #fff;
+    display: flex; align-items: center;
+    position: relative; overflow: hidden;
+  }
+  header::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: linear-gradient(to bottom, #000, transparent 90%);
+  }
+  .hero { position: relative; padding: 84px 0 60px; }
+  .hero-kicker { display: flex; align-items: center; gap: 9px; color: #5eead4; font-size: 13px; font-weight: 700; margin-bottom: 20px; }
+  .hero-kicker::before { content: ""; width: 34px; height: 2px; background: #5eead4; }
+  h1 { margin: 0; max-width: 900px; font-size: clamp(32px, 4.6vw, 54px); line-height: 1.18; font-weight: 780; }
+  .hero-lead { max-width: 860px; margin: 22px 0 34px; color: #bdc7d5; font-size: clamp(16px, 1.9vw, 19px); }
+  .hero-status { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 1020px; border: 1px solid #364154; background: rgba(31,41,55,.66); }
+  .hero-stat { padding: 18px 20px; border-right: 1px solid #364154; min-height: 98px; }
+  .hero-stat:last-child { border-right: 0; }
+  .hero-stat strong { display: block; font-size: 19px; color: #fff; margin-bottom: 5px; }
+  .hero-stat span { color: #9ca8b8; font-size: 14px; }
+  .hero-note { margin-top: 24px; display: flex; align-items: flex-start; gap: 9px; color: #bdc7d5; font-size: 15px; max-width: 900px; }
+  .hero-note svg { color: #fbbf24; flex: 0 0 auto; margin-top: 3px; }
+
+  section { padding: 84px 0; }
+  section.white { background: var(--white); }
+  section.dark { background: var(--nav); color: #fff; }
+  section.tint { background: #eef2f5; }
+  .section-head { display: grid; grid-template-columns: 180px 1fr; gap: 34px; align-items: start; margin-bottom: 42px; }
+  .eyebrow { font-size: 13px; color: var(--teal); font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; padding-top: 8px; }
+  .dark .eyebrow { color: #5eead4; }
+  h2 { margin: 0 0 10px; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.26; }
+  .section-desc { margin: 0; color: var(--muted); max-width: 880px; font-size: 17px; }
+  .dark .section-desc { color: #aeb8c8; }
+
+  /* ---- 01 变更单八步流程 ---- */
+  .flow-chain { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--white); }
+  .flow-step { min-height: 224px; padding: 16px 13px; position: relative; border-right: 1px solid var(--line); }
+  .flow-step:last-child { border-right: 0; }
+  .flow-step:not(:last-child)::after {
+    content: ""; position: absolute; right: -7px; top: 38px; width: 12px; height: 12px;
+    border-top: 2px solid var(--line-strong); border-right: 2px solid var(--line-strong);
+    background: var(--white); transform: rotate(45deg); z-index: 2;
+  }
+  .flow-index { color: var(--faint); font-size: 11.5px; font-weight: 800; margin-bottom: 9px; }
+  .flow-step h3 { margin: 0 0 6px; font-size: 14.5px; line-height: 1.4; }
+  .flow-step p { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+  .flow-step.agent { background: var(--teal-soft); border-top: 3px solid var(--teal); }
+  .flow-step.agent .flow-index { color: var(--teal); }
+  .flow-step.agent::after { background: var(--teal-soft); }
+  .flow-step.human { background: var(--blue-soft); border-top: 3px solid var(--blue); }
+  .flow-step.human .flow-index { color: var(--blue); }
+  .flow-step.human::after { background: var(--blue-soft); }
+  .zone-badge {
+    display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
+    padding: 3px 8px; border-radius: 4px; font-size: 11.5px; font-weight: 700; color: #fff;
+  }
+  .zone-badge svg { width: 12px; height: 12px; }
+  .zone-badge.agent { background: var(--teal); }
+  .zone-badge.human { background: var(--blue); }
+
+  .review-strip { margin-top: 22px; border: 1px solid #e4cf9e; background: #fffaf0; border-left: 4px solid var(--amber); padding: 20px 22px 16px; }
+  .review-strip-title { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; color: var(--amber); font-size: 16px; font-weight: 800; }
+  .review-strip-title svg { color: var(--amber); }
+  .review-strip-title span { font-weight: 400; color: var(--muted); font-size: 14px; }
+  .review-nodes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .review-node { background: var(--white); border: 1px solid var(--line); padding: 13px 15px; }
+  .review-node b { display: flex; align-items: center; gap: 6px; font-size: 14.5px; margin-bottom: 3px; }
+  .review-node b svg { width: 15px; height: 15px; color: var(--amber); }
+  .review-node .hook { display: inline-block; margin: 2px 0 5px; padding: 1px 7px; background: var(--amber-soft); color: var(--amber); border-radius: 4px; font-size: 11.5px; font-weight: 700; }
+  .review-node p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .mission-box { margin-top: 22px; padding: 19px 22px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; background: var(--amber-soft); border-left: 4px solid var(--amber); }
+  .mission-box svg { color: var(--amber); width: 25px; height: 25px; }
+  .mission-box strong { display: block; margin-bottom: 2px; }
+  .mission-box span { color: #745022; font-size: 15.5px; }
+
+  /* ---- 02 四级管控 ---- */
+  .risk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .risk-card { border: 1px solid var(--line); background: var(--white); display: flex; flex-direction: column; }
+  .risk-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+  .risk-head svg { width: 24px; height: 24px; margin-bottom: 10px; }
+  .risk-card:nth-child(1) .risk-head svg { color: var(--green); }
+  .risk-card:nth-child(2) .risk-head svg { color: var(--blue); }
+  .risk-card:nth-child(3) .risk-head svg { color: var(--amber); }
+  .risk-card:nth-child(4) .risk-head svg { color: var(--red); }
+  .risk-head h3 { margin: 0 0 4px; font-size: 18px; }
+  .risk-head .risk-level { font-size: 12.5px; font-weight: 700; letter-spacing: .5px; }
+  .risk-card:nth-child(1) .risk-level { color: var(--green); }
+  .risk-card:nth-child(2) .risk-level { color: var(--blue); }
+  .risk-card:nth-child(3) .risk-level { color: var(--amber); }
+  .risk-card:nth-child(4) .risk-level { color: var(--red); }
+  .risk-body { padding: 15px 20px; flex: 1; }
+  .risk-body .ex { margin: 0 0 10px; font-size: 14.5px; }
+  .risk-body .ex code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; background: #f1f4f7; padding: 1px 6px; border-radius: 4px; }
+  .risk-now { margin: 0; padding: 11px 13px; background: var(--red-soft); color: #7a2e2e; font-size: 13.5px; line-height: 1.58; }
+  .risk-now b { display: block; color: var(--red); font-size: 12px; letter-spacing: .5px; margin-bottom: 3px; }
+
+  /* ---- 03/04 需求页：一屏一页 ---- */
+  .reqpage { min-height: 100vh; display: flex; align-items: center; padding: 96px 0 64px; scroll-snap-align: start; background: var(--white); }
+  .reqpage.alt { background: #f2f5f8; }
+  .rp-inner { width: min(1020px, calc(100% - 40px)); margin: 0 auto; }
+  .rp-head { display: grid; grid-template-columns: 110px 1fr auto; gap: 24px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+  .rp-no { font-size: 12px; color: var(--faint); font-weight: 800; letter-spacing: 1.2px; }
+  .rp-no b { display: block; font-size: 46px; color: var(--ink); line-height: 1.08; font-weight: 800; letter-spacing: 0; }
+  .rp-title h3 { margin: 0 0 4px; font-size: clamp(24px, 3vw, 32px); line-height: 1.3; }
+  .rp-title .need { margin: 0; color: var(--muted); font-size: 15.5px; }
+  .rp-title .need b { color: var(--ink); }
+  .rp-chips { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+  .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; }
+  .chip.done { background: var(--green-soft); color: var(--green); } .chip.done::before { background: var(--green); }
+  .chip.partial { background: var(--amber-soft); color: var(--amber); } .chip.partial::before { background: var(--amber); }
+  .chip.todo { background: var(--red-soft); color: var(--red); } .chip.todo::before { background: var(--red); }
+  .pchip { display: inline-block; padding: 5px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 800; white-space: nowrap; }
+  .pchip.p0 { background: #fbe9e9; color: var(--red); }
+  .pchip.p1 { background: var(--amber-soft); color: var(--amber); }
+  .pchip.padv { background: var(--green-soft); color: var(--green); }
+
+  .rp-now { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 24px; }
+  .rp-row { display: grid; grid-template-columns: 46px 1fr; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); background: var(--white); }
+  .rp-row b { font-size: 13px; font-weight: 800; padding-top: 2px; }
+  .rp-row.have { border-left: 4px solid var(--green); }
+  .rp-row.have b { color: var(--green); }
+  .rp-row.brk { border-left: 4px solid var(--red); }
+  .rp-row.brk b { color: var(--red); }
+  .rp-row p { margin: 0; color: #3d4757; font-size: 14.5px; line-height: 1.66; }
+  .rp-row p code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; background: #f1f4f7; padding: 1px 6px; border-radius: 4px; }
+
+  .rp-borrow { border: 1px solid var(--line); border-top: 4px solid var(--teal); background: var(--white); padding: 20px 26px 22px; }
+  .rp-borrow-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; font-size: 17px; font-weight: 800; }
+  .rp-borrow-title .en { color: var(--faint); font-size: 12.5px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .src-chip { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 11.5px; font-weight: 700; letter-spacing: 0; }
+  .src-chip.agt { background: var(--blue-soft); color: var(--blue); }
+  .src-chip.yolo { background: var(--teal-soft); color: var(--teal); }
+  .src-chip.own { background: var(--purple-soft); color: var(--purple); }
+  .rp-mech { margin: 0 0 16px; color: #3d4757; font-size: 15px; line-height: 1.76; }
+  .rp-mech .note { color: var(--faint); font-size: 13.5px; }
+  .rp-mech code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: #f1f4f7; padding: 1px 6px; border-radius: 4px; }
+  .rp-chain { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 0 16px; }
+  .rc-node { position: relative; display: flex; align-items: center; padding: 9px 20px 9px 16px; border: 1px solid var(--line-strong); border-right: 0; background: #f8fafb; font-size: 13.5px; font-weight: 600; color: #2c3950; line-height: 1.45; }
+  .rc-node:first-child { border-radius: 6px 0 0 6px; }
+  .rc-node:last-child { border-right: 1px solid var(--line-strong); border-radius: 0 6px 6px 0; padding-right: 16px; }
+  .rc-node:not(:last-child)::after { content: ""; position: absolute; right: -6px; top: 50%; width: 10px; height: 10px; border-top: 2px solid var(--line-strong); border-right: 2px solid var(--line-strong); transform: translateY(-50%) rotate(45deg); z-index: 2; }
+  .rc-node.dec { background: var(--teal-soft); border-color: var(--teal); color: var(--teal); font-weight: 800; }
+  .rc-node.dec:not(:last-child)::after { border-color: var(--teal); }
+  .rc-node.deny { background: var(--red-soft); border-color: #d9a0a0; color: var(--red); font-weight: 800; }
+  .rc-node.deny:not(:last-child)::after { border-color: #d9a0a0; }
+  .rp-land { display: grid; grid-template-columns: 46px 1fr; gap: 12px; padding: 13px 16px; background: var(--purple-soft); border-left: 4px solid var(--purple); }
+  .rp-land b { color: var(--purple); font-size: 13px; font-weight: 800; padding-top: 2px; }
+  .rp-land p { margin: 0; color: #4a3f63; font-size: 14.5px; line-height: 1.66; }
+
+  /* ---- 需求索引 + 圆点导航 ---- */
+  .req-index { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .ri-cell { display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; padding: 11px 14px; border: 1px solid var(--line); background: var(--white); }
+  .ri-cell:hover { border-color: var(--teal); background: var(--teal-soft); }
+  .ri-no { font-size: 17px; font-weight: 800; color: var(--teal); }
+  .ri-cell strong { font-size: 13.5px; display: block; line-height: 1.35; }
+  .ri-cell span { font-size: 11.5px; color: var(--faint); }
+  .dotnav { position: fixed; right: 14px; top: 50%; transform: translateY(-50%); z-index: 40; display: flex; flex-direction: column; gap: 5px; }
+  .dotnav a { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line-strong); background: rgba(255,255,255,.92); color: var(--muted); font-size: 10.5px; font-weight: 800; }
+  .dotnav a.on, .dotnav a:hover { background: var(--nav); color: #5eead4; border-color: var(--nav); }
+
+  /* ---- 演化安全流水线 ---- */
+  .pipe-chain { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border: 1px solid #354052; background: #161f2d; }
+  .pipe-node { position: relative; min-height: 200px; padding: 18px 15px; border: 1px solid #344054; border-right: 0; background: #1b2636; }
+  .pipe-node:last-child { border-right: 1px solid #344054; }
+  .pipe-node:not(:last-child)::after {
+    content: ""; position: absolute; z-index: 2; right: -8px; top: 42px; width: 14px; height: 14px;
+    background: #1b2636; border-top: 1px solid #566277; border-right: 1px solid #566277; transform: rotate(45deg);
+  }
+  .pipe-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; margin-bottom: 12px; }
+  .pipe-state svg { width: 15px; height: 15px; }
+  .pipe-state.ok { color: #5eead4; }
+  .pipe-state.miss { color: #f08c8c; }
+  .pipe-node h3 { margin: 0 0 6px; font-size: 16.5px; color: #fff; }
+  .pipe-node p { margin: 0; color: #99a6b7; font-size: 13.5px; line-height: 1.55; }
+  .pipe-node.miss-node { background: #221d29; border-color: #463a4a; }
+  .pipe-node.miss-node::after { background: #221d29; }
+  .pipe-caption { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 24px; }
+  .caption-block { border-top: 1px solid #374151; padding-top: 18px; }
+  .caption-block strong { display: block; color: #fff; font-size: 16px; margin-bottom: 4px; }
+  .caption-block span { color: #9ca8b8; font-size: 15px; }
+
+  /* ---- 05 参考项目 ---- */
+  .ref-intro-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 34px; }
+  .ref-intro { border: 1px solid var(--line); background: var(--white); border-top: 4px solid var(--blue); padding: 24px 26px; }
+  .ref-intro.yolo { border-top-color: var(--teal); }
+  .ref-intro .ref-name { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+  .ref-intro .ref-name h3 { margin: 0; font-size: 20px; }
+  .ref-intro .ref-name span { color: var(--faint); font-size: 13px; }
+  .ref-intro .ref-line { display: grid; grid-template-columns: 76px 1fr; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); font-size: 14.5px; }
+  .ref-intro .ref-line b { color: var(--blue); }
+  .ref-intro.yolo .ref-line b { color: var(--teal); }
+  .ref-intro .ref-line p { margin: 0; color: var(--muted); }
+  .module-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .module-card { border: 1px solid var(--line); background: var(--white); }
+  .module-head { display: flex; align-items: center; gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+  .module-head svg { color: var(--blue); flex: 0 0 auto; }
+  .module-card.yolo .module-head svg { color: var(--teal); }
+  .module-head h3 { margin: 0; font-size: 16px; }
+  .module-head .src { display: block; font-size: 11.5px; color: var(--faint); font-weight: 400; }
+  .module-body { padding: 6px 18px 14px; }
+  .mod-row { padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 13.8px; }
+  .mod-row:last-child { border-bottom: 0; }
+  .mod-row b { display: block; font-size: 12px; letter-spacing: .5px; margin-bottom: 2px; }
+  .mod-row.what b { color: var(--muted); }
+  .mod-row.how b { color: var(--blue); }
+  .module-card.yolo .mod-row.how b { color: var(--teal); }
+  .mod-row.use b { color: var(--purple); }
+  .mod-row p { margin: 0; color: var(--muted); line-height: 1.6; }
+  .principle-box { margin-top: 26px; padding: 20px 24px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; background: var(--nav); color: #e2e8f0; border-radius: 8px; }
+  .principle-box svg { color: #fbbf24; width: 26px; height: 26px; }
+  .principle-box strong { display: block; color: #fff; margin-bottom: 2px; }
+  .principle-box span { font-size: 15px; color: #b8c2d0; }
+
+  /* ---- 06 横切断点 ---- */
+  .gap-list { display: grid; gap: 18px; }
+  .gap-stage { border: 1px solid #39475a; background: #182231; border-radius: 8px; overflow: hidden; }
+  .gap-head { display: grid; grid-template-columns: 48px 1fr auto; gap: 14px; align-items: center; padding: 18px 20px; border-bottom: 1px solid #39475a; }
+  .gap-no { width: 38px; height: 38px; display: grid; place-items: center; background: rgba(240,140,140,.12); color: #f08c8c; font-weight: 800; border-radius: 6px; }
+  .gap-head h3 { margin: 0; font-size: 20px; }
+  .gap-cover { color: #aeb8c8; font-size: 13px; text-align: right; }
+  .gap-body { display: grid; grid-template-columns: 1fr 1fr; }
+  .gap-field { padding: 16px 20px; border-bottom: 1px solid #303c4e; }
+  .gap-field:nth-child(odd) { border-right: 1px solid #303c4e; }
+  .gap-field:nth-last-child(-n+2) { border-bottom: 0; }
+  .gap-field span { display: block; margin-bottom: 5px; color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: .5px; }
+  .gap-field p { margin: 0; color: #b8c2d0; font-size: 15px; line-height: 1.62; }
+  .gap-field .refnote { color: #93b8b3; }
+  .gap-field .refnote b { color: #5eead4; }
+
+  /* ---- 07 建设路线 ---- */
+  .road-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .road-card { border: 1px solid var(--line); background: var(--white); border-top: 4px solid var(--teal); display: flex; flex-direction: column; }
+  .road-card.t2 { border-top-color: var(--amber); }
+  .road-card.t3 { border-top-color: var(--purple); }
+  .road-head { padding: 20px 22px 14px; border-bottom: 1px solid var(--line); }
+  .road-priority { font-size: 12px; font-weight: 800; letter-spacing: 1.2px; margin-bottom: 6px; }
+  .road-card.t1 .road-priority { color: var(--teal); }
+  .road-card.t2 .road-priority { color: var(--amber); }
+  .road-card.t3 .road-priority { color: var(--purple); }
+  .road-head h3 { margin: 0 0 6px; font-size: 19px; }
+  .road-head p { margin: 0; color: var(--muted); font-size: 14px; }
+  .road-body { padding: 14px 22px 20px; flex: 1; }
+  .road-item { padding: 12px 0; border-bottom: 1px dashed var(--line); }
+  .road-item:last-child { border-bottom: 0; }
+  .road-item strong { display: block; font-size: 15px; margin-bottom: 3px; }
+  .road-item p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .road-item .ref { margin: 4px 0 0; font-size: 12.5px; color: #4a7a74; }
+  .road-item .ref b { color: var(--teal); }
+  .road-item .cover { display: inline-block; margin-top: 6px; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 700; background: var(--blue-soft); color: var(--blue); }
+
+  /* ---- 08 结论 ---- */
+  .close-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .close-col { border-top: 4px solid var(--green); background: var(--white); padding: 26px; }
+  .close-col.gap { border-top-color: var(--red); }
+  .close-col h3 { margin: 0 0 18px; font-size: 20px; }
+  .close-col ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; }
+  .close-col li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; color: var(--muted); font-size: 15.5px; }
+  .close-col li svg { width: 17px; height: 17px; color: var(--green); margin-top: 4px; }
+  .close-col.gap li svg { color: var(--red); }
+  .final-statement { margin-top: 28px; padding: 32px; background: var(--nav); color: #fff; display: grid; grid-template-columns: 160px 1fr; gap: 30px; align-items: center; }
+  .final-statement span { color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: 1.4px; }
+  .final-statement p { margin: 0; font-size: clamp(18px, 2.2vw, 24px); line-height: 1.5; font-weight: 650; }
+
+  footer { padding: 36px 0; background: #0b111c; color: #7f8b9d; font-size: 12px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 24px; }
+  .to-top { position: fixed; right: 20px; bottom: 20px; width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transform: translateY(10px); transition: .2s ease; z-index: 40; }
+  .to-top.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+  @media (max-width: 1060px) {
+    .flow-chain { grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; border: 0; background: transparent; }
+    .flow-step, .flow-step:last-child { border: 1px solid var(--line); border-top-width: 3px; background: var(--white); }
+    .flow-step.agent { background: var(--teal-soft); }
+    .flow-step.human { background: var(--blue-soft); }
+    .flow-step::after { display: none; }
+    .review-nodes { grid-template-columns: 1fr 1fr; }
+    .pipe-chain { grid-template-columns: 1fr 1fr 1fr; gap: 10px; border: 0; background: transparent; }
+    .pipe-node, .pipe-node:last-child { border: 1px solid #344054; }
+    .pipe-node::after { display: none; }
+    .risk-grid, .road-grid { grid-template-columns: 1fr 1fr; }
+    .ref-intro-grid, .module-grid { grid-template-columns: 1fr 1fr; }
+    .rp-now { grid-template-columns: 1fr; }
+    .req-index { grid-template-columns: repeat(3, 1fr); }
+    .dotnav { display: none; }
+  }
+
+  @media (max-width: 760px) {
+    .wrap { width: min(100% - 28px, 1200px); }
+    .nav-toggle { display: flex; }
+    .nav-links { display: none; position: absolute; left: 0; right: 0; top: 60px; background: var(--nav-soft); padding: 10px 14px 14px; flex-direction: column; border-bottom: 1px solid #384355; }
+    .nav-links.open { display: flex; }
+    header { min-height: auto; }
+    .hero { padding-top: 60px; }
+    .hero-status { grid-template-columns: 1fr 1fr; }
+    .hero-stat:nth-child(2n) { border-right: 0; }
+    .hero-stat:nth-child(-n+2) { border-bottom: 1px solid #364154; }
+    section { padding: 64px 0; }
+    .section-head { grid-template-columns: 1fr; gap: 4px; margin-bottom: 30px; }
+    .flow-chain, .pipe-chain, .risk-grid, .road-grid, .pipe-caption, .close-grid, .ref-intro-grid, .module-grid, .review-nodes, .rp-now { grid-template-columns: 1fr; }
+    .flow-step, .pipe-node { min-height: auto; }
+    .reqpage { min-height: auto; padding: 64px 0; }
+    .rp-head { grid-template-columns: 1fr; gap: 12px; }
+    .rp-chips { flex-direction: row; align-items: flex-start; }
+    .rc-node { border: 1px solid var(--line-strong); border-radius: 6px; margin: 3px 0; padding: 8px 14px; }
+    .rc-node:first-child, .rc-node:last-child { border-radius: 6px; }
+    .rc-node::after { display: none; }
+    .gap-head { grid-template-columns: 42px 1fr; }
+    .gap-cover { grid-column: 2; text-align: left; }
+    .gap-body { grid-template-columns: 1fr; }
+    .gap-field, .gap-field:nth-child(odd) { border-right: 0; border-bottom: 1px solid #303c4e; }
+    .gap-field:last-child { border-bottom: 0; }
+    .mission-box, .principle-box { grid-template-columns: 1fr; gap: 8px; }
+    .final-statement { grid-template-columns: 1fr; gap: 12px; padding: 24px; }
+    footer .wrap { flex-direction: column; gap: 6px; }
+  }
+
+  @media print {
+    nav, .to-top, .dotnav { display: none !important; }
+    html { scroll-snap-type: none; }
+    body { background: #fff; }
+    header { min-height: auto; break-after: page; }
+    section { padding: 40px 0; }
+    .reqpage { min-height: auto; padding: 30px 0; break-inside: avoid; page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#scene"><span class="brand-mark"></span>HomeMaster · Safety Report</a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#scene">业务场景</a></li>
+      <li><a href="#risk">风险分级</a></li>
+      <li><a href="#reqs">需求逐条</a></li>
+      <li><a href="#evolution">演化安全</a></li>
+      <li><a href="#reference">参考项目</a></li>
+      <li><a href="#gaps">横切断点</a></li>
+      <li><a href="#roadmap">建设路线</a></li>
+      <li><a href="#outcome">结论</a></li>
+    </ul>
+    <button class="nav-toggle" id="navToggle" aria-label="打开导航"><i data-lucide="menu"></i></button>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap hero">
+    <div class="hero-kicker">安全需求阻断点分析 · CLOUD OPS AGENT</div>
+    <h1>云运维 Agent 安全需求：现状、阻断点与参考方案</h1>
+    <p class="hero-lead">Homemaster 在变更场景中要整段接下<b>配合人</b>的工作：按 SOP 做变更前检查、查平台查日志、执行 Linux 命令、核对实例状态、执行后验证、回填结果--人只退到关键节点做审核。这串动作混着完全不同的风险等级。本报告对照 15 条安全需求逐条核对系统现状，并给出可参考的开源方案（微软 AGT 治理工具箱、YoloFS 文件系统）。</p>
+    <div class="hero-status">
+      <div class="hero-stat"><strong>15 条</strong><span>安全需求：执行安全 8 条 + 演化安全 7 条，每条独占一页</span></div>
+      <div class="hero-stat"><strong>0 条完全达标</strong><span>尚无一条需求的所有控制点齐备</span></div>
+      <div class="hero-stat"><strong>6 条部分具备</strong><span>止损 / 结果验证 / 审计 / 记忆受控 / 规则受控 / 版本</span></div>
+      <div class="hero-stat"><strong>9 个可借模块</strong><span>来自 AGT 与 YoloFS，逐条对应到需求</span></div>
+    </div>
+    <div class="hero-note"><i data-lucide="shield-alert"></i><span>权限层要解决的不是传统的"这个用户有没有某个按钮权限"，而是：配合人那串运维动作里，哪些可以安全交给 Agent 自动做，哪些要人确认，哪些要人补信息，哪些必须由人接管。</span></div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ 01 业务场景 ============ -->
+<section id="scene" class="white">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">01 · Scene</div>
+      <div><h2>一张生产变更单的完整流程</h2><p class="section-desc">新的分工：Agent 打满全场--配合人的全部动作（检查、分析、辅助操作、验证、回填）都是 Agent 作战区；执行人只负责核心变更；配合人（人）退到关键节点做审核，不再逐条操作。</p></div>
+    </div>
+    <div class="flow-chain">
+      <article class="flow-step agent"><div class="flow-index">STEP 1</div><h3>收到变更单 / SOP</h3><p>读单、明确范围对象步骤，拆成待办。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+      <article class="flow-step agent"><div class="flow-index">STEP 2</div><h3>变更前检查</h3><p>查服务状态、进程、告警、资源。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+      <article class="flow-step agent"><div class="flow-index">STEP 3</div><h3>变更分析</h3><p>判断环境是否满足执行条件，出结论。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+      <article class="flow-step human"><div class="flow-index">STEP 4</div><h3>核心变更执行</h3><p>升级、改配置、切流、重启等动手操作。</p><div class="zone-badge human"><i data-lucide="user"></i>执行人</div></article>
+      <article class="flow-step agent"><div class="flow-index">STEP 5</div><h3>辅助操作与过程盯防</h3><p>查平台、查日志、执行辅助命令、盯实例状态、补参数。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+      <article class="flow-step agent"><div class="flow-index">STEP 6</div><h3>执行后验证</h3><p>服务是否启动、CPU / 内存、日志报错、业务恢复。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+      <article class="flow-step human"><div class="flow-index">STEP 7</div><h3>异常处置</h3><p>验证不过 / 出异常：人决定回退还是排查。</p><div class="zone-badge human"><i data-lucide="hand"></i>人接管点</div></article>
+      <article class="flow-step agent"><div class="flow-index">STEP 8</div><h3>回填结果和证据</h3><p>把过程和结论回填到变更单。</p><div class="zone-badge agent"><i data-lucide="bot"></i>Agent 作战区</div></article>
+    </div>
+
+    <div class="review-strip">
+      <div class="review-strip-title"><i data-lucide="user-check"></i>配合人（人）以后只在这四个节点出现&nbsp;<span>-- 不再逐条操作，只做审核和放行</span></div>
+      <div class="review-nodes">
+        <div class="review-node"><b><i data-lucide="clipboard-check"></i>变更条件批准</b><span class="hook">挂在步骤 3 之后</span><p>Agent 交出变更分析结论，人审核批准后核心变更才开工。</p></div>
+        <div class="review-node"><b><i data-lucide="shield-alert"></i>高风险动作放行</b><span class="hook">变更过程中随时</span><p>Agent 判定某动作属高危档（重启 / 删除 / 改配置），发出审批请求等人批准。</p></div>
+        <div class="review-node"><b><i data-lucide="hand"></i>异常接管</b><span class="hook">挂在步骤 7</span><p>验证不通过或触发熔断后，人决定回退还是排查。</p></div>
+        <div class="review-node"><b><i data-lucide="file-check"></i>回填报审</b><span class="hook">挂在步骤 8 之后</span><p>Agent 回填的结果和证据，人审核通过后关单。</p></div>
+      </div>
+    </div>
+
+    <div class="mission-box"><i data-lucide="target"></i><div><strong>权限层的真实命题</strong><span>Agent 打满全场之后，"查个日志"和"重启生产服务"会经过同一双手，而人只在四个节点审核。权限层必须在人看不到的地方把风险分开：哪些 Agent 直接做、哪些等人工确认、哪些等人工补参、哪些移交人工执行--这正是后面 15 条需求要补的东西。</span></div></div>
+  </div>
+</section>
+
+<!-- ============ 02 风险分级 ============ -->
+<section id="risk" class="tint">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">02 · Risk Ladder</div>
+      <div><h2>配合人的动作应分成四档管</h2><p class="section-desc">同一串运维动作，风险从"基本无害"到"可能造成生产事故"。理想控制是按档位放行；下面每张卡片同时标出：这一档，Homemaster 现在管得住吗。</p></div>
+    </div>
+    <div class="risk-grid">
+      <article class="risk-card">
+        <div class="risk-head"><i data-lucide="zap"></i><h3>自动执行</h3><div class="risk-level">风险低 · Agent 自己做</div></div>
+        <div class="risk-body">
+          <p class="ex">如 <code>ps -ef | grep java</code>、查日志、看监控--基本无风险。</p>
+          <p class="risk-now"><b>现状：做不到精准放行</b>权限只有"只读 / 会改动"两档。这类命令要么和重启命令一起被拒，要么一起放开--查日志和 <code>service restart</code> 在权限眼里是同一件事。</p>
+        </div>
+      </article>
+      <article class="risk-card">
+        <div class="risk-head"><i data-lucide="user-check"></i><h3>人工确认</h3><div class="risk-level">风险中 · 人批准后执行</div></div>
+        <div class="risk-body">
+          <p class="ex">如"确认是否执行这个脚本"--有一定风险，应当经人工确认。</p>
+          <p class="risk-now"><b>现状：确认环节名存实亡</b>框架预留了确认接口，但全系统没有任何一处真正实现"发出确认请求、等待人工批准"。Agent 发不出请求，人也收不到。</p>
+        </div>
+      </article>
+      <article class="risk-card">
+        <div class="risk-head"><i data-lucide="help-circle"></i><h3>人工补参</h3><div class="risk-level">信息缺口 · 人来补信息</div></div>
+        <div class="risk-body">
+          <p class="ex">如"需要操作哪个实例？"--Agent 不应该自行推断，应由人补充参数。</p>
+          <p class="risk-now"><b>现状：没有补参通道</b>参数只验"格式对不对"，不验"值哪来的"。SOP 写"重启对应实例"但没写实例名时，Agent 现在可以自行选择一个。</p>
+        </div>
+      </article>
+      <article class="risk-card">
+        <div class="risk-head"><i data-lucide="hand"></i><h3>人工接管</h3><div class="risk-level">风险高 · 移交人工执行</div></div>
+        <div class="risk-body">
+          <p class="ex">如 <code>service sshd restart</code>、生产配置修改、删除、回退--风险高，应移交人工。</p>
+          <p class="risk-now"><b>现状：没有"移交"状态</b>任务只有继续或终止两种，没有"带着上下文暂停、移交人类操作员"的交接机制。</p>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 需求逐条（索引页） ============ -->
+<section id="reqs" class="tint">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">03 · Requirements</div>
+      <div><h2>15 条需求逐条拆解：每条一页</h2><p class="section-desc">从这一页起，每条需求独占一屏：先讲系统现状（已有 / 断在），再讲从参考项目借鉴的具体模块与它在原项目里的真实机制，最后是落到 Homemaster 的接入方式。状态图例：<span class="chip todo">缺失</span> <span class="chip partial">部分具备</span> <span class="chip done">具备</span>；优先级 P0 = 必须先做，P1 = 其次。来源：<span class="src-chip agt">AGT</span> 微软治理工具箱 · <span class="src-chip yolo">YoloFS</span> 文件系统 · <span class="src-chip own">自建</span>。专业名词首次出现时以"注"标注。</p></div>
+    </div>
+    <div class="req-index">
+      <a class="ri-cell" href="#req01"><span class="ri-no">01</span><span><strong>任务边界控制</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req02"><span class="ri-no">02</span><span><strong>操作对象控制</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req03"><span class="ri-no">03</span><span><strong>参数可信控制</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req04"><span class="ri-no">04</span><span><strong>风险分级与人工介入</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req05"><span class="ri-no">05</span><span><strong>异常止损</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req06"><span class="ri-no">06</span><span><strong>执行结果验证</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req07"><span class="ri-no">07</span><span><strong>回退管理</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req08"><span class="ri-no">08</span><span><strong>全过程审计</strong><span>执行安全</span></span></a>
+      <a class="ri-cell" href="#req09"><span class="ri-no">09</span><span><strong>知识修改受控</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req10"><span class="ri-no">10</span><span><strong>Memory 修改受控</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req11"><span class="ri-no">11</span><span><strong>规则修改受控</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req12"><span class="ri-no">12</span><span><strong>Skill 演化受控</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req13"><span class="ri-no">13</span><span><strong>人工审核与发布</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req14"><span class="ri-no">14</span><span><strong>版本与回滚</strong><span>演化安全</span></span></a>
+      <a class="ri-cell" href="#req15"><span class="ri-no">15</span><span><strong>生效验证</strong><span>演化安全</span></span></a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 01 ============ -->
+<section id="req01" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>01</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>任务边界控制</h3><p class="need"><b>需求：</b>本次任务只允许执行变更单范围内的事项，越界动作在执行前被拦截。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>任务快照（TaskSnapshot）记录目标、子步骤与约束；变更单技能可将票据拆解为步骤和验收标准。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>约束字段对权限层不可见：权限判定只读取工具名、读写属性、能力集与路径规则，不接收任务上下文。约束仅作为提示注入模型，属于软约束，模型可以不遵守。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>Policy Engine 执行前拦截（govern / pre_tool）<span class="en">agent-mesh · governance</span></div>
+      <p class="rp-mech">在 AGT 中，所有工具调用都经过 <code>govern()</code> 包装器进入策略引擎，在 <b>pre_tool 阶段</b>（注：工具实际执行前的检查点）评估 PolicyRule 列表。每条 PolicyRule 是"条件表达式 → 决策"的形式：条件可引用任务上下文、目标资源与参数；决策为 allow / deny / require_approval / warn / log。多条规则结论冲突时按冲突策略合并，默认 deny_overrides（注：存在任一拒绝结论即整体拒绝）。策略表达式求值失败时按拒绝处理，即 fail-closed（故障关闭，宁可误拒不可误放行）。</p>
+      <div class="rp-chain">
+        <span class="rc-node">工具调用请求</span><span class="rc-node">pre_tool 阶段策略评估（可读取任务上下文）</span><span class="rc-node dec">allow / deny / require_approval</span><span class="rc-node deny">求值异常 → 按 deny 处理</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>为 Homemaster 权限判定增加"任务上下文"输入：运行开始时从变更单 + SOP + 当前步骤派生允许动作清单，作为硬约束参与每次工具调用的判定；判定逻辑异常时按拒绝处理。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 02 ============ -->
+<section id="req02" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>02</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>操作对象控制</h3><p class="need"><b>需求：</b>只能操作变更单中声明的机器和实例；目标不在范围内或存在歧义时，动作不得执行。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>设备租约（device lease，注：带世代校验的设备独占授权）限定只能操作本任务申领的设备；浏览器模式限定每个任务可访问的站点。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>命令执行与外部系统调用的目标参数完全由模型生成，权限判定不包含"目标是否在变更单声明范围内"这一维度；命令正确但目标实例选错时权限层无感知，同名实例等歧义场景也没有"无法确定即停止"的机制。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>策略条件引用目标（action.target）<span class="src-chip yolo">YoloFS</span>资源级规则（Progressive Permission）<span class="en">governance / permissions</span></div>
+      <p class="rp-mech">AGT 的策略条件可以直接引用本次动作的 target 与 arguments，因此"目标不在允许清单内"本身就可以写成一条规则。YoloFS 的做法更进一步：权限规则挂在<b>具体路径（资源）</b>上而非工具类别上，每个路径有独立状态（allow / write-ask / read-only / ask / deny，默认 ask）--"可以使用 shell"与"可以在某台生产机上使用 shell"是两条独立的规则。</p>
+      <div class="rp-chain">
+        <span class="rc-node">动作 + 操作目标</span><span class="rc-node">比对变更单资源清单</span><span class="rc-node dec">在清单内 → 继续后续判定</span><span class="rc-node deny">不在清单 / 存在多个候选 → 拒绝并转人工补参</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>把变更单声明的机器 / 实例清单注入权限判定材料；目标不在清单即拒绝；存在多个匹配候选时不自动选择，转入人工补参流程（见需求 03）。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 03 ============ -->
+<section id="req03" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>03</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>参数可信控制</h3><p class="need"><b>需求：</b>关键参数要么来自票据 / SOP，要么由人工补充；模型自行推断生成的参数不得直接用于执行。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p1">P1</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>每个工具的参数有格式校验（schema 校验，类型不符直接拒绝）；记忆写入有证据门。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>校验只覆盖格式、不覆盖来源：无法区分"SOP 写明的实例名"与"模型推断生成的实例名"；参数缺失时没有挂起等待人工补充的通道，Agent 会自行选择一个。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>ask 状态：挂起等待授权（timeout = deny）<span class="src-chip own">自建</span>参数来源标注<span class="en">permissions</span></div>
+      <p class="rp-mech">YoloFS 中路径处于 ask 状态时，访问线程挂起等待用户态授权服务应答，超时未应答按拒绝处理（timeout = deny）。这一"挂起 → 人工应答 → 超时拒绝"的交互模型，正是人工补参所需的运行时语义。在此基础上 Homemaster 自建参数来源标注：为关键参数（实例名、路径、数值）记录来源与可信级别。</p>
+      <div class="rp-chain">
+        <span class="rc-node">关键参数缺失 / 低可信</span><span class="rc-node dec">调用挂起，发出补参请求</span><span class="rc-node">人工补充 → 继续执行</span><span class="rc-node deny">超时未应答 → 拒绝执行</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>票据 / SOP 来源的参数视为可信，模型推断的为低可信；低可信或缺失时挂起转人工补参。<span class="note">（原需求表提到的 ArbiterOS 本机无代码，未核实，不纳入方案。）</span></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 04 ============ -->
+<section id="req04" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>04</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>风险分级与人工介入</h3><p class="need"><b>需求：</b>查询类自动执行、确认类经人工批准、缺信息由人工补充、高危动作移交人工执行--四档分开管理。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>按身份授予能力集（读设备 / 控设备 / 调外部系统 / 改配置互相独立）；计划模式仅允许只读动作；未经核实的"只读"声明一律从严处理。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>权限维度只有"只读 / 写"两档；执行器预留的确认接口（confirmation_handler）全系统无任何实现，人工确认与人工接管两条通道不存在，实际只剩"全自动执行"与"一律拒绝"两个极端。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>ActionClassifier 动作定级 + Approval 审批<span class="en">hypervisor/rings · approval</span></div>
+      <p class="rp-mech">AGT 的 ActionClassifier 是纯函数（注：无状态、不调用模型的确定性计算），仅依据动作属性定级：只读 → Ring 3；存在撤销接口（可逆）→ Ring 2；破坏性 → Ring 1；配置 / 管理类 → Ring 0（注：Ring 0–3 为 AGT 的执行环等级，0 最高权限）。策略判为 require_approval 时，系统生成 ApprovalRequest（动作 + 目标 + 参数 + 理由）交由 ApprovalHandler 处理，答复渠道可插拔（控制台 / 回调 / Webhook）。两条设计约束：审批与具体参数绑定，参数变更即审批失效；超时一律按拒绝处理，绝不超时自动放行。</p>
+      <div class="rp-chain">
+        <span class="rc-node">动作提交</span><span class="rc-node">ActionClassifier 按属性定级</span><span class="rc-node dec">只读 → 自动执行</span><span class="rc-node dec">可逆 → 发审批请求</span><span class="rc-node deny">破坏性 → 移交人工</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>定级器接在 Homemaster 权限门输出端，四档（自动 / 确认 / 补参 / 接管）映射不同处理；confirmation_handler 按 ApprovalHandler 接口实现，飞书消息审批作为一个回调实现。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 05 ============ -->
+<section id="req05" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>05</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>异常止损</h3><p class="need"><b>需求：</b>出现异常时自动停止并阻断后续执行，同时升级人工处理；系统不得自行恢复。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>连续工具调用失败达上限（5 次）自动停止；协议违规与观察失败各有计数上限；命令超时控制；急停后后续动作在执行前被拦截；被中断动作返回"结果未知"且禁止自动重试。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>异常停止后仅记录错误日志，不产生任何人工通知；守卫指标只有失败计数，缺少调用速率、越权尝试等行为维度指标，也没有"停止后升级人工处理"的路径。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>RingBreachDetector + Circuit Breaker（行为违规检测与熔断）<span class="en">hypervisor/rings</span></div>
+      <p class="rp-mech">AGT 的 agent-hypervisor 内置 RingBreachDetector（环违规检测器），在<b>滑动时间窗</b>（注：只统计最近 N 秒、不断向前滑动的观察窗口）内持续计算两类指标：①工具调用速率相对历史基线的倍数，倍率 2 / 5 / 10 / 20 倍分别对应 LOW / MEDIUM / HIGH / CRITICAL 四级；②越权尝试（privilege escalation）累计权重--Agent 尝试访问高于其执行环等级的资源时，等级差越大计分越高。任一指标达到 HIGH / CRITICAL 即触发 Circuit Breaker（熔断）：系统拒绝该 Agent 的全部后续工具调用；熔断状态不会自动恢复，必须由管理员显式重置。</p>
+      <div class="rp-chain">
+        <span class="rc-node">滑动窗口内统计：调用速率 + 越权计分</span><span class="rc-node">按基线倍率分级（LOW / MEDIUM / HIGH / CRITICAL）</span><span class="rc-node deny">HIGH / CRITICAL -> 触发熔断，拒绝一切调用</span><span class="rc-node dec">等待管理员显式重置</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>接入 Homemaster 运行时现有守卫处，把"仅失败计数"升级为"失败计数 + 速率异常 + 越权尝试"三指标；熔断与异常停止均通过通知通道（本地 / 飞书）升级人工处理，人工处置前不允许恢复执行。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 06 ============ -->
+<section id="req06" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>06</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>执行结果验证</h3><p class="need"><b>需求：</b>任何写操作完成后，必须经独立通道核实外部世界真实状态，才能判定任务完成。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip padv">已有优势</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>急停要求"控制回执 + 独立状态查询"双证据齐备才判定成功；浏览器每步写操作强制截图回传核对；Hawkeye（检查旁挂系统）提供证据核验。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>双证据机制只覆盖急停与浏览器两处；命令与外部系统调用以返回码判定完成，"服务是否启动、日志是否报错"的复核是模型可选项，不是制度。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip own">自建</span>双证据范式制度化（自家急停 / Hawkeye 范式推广）</div>
+      <p class="rp-mech">以急停双证据为模板：控制通道返回成功只是必要条件，必须由独立观测通道（状态查询 / 日志 / 监控）确认外部世界终态，两者一致才判定完成。这一判据在 Homemaster 内部已有三处实现（急停、浏览器截图、Hawkeye），做法是把它推广为所有写操作的统一完成标准，无需外部参考。</p>
+      <div class="rp-chain">
+        <span class="rc-node">写操作执行</span><span class="rc-node">控制通道返回码</span><span class="rc-node dec">独立状态查询（进程 / 日志 / 监控）</span><span class="rc-node dec">两证据一致 -> 判定完成</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>在任务完成判定处强制插入独立验证步骤，复核结果与预期一致才允许标记任务成功；Hawkeye 作为核验执行器接入。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 07 ============ -->
+<section id="req07" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>07</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>回退管理</h3><p class="need"><b>需求：</b>高风险操作前保存现场快照并预声明回退方案；出问题时能恢复到操作前状态。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>无。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>操作前无现场保存；高风险动作放行前不检查回退方案是否就绪；执行人要求回退时，Agent 提供不了操作前状态与回退参数。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>Snapshot 快照<span class="src-chip agt">AGT</span>SagaOrchestrator 分步补偿<span class="en">snapshot · saga</span></div>
+      <p class="rp-mech">YoloFS 在每条命令执行完成后自动创建快照，快照构成可回溯的时间线，支持恢复至任意一代。AGT 的 SagaOrchestrator（注：Saga 是分布式系统里"长事务拆成带补偿的短步骤"的模式）要求多步操作的每一步在启动前声明补偿动作；任一步失败时，对已完成的步骤按逆序执行补偿；补偿失败的步骤如实列入失败清单上报，不伪装成"已完全回滚"。</p>
+      <div class="rp-chain">
+        <span class="rc-node">操作前自动创建快照</span><span class="rc-node">多步执行，每步预声明补偿动作</span><span class="rc-node dec">失败 -> 逆序执行补偿</span><span class="rc-node deny">补偿失败 -> 如实上报失败清单</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>权限门放行高风险动作前检查两个前置条件：现场快照已创建、每步补偿动作已声明；回退执行按 Saga 逆序补偿。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 08 ============ -->
+<section id="req08" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>08</b><span>/ 15 · 执行安全</span></div>
+      <div class="rp-title"><h3>全过程审计</h3><p class="need"><b>需求：</b>每一步都记录"做了什么、依据什么、经谁授权"，事后可还原完整决策链，且记录不可篡改。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>每次运行有完整 JSONL 事件流水；设备、急停、外部调用有独立审计链；会话结束有归档工序。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>记录了"做了什么"，缺少"依据与授权"字段：决策依据（哪张变更单哪一步）、参数来源、审批人不是独立字段；记录之间没有以变更单为键的关联索引。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>MerkleAuditChain 防篡改审计链<span class="en">audit</span></div>
+      <p class="rp-mech">AGT 的审计链是 append-only（仅追加、不可修改）+ 哈希链结构：每条记录包含上一条记录的哈希（注：哈希是数据的数字指纹，内容任何一点改动都会使指纹变化），事后篡改任意一条，其后所有指纹校验都会失败。每条决策记录固定携带三个字段：<code>arguments_hash</code>（参数指纹）、<code>approver_did</code>（审批人标识）、<code>policy_version</code>（当时生效的策略版本），使"批的就是这组参数、批的人是谁、按哪版规则"事后均可核对。</p>
+      <div class="rp-chain">
+        <span class="rc-node">决策发生</span><span class="rc-node dec">追加记录：参数指纹 + 审批人 + 策略版本</span><span class="rc-node">记录含上一条哈希，首尾成链</span><span class="rc-node deny">篡改任意一条 -> 后续校验失败</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>在现有 JSONL 流水中增加参数指纹、审批人、策略版本、变更单键四个字段，并按变更单 ID 建立跨记录索引；归档工序增加链式校验。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 演化安全 · 总览 ============ -->
+<section id="evolution" class="dark">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">04 · Evolution Safety</div>
+      <div><h2>演化安全（需求 9–15）：以后不能越学越错</h2><p class="section-desc">Homemaster 的学习通道是自动的：会话结束总结经验、定期记忆整理（系统内称 dreaming）、可创建技能候选。但"审核后再生效"的流水线，六段里只有第一段存在。YoloFS 的 Staging-Commit 范式恰好补的是后面五段。</p></div>
+    </div>
+    <div class="pipe-chain">
+      <article class="pipe-node"><div class="pipe-state ok"><i data-lucide="check"></i>已有</div><h3>生成</h3><p>自动沉淀经验、定期整理记忆、创建技能候选，生成侧通道齐全。</p></article>
+      <article class="pipe-node miss-node"><div class="pipe-state miss"><i data-lucide="x"></i>缺失</div><h3>候选区</h3><p>新知识应先进隔离区验证；现在是写入直接进正式库。</p></article>
+      <article class="pipe-node miss-node"><div class="pipe-state miss"><i data-lucide="x"></i>缺失</div><h3>验证</h3><p>应有测试集 / 真实轨迹回放、新旧对比；现在没有任何验证环节。</p></article>
+      <article class="pipe-node miss-node"><div class="pipe-state miss"><i data-lucide="x"></i>缺失</div><h3>审批</h3><p>生成权和发布权应分离；现在谁生成谁生效。</p></article>
+      <article class="pipe-node miss-node"><div class="pipe-state miss"><i data-lucide="x"></i>缺失</div><h3>发布与版本</h3><p>应有版本、差异、回滚；现在新版替换就是覆写文件。</p></article>
+      <article class="pipe-node miss-node"><div class="pipe-state miss"><i data-lucide="x"></i>缺失</div><h3>生效确认</h3><p>应确认 Agent 实际加载了新版；现在"后台换新、前台用旧"无法被发现。</p></article>
+    </div>
+    <div class="pipe-caption">
+      <div class="caption-block"><strong>唯一正样本：插件机制</strong><span>外来插件必须经部署者预先批准、锁定指纹、核对版本、权限取交集--这正是"生成权与发布权分离"的完整实现，但只对插件生效，没有推广到知识、记忆和技能。</span></div>
+      <div class="caption-block"><strong>最大的缺口：直接改文件</strong><span>技能文件和人格 / 偏好文件就是普通文件，禁改清单只覆盖了凭据类路径。模型一旦有写文件权限，可以直接修改自己的正式知识和技能，绕过记忆系统里的证据门。YoloFS 的暂存区机制正对此。</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 09 ============ -->
+<section id="req09" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>09</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>知识修改受控</h3><p class="need"><b>需求：</b>新知识先进候选区验证，经人工审核后才生效；正式知识库对 Agent 只读。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>记忆有类型体系（事实 / 经验 / 技能候选 / 文件知识）；写入正式库前有证据门。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>写入直接进入正式检索库，没有候选隔离区；更大的缺口是技能与知识文件是普通文件，模型具备写权限时可直接修改正式内容，绕过证据门。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>Staging-Commit（先暂存、审核后提交）<span class="en">staging</span></div>
+      <p class="rp-mech">YoloFS 将 Agent 的全部写操作重定向到 <code>.yolofs/inodes</code> 暂存区并记入仅追加日志，正式内容在 commit 之前不变更；人工通过 review 查看变更清单与逐行差异后，执行 commit 使变更生效，或执行 abort 丢弃全部暂存（abort 为 O(1) 操作，即时完成）。整个机制由文件系统层强制，Agent 无法绕过。</p>
+      <div class="rp-chain">
+        <span class="rc-node">Agent 发起写入</span><span class="rc-node dec">重定向至暂存区，正式内容不变</span><span class="rc-node">人工 review 变更清单与差异</span><span class="rc-node dec">commit 生效</span><span class="rc-node deny">abort 丢弃</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>知识库写入路径改为"暂存 -> 人工审核 -> 提交"；正式知识库对 Agent 设为只读，禁改清单覆盖知识文件。一个机制同时补上"没有候选区"和"直接改文件"两个缺口。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 10 ============ -->
+<section id="req10" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>10</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>Memory 修改受控</h3><p class="need"><b>需求：</b>记忆的修改与删除须标注来源和可信级别；自动整理通道的产出同样须经人工审核后入库。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p1">P1</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>新增记忆有证据门；单条记忆有版本链（当前版 / 归档版可查）；纠错仅限本轮真实读取过的记忆；有敏感内容过滤。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>修改与删除不强制标注来源与可信级别；会话结束自动反馈与定期记忆整理两条自动通道的产出直接落库、无人工审核--一次推断可能固化为长期事实。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>Staging（自动产出进暂存）<span class="src-chip own">自建</span>来源与可信级别标注<span class="en">staging</span></div>
+      <p class="rp-mech">与需求 09 同一套 Staging-Commit 机制，应用对象换成自动生成的记忆：自动通道的产出同样先入暂存区，经人工审核后提交入库。同时自建来源元数据：每条记忆标注"来源 + 事实 / 推测"（票据 / SOP 检索所得 = 事实，模型推断 = 推测），推测类记忆不得作为事实长期保留。</p>
+      <div class="rp-chain">
+        <span class="rc-node">自动总结 / 定期整理产出</span><span class="rc-node dec">写入暂存区（不直接落库）</span><span class="rc-node">人工审核</span><span class="rc-node dec">提交入库，标注来源与可信级别</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>记忆写入管道在证据门之后增加暂存与审核环节；两条自动通道不再直接写正式库。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 11 ============ -->
+<section id="req11" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>11</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>规则修改受控</h3><p class="need"><b>需求：</b>约束 Agent 行为的一切规则--权限配置、技能正文、人格设定--Agent 均无权修改。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>权限规则存放于受保护配置（仅管理员可读、不入版本库），修改需独立能力，配置路径在禁改清单；提示词、技能、附件无扩权能力。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>约束 Agent 行为的不只有配置文件--技能正文与 SOUL / USER 人格文件同样是事实上的行为规则，而它们可被模型直接写改：约束本身可以从旁边被解除。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>策略即数据（Policy as Data）<span class="src-chip yolo">YoloFS</span>Staging<span class="en">policy</span></div>
+      <p class="rp-mech">AGT 中策略是带版本号的数据文件，策略变更与代码变更同等对待、走发布流程，Agent 无权修改生效中的策略。YoloFS 则在文件系统层保证正式内容的提交权仅属于人。两者结合：规则文件的修改统一走"候选 -> 审核 -> 发布"，Agent 至多起草候选规则。</p>
+      <div class="rp-chain">
+        <span class="rc-node">规则需要修改</span><span class="rc-node dec">Agent 仅可起草候选规则</span><span class="rc-node">人工审核差异</span><span class="rc-node dec">发布新版本，生效规则对 Agent 只读</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>把技能正文、SOUL / USER 人格文件、权限配置全部纳入"事实规则"清单，统一走候选发布流程，并加入文件禁改清单。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 12 ============ -->
+<section id="req12" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>12</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>Skill 演化受控</h3><p class="need"><b>需求：</b>新技能先经评测证明优于旧版，再经人工批准后才替换正式技能；旧版保留可回退。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>具备技能创建能力；记忆类型中有"技能候选"；技能加载有来源优先级。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>技能候选没有任何机制转化为可用技能；技能定义（SkillDefinition）没有版本字段，技能更新即覆写文件，无从对比新旧效果。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>Staging + Snapshot Timeline（候选-评测-提交完整链条）<span class="en">staging · timeline</span></div>
+      <p class="rp-mech">候选技能写入独立候选目录（对应暂存区）；以同一批历史任务分别运行新旧版本并对比结果（对应 YoloFS 的快照间 diff，注：YoloFS 支持查看任意两个快照之间的差异）；人工审核通过后才替换正式技能（对应 commit），替换前旧版本始终可用，且每次替换自动形成新的快照点，可随时回退。</p>
+      <div class="rp-chain">
+        <span class="rc-node">新技能写入候选目录</span><span class="rc-node dec">历史任务集上新旧对比评测</span><span class="rc-node">人工审核</span><span class="rc-node dec">替换生效，旧版本保留可回退</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>为 SkillDefinition 增加版本字段；建立候选目录与评测流程，技能替换统一走发布通道（见需求 13）。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 13 ============ -->
+<section id="req13" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>13</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>人工审核与发布</h3><p class="need"><b>需求：</b>生成的主体（Agent）与发布的主体（人）必须分离；任何资产的生效须人工批准。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>插件机制完整实现"部署者预先批准 + 指纹锁定 + 版本核对 + 权限取交集"的发布管控。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>该管控仅覆盖插件；技能、记忆、知识没有任何审批发布环节，用户技能目录写入即生效。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>提交权分离（commit 仅限人工）<span class="en">staging</span></div>
+      <p class="rp-mech">YoloFS 的设计中，Agent 对文件可读、可回溯历史，但 commit（提交）动作只能由人在用户态显式执行，文件系统层不提供任何 Agent 提交路径--生成权与发布权在系统层即被分离，不依赖 Agent 自觉。</p>
+      <div class="rp-chain">
+        <span class="rc-node">Agent 生成候选内容</span><span class="rc-node">人工 review 差异</span><span class="rc-node dec">人工执行 commit，变更生效</span><span class="rc-node deny">Agent 无提交路径（系统层强制）</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>把插件机制已有的"批准 + 指纹 + 版本"验核推广到技能、记忆、知识全部资产；提交动作仅保留在人工接口。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 14 ============ -->
+<section id="req14" class="reqpage alt">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>14</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>版本与回滚</h3><p class="need"><b>需求：</b>每次变更有版本号、可查差异、可整体回滚到上一个稳定版本。</p></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p1">P1</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>单条记忆有版本链；插件有版本锁定。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>技能无版本、无差异记录；记忆只有逐条历史，缺少"整体恢复到上一个稳定集合"的能力--自动整理批量产出问题记忆时，逐条回滚不可行。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>Snapshot / Timeline / Travel（快照时间线）<span class="en">snapshot · timeline</span></div>
+      <p class="rp-mech">YoloFS 的快照构成有向无环图（DAG）时间线：支持 travel（恢复）至任意一代、查看任意两代之间的差异、以及单文件的完整变更历史。每次发布即一个快照点，回滚是"整体恢复至某一代"，而不是逐条撤销。</p>
+      <div class="rp-chain">
+        <span class="rc-node">每次发布自动创建快照</span><span class="rc-node">快照构成时间线</span><span class="rc-node dec">异常时 travel 回上一稳定代</span><span class="rc-node">任意两代间可查差异</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>知识与技能库以"发布代"为版本单位建快照；记忆库增加"稳定集合点"标记，自动整理执行前必须先创建快照点。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 需求 15 ============ -->
+<section id="req15" class="reqpage">
+  <div class="rp-inner">
+    <div class="rp-head">
+      <div class="rp-no">需求<b>15</b><span>/ 15 · 演化安全</span></div>
+      <div class="rp-title"><h3>生效验证</h3><p class="need"><b>需求：</b>发布后确认运行中的 Agent 实际加载了新版本；版本不一致时告警并阻断。</p></div>
+      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0 · 需自建</span></div>
+    </div>
+    <div class="rp-now">
+      <div class="rp-row have"><b>已有</b><p>体检命令可静态列出本次将加载的技能与模型。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>只有发布前检查，没有发布后闭环--"后台已更新、运行中 Agent 仍使用旧版本"无法被发现。</p></div>
+    </div>
+    <div class="rp-borrow">
+      <div class="rp-borrow-title"><span class="src-chip own">自建</span>发布后版本核对闭环<span class="src-chip agt">AGT</span>policy_version 字段作积木<span class="en">audit</span></div>
+      <p class="rp-mech">AGT 每条决策审计记录携带 <code>policy_version</code>（当时生效的策略版本），使"任意时刻实际生效的版本"可追溯、可核对。两个开源项目都没有完整的发布后确认机制，这部分需自建：以上报与比对构建闭环--运行中的 Agent 定期上报实际加载的技能 / 规则版本，与发布记录自动比对，不一致即告警并视为发布未完成。</p>
+      <div class="rp-chain">
+        <span class="rc-node">发布完成，记录目标版本</span><span class="rc-node dec">运行中 Agent 上报实际加载版本</span><span class="rc-node">自动比对</span><span class="rc-node deny">不一致 -> 告警并阻断</span>
+      </div>
+      <div class="rp-land"><b>落地</b><p>为技能与规则增加运行时版本上报接口，纳入审计流水；比对失败视为发布未完成，阻断相关能力使用。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 参考项目 ============ -->
+<section id="reference" class="white">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">05 · Reference</div>
+      <div><h2>两个开源项目：能借什么、怎么借</h2><p class="section-desc">前面 15 页里反复出现的模块，在这里集中说明。先讲清两个项目是什么、跟我们的关系，再逐个讲模块--每个模块按"是什么 / 怎么运作 / 借来做什么"三行。</p></div>
+    </div>
+
+    <div class="ref-intro-grid">
+      <article class="ref-intro">
+        <div class="ref-name"><h3>AGT 治理工具箱</h3><span>微软开源 · Python 库</span></div>
+        <div class="ref-line"><b>是什么</b><p>一套给 AI Agent 加装"策略管控与决策审计"的工具箱：任何工具调用先经过配置好的规则，被拒的动作在代码层就无法发出。</p></div>
+        <div class="ref-line"><b>核心思路</b><p>不依赖模型自觉（提示词不是控制手段），在确定性代码中拦截--"被拒绝"不是"大概率不执行"，是"结构上无法执行"。</p></div>
+        <div class="ref-line"><b>怎么借</b><p>它和 Homemaster 已有的权限门是<b>同一层组件</b>，直接叠加安装会导致两道判定互相冲突。所以借的是设计（拦截 / 审批 / 熔断 / 审计字段），实现进我们自己的权限门。</p></div>
+      </article>
+      <article class="ref-intro yolo">
+        <div class="ref-name"><h3>YoloFS 文件系统</h3><span>开源 · Linux 文件系统 + 命令行</span></div>
+        <div class="ref-line"><b>是什么</b><p>一个专门管控 AI Agent 文件写入的文件系统：Agent 的一切写操作先落在暂存区，正式文件在人工审核之前不变更。</p></div>
+        <div class="ref-line"><b>核心思路</b><p>把"信息"（它到底改了什么）和"控制"（改不改得成）从 Agent 手里移到系统层，不依赖 Agent 自觉。</p></div>
+        <div class="ref-line"><b>怎么借</b><p>它只管本机文件、不管远程服务，且是内核模块（生产环境适用性需另行评估）。所以借的是<b>机制范式</b>（暂存 / 快照 / 先问后写），落在我们自己的技能 / 知识 / 配置管理层。</p></div>
+      </article>
+    </div>
+
+    <div class="module-grid">
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="shield"></i><div><h3>执行前拦截</h3><span class="src">AGT · Governance Gate / Policy Engine</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>所有工具调用先经过配置好的规则，再决定放行 / 拒绝 / 转人工审批。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>规则是"条件 -> 决策"：条件可引用"这次是什么任务、操作什么对象、带什么参数"，如"目标环境是生产且动作是删除 -> 拒绝"。一条纪律：规则求值失败按拒绝处理--宁可误拒，不可误放。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 01 / 02 的载体：把变更单、SOP 步骤、对象清单放进规则判断材料，"越界"从提示语变成硬约束。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="user-check"></i><div><h3>审批通道</h3><span class="src">AGT · Approval</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>规则判"此事需人工批准"时，系统生成审批请求（动作 + 目标 + 参数 + 理由），发送给人，等待答复。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>两条约束：①审批绑定具体参数，参数变更即审批失效、须重新申请；②超时未答复一律按拒绝处理，绝不超时自动放行。答复渠道可插拔：控制台、外部回调均可（接飞书消息就是实现一个回调）。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 04 / 05 的人工确认 + 人工补参：Homemaster 权限门预留了确认接口但没有实现，这套接口设计直接采用。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="layers"></i><div><h3>动作定级器</h3><span class="src">AGT · ActionClassifier</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>给每个动作自动评定风险等级的纯规则计算器。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>只看动作自身属性：是否只读？是否有撤销接口（可逆）？是否破坏性？是否配置 / 管理类？--输出"风险档 + 可逆性"。纯函数计算，不经过模型，不靠模型自评。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 04 的判定内核：查询 / 修改 / 重启 / 删除四档分级由它算出，每档接一种处理（自动 / 确认 / 补参 / 接管）。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="zap-off"></i><div><h3>熔断器</h3><span class="src">AGT · Breach Detector / Circuit Breaker</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>行为违规检测与熔断：检测到高危异常后，拒绝该 Agent 的全部后续调用。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>在滑动时间窗内监测两类指标：调用速率相对基线的倍数（2/5/10/20 倍对应四级告警）；越权尝试累计权重，执行环等级差越大计分越高。达到 HIGH / CRITICAL 即触发熔断，且<b>必须由管理员显式重置</b>，系统不自动恢复。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 05 止损：Homemaster 已有"连续失败 N 次即停"，缺的正是行为维度指标（速率 / 越权）和"熔断后须人工重置"。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="undo-2"></i><div><h3>分步补偿</h3><span class="src">AGT · Saga</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>多步操作的回滚机制：每一步预先声明自己的补偿（撤销）动作。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>步骤按顺序执行；任一步失败时，已完成的步骤按逆序执行各自补偿动作；补偿失败的步骤如实列入失败清单上报，不包装成"已全部回滚"。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 07 的多步回退：变更操作常是多步串行，每步带补偿声明，失败自动逆序回滚。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card">
+        <div class="module-head"><i data-lucide="fingerprint"></i><div><h3>防篡改审计</h3><span class="src">AGT · MerkleAuditChain</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>仅可追加、不可篡改的决策记录链。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>每条记录包含上一条记录的哈希，首尾相连--事后修改任何一条，其后所有指纹校验都会失败。记录内容包含：参数指纹、审批人、当时生效的策略版本。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 08 的审计字段与防篡改设计；"策略版本"字段同时是需求 15 的积木。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card yolo">
+        <div class="module-head"><i data-lucide="archive"></i><div><h3>暂存区</h3><span class="src">YoloFS · Staging</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>Agent 全部写操作的缓冲机制：先写入隔离暂存区，正式内容不变更。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>写操作全部重定向到隐藏的暂存目录并记入仅追加日志；人工用 review 查看变更清单和逐行差异，执行 commit 才真正生效，执行 abort 一键全部丢弃。全程文件系统层强制，Agent 无法绕过。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 07 / 09 / 12 / 13 的候选区：技能、知识、记忆、配置的修改一律"暂存 -> 人工审核 -> 提交"，正式库对 Agent 只读。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card yolo">
+        <div class="module-head"><i data-lucide="history"></i><div><h3>快照时间线</h3><span class="src">YoloFS · Snapshot / Timeline / Travel</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>"检查点"体系：每条命令执行完自动创建快照，可随时恢复至任意一代。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>快照构成有向无环图时间线；支持恢复（travel）至任意一代、查看任意两代之间的差异、查询单个文件的完整变更历史。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 07 的"操作前保存现场" + 需求 14 的版本回滚：每次发布即一个快照点，新版异常时回退到上一快照。</p></div>
+        </div>
+      </article>
+
+      <article class="module-card yolo">
+        <div class="module-head"><i data-lucide="lock"></i><div><h3>渐进权限</h3><span class="src">YoloFS · Progressive Permission</span></div></div>
+        <div class="module-body">
+          <div class="mod-row what"><b>是什么</b><p>文件路径的五档规则：allow / write-ask / read-only / ask / deny，默认 ask（访问前询问）。</p></div>
+          <div class="mod-row how"><b>怎么运作</b><p>遇到"询问"类操作，访问线程挂起等待用户态授权服务应答，超时未应答按拒绝处理。规则无需预先配全：Agent 实际触碰到什么敏感路径，就补充一条对应规则--权限随使用逐步完善，而非一次性配置。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 04 在文件维度的落地：Homemaster 的文件权限从"允许 / 拒绝"二值扩展为五档，write-ask 直接对应人工确认档。</p></div>
+        </div>
+      </article>
+    </div>
+
+    <div class="principle-box">
+      <i data-lucide="alert-triangle"></i>
+      <div><strong>两个项目共同的底层纪律：出现任何意外，一律拒绝（fail-closed，故障关闭）</strong><span>规则求值失败 = 拒绝；审批超时 = 拒绝；无应答 = 拒绝；熔断后必须人工重置。宁可误拒、不可误放。建议把这条定为 Homemaster 权限层的第一设计原则，其重要性高于任何单个模块的引入。</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 横切断点 ============ -->
+<section id="gaps" class="dark">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">06 · Root Blockers</div>
+      <div><h2>三个横切断点，堵住 15 条里的大半</h2><p class="section-desc">15 条阻断点不是 15 个独立问题。向上游看，是三个架构级缺口；它们不补，逐条打补丁会被反复绕过。每个断点都标注了对应的参考模块。</p></div>
+    </div>
+    <div class="gap-list">
+      <div class="gap-stage">
+        <div class="gap-head"><div class="gap-no">01</div><h3>没有人工确认通道</h3><div class="gap-cover">卡住需求 03 · 04</div></div>
+        <div class="gap-body">
+          <div class="gap-field"><span>现状</span><p>框架预留了确认接口，但全系统没有任何一处真正实现"发出确认请求、等待人工批准"；本地和远程渠道（飞书）都没有。</p></div>
+          <div class="gap-field"><span>后果</span><p>四级管控里的中间两档（人工确认、人工补参）无处落地。系统只剩两个极端：全自动，或一律拒绝--前者不敢启用，后者等于不可用。</p></div>
+          <div class="gap-field"><span>补法</span><p>先做本地交互确认，再做远程（飞书消息审批）；审批绑定具体参数，超时即拒；确认记录落审计。</p></div>
+          <div class="gap-field"><span>参考</span><p class="refnote"><b>AGT Approval</b>：审批请求（动作 + 目标 + 参数 + 理由）、参数变更即失效重新申请、超时 = 拒绝、答复渠道可插拔。</p></div>
+        </div>
+      </div>
+      <div class="gap-stage">
+        <div class="gap-head"><div class="gap-no">02</div><h3>权限门只认身份、不认任务</h3><div class="gap-cover">卡住需求 01 · 02 · 03</div></div>
+        <div class="gap-body">
+          <div class="gap-field"><span>现状</span><p>权限按身份预先配置，与"本次任务是什么"完全无关；任务快照上的约束只是给模型看的提示，权限判定不读取。</p></div>
+          <div class="gap-field"><span>后果</span><p>任务边界、操作对象、参数来源三条需求都没有载体：变更单声明的机器范围进不了权限判断，"本步骤允许哪些动作"无法变成硬约束。</p></div>
+          <div class="gap-field"><span>补法</span><p>给权限判定增加任务级输入：运行开始时，从变更单 + SOP + 当前步骤派生"允许 / 禁止动作清单"，运行中逐条比对。</p></div>
+          <div class="gap-field"><span>参考</span><p class="refnote"><b>AGT Policy Engine</b>：规则条件可引用任务、目标、参数，"越界即拒"是一条配置而非一段提示词；规则求值失败也按拒绝处理。</p></div>
+        </div>
+      </div>
+      <div class="gap-stage">
+        <div class="gap-head"><div class="gap-no">03</div><h3>学习只生成、无发布管控</h3><div class="gap-cover">卡住需求 09 · 12 · 13 · 14 · 15</div></div>
+        <div class="gap-body">
+          <div class="gap-field"><span>现状</span><p>生成侧通道齐全（自动沉淀、定期整理、技能候选），候选区、验证、审批、版本、生效确认五段全缺；且技能文件是普通文件，模型可直接修改。</p></div>
+          <div class="gap-field"><span>后果</span><p>Agent 学到的任何内容--包括一次误判--都可以直接改变自己后续的行为，没有拦截，也无法回退。</p></div>
+          <div class="gap-field"><span>补法</span><p>采用插件机制的五段结构：候选区 -> 验证 -> 审批 -> 带版本发布 -> 生效确认；同时把技能 / 人格 / 记忆文件列入禁改清单。</p></div>
+          <div class="gap-field"><span>参考</span><p class="refnote"><b>YoloFS Staging + Timeline</b>：暂存 -> 人工审核 -> 提交 / 丢弃的完整范式，提交权仅属于人；每次提交是一个快照点，可回退、可比对。</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 建设路线 ============ -->
+<section id="roadmap" class="white">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">07 · Roadmap</div>
+      <div><h2>建设路线：三步走</h2><p class="section-desc">排序原则：先打通"人"和"任务"进入权限体系的通道（否则一切分级管控无处落地），再推广已有的成熟范式，最后一次性建成演化安全流水线。每项都标注了参考来源。</p></div>
+    </div>
+    <div class="road-grid">
+      <article class="road-card t1">
+        <div class="road-head"><div class="road-priority">第一优先</div><h3>把「人」和「任务」接进权限体系</h3><p>现在权限只认身份，既不认任务，也没有人工介入的通道。</p></div>
+        <div class="road-body">
+          <div class="road-item"><strong>1 · 实现人工确认通道</strong><p>先本地、后远程；确认记录落审计。</p><p class="ref"><b>参考</b>：AGT Approval（超时即拒、绑定参数、飞书可接）</p><span class="cover">解决需求 03 · 04</span></div>
+          <div class="road-item"><strong>2 · 任务级动作清单进权限门</strong><p>从变更单 + SOP + 当前步骤派生允许 / 禁止清单，作为硬约束。</p><p class="ref"><b>参考</b>：AGT Policy Engine（规则引用任务上下文）</p><span class="cover">解决需求 01 · 02</span></div>
+          <div class="road-item"><strong>3 · 技能、人格、记忆文件列入禁改清单</strong><p>一行配置，堵住"模型修改自身规则"最大的缺口。</p><p class="ref"><b>参考</b>：YoloFS 默认 ask 状态</p><span class="cover">解决需求 09 · 11</span></div>
+        </div>
+      </article>
+      <article class="road-card t2">
+        <div class="road-head"><div class="road-priority">第二优先</div><h3>把已有的成熟范式推广成制度</h3><p>范式在代码里已存在，是复制推广而非新开发。</p></div>
+        <div class="road-body">
+          <div class="road-item"><strong>4 · 写操作后强制独立验证</strong><p>执行后必须独立核实服务状态、日志，才能标记成功。</p><p class="ref"><b>参考</b>：自家急停双证据 + Hawkeye 证据核验</p><span class="cover">解决需求 06</span></div>
+          <div class="road-item"><strong>5 · 异常停止时升级人工处理</strong><p>补上止损的"升级人工"环节：带上下文的通知与交接。</p><p class="ref"><b>参考</b>：AGT Circuit Breaker（熔断后须人工重置）</p><span class="cover">解决需求 05</span></div>
+          <div class="road-item"><strong>6 · 审计补充三个字段</strong><p>决策依据（哪张变更单哪一步）、参数来源、审批人。</p><p class="ref"><b>参考</b>：AGT 审计字段（参数指纹 / 审批人 / 策略版本）</p><span class="cover">解决需求 08</span></div>
+        </div>
+      </article>
+      <article class="road-card t3">
+        <div class="road-head"><div class="road-priority">第三优先</div><h3>演化安全流水线一次成型</h3><p>五段结构按成熟范式建设。</p></div>
+        <div class="road-body">
+          <div class="road-item"><strong>7 · 候选区 + 审批发布 + 版本回滚 + 生效确认</strong><p>知识、技能、记忆统一走：生成 -> 候选 -> 验证 -> 审批 -> 发布 -> 生效确认。</p><p class="ref"><b>参考</b>：YoloFS Staging + Timeline + 提交权分离</p><span class="cover">解决需求 09 · 12 · 13 · 14 · 15</span></div>
+          <div class="road-item"><strong>8 · 回退声明与放行前检查</strong><p>高风险动作放行前必须声明回退方案；回退执行器待真实环境接入。</p><p class="ref"><b>参考</b>：YoloFS Snapshot + AGT Saga</p><span class="cover">解决需求 07 · 10</span></div>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 结论 ============ -->
+<section id="outcome" class="tint">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">08 · Outcome</div>
+      <div><h2>架构基础是健康的，缺口是明确的，参考是现成的</h2><p class="section-desc">这次分析没有推翻任何现有设计--多数需求的"标准答案"已经存在于系统的某个环节或两个开源项目中，问题在于把它们接入 Homemaster 的权限门并推广成制度。</p></div>
+    </div>
+    <div class="close-grid">
+      <div class="close-col"><h3>已经就位 / 有现成参考</h3><ul>
+        <li><i data-lucide="check"></i><span>所有工具调用经过同一道权限门，按身份授予能力集</span></li>
+        <li><i data-lucide="check"></i><span>设备租约 + 急停"双证据"，是结果验证的成熟范式</span></li>
+        <li><i data-lucide="check"></i><span>连续失败自动停止、命令超时、被中断动作禁止自动重试</span></li>
+        <li><i data-lucide="check"></i><span>Hawkeye 证据核验是自家优势，需求 06 无需外部参考</span></li>
+        <li><i data-lucide="check"></i><span>拦截 / 审批 / 熔断 / 审计：AGT 四件套有经源码核实的设计可采用</span></li>
+        <li><i data-lucide="check"></i><span>暂存 / 快照 / 先问后写：YoloFS 三项范式可平移到知识资产层</span></li>
+      </ul></div>
+      <div class="close-col gap"><h3>缺口在哪</h3><ul>
+        <li><i data-lucide="arrow-right"></i><span>权限判定中没有任务、没有人工：不识别变更单范围，也没有确认 / 补参 / 接管通道</span></li>
+        <li><i data-lucide="arrow-right"></i><span>风险不分级：<code class="mono">ps -ef</code> 和 <code class="mono">service restart</code> 同档</span></li>
+        <li><i data-lucide="arrow-right"></i><span>异常停止后不升级人工处理；高风险动作执行前不检查回退方案</span></li>
+        <li><i data-lucide="arrow-right"></i><span>学习只生成、无发布管控，且技能 / 知识文件可被模型直接修改</span></li>
+        <li><i data-lucide="arrow-right"></i><span>审计记录了"做了什么"，拼不出"依据什么、经谁授权"</span></li>
+        <li><i data-lucide="arrow-right"></i><span>需求 15（生效验证）两个项目都不够，必须自建</span></li>
+      </ul></div>
+    </div>
+    <div class="final-statement"><span>结论</span><p>15 条需求，0 条完全达标、6 条部分具备。补齐路径明确：给现有权限门增加"任务"和"人工"两个输入，把急停双证据、插件审批这两个自家范式，连同 AGT 审批、YoloFS 暂存这些现成设计，统一推广成制度。</p></div>
+  </div>
+</section>
+
+</main>
+
+<footer><div class="wrap"><span>Homemaster · 云运维 Agent 安全需求阻断点分析 · 2026-08-19</span><span class="mono">参考：microsoft/agent-governance-toolkit · YoloFS/YoloFS</span></div></footer>
+<button class="to-top" id="toTop" aria-label="返回顶部"><i data-lucide="arrow-up"></i></button>
+
+<nav class="dotnav" id="dotnav" aria-label="需求页导航">
+  <a href="#req01">01</a><a href="#req02">02</a><a href="#req03">03</a><a href="#req04">04</a><a href="#req05">05</a><a href="#req06">06</a><a href="#req07">07</a><a href="#req08">08</a><a href="#req09">09</a><a href="#req10">10</a><a href="#req11">11</a><a href="#req12">12</a><a href="#req13">13</a><a href="#req14">14</a><a href="#req15">15</a>
+</nav>
+
+<script>
+  if (window.lucide) lucide.createIcons();
+
+  const navToggle = document.getElementById('navToggle');
+  const navLinks = document.getElementById('navLinks');
+  navToggle.addEventListener('click', () => navLinks.classList.toggle('open'));
+  navLinks.querySelectorAll('a').forEach(link => link.addEventListener('click', () => navLinks.classList.remove('open')));
+
+  const navItems = Array.from(navLinks.querySelectorAll('a'));
+  const navSections = Array.from(document.querySelectorAll('main section')).filter(s => navItems.some(a => a.getAttribute('href') === `#${s.id}`));
+  const sectionObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      navItems.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${entry.target.id}`));
+    });
+  }, { rootMargin: '-35% 0px -58% 0px' });
+  navSections.forEach(section => sectionObserver.observe(section));
+
+  const dots = Array.from(document.querySelectorAll('#dotnav a'));
+  const dotObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      dots.forEach(d => d.classList.toggle('on', d.getAttribute('href') === `#${entry.target.id}`));
+    });
+  }, { rootMargin: '-40% 0px -55% 0px' });
+  document.querySelectorAll('.reqpage').forEach(p => dotObserver.observe(p));
+
+  const toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 700));
+  toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+</script>
+</body>
+</html>

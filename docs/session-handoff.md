@@ -2,6 +2,11 @@
 
 ## Current State
 
+On 2026-08-19, the `hkust4` deployment checkout at
+`/home/haodong2/weilin/red_bird/Homemaster` was aligned with this HPC2 workspace. The remote checkout tracks
+`origin/mindmem` at `c0a9dad4b3f85ccb95df8040c75ae3957aa26346`; Git-visible uncommitted workspace content is synchronized
+separately, while `.git`, ignored local configuration, caches and virtual environments remain host-owned.
+
 `mindmemos_search` now uses all seven native MindMemOS memory types. It no longer maps `experience` to a public
 `procedure` type or reports valid `tool_trace` records as corrupt. This changes only search input/projection;
 model-authored `mindmemos_add` remains `fact|procedure`.
@@ -21,14 +26,13 @@ the successful provider attempt's frozen recall context. Session finalization ha
 dreaming-counter and dreaming stages. Dreaming batches are scope-locked and persist under
 `memory.data_root/mindmemos/dreaming_state`.
 
-V2.7 public `mindmemos_add` now accepts only exact `content + memory_type`. After current-scope evidence validation it
-returns `accepted + job_id` without `memory_id`; one process-local FIFO worker performs a deterministic direct flat write
-and exact raw readback. The explicit path calls no chat/Schema/Vanilla extraction and writes no Entity or `MENTIONS`;
-it retains memory embedding/BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`. Interactive Session finalization is a
-typed item in that same FIFO. `/new` enqueues the old Session and immediately switches; terminal exit and application close
-drain flat Add plus unchanged Vanilla Add, implicit feedback and
-optional dreaming before MindMemOS closes. There is intentionally no broker, durable queue, parallelism or retry;
-crash/`SIGKILL` may lose unfinished work.
+V2.7 public `mindmemos_add` accepts only exact `content + memory_type`. After current-scope evidence validation it
+synchronously writes local BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`, verifies both stores, then returns
+`stored + memory_id`. Two application-owned workers enrich the same ID with remote dense vectors and native
+Entity/`MENTIONS`; internal pending state is not exposed to the model. Interactive Session finalization remains in its
+serial FIFO but now enables native Entity in both the Vanilla extractor and config before implicit feedback and Dreaming.
+Application close drains both queues before MindMemOS. There is no broker, durable queue or automatic retry;
+crash/`SIGKILL` may lose unfinished background enrichment.
 
 Terminal cleanup owns SIGINT continuously across finalization admission and FIFO drain; application close has a second
 guard. Background `/new` finalization does not own SIGINT, so Ctrl+C during an ordinary run still cancels only that run.
@@ -47,6 +51,32 @@ record/content plus old/new states and lineage. Add/update provider schemas and 
 `memory-evidence-*`; executors select current tenant/session/run/turn/source evidence from the ledger.
 
 ## Verification
+
+On 2026-08-19 a real `mimo-v2.5` ApplicationRuntime run selected exactly one `mindmemos_add` for
+`Project live-tool-9fa5f6e933 uses the uv package manager.`. The first provider decision took 10.743s, the synchronous
+tool call returned verified `stored` ID `556ddef6-69b7-5076-86d3-ed54f8b7c927` in 78.9ms, and the provider's final
+acknowledgement took 24.586s. The cold application call was 74.0s including managed backend startup. Automatic
+enrichment admission reached `queued -> processing`; its first real run exposed an exact-float readback bug even though
+Qdrant held a nonzero 4096-dimensional vector with only `7.45e-9` maximum float32 round-trip error. The verifier now
+uses per-value numerical tolerance. Retrying the same ID, rather than creating a replacement, reached `completed` in
+85.475s with both pending markers false, exact original content, two Entity nodes (`live-tool-9fa5f6e933`, `uv`), two
+`MENTIONS`, and exactly one Memory. The focused memory/tool/queue suite passes with `39 passed`; Ruff, compileall and
+`git diff --check` pass.
+
+A separate isolated one-turn LoCoMo `conv-26` run used Caroline as both the real memory project and user identity and
+forced only the Dreaming threshold from 8 to 1. Session Finalizer completed one active fact, implicit feedback completed
+with zero corrective actions, and Dreaming emitted threshold-reached, started, then `no_action` with no failure. Its
+persistent state has no inflight or pending batch and records the add record in the successful watermark. Independent
+Qdrant/Neo4j readback found exact content `Caroline greeted Mel on 2023-05-08 at 13:56:00.`, a nonzero 4096-dimensional
+dense vector, one Memory, one Source, and two Entity/`MENTIONS` targets (`Caroline`, `Mel`). This proves Dreaming starts
+and terminates; `no_action` is the native outcome for that single greeting, not evidence that it was skipped.
+
+The stored-first external gate passes in `120.36s` against real Qdrant, Neo4j and configured chat/embedding APIs. Before
+enhancement, the returned ID independently had exact active content, non-empty BM25, an all-zero dense vector, one
+Memory/Source/`EXTRACTED_FROM`, and both internal pending markers. After the two-worker queue drained, the same ID had a
+non-zero dense vector, both markers cleared, per-Entity Qdrant vectors and per-Entity Neo4j `MENTIONS`; the graph still
+contained exactly one Memory. The related non-live runtime/tool/application/benchmark queues also pass, including the
+maximum-concurrency-two and model-visible receipt checks with no `job_id` or background fields.
 
 The existing LoCoMo store at `/tmp/homemaster/locomo-memory-100-20260818-v2` was opened through the production
 HomeMaster composition. A real `mindmemos_search` filtered by `tool_trace` returned exactly the two known Finalizer IDs

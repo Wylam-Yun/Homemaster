@@ -36,6 +36,7 @@ from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager
 from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.context_service import FrozenMemoryContextService
+from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
@@ -67,6 +68,7 @@ class HomeApplicationBundle:
     tool_services: HomeToolServices | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
+    memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
 
 
@@ -301,6 +303,7 @@ def _finish_home_application(
     managed_neo4j: ManagedNeo4jRuntime | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
+    memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
     if resolved.memory.enabled:
@@ -314,6 +317,11 @@ def _finish_home_application(
         memory_add_queue = MemoryAddQueue(
             mindmemos,
             audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
+        )
+        memory_enrichment_queue = MemoryEnrichmentQueue(
+            mindmemos,
+            audit_path=resolved.memory.data_root / "mindmemos" / "enrichment_jobs.jsonl",
+            concurrency=2,
         )
         dreaming_coordinator = DreamingCoordinator(
             store=DreamingStateStore(
@@ -360,6 +368,13 @@ def _finish_home_application(
                 lifetime=ResourceLifetime.APPLICATION,
             )
         )
+        scope.bind(
+            ResourceBinding.owned(
+                "memory-enrichment-queue",
+                memory_enrichment_queue,
+                lifetime=ResourceLifetime.APPLICATION,
+            )
+        )
 
         async def start_file_memory(_application: ApplicationRuntime) -> None:
             assert file_memory_store is not None
@@ -376,6 +391,8 @@ def _finish_home_application(
                 cause = mindmemos.unavailable_cause or "unknown startup failure"
                 raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
             await memory_add_queue.start()
+            assert memory_enrichment_queue is not None
+            await memory_enrichment_queue.start()
             from mindmemos.typing import MemoryRequestContext
 
             assert dreaming_coordinator is not None
@@ -465,6 +482,7 @@ def _finish_home_application(
                     "memory_evidence_ledger": memory_evidence_ledger,
                     "mindmemos": mindmemos,
                     "memory_add_queue": memory_add_queue,
+                    "memory_enrichment_queue": memory_enrichment_queue,
                     "dreaming_coordinator": dreaming_coordinator,
                     "memory_migration": memory_migration,
                     **({"managed_neo4j": managed_neo4j} if managed_neo4j is not None else {}),
@@ -495,6 +513,7 @@ def _finish_home_application(
         tool_services=tool_services,
         mindmemos=mindmemos,
         memory_add_queue=memory_add_queue,
+        memory_enrichment_queue=memory_enrichment_queue,
         dreaming_coordinator=dreaming_coordinator,
     )
 

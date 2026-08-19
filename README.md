@@ -225,10 +225,10 @@ HomeMaster 记忆分两层：
 - **三层本地文件记忆** — `SOUL.md`（部署者维护的稳定人格）、`USER.md`（用户身份与偏好）、
   `MEMORY.md`（近期事件与跨会话事项），session 首次组装上下文时冻结快照。
 - **embedded MindMemOS** — 外部世界 fact、可复用 procedure 和 Session 经验的检索库。显式
-  `mindmemos_add` 接受原文 `content + memory_type`，校验当前 Runtime evidence 后进入应用内单 worker FIFO，
-  立即返回 `accepted + job_id`；`/new` 把旧 Session finalization 排入同一 FIFO 后立即切换，正常退出才
-  drain 全部记忆工作并逐条做终态回读。worker 只做 memory embedding/BM25、Qdrant、基础 Memory/Source/
-  `EXTRACTED_FROM` 写入，不调用 LLM extraction，也不生成 Entity/`MENTIONS` 语义图谱。update、delete、feedback
+  `mindmemos_add` 接受原文 `content + memory_type`，校验当前 Runtime evidence 后同步写入本地 BM25、Qdrant
+  Memory 和 Neo4j Memory/Source/`EXTRACTED_FROM`，逐库回读后返回 `stored + memory_id`。远程 dense embedding
+  和 Entity/`MENTIONS` 由最多两个应用 worker 对同一 ID 补齐，不出现在模型参数或回执中。`/new` 仍把旧
+  Session finalization 排入原有串行 FIFO 后立即切换，正常退出会 drain 增强与 Finalizer。update、delete、feedback
   等 mutation 仍在工具调用内完成终态确认。当前轮 evidence 由 Runtime 内部绑定，不要求模型回传 evidence ID。
 
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
@@ -240,9 +240,9 @@ Agent 仍可用 `mindmemos_search` 主动补充搜索，并用 `mindmemos_histor
 provider request 实际可见的 raw recall。公开记忆工具共七个：`context_memory`、`mindmemos_search`、
 `mindmemos_history`、`mindmemos_add`、`mindmemos_update`、`mindmemos_delete`、`mindmemos_feedback`。
 
-异步 Add 队列只存在于当前进程：不使用 Kafka、Docker 或持久化 broker，不并发、不自动重试。正常
-one-shot/Gateway/Application close 会等待已 accepted 的任务；交互 Shell 会按 FIFO 依次运行显式 flat Add、
-Vanilla Add、implicit feedback 和可选 dreaming。进程崩溃、断电或 `kill -9` 仍可能丢失尚未完成的任务。
+增强和 Finalizer 队列只存在于当前进程：不使用 Kafka、Docker 或持久化 broker，也不自动重试。正常
+one-shot/Gateway/Application close 会等待已入队任务；交互 Shell 按 FIFO 运行 Vanilla Add、implicit feedback
+和可选 dreaming，增强队列最大并发为 2。进程崩溃、断电或 `kill -9` 仍可能丢失尚未完成的增强任务。
 
 交互 Session 结束后，HomeMaster 在 Vanilla Add 写后回读成功的基础上运行 operation-record implicit
 feedback；同一 project/user 每累计 8 条有效普通新增 raw memory 后运行一次 native dreaming。计数与 pending

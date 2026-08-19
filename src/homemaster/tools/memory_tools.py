@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 from homemaster.events.trace import append_jsonl_event
-from homemaster.memory.add_queue import MemoryAddQueue
+from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceError, MemoryEvidenceLedger
 from homemaster.memory.file_store import (
     FileMemoryError,
@@ -305,18 +305,56 @@ class AddMemoryExecutor:
         if isinstance(evidence, ToolExecutionResult):
             return evidence
         try:
-            queue = _service(context, "memory_add_queue", MemoryAddQueue)
-            receipt = await queue.enqueue(
-                content=content,
-                memory_type=memory_type,
+            store = _service(context, "mindmemos", EmbeddedMindMemOS)
+            stored = await store.add_flat(
+                content,
+                memory_type,
                 provenance_seq=max(entry.provenance_seq for entry in evidence),
                 evidence_kind=max(evidence, key=lambda item: item.provenance_seq).kind,
+                context=_mindmemos_context(context),
+            )
+        except Exception as exc:
+            return _failure("memory_backend_unavailable", str(exc), attempted=True)
+        memory_id = stored.get("memory_id") if isinstance(stored, Mapping) else None
+        if not isinstance(memory_id, str) or not memory_id:
+            return _failure("memory_backend_unavailable", "stored memory returned no memory_id", attempted=True)
+        try:
+            enrichment_queue = _service(
+                context,
+                "memory_enrichment_queue",
+                MemoryEnrichmentQueue,
+            )
+            enrichment_queue.enqueue(
+                memory_id=memory_id,
+                content=content,
                 context=_mindmemos_context(context),
                 run_id=context.run_id,
             )
         except Exception as exc:
-            return _failure("memory_backend_unavailable", str(exc))
-        return _accepted("add", receipt.job_id)
+            # The storage receipt is authoritative. A later retry must not create
+            # a duplicate memory merely because background admission failed.
+            audit_path = context.services.get("memory_audit_path")
+            if isinstance(audit_path, Path):
+                append_jsonl_event(
+                    audit_path,
+                    event="memory_enrichment_admission_failed",
+                    payload={
+                        "memory_id": memory_id,
+                        "tenant_id": context.permission_subject.tenant_id,
+                        "session_id": context.session_id,
+                        "run_id": context.run_id,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    },
+                )
+        return _success(
+            "add",
+            {
+                "status": "stored",
+                "memory_id": memory_id,
+                "verified_terminal_state": True,
+            },
+            attempted=True,
+        )
 
 
 class SearchMemoriesExecutor:
@@ -1292,7 +1330,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "mindmemos_add",
-                "Queue a verified external fact or reusable procedure for searchable long-term memory. A successful call returns an accepted job ID; persistence completes asynchronously and immediate search may not see it yet. Use this for stable information learned from the environment, such as an object location, device state, or a procedure that has actually succeeded. Do not use it for user preferences, temporary task progress, or unverified guesses.",
+                "Store a verified external fact or reusable procedure in searchable long-term memory. A successful call returns the stored memory ID after the exact content is persisted and verified; semantic and Entity enrichment continue internally. Use this for stable information learned from the environment, such as an object location, device state, or a procedure that has actually succeeded. Do not use it for user preferences, temporary task progress, or unverified guesses.",
                 AddMemoryInput,
                 mutating=True,
             ),

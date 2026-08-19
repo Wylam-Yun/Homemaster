@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from collections.abc import Mapping, Sequence
@@ -369,6 +370,8 @@ class EmbeddedMindMemOS:
         self._flat_text_preprocessor: Any | None = None
         self._flat_sparse_encoder: Any | None = None
         self._flat_embed_client: Any | None = None
+        self._flat_entity_extractor: Any | None = None
+        self._flat_memory_vectorizer: Any | None = None
         self._schema_write_plan_builder: Any | None = None
         self._add_pipeline: Any | None = None
         self._vanilla_add_pipeline: Any | None = None
@@ -428,14 +431,20 @@ class EmbeddedMindMemOS:
             from mindmemos.components.extractor.schema._schema_write_plan import (
                 SchemaWritePlanBuilder,
             )
+            from mindmemos.components.extractor.vanilla import VanillaMemoryExtractor
             from mindmemos.components.feedback import (
                 DefaultExplicitFeedbackPlanner,
                 ImplicitFeedbackActionPlanner,
                 ImplicitFeedbackQueryRewriter,
                 ImplicitFeedbackSignalDetector,
             )
-            from mindmemos.components.text import SparseVectorEncoder, get_text_preprocessor
+            from mindmemos.components.text import (
+                MemoryVectorizer,
+                SparseVectorEncoder,
+                get_text_preprocessor,
+            )
             from mindmemos.config import init_config_value, reset_config
+            from mindmemos.config.algo.add.vanilla import VanillaAddConfig
             from mindmemos.infra.db import (
                 Neo4jStore,
                 QdrantStore,
@@ -492,6 +501,15 @@ class EmbeddedMindMemOS:
 
             text_preprocessor = get_text_preprocessor(text_config)
             sparse_encoder = SparseVectorEncoder(text_config)
+            flat_entity_extractor = VanillaMemoryExtractor(
+                llm_client=llm_client,
+                enable_entities=True,
+            )
+            flat_memory_vectorizer = MemoryVectorizer(
+                sparse_encoder=sparse_encoder,
+                embed_client=embed_client,
+                text_preprocessor=text_preprocessor,
+            )
             schema_write_plan_builder = SchemaWritePlanBuilder(
                 text_preprocessor=text_preprocessor,
                 sparse_encoder=sparse_encoder,
@@ -521,6 +539,11 @@ class EmbeddedMindMemOS:
                 recorder=recorder,
                 llm_client=llm_client,
                 embed_client=embed_client,
+                memory_extractor=VanillaMemoryExtractor(
+                    llm_client=llm_client,
+                    enable_entities=True,
+                ),
+                vanilla_add_config=VanillaAddConfig(enable_entities=True),
             )
             search_pipeline = create_pipeline(
                 type="search",
@@ -607,6 +630,8 @@ class EmbeddedMindMemOS:
         self._flat_text_preprocessor = text_preprocessor
         self._flat_sparse_encoder = sparse_encoder
         self._flat_embed_client = embed_client
+        self._flat_entity_extractor = flat_entity_extractor
+        self._flat_memory_vectorizer = flat_memory_vectorizer
         self._schema_write_plan_builder = schema_write_plan_builder
         self._add_pipeline = add_pipeline
         self._vanilla_add_pipeline = vanilla_add_pipeline
@@ -763,7 +788,8 @@ class EmbeddedMindMemOS:
             or self._recorder is None
             or self._flat_text_preprocessor is None
             or self._flat_sparse_encoder is None
-            or self._flat_embed_client is None
+            or self._qdrant is None
+            or self._neo4j is None
         ):
             raise RuntimeError("embedded MindMemOS is not started")
         if memory_type not in {"fact", "procedure"}:
@@ -780,14 +806,6 @@ class EmbeddedMindMemOS:
             include_entities=False,
         )
         sparse = self._flat_sparse_encoder.encode_document(list(preprocessed.tokens))
-        embedding_response = await self._flat_embed_client.embed(
-            task="memory.add.embed",
-            text=content,
-        )
-        embeddings = list(embedding_response.embeddings)
-        if not embeddings or not embeddings[0]:
-            raise RuntimeError("direct flat Add embedding returned no vector")
-
         now = datetime.now(UTC)
         memory_id = generate_memory_id(
             context.project_id,
@@ -828,6 +846,8 @@ class EmbeddedMindMemOS:
             "entity_count": 0,
             "entities": [],
             "extractor": "homemaster_direct_flat_v1",
+            "vector_pending": True,
+            "entity_enrichment_pending": True,
         }
         memory = MemoryWrite(
             memory_id=memory_id,
@@ -868,7 +888,6 @@ class EmbeddedMindMemOS:
             vectors=[
                 VectorWrite(
                     memory_id=memory_id,
-                    semantic_vector=list(embeddings[0]),
                     bm25_indices=list(sparse.indices),
                     bm25_values=list(sparse.values),
                 )
@@ -925,8 +944,39 @@ class EmbeddedMindMemOS:
                 and getattr(raw, "content", None) == content
                 and getattr(raw, "mem_type", None) == native_type
                 and getattr(raw, "mem_extract_type", None) == "homemaster_direct_flat"
+                and (getattr(raw, "metadata", {}) or {}).get("vector_pending") is True
             ):
                 raise RuntimeError("direct flat Add raw terminal state could not be verified")
+            stored_points = await self._qdrant.get_memories(
+                context.project_id,
+                [memory_id],
+                with_vectors=True,
+            )
+            semantic_name = self.mindmemos_config.database.qdrant.semantic_vector_name
+            bm25_name = self.mindmemos_config.database.qdrant.bm25_vector_name
+            stored_vectors = stored_points[0].vectors if len(stored_points) == 1 else None
+            dense = stored_vectors.get(semantic_name) if stored_vectors else None
+            stored_sparse = stored_vectors.get(bm25_name) if stored_vectors else None
+            if (
+                not isinstance(dense, list)
+                or any(dense)
+                or list(getattr(stored_sparse, "indices", ())) != list(sparse.indices)
+                or list(getattr(stored_sparse, "values", ())) != list(sparse.values)
+            ):
+                raise RuntimeError("direct flat Add vector terminal state could not be verified")
+            graph_rows = await self._neo4j.run_read(
+                """
+                MATCH (m:Memory {project_id: $project_id, memory_id: $memory_id})
+                      -[:EXTRACTED_FROM]->
+                      (s:Source {project_id: $project_id, source_id: $source_id})
+                RETURN m.memory_id AS memory_id, s.source_id AS source_id
+                """,
+                project_id=context.project_id,
+                memory_id=memory_id,
+                source_id=source.source_id,
+            )
+            if graph_rows != [{"memory_id": memory_id, "source_id": source.source_id}]:
+                raise RuntimeError("direct flat Add graph terminal state could not be verified")
         except Exception as exc:
             await suppress_recording_errors(
                 self._recorder.mark_add_failed(context, add_record_id, str(exc)),
@@ -939,13 +989,204 @@ class EmbeddedMindMemOS:
         return {
             "memory_id": memory_id,
             "memory_type": memory_type,
-            "content": content,
             "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
             "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
             "score": None,
             "match_sources": [],
             "verified_terminal_state": True,
         }
+
+    async def enrich_flat_memory(
+        self,
+        *,
+        memory_id: str,
+        content: str,
+        context: Any,
+    ) -> dict[str, object]:
+        """Complete dense and Entity enrichment for an already stored flat memory."""
+        if (
+            self._reader is None
+            or self._writer is None
+            or self._flat_embed_client is None
+            or self._flat_text_preprocessor is None
+            or self._flat_entity_extractor is None
+            or self._flat_memory_vectorizer is None
+            or self._qdrant is None
+            or self._neo4j is None
+        ):
+            raise RuntimeError("embedded MindMemOS is not started")
+        current = await self._reader.get_memory(context, memory_id)
+        if current is None or getattr(current, "status", None) != "active":
+            raise RuntimeError(f"stored memory is not active: {memory_id}")
+        metadata = dict(getattr(current, "metadata", {}) or {})
+        semantic_name = self.mindmemos_config.database.qdrant.semantic_vector_name
+        if metadata.get("vector_pending"):
+            response = await self._flat_embed_client.embed(task="memory.add.embed", text=content)
+            vectors = list(response.embeddings)
+            if not vectors or not vectors[0]:
+                raise RuntimeError("enrichment embedding returned no vector")
+            await self._qdrant.patch_memory(
+                context.project_id,
+                memory_id,
+                {"metadata": metadata},
+                dense_vector=list(vectors[0]),
+            )
+            verified = await self._qdrant.get_memories(
+                context.project_id, [memory_id], with_vectors=True
+            )
+            dense = (
+                verified[0].vectors.get(semantic_name)
+                if verified and verified[0].vectors
+                else None
+            )
+            expected_dense = list(vectors[0])
+            if (
+                not isinstance(dense, list)
+                or len(dense) != len(expected_dense)
+                or not any(dense)
+                or not all(
+                    math.isclose(
+                        float(stored),
+                        float(expected),
+                        rel_tol=1e-6,
+                        abs_tol=1e-7,
+                    )
+                    for stored, expected in zip(dense, expected_dense, strict=True)
+                )
+            ):
+                raise RuntimeError("enrichment vector readback failed")
+            metadata["vector_pending"] = False
+            await self._qdrant.patch_memory(
+                context.project_id,
+                memory_id,
+                {"metadata": metadata},
+            )
+
+        entity_ids: list[str] = []
+        if metadata.get("entity_enrichment_pending"):
+            from datetime import UTC, datetime
+
+            from mindmemos.components.extractor.vanilla._entity import (
+                deduplicate_entities,
+                resolve_candidate_entities,
+            )
+            from mindmemos.components.id import generate_entity_id
+            from mindmemos.components.memory_modeling.vanilla import build_mentions_edge
+            from mindmemos.pipelines.utils import build_entity_write
+            from mindmemos.typing import ExtractionEnvelope, MemoryDbWritePlan, TurnMessageRef
+
+            preprocessed = self._flat_text_preprocessor.preprocess_text(
+                content,
+                segment_id=f"homemaster-flat-enrichment:{memory_id}",
+                include_entities=True,
+            )
+            message = TurnMessageRef(
+                text=content,
+                role="user",
+                raw_role="user",
+                timestamp=None,
+                message_index=0,
+                is_extractable=True,
+            )
+            extracted = await self._flat_entity_extractor.extract_from_envelope(
+                ExtractionEnvelope(
+                    extractable_messages=[message],
+                    boundary="complete",
+                    chunk_index=0,
+                ),
+                [preprocessed],
+                context,
+            )
+            resolved = []
+            for candidate in extracted.memories:
+                resolved.extend(
+                    resolve_candidate_entities(
+                        candidate,
+                        extracted.entities,
+                        preprocessed.entities,
+                    )
+                )
+            entities = deduplicate_entities(resolved)
+            entity_writes = []
+            relationships = []
+            for entity in entities:
+                entity_id = generate_entity_id(context.project_id, entity)
+                entity_write = build_entity_write(entity, entity_id, context, datetime.now(UTC))
+                entity_write.metadata = {
+                    **dict(entity_write.metadata or {}),
+                    "search_fields": [content.strip()],
+                }
+                entity_writes.append(entity_write)
+                relationships.append(build_mentions_edge(memory_id, entity_id, entity, context))
+                entity_ids.append(entity_id)
+            entity_vectors, vector_pending = await self._flat_memory_vectorizer.vectorize_entities(
+                entity_writes,
+                consistency="strong",
+            )
+            if vector_pending:
+                raise RuntimeError("entity enrichment vectorization was incomplete")
+            if entity_writes:
+                write_result = await self._writer.write(
+                    context,
+                    MemoryDbWritePlan(
+                        entities=entity_writes,
+                        entity_vectors=entity_vectors,
+                        relationships=relationships,
+                    ),
+                    consistency="strong",
+                )
+                if write_result.graph_pending or write_result.errors:
+                    raise RuntimeError("entity enrichment database write was incomplete")
+                for entity_id in entity_ids:
+                    entity_record = await self._qdrant.get_entity(
+                        context.project_id,
+                        entity_id,
+                        with_vectors=True,
+                    )
+                    stored_entity_vectors = entity_record.vectors if entity_record else None
+                    entity_dense = (
+                        stored_entity_vectors.get(semantic_name)
+                        if stored_entity_vectors
+                        else None
+                    )
+                    if (
+                        entity_record is None
+                        or not isinstance(entity_dense, list)
+                        or not any(entity_dense)
+                    ):
+                        raise RuntimeError(f"entity enrichment readback failed: {entity_id}")
+                    graph_rows = await self._neo4j.run_read(
+                        """
+                        MATCH (m:Memory {project_id: $project_id, memory_id: $memory_id})
+                              -[:MENTIONS]->
+                              (e:Entity {project_id: $project_id, entity_id: $entity_id})
+                        RETURN e.entity_id AS entity_id
+                        """,
+                        project_id=context.project_id,
+                        memory_id=memory_id,
+                        entity_id=entity_id,
+                    )
+                    if graph_rows != [{"entity_id": entity_id}]:
+                        raise RuntimeError(
+                            f"entity enrichment graph readback failed: {entity_id}"
+                        )
+            metadata["entity_enrichment_pending"] = False
+            metadata["entity_count"] = len(entity_ids)
+            metadata["entities"] = [
+                entity.canonical_name or entity.name for entity in entities
+            ]
+        await self._qdrant.patch_memory(
+            context.project_id,
+            memory_id,
+            {"metadata": metadata},
+        )
+        final = await self._reader.get_memory(context, memory_id)
+        final_metadata = dict(getattr(final, "metadata", {}) or {})
+        if final_metadata.get("vector_pending") or final_metadata.get(
+            "entity_enrichment_pending"
+        ):
+            raise RuntimeError("enrichment completion metadata readback failed")
+        return {"memory_id": memory_id, "entity_ids": entity_ids}
 
     async def add_vanilla(
         self,
@@ -1427,6 +1668,8 @@ class EmbeddedMindMemOS:
         self._flat_text_preprocessor = None
         self._flat_sparse_encoder = None
         self._flat_embed_client = None
+        self._flat_entity_extractor = None
+        self._flat_memory_vectorizer = None
         self._schema_write_plan_builder = None
         self._add_pipeline = None
         self._vanilla_add_pipeline = None

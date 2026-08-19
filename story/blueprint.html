@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>运维变更协作 Agent · 能力演进蓝图</title>
+<style>
+  :root{
+    --bg:#0a0e1a;
+    --bg-2:#0f1525;
+    --panel:rgba(20,28,48,0.72);
+    --panel-solid:#141c30;
+    --line:rgba(120,160,220,0.12);
+    --line-strong:rgba(120,160,220,0.22);
+    --txt:#e6ecf5;
+    --txt-dim:#94a3b8;
+    --txt-faint:#64748b;
+    --cyan:#06b6d4;
+    --cyan-2:#22d3ee;
+    --purple:#8b5cf6;
+    --purple-2:#a78bfa;
+    --orange:#f59e0b;
+    --red:#ef4444;
+    --green:#10b981;
+    --grad:linear-gradient(135deg,#06b6d4 0%,#8b5cf6 100%);
+    --grad-warm:linear-gradient(135deg,#f59e0b 0%,#ef4444 100%);
+    --shadow:0 20px 50px -20px rgba(0,0,0,0.7);
+    --glow-cyan:0 0 30px rgba(6,182,212,0.35);
+    --glow-purple:0 0 30px rgba(139,92,246,0.35);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth;scroll-padding-top:72px}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--txt);
+    line-height:1.65;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      linear-gradient(rgba(120,160,220,0.04) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(120,160,220,0.04) 1px,transparent 1px);
+    background-size:48px 48px;
+    mask-image:radial-gradient(ellipse at 50% 0%,#000 0%,transparent 75%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(800px 400px at 80% -10%,rgba(139,92,246,0.18),transparent 60%),
+      radial-gradient(700px 380px at 10% 10%,rgba(6,182,212,0.15),transparent 60%);
+  }
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:1200px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+  .mono{font-family:"JetBrains Mono","Fira Code","SF Mono",ui-monospace,Menlo,Consolas,monospace}
+
+  /* ============ NAV ============ */
+  nav{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    backdrop-filter:blur(18px);
+    background:rgba(10,14,26,0.72);
+    border-bottom:1px solid var(--line);
+  }
+  nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;letter-spacing:.5px}
+  .logo .dot{width:10px;height:10px;border-radius:50%;background:var(--grad);box-shadow:var(--glow-cyan)}
+  .nav-links{display:flex;gap:4px;list-style:none}
+  .nav-links a{
+    padding:8px 12px;border-radius:8px;font-size:13px;color:var(--txt-dim);
+    transition:all .2s;cursor:pointer;
+  }
+  .nav-links a:hover{color:var(--txt);background:rgba(255,255,255,0.05)}
+  .nav-links a.active{color:var(--cyan-2);background:rgba(6,182,212,0.1)}
+  .nav-toggle{display:none;background:none;border:1px solid var(--line-strong);color:var(--txt);width:40px;height:40px;border-radius:8px;cursor:pointer;font-size:18px}
+
+  /* ============ HERO ============ */
+  .hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;position:relative;padding:120px 24px 80px}
+  .hero .badge{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:6px 14px;border-radius:999px;border:1px solid var(--line-strong);
+    background:rgba(6,182,212,0.08);color:var(--cyan-2);font-size:12px;letter-spacing:1px;
+    margin-bottom:28px;
+  }
+  .hero .badge::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:var(--glow-cyan);animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .hero h1{
+    font-size:clamp(34px,6vw,68px);font-weight:800;line-height:1.12;letter-spacing:-1px;
+    background:linear-gradient(180deg,#fff 0%,#94a3b8 130%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    margin-bottom:24px;
+  }
+  .hero h1 .accent{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.sub{font-size:clamp(15px,2vw,20px);color:var(--txt-dim);max-width:760px;margin:0 auto 16px}
+  .hero p.tag{font-size:14px;color:var(--txt-faint)}
+  .hero .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:760px;margin:48px auto 0}
+  .stat{
+    padding:24px 16px;border-radius:16px;border:1px solid var(--line);
+    background:var(--panel);backdrop-filter:blur(10px);
+    transition:transform .3s,box-shadow .3s;
+  }
+  .stat:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+  .stat .num{font-size:42px;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;line-height:1}
+  .stat .label{font-size:13px;color:var(--txt-dim);margin-top:8px}
+  .scroll-hint{position:absolute;bottom:32px;left:50%;transform:translateX(-50%);color:var(--txt-faint);font-size:12px;letter-spacing:2px;animation:bob 2s infinite ease-in-out}
+  @keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,8px)}}
+
+  /* ============ SECTION HEAD ============ */
+  section{padding:100px 0;position:relative;z-index:1}
+  .sec-head{margin-bottom:56px;text-align:center}
+  .sec-tag{
+    display:inline-block;font-size:12px;letter-spacing:3px;color:var(--cyan-2);
+    text-transform:uppercase;margin-bottom:14px;font-weight:600;
+  }
+  .sec-tag::before{content:"—  ";color:var(--purple-2)}
+  .sec-tag::after{content:"  —";color:var(--purple-2)}
+  .sec-title{font-size:clamp(26px,4vw,40px);font-weight:800;letter-spacing:-.5px;margin-bottom:12px}
+  .sec-desc{color:var(--txt-dim);max-width:720px;margin:0 auto;font-size:15px}
+
+  /* ============ PAIN POINTS ============ */
+  .pain-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  .pain-col{padding:28px;border-radius:20px;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(10px);position:relative;overflow:hidden}
+  .pain-col::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--grad-warm)}
+  .pain-col h3{display:flex;align-items:center;gap:10px;font-size:18px;margin-bottom:6px}
+  .pain-col .col-desc{color:var(--txt-faint);font-size:13px;margin-bottom:24px}
+  .pain-item{
+    display:flex;gap:14px;padding:14px 0;border-top:1px solid var(--line);
+  }
+  .pain-item:first-of-type{border-top:none}
+  .pain-icon{
+    flex-shrink:0;width:36px;height:36px;border-radius:10px;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(239,68,68,0.12);color:var(--red);font-weight:700;font-size:14px;
+  }
+  .pain-body h4{font-size:15px;font-weight:600;margin-bottom:4px}
+  .pain-body p{font-size:13px;color:var(--txt-dim);line-height:1.55}
+  .pain-tag{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:6px;font-size:11px;background:rgba(245,158,11,0.12);color:var(--orange);letter-spacing:.5px}
+
+  /* ============ CAPABILITY CARDS ============ */
+  .cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .cap-card{
+    padding:24px;border-radius:16px;border:1px solid var(--line);
+    background:var(--panel);backdrop-filter:blur(10px);
+    transition:transform .3s,border-color .3s,box-shadow .3s;
+    position:relative;overflow:hidden;
+  }
+  .cap-card::after{content:"";position:absolute;inset:0;border-radius:16px;padding:1px;background:linear-gradient(135deg,transparent,rgba(6,182,212,0.4),transparent);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity .3s}
+  .cap-card:hover{transform:translateY(-6px);box-shadow:var(--shadow)}
+  .cap-card:hover::after{opacity:1}
+  .cap-num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:40px;height:40px;border-radius:12px;background:var(--grad);
+    font-weight:800;font-size:16px;color:#fff;margin-bottom:14px;box-shadow:var(--glow-cyan)
+  }
+  .cap-card h4{font-size:16px;font-weight:700;margin-bottom:10px;line-height:1.4}
+  .cap-card p{font-size:13px;color:var(--txt-dim);line-height:1.6;margin-bottom:14px}
+  .cap-tags{display:flex;flex-wrap:wrap;gap:6px}
+  .cap-tags span{font-size:11px;padding:3px 8px;border-radius:6px;background:rgba(139,92,246,0.12);color:var(--purple-2);letter-spacing:.5px}
+
+  /* ============ STATUS vs GAP ============ */
+  .tabs{display:flex;justify-content:center;gap:8px;margin-bottom:32px;flex-wrap:wrap}
+  .tab{
+    padding:10px 20px;border-radius:999px;border:1px solid var(--line-strong);
+    background:transparent;color:var(--txt-dim);font-size:14px;cursor:pointer;
+    transition:all .2s;font-weight:500;
+  }
+  .tab.active{background:var(--grad);color:#fff;border-color:transparent;box-shadow:var(--glow-cyan)}
+  .tab:hover:not(.active){color:var(--txt);border-color:var(--cyan)}
+  .tab .count{font-size:12px;opacity:.7;margin-left:4px}
+  .list{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .list-item{
+    padding:18px 20px;border-radius:14px;border:1px solid var(--line);
+    background:var(--panel);cursor:pointer;transition:all .2s;
+  }
+  .list-item:hover{border-color:var(--line-strong);transform:translateX(4px)}
+  .list-item .head{display:flex;align-items:flex-start;gap:12px}
+  .list-item .mark{
+    flex-shrink:0;width:28px;height:28px;border-radius:8px;
+    display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+  }
+  .list-item.has .mark{background:rgba(16,185,129,0.14);color:var(--green)}
+  .list-item.gap .mark{background:rgba(245,158,11,0.14);color:var(--orange)}
+  .list-item h4{font-size:15px;font-weight:600;margin-bottom:4px;flex:1}
+  .list-item .one-line{font-size:13px;color:var(--txt-dim)}
+  .list-item .detail{max-height:0;overflow:hidden;transition:max-height .4s ease,margin-top .3s}
+  .list-item.open .detail{max-height:400px;margin-top:12px}
+  .list-item .detail p{font-size:13px;color:var(--txt-dim);padding-top:12px;border-top:1px solid var(--line);line-height:1.7}
+  .bridge-note{text-align:center;margin-top:36px;color:var(--txt-faint);font-size:13px}
+  .bridge-note .line{display:inline-block;width:60px;height:1px;background:var(--line-strong);vertical-align:middle;margin:0 12px}
+
+  /* ============ REQ-8 GRID ============ */
+  .req-intro{padding:24px;border-radius:16px;border:1px solid rgba(139,92,246,0.3);background:linear-gradient(135deg,rgba(139,92,246,0.1),rgba(6,182,212,0.05));margin-bottom:40px;text-align:center}
+  .req-intro h3{font-size:18px;color:var(--purple-2);margin-bottom:8px}
+  .req-intro p{color:var(--txt-dim);font-size:14px;max-width:760px;margin:0 auto}
+  .req-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+  .req-card{
+    padding:20px;border-radius:14px;border:1px solid var(--line);
+    background:var(--panel);cursor:pointer;transition:all .25s;position:relative;
+  }
+  .req-card:hover{border-color:rgba(139,92,246,0.5);box-shadow:var(--glow-purple);transform:translateY(-4px)}
+  .req-card .rnum{font-size:12px;color:var(--purple-2);font-weight:700;letter-spacing:1px;margin-bottom:8px}
+  .req-card h4{font-size:15px;font-weight:600;margin-bottom:8px;line-height:1.4}
+  .req-card .short{font-size:12.5px;color:var(--txt-dim);line-height:1.55}
+  .req-card .long{max-height:0;overflow:hidden;transition:max-height .4s ease,margin-top .3s;font-size:12.5px;color:var(--txt-faint);line-height:1.7}
+  .req-card.open .long{max-height:300px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+  .req-card .expand-hint{font-size:11px;color:var(--txt-faint);margin-top:8px;text-align:right;opacity:.7}
+
+  /* ============ MMOS TABLE ============ */
+  .mmos-wrap{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--panel);backdrop-filter:blur(10px)}
+  .mmos-row{
+    display:grid;grid-template-columns:1.1fr 1.4fr 1.4fr;gap:0;
+    border-bottom:1px solid var(--line);transition:background .2s;
+  }
+  .mmos-row:last-child{border-bottom:none}
+  .mmos-row:hover{background:rgba(255,255,255,0.02)}
+  .mmos-row.head{background:rgba(6,182,212,0.06);font-weight:700;font-size:13px;color:var(--cyan-2);letter-spacing:.5px}
+  .mmos-row.head>div{padding:16px 20px}
+  .mmos-cell{padding:18px 20px;font-size:13px;line-height:1.65;border-right:1px solid var(--line)}
+  .mmos-cell:last-child{border-right:none}
+  .mmos-cell .req-name{font-weight:600;color:var(--txt);margin-bottom:6px;font-size:14px}
+  .mmos-cell .req-id{font-size:11px;color:var(--purple-2);font-family:"JetBrains Mono",monospace;display:block;margin-bottom:4px}
+  .mmos-provide{color:var(--txt-dim);position:relative;padding-left:28px}
+  .mmos-provide::before{content:"✓";position:absolute;left:18px;top:18px;color:var(--green);font-weight:700}
+  .mmos-lack{color:var(--txt-dim);position:relative;padding-left:28px}
+  .mmos-lack::before{content:"!";position:absolute;left:20px;top:17px;color:var(--orange);font-weight:700;font-size:14px}
+  .mmos-provide strong{color:#cbd5e1;font-weight:600}
+  .mmos-lack strong{color:var(--orange);font-weight:600}
+
+  /* ============ ROADMAP ============ */
+  .roadmap{position:relative;padding:20px 0}
+  .road-line{position:absolute;top:60px;left:5%;right:5%;height:2px;background:var(--line-strong);overflow:hidden}
+  .road-line::after{content:"";position:absolute;inset:0;width:30%;background:var(--grad);animation:flow 3s infinite linear}
+  @keyframes flow{0%{left:-30%}100%{left:100%}}
+  .road-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;position:relative}
+  .road-node{position:relative;padding-top:80px}
+  .road-node .node-dot{
+    position:absolute;top:50px;left:50%;transform:translateX(-50%);
+    width:22px;height:22px;border-radius:50%;background:var(--bg);
+    border:2px solid var(--cyan);box-shadow:var(--glow-cyan);z-index:2;
+    transition:transform .3s;
+  }
+  .road-node:hover .node-dot{transform:translateX(-50%) scale(1.3)}
+  .road-node .stage-num{position:absolute;top:14px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--cyan-2);font-weight:700;letter-spacing:1px}
+  .road-card{
+    padding:22px;border-radius:16px;border:1px solid var(--line);
+    background:var(--panel);backdrop-filter:blur(10px);height:100%;
+    transition:transform .3s,box-shadow .3s;
+  }
+  .road-card:hover{transform:translateY(-6px);box-shadow:var(--shadow)}
+  .road-card h4{font-size:18px;font-weight:800;margin-bottom:4px;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .road-card .stage-sub{font-size:12px;color:var(--txt-faint);margin-bottom:16px;letter-spacing:.5px}
+  .road-card .block{margin-bottom:14px}
+  .road-card .block:last-child{margin-bottom:0}
+  .road-card .block-label{font-size:11px;color:var(--cyan-2);font-weight:600;letter-spacing:1px;margin-bottom:6px;text-transform:uppercase}
+  .road-card .block-content{font-size:13px;color:var(--txt-dim);line-height:1.6}
+  .road-card .block-content .pill{display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,0.12);color:var(--purple-2);font-size:11.5px;margin:2px 4px 2px 0}
+  .road-card .goal{padding:12px;border-radius:10px;background:rgba(6,182,212,0.06);border-left:2px solid var(--cyan);font-size:12.5px;color:#cbd5e1;line-height:1.6}
+
+  /* ============ VALUE LOOP ============ */
+  .value-wrap{text-align:center;padding:48px;border-radius:24px;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(10px);position:relative;overflow:hidden}
+  .value-wrap::before{content:"";position:absolute;top:-50%;left:-10%;width:120%;height:200%;background:radial-gradient(ellipse at center,rgba(139,92,246,0.1),transparent 60%);pointer-events:none}
+  .value-flow{display:flex;justify-content:center;align-items:stretch;gap:12px;flex-wrap:wrap;margin:36px 0;position:relative}
+  .value-step{flex:1;min-width:180px;padding:20px;border-radius:14px;border:1px solid var(--line-strong);background:rgba(15,21,37,0.6);position:relative}
+  .value-step .vs-num{font-size:11px;color:var(--cyan-2);font-weight:700;letter-spacing:1px;margin-bottom:8px}
+  .value-step h4{font-size:16px;font-weight:700;margin-bottom:6px}
+  .value-step p{font-size:12.5px;color:var(--txt-dim)}
+  .value-arrow{display:flex;align-items:center;color:var(--purple-2);font-size:24px}
+  .value-quote{font-size:clamp(18px,3vw,26px);font-weight:700;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent;max-width:800px;margin:0 auto;line-height:1.4}
+
+  /* ============ FOOTER ============ */
+  footer{padding:48px 0;border-top:1px solid var(--line);text-align:center;color:var(--txt-faint);font-size:13px;position:relative;z-index:1}
+
+  /* ============ BACK TO TOP ============ */
+  .to-top{position:fixed;right:24px;bottom:24px;width:44px;height:44px;border-radius:12px;border:1px solid var(--line-strong);background:var(--panel-solid);color:var(--cyan-2);cursor:pointer;z-index:40;opacity:0;transform:translateY(20px);transition:all .3s;display:flex;align-items:center;justify-content:center;font-size:18px}
+  .to-top.show{opacity:1;transform:translateY(0)}
+  .to-top:hover{background:var(--grad);color:#fff;border-color:transparent}
+
+  /* ============ REVEAL ANIM ============ */
+  .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s ease}
+  .reveal.in{opacity:1;transform:translateY(0)}
+
+  /* ============ RESPONSIVE ============ */
+  @media(max-width:1024px){
+    .cap-grid{grid-template-columns:repeat(2,1fr)}
+    .req-grid{grid-template-columns:repeat(2,1fr)}
+    .list{grid-template-columns:1fr}
+    .road-grid{grid-template-columns:repeat(2,1fr);gap:32px}
+    .road-line{display:none}
+    .road-node{padding-top:0}
+    .road-node .node-dot,.road-node .stage-num{display:none}
+    .mmos-row{grid-template-columns:1fr}
+    .mmos-row.head{display:none}
+    .mmos-cell{border-right:none;border-bottom:1px solid var(--line);padding:14px 18px}
+    .mmos-cell::before{display:none!important}
+    .mmos-provide,.mmos-lack{padding-left:18px}
+    .mmos-cell .mobile-label{display:block;font-size:11px;font-weight:700;margin-bottom:4px;letter-spacing:1px}
+    .mmos-provide .mobile-label{color:var(--green)}
+    .mmos-lack .mobile-label{color:var(--orange)}
+  }
+  @media(max-width:768px){
+    .nav-links{display:none;position:absolute;top:64px;left:0;right:0;flex-direction:column;background:var(--panel-solid);padding:12px;border-bottom:1px solid var(--line-strong);gap:2px}
+    .nav-links.open{display:flex}
+    .nav-toggle{display:flex;align-items:center;justify-content:center}
+    .pain-grid{grid-template-columns:1fr}
+    .cap-grid{grid-template-columns:1fr}
+    .req-grid{grid-template-columns:1fr}
+    .hero .stats{grid-template-columns:1fr;max-width:320px}
+    .road-grid{grid-template-columns:1fr}
+    .value-step{flex:1 1 100%}
+    .value-arrow{transform:rotate(90deg);height:24px}
+    section{padding:72px 0}
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== NAV ===================== -->
+<nav>
+  <div class="wrap">
+    <div class="logo"><span class="dot"></span>Agent · Blueprint</div>
+    <ul class="nav-links" id="navLinks">
+      <li><a data-target="hero">概览</a></li>
+      <li><a data-target="pain">痛点</a></li>
+      <li><a data-target="cap">核心能力</a></li>
+      <li><a data-target="gap">现状与缺口</a></li>
+      <li><a data-target="req8">需求8</a></li>
+      <li><a data-target="mmos">MindMemOS</a></li>
+      <li><a data-target="road">路线图</a></li>
+      <li><a data-target="value">价值闭环</a></li>
+    </ul>
+    <button class="nav-toggle" id="navToggle" aria-label="menu">☰</button>
+  </div>
+</nav>
+
+<!-- ===================== HERO ===================== -->
+<section id="hero" class="hero">
+  <div>
+    <span class="badge">CAPABILITY EVOLUTION BLUEPRINT</span>
+    <h1>运维变更协作 Agent<br><span class="accent">能力演进蓝图</span></h1>
+    <p class="sub">从「人工全程陪跑」到「Agent 协作 + 经验自进化」<br>让配合人专注于真正的风险判断，而非重复检查与证据整理</p>
+    <p class="tag mono">// problem-driven · capability-mapped · roadmap-anchored</p>
+    <div class="stats">
+      <div class="stat reveal"><div class="num">10</div><div class="label">协作与流程痛点</div></div>
+      <div class="stat reveal"><div class="num">6</div><div class="label">Agent 核心能力</div></div>
+      <div class="stat reveal"><div class="num">4</div><div class="label">阶段演进路线</div></div>
+    </div>
+  </div>
+  <div class="scroll-hint mono">SCROLL ↓</div>
+</section>
+
+<!-- ===================== PAIN POINTS ===================== -->
+<section id="pain">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">WHY WE NEED AGENT</div>
+      <h2 class="sec-title">双维痛点全景</h2>
+      <p class="sec-desc">问题来自两个维度：配合人的工作方式，以及现有作业流程的结构性缺陷。它们共同决定了 Agent 必须解决什么。</p>
+    </div>
+    <div class="pain-grid">
+      <div class="pain-col reveal">
+        <h3>① 配合人工作痛点</h3>
+        <p class="col-desc">人力被消耗在等待、切换、整理与重复操作上</p>
+        <div class="pain-item">
+          <div class="pain-icon">1</div>
+          <div class="pain-body"><h4>长期陪跑，有效工作占比低</h4><p>全程在线但多数时间在等待，一人仅配合一份变更，人力利用率低。</p><span class="pain-tag">人力浪费</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">2</div>
+          <div class="pain-body"><h4>多系统切换，信息获取成本高</h4><p>变更单、运维平台、命令日志、监控系统频繁切换，易遗漏关键内容。</p><span class="pain-tag">信息分散</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">3</div>
+          <div class="pain-body"><h4>认知负担重，容易漏检误判</h4><p>一边理解 SOP、一边记忆进度、一边判断动作，步骤多时易漏看错看。</p><span class="pain-tag">漏检误判</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">4</div>
+          <div class="pain-body"><h4>证据整理与结果回填繁琐</h4><p>事后手工查日志、截图、整理时间、填写结果，精力被消耗在材料上。</p><span class="pain-tag">事务性负担</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">5</div>
+          <div class="pain-body"><h4>重复操作降低作业严谨度</h4><p>大量相同检查动作，长期重复后产生惯性，简化甚至跳过部分步骤。</p><span class="pain-tag">严谨度下降</span></div>
+        </div>
+      </div>
+      <div class="pain-col reveal">
+        <h3>② 现有作业流程痛点</h3>
+        <p class="col-desc">流程结构与协作机制本身存在缺陷</p>
+        <div class="pain-item">
+          <div class="pain-icon">1</div>
+          <div class="pain-body"><h4>执行进度依赖人工同步</h4><p>口头/消息通知易出现「已完成未通知」或「声明完成未核验」。</p><span class="pain-tag">过程不连续</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">2</div>
+          <div class="pain-body"><h4>SOP 与真实操作缺少自动对应</h4><p>「应做什么」与「实际做了什么」需手工逐项比对，步骤越多越易漏项。</p><span class="pain-tag">核验成本高</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">3</div>
+          <div class="pain-body"><h4>监督集中在事后，异常发现不及时</h4><p>执行完成后才统一核验，漏做错做被发现时风险已进入生产。</p><span class="pain-tag">风险晚发现</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">4</div>
+          <div class="pain-body"><h4>不同风险任务采用相同协作方式</h4><p>状态查询与服务重启都需人工介入，缺少差异化协作，低风险过度依赖人工。</p><span class="pain-tag">协作无差异</span></div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon">5</div>
+          <div class="pain-body"><h4>经验难沉淀、难复用、难保持有效</h4><p>经验存在个人脑中，相似变更重新理解；缺少验证更新机制，易过时失效。</p><span class="pain-tag">经验流失</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CAPABILITIES ===================== -->
+<section id="cap">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">WHAT AGENT MUST DO</div>
+      <h2 class="sec-title">Agent 六大核心能力</h2>
+      <p class="sec-desc">每一项能力直接对应一组痛点，构成 Agent 必须具备的能力底座。能力 ⑥（经验自进化）是本次改造的核心重点。</p>
+    </div>
+    <div class="cap-grid">
+      <div class="cap-card reveal">
+        <div class="cap-num">1</div>
+        <h4>完整作业流程理解能力</h4>
+        <p>自动解析变更单和 SOP，识别变更前检查、过程监督、结果验证、异常停止与回退要求，把自然语言转化为可执行步骤与核验标准。</p>
+        <div class="cap-tags"><span>痛点 3</span><span>SOP 拆解</span><span>核验标准</span></div>
+      </div>
+      <div class="cap-card reveal">
+        <div class="cap-num">2</div>
+        <h4>低风险任务自主执行能力</h4>
+        <p>自动完成状态查询、日志检索、监控检查等标准化低风险工作，让配合人只在关键节点和异常情况介入。</p>
+        <div class="cap-tags"><span>痛点 1·2·5</span><span>减少重复</span></div>
+      </div>
+      <div class="cap-card reveal">
+        <div class="cap-num">3</div>
+        <h4>基于真实证据的持续核验能力</h4>
+        <p>持续获取命令记录、平台操作和系统状态，对照 SOP 判断动作是否执行、对象参数是否正确、结果是否达标，异常时及时提醒与中断。</p>
+        <div class="cap-tags"><span>痛点 6·7·8</span><span>多源证据</span></div>
+      </div>
+      <div class="cap-card reveal">
+        <div class="cap-num">4</div>
+        <h4>分级人机协作能力</h4>
+        <p>低风险自动执行；一定风险请求 Yes/No 确认；缺参数只补必要信息；高风险/不可逆操作携带完整上下文移交人工。</p>
+        <div class="cap-tags"><span>痛点 9</span><span>L1-L4</span><span>不越权</span></div>
+      </div>
+      <div class="cap-card reveal">
+        <div class="cap-num">5</div>
+        <h4>过程管理与审计能力</h4>
+        <p>自动跟踪进度、已完成动作、证据、风险状态与待办，支持多变更并发；异常主动通知，结束自动整理证据、回填结果、生成审计报告。</p>
+        <div class="cap-tags"><span>痛点 1·4·6·8</span><span>多变更并发</span></div>
+      </div>
+      <div class="cap-card reveal" style="border-color:rgba(139,92,246,0.4)">
+        <div class="cap-num" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">6</div>
+        <h4>经验沉淀与持续迭代能力</h4>
+        <p>将检查方法、判断依据、异常处理与成功轨迹沉淀为可复用经验，并随 SOP、环境、执行结果持续验证、修正与淘汰，保证经验始终准确可靠。</p>
+        <div class="cap-tags"><span>痛点 5·10</span><span style="background:rgba(139,92,246,0.2);color:#fff">本次重点 ★</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== STATUS vs GAP ===================== -->
+<section id="gap">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">CURRENT STATE &amp; GAPS</div>
+      <h2 class="sec-title">现有能力 vs 能力缺口</h2>
+      <p class="sec-desc">现有 Agent 框架已具备 10 项基础能力，但要支撑运维变更协作场景，仍有 8 项关键缺口需要补齐。点击任一项可查看详情。</p>
+    </div>
+    <div class="tabs reveal">
+      <button class="tab active" data-tab="has">现有能力 <span class="count">10</span></button>
+      <button class="tab" data-tab="gap">能力缺口 <span class="count">8</span></button>
+    </div>
+    <div class="list" id="listHas">
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>自主规划执行</h4><div class="one-line">理解目标、拆解子任务、持续调用工具推进</div></div></div><div class="detail"><p>能够理解用户的最终目标，自动拆解为可执行的子任务，并持续调用工具推进任务直到完成，无需逐步指令。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>工具调用执行</h4><div class="one-line">调用本地/环境/MCP 外部工具真正执行操作</div></div></div><div class="detail"><p>支持调用本地工具、环境工具以及 MCP 外部工具，能够真正对外部系统执行操作，而非仅生成文本。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>环境观察验证</h4><div class="one-line">获取状态并在操作后再次观察判断是否生效</div></div></div><div class="detail"><p>能够获取当前环境状态，并在执行操作后再次观察，判断操作是否真正生效，形成「执行-观察-判断」闭环。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>长期记忆</h4><div class="one-line">记住用户习惯、环境事实与历史操作经验</div></div></div><div class="detail"><p>能够记住用户习惯、环境事实和历史操作经验，并在后续任务中主动检索复用，而非每次从零开始。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>长任务状态管理</h4><div class="one-line">记录进度、当前步骤、下一步与执行证据</div></div></div><div class="detail"><p>持续记录任务进度、当前步骤、下一步计划和执行证据，避免长任务中途「失忆」或状态丢失。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>长上下文管理</h4><div class="one-line">自动压缩冗余历史，保留真正重要的上下文</div></div></div><div class="detail"><p>能够自动压缩冗余历史信息，在长时间、多轮执行过程中保留真正重要的上下文，避免上下文溢出。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>权限与安全控制</h4><div class="one-line">真实操作统一过权限检查，支持互斥与紧急停止</div></div></div><div class="detail"><p>所有真实操作统一经过权限检查，并支持设备互斥、异常隔离和紧急停止等安全机制。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>人机协作</h4><div class="one-line">信息缺失/权限不足/需决策时主动询问用户</div></div></div><div class="detail"><p>遇到信息缺失、权限不足或需要人工决策时，可以主动询问用户并在得到回复后继续原任务。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>Skill 经验复用</h4><div class="one-line">动态加载不同 Skill 复用已有流程与领域经验</div></div></div><div class="detail"><p>能够动态加载不同 Skill，将已有操作流程和领域经验复用到新的任务中，提升一致性与效率。</p></div></div>
+      <div class="list-item has"><div class="head"><div class="mark">✓</div><div><h4>多端交互能力</h4><div class="one-line">通过飞书接收任务、反馈过程与返回结果</div></div></div><div class="detail"><p>已支持通过飞书接收任务、反馈执行过程和返回结果，让用户可以远程与 Agent 持续协作。</p></div></div>
+    </div>
+    <div class="list" id="listGap" style="display:none">
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>SOP 理解与任务拆解能力不完整</h4><div class="one-line">变更单/SOP 自动转可执行步骤与依赖、成功标准、异常回退</div></div></div><div class="detail"><p>需要把变更单和 SOP 自动转成可执行步骤、依赖关系、成功标准和异常/回退条件，目前还做不到完整覆盖。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>操作风险判断能力不足</h4><div class="one-line">结合动作/工具/目标/参数/影响范围判断风险等级</div></div></div><div class="detail"><p>需要结合动作、工具、目标环境、参数和影响范围，判断一项操作到底属于什么风险等级，目前判断粒度不够。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>L1-L4 人机协作机制未真正落地</h4><div class="one-line">按风险与信息完整度自动选择执行/确认/补参/接管</div></div></div><div class="detail"><p>需要让 Agent 根据风险和信息完整度，自动选择自主执行、Yes/No 确认、补参数或人工接管，分级机制尚未落地。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>真实运维工具接入还不完整</h4><div class="one-line">黑屏命令/白屏平台/监控/工单/配置查询接入执行链路</div></div></div><div class="detail"><p>需要把黑屏命令、白屏平台、监控、工单、配置查询等业务系统真正接入 Agent 的执行链路（已初步支持）。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>多源证据持续核验能力不足</h4><div class="one-line">命令/平台/监控证据持续对齐 SOP，判对象参数顺序结果</div></div></div><div class="detail"><p>需要把命令日志、平台操作、监控状态等证据持续和 SOP 对齐，不只判断「做没做」，还要判断对象、参数、顺序和结果对不对。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>异常处理与回退闭环不足</h4><div class="one-line">发现漏做/错做/异常后判断何时暂停/提醒/回退/接管</div></div></div><div class="detail"><p>发现漏做、错做或环境异常后，Agent 需要知道什么时候暂停、什么时候提醒人、什么时候触发回退或人工接管。</p></div></div>
+      <div class="list-item gap"><div class="head"><div class="mark">!</div><div><h4>过程管理和审计产品化不足</h4><div class="one-line">多变更并发/实时进度/主动通知/证据整理/自动回填/审计</div></div></div><div class="detail"><p>需要支持多变更并发跟踪、实时进度展示、主动通知、证据整理、自动回填和最终审计报告。</p></div></div>
+      <div class="list-item gap" style="border-color:rgba(139,92,246,0.4)"><div class="head"><div class="mark" style="background:rgba(139,92,246,0.14);color:var(--purple-2)">★</div><div><h4>经验沉淀与自迭代能力不足</h4><div class="one-line">从轨迹自动总结/验证/更新/淘汰经验，沉淀为可复用能力</div></div></div><div class="detail"><p>目前更多是「记住和召回」，还缺从成功/失败轨迹中自动总结经验、验证经验是否有效、更新或淘汰旧经验，并进一步沉淀成可复用经验。这是本次改造的核心重点。</p></div></div>
+    </div>
+    <div class="bridge-note reveal"><span class="line"></span>现有能力是地基，缺口是改造方向，下方将聚焦最关键的缺口 ⑧<span class="line"></span></div>
+  </div>
+</section>
+
+<!-- ===================== REQ-8 ===================== -->
+<section id="req8">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">DEEP DIVE · GAP #8</div>
+      <h2 class="sec-title">聚焦需求 8：经验沉淀与自迭代</h2>
+      <p class="sec-desc">这是本次改造的核心。围绕「经验的识别、召回、参与、验证、纠错、固化、约束、追溯」8 个子能力展开。</p>
+    </div>
+    <div class="req-intro reveal">
+      <h3>★ 核心命题：让经验从「记住」进化到「会用、会改、会进化」</h3>
+      <p>经验不能只是被存储和召回，而要真正参与决策、随业务变化自我验证与纠错，并最终固化为稳定能力。每一步修改都可验证、可追溯、可回滚，并由人批准。</p>
+    </div>
+    <div class="req-grid">
+      <div class="req-card reveal"><div class="rnum">REQ 8.1</div><h4>经验自动识别与沉淀</h4><div class="short">从执行轨迹自动识别值得复用的内容并结构化沉淀。</div><div class="long">Agent 需从每次变更轨迹中自动识别检查方法、操作顺序、关键参数、判断依据、异常处理方式以及成功/失败原因，沉淀为结构化经验，而非依赖人工总结。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.2</div><h4>经验按场景准确召回</h4><div class="short">按业务/对象/SOP/环境主动找到相似历史经验。</div><div class="long">面对新任务时，Agent 需根据业务类型、操作对象、SOP 步骤和当前环境主动找到相似历史经验，而非简单关键词匹配或把所有历史塞给模型。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.3</div><h4>经验真正参与当前决策</h4><div class="short">召回经验要影响规划、工具选择、风险判断与核验。</div><div class="long">召回经验不能只是「给 Agent 看」，而要真正影响任务规划、工具选择、风险判断、核验方式和异常处理，例如历史上某类变更易漏某项检查，Agent 应主动补充。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.4</div><h4>经验有效性验证</h4><div class="short">结合当前 SOP/环境/执行结果验证经验是否仍有效。</div><div class="long">Agent 不能无条件相信历史经验，需结合当前 SOP、生产环境和本次真实执行结果验证经验是否仍然有效，避免因 SOP 更新、工具或环境变化继续使用过期经验。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.5</div><h4>经验持续更新与纠错</h4><div class="short">新结果与历史不一致时修正/合并；多次失效则降权淘汰。</div><div class="long">当新执行结果与历史经验不一致时，Agent 需能修正、补充或合并已有经验；对多次被证明错误或失效的经验，需降低优先级甚至淘汰。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.6</div><h4>成功经验逐步固化复用</h4><div class="short">多次验证有效的经验沉淀为标准化流程或可复用能力。</div><div class="long">对多次执行验证有效、稳定成功的经验，Agent 应逐渐沉淀成更标准化的操作流程或可复用能力，使类似任务后续不再每次从头探索。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.7</div><h4>失败经验形成约束</h4><div class="short">记住导致异常的操作/出错的判断/不可执行的条件。</div><div class="long">不仅要记住「怎么做成功」，还要记住哪些操作曾导致异常、哪些判断曾出错、哪些条件下不能执行，从而让 Agent 后续主动规避相同错误。</div><div class="expand-hint">展开 ▾</div></div>
+      <div class="req-card reveal"><div class="rnum">REQ 8.8</div><h4>迭代结果可验证可追溯</h4><div class="short">每次新增/修改/淘汰经验保留来源，经人批准避免越改越差。</div><div class="long">Agent 每次新增、修改或淘汰经验都需保留来源和依据，并通过任务结果验证修改是否真的有效，任何修改都需要有人批准，避免 Agent「自己越改越差」。</div><div class="expand-hint">展开 ▾</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== MMOS TABLE ===================== -->
+<section id="mmos">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">SOLUTION · MINDMEMOS</div>
+      <h2 class="sec-title">MindMemOS 能力对照</h2>
+      <p class="sec-desc">MindMemOS 提供了经验沉淀与自迭代的底层能力，但仍需补充运维专属语义与决策机制。绿色为已提供，橙色为仍需补充。</p>
+    </div>
+    <div class="mmos-wrap reveal">
+      <div class="mmos-row head">
+        <div>需求</div>
+        <div>MindMemOS 可以提供</div>
+        <div>仍然缺乏</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.1</span><div class="req-name">经验自动识别与沉淀</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持从对话和执行轨迹自动抽取记忆，通过 <strong>Schema Add</strong> 按实体/属性/事件结构化存储，保留 Task、Session、Agent、时间等上下文。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>运维专属经验定义</strong>，无法天然识别检查方法、操作顺序、关键参数、判断依据、异常处理、成功/失败原因，需补充运维经验 Schema 和轨迹解析逻辑。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.2</span><div class="req-name">经验按场景准确召回</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持<strong>语义检索、Schema Search、Agentic Search、Rerank</strong>，可按实体/属性/时间/关系召回相关历史经验，而非仅关键词匹配。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>运维场景相似度定义</strong>，需明确业务类型、操作对象、SOP Step、工具、环境状态如何共同决定「是否相似变更」。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.3</span><div class="req-name">经验真正参与当前决策</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>可在 Agent 执行前检索相关经验，并通过 <strong>Memory Injection</strong> 注入当前上下文，供 Planner 和 Agent 使用。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>经验驱动决策机制</strong>，MindMemOS 负责「找出经验」，但不保证 Agent 据此调整计划、工具选择、风险判断和核验方式，需在 Agent Harness 中补充。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.4</span><div class="req-name">经验有效性验证</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持<strong>显式与隐式 Feedback</strong>，可根据后续反馈对 Memory 进行新增、修改和删除。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>当前业务事实校验</strong>，无法自行判断历史经验是否仍符合当前 SOP、生产环境和真实执行状态，需增加经验使用前的验证机制。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.5</span><div class="req-name">经验持续更新与纠错</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持 <strong>Memory Update / Archive / Delete</strong>，并通过 <strong>Dreaming</strong> 对重复、冲突和相关经验进行整理和合并。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>经验质量管理规则</strong>，如连续失败多少次需降权、SOP 更新后哪些经验失效、冲突经验如何处理，需业务侧定义。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.6</span><div class="req-name">成功经验逐步固化复用</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持 <strong>Skill Evolution</strong>，可汇总多条真实执行轨迹自动总结经验，并基于经验修改 Skill、生成新版本。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>经验晋升标准</strong>，需定义什么经验只保留为 Memory、什么经验经多次验证后可升级为稳定 Skill。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.7</span><div class="req-name">失败经验形成约束</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持为轨迹记录 <strong>Score</strong>，Skill Evolution 可利用高分和低分轨迹调整 Skill；失败经验也可通过 Feedback 长期保存。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>运维风险语义</strong>，需把失败经验整理成「禁止条件、前置检查、风险条件、异常停止、回退条件」等可执行约束。</div>
+      </div>
+      <div class="mmos-row">
+        <div class="mmos-cell"><span class="req-id">REQ 8.8</span><div class="req-name">迭代结果可验证可追溯</div></div>
+        <div class="mmos-cell mmos-provide"><span class="mobile-label">提供</span>支持 <strong>Skill Version、History、Diff、Rollback</strong>，保留轨迹到新版本的演化关系，新版本也可先以 Draft 形式存在。</div>
+        <div class="mmos-cell mmos-lack"><span class="mobile-label">缺乏</span>缺少<strong>业务效果验证闭环</strong>，需增加新旧版本测评、真实变更验证和发布 Gate，确保 Skill 更新后真的变好而非越改越差。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ROADMAP ===================== -->
+<section id="road">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">IMPLEMENTATION ROADMAP</div>
+      <h2 class="sec-title">四阶段改造路线图</h2>
+      <p class="sec-desc">从「会记」到「会进化」，分四阶段逐步接入 MindMemOS 能力，每阶段都有明确的功能目标与可验证产出。</p>
+    </div>
+    <div class="roadmap">
+      <div class="road-line"></div>
+      <div class="road-grid">
+        <div class="road-node reveal">
+          <div class="stage-num">STAGE 01</div>
+          <div class="node-dot"></div>
+          <div class="road-card">
+            <h4>会记</h4>
+            <div class="stage-sub mono">// experience capture</div>
+            <div class="block"><div class="block-label">对应需求</div><div class="block-content"><span class="pill">需求1 · 经验自动识别与沉淀</span></div></div>
+            <div class="block"><div class="block-label">接入能力</div><div class="block-content"><span class="pill">Memory Add</span><span class="pill">Schema Add</span></div></div>
+            <div class="block"><div class="block-label">功能目标</div><div class="block-content"><div class="goal">Agent 完成任务后，自动收集对话、工具调用、执行动作、执行结果、异常信息等轨迹，并带上 Task、Session、Agent、时间等上下文，形成可长期保存的结构化经验。</div></div></div>
+          </div>
+        </div>
+        <div class="road-node reveal">
+          <div class="stage-num">STAGE 02</div>
+          <div class="node-dot"></div>
+          <div class="road-card">
+            <h4>会找 · 会用</h4>
+            <div class="stage-sub mono">// retrieval &amp; decision</div>
+            <div class="block"><div class="block-label">对应需求</div><div class="block-content"><span class="pill">需求2 · 按场景召回</span><span class="pill">需求3 · 参与决策</span></div></div>
+            <div class="block"><div class="block-label">接入能力</div><div class="block-content"><span class="pill">Schema Search</span><span class="pill">Agentic Search</span><span class="pill">Rerank</span><span class="pill">Memory Injection</span></div></div>
+            <div class="block"><div class="block-label">功能目标</div><div class="block-content"><div class="goal">Agent 接到新任务时，主动检索相关历史经验，对候选经验排序，并将高相关经验注入 Planner，使历史经验真正参与当前任务规划、工具选择和执行判断。</div></div></div>
+          </div>
+        </div>
+        <div class="road-node reveal">
+          <div class="stage-num">STAGE 03</div>
+          <div class="node-dot"></div>
+          <div class="road-card">
+            <h4>会改</h4>
+            <div class="stage-sub mono">// validation &amp; correction</div>
+            <div class="block"><div class="block-label">对应需求</div><div class="block-content"><span class="pill">需求4 · 有效性验证</span><span class="pill">需求5 · 持续纠错</span><span class="pill">需求7 · 失败约束</span></div></div>
+            <div class="block"><div class="block-label">接入能力</div><div class="block-content"><span class="pill">Explicit Feedback</span><span class="pill">Implicit Feedback</span><span class="pill">Memory Update/Archive/Delete</span><span class="pill">Dreaming</span><span class="pill">Trajectory Score</span></div></div>
+            <div class="block"><div class="block-label">功能目标</div><div class="block-content"><div class="goal">每次任务结束后，根据成功、失败、人工反馈和实际执行结果反向更新经验；错误、重复、冲突经验可被修改、归档或整理，成功和失败轨迹都能形成后续学习依据。</div></div></div>
+          </div>
+        </div>
+        <div class="road-node reveal">
+          <div class="stage-num">STAGE 04</div>
+          <div class="node-dot" style="border-color:var(--purple);box-shadow:var(--glow-purple)"></div>
+          <div class="road-card" style="border-color:rgba(139,92,246,0.4)">
+            <h4 style="background:linear-gradient(135deg,#8b5cf6,#06b6d4);-webkit-background-clip:text;background-clip:text;color:transparent">会进化</h4>
+            <div class="stage-sub mono">// skill evolution</div>
+            <div class="block"><div class="block-label">对应需求</div><div class="block-content"><span class="pill">需求6 · 固化复用</span><span class="pill">需求8 · 可验证可追溯</span></div></div>
+            <div class="block"><div class="block-label">接入能力</div><div class="block-content"><span class="pill">Skill Evolution</span><span class="pill">Skill Version</span><span class="pill">History</span><span class="pill">Diff</span><span class="pill">Rollback</span><span class="pill">Draft</span></div></div>
+            <div class="block"><div class="block-label">功能目标</div><div class="block-content"><div class="goal">某类经验经多次任务验证后，汇总真实执行轨迹并自动生成 Skill 新版本；保留版本历史、修改差异和回滚能力，实现从「经验」到「稳定能力」的逐步固化。</div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== VALUE LOOP ===================== -->
+<section id="value">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="sec-tag">VALUE LOOP</div>
+      <h2 class="sec-title">价值闭环</h2>
+      <p class="sec-desc">痛点驱动能力，能力对应路线，路线回归价值。整个蓝图形成一条可验证的闭环。</p>
+    </div>
+    <div class="value-wrap reveal">
+      <div class="value-flow">
+        <div class="value-step"><div class="vs-num">FROM</div><h4>10 痛点</h4><p>陪跑低效 · 信息分散 · 漏检误判 · 经验流失</p></div>
+        <div class="value-arrow">→</div>
+        <div class="value-step"><div class="vs-num">BUILD</div><h4>6 核心能力</h4><p>流程理解 · 自主执行 · 持续核验 · 分级协作 · 过程审计 · 经验迭代</p></div>
+        <div class="value-arrow">→</div>
+        <div class="value-step"><div class="vs-num">VIA</div><h4>4 阶段路线</h4><p>会记 → 会找会用 → 会改 → 会进化</p></div>
+        <div class="value-arrow">→</div>
+        <div class="value-step"><div class="vs-num">TO</div><h4>价值产出</h4><p>配合人聚焦风险判断 · 经验越用越准 · 风险更早发现</p></div>
+      </div>
+      <div class="value-quote">让 Agent 记住每一次变更，让下一次变更更稳、更快、更省人力。</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="mono">// 运维变更协作 Agent · 能力演进蓝图 &nbsp;·&nbsp; problem-driven · capability-mapped · roadmap-anchored</div>
+  </div>
+</footer>
+
+<button class="to-top" id="toTop" aria-label="back to top">↑</button>
+
+<script>
+  // ===== Nav toggle (mobile) =====
+  const navToggle = document.getElementById('navToggle');
+  const navLinks = document.getElementById('navLinks');
+  navToggle.addEventListener('click', () => navLinks.classList.toggle('open'));
+
+  // ===== Smooth scroll + active highlight =====
+  const anchors = document.querySelectorAll('.nav-links a');
+  const sections = ['hero','pain','cap','gap','req8','mmos','road','value'].map(id=>document.getElementById(id));
+  anchors.forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.getElementById(a.dataset.target);
+      if (target) {
+        target.scrollIntoView({behavior:'smooth'});
+        navLinks.classList.remove('open');
+      }
+    });
+  });
+  // active section highlight
+  const obsActive = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        anchors.forEach(a => a.classList.toggle('active', a.dataset.target === en.target.id));
+      }
+    });
+  }, {rootMargin:'-40% 0px -55% 0px'});
+  sections.forEach(s => s && obsActive.observe(s));
+
+  // ===== Reveal on scroll =====
+  const reveals = document.querySelectorAll('.reveal');
+  const obsReveal = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        en.target.classList.add('in');
+        obsReveal.unobserve(en.target);
+      }
+    });
+  }, {threshold:0.12});
+  reveals.forEach(r => obsReveal.observe(r));
+
+  // ===== Tabs (现有/缺口) =====
+  const tabs = document.querySelectorAll('.tab');
+  const listHas = document.getElementById('listHas');
+  const listGap = document.getElementById('listGap');
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      const show = t.dataset.tab === 'has';
+      listHas.style.display = show ? 'grid' : 'none';
+      listGap.style.display = show ? 'none' : 'grid';
+      // re-trigger reveal for newly shown items
+      const target = show ? listHas : listGap;
+      target.querySelectorAll('.list-item').forEach((el,i) => {
+        el.classList.remove('in');
+        setTimeout(()=>el.classList.add('in'), 40*i);
+      });
+    });
+  });
+
+  // ===== List item expand =====
+  document.querySelectorAll('.list-item').forEach(item => {
+    item.addEventListener('click', () => item.classList.toggle('open'));
+  });
+
+  // ===== Req card expand =====
+  document.querySelectorAll('.req-card').forEach(card => {
+    card.addEventListener('click', () => {
+      card.classList.toggle('open');
+      const hint = card.querySelector('.expand-hint');
+      if (hint) hint.textContent = card.classList.contains('open') ? '收起 ▴' : '展开 ▾';
+    });
+  });
+
+  // ===== Back to top =====
+  const toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', () => {
+    toTop.classList.toggle('show', window.scrollY > 600);
+  });
+  toTop.addEventListener('click', () => window.scrollTo({top:0, behavior:'smooth'}));
+</script>
+</body>
+</html>

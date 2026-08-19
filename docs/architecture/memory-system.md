@@ -37,13 +37,11 @@ new Session / first user turn after completed Compact
 canonical user turn / verified tool result
   -> MemoryEvidenceLedger records ordered scope evidence (not model-visible)
   -> mindmemos_add validates content + fact|procedure against current scope
-  -> enqueue immutable content/type/provenance/request context; return accepted + job_id
-  -> one application-owned FIFO worker (eventual visibility)
   -> EmbeddedMindMemOS.add_flat() with no Add pipeline or chat model
-  -> preprocess(include_entities=false) + memory embedding + BM25
+  -> preprocess(include_entities=false) + BM25
   -> strong MemoryDbWritePlan(memory, vector, message source, EXTRACTED_FROM)
-  -> exact raw memory readback by persistent ID
-  -> completed|failed job JSONL event
+  -> exact Qdrant vector/payload and Neo4j graph readback; return stored + memory_id
+  -> two application-owned workers enrich dense vector + Entity/MENTIONS on the same ID
 
 mindmemos_search
   -> EmbeddedMindMemOS.search()
@@ -106,12 +104,12 @@ without a valid matching HomeMaster owner marker is treated as external and is n
 reuse the same application-owned resources; HomeMaster does not add Kafka, HTTP self-calls or a second database. Skill
 evolution remains out of scope.
 
-`MemoryAddQueue` owns the public flat Add timing contract. Admission occurs after permission, content/type and
-scope-evidence validation; it returns `accepted`, an opaque `job_id`, no `memory_id`, and
-`verified_terminal_state=false` (`status=success, domain_status=accepted` in the generic provider envelope). One worker
-runs jobs FIFO with no concurrency and no retry. A failed job is terminal and
-does not stop later jobs. Clean application shutdown drains accepted jobs before closing database resources, while
-crash, power loss and `SIGKILL` may lose process-local work. Update/delete/feedback/history/search remain synchronous.
+The public flat Add timing contract waits for permission, content/type, scope evidence, exact Memory/BM25 storage and
+Neo4j provenance readback. It returns `stored`, the real `memory_id`, and `verified_terminal_state=true`
+(`status=success, domain_status=stored` in the generic provider envelope). `MemoryEnrichmentQueue` has exactly two
+workers; each patches that same ID with a dense vector and native Entity/`MENTIONS`, and a failed job does not stop later
+jobs. Clean application shutdown drains enrichment before closing databases. `MemoryAddQueue` remains only for ordered
+Session Finalizer work. Update/delete/feedback/history/search remain synchronous.
 
 ## Tool Contracts
 

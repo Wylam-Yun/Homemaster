@@ -1,5 +1,15 @@
 # HomeMaster Agent Rules
 
+## 外部向量终态验证纪律
+
+- 向量写入外部存储后的读回验证必须考虑其公开数值精度（例如 Qdrant float32）；逐实例核对维度、非零性和
+  每一维有限误差，禁止用 Python 浮点逐位完全相等把成功落盘误报为失败。
+
+## 分阶段后台任务重入纪律
+
+- 分阶段后台任务必须从每一种合法的部分完成状态独立重入；后续阶段需要的配置和标识不得只在已完成阶段的分支
+  内初始化。回归至少覆盖首次完整执行和跳过前一阶段后的后续阶段重试，并分别核对外部终态。
+
 ## Graceful cleanup 信号纪律
 
 - 区分 session rotate 与 process shutdown：`/new` 只能把旧 Session 收尾排入 application-owned FIFO 后立即

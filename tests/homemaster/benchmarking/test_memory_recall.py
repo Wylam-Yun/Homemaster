@@ -20,14 +20,14 @@ from homemaster.benchmarking.memory_recall import (
 )
 
 
-def _tool_events(job_id: str = "job-1") -> str:
+def _tool_events(memory_id: str = "memory-1") -> str:
     payload = {
         "success": True,
         "status": "success",
-        "domain_status": "accepted",
-        "verified_terminal_state": False,
+        "domain_status": "stored",
+        "verified_terminal_state": True,
         "backend_attempted": True,
-        "job_id": job_id,
+        "memory_id": memory_id,
     }
     return "\n".join(
         (
@@ -102,12 +102,11 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
     records = load_dataset(paths.dataset)
     calls: list[list[str]] = []
 
-    def verify(job_id, record):
+    def verify(memory_id, record):
         return {
-            "job_id": job_id,
-            "status": "completed",
+            "status": "stored",
             "verified_terminal_state": True,
-            "memory_id": f"memory-{record.index}",
+            "memory_id": memory_id,
             "content": record.tool_content,
         }
 
@@ -115,7 +114,7 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
         calls.append(list(command))
         return CompletedCommand(
             returncode=0,
-            stdout=_tool_events(f"job-{len(calls)}"),
+            stdout=_tool_events(f"memory-{len(calls)}"),
             stderr="",
             elapsed_seconds=1.5,
             timed_out=False,
@@ -181,7 +180,7 @@ def test_write_run_classifies_unconfirmed_mutations(
         timeout_seconds=10,
         max_records=1,
         runner=runner,
-        terminal_verifier=lambda job_id, record: None,
+        terminal_verifier=lambda memory_id, record: None,
     )
 
     assert result["state"] == expected_state

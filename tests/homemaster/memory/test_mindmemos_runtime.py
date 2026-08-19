@@ -269,6 +269,8 @@ async def test_embedded_mindmemos_owns_persistent_local_qdrant(
     assert runtime.qdrant.memory_collection in {
         collection.name for collection in collections.collections
     }
+    assert runtime._vanilla_add_pipeline._memory_extractor._enable_entities is True
+    assert runtime._vanilla_add_pipeline._get_vanilla_add_config().enable_entities is True
     await runtime.close()
 
     reopened = runtime_type(config)
@@ -495,12 +497,6 @@ async def test_add_flat_builds_memory_source_vector_only_and_reads_back_exact_co
             assert tokens == ["preserve", "memory"]
             return SimpleNamespace(indices=[7, 11], values=[1.0, 2.0])
 
-    class EmbedClient:
-        async def embed(self, *, task, text):
-            assert task == "memory.add.embed"
-            assert text == content
-            return SimpleNamespace(embeddings=[[0.1, 0.2]])
-
     class Writer:
         async def write(self, context, plan, *, consistency):
             assert consistency == "strong"
@@ -537,13 +533,46 @@ async def test_add_flat_builds_memory_source_vector_only_and_reads_back_exact_co
             assert memory_id == captured["raw"].memory_id
             return captured["raw"]
 
+    class Qdrant:
+        async def get_memories(self, project_id, memory_ids, *, with_vectors=False):
+            assert project_id == "project-1"
+            assert memory_ids == [captured["raw"].memory_id]
+            assert with_vectors is True
+            return [
+                SimpleNamespace(
+                    vectors={
+                        "semantic": [0.0, 0.0],
+                        "bm25": SimpleNamespace(indices=[7, 11], values=[1.0, 2.0]),
+                    }
+                )
+            ]
+
+    class Neo4j:
+        async def run_read(self, query, **params):
+            assert "EXTRACTED_FROM" in query
+            return [
+                {
+                    "memory_id": params["memory_id"],
+                    "source_id": params["source_id"],
+                }
+            ]
+
     runtime = module.EmbeddedMindMemOS.__new__(module.EmbeddedMindMemOS)
     runtime._writer = Writer()
     runtime._recorder = Recorder()
     runtime._reader = Reader()
     runtime._flat_text_preprocessor = Preprocessor()
     runtime._flat_sparse_encoder = SparseEncoder()
-    runtime._flat_embed_client = EmbedClient()
+    runtime._qdrant = Qdrant()
+    runtime._neo4j = Neo4j()
+    runtime._mindmemos_config = SimpleNamespace(
+        database=SimpleNamespace(
+            qdrant=SimpleNamespace(
+                semantic_vector_name="semantic",
+                bm25_vector_name="bm25",
+            )
+        )
+    )
     context = MemoryRequestContext(
         request_id=f"request-{declared_type}",
         account_id="account-1",
@@ -577,15 +606,185 @@ async def test_add_flat_builds_memory_source_vector_only_and_reads_back_exact_co
     assert memory.metadata["evidence_kind"] == "environment_observation"
     assert isinstance(memory.metadata["add_record_id"], str)
     assert memory.metadata["entity_count"] == 0
-    assert plan.vectors[0].semantic_vector == [0.1, 0.2]
+    assert plan.vectors[0].semantic_vector is None
     assert plan.vectors[0].bm25_indices == [7, 11]
     assert result["memory_id"] == memory.memory_id
-    assert result["content"] == content
+    assert "content" not in result
     assert result["memory_type"] == declared_type
     assert result["verified_terminal_state"] is True
     assert "record_completed" in captured
     assert captured["record_completed"][1] == memory.metadata["add_record_id"]
     assert "record_failed" not in captured
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vector_pending", [True, False])
+async def test_enrich_flat_memory_patches_same_id_and_writes_entities(
+    vector_pending: bool,
+) -> None:
+    from mindmemos.components.extractor.vanilla import (
+        ExtractedEntityCandidate,
+        ExtractedMemoryCandidate,
+        MemoryExtractionResult,
+    )
+    from mindmemos.typing import MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    memory_id = "memory-1"
+    content = "Aurora-A18 uses uv for dependency management."
+    metadata = {
+        "vector_pending": vector_pending,
+        "entity_enrichment_pending": True,
+        "entity_count": 0,
+        "entities": [],
+    }
+    dense_vector = [0.4, 0.6]
+    stored_dense_vector = [0.4000000059604645, 0.6000000238418579]
+    entity_vectors: dict[str, list[float]] = {}
+    entity_ids: list[str] = []
+    mentions: set[str] = set()
+    memory_count = 1
+
+    class Reader:
+        async def get_memory(self, context, requested_id):
+            del context
+            assert requested_id == memory_id
+            return SimpleNamespace(status="active", metadata=dict(metadata))
+
+    class EmbedClient:
+        async def embed(self, *, task, text):
+            assert vector_pending is True
+            assert task == "memory.add.embed"
+            assert text == content
+            return SimpleNamespace(embeddings=[dense_vector])
+
+    class Preprocessor:
+        def preprocess_text(self, text, **kwargs):
+            assert text == content
+            assert kwargs["include_entities"] is True
+            return SimpleNamespace(entities=[])
+
+    class Extractor:
+        async def extract_from_envelope(self, envelope, preprocessed, context):
+            del envelope, preprocessed, context
+            return MemoryExtractionResult(
+                memories=[
+                    ExtractedMemoryCandidate(
+                        ref_id="memory",
+                        content=content,
+                        mem_type="fact",
+                        source_refs=[],
+                        entities=["entity-aurora", "entity-uv"],
+                    )
+                ],
+                entities=[
+                    ExtractedEntityCandidate(
+                        ref_id="entity-aurora",
+                        entity_name="Aurora-A18",
+                        entity_type="project",
+                    ),
+                    ExtractedEntityCandidate(
+                        ref_id="entity-uv",
+                        entity_name="uv",
+                        entity_type="tool",
+                    ),
+                ],
+            )
+
+    class Vectorizer:
+        async def vectorize_entities(self, entities, *, consistency):
+            assert consistency == "strong"
+            from mindmemos.typing import EntityVectorWrite
+
+            return (
+                [
+                    EntityVectorWrite(
+                        entity_id=entity.entity_id,
+                        semantic_vector=[0.2, 0.8],
+                    )
+                    for entity in entities
+                ],
+                False,
+            )
+
+    class Qdrant:
+        async def patch_memory(self, project_id, requested_id, payload, *, dense_vector=None):
+            assert project_id == "project-1"
+            assert requested_id == memory_id
+            metadata.update(payload["metadata"])
+            if dense_vector is not None:
+                assert dense_vector == [0.4, 0.6]
+
+        async def get_memories(self, project_id, requested_ids, *, with_vectors=False):
+            assert project_id == "project-1"
+            assert requested_ids == [memory_id]
+            assert with_vectors is True
+            return [SimpleNamespace(vectors={"semantic": stored_dense_vector})]
+
+        async def get_entity(self, project_id, entity_id, *, with_vectors=False):
+            assert project_id == "project-1"
+            assert with_vectors is True
+            return SimpleNamespace(vectors={"semantic": entity_vectors[entity_id]})
+
+    class Neo4j:
+        async def run_read(self, query, **params):
+            assert "MENTIONS" in query
+            return (
+                [{"entity_id": params["entity_id"]}]
+                if params["entity_id"] in mentions
+                else []
+            )
+
+    class Writer:
+        async def write(self, context, plan, *, consistency):
+            nonlocal memory_count
+            del context
+            assert consistency == "strong"
+            assert plan.memories == []
+            assert len(plan.entities) == 2
+            assert len(plan.relationships) == 2
+            memory_count += len(plan.memories)
+            for vector in plan.entity_vectors:
+                entity_vectors[vector.entity_id] = list(vector.semantic_vector or [])
+            entity_ids.extend(entity.entity_id for entity in plan.entities)
+            mentions.update(
+                relationship.target.node_id for relationship in plan.relationships
+            )
+            return SimpleNamespace(graph_pending=False, errors=[])
+
+    runtime = module.EmbeddedMindMemOS.__new__(module.EmbeddedMindMemOS)
+    runtime._reader = Reader()
+    runtime._writer = Writer()
+    runtime._flat_embed_client = EmbedClient()
+    runtime._flat_text_preprocessor = Preprocessor()
+    runtime._flat_entity_extractor = Extractor()
+    runtime._flat_memory_vectorizer = Vectorizer()
+    runtime._qdrant = Qdrant()
+    runtime._neo4j = Neo4j()
+    runtime._mindmemos_config = SimpleNamespace(
+        database=SimpleNamespace(qdrant=SimpleNamespace(semantic_vector_name="semantic"))
+    )
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+
+    result = await runtime.enrich_flat_memory(
+        memory_id=memory_id,
+        content=content,
+        context=context,
+    )
+
+    assert result["memory_id"] == memory_id
+    assert set(result["entity_ids"]) == set(entity_ids) == mentions
+    assert memory_count == 1
+    assert metadata["vector_pending"] is False
+    assert metadata["entity_enrichment_pending"] is False
+    assert metadata["entity_count"] == 2
+    assert set(metadata["entities"]) == {"Aurora-A18", "uv"}
 
 
 @pytest.mark.asyncio

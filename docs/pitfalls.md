@@ -1,5 +1,35 @@
 # Engineering Pitfalls
 
+# Qdrant float32 回读被逐位相等误报为后台增强失败（2026-08-19）
+
+- 症状：真实 `mindmemos_add` 在 78.9ms 内成功返回 `stored` 和 memory ID，增强队列也进入
+  `queued -> processing`，但 0.755s 后报 `enrichment vector readback failed`，Entity 阶段未执行。
+- 根因：embedding API 返回的 Python 浮点写入 Qdrant 后按 float32 存储；4096 维向量全部非零且最大绝对误差
+  仅 `7.45e-9`，验收代码却要求列表逐位完全相等。
+- 修法/教训：回读仍逐维核对，但使用 `rel_tol=1e-6`、`abs_tol=1e-7` 的有限误差，同时要求维度一致和向量非零；
+  回归 fixture 模拟真实 float32 round-trip。
+- Ref: `src/homemaster/memory/mindmemos_runtime.py`,
+  `tests/homemaster/memory/test_mindmemos_runtime.py::test_enrich_flat_memory_patches_same_id_and_writes_entities`
+
+## 2026-08-19 - 分阶段增强首次成功，部分完成后的 Entity 重试却引用未初始化状态
+
+### 症状与根因
+
+stored-first 增强首次执行时先完成 dense vector，再执行 Entity；成功路径测试全部通过。但如果 dense 已写入并清除
+`vector_pending`，Entity 随后失败，下一次重试会跳过 dense 分支。Entity 终态验证使用的 vector name 原先只在
+dense 分支内赋值，因此这种部分完成重试会在真正的 Entity 读回前抛出未初始化变量错误。
+
+### 修法与教训
+
+把所有后续阶段共用的确定性配置在分支之前解析；每个 pending 阶段必须能从任意合法的部分完成状态独立重入。
+回归同时覆盖 `vector_pending=true` 的完整执行和 `vector_pending=false, entity_enrichment_pending=true` 的 Entity-only
+重试，不能只测首次全成功。
+
+### 参考
+
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `tests/homemaster/memory/test_mindmemos_runtime.py`
+
 ## 2026-08-19 - HomeMaster 缩减原生 memory type，把有效 tool_trace 误报为损坏
 
 ### 症状与根因

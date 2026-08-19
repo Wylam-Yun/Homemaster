@@ -113,7 +113,7 @@ class CommandRunner(Protocol):
 
 
 class WriteTerminalVerifier(Protocol):
-    def __call__(self, job_id: str, record: BenchmarkRecord) -> dict[str, Any] | None: ...
+    def __call__(self, memory_id: str, record: BenchmarkRecord) -> dict[str, Any] | None: ...
 
 
 @dataclass(frozen=True)
@@ -490,7 +490,7 @@ def build_write_prompt(record: BenchmarkRecord) -> str:
         "content 必须与下面 JSON 字符串逐字一致。"
         "不要调用 mindmemos_search、mindmemos_update、mindmemos_delete、"
         "observe、机器人或浏览器工具。"
-        "不要改写、重排或解释 content。工具完成后只报告真实 status 和 job_id。\n"
+        "不要改写、重排或解释 content。工具完成后只报告真实 status 和 memory_id。\n"
         f"{record.tool_content}"
     )
 
@@ -578,20 +578,20 @@ def _inspect_write(
     if completions:
         receipt = _decoded_output(completions[-1])
         if receipt is not None:
-            accepted = (
+            stored = (
                 completed.returncode == 0
                 and receipt.get("success") is True
                 and receipt.get("status") == "success"
-                and receipt.get("domain_status") == "accepted"
-                and receipt.get("verified_terminal_state") is False
+                and receipt.get("domain_status") == "stored"
+                and receipt.get("verified_terminal_state") is True
                 and receipt.get("backend_attempted") is True
-                and isinstance(receipt.get("job_id"), str)
-                and bool(str(receipt["job_id"]).strip())
-                and "memory_id" not in receipt
+                and isinstance(receipt.get("memory_id"), str)
+                and bool(str(receipt["memory_id"]).strip())
+                and "job_id" not in receipt
             )
-            if accepted:
+            if stored:
                 try:
-                    terminal = terminal_verifier(str(receipt["job_id"]), record)
+                    terminal = terminal_verifier(str(receipt["memory_id"]), record)
                 except Exception as exc:
                     return (
                         "outcome_unknown",
@@ -600,19 +600,21 @@ def _inspect_write(
                     )
                 valid_terminal = bool(
                     terminal is not None
-                    and terminal.get("job_id") == receipt["job_id"]
-                    and terminal.get("status") == "completed"
+                    and terminal.get("memory_id") == receipt["memory_id"]
+                    and terminal.get("status") == "stored"
                     and terminal.get("verified_terminal_state") is True
-                    and isinstance(terminal.get("memory_id"), str)
-                    and bool(str(terminal["memory_id"]).strip())
                     and terminal.get("content") == record.tool_content
                 )
                 if valid_terminal:
-                    return "confirmed", terminal, "confirmed post-exit raw terminal state"
-                return "outcome_unknown", receipt, "accepted job has no matching terminal state"
+                    return "confirmed", terminal, "confirmed stored raw terminal state"
+                return (
+                    "outcome_unknown",
+                    receipt,
+                    "stored receipt has no matching raw terminal state",
+                )
             if receipt.get("backend_attempted") is False:
                 return "safe_to_retry", receipt, "backend was not attempted"
-            return "outcome_unknown", receipt, "acceptance receipt was incomplete or mismatched"
+            return "outcome_unknown", receipt, "stored receipt was incomplete or mismatched"
     if started:
         return (
             "outcome_unknown",
@@ -662,7 +664,7 @@ def write_run(
         state, receipt, reason = _inspect_write(
             completed,
             record,
-            terminal_verifier or _verify_accepted_write,
+            terminal_verifier or _verify_stored_write,
         )
         result = {
             "index": record.index,
@@ -702,38 +704,20 @@ def write_run(
     }
 
 
-def _verify_accepted_write(job_id: str, record: BenchmarkRecord) -> dict[str, Any] | None:
+def _verify_stored_write(memory_id: str, record: BenchmarkRecord) -> dict[str, Any] | None:
     config = load_config()
-    job_log = config.memory.data_root / "mindmemos" / "add_jobs.jsonl"
-    completed = None
-    for event in _read_jsonl(job_log):
-        if event.get("event") != "memory_add_job":
-            continue
-        payload = event.get("payload")
-        if (
-            isinstance(payload, Mapping)
-            and payload.get("job_id") == job_id
-            and payload.get("status") in {"completed", "failed"}
-        ):
-            completed = dict(payload)
-    if completed is None or completed.get("status") != "completed":
-        return None
-    memory_id = completed.get("memory_id")
-    if not isinstance(memory_id, str) or not memory_id:
-        return None
-    raw_content = asyncio.run(_read_raw_content(config, memory_id, job_id))
+    raw_content = asyncio.run(_read_raw_content(config, memory_id))
     if raw_content != record.tool_content:
         return None
     return {
-        "job_id": job_id,
-        "status": "completed",
+        "status": "stored",
         "memory_id": memory_id,
         "content": raw_content,
         "verified_terminal_state": True,
     }
 
 
-async def _read_raw_content(config: Any, memory_id: str, job_id: str) -> str | None:
+async def _read_raw_content(config: Any, memory_id: str) -> str | None:
     managed = (
         ManagedNeo4jRuntime(config.memory) if config.memory.neo4j.mode == "managed_local" else None
     )
@@ -747,7 +731,7 @@ async def _read_raw_content(config: Any, memory_id: str, job_id: str) -> str | N
         from mindmemos.typing import MemoryRequestContext
 
         context = MemoryRequestContext(
-            request_id=f"benchmark-verify-{job_id}",
+            request_id=f"benchmark-verify-{memory_id}",
             account_id="local",
             project_id="local",
             api_key_uuid="embedded-local",

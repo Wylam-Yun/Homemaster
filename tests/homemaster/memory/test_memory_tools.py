@@ -15,6 +15,7 @@ from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.agent.messages import UserMessage
 from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.memory.add_queue import MemoryAddQueue
+from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.feedback_context import build_feedback_context_snapshot
 from homemaster.memory.file_store import FileMemoryStore
@@ -532,6 +533,10 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
             )
             return {"memory_id": memory_id, "verified_terminal_state": True}
 
+        async def enrich_flat_memory(self, *, memory_id, content, context):
+            del content, context
+            return {"memory_id": memory_id, "entity_ids": []}
+
         async def get_raw(self, memory_id, context):
             calls.append(("get_raw", (memory_id, context)))
             is_episode = memory_id.startswith("episode-memory-")
@@ -605,12 +610,18 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     runtime = FakeMindMemOS()
     add_queue = MemoryAddQueue(runtime, audit_path=tmp_path / "add_jobs.jsonl")
     await add_queue.start()
+    enrichment_queue = MemoryEnrichmentQueue(
+        runtime,
+        audit_path=tmp_path / "enrichment_jobs.jsonl",
+    )
+    await enrichment_queue.start()
     context = ToolExecutionContext(
         tmp_path,
         metadata={
             "services": {
                 "mindmemos": runtime,
                 "memory_add_queue": add_queue,
+                "memory_enrichment_queue": enrichment_queue,
                 "memory_evidence_ledger": ledger,
             },
             "permission_subject": type(
@@ -633,7 +644,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         },
         context,
     )
-    await add_queue.wait_idle()
+    await enrichment_queue.wait_idle()
     updated = await executors["mindmemos_update"].execute(
         {
             "memory_id": "raw-memory-1",
@@ -647,10 +658,13 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     )
 
     assert added.success
-    assert added.data["status"] == "accepted"
-    assert added.data["job_id"]
-    assert added.data["verified_terminal_state"] is False
-    assert "memory_id" not in added.data
+    assert added.data == {
+        "success": True,
+        "operation": "add",
+        "status": "stored",
+        "memory_id": "raw-direct-1",
+        "verified_terminal_state": True,
+    }
     assert updated.success
     assert updated.data["memory_id"] == "raw-memory-2"
     assert deleted.success
@@ -664,17 +678,21 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     delete_ids = [payload[0] for operation, payload in calls if operation == "delete"]
     assert delete_ids == ["raw-memory-2"]
     await add_queue.aclose()
+    await enrichment_queue.aclose()
     ledger.close()
 
 
 @pytest.mark.asyncio
-async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
+async def test_mindmemos_add_waits_for_storage_but_not_background_enrichment(
     tmp_path: Path,
 ) -> None:
     entered = asyncio.Event()
     release = asyncio.Event()
 
-    class Store:
+    enrichment_entered = asyncio.Event()
+    enrichment_release = asyncio.Event()
+
+    class Store(EmbeddedMindMemOS):
         async def add_flat(
             self, content, memory_type, *, provenance_seq, evidence_kind, context
         ):
@@ -684,7 +702,14 @@ async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
             del provenance_seq, context
             entered.set()
             await release.wait()
-            return {"memory_id": "raw-accepted"}
+            return {"memory_id": "raw-stored", "verified_terminal_state": True}
+
+        async def enrich_flat_memory(self, *, memory_id, content, context):
+            del content, context
+            assert memory_id == "raw-stored"
+            enrichment_entered.set()
+            await enrichment_release.wait()
+            return {"memory_id": memory_id, "entity_ids": []}
 
     ledger = MemoryEvidenceLedger(tmp_path / "evidence.sqlite3")
     ledger.start()
@@ -695,13 +720,15 @@ async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
         run_id="run-a",
         turn_id="turn-1",
     )
-    queue = MemoryAddQueue(Store(), audit_path=tmp_path / "add_jobs.jsonl")
+    store = Store.__new__(Store)
+    queue = MemoryEnrichmentQueue(store, audit_path=tmp_path / "enrichment_jobs.jsonl")
     await queue.start()
     context = ToolExecutionContext(
         tmp_path,
         metadata={
             "services": {
-                "memory_add_queue": queue,
+                "mindmemos": store,
+                "memory_enrichment_queue": queue,
                 "memory_evidence_ledger": ledger,
             },
             "permission_subject": type(
@@ -721,19 +748,31 @@ async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
         if tool.definition.model_alias == "mindmemos_add"
     )
 
-    result = await executor.execute(
-        {
-            "memory_type": "fact",
-            "content": "  Aurora-A18 uses uv.  ",
-        },
-        context,
+    task = asyncio.create_task(
+        executor.execute(
+            {
+                "memory_type": "fact",
+                "content": "  Aurora-A18 uses uv.  ",
+            },
+            context,
+        )
     )
-
-    assert result.success
-    assert result.data["status"] == "accepted"
-    assert result.data["verified_terminal_state"] is False
     await asyncio.wait_for(entered.wait(), timeout=1)
+    assert task.done() is False
     release.set()
+    result = await asyncio.wait_for(task, timeout=1)
+    assert result.success
+    assert result.data == {
+        "success": True,
+        "operation": "add",
+        "status": "stored",
+        "memory_id": "raw-stored",
+        "verified_terminal_state": True,
+    }
+    assert "job_id" not in result.data
+    assert "background" not in result.data
+    await asyncio.wait_for(enrichment_entered.wait(), timeout=1)
+    enrichment_release.set()
     await queue.aclose()
     ledger.close()
 

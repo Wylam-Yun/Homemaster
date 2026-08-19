@@ -42,6 +42,7 @@ from homemaster.extensions import (
     LoadedExtension,
 )
 from homemaster.memory.add_queue import MemoryAddQueue
+from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.memory.models import FactRecord
@@ -310,6 +311,10 @@ class _RecordingMindMemOS(EmbeddedMindMemOS):
             update_at=None,
             status="active",
         )
+
+    async def enrich_flat_memory(self, *, memory_id, content, context):
+        del content, context
+        return {"memory_id": memory_id, "entity_ids": []}
 
 
 class _MemoryRecallStore(EmbeddedMindMemOS):
@@ -1086,6 +1091,11 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     store = _RecordingMindMemOS()
     queue = MemoryAddQueue(store, audit_path=tmp_path / "add-jobs.jsonl")
     await queue.start()
+    enrichment_queue = MemoryEnrichmentQueue(
+        store,
+        audit_path=tmp_path / "enrichment-jobs.jsonl",
+    )
+    await enrichment_queue.start()
     transport = _MemoryEvidenceTransport()
     app = _application(
         tmp_path,
@@ -1095,6 +1105,7 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
             "memory_evidence_ledger": ledger,
             "mindmemos": store,
             "memory_add_queue": queue,
+            "memory_enrichment_queue": enrichment_queue,
         },
     )
 
@@ -1108,7 +1119,7 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
 
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "记住了"
-    await queue.wait_idle()
+    await enrichment_queue.wait_idle()
     assert len(store.calls) == 1
     content, memory_type, provenance_seq, evidence_kind = store.calls[0]
     assert content == "钥匙在玄关抽屉"
@@ -1126,9 +1137,12 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     add_payload = json.loads(add_result.content[0].text)
     assert add_payload["operation"] == "add"
     assert add_payload["status"] == "success"
-    assert add_payload["domain_status"] == "accepted"
-    assert add_payload["job_id"]
-    assert add_payload["verified_terminal_state"] is False
+    assert add_payload["domain_status"] == "stored"
+    assert add_payload["memory_id"] == "memory-runtime-1"
+    assert add_payload["verified_terminal_state"] is True
+    assert "job_id" not in add_payload
+    assert "background" not in add_payload
+    await enrichment_queue.aclose()
     await queue.aclose()
     await app.aclose()
     ledger.close()
@@ -1194,6 +1208,11 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
     store = _RecordingMindMemOS()
     queue = MemoryAddQueue(store, audit_path=tmp_path / "procedure-add-jobs.jsonl")
     await queue.start()
+    enrichment_queue = MemoryEnrichmentQueue(
+        store,
+        audit_path=tmp_path / "procedure-enrichment-jobs.jsonl",
+    )
+    await enrichment_queue.start()
     transport = _ProcedureEvidenceTransport()
     app = _application(
         tmp_path,
@@ -1203,6 +1222,7 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
             "memory_evidence_ledger": ledger,
             "mindmemos": store,
             "memory_add_queue": queue,
+            "memory_enrichment_queue": enrichment_queue,
         },
     )
 
@@ -1212,7 +1232,7 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
 
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "流程已保存"
-    await queue.wait_idle()
+    await enrichment_queue.wait_idle()
     assert len(store.calls) == 1
     content, memory_type, provenance_seq, evidence_kind = store.calls[0]
     assert content.startswith("查看告警")
@@ -1220,6 +1240,7 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
     assert evidence_kind == "environment_observation"
     assert provenance_seq > 0
     assert len(transport.calls) == 3
+    await enrichment_queue.aclose()
     await queue.aclose()
     await app.aclose()
     ledger.close()

@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="HomeMaster 记忆系统阶段建设汇报" />
+<title>HomeMaster 记忆系统 · 阶段建设汇报</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --ink: #172033;
+    --muted: #5d687a;
+    --faint: #8993a3;
+    --paper: #f5f7f9;
+    --white: #ffffff;
+    --line: #dce2e8;
+    --line-strong: #bdc8d3;
+    --nav: #111827;
+    --nav-soft: #1f2937;
+    --teal: #087f7a;
+    --teal-soft: #e5f5f3;
+    --blue: #285da8;
+    --blue-soft: #eaf1fb;
+    --amber: #a95f08;
+    --amber-soft: #fff3df;
+    --red: #b43b3b;
+    --red-soft: #fceaea;
+    --green: #25734b;
+    --green-soft: #e8f5ed;
+    --purple: #7050a5;
+    --purple-soft: #f0eafa;
+    --shadow: 0 12px 28px rgba(28, 40, 58, 0.08);
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 70px; }
+  body {
+    margin: 0;
+    font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--paper);
+    line-height: 1.68;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, a { font: inherit; }
+  a { color: inherit; text-decoration: none; }
+  svg { width: 19px; height: 19px; stroke-width: 1.8; }
+  .wrap { width: min(1160px, calc(100% - 40px)); margin: 0 auto; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: rgba(17, 24, 39, 0.96);
+    border-bottom: 1px solid rgba(255,255,255,.1);
+    backdrop-filter: blur(14px);
+  }
+  nav .wrap { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: #fff; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .brand-mark { width: 25px; height: 25px; border: 2px solid #5eead4; display: grid; place-items: center; border-radius: 6px; }
+  .brand-mark::after { content: ""; width: 7px; height: 7px; background: #fbbf24; border-radius: 50%; }
+  .nav-links { display: flex; gap: 2px; list-style: none; margin: 0; padding: 0; }
+  .nav-links a { display: block; padding: 8px 10px; color: #aeb8c8; font-size: 13px; border-radius: 5px; }
+  .nav-links a:hover, .nav-links a.active { color: #fff; background: rgba(255,255,255,.09); }
+  .nav-toggle { display: none; width: 38px; height: 38px; align-items: center; justify-content: center; color: #fff; background: transparent; border: 1px solid #3b4658; border-radius: 6px; cursor: pointer; }
+
+  header {
+    min-height: 620px;
+    background: var(--nav);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+  }
+  header::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: linear-gradient(to bottom, #000, transparent 90%);
+  }
+  .hero { position: relative; padding: 92px 0 68px; }
+  .hero-kicker { display: flex; align-items: center; gap: 9px; color: #5eead4; font-size: 13px; font-weight: 700; margin-bottom: 20px; }
+  .hero-kicker::before { content: ""; width: 34px; height: 2px; background: #5eead4; }
+  h1 { margin: 0; max-width: 880px; font-size: clamp(38px, 5.5vw, 66px); line-height: 1.14; font-weight: 780; letter-spacing: 0; }
+  .hero-lead { max-width: 780px; margin: 24px 0 36px; color: #bdc7d5; font-size: clamp(17px, 2vw, 21px); }
+  .hero-status { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 980px; border: 1px solid #364154; background: rgba(31,41,55,.66); }
+  .hero-stat { padding: 18px 20px; border-right: 1px solid #364154; min-height: 98px; }
+  .hero-stat:last-child { border-right: 0; }
+  .hero-stat strong { display: block; font-size: 19px; color: #fff; margin-bottom: 5px; }
+  .hero-stat span { color: #9ca8b8; font-size: 15px; }
+  .hero-note { margin-top: 24px; display: flex; align-items: center; gap: 9px; color: #9ca8b8; font-size: 15px; }
+  .hero-note svg { color: #fbbf24; }
+
+  section { padding: 88px 0; }
+  section.white { background: var(--white); }
+  section.dark { background: var(--nav); color: #fff; }
+  section.tint { background: #eef2f5; }
+  .section-head { display: grid; grid-template-columns: 180px 1fr; gap: 34px; align-items: start; margin-bottom: 42px; }
+  .eyebrow { font-size: 13px; color: var(--teal); font-weight: 800; letter-spacing: 1.6px; text-transform: uppercase; padding-top: 8px; }
+  .dark .eyebrow { color: #5eead4; }
+  h2 { margin: 0 0 10px; font-size: clamp(28px, 3.8vw, 42px); line-height: 1.24; letter-spacing: 0; }
+  .section-desc { margin: 0; color: var(--muted); max-width: 800px; font-size: 18px; }
+  .dark .section-desc { color: #aeb8c8; }
+
+  .problem-chain { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); background: var(--white); }
+  .problem-step { min-height: 180px; padding: 22px 20px; position: relative; border-right: 1px solid var(--line); }
+  .problem-step:last-child { border-right: 0; }
+  .problem-step:not(:last-child)::after { content: ""; position: absolute; right: -7px; top: 44px; width: 12px; height: 12px; border-top: 2px solid var(--line-strong); border-right: 2px solid var(--line-strong); background: var(--white); transform: rotate(45deg); z-index: 2; }
+  .problem-index { color: var(--red); font-size: 13px; font-weight: 800; margin-bottom: 14px; }
+  .problem-step h3 { margin: 0 0 8px; font-size: 18px; line-height: 1.45; }
+  .problem-step p { margin: 0; font-size: 15px; color: var(--muted); }
+  .problem-result { margin-top: 22px; padding: 19px 22px; display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; background: var(--amber-soft); border-left: 4px solid var(--amber); }
+  .problem-result svg { color: var(--amber); width: 25px; height: 25px; }
+  .problem-result strong { display: block; margin-bottom: 2px; }
+  .problem-result span { color: #745022; font-size: 16px; }
+
+  .glossary { margin-top: 34px; border-top: 3px solid var(--teal); background: #f7faf9; }
+  .glossary-head { padding: 22px 24px 16px; border-bottom: 1px solid var(--line); }
+  .glossary-head h3 { margin: 0 0 4px; font-size: 21px; }
+  .glossary-head p { margin: 0; color: var(--muted); font-size: 15px; }
+  .glossary-grid { display: grid; grid-template-columns: 1fr 1fr; }
+  .glossary-item { display: grid; grid-template-columns: 145px 1fr; gap: 18px; padding: 17px 24px; border-bottom: 1px solid var(--line); }
+  .glossary-item:nth-child(odd) { border-right: 1px solid var(--line); }
+  .glossary-item:nth-last-child(-n+2) { border-bottom: 0; }
+  .glossary-term strong { display: block; font-size: 16px; color: var(--teal); }
+  .glossary-term span { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
+  .glossary-item p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  .lifecycle-shell { border: 1px solid #354052; background: #161f2d; padding: 34px; }
+  .lifecycle { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
+  .life-step { position: relative; min-height: 224px; padding: 20px 18px; border: 1px solid #344054; border-right: 0; background: #1b2636; }
+  .life-step:last-child { border-right: 1px solid #344054; }
+  .life-step:not(:last-child)::after { content: ""; position: absolute; z-index: 2; right: -8px; top: 46px; width: 14px; height: 14px; background: #1b2636; border-top: 1px solid #566277; border-right: 1px solid #566277; transform: rotate(45deg); }
+  .life-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 7px; margin-bottom: 14px; }
+  .life-step:nth-child(1) .life-icon, .life-step:nth-child(2) .life-icon { color: #5eead4; background: rgba(45,212,191,.1); }
+  .life-step:nth-child(3) .life-icon, .life-step:nth-child(4) .life-icon { color: #93c5fd; background: rgba(96,165,250,.1); }
+  .life-step:nth-child(5) .life-icon { color: #fcd34d; background: rgba(251,191,36,.1); }
+  .life-step:nth-child(6) .life-icon { color: #c4b5fd; background: rgba(167,139,250,.1); }
+  .life-step h3 { margin: 0 0 7px; font-size: 18px; }
+  .life-step p { margin: 0; color: #99a6b7; font-size: 15px; line-height: 1.58; }
+  .call-tag { display: inline-block; margin-top: 13px; padding: 3px 7px; border: 1px solid #475569; color: #d9e1eb; border-radius: 4px; font-size: 12px; }
+  .lifecycle-caption { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px; }
+  .caption-block { border-top: 1px solid #374151; padding-top: 18px; }
+  .caption-block strong { display: block; color: #fff; font-size: 16px; margin-bottom: 4px; }
+  .caption-block span { color: #9ca8b8; font-size: 15px; }
+
+  .capability-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+  .cap-tab { border: 1px solid var(--line-strong); color: var(--muted); background: var(--white); padding: 9px 14px; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+  .cap-tab:hover { border-color: var(--teal); color: var(--teal); }
+  .cap-tab.active { color: #fff; border-color: var(--teal); background: var(--teal); }
+  .cap-panel { display: none; padding-top: 30px; }
+  .cap-panel.active { display: block; }
+  .cap-summary { display: grid; grid-template-columns: 1.1fr .9fr; gap: 34px; margin-bottom: 28px; }
+  .cap-lead h3 { font-size: 27px; margin: 0 0 10px; }
+  .cap-lead p { margin: 0; color: var(--muted); font-size: 17px; }
+  .trigger-box { border-left: 4px solid var(--teal); background: var(--teal-soft); padding: 18px 20px; }
+  .trigger-box span { display: block; color: var(--teal); font-size: 12px; font-weight: 800; letter-spacing: 1px; margin-bottom: 5px; }
+  .trigger-box strong { display: block; line-height: 1.52; }
+  .why-now { margin-top: 9px; color: #3f665f; font-size: 15px; }
+  .five-questions { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); }
+  .answer { padding: 20px 18px; border-right: 1px solid var(--line); min-height: 190px; }
+  .answer:last-child { border-right: 0; }
+  .answer-icon { color: var(--blue); margin-bottom: 10px; }
+  .answer h4 { font-size: 15px; margin: 0 0 8px; color: var(--blue); }
+  .answer p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.62; }
+  .risk-line { margin-top: 20px; padding: 15px 18px; display: flex; align-items: flex-start; gap: 11px; background: var(--amber-soft); color: #684619; font-size: 15px; }
+  .risk-line svg { flex: 0 0 auto; color: var(--amber); margin-top: 2px; }
+
+  .io-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .io-band { border: 1px solid var(--line); background: var(--white); }
+  .io-head { padding: 18px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+  .io-head svg { color: var(--teal); }
+  .io-head h3 { margin: 0; font-size: 19px; }
+  .io-flow { padding: 20px; display: grid; gap: 10px; }
+  .io-node { min-height: 60px; padding: 13px 15px; display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center; background: #f7f9fb; border: 1px solid #e2e7ec; }
+  .io-num { width: 28px; height: 28px; display: grid; place-items: center; color: #fff; background: var(--blue); border-radius: 50%; font-size: 12px; font-weight: 800; }
+  .io-node strong { display: block; font-size: 15px; }
+  .io-node span { display: block; color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .io-arrow { height: 16px; display: grid; place-items: center; color: var(--faint); }
+  .stores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 22px; }
+  .store { padding: 17px; border-top: 3px solid var(--teal); background: #f7faf9; }
+  .store h4 { margin: 0 0 5px; font-size: 16px; }
+  .store p { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .build-layout { display: grid; grid-template-columns: 250px 1fr; gap: 34px; }
+  .build-intro { position: sticky; top: 88px; align-self: start; }
+  .build-intro .big { font-size: 68px; line-height: 1; font-weight: 800; color: #5eead4; }
+  .build-intro h3 { font-size: 21px; margin: 12px 0 8px; }
+  .build-intro p { color: #aeb8c8; font-size: 16px; margin: 0; }
+  .adapt-list { display: grid; gap: 18px; }
+  .adapt-stage { border: 1px solid #39475a; background: #182231; border-radius: 8px; overflow: hidden; }
+  .adapt-head { display: grid; grid-template-columns: 48px 1fr auto; gap: 14px; align-items: center; padding: 18px 20px; border-bottom: 1px solid #39475a; }
+  .adapt-no { width: 38px; height: 38px; display: grid; place-items: center; background: rgba(45,212,191,.12); color: #5eead4; font-weight: 800; border-radius: 6px; }
+  .adapt-head h3 { margin: 0; font-size: 20px; }
+  .adapt-tech { color: #aeb8c8; font-size: 13px; text-align: right; }
+  .adapt-body { display: grid; grid-template-columns: 1fr 1fr; }
+  .adapt-field { padding: 17px 20px; border-bottom: 1px solid #303c4e; }
+  .adapt-field:nth-child(odd) { border-right: 1px solid #303c4e; }
+  .adapt-field:nth-last-child(-n+2) { border-bottom: 0; }
+  .adapt-field span { display: block; margin-bottom: 5px; color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: .5px; }
+  .adapt-field p { margin: 0; color: #b8c2d0; font-size: 15px; line-height: 1.65; }
+  .adapt-field.result p { color: #f5d99c; }
+  .adapt-evidence { padding: 12px 20px; border-top: 1px solid #39475a; color: #96a3b5; font-size: 13px; }
+  .adapt-evidence strong { color: #d6dee9; margin-right: 8px; }
+
+  .safety-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .safety-item { padding: 22px; border: 1px solid var(--line); background: var(--white); min-height: 166px; }
+  .safety-item svg { color: var(--green); margin-bottom: 12px; width: 24px; height: 24px; }
+  .safety-item h3 { font-size: 17px; margin: 0 0 7px; }
+  .safety-item p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  .requirements { border: 1px solid var(--line); background: var(--white); }
+  .req-row { display: grid; grid-template-columns: 160px 155px 1fr 1fr; border-bottom: 1px solid var(--line); }
+  .req-row:last-child { border-bottom: 0; }
+  .req-row.head { background: #edf1f4; color: var(--muted); font-size: 13px; font-weight: 800; }
+  .req-cell { padding: 16px 18px; border-right: 1px solid var(--line); font-size: 15px; }
+  .req-cell:last-child { border-right: 0; }
+  .req-title strong { display: block; }
+  .req-title span { color: var(--faint); font-size: 12px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; }
+  .status.done { color: var(--green); }
+  .status.done::before { background: var(--green); }
+  .status.partial { color: var(--amber); }
+  .status.partial::before { background: var(--amber); }
+  .status.todo { color: var(--purple); }
+  .status.todo::before { background: var(--purple); }
+  .req-cell p { margin: 0; color: var(--muted); }
+
+  .close-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .close-col { border-top: 4px solid var(--green); background: var(--white); padding: 26px; }
+  .close-col.gap { border-top-color: var(--amber); }
+  .close-col h3 { margin: 0 0 18px; font-size: 20px; }
+  .close-col ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 11px; }
+  .close-col li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; color: var(--muted); font-size: 16px; }
+  .close-col li svg { width: 17px; height: 17px; color: var(--green); margin-top: 4px; }
+  .close-col.gap li svg { color: var(--amber); }
+  .final-statement { margin-top: 28px; padding: 32px; background: var(--nav); color: #fff; display: grid; grid-template-columns: 160px 1fr; gap: 30px; align-items: center; }
+  .final-statement span { color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: 1.4px; }
+  .final-statement p { margin: 0; font-size: clamp(19px, 2.4vw, 27px); line-height: 1.48; font-weight: 650; }
+
+  footer { padding: 36px 0; background: #0b111c; color: #7f8b9d; font-size: 12px; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 24px; }
+  .to-top { position: fixed; right: 20px; bottom: 20px; width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: var(--ink); cursor: pointer; box-shadow: var(--shadow); opacity: 0; pointer-events: none; transform: translateY(10px); transition: .2s ease; z-index: 40; }
+  .to-top.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
+
+  .reveal { opacity: 1; transform: none; }
+
+  @media (max-width: 980px) {
+    .hero-status { grid-template-columns: 1fr 1fr; }
+    .hero-stat:nth-child(2) { border-right: 0; }
+    .hero-stat:nth-child(-n+2) { border-bottom: 1px solid #364154; }
+    .problem-chain { grid-template-columns: 1fr 1fr; }
+    .problem-step { border-bottom: 1px solid var(--line); }
+    .problem-step:nth-child(2n) { border-right: 0; }
+    .problem-step::after { display: none; }
+    .problem-step:last-child { grid-column: 1 / -1; }
+    .glossary-grid { grid-template-columns: 1fr; }
+    .glossary-item:nth-child(odd) { border-right: 0; }
+    .glossary-item:nth-last-child(2) { border-bottom: 1px solid var(--line); }
+    .lifecycle { grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .life-step, .life-step:last-child { border: 1px solid #344054; }
+    .life-step::after { display: none; }
+    .five-questions { grid-template-columns: 1fr 1fr; }
+    .answer { border-bottom: 1px solid var(--line); }
+    .answer:nth-child(2n) { border-right: 0; }
+    .answer:last-child { grid-column: 1 / -1; }
+    .build-layout { grid-template-columns: 1fr; }
+    .build-intro { position: static; }
+    .req-row { grid-template-columns: 130px 135px 1fr; }
+    .req-row .req-cell:last-child { grid-column: 1 / -1; border-top: 1px dashed var(--line); }
+    .req-row.head .req-cell:last-child { display: none; }
+  }
+
+  @media (max-width: 760px) {
+    .wrap { width: min(100% - 28px, 1160px); }
+    .nav-toggle { display: flex; }
+    .nav-links { display: none; position: absolute; left: 0; right: 0; top: 60px; background: var(--nav-soft); padding: 10px 14px 14px; flex-direction: column; border-bottom: 1px solid #384355; }
+    .nav-links.open { display: flex; }
+    header { min-height: 660px; }
+    .hero { padding-top: 72px; }
+    .hero-status { grid-template-columns: 1fr; }
+    .hero-stat { border-right: 0; border-bottom: 1px solid #364154; min-height: 80px; }
+    .hero-stat:last-child { border-bottom: 0; }
+    section { padding: 68px 0; }
+    .section-head { grid-template-columns: 1fr; gap: 4px; margin-bottom: 30px; }
+    .problem-chain, .lifecycle, .lifecycle-caption, .cap-summary, .io-grid, .stores, .safety-grid, .close-grid { grid-template-columns: 1fr; }
+    .problem-step, .problem-step:nth-child(2n) { border-right: 0; }
+    .problem-step:last-child { grid-column: auto; }
+    .glossary-head { padding: 20px 18px 14px; }
+    .glossary-item { grid-template-columns: 1fr; gap: 5px; padding: 15px 18px; }
+    .lifecycle-shell { padding: 16px; }
+    .life-step { min-height: 170px; }
+    .capability-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 13px; }
+    .cap-tab { white-space: nowrap; }
+    .five-questions { grid-template-columns: 1fr; }
+    .answer, .answer:nth-child(2n), .answer:last-child { grid-column: auto; border-right: 0; border-bottom: 1px solid var(--line); min-height: auto; }
+    .answer:last-child { border-bottom: 0; }
+    .adapt-head { grid-template-columns: 42px 1fr; }
+    .adapt-tech { grid-column: 2; text-align: left; }
+    .adapt-body { grid-template-columns: 1fr; }
+    .adapt-field, .adapt-field:nth-child(odd), .adapt-field:nth-last-child(2) { border-right: 0; border-bottom: 1px solid #303c4e; }
+    .adapt-field:last-child { border-bottom: 0; }
+    .requirements { border: 0; background: transparent; display: grid; gap: 12px; }
+    .req-row, .req-row.head { display: none; }
+    .req-row.mobile { display: block; border: 1px solid var(--line); background: #fff; }
+    .req-row.mobile .req-cell { border: 0; border-bottom: 1px solid var(--line); }
+    .req-row.mobile .req-cell:last-child { border-bottom: 0; border-top: 0; }
+    .final-statement { grid-template-columns: 1fr; gap: 12px; padding: 24px; }
+    footer .wrap { flex-direction: column; gap: 6px; }
+  }
+
+  @media print {
+    nav, .to-top { display: none !important; }
+    body { background: #fff; }
+    header { min-height: auto; break-after: page; }
+    section { padding: 44px 0; break-inside: avoid; }
+    .reveal { opacity: 1; transform: none; }
+    .cap-panel { display: block; break-inside: avoid; }
+    .capability-tabs { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#overview"><span class="brand-mark"></span>HomeMaster · Memory Report</a>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#problem">业务需求</a></li>
+      <li><a href="#lifecycle">调用全景</a></li>
+      <li><a href="#capabilities">功能逻辑</a></li>
+      <li><a href="#architecture">存取使用</a></li>
+      <li><a href="#build">适配工作</a></li>
+      <li><a href="#requirements">需求达成</a></li>
+      <li><a href="#outcome">结论</a></li>
+    </ul>
+    <button class="nav-toggle" id="navToggle" aria-label="打开导航"><i data-lucide="menu"></i></button>
+  </div>
+</nav>
+
+<header id="overview">
+  <div class="wrap hero">
+    <div class="hero-kicker">阶段建设汇报 · MEMORY LIFECYCLE</div>
+    <h1>让每一次任务，成为下一次任务可复用、可纠错、可追溯的经验</h1>
+    <p class="hero-lead">本阶段不是新增一个“记事本”，而是把经验接入 Agent 的任务前、执行中和任务后，形成从沉淀、召回到纠错整理的 Memory 闭环。</p>
+    <div class="hero-status">
+      <div class="hero-stat"><strong>会记 · 已完成</strong><span>显式保存 + Session 自动沉淀</span></div>
+      <div class="hero-stat"><strong>会找 · 已完成基础版</strong><span>新任务前自动召回 + 主动搜索</span></div>
+      <div class="hero-stat"><strong>会改 · 核心完成</strong><span>更新、删除、反馈、版本追溯</span></div>
+      <div class="hero-stat"><strong>会进化 · 待建设</strong><span>从 Memory 晋升为标准 Skill</span></div>
+    </div>
+    <div class="hero-note"><i data-lucide="shield-check"></i>历史经验只作为决策参考，不能绕过当前权限、SOP和真实环境核验。</div>
+  </div>
+</header>
+
+<main>
+  <section id="problem" class="white">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">01 · Why</div>
+        <div><h2>记忆改造要解决的，不只是“信息会丢”</h2><p class="section-desc">蓝图中的核心业务矛盾是一条连锁反应：经验无法沉淀和更新，最终把重复理解、漏检风险和长期陪跑重新压回配合人。</p></div>
+      </div>
+      <div class="problem-chain reveal">
+        <article class="problem-step"><div class="problem-index">问题 01</div><h3>经验分散在个人和历史会话</h3><p>成功做法、失败原因、检查依据缺少统一沉淀。</p></article>
+        <article class="problem-step"><div class="problem-index">问题 02</div><h3>相似任务每次重新理解</h3><p>历史经验找不到，Agent和配合人都要重新探索。</p></article>
+        <article class="problem-step"><div class="problem-index">问题 03</div><h3>步骤多时容易漏检误判</h3><p>过去踩过的坑不能自动提醒当前任务。</p></article>
+        <article class="problem-step"><div class="problem-index">问题 04</div><h3>错误经验缺少纠正和淘汰</h3><p>SOP和环境变化后，旧经验可能持续误导。</p></article>
+        <article class="problem-step"><div class="problem-index">问题 05</div><h3>配合人重复检查、长期陪跑</h3><p>精力消耗在历史查找、过程复核和材料整理上。</p></article>
+      </div>
+      <div class="problem-result reveal"><i data-lucide="target"></i><div><strong>本阶段业务目标</strong><span>让经验能够自动沉淀、主动召回、进入决策、持续纠错，并且每次变化都有来源和验证。</span></div></div>
+      <div class="glossary reveal">
+        <div class="glossary-head"><h3>技术名词速查</h3><p>保留专业名称，同时说明它在当前系统中实际承担的职责。</p></div>
+        <div class="glossary-grid">
+          <div class="glossary-item"><div class="glossary-term"><strong>MindMemOS</strong><span>记忆管理框架</span></div><p>提供记忆新增、检索、更新、删除、反馈与整理能力，是本次接入的核心记忆引擎。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Qdrant</strong><span>向量数据库</span></div><p>保存记忆正文和语义向量，支持按照“含义是否相关”召回历史经验，而不只是匹配关键词。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Neo4j</strong><span>图数据库 / 知识图谱存储</span></div><p>保存记忆的来源、关联和版本演进关系；当前已形成记忆知识图谱基础，尚不是完整业务知识图谱。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Embedding</strong><span>语义向量化</span></div><p>把文本转换成可计算的语义向量，使系统能够比较当前任务与历史经验的含义相似度。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Evidence</strong><span>记忆证据 / 数据来源</span></div><p>证明记忆来自哪次用户表达或真实执行结果，用于阻止无依据和跨任务写入。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Lineage</strong><span>数据血缘 / 版本链</span></div><p>记录记忆从旧版本到新版本的演变，使更新前后内容、来源和关系均可追溯。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>FIFO Queue</strong><span>串行任务队列</span></div><p>让新增、任务后学习和后台整理按接收顺序执行，降低并发修改造成的数据冲突。</p></div>
+          <div class="glossary-item"><div class="glossary-term"><strong>Dreaming</strong><span>记忆巩固与整理机制</span></div><p>在经验积累到阈值后，对固定批次执行去重、冲突处理和关联整理。</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="lifecycle" class="dark">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">02 · When</div>
+        <div><h2>六项能力不是一起调用，而是分布在任务生命周期中</h2><p class="section-desc">调用时机决定了记忆是否可信、是否来得及影响决策，也决定了系统会不会频繁误改历史经验。</p></div>
+      </div>
+      <div class="lifecycle-shell reveal">
+        <div class="lifecycle">
+          <article class="life-step"><div class="life-icon"><i data-lucide="message-square"></i></div><h3>用户提交任务</h3><p>Runtime登记当前用户陈述，形成当前任务可信来源。</p><span class="call-tag">证据建立</span></article>
+          <article class="life-step"><div class="life-icon"><i data-lucide="search"></i></div><h3>任务开始前</h3><p>新Session或Compact后自动查找Top-3相关历史经验。</p><span class="call-tag">SEARCH</span></article>
+          <article class="life-step"><div class="life-icon"><i data-lucide="route"></i></div><h3>Agent决策</h3><p>经验进入上下文，辅助规划、工具选择、检查和风险判断。</p><span class="call-tag">READ & USE</span></article>
+          <article class="life-step"><div class="life-icon"><i data-lucide="wrench"></i></div><h3>任务执行中</h3><p>确认新事实时Add；发现历史变化时Update、Delete或Feedback。</p><span class="call-tag">ADD / UPDATE / DELETE</span></article>
+          <article class="life-step"><div class="life-icon"><i data-lucide="archive"></i></div><h3>Session结束</h3><p>Finalizer从真实轨迹提炼经验，并执行隐式Feedback。</p><span class="call-tag">AUTO ADD / FEEDBACK</span></article>
+          <article class="life-step"><div class="life-icon"><i data-lucide="sparkles"></i></div><h3>经验累计后</h3><p>默认每累计8条已确认新增，锁定批次进行Dreaming整理。</p><span class="call-tag">DREAMING</span></article>
+        </div>
+        <div class="lifecycle-caption">
+          <div class="caption-block"><strong>为什么Search放在第一次决策前？</strong><span>再晚一步，Agent可能已经按“没有历史经验”的前提完成了错误规划。</span></div>
+          <div class="caption-block"><strong>为什么Dreaming不在每次Add后执行？</strong><span>积累足够样本后再比较，才能减少频繁改写和单条经验造成的误判。</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="capabilities" class="white">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">03 · Logic</div>
+        <div><h2>每项功能都回答五个问题</h2><p class="section-desc">点击功能查看：何时调用、为什么此时调用、数据怎么存、怎么取、取出后怎么进入Agent，以及对应的风险控制。</p></div>
+      </div>
+      <div class="capability-tabs reveal" role="tablist" aria-label="记忆能力">
+        <button class="cap-tab active" data-panel="add"><i data-lucide="plus"></i>Add 沉淀</button>
+        <button class="cap-tab" data-panel="search"><i data-lucide="search"></i>Search 召回</button>
+        <button class="cap-tab" data-panel="update"><i data-lucide="refresh-cw"></i>Update 纠错</button>
+        <button class="cap-tab" data-panel="delete"><i data-lucide="archive-x"></i>Delete 淘汰</button>
+        <button class="cap-tab" data-panel="feedback"><i data-lucide="messages-square"></i>Feedback 反馈</button>
+        <button class="cap-tab" data-panel="dreaming"><i data-lucide="sparkles"></i>Dreaming 整理</button>
+      </div>
+
+      <article class="cap-panel active" id="panel-add">
+        <div class="cap-summary"><div class="cap-lead"><h3>Add · 把可靠事实和成功经验变成长期资产</h3><p>有两条入口：明确事实采用确定性直接写入；完整Session由结束处理器（Finalizer）自动提炼，分别服务“准确保存”和“从过程学习”。</p></div><div class="trigger-box"><span>调用时机</span><strong>用户或环境已经确认稳定事实/成功流程；或Session结束后系统发现可复用经验。</strong><div class="why-now">此时信息已有来源和结果，能够避免把猜测与临时状态写入长期库。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>任务执行中确认事实时显式调用；Session结束时系统自动触发经验提炼。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="database"></i><h4>怎么存</h4><p>正文和语义向量写入Qdrant；来源关系写入Neo4j知识图谱；任务状态进入FIFO串行队列审计。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>后台按记忆唯一ID精确回读，核对正文、类型和当前生效状态。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="brain-circuit"></i><h4>取后怎么用</h4><p>下一次Search可召回，作为历史方法、事实和失败线索进入Agent上下文。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="badge-check"></i><h4>完成判据</h4><p>工具返回“已接收”只代表进入队列；真实写入并回读后才代表持久化完成。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：Add必须使用当前用户陈述或真实环境观察；模型不能用旧任务证据（Evidence）为新记忆背书。</span></div>
+      </article>
+
+      <article class="cap-panel" id="panel-search">
+        <div class="cap-summary"><div class="cap-lead"><h3>Search · 在Agent第一次决策前找回历史经验</h3><p>自动召回负责提供初始Top-3线索，Agent主动搜索负责扩大范围、换词追查或获取精确memory ID。</p></div><div class="trigger-box"><span>调用时机</span><strong>新Session第一轮、Compact完成后的下一轮自动触发；任务中按需主动触发。</strong><div class="why-now">第一次决策前看到经验，才能从一开始影响规划；执行中再搜索用于补足自动召回覆盖不足。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>任务开始前自动Top-3；遇到相似历史、未知步骤或需要准确ID时主动搜索。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="database"></i><h4>数据在哪</h4><p>从Qdrant向量数据库读取语义相近的正文和候选ID，再核对原始记忆与类型。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>返回唯一ID、正文、类型、时间、相关度和来源；当前覆盖七种MindMemOS原生类型。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="brain-circuit"></i><h4>取后怎么用</h4><p>自动召回结果进入记忆上下文；主动搜索结果进入下一轮模型请求。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="route"></i><h4>影响什么</h4><p>辅助规划、工具选择、检查项、异常判断；也为Update、Delete、History提供准确ID。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：历史经验被明确标记为参考信息，不是当前用户指令，也不会自动获得生产操作权限。</span></div>
+      </article>
+
+      <article class="cap-panel" id="panel-update">
+        <div class="cap-summary"><div class="cap-lead"><h3>Update · 信息变化时精确修正，并保留版本链</h3><p>当准确ID和完整新值都已明确，直接更新比让系统重新判断修改方式更稳妥。</p></div><div class="trigger-box"><span>调用时机</span><strong>已通过Search找到准确记忆ID，并已明确知道完整正确的新内容。</strong><div class="why-now">对象和新值都确定时才更新，可以减少误改其他相似记忆。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>业务事实、流程或适用范围已发生明确变化，需要替代原记忆时。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="git-branch"></i><h4>怎么存</h4><p>结构化记忆新建版本并归档旧版；Vanilla记忆使用原生同ID更新。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>分别回读旧版、新版和完整记录，并核对Neo4j知识图谱中的版本演进关系。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="brain-circuit"></i><h4>取后怎么用</h4><p>后续Search优先返回当前生效的新版本；History可以从任一版本追溯演变。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="badge-check"></i><h4>完成判据</h4><p>旧版已归档、新版已生效、正文与完整记录一致，并且真实版本关系存在。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：结构化记录存在但已损坏时直接拒绝更新；不能只改显示正文而保留旧结构化值。</span></div>
+      </article>
+
+      <article class="cap-panel" id="panel-delete">
+        <div class="cap-summary"><div class="cap-lead"><h3>Delete · 让错误、重复和永久失效经验停止影响后续任务</h3><p>Delete用于“这条信息不应继续生效”，普通信息变化应优先Update保留历史。</p></div><div class="trigger-box"><span>调用时机</span><strong>用户明确要求忘记，或记忆已确认完全错误、重复、永久失效。</strong><div class="why-now">只有删除语义已经明确时才淘汰，避免把“需要修正”误处理成“彻底删除”。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>准确目标已找到，并有明确忘记、错误、重复或永久失效判断。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="archive"></i><h4>怎么存</h4><p>通过MindMemOS原生删除/归档路径改变状态，保留必要操作记录。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>按准确ID回读，确认目标不再处于可生效、可召回状态。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="brain-circuit"></i><h4>取后怎么用</h4><p>后续Search不再把该条作为有效经验返回，停止污染Agent决策。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="badge-check"></i><h4>完成判据</h4><p>数据库中的原始状态已经变化，而不是只收到“删除命令已发出”的日志。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：必须使用准确记忆ID并通过修改权限校验；不允许根据模糊描述批量猜测删除。</span></div>
+      </article>
+
+      <article class="cap-panel" id="panel-feedback">
+        <div class="cap-summary"><div class="cap-lead"><h3>Feedback · 用户只需表达纠正，不必理解底层记忆操作</h3><p>系统根据本轮真正可见的记忆判断应该新增、更新、删除还是保持不变；Session结束后还会执行隐式Feedback。</p></div><div class="trigger-box"><span>调用时机</span><strong>用户指出历史经验不准确，但正确动作还不能归结为“准确ID + 完整替代内容”。</strong><div class="why-now">先理解纠正的适用范围，再决定修改方式，避免过早删除或改错相似记忆。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>显式：用户自然纠正；隐式：Session结束后根据真实add/search操作记录触发。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="database"></i><h4>怎么存</h4><p>冻结该次成功模型请求实际看到的上下文、候选记忆和反馈处理结果。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>重新读取每个候选原始记忆，核对所属范围、生效状态、正文和来源。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="git-pull-request"></i><h4>取后怎么用</h4><p>规划新增、更新、删除或保持不变；结构化更新必须提供完整替代内容。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="badge-check"></i><h4>完成判据</h4><p>每项修改独立核对原始状态和版本链；任一失败不会包装成整体成功。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：Feedback只能处理该次成功模型请求真实看过的自动召回或手动搜索结果，不能修改任意ID。</span></div>
+      </article>
+
+      <article class="cap-panel" id="panel-dreaming">
+        <div class="cap-summary"><div class="cap-lead"><h3>Dreaming · 经验积累到一定规模后集中整理</h3><p>它不是每次新增都执行，而是在同一项目和用户范围累计默认8条已确认新增后锁定固定批次，处理重复、冲突和关联。</p></div><div class="trigger-box"><span>调用时机</span><strong>Session结束处理完成后达到阈值，或系统启动时发现上次未完成批次。</strong><div class="why-now">足够样本才能进行比较；固定批次可以避免处理过程中目标不断变化。</div></div></div>
+        <div class="five-questions">
+          <div class="answer"><i class="answer-icon" data-lucide="clock-3"></i><h4>何时调用</h4><p>默认累计8条经真实回读确认已生效的普通新增记忆后自动触发。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="database"></i><h4>怎么存</h4><p>持久化batch ID、memory IDs、scope、pending状态和每个action结果。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="scan-search"></i><h4>怎么取</h4><p>读取固定批次内每条原始记忆、来源、状态和已有版本关系。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="combine"></i><h4>取后怎么用</h4><p>对重复、冲突、相关经验执行合并、更新、删除、建立关系或noop。</p></div>
+          <div class="answer"><i class="answer-icon" data-lucide="badge-check"></i><h4>完成判据</h4><p>所有整理动作的原始记录、版本关系和新增结果均验证通过后，才将该批次标记为完成。</p></div>
+        </div>
+        <div class="risk-line"><i data-lucide="shield-alert"></i><span>风险控制：失败批次保留pending并重试；执行中新增经验留给下一批。当前Dreaming只整理Memory，不直接修改Skill。</span></div>
+      </article>
+    </div>
+  </section>
+
+  <section id="architecture" class="tint">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">04 · Store / Read / Use</div>
+        <div><h2>存、取、用是三条不同的责任链</h2><p class="section-desc">Agent判断是否需要记忆；Runtime校验当前用户、任务范围与证据；MindMemOS执行记忆管理；Qdrant向量数据库与Neo4j知识图谱提供可验证的真实结果。</p></div>
+      </div>
+      <div class="io-grid reveal">
+        <div class="io-band">
+          <div class="io-head"><i data-lucide="database-zap"></i><h3>写入链路 · 从事实到可检索经验</h3></div>
+          <div class="io-flow">
+            <div class="io-node"><div class="io-num">1</div><div><strong>Agent提出Add / Update / Feedback</strong><span>只表达业务内容，不自行指定内部用户范围、任务标识或证据凭证。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">2</div><div><strong>Runtime校验权限与当前证据</strong><span>确认来自当前用户陈述或真实环境观察。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">3</div><div><strong>MindMemOS执行记忆修改</strong><span>显式Add进入FIFO串行队列；更新、删除和反馈同步确认结果。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">4</div><div><strong>从两类数据库回读真实结果</strong><span>Qdrant核对正文与状态，Neo4j知识图谱核对来源与版本关系。</span></div></div>
+          </div>
+        </div>
+        <div class="io-band">
+          <div class="io-head"><i data-lucide="brain-circuit"></i><h3>召回链路 · 从历史经验到当前决策</h3></div>
+          <div class="io-flow">
+            <div class="io-node"><div class="io-num">1</div><div><strong>Runtime构造当前任务查询</strong><span>新Session使用用户问题；Compact后结合摘要、任务状态和当前消息。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">2</div><div><strong>MindMemOS执行向量检索</strong><span>通过Qdrant找回语义最相关的3条经验，或按Agent要求扩大搜索。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">3</div><div><strong>有效记忆进入模型真实请求</strong><span>自动召回进入记忆上下文；主动搜索作为工具结果进入下一轮。</span></div></div><div class="io-arrow">↓</div>
+            <div class="io-node"><div class="io-num">4</div><div><strong>Agent参考经验重新决策</strong><span>用于规划、工具、核验和异常判断，但不替代当前环境验证。</span></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="stores reveal">
+        <div class="store"><h4>Qdrant · 向量数据库</h4><p>保存记忆正文、语义向量、类型和状态，承担相似度检索及记忆唯一ID回读。</p></div>
+        <div class="store"><h4>Neo4j · 知识图谱存储</h4><p>保存记忆来源、相互关联和版本演进关系，支撑知识关联、来源追踪和历史追溯。</p></div>
+        <div class="store"><h4>文件与JSONL · 运行上下文与审计</h4><p>保存用户上下文、证据、后台任务、任务后学习阶段和Dreaming批次状态。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="build" class="dark">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">05 · Engineering</div>
+        <div><h2>不是“接入一个库”，而是重构六类记忆运行逻辑</h2><p class="section-desc">8个近期提交被归并为6类逻辑变化：每一类都说明原有问题、系统改成什么、实际完成什么，以及最终解决的业务风险。</p></div>
+      </div>
+      <div class="build-layout reveal">
+        <aside class="build-intro"><div class="big">6</div><h3>类逻辑改造</h3><p>以业务运行逻辑为主线，8个Commit作为工程证据。目标是把MindMemOS从独立组件变成HomeMaster可控、可验证的经验系统。</p></aside>
+        <div class="adapt-list">
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">01</div><h3>底层引擎与双存储模型适配</h3><div class="adapt-tech">MindMemOS · Qdrant · Neo4j</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>MindMemOS是独立记忆组件，不理解HomeMaster的用户、项目、记忆类型和Agent调用方式；底层“能存”不等于业务“能正确使用”。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>建立HomeMaster与MindMemOS之间的适配层：统一身份范围和记忆类型，并明确内容检索与知识关系由不同存储承担。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>移除原Mem0运行路径；接入MindMemOS；将记忆正文与语义向量写入Qdrant，将来源、关联和版本关系写入Neo4j知识图谱。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>记忆能力从“独立组件存在”变成“Agent可按正确用户、项目和类型调用”，并具备语义检索与关系追溯两种基础能力。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">0be12df</span></div>
+          </article>
+
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">02</div><h3>知识图谱服务生命周期治理</h3><div class="adapt-tech">Neo4j · 多进程协调</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>多个HomeMaster进程可能同时启动或停止同一个Neo4j服务，造成端口冲突、服务被误停，或者异常退出后残留错误占用状态。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>把Neo4j从“谁调用谁管理”改为“同节点多进程协同管理”：首个进程启动、最后一个进程退出时停止，并保护外部已存在服务。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>加入文件锁、租约登记、陈旧租约恢复、首末进程判断和外部服务识别，明确知识图谱服务的所有权与退出规则。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>降低多实例并发时的启动冲突、误停和不可恢复风险，使知识图谱服务能够稳定支撑长期记忆关系。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">43a340a</span></div>
+          </article>
+
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">03</div><h3>历史经验进入Agent第一次决策</h3><div class="adapt-tech">自动召回 · 上下文注入</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>系统即使保存了历史经验，如果Agent制定计划之后才查询，记忆也无法影响最关键的第一次判断，容易继续重复过去的错误。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>把检索时机前移到新Session第一轮以及上下文压缩后的下一轮，在规划开始前自动召回语义最相关的3条经验。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>构造当前任务查询，通过Qdrant向量检索获得候选记忆，并将有效结果注入该任务的第一次模型真实请求；执行中仍支持Agent主动搜索。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>记忆不再只是“可以查询的资料库”，而是在任务一开始就能辅助规划、工具选择、检查项和风险判断。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">0742060</span></div>
+          </article>
+
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">04</div><h3>从真实任务过程自动提炼经验</h3><div class="adapt-tech">Finalizer · 异步学习</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>依赖用户手工总结会遗漏大量工具结果、失败过程和最终验证；如果结束学习同步执行，又会阻塞用户开始下一项任务。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>Session结束后由Finalizer从真实运行轨迹提炼经验；切换新任务时，旧任务学习进入后台串行队列，前台立即开始新Session。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>筛选用户、Agent与工具结果，转换成MindMemOS可学习输入；保存处理阶段以支持恢复；正常退出前等待已接收任务完成。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>成功方法和失败线索能够自动沉淀，不再依赖人工复盘；后台学习也不会占用下一项任务的交互时间。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">dea5415 · e2cebad</span></div>
+          </article>
+
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">05</div><h3>从“会存会搜”扩展到“会纠错会整理”</h3><div class="adapt-tech">Feedback · History · Dreaming</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>只有新增和检索时，错误、重复或过期经验会长期存在；直接覆盖又会丢失历史，无法说明一条记忆为什么发生变化。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>把更新、删除、自然语言反馈、历史追溯和批量整理接入统一闭环；修改后保留版本演进关系，Dreaming按固定批次集中整理。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>实现显式与隐式Feedback、Update、History、版本状态、Neo4j版本链，以及可持久化、失败可重试的Dreaming批次。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>用户可以自然纠正历史经验；系统能够让错误内容停止生效、保留演变依据，并对重复和冲突经验进行持续治理。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">e5c555f</span></div>
+          </article>
+
+          <article class="adapt-stage">
+            <div class="adapt-head"><div class="adapt-no">06</div><h3>建立可信证据边界与确定性写入</h3><div class="adapt-tech">Evidence · FIFO · Embedding</div></div>
+            <div class="adapt-body">
+              <div class="adapt-field"><span>原有问题</span><p>模型携带证据可能造成跨任务复用；并发写入可能互相冲突；明确事实若再交给模型解释，还会带来数分钟延迟、类型漂移和错误合并。</p></div>
+              <div class="adapt-field"><span>逻辑变化</span><p>证据由Runtime按当前用户、Session、任务和轮次选择；所有后台记忆写入统一串行；明确事实采用确定性直接写入，不再二次推理。</p></div>
+              <div class="adapt-field"><span>完成工作</span><p>移除模型传递内部证据凭证的能力；建立单FIFO队列；显式Add只执行Embedding、Qdrant写入、Neo4j来源关系建立和精确回读。</p></div>
+              <div class="adapt-field result"><span>解决问题</span><p>降低旧证据支持新记忆、并发写坏数据和模型错误改写事实的风险，同时缩短明确事实的保存时间并稳定记忆类型。</p></div>
+            </div>
+            <div class="adapt-evidence"><strong>技术证据</strong><span class="mono">8e5bb34 · eab731c</span></div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="safety" class="white">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">06 · Safety</div>
+        <div><h2>业务关心的不是“能不能记”，而是“会不会记错、改错、用错”</h2><p class="section-desc">当前系统把成功标准放在外部真实数据，而不是模型说“我记住了”或日志显示“命令已发送”。</p></div>
+      </div>
+      <div class="safety-grid reveal">
+        <article class="safety-item"><i data-lucide="key-round"></i><h3>历史经验不等于操作授权</h3><p>召回只能辅助判断，当前权限、SOP和环境终态仍需重新核验。</p></article>
+        <article class="safety-item"><i data-lucide="fingerprint"></i><h3>证据只属于当前任务</h3><p>Runtime按当前用户、Session、任务和对话轮次绑定证据，旧任务证据不能支持新任务写入。</p></article>
+        <article class="safety-item"><i data-lucide="eye"></i><h3>Feedback只能改本轮看过的记忆</h3><p>目标必须来自本次成功模型请求真实看到的自动召回或手动搜索结果。</p></article>
+        <article class="safety-item"><i data-lucide="git-compare-arrows"></i><h3>Update同时核对四类终态</h3><p>正文、完整记录、新旧状态和Neo4j知识图谱版本关系缺一不可。</p></article>
+        <article class="safety-item"><i data-lucide="list-ordered"></i><h3>记忆写入固定串行</h3><p>Add、Finalizer、Feedback和Dreaming共用单FIFO，避免并发改坏存储。</p></article>
+        <article class="safety-item"><i data-lucide="database-backup"></i><h3>真实回读才算完成</h3><p>Qdrant和Neo4j的外部终态是验收门，不能只依赖内部日志和模型回复。</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements" class="tint">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">07 · Requirement Map</div>
+        <div><h2>对照蓝图：Memory闭环基本形成，运维规则和Skill演进仍待建设</h2><p class="section-desc">这里区分“底层能力已经存在”和“业务目标已经完全达成”，避免把技术接线当作最终业务效果。</p></div>
+      </div>
+      <div class="requirements reveal">
+        <div class="req-row head"><div class="req-cell">蓝图需求</div><div class="req-cell">当前状态</div><div class="req-cell">已经达到</div><div class="req-cell">仍未达到</div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>经验自动识别与沉淀</strong><span>REQ 8.1</span></div><div class="req-cell"><span class="status done">基础闭环完成</span></div><div class="req-cell"><p>Session真实轨迹自动提炼；明确事实和流程可以快速保存。</p></div><div class="req-cell"><p>缺运维专属前置检查、回退条件、成功标准等精细结构定义。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>按场景准确召回</strong><span>REQ 8.2</span></div><div class="req-cell"><span class="status partial">基础版完成</span></div><div class="req-cell"><p>新Session自动召回最相关的3条经验，Agent可主动搜索七种原生类型。</p></div><div class="req-cell"><p>缺Agentic Search（Agent主导多轮检索）、Rerank（结果重排序）和运维场景相似度模型。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>经验参与当前决策</strong><span>REQ 8.3</span></div><div class="req-cell"><span class="status partial">接线完成</span></div><div class="req-cell"><p>自动及手动召回均进入模型真实请求。</p></div><div class="req-cell"><p>尚未确定性证明经验必然改变规划、风险和核验策略。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>经验有效性验证</strong><span>REQ 8.4</span></div><div class="req-cell"><span class="status partial">部分完成</span></div><div class="req-cell"><p>使用前重新观察当前环境，修改后核对数据库真实状态。</p></div><div class="req-cell"><p>缺与最新SOP、环境变化和有效期的自动对比。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>持续更新与纠错</strong><span>REQ 8.5</span></div><div class="req-cell"><span class="status done">核心完成</span></div><div class="req-cell"><p>Update、Delete、Feedback、History、Dreaming和版本链已具备。</p></div><div class="req-cell"><p>缺连续失败降权、SOP变更批量失效等质量规则。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>成功经验固化复用</strong><span>REQ 8.6</span></div><div class="req-cell"><span class="status todo">待下一阶段</span></div><div class="req-cell"><p>Dreaming可在Memory层整理多条经验。</p></div><div class="req-cell"><p>尚未实现Memory晋升Skill、Draft和发布治理。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>失败经验形成约束</strong><span>REQ 8.7</span></div><div class="req-cell"><span class="status partial">沉淀基础完成</span></div><div class="req-cell"><p>Session结束处理器（Finalizer）可以保存工具失败、异常和任务过程。</p></div><div class="req-cell"><p>尚未转成禁止条件、前置检查、停止和回退规则。</p></div></div>
+        <div class="req-row mobile"><div class="req-cell req-title"><strong>结果可验证可追溯</strong><span>REQ 8.8</span></div><div class="req-cell"><span class="status partial">Memory层完成</span></div><div class="req-cell"><p>记忆证据、唯一ID、审计、版本状态、数据血缘和数据库真实回读已具备。</p></div><div class="req-cell"><p>缺Skill版本差异、回滚、效果测评和人工发布审批。</p></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="outcome" class="white">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">08 · Outcome</div>
+        <div><h2>本阶段解决了什么，下一阶段要补什么</h2><p class="section-desc">当前交付定位是“经验自迭代底座和Memory核心闭环”，不是已经完成完全自主进化。</p></div>
+      </div>
+      <div class="close-grid reveal">
+        <div class="close-col"><h3>已经解决</h3><ul>
+          <li><i data-lucide="check"></i><span>任务经验不再随着Session结束而消失</span></li>
+          <li><i data-lucide="check"></i><span>相似任务开始前可以主动获得历史经验</span></li>
+          <li><i data-lucide="check"></i><span>用户可以用自然语言纠正，而不必理解底层记忆修改方式</span></li>
+          <li><i data-lucide="check"></i><span>错误、重复和过期经验可以更新、淘汰和整理</span></li>
+          <li><i data-lucide="check"></i><span>每次变化有来源、有版本、有数据库终态验证</span></li>
+          <li><i data-lucide="check"></i><span>后台学习不阻塞用户开始下一项任务</span></li>
+        </ul></div>
+        <div class="close-col gap"><h3>尚未达到</h3><ul>
+          <li><i data-lucide="arrow-right"></i><span>运维专属经验结构、相似度和有效性规则</span></li>
+          <li><i data-lucide="arrow-right"></i><span>历史经验与最新SOP、生产环境的自动一致性判断</span></li>
+          <li><i data-lucide="arrow-right"></i><span>失败经验自动转成禁止、停止和回退约束</span></li>
+          <li><i data-lucide="arrow-right"></i><span>连续失败后的降权、失效和淘汰标准</span></li>
+          <li><i data-lucide="arrow-right"></i><span>Memory自动晋升Skill及Draft、Diff、Rollback</span></li>
+          <li><i data-lucide="arrow-right"></i><span>新旧Skill效果评测和人工发布Gate</span></li>
+        </ul></div>
+      </div>
+      <div class="final-statement reveal"><span>阶段结论</span><p>已经从“保存信息”升级为“自动沉淀、主动召回、进入决策、持续纠错和版本追溯”；下一阶段从Memory闭环进入运维规则化与Skill Evolution。</p></div>
+    </div>
+  </section>
+</main>
+
+<footer><div class="wrap"><span>HomeMaster Memory System · 阶段建设汇报</span><span class="mono">基于当前 mindmem 工作区与近期提交</span></div></footer>
+<button class="to-top" id="toTop" aria-label="返回顶部"><i data-lucide="arrow-up"></i></button>
+
+<script>
+  if (window.lucide) lucide.createIcons();
+
+  const navToggle = document.getElementById('navToggle');
+  const navLinks = document.getElementById('navLinks');
+  navToggle.addEventListener('click', () => navLinks.classList.toggle('open'));
+  navLinks.querySelectorAll('a').forEach(link => link.addEventListener('click', () => navLinks.classList.remove('open')));
+
+  const tabs = document.querySelectorAll('.cap-tab');
+  const panels = document.querySelectorAll('.cap-panel');
+  tabs.forEach(tab => tab.addEventListener('click', () => {
+    tabs.forEach(item => item.classList.toggle('active', item === tab));
+    panels.forEach(panel => panel.classList.toggle('active', panel.id === `panel-${tab.dataset.panel}`));
+  }));
+
+  const reveals = document.querySelectorAll('.reveal');
+  const revealObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('in');
+        revealObserver.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.08 });
+  reveals.forEach(item => revealObserver.observe(item));
+
+  const navItems = Array.from(navLinks.querySelectorAll('a'));
+  const sectionObserver = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      navItems.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${entry.target.id}`));
+    });
+  }, { rootMargin: '-35% 0px -58% 0px' });
+  document.querySelectorAll('main section').forEach(section => sectionObserver.observe(section));
+
+  const toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 700));
+  toTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+</script>
+</body>
+</html>

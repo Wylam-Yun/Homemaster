@@ -139,21 +139,19 @@ tenant/session/run、metadata、时间戳、provenance 或 evidence ref。工具
 }
 ```
 
-`mindmemos_add` 在上述校验完成后把不可变 content/type、provenance 和 request context 放入应用内 FIFO，并立即
-返回领域状态 `accepted`、不透明 `job_id` 和 `verified_terminal_state=false`；此时没有 `memory_id`，紧接着搜索
-也可能尚不可见。统一 provider/stream envelope 表示为 `status=success, domain_status=accepted`。单个
-application 只有一个 worker，严格串行执行确定性 flat write 和 raw 精确回读。该路径不调用 Schema Add、
-Vanilla `memory.add.extract` 或 chat LLM；只生成 memory embedding/BM25，写 Qdrant memory 以及 Neo4j
-Memory/Source/`EXTRACTED_FROM`，不写 Entity、entity embedding 或 `MENTIONS`。`fact` 原生存为 `fact`，
-`procedure` 原生存为 `experience`。
-任务失败写入 `memory.data_root/mindmemos/add_jobs.jsonl`，不会自动重试，也不会阻断队列后续任务。
+`mindmemos_add` 在上述校验完成后同步写入不可变 content/type、provenance、本地 BM25、Qdrant Memory 以及
+Neo4j Memory/Source/`EXTRACTED_FROM`。两个数据库逐项回读成功后返回领域状态 `stored`、真实 `memory_id` 和
+`verified_terminal_state=true`；统一 provider/stream envelope 表示为
+`status=success, domain_status=stored`。模型只提交 `content + memory_type`，不提交 embedding、Entity 或 pending
+状态。随后应用内最多两个 worker 为同一 ID 补远程 dense embedding，并复用原生 Vanilla Entity 抽取、稳定
+Entity ID、entity vector 和 `MENTIONS` 写入。增强失败不会把已经确认存储的 Add 伪装成失败并诱发重复添加。
+`fact` 原生存为 `fact`，`procedure` 原生存为 `experience`。
 
-显式 flat Add 和交互 Session Finalizer 共用同一个 application-owned FIFO，所以 direct write、Vanilla Add、
-implicit feedback 和可选 dreaming 互相排它。`/new` 只把旧 Session finalization 排在当时已 accepted 的 Add
-之后，随即创建新 Session；下一条用户任务可以继续执行，后续 Add 自然排在该 finalization 后面。正常
-one-shot/Gateway/Application 退出会封住新入队并 drain 全部已 accepted 工作。当前 run 被 Ctrl+C 取消不会
-取消队列任务；进程崩溃、断电或 `kill -9` 仍可能丢失内存队列。这一实现不需要 Kafka、Docker、SQLite
-队列、并发 worker 或 retry。
+显式 flat Add 不再进入 Finalizer 的串行 FIFO，因此耗时的旧 Session Finalizer 不会挡住新 Add。Finalizer 的
+Vanilla extractor 与 Add config 都启用 Entity，然后按顺序运行 implicit feedback 和可选 dreaming，确保
+Dreaming 能获得 `Memory-[:MENTIONS]->Entity` scope。`/new` 排入旧 Session Finalizer 后随即创建新 Session。
+正常 one-shot/Gateway/Application 退出会封住新入队并 drain 增强与 Finalizer；当前 run 被 Ctrl+C 取消不会
+取消已经入队的后台工作。进程崩溃、断电或 `kill -9` 仍可能丢失进程内任务。
 
 `mindmemos_update` 先读取准确 ID：历史记忆存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
 旧版本并写入 `DERIVED_FROM`，同时更新 metadata、memory/entity 向量和图关系，不重新运行 Schema Add；不存在
@@ -209,7 +207,7 @@ archived 或内容已变化的记录都不能作为 mutation 目标。反馈 pip
 Poetry”，不能只让显示文字变长。evidence ID 不属于工具参数，模型看不到也不需要填写；Runtime 只从当前
 tenant/session/run/turn 自动选择匹配的用户陈述或环境观察。
 
-这六个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 Add 的 job ID、其他操作的 memory ID、
+这七个 MindMemOS 工具按需执行。模型调用工具后，完整 JSON（包括 Add 与其他 mutation 的 memory ID、
 records、value、match sources 和错误）会作为 tool result 进入下一次模型上下文；不是只返回一句 succeeded。
 `context_memory` 同样把 entries/usage 等完整结果放进模型可见的 tool result。
 
@@ -244,9 +242,9 @@ PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
 ```
 
 每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `mindmemos_add`
-`accepted` receipt。one-shot 正常退出 drain 后，脚本按 `job_id` 核对 completed job，再独立打开真实 Qdrant
-按 `memory_id` 回读并比较 exact JSON content、native fact type 和 direct-flat marker；两道门都通过才更新
-checkpoint。写入 worker 只调用 embedding，不再为每条记录追加 Schema extraction chat；总耗时仍包含每次公开
+`stored + memory_id` receipt，再独立打开真实 Qdrant 按该 ID 回读并比较 exact JSON content、native fact type
+和 direct-flat marker；两道门都通过才更新 checkpoint。dense/Entity 增强由应用后台完成，不再为初次存储
+追加 Schema extraction chat；总耗时仍包含每次公开
 CLI 的 agent routing。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达 backend 但终态未知的
 mutation。
 

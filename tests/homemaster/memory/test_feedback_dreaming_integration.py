@@ -41,12 +41,9 @@ def live_config(tmp_path: Path):
 
 @pytest.mark.live_api
 @pytest.mark.asyncio
-async def test_real_application_close_drains_two_direct_flat_adds(live_config) -> None:
-    nonce = "v27-async-add-" + uuid.uuid4().hex[:10]
-    memories = (
-        (f"  {nonce} exact fact content.  ", "fact", "fact"),
-        (f"{nonce} reusable procedure content.", "procedure", "experience"),
-    )
+async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> None:
+    nonce = "v27-stored-first-" + uuid.uuid4().hex[:10]
+    content = f"Project {nonce} uses the uv package manager."
     bundle = create_home_application(
         config=live_config,
         run_label=nonce,
@@ -55,101 +52,95 @@ async def test_real_application_close_drains_two_direct_flat_adds(live_config) -
         tool_environment=None,
     )
     await bundle.application.start()
-    assert bundle.memory_add_queue is not None
+    assert bundle.mindmemos is not None
+    assert bundle.memory_enrichment_queue is not None
+    store = bundle.mindmemos
     context = _memory_context(nonce, session_id=nonce)
-    receipts = [
-        await bundle.memory_add_queue.enqueue(
-            content=content,
-            memory_type=memory_type,
-            provenance_seq=index,
+    try:
+        stored = await store.add_flat(
+            content,
+            "fact",
+            provenance_seq=1,
             evidence_kind="user_statement",
+            context=context,
+        )
+        memory_id = str(stored["memory_id"])
+        assert stored["verified_terminal_state"] is True
+        raw = await store.get_raw(memory_id, context)
+        assert raw is not None and raw.status == "active"
+        assert raw.content == content
+        assert raw.metadata["vector_pending"] is True
+        assert raw.metadata["entity_enrichment_pending"] is True
+        assert store._qdrant is not None
+        points = await store._qdrant.get_memories(
+            context.project_id,
+            [memory_id],
+            with_vectors=True,
+        )
+        names = store.mindmemos_config.database.qdrant
+        assert len(points) == 1
+        assert not any(points[0].vectors[names.semantic_vector_name])
+        assert points[0].vectors[names.bm25_vector_name].indices
+        assert store._neo4j is not None
+        before_graph = await store._neo4j.run_read(
+            """
+            MATCH (m:Memory {project_id: $project_id, memory_id: $memory_id})
+            OPTIONAL MATCH (m)-[x:EXTRACTED_FROM]->(:Source)
+            OPTIONAL MATCH (m)-[mention:MENTIONS]->(:Entity)
+            RETURN count(DISTINCT m) AS memory_count,
+                   count(DISTINCT x) AS extracted_from_count,
+                   count(DISTINCT mention) AS mentions_count
+            """,
+            project_id=context.project_id,
+            memory_id=memory_id,
+        )
+        assert before_graph == [
+            {"memory_count": 1, "extracted_from_count": 1, "mentions_count": 0}
+        ]
+
+        bundle.memory_enrichment_queue.enqueue(
+            memory_id=memory_id,
+            content=content,
             context=context,
             run_id=nonce,
         )
-        for index, (content, memory_type, _native_type) in enumerate(memories, start=1)
-    ]
-    assert len({receipt.job_id for receipt in receipts}) == 2
-    audit_path = live_config.memory.data_root / "mindmemos" / "add_jobs.jsonl"
-    queued = [json.loads(line)["payload"] for line in audit_path.read_text().splitlines()]
-    for receipt in receipts:
-        assert [event["status"] for event in queued if event["job_id"] == receipt.job_id] == [
-            "queued"
-        ]
-
-    await bundle.application.aclose()
-
-    events = [json.loads(line)["payload"] for line in audit_path.read_text().splitlines()]
-    terminal = {
-        event["job_id"]: event for event in events if event["status"] in {"completed", "failed"}
-    }
-    for receipt in receipts:
-        assert terminal[receipt.job_id]["status"] == "completed"
-        assert terminal[receipt.job_id]["memory_id"]
-    third_party_log = (
-        live_config.runtime.runtime_root / nonce / "third_party.log"
-    ).read_text(encoding="utf-8")
-    assert third_party_log.count('"task": "memory.add.embed"') == 2
-    assert '"kind": "chat"' not in third_party_log
-    assert "memory.add.extract" not in third_party_log
-
-    verifier = create_home_application(
-        config=live_config,
-        run_label=f"{nonce}-verify",
-        progress=False,
-        quiet=True,
-        tool_environment=None,
-    )
-    await verifier.application.start()
-    try:
-        assert verifier.mindmemos is not None
-        for receipt, (expected_content, expected_type, expected_native_type) in zip(
-            receipts, memories, strict=True
-        ):
-            memory_id = terminal[receipt.job_id]["memory_id"]
-            raw = await verifier.mindmemos.get_raw(memory_id, context)
-            assert raw is not None and raw.status == "active"
-            metadata = raw.metadata
-            assert raw.content == expected_content
-            assert raw.mem_type == expected_native_type
-            assert raw.mem_extract_type == "homemaster_direct_flat"
-            assert metadata["homemaster_memory_type"] == expected_type
-            assert metadata["entity_count"] == 0
-            assert "record_json" not in metadata
-            add_records = await verifier.mindmemos.get_add_records(
-                [metadata["add_record_id"]], context
-            )
-            assert len(add_records) == 1
-            assert add_records[0].payload["status"] == "ok"
-            assert [item["memory_id"] for item in add_records[0].payload["memories"]] == [
-                memory_id
-            ]
-            graph_rows = await verifier.mindmemos._neo4j.run_read(
-                """
-                MATCH (memory:Memory {project_id: $project_id, memory_id: $memory_id})
-                OPTIONAL MATCH (memory)-[source_edge:EXTRACTED_FROM]->(source:Source)
-                OPTIONAL MATCH (memory)-[mention_edge:MENTIONS]->(entity:Entity)
-                RETURN count(DISTINCT memory) AS memory_count,
-                       count(DISTINCT source) AS source_count,
-                       count(DISTINCT source_edge) AS extracted_from_count,
-                       count(DISTINCT entity) AS entity_count,
-                       count(DISTINCT mention_edge) AS mentions_count
-                """,
-                project_id=context.project_id,
-                memory_id=memory_id,
-            )
-            assert graph_rows == [
-                {
-                    "memory_count": 1,
-                    "source_count": 1,
-                    "extracted_from_count": 1,
-                    "entity_count": 0,
-                    "mentions_count": 0,
-                }
-            ]
-            deleted = await verifier.mindmemos.delete(memory_id, context)
-            assert deleted.status == "ok"
+        await bundle.memory_enrichment_queue.wait_idle()
+        enriched = await store.get_raw(memory_id, context)
+        assert enriched is not None and enriched.memory_id == memory_id
+        assert enriched.metadata["vector_pending"] is False
+        assert enriched.metadata["entity_enrichment_pending"] is False
+        assert enriched.metadata["entity_count"] >= 1
+        points = await store._qdrant.get_memories(
+            context.project_id,
+            [memory_id],
+            with_vectors=True,
+        )
+        assert len(points) == 1
+        assert any(points[0].vectors[names.semantic_vector_name])
+        after_graph = await store._neo4j.run_read(
+            """
+            MATCH (m:Memory {project_id: $project_id, memory_id: $memory_id})
+                  -[:MENTIONS]->(entity:Entity {project_id: $project_id})
+            RETURN entity.entity_id AS entity_id, entity.entity_name AS entity_name
+            """,
+            project_id=context.project_id,
+            memory_id=memory_id,
+        )
+        assert len(after_graph) == enriched.metadata["entity_count"]
+        assert all(row["entity_id"] and row["entity_name"] for row in after_graph)
+        count_rows = await store._neo4j.run_read(
+            """
+            MATCH (m:Memory {project_id: $project_id, memory_id: $memory_id})
+            RETURN count(m) AS memory_count
+            """,
+            project_id=context.project_id,
+            memory_id=memory_id,
+        )
+        assert count_rows == [{"memory_count": 1}]
+        deleted = await store.delete(memory_id, context)
+        assert deleted.status == "ok"
     finally:
-        await verifier.application.aclose()
+        await bundle.application.aclose()
 
 
 @pytest.mark.live_api

@@ -23,14 +23,12 @@ ordinary-name `ToolRegistry`、无 session 状态的 `ToolExecutor`、EventBus�
 config/plan/Cron/task/team/child 服务、device connection pool、physical-device lease manager 和可选
 MCP manager；每个 run 冻结 provider request、generation 和 borrowed environment binding，不冻结工具子集。
 
-公开 `mindmemos_add` 的后台任务由 application 而不是 run 持有。工具完成 content/type、权限和当前 scope evidence
-校验后只做内存 FIFO admission，返回 `accepted + job_id`；单 worker 随后执行无 LLM/Entity 的 direct flat write
-和 raw readback。
-因此 run cancellation 不传播到已 accepted job。Application resource LIFO 顺序保证 close 先 seal/drain Add
-队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer 也是该 FIFO 的 typed work item，所以顺序为
-当时已 accepted 的 flat Add、旧 Session 的 Vanilla Add/implicit feedback/dreaming、之后 accepted 的
-新 Add，三者不会重叠。`/new` 只做同步 `put_nowait` 后切换 Session；terminal exit 才等待 queue idle。队列
-不持久化、不并发、不重试；异常进程终止可能丢任务。
+公开 `mindmemos_add` 在当前 run 内完成 content/type、权限和当前 scope evidence 校验，同步写入 Memory、BM25
+与 Source 图关系并逐库回读，返回 `stored + memory_id`。application 另持有最大并发为 2 的增强队列，为同一 ID
+异步补 dense embedding 和 Entity/`MENTIONS`，模型不提交也看不到 pending 状态。Application resource LIFO
+顺序保证 close 先 seal/drain 增强与 Finalizer 队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer
+仍是原有串行 FIFO 的 typed work item；`/new` 只做同步 `put_nowait` 后切换 Session，terminal exit 才等待 idle。
+两个队列均不持久化、不自动重试；异常进程终止可能丢失尚未完成的后台增强或 Finalizer。
 
 Interactive Shell 对 SIGINT 的 ownership 随生命周期切换。提示符或普通 run 使用默认 handler：提示符 Ctrl+C
 进入 terminal drain，run 中 Ctrl+C 只取消当前 run。terminal exit 的 finalization admission 和 queue drain

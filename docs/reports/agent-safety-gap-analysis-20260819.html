@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homemaster Agent 安全需求阻断点分析</title>
+<style>
+  :root {
+    --ink: #1f2733;
+    --muted: #5b6675;
+    --line: #e3e8ef;
+    --bg: #f5f7fa;
+    --card: #ffffff;
+    --blue: #2563eb;
+    --blue-bg: #eff6ff;
+    --green: #059669;
+    --green-bg: #ecfdf5;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --amber: #b45309;
+    --amber-bg: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: var(--ink); background: var(--bg);
+    line-height: 1.75; font-size: 15px;
+  }
+  .page { max-width: 980px; margin: 0 auto; padding: 40px 32px 80px; }
+  header.hero {
+    background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%);
+    color: #fff; border-radius: 14px; padding: 36px 40px; margin-bottom: 36px;
+  }
+  header.hero h1 { margin: 0 0 10px; font-size: 26px; font-weight: 700; }
+  header.hero .meta { font-size: 13.5px; opacity: .85; }
+  header.hero .tagline {
+    margin-top: 14px; font-size: 15px; background: rgba(255,255,255,.12);
+    border-left: 4px solid #93c5fd; padding: 10px 14px; border-radius: 0 8px 8px 0;
+  }
+  h2.sec {
+    font-size: 20px; margin: 44px 0 8px; padding-bottom: 8px;
+    border-bottom: 2px solid var(--line);
+  }
+  h2.sec .num { color: var(--blue); margin-right: 8px; }
+  .sec-intro { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 22px 26px; margin-bottom: 18px;
+    box-shadow: 0 1px 2px rgba(31,39,51,.04);
+  }
+  .card h3 { margin: 0 0 4px; font-size: 16.5px; }
+  .card h3 .no {
+    display: inline-block; background: var(--blue); color: #fff; font-size: 12.5px;
+    border-radius: 6px; padding: 1px 8px; margin-right: 10px; vertical-align: 2px;
+  }
+  .card h3 .cat { font-size: 12.5px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .block { margin-top: 14px; }
+  .block .label {
+    display: inline-block; font-size: 12.5px; font-weight: 600;
+    border-radius: 5px; padding: 1px 10px; margin-bottom: 6px;
+  }
+  .label.req  { background: var(--blue-bg);  color: var(--blue); }
+  .label.base { background: var(--green-bg); color: var(--green); }
+  .label.gap  { background: var(--red-bg);   color: var(--red); }
+  .block p { margin: 0; }
+  .block.gap p { color: #7f1d1d; }
+  .block strong { font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 6px; background: #fff; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: #f0f4f9; font-weight: 600; }
+  .tier {
+    background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--blue);
+    border-radius: 10px; padding: 18px 24px; margin-bottom: 16px;
+  }
+  .tier.t2 { border-left-color: var(--amber); }
+  .tier.t3 { border-left-color: var(--green); }
+  .tier h4 { margin: 0 0 4px; font-size: 15.5px; }
+  .tier .why { color: var(--muted); font-size: 13.5px; margin: 0 0 8px; }
+  .hero-block {
+    background: var(--amber-bg); border: 1px solid #fde68a; border-radius: 10px;
+    padding: 18px 24px; margin: 18px 0;
+  }
+  .hero-block h4 { margin: 0 0 8px; color: var(--amber); font-size: 15.5px; }
+  .hero-block ol { margin: 0; padding-left: 22px; }
+  .hero-block li { margin-bottom: 6px; }
+  .conclusion {
+    background: #0f172a; color: #e2e8f0; border-radius: 12px;
+    padding: 24px 30px; margin-top: 40px; font-size: 15px;
+  }
+  .conclusion h4 { margin: 0 0 10px; color: #93c5fd; font-size: 16px; }
+  .conclusion strong { color: #fff; }
+  footer { text-align: center; color: var(--muted); font-size: 12.5px; margin-top: 44px; }
+  @media print {
+    body { background: #fff; }
+    .page { padding: 0; max-width: none; }
+    .card, .tier { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <h1>Homemaster Agent 安全需求 · 阻断点分析</h1>
+  <div class="meta">日期：2026-08-19 ｜ 范围：执行安全（需求 1–8）+ 演化安全（需求 9–15）｜ 对象：Homemaster 智能体运行时</div>
+  <div class="tagline">
+    结论先行：执行侧骨架是健康的（统一权限门、设备租约、急停双证据、全程留痕均已就位）；真正的缺口集中在两处——
+    <b>权限体系里"没有任务、没有人"</b>（执行安全），以及<b>学习体系里"只生成、不发布管控"</b>（演化安全）。
+  </div>
+</header>
+
+<!-- ===================== 背景 ===================== -->
+<h2 class="sec"><span class="num">〇</span>背景：Homemaster 是什么、现在是怎么干活的</h2>
+<p class="sec-intro">Homemaster 是一个能自己动手干活的智能体运行时：接到任务（如"去厨房拿水杯"、执行一张变更单），它自己拆步骤、自己调用工具——操作机器人、执行命令、操作网页、连接外部系统——直到任务完成。它已有一批安全机制，本次分析正是在这些机制上找缺口：</p>
+<div class="card">
+  <ul style="margin:0; padding-left:22px;">
+    <li><b>统一权限门</b>：所有工具调用走同一道检查，按"身份"授予操作资格（读设备、控设备、调外部系统、改配置各是独立资格），提示词、技能、附件都无权扩权。</li>
+    <li><b>设备租约与急停</b>：每个任务只能操作自己领到的设备；急停要求"控制指令回执成功 <b>且</b> 独立查询确认真的停了"两条证据齐全。</li>
+    <li><b>全程留痕</b>：每次运行有完整事件流水，设备、外部系统调用有独立审计链。</li>
+    <li><b>自动学习</b>：会话结束自动总结经验，攒够一定数量自动"做梦"整理记忆，还能创建新技能候选。</li>
+  </ul>
+</div>
+
+<!-- ===================== 执行安全 ===================== -->
+<h2 class="sec"><span class="num">一</span>执行安全：保证 Agent「这一次不能乱做」</h2>
+<p class="sec-intro">需求 1–8 逐条对照：每条先说清要什么，再看系统现有逻辑，最后指出权限断在哪里。</p>
+
+<div class="card">
+  <h3><span class="no">1</span>任务边界控制<span class="cat">只做本次任务授权的事</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>Agent 只能执行当前变更单、操作手册和当前步骤允许的动作，发现异常也不许顺手多干；要能明确"现在允许做什么、禁止做什么"。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>Agent 内部维护一份"任务卡片"（目标、子步骤、注意事项），执行变更单时有专门的"变更单执行"技能，会把票据拆成步骤和验收标准再逐步执行，进度有快照可查。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>任务卡片上的"注意事项"只是给模型看的提示，<strong>权限门不读它</strong>。权限是按身份预先配置好的，和"这次任务是什么"完全无关——只要身份有某项操作资格，任何任务里都能用。缺一个环节：把"本任务允许哪些动作"翻译成权限门的白名单/黑名单。目前"不越界"只靠模型自觉，没有制度。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">2</span>操作对象控制<span class="cat">动作对、对象也得对</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>动手前必须明确在哪个环境、哪台机器、哪个实例、哪个服务上操作、影响面多大；对象说不清楚时禁止动手。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>机器人设备管理较严：每个任务从设备池领一台"租约"设备，只许操作自己领到的那台，同一设备的写操作排队串行；网页模式每个任务只能访问指定网站；目标名词（如"客厅"）会先做一次定位换算。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>这套严格只覆盖机器人和浏览器。<strong>执行命令、调用外部系统这两类工具，操作对象完全由模型自己填</strong>——权限门只检查"这个工具你能不能用"，不检查"这个对象是不是本次任务声明的范围"。同名机器、模糊路径等歧义场景，也没有"说不清就停"的强制规则。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">3</span>参数可信控制<span class="cat">未知信息不能靠模型脑补</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>关键参数（机器名、路径、命令内容等）不能靠模型猜；参数缺失、有多个候选或来源不可信时，必须找人补充或确认。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>每个工具的参数都有格式校验，类型不对直接打回；记忆类工具有"证据门"——没有真实操作依据不允许写入。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>校验只管"格式对不对"，<strong>不管"值是哪来的"</strong>。目前不区分"参数来自票据/手册"和"参数是模型自己编的"；也没有"缺参数就停下来问人"的通道——想问都没有问的机制（见第 4 条）。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">4</span>风险分级与人工介入<span class="cat">权限和风险要匹配</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>查询、修改、重启、删除风险不同，控制强度应不同：低风险自动执行，较高风险人工确认，参数不清人工补参，最高风险人工接管。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>有按身份授予操作资格的体系；有"计划模式"（只许看不许动）；对外部系统声明"只读"但未经核实的工具，一律当"会改东西"从严处理——这个从严方向是对的。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>两个硬伤：① 风险只有两档"只读 / 会改动"，查询和删除在权限眼里没有区别，没有"风险等级 → 控制方式"的对照表；② <strong>"人工确认"环节名存实亡</strong>——框架里预留了确认位，但全系统没有任何一处真正实现"弹出确认、等人点头"的功能，远程渠道（飞书）更没有。现在实际只有两个极端：全自动，或一律拒绝。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">5</span>异常止损<span class="cat">出了问题不能继续扩大</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>拿到执行权不等于可以无限重试；连续失败、工具异常、状况恶化、影响面扩大、超时，都应自动停下并升级人工处理。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>目前最扎实的部分：连续多次工具报错自动停；协议违规、观察失败各有次数上限；命令有超时；设备断线或急停后，后续动作会在动手前被拦下；已开始但被打断的动作返回"结果未知"，不允许自动重试。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>停下之后<strong>没有"交给人"的动作</strong>——不通知任何人，只留一条报错日志，人不在场就静默挂掉。另外刹车条件只数"连续失败次数"，不感知"越干越糟、影响面在扩大"；同一条命令换个参数反复试，不会被算进失败次数。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">6</span>执行结果验证<span class="cat">不能自己执行、自己宣布成功</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>工具返回成功不等于任务成功；操作后必须用日志、进程、监控、服务状态等独立证据再验证一遍。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>代码里已有教科书式范例：<strong>急停</strong>要求"控制回执 + 独立状态查询"双证据齐全才算成功；网页模式每做完一个写操作，强制截屏回传确认。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>这个"双证据"范式<strong>只用在急停和网页两个点上</strong>，没有推广：执行命令、调外部系统、机器人操作，工具返回成功即算完成，"再验证一遍"是模型可做可不做的可选项，不是制度。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">7</span>回退管理<span class="cat">动手前先备好退路</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>高风险动作执行前必须明确能否回退、怎么回退、要什么参数、谁触发；必要时先保存操作前状态；回退能力要参与风险判断。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>无。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>整条缺失——没有"操作前保存现场"的机制，权限门放行高风险动作时也不问"退路想好了没有"。说明：真回退依赖真实环境（机器人目前是模拟执行），但"退路声明 + 放行前检查"这一制度本身现在就可以建。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">8</span>全过程审计<span class="cat">出了问题能还原整条链路</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>记下每次操作的"为什么做、依据什么、参数哪来的、谁批的、调了什么、结果如何"。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>相当好：每次运行有完整事件流水；设备租约/断线/急停有独立审计链；外部系统调用逐条留痕；会话结束后还有一道回收工序把全程事件归档。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>记的是"做了什么"，<strong>缺"为什么和凭什么"</strong>：决策依据（依据哪张票据哪一步）、参数来源、审批人都不是独立字段，最多埋在模型对话文本里，出事时拼不出决策链；各条日志之间也没有按"变更单"串联的钥匙。</p></div>
+</div>
+
+<!-- ===================== 演化安全 ===================== -->
+<h2 class="sec"><span class="num">二</span>演化安全：保证 Agent「以后不会越学越错」</h2>
+<div class="hero-block">
+  <h4>总述：生成是自动的，"审核后再生效"这段流水线整体不存在</h4>
+  <p style="margin:0 0 8px;">Homemaster 的"学习"已有多条自动通道——会话结束自动总结经验、攒够 8 条自动"做梦"整理、模型可创建新技能候选、有专门的记忆写入工具。但候选区、验证、审批、版本管理、生效确认，五段全缺。</p>
+  <p style="margin:0;"><b>唯一例外</b>是"可信扩展"机制：外来插件必须部署者预先批准、锁定指纹、核对版本才允许加载——这正是需求 13 要的"生成权和发布权分离"，但只对插件生效，没推广到知识、记忆和技能。</p>
+</div>
+
+<div class="card">
+  <h3><span class="no">9</span>知识修改受控<span class="cat">学习可以自动，发布不能随意</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>Agent 可以总结经验，但不能直接修改正式知识库；新知识先进候选区，验证正确性和适用范围后才生效。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>记忆系统有类型区分（事实/经验/技能候选/文件知识），写入正式库前有"证据门"（须有本次真实操作依据）。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>两个洞：① 记忆写入直接进正式检索库，"排队"只是异步不是隔离——<strong>没有候选区</strong>；② 更大的洞：正式知识和技能文件就是普通文件，而文件写入的禁改清单只保护了密码类文件——<strong>模型一旦有写文件权限，可以一步改掉自己的正式知识和技能</strong>，记忆系统里那道证据门被整个绕过。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">10</span>Memory 修改受控<span class="cat">记忆必须有来源、有可信度</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>长期记忆的新增、修改、合并、删除要区分事实、推测和经验；重要记忆保留来源和证据，防止一次推断变成长期事实。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>新增有证据门；每条记忆有历史版本链（当前版/归档版可查）；"纠错"只能针对本次真实检索到的记忆，不能凭空指认；有敏感内容过滤。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>① 修改/删除没有"必须标注可信度和来源"的要求——类型字段有、可信度分级没有；② <strong>两条全自动改写长期记忆的通道（会话结束自动反馈、定期"做梦"整理）产出直接落库，中间没有人工审核</strong>——"一次推断变成长期事实"的路是通的。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">11</span>规则修改受控<span class="cat">Agent 不能自己放松缰绳</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>Agent 不能因为一次任务结果就自动改变权限规则或安全策略；规则变化要经测试、影响分析和人工审核。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>权限规则放在受保护配置文件里（仅管理员可读、不入代码库），修改配置需要独立的"改配置"资格，且配置文件路径在禁改清单里；提示词、技能、附件都无权扩权——这块本身设计是好的。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>洞在"规则的定义域"：<strong>约束 Agent 行为的不只是配置文件里的权限规则，技能正文和人格/偏好文件同样是事实上的规则，而后者模型可直改（见第 9 条）</strong>。只要那个洞在，"Agent 不能放松自己的缰绳"就不成立。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">12</span>Skill 演化受控<span class="cat">新技能必须证明比旧的更可靠</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>可以从成功轨迹生成新技能，但新版不能直接顶掉旧版；要经测试集或真实轨迹回放，新旧对比达标才能换。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>有"技能创建"技能；有"技能候选"这一记忆类型；技能加载有来源优先级；外来只读插件不会执行代码。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>① "技能候选"只是一条可检索的记忆，<strong>没有任何机制让它真正变成一个可用的技能</strong>——候选机制有雏形，发布机制为零；② 技能连版本号都没有，谈不上新旧对比；新版替换就是覆写文件。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">13</span>人工审核与发布<span class="cat">生成权和发布权分离</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>凡影响 Agent 后续行为的变化（知识、规则、记忆、技能）都要有明确的审批和发布过程；可以自动生成候选，正式生效必须受控。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>"可信扩展"机制完整实现了这一模式：部署者预先批准 + 锁定指纹 + 版本核对 + 权限取交集，手续齐全。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>这套模式<strong>只对外来插件生效</strong>。技能、记忆、知识文件没有任何审批发布过程：用户目录下的技能文件夹，谁写进去就生效。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">14</span>版本与回滚<span class="cat">能力变化必须可逆</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>所有知识、规则、技能的修改都保留版本、原因和差异；新版造成异常能立即恢复上一个稳定版本。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>单条记忆有版本链；插件有版本锁定。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>技能无版本、无差异记录、无修改原因；人格/偏好文件无版本；记忆只有逐条的历史链，<strong>没有"整体恢复到上一个稳定集合"的批量回滚</strong>——自动整理批量产出坏记忆时，逐条回滚不现实。</p></div>
+</div>
+
+<div class="card">
+  <h3><span class="no">15</span>生效验证<span class="cat">不仅要发布成功，还要确认真正生效</span></h3>
+  <div class="block"><span class="label req">需求</span>
+    <p>审核通过不代表结束，还要确认 Agent 实际加载的是哪个版本；防止"后台已更新、Agent 仍用旧技能"。</p></div>
+  <div class="block"><span class="label base">现有基础</span>
+    <p>有"体检"命令能静态列出本次会加载哪些技能、用哪个模型；能真连外部系统做发现式检查。</p></div>
+  <div class="block gap"><span class="label gap">阻断点</span>
+    <p>这是<strong>发布前</strong>的检查，<strong>发布后的生效确认闭环不存在</strong>：更新之后没有"断言正在运行的 Agent 确实加载了新版"的机制；"后台已换新、前台还在用旧技能"目前无法被发现。</p></div>
+</div>
+
+<!-- ===================== 总结 ===================== -->
+<h2 class="sec"><span class="num">三</span>总结与优先顺序</h2>
+
+<div class="hero-block">
+  <h4>三个最硬的横切断点</h4>
+  <ol>
+    <li><b>没有人工确认通道</b>——框架预留了确认位，但没有任何一处真正实现"等人点头"；导致现在只能"全自动或一律拒绝"二选一。需求 3、4 都落空。</li>
+    <li><b>权限门只认身份、不认任务</b>——权限按身份预先配好，与本次任务无关，任务卡片上的约束不进权限门。需求 1、2、3 都缺载体。</li>
+    <li><b>知识/技能/记忆没有"候选 → 审核 → 发布"流水线</b>——生成侧齐全，发布侧为零，且技能文件模型可直接改写。需求 9、12、13、14、15 是同一个缺口的五个侧面。</li>
+  </ol>
+</div>
+
+<div class="tier">
+  <h4>第一优先：把「人」和「任务」接进权限体系</h4>
+  <p class="why">现在权限只认身份，既不认任务，也没有人介入的通道。</p>
+  <table>
+    <tr><th style="width:6%">#</th><th>事项</th><th style="width:34%">解决的需求</th></tr>
+    <tr><td>1</td><td>实现人工确认通道（先本地、后远程）</td><td>需求 4、3 的落点，缺它后面全悬空</td></tr>
+    <tr><td>2</td><td>任务级动作清单进权限门</td><td>需求 1、2：把"本次变更单允许什么"变成硬约束</td></tr>
+    <tr><td>3</td><td>技能文件、人格/记忆文件列入禁改清单</td><td>需求 9、11：一行配置堵掉"模型自己改自己"最大的洞</td></tr>
+  </table>
+</div>
+
+<div class="tier t2">
+  <h4>第二优先：把已有的好范式推广成制度</h4>
+  <p class="why">范式代码里已有，是复制推广而非新发明。</p>
+  <table>
+    <tr><th style="width:6%">#</th><th>事项</th><th style="width:34%">解决的需求</th></tr>
+    <tr><td>4</td><td>写操作后强制独立验证（推广急停"双证据"范式）</td><td>需求 6</td></tr>
+    <tr><td>5</td><td>异常停止时通知并交接给人</td><td>需求 5 的"升级人工"半边</td></tr>
+    <tr><td>6</td><td>审计补"依据 / 参数来源 / 审批人"三个字段</td><td>需求 8</td></tr>
+  </table>
+</div>
+
+<div class="tier t3">
+  <h4>第三优先：演化安全流水线一次成型</h4>
+  <p class="why">照抄插件批准模式的五段结构。</p>
+  <table>
+    <tr><th style="width:6%">#</th><th>事项</th><th style="width:34%">解决的需求</th></tr>
+    <tr><td>7</td><td>知识/技能/记忆的候选区 + 审批发布 + 版本回滚 + 生效确认</td><td>需求 9、12、13、14、15</td></tr>
+    <tr><td>8</td><td>回退声明与放行前检查（真实回退执行器等真环境）</td><td>需求 7，顺带覆盖 10</td></tr>
+  </table>
+</div>
+
+<div class="conclusion">
+  <h4>一句话结论</h4>
+  Homemaster 的执行侧骨架是健康的——统一权限门、设备租约、急停双证据、全程留痕都已就位；真正的缺口集中在两处：<strong>权限体系里"没有任务、没有人"</strong>（执行安全），以及<strong>学习体系里"只生成、不发布管控"</strong>（演化安全）。补齐路径明确：前者给现有权限门加两个输入，后者把插件审批模式推广到技能与记忆。
+</div>
+
+<footer>Homemaster · Agent 安全需求阻断点分析 · 2026-08-19 · 真理源：docs/reports/agent-safety-gap-analysis-20260819.md</footer>
+</div>
+</body>
+</html>
