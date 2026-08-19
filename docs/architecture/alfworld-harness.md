@@ -4,6 +4,10 @@
 
 V1.8 的 `AlfredThorEnv` benchmark 评测模型对公开语义目标的选择和动作顺序。Harness 负责验证 trial、建立 reset-time Oracle pose snapshot、执行准确 grounding、调用唯一外部动作网关，并把外部终态压缩成一个强类型反馈。模型看不到 objectId、坐标、候选位姿、完整 scene metadata 或专家轨迹。
 
+Prompt composition 从已验证 goal identity 公开达到终态所需的任务级语义，不公开具体实例或专家路径。例如
+`look_at_obj_in_light` 明确要求目标物在 inventory 且指定灯已打开；`observe` 只提供视觉信息，不构成该 goal
+predicate。普通 episode 可从标准 episode ID/任务文本识别，taskset 直接传入 typed `goal_type`。
+
 THOR 运行必须提供有序 `TrialSelectionManifest`。每条记录绑定相对 trial ID、trial 文件 SHA-256、逻辑场景、goal identity、goal fingerprint 和 identity status；绝对路径、路径逃逸、未知字段、bytes/goal 漂移都会在 Adapter 构造前失败。
 
 ## Episode 生命周期
@@ -18,14 +22,21 @@ load and verify complete trial manifest
   -> restore exact initial pose
   -> ChangeTimeScale(1.0)
   -> atomically publish immutable pose snapshot
-  -> construct Provider/runtime only after reset is ready
+  -> compose canonical HomeMaster runtime with embedded MindMemOS
+  -> start managed Neo4j, MindMemOS and FIFO before Provider use
   -> dispatch public tool batch
-  -> classify one terminal owner and close Adapter
+  -> classify one terminal owner and close HomeMaster resources plus Adapter
 ```
 
 成功 setup 的 backend action 数是 `N+4`：slow-time、query、`N` 次扫描、pose restore 和 normal-time restore。任一 post-enter 失败都会 best-effort 恢复初始 pose，再恢复 normal time；恢复状态不可确认时环境关闭或 quarantine，snapshot 不发布，Provider 不构造，Episode 返回 score-ineligible setup terminal。
 
 `AlfworldResetResult` 和 `AlfworldGoalAdvanceResult` 是 closed typed result。ready 与 terminal 字段组合互斥；终止记录保留 trigger、最终 failure、classification、恢复/清理状态、环境 disposition、计数和 evidence ref。
+
+ALFWorld 与记忆 backend 保持解耦：Adapter 不 import 或持久化 MindMemOS，`AlfworldApplicationEntry` 只选择
+`tool_environment="alfworld"` 并委托标准 `create_home_application`。因此 benchmark 与其他入口共享
+embedded MindMemOS、Evidence ledger、FIFO、自动召回、managed Neo4j 和 application close 顺序。
+legacy `memory_mode=disabled` 仅禁止旧 ALFWorld writer；canonical `config.memory.enabled` 必须为 true，
+MindMemOS 或 FIFO 未组成时 benchmark 在 Provider 调用前失败。
 
 ### Gateway 固定 Episode 绑定
 

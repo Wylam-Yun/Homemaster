@@ -1,5 +1,13 @@
 # HomeMaster Agent Rules
 
+## Live run 状态隔离纪律
+
+- live run 启动前一次性锁定唯一 run ID、trace root、数据库/memory root、临时配置和 stdout/stderr 文件；任一
+  路径已存在就 fail closed。禁止并发复用或删除另一个活跃 run 的外部状态目录，也不能用模糊进程探测推导旧
+  run 已停止。每次编排只能启动一次；需要重跑时使用全新 ID/root。
+- summary 与退出码成功后仍必须独立检查完整 stderr，并逐实例核对环境、数据库和进程清理终态。stderr 中存在
+  traceback、外部 DB 错误或迟到异常时整次 run 不得记为 PASS，即使正式 score 为 1.0。
+
 ## 外部向量终态验证纪律
 
 - 向量写入外部存储后的读回验证必须考虑其公开数值精度（例如 Qdrant float32）；逐实例核对维度、非零性和
@@ -9,6 +17,22 @@
 
 - 分阶段后台任务必须从每一种合法的部分完成状态独立重入；后续阶段需要的配置和标识不得只在已完成阶段的分支
   内初始化。回归至少覆盖首次完整执行和跳过前一阶段后的后续阶段重试，并分别核对外部终态。
+## 异步 admission readiness 纪律
+
+- 向 application-owned queue 接受外部 backend 工作前，同时核对 queue worker 与下游 backend readiness；不能用
+  “FIFO 已启动”推导“MindMemOS/DB/API 可用”。可选 backend 未就绪时不得让迟到异常污染已经完成的主结果，
+  黑盒门要断言 terminal output 之后 stderr 无 traceback。
+
+## Benchmark goal 语义纪律
+
+- benchmark 的自然语言任务名不能替代正式 goal predicate。Prompt 必须公开达到终态所需的语义动作和关键
+  状态，但不得泄漏 exact object ID、坐标、hidden containment 或专家轨迹；测试要同时覆盖命中 goal type 和
+  普通任务不受影响。最终成功只认环境 `won=true`，模型口头声明、非空图片和 `observe` 都不能替代终态。
+
+## Benchmark 评测边界纪律
+
+- 作为输入语料的 source session 可以进入 Session Finalizer；QA/evaluation probe 默认只能执行普通单轮 run，
+  不得把答案写回被评测记忆。回归必须按 session ID 逐项断言 admission 集合只包含 source session。
 
 ## Graceful cleanup 信号纪律
 
@@ -318,6 +342,10 @@
 
 ## ALFWorld 外部执行纪律
 
+- 跨机器部署 Java/Neo4j 时只铺设经过 hash 校验的干净发行包，不能复制正在使用的 installation directory。
+  启动前逐项扫描 `neo4j.conf` 的 data/logs/run 路径和安装目录内的 PID/锁/数据状态，并在目标机执行
+  `neo4j-admin server validate-config --verbose` 核对退出码；源码测试、import 成功或 binary version 相同
+  都不能替代该门。Neo4j 数据只用正式 backup/restore 迁移。
 - 把“已发出动作”和“外部世界已完成动作”分开。任何 THOR 功能都必须同时通过返回状态门和独立外部终态黑盒门；mock、内部 result、trace 或模型反馈不能代替外部终态。
 - 导航成功必须由同一个返回 event 证明：外部返回成功、requested/actual pose 一致、准确 objectId 的 `metadata.visible=true`、准确 objectId 的正面积 bbox，以及交付图片与该 event 的 RGB 像素一致。
 - Put 成功必须证明：外部返回成功、准确对象离开完整 inventory、`isPickedUp=false`、准确目标在对象 parent membership 中、准确对象在目标 child membership 中。返回与终态矛盾或读取缺失时立即停止为不确定，不得重试。

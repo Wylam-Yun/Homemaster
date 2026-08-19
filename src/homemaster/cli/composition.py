@@ -13,7 +13,12 @@ from typing import TYPE_CHECKING, Any, Literal
 from homemaster.adapters.profiles import (
     build_tool_registry,
 )
-from homemaster.application import ApplicationRuntime, ResourceBinding, ResourceLifetime
+from homemaster.application import (
+    ApplicationRuntime,
+    ResourceBinding,
+    ResourceLifetime,
+    SessionManager,
+)
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
@@ -28,7 +33,12 @@ from homemaster.events.sinks import (
     MessagesLogSink,
 )
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
-from homemaster.experience import DreamingCoordinator, DreamingStateStore
+from homemaster.experience import (
+    DreamingCoordinator,
+    DreamingStateStore,
+    SessionFinalizationController,
+    SessionFinalizer,
+)
 from homemaster.extensions.contracts import ExtensionApproval
 from homemaster.extensions.hook_runner import HookRunner
 from homemaster.mcp.adapter import build_mcp_registered_tools, register_mcp_tools_atomically
@@ -70,6 +80,7 @@ class HomeApplicationBundle:
     memory_add_queue: MemoryAddQueue | None = None
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
+    session_finalization: SessionFinalizationController | None = None
 
 
 class HomeCliBackend:
@@ -128,6 +139,10 @@ def create_home_application(
     tool_environment: Literal["local_robot", "alfworld", "coworker", "browser"] | None = (
         "local_robot"
     ),
+    runtime_root: Path | None = None,
+    session_root: Path | None = None,
+    memory_tenant_id: str = "local",
+    session_finalizer_trace_path: Path | None = None,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
@@ -141,7 +156,11 @@ def create_home_application(
             }
         )
     label = run_label or f"cli-{uuid.uuid4().hex[:12]}"
-    run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
+    run_dir = (
+        runtime_root.expanduser().resolve()
+        if runtime_root is not None
+        else Path(resolved.runtime.runtime_root).expanduser() / label
+    )
     registry = build_tool_registry(
         environment=tool_environment,
         world_path=world_path,
@@ -188,6 +207,10 @@ def create_home_application(
             mcp_connector=mcp_connector,
             event_sink=event_sink,
             feishu_group_operations=feishu_group_operations,
+            run_dir=run_dir,
+            session_root=session_root,
+            memory_tenant_id=memory_tenant_id,
+            session_finalizer_trace_path=session_finalizer_trace_path,
         )
     except BaseException:
         if extension_generation is not None and extension_disposer is not None:
@@ -209,10 +232,13 @@ def _finish_home_application(
     mcp_connector: Connector | None,
     event_sink: Any | None,
     feishu_group_operations: FeishuGroupOperations | None,
+    run_dir: Path,
+    session_root: Path | None,
+    memory_tenant_id: str,
+    session_finalizer_trace_path: Path | None,
 ) -> HomeApplicationBundle:
     """Finish composition while the caller retains extension rollback ownership."""
 
-    run_dir = Path(resolved.runtime.runtime_root).expanduser() / label
     artifact_publisher: ArtifactPublisher | None = None
     skill_registry = load_home_skills(resolved)
     bus = EventBus()
@@ -454,6 +480,30 @@ def _finish_home_application(
 
         starter_steps.append(start_mcp)
 
+    finalizer = (
+        SessionFinalizer(
+            trace_path=session_finalizer_trace_path or run_dir / "runtime_events.jsonl",
+            data_root=resolved.memory.data_root,
+            mindmemos=mindmemos,
+            memory_tenant_id=memory_tenant_id,
+            dreaming_coordinator=dreaming_coordinator,
+            event_sink=bus,
+        )
+        if mindmemos is not None and memory_add_queue is not None
+        else None
+    )
+
+    session_finalization = (
+        SessionFinalizationController(
+            finalizer,
+            memory_add_queue,
+            ready=lambda: mindmemos.available,
+        )
+        if finalizer is not None and memory_add_queue is not None
+        else None
+    )
+    session_end_handler = session_finalization.enqueue if session_finalization is not None else None
+
     async def start_application_services(application: ApplicationRuntime) -> None:
         for starter in starter_steps:
             await starter(application)
@@ -463,6 +513,11 @@ def _finish_home_application(
         config=resolved,
         registry=registry,
         event_bus=bus,
+        session_manager=(
+            SessionManager(session_root=session_root.expanduser().resolve())
+            if session_root is not None
+            else None
+        ),
         resource_scope=scope,
         application_starter=application_starter,
         extension_runner=extension_runner,
@@ -498,6 +553,7 @@ def _finish_home_application(
             **_image_provider_services(resolved),
             **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
         },
+        session_end_handler=session_end_handler,
     )
     return HomeApplicationBundle(
         application=application,
@@ -515,6 +571,7 @@ def _finish_home_application(
         memory_add_queue=memory_add_queue,
         memory_enrichment_queue=memory_enrichment_queue,
         dreaming_coordinator=dreaming_coordinator,
+        session_finalization=session_finalization,
     )
 
 

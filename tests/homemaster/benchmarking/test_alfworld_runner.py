@@ -307,6 +307,10 @@ def _provider_config(tmp_path: Path) -> Path:
     path.write_text(
         """
         {
+          "memory": {
+            "enabled": true,
+            "data_root": "./memory"
+          },
           "providers": {
             "default": "mimo_v25",
             "items": [
@@ -318,6 +322,15 @@ def _provider_config(tmp_path: Path) -> Path:
                 "api_keys": ["test-key"],
                 "context_window_tokens": null,
                 "max_output_tokens": null
+              },
+              {
+                "name": "MemoryEmbedding",
+                "kind": "embedding",
+                "protocol": "openai",
+                "base_url": "https://embedding.example/v1",
+                "embedding_url": "https://embedding.example/v1/embeddings",
+                "model": "Qwen/Qwen3-Embedding-8B",
+                "api_keys": ["test-key"]
               }
             ]
           }
@@ -326,6 +339,28 @@ def _provider_config(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _patch_empty_mindmemos(monkeypatch: Any) -> None:
+    from homemaster.cli import composition
+
+    class EmptyMindMemOS:
+        available = True
+        unavailable_cause = None
+
+        def __init__(self, _config: object) -> None:
+            self._third_party_logs = None
+
+        async def start(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+        async def search(self, **_kwargs: object) -> list[object]:
+            return []
+
+    monkeypatch.setattr(composition, "EmbeddedMindMemOS", EmptyMindMemOS)
 
 
 def _attach_fake_screenshot(
@@ -451,7 +486,9 @@ def test_terminal_harness_navigation_failure_wins_over_runtime_budget_error() ->
 
 def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
+    _patch_empty_mindmemos(monkeypatch)
     transport = FakeTransport()
     adapter = AlfworldEnvAdapter(
         env=FakeBatchEnv(),
@@ -527,7 +564,10 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
 
 def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
     tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
+    _patch_empty_mindmemos(monkeypatch)
+
     class ConsecutiveObserveTransport(FakeTransport):
         def __init__(self) -> None:
             super().__init__()
@@ -576,7 +616,10 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
 
 def test_same_response_observe_plus_mutation_is_rejected_without_side_effects(
     tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
+    _patch_empty_mindmemos(monkeypatch)
+
     class BatchTransport(FakeTransport):
         def __init__(self) -> None:
             super().__init__()
@@ -643,6 +686,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
     monkeypatch,
     tmp_path: Path,
 ) -> None:
+    _patch_empty_mindmemos(monkeypatch)
     initial_state = AlfworldEnvState(
         episode_id="taskset-entry",
         task="put pencil on shelf",
@@ -849,7 +893,8 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
     assert all(image_hashes)
 
 
-def test_runner_stops_at_environment_step_limit(tmp_path: Path) -> None:
+def test_runner_stops_at_environment_step_limit(tmp_path: Path, monkeypatch: Any) -> None:
+    _patch_empty_mindmemos(monkeypatch)
     transport = RepeatingNavigateTransport()
     fake_env = NeverDoneLookEnv()
     adapter = AlfworldEnvAdapter(
@@ -1040,6 +1085,9 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
                 status=RunStatus.FAILED,
                 error_code="generic_runtime_failure",
             )
+
+        def begin_session(self, _session_id: str, *, exit_reason: str) -> None:
+            assert exit_reason == "alfworld_taskset_end"
 
         def close(self) -> None:
             return None
@@ -1353,6 +1401,9 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
                 session_id=request.session_id,
                 status=RunStatus.REPLIED,
             )
+
+        def begin_session(self, _session_id: str, *, exit_reason: str) -> None:
+            assert exit_reason == "alfworld_taskset_end"
 
         def close(self) -> None:
             return None

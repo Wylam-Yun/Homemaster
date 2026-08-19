@@ -2,6 +2,7 @@
 
 from .dreaming_state import DreamingBatch, DreamingCoordinator, DreamingStateStore
 from .finalizer import ExperienceOperation, FinalizeResult, SessionFinalizer, TaskTraceEnvelope
+from .session_finalization import SessionFinalizationController
 
 __all__ = [
     "DreamingBatch",
@@ -10,5 +11,6 @@ __all__ = [
     "ExperienceOperation",
     "FinalizeResult",
     "SessionFinalizer",
+    "SessionFinalizationController",
     "TaskTraceEnvelope",
 ]

@@ -2,10 +2,75 @@
 
 ## Current State
 
+The integration is committed locally at `HEAD` on branch `integration/alfworld-into-mindmem-20260819`. Its two parents
+are
+`b96e603a542584cb6754cc2c517790a74e6eb986` (stored-first `mindmem`) and
+`a228c1506a4d10d3b0a07f0c554cbec252c647f1` (ALFWorld). Git produced no textual conflict. The semantic overlap was the
+old admission-only `accepted + job_id` contract versus `stored + memory_id`; the integrated result intentionally keeps
+the stored-first public contract and adds ALFWorld's canonical visual/session behavior around it. Neither source branch
+or original worktree was moved, and nothing has been pushed. Product code was live-tested at candidate
+`7964bc441b15808be95c0f306955df6398e1ad7b`; subsequent amendments change only the four verification/rules documents
+listed below.
+
 On 2026-08-19, the `hkust4` deployment checkout at
 `/home/haodong2/weilin/red_bird/Homemaster` was aligned with this HPC2 workspace. The remote checkout tracks
 `origin/mindmem` at `c0a9dad4b3f85ccb95df8040c75ae3957aa26346`; Git-visible uncommitted workspace content is synchronized
 separately, while `.git`, ignored local configuration, caches and virtual environments remain host-owned.
+Unified Session Finalization is implemented through idempotent `application.session(...)` scopes. Shell, one-shot,
+ALFWorld and LoCoMo source ingestion submit the existing Finalizer to the shared FIFO at their semantic session
+boundary; LoCoMo QA probes remain ordinary one-turn runs so answers do not enter benchmark memory. `/new` does not
+wait, while normal application close drains before MindMemOS/Neo4j. `run()` remains a turn operation and Gateway
+remains unfinalized per message because it has no explicit conversation-end event. Admission requires both a started
+FIFO and available embedded MindMemOS.
+
+The pre-integration ALFWorld portability work was developed on `alfworld-benchmark-local` and mirrored to the hkust4
+worktree `/home/haodong2/weilin/red_bird/Homemaster-alfworld` branch `alfworld-benchmark`. The integrated adapter now
+delegates to canonical
+`create_home_application(tool_environment="alfworld")`, requires embedded MindMemOS plus its FIFO, and keeps legacy
+`memory_mode=disabled` solely to prevent the obsolete ALFWorld writer. ALFWorld itself remains unchanged and owns only
+environment/actions/images. Runtime and session roots can be supplied exactly; YAML memory/Neo4j/Java relative paths
+resolve against the config directory.
+
+On hkust4, the original copied Neo4j directory was preserved as `.runtime/neo4j-contaminated-20260819`; a clean verified
+Neo4j 2026.05.0 distribution and Temurin 21.0.11 now live under ignored `.runtime/neo4j` and `.runtime/java`. The private
+ignored `config/homemaster.yaml` points to those paths and to a fresh smoke memory root. That environment-qualification
+step made no model/chat call; the complete benchmark runs are recorded below.
+
+The first complete visual LLM evaluation is recorded under ignored run ID
+`alfworld-llm-memory-statue-20260819`. Its single score-eligible `valid_unseen` episode completed with valid provider,
+runtime and harness coverage, but scored zero with `classification=agent_model_failure` and `failure_reason=not_won`.
+Mimo navigated among the floorlamp and three statues and observed real frames, then incorrectly treated visual proximity
+as completion. It never took a statue and used the floorlamp, so ALFWorld never reported `won=true`. This is an agent task
+semantics failure, not an environment, navigation, provider or MindMemOS availability failure.
+
+Prompt composition now exposes the formal `look_at_obj_in_light` semantics without exposing expert actions or hidden
+scene identity: hold the target object, approach the named lamp, and turn it on while still holding the object. The same
+frozen trial then passed under run ID `alfworld-llm-memory-statue-semantics-20260819` with `agent_success`, external
+`won=true`, goal-condition success 1.0 and no invalid action.
+
+After unified session finalization was connected, the same frozen visual trial passed again under run ID
+`alfworld-session-finalizer-memory-20260819`. Its FIFO job `4655a03a-67a2-4852-b036-2134d43249d1` reached
+queued/processing/completed; experience job `3f231bc2facb95fb7585f876208da423b5985a934796a6259bc9050bf76d6311`
+completed and recorded four active memories. Independent application restart read all four from Qdrant with exact
+episode `session_id`, `source_session_id` and request ID, and read their `EXTRACTED_FROM` edges from Neo4j.
+
+The final integration candidate was copied by Git bundle to detached hkust4 worktree
+`/home/haodong2/weilin/red_bird/Homemaster-integration-7964bc4` and validated with a fresh, non-reused run ID
+`alfworld-integration-7964bc4-visual-final-clean1`. The frozen
+`valid_unseen/look_at_obj_in_light-Statue-None-FloorLamp-219` episode ran through `AlfredThorEnv` and
+`observation_mode=visual_eval`: shell RC was zero, stderr was empty, score and goal-condition success were 1.0,
+classification was `agent_success`, formal score was available, all provider/runtime/harness/evaluation coverage was
+1.0, and both runtime event streams ended with `alfworld_won`. The final backend actions held `statue 1`, approached
+`floorlamp 1`, and left it `toggled_on`. All 29 provider attempts completed without a cause/error; at least two carried
+unstripped images. All ten 300x300 PNG frames decoded and had nonzero per-channel range.
+
+Session Finalizer job `d7170b82-3b54-4688-80a1-751a544be896` completed. An independent backend restart checked all seven
+persisted IDs separately: every raw record was active with exact expected content, every Qdrant dense vector had 4096
+nonzero dimensions with both enrichment-pending flags cleared, every Neo4j Memory had one or more
+`EXTRACTED_FROM` edges, and its `MENTIONS` count exactly matched Qdrant metadata. After both the benchmark and verifier,
+candidate processes, run-specific THOR/Xvfb, Bolt 7687 listeners and managed-Neo4j lease files were all zero. Artifacts
+remain under the original ignored runtime root at
+`/home/haodong2/weilin/red_bird/Homemaster-alfworld/.runtime/benchmark-runs/test/alfworld-integration-7964bc4-visual-final-clean1`.
 
 `mindmemos_search` now uses all seven native MindMemOS memory types. It no longer maps `experience` to a public
 `procedure` type or reports valid `tool_trace` records as corrupt. This changes only search input/projection;
@@ -52,6 +117,23 @@ record/content plus old/new states and lineage. Add/update provider schemas and 
 
 ## Verification
 
+The final integration gates pass locally with 134 focused tests plus 3 LoCoMo source-only Finalizer regressions. The
+complete non-live/non-stress collection reached 1710 passed, 3 skipped, 16 deselected and 9 environment failures: six
+require the absent Playwright extra, two require an installed `mcp.server`, and one cleanup-guard mismatch was fixed.
+Excluding those unavailable optional integrations, the final collection passes with 1711 passed, 3 skipped and 16
+deselected. Ruff, compileall, cleanup guard and `git diff --check` pass. The detached hkust4 candidate also passes 56
+focused tests.
+
+The hkust4 LoCoMo live run `locomo-integration-7964bc4-one` replayed `conv-26`/Caroline with three source turns and one
+QA probe. It returned RC zero with one completed source session and one probe. Only the source session received a
+Finalizer receipt; the QA record has no finalization. Its two active memory IDs were independently read back. This is
+the black-box complement to the admission-handler regression proving QA answers do not enter evaluation memory.
+
+An earlier ALFWorld orchestration attempt is deliberately not counted as evidence. The same run ID/root was launched
+twice and the second launch deleted the first process's live state, producing a successful summary alongside a readonly
+SQLite traceback and an orphan Neo4j. The root cause and prevention rule are recorded in `docs/pitfalls.md` and
+`CLAUDE.md`; no product-code workaround was made.
+
 On 2026-08-19 a real `mimo-v2.5` ApplicationRuntime run selected exactly one `mindmemos_add` for
 `Project live-tool-9fa5f6e933 uses the uv package manager.`. The first provider decision took 10.743s, the synchronous
 tool call returned verified `stored` ID `556ddef6-69b7-5076-86d3-ed54f8b7c927` in 78.9ms, and the provider's final
@@ -77,6 +159,39 @@ Memory/Source/`EXTRACTED_FROM`, and both internal pending markers. After the two
 non-zero dense vector, both markers cleared, per-Entity Qdrant vectors and per-Entity Neo4j `MENTIONS`; the graph still
 contained exactly one Memory. The related non-live runtime/tool/application/benchmark queues also pass, including the
 maximum-concurrency-two and model-visible receipt checks with no `job_id` or background fields.
+The following ALFWorld and Neo4j results are historical pre-integration gates from `a228c15`; they do not certify the
+current stored-first integration until rerun on its immutable candidate commit. The hkust4 terminal gates pass: Neo4j
+config validation exits 0; production ALFWorld composition starts Bolt and
+MindMemOS, exposes the exact ALFWorld and six MindMemOS tools, then removes the listener/process on close. A real FIFO
+fact Add returned the old `accepted/completed` contract; a fresh verifier read exact ID/content/native fact type from
+Qdrant and exactly one
+Memory, Source and `EXTRACTED_FROM` from Neo4j. Its provider log has one embedding call and zero chat calls. The isolated
+ALFWorld live smoke passes in 66.57s with reset, one rejected invisible target, one real Drawer navigation, a nonblank
+300x300 PNG, and worker/Unity/Xvfb cleanup. The final synced worktree passes 218 ALFWorld tests, 67
+config/composition/parity tests, Ruff, compileall and `git diff --check`. The final private Neo4j config gate also verifies
+loopback Bolt ready, HTTP disabled, MindMemOS available, clean close with zero Neo4j processes, and `.runtime/` ignored.
+
+The complete Mimo visual episode exits zero and produces a formal score. All 30 provider requests have completed
+responses with no provider error; 26 carry outbound images. The model issued 29 tool calls and six real model-driven
+THOR navigation actions after 36 setup actions. All seven captured 300x300 PNGs decode successfully and are nonblank.
+Canonical MindMemOS emitted `memory.automatic_recall` with `status=empty`, `count=0` and no error against the fresh
+memory root; Neo4j independently completed its Bolt handshake and database query. Final cleanup leaves zero Neo4j,
+Unity and `Xvfb :110` processes and no listener on port 7687.
+
+The fixed-semantics rerun has 12/12 completed provider responses, zero provider errors and 11 image-bearing requests.
+It made exactly five model backend actions after 36 setup actions: navigate to statue, take statue from shelf, navigate
+to the floorlamp twice, and use the floorlamp. The terminal action independently reports `inventory=["statue 1"]` and
+`target_state=toggled_on`; the run summary reports `success=true`, `classification=agent_success`,
+`goal_condition_success_rate=1.0`, and formal success rate 1.0. All seven 300x300 frames decode and are nonblank;
+automatic recall again completed without error. Final cleanup leaves zero Neo4j, Unity and `Xvfb :111` processes and
+no Bolt listener.
+
+The unified-finalizer rerun has 18/18 completed provider responses, zero provider errors and 17 image-bearing requests.
+All seven 300x300 PNG frames decode and have nonzero pixel variance. The formal episode summary reports success rate,
+goal-condition success, provider availability, runtime availability and harness coverage all 1.0. Finalizer drain took
+221.5 seconds and completed before process exit. The four persisted native types are `fact`, `experience`, `tool_trace`
+and `skill_candidate`; raw metadata and graph source edges agree on the episode lineage. Post-run and post-verifier
+checks found no THOR, `Xvfb :113`, Neo4j or benchmark process and no listener on port 7687.
 
 The existing LoCoMo store at `/tmp/homemaster/locomo-memory-100-20260818-v2` was opened through the production
 HomeMaster composition. A real `mindmemos_search` filtered by `tool_trace` returned exactly the two known Finalizer IDs
@@ -166,13 +281,20 @@ fully finalized.
 
 ## Next Step
 
+The one-episode LoCoMo and visual ALFWorld integration gates and the documentation-only merge amendment are complete.
+The branch can be handed off for review; do not push or move `mindmem`,
+`alfworld-benchmark-local` or `alfworld-benchmark` without explicit instruction. Before a larger benchmark run, freeze
+the evaluation set and scoring protocol; continue requiring per-episode external `won=true`, valid coverage and complete
+resource cleanup.
+
 Any HomeMaster shell started before this change cannot hot-load the direct-flat Add contract. Start a fresh shell from
 this working tree before interactive verification; do not infer behavior from a pre-change process.
 
 ## Blockers
 
-No memory code blocker is known. Do not commit without fresh explicit authorization, and preserve the concurrent
-provider and V2.7 async-add changes. Archived memories created by an older direct-update implementation without a real
+No memory, infrastructure or one-episode benchmark blocker is known. Commit authorization has been granted for this
+integration, but push authorization has not. Preserve the concurrent provider and V2.7 async-add changes. Archived
+memories created by an older direct-update implementation without a real
 `DERIVED_FROM` edge cannot be reconstructed into history and must not be guessed. Keep the structured feedback
 exact-record/content/lineage terminal gate when changing the vendored executor. Optional Playwright/MCP environment
 failures and unrelated cleanup-guard expected-set drift remain outside this follow-up.

@@ -18,18 +18,24 @@ def build_episode_prompt(
     max_env_steps: int,
     observation_mode: ObservationMode = "visual_eval",
     subtask_instruction: str = "",
+    goal_type: str | None = None,
 ) -> str:
+    del memory_mode  # Legacy writer compatibility; canonical MindMemOS is required by the entry.
     action_reference = _format_action_reference(translator.public_action_schema())
     tool_choice_guidance = _format_tool_choice_guidance()
     memory_line = (
-        "Memory tools are not available in this benchmark run."
-        if memory_mode == "disabled"
-        else f"Memory mode is {memory_mode}; use only the registered memory tools."
+        "Embedded MindMemOS is available: automatic recall runs before the episode, and "
+        "registered memory tools may be used when useful."
     )
     task_text = extract_task_text(state.task)
     # In long-horizon mode the operator-authored instruction is the primary
     # task description; the ALFWorld templated task_text is kept as a fallback.
     primary_task = subtask_instruction.strip() or task_text
+    task_semantics = _format_task_semantics(
+        goal_type=goal_type,
+        episode_id=state.episode_id,
+        task_text=primary_task,
+    )
     if observation_mode == "textual_debug":
         environment_json = json.dumps(
             state.to_model_visible_dict(),
@@ -75,6 +81,7 @@ def build_episode_prompt(
             ),
             "Task:",
             primary_task,
+            task_semantics,
         ]
     long_horizon_note = (
         "This is one subtask in a chain; complete it, then stop. "
@@ -152,4 +159,31 @@ def _format_tool_choice_guidance() -> str:
                 "receptacle in later manipulation calls when they are provided."
             ),
         ]
+    )
+
+
+def _format_task_semantics(
+    *,
+    goal_type: str | None,
+    episode_id: str,
+    task_text: str,
+) -> str:
+    normalized_task = " ".join(task_text.lower().split())
+    is_look_at_light = (
+        goal_type == "look_at_obj_in_light"
+        or any(
+            segment.startswith("look_at_obj_in_light-")
+            for segment in episode_id.split("/")
+        )
+        or (
+            ("look at " in normalized_task or "examine " in normalized_task)
+            and "lamp" in normalized_task
+        )
+    )
+    if not is_look_at_light:
+        return ""
+    return (
+        "ALFWorld task semantics: first take and hold the target object in inventory, "
+        "then approach and turn on the named lamp while still holding the object. "
+        "Navigating to the object or lamp and calling observe alone does not satisfy this task."
     )

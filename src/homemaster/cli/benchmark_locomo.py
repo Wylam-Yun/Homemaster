@@ -1,4 +1,4 @@
-"""CLI handler for the LoCoMo full-pipeline pilot."""
+"""CLI handler for the end-to-end LoCoMo pilot."""
 
 from __future__ import annotations
 

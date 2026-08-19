@@ -62,6 +62,7 @@ class ContextAssemblerFactory(Protocol):
 
 
 ApplicationStarter = Callable[["ApplicationRuntime"], Any]
+SessionEndHandler = Callable[[str, str], Any]
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,46 @@ class CompactionResult:
     revision: int
     triggered: bool
     kind: str
+
+
+class ApplicationSession:
+    """Own one semantic session boundary without changing turn execution."""
+
+    def __init__(self, application: ApplicationRuntime, session_id: str, exit_reason: str):
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise ValueError("session_id must be a non-empty string")
+        if not isinstance(exit_reason, str) or not exit_reason.strip():
+            raise ValueError("exit_reason must be a non-empty string")
+        self._application = application
+        self.session_id = session_id
+        self.exit_reason = exit_reason
+        self._closed = False
+        self.receipt: Any | None = None
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def close(self, *, exit_reason: str | None = None) -> Any | None:
+        if self._closed:
+            return self.receipt
+        if exit_reason is not None:
+            if not isinstance(exit_reason, str) or not exit_reason.strip():
+                raise ValueError("exit_reason must be a non-empty string")
+            self.exit_reason = exit_reason
+        self._closed = True
+        handler = self._application.session_end_handler
+        if handler is not None:
+            self.receipt = handler(self.session_id, self.exit_reason)
+        return self.receipt
+
+    async def __aenter__(self) -> ApplicationSession:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> bool:
+        del exc_type, exc_value, traceback
+        self.close()
+        return False
 
 
 class Deadline:
@@ -215,6 +256,7 @@ class ApplicationRuntime:
         extension_runner: HookRunner | None = None,
         artifact_publisher: ArtifactPublisher | None = None,
         tool_executor: ToolExecutor | None = None,
+        session_end_handler: SessionEndHandler | None = None,
     ) -> None:
         if not isinstance(registry, ToolRegistry):
             raise TypeError("registry must be a ToolRegistry")
@@ -239,6 +281,7 @@ class ApplicationRuntime:
         self._application_starter = application_starter
         self.extension_runner = extension_runner
         self.artifact_publisher = artifact_publisher
+        self.session_end_handler = session_end_handler
         self._working_directory = resolve_working_directory(
             getattr(self.settings, "working_directory", Path.cwd())
         )
@@ -248,6 +291,10 @@ class ApplicationRuntime:
         self._extension_stop_started = False
         self._extensions_closed = False
         self._browser_run_scopes: set[RunResourceScope] = set()
+
+    def session(self, session_id: str, *, exit_reason: str = "session_end") -> ApplicationSession:
+        """Return the explicit semantic session boundary used by entry points."""
+        return ApplicationSession(self, session_id, exit_reason)
 
     @property
     def started(self) -> bool:

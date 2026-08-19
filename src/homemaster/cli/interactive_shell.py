@@ -13,7 +13,6 @@ from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.cli.composition import HomeCliBackend, create_home_application
 from homemaster.cli.doctor import render_doctor_text, run_doctor
-from homemaster.experience import SessionFinalizer
 from homemaster.skills.commands import resolve_skill_command
 
 
@@ -40,75 +39,29 @@ def run_interactive_shell(
     session_open = False
     last_status = "idle"
     last_run_id: str | None = None
-    finalizer = (
-        SessionFinalizer(
-            trace_path=bundle.trace_path,
-            data_root=bundle.config.memory.data_root,
-            mindmemos=bundle.mindmemos,
-            dreaming_coordinator=getattr(bundle, "dreaming_coordinator", None),
-            event_sink=getattr(application, "event_bus", None),
-        )
-        if getattr(bundle, "mindmemos", None) is not None
-        else None
-    )
+    application_session = None
 
     with asyncio.Runner() as runner:
+
         async def ask_user(question: str) -> str:
             return await asyncio.to_thread(input, f"{question}\nanswer> ")
 
-        async def run_finalization(finalized_session_id: str, reason: str) -> None:
-            typer.echo(f"[experience] Finalizing session {finalized_session_id}")
-            result = await finalizer.finalize(finalized_session_id, reason)
-            if result.status == "failed":
-                typer.echo(f"[experience] Vanilla Add failed: {result.error}")
-                raise RuntimeError(result.error or "Session finalization failed")
-            typer.echo(
-                f"[experience] Vanilla Add completed: {len(result.operations)} operations"
-            )
-            if debug:
-                typer.echo(
-                    "DEBUG experience: "
-                    f"events={result.collected_events} "
-                    f"excluded_transport_deltas={result.excluded_transport_deltas} "
-                    f"rendered_messages={result.rendered_messages} "
-                    f"duration_ms={result.duration_ms:.0f}"
-                )
-                for operation in result.operations:
-                    typer.echo(
-                        f"[experience][{operation.operation.upper()}]\n"
-                        f"memory_id: {operation.memory_id}\n"
-                        f"memory_type: {operation.memory_type}\n"
-                        f"content:\n{operation.content}"
-                    )
-
-        def enqueue_finalization(reason: str) -> None:
-            if not session_open or finalizer is None:
+        def end_session(reason: str) -> None:
+            nonlocal application_session
+            if not session_open or application_session is None:
                 return
-            if bundle.memory_add_queue is None:
-                raise RuntimeError("Session finalization requires the application memory queue")
-            finalized_session_id = session_id
-
-            async def work() -> None:
-                await run_finalization(finalized_session_id, reason)
-
-            receipt = bundle.memory_add_queue.enqueue_work(
-                job_type="session_finalization",
-                session_id=finalized_session_id,
-                work=work,
-            )
-            typer.echo(
-                f"[experience] Queued session finalization {finalized_session_id} "
-                f"({receipt.job_id})"
-            )
+            receipt = application_session.close(exit_reason=reason)
+            application_session = None
+            if receipt is not None:
+                typer.echo(
+                    f"[experience] Queued session finalization {session_id} ({receipt.job_id})"
+                )
 
         def finalize_for_exit(reason: str) -> None:
             with _ignore_sigint_during_cleanup(
-                "[experience] Finalization in progress; "
-                "Ctrl+C ignored until memory work completes."
+                "[experience] Finalization in progress; Ctrl+C ignored until memory work completes."
             ):
-                enqueue_finalization(reason)
-                if bundle.memory_add_queue is not None:
-                    runner.run(bundle.memory_add_queue.wait_idle())
+                end_session(reason)
 
         try:
             if continue_latest:
@@ -119,6 +72,7 @@ def run_interactive_shell(
             if resume_session_id is not None or continue_latest:
                 runner.run(application.session_manager.resume(session_id))
                 session_open = True
+                application_session = application.session(session_id)
                 typer.echo(f"Resumed session: {session_id}")
             typer.echo(
                 "Enter a task. Commands: /help, /new, /compact, /status, /events, /doctor, /exit."
@@ -145,7 +99,7 @@ def run_interactive_shell(
                     typer.echo(_render_help())
                     continue
                 if utterance == "/new":
-                    enqueue_finalization("new_session")
+                    end_session("new_session")
                     session_id = new_session_id()
                     backend = HomeCliBackend(world_path=None, memory_path=None)
                     session_open = False
@@ -201,6 +155,8 @@ def run_interactive_shell(
                     continue
 
                 try:
+                    if application_session is None:
+                        application_session = application.session(session_id)
                     result = runner.run(
                         application.run(
                             RunRequest(
@@ -218,9 +174,7 @@ def run_interactive_shell(
                                 ),
                                 resume=session_open,
                                 run_policy=RunPolicy(
-                                    max_tool_iterations=(
-                                        bundle.config.runtime.max_tool_iterations
-                                    ),
+                                    max_tool_iterations=(bundle.config.runtime.max_tool_iterations),
                                 ),
                                 dependencies={
                                     "skill_registry": bundle.skill_registry,

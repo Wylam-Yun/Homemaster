@@ -43,7 +43,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   和共用的画面截图工具 `observe`。
 - **分层记忆系统** — `SOUL.md` / `USER.md` / `MEMORY.md` 三层本地文件记忆 + embedded MindMemOS
   结构化检索（本地 Qdrant + Neo4j）；支持自动召回、用户反馈纠正、会话结束隐式反馈，以及每 8 条有效
-  新增记忆触发的可恢复 dreaming。
+  新增记忆触发的可恢复 dreaming。具有明确结束点的入口共用异步 Session Finalizer；切换 session 不等待，
+  正常关闭时统一 drain。
 - **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发与建群/改名；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
@@ -313,6 +314,8 @@ audit sink 是旁路镜像，写入失败不阻断权威生命周期。
 `AlfredThorEnv` 模式用真实 THOR scene state 评测高层规划：模型循环前验证 exact trial manifest，
 执行 controlled-time reset scan 并原子发布 immutable Oracle pose snapshot；CLI 分开报告 Agent
 成功率、evaluation/Harness coverage 与 Provider/Runtime availability。Harness 失败不会伪装成模型失败。
+Benchmark 复用完整 HomeMaster composition，因此 `memory.enabled: true` 时使用同一套 embedded MindMemOS、
+FIFO Add、自动召回和清理生命周期；ALFWorld 仍只负责环境、动作和画面，不保存或复用记忆。
 
 ```bash
 export ALFWORLD_DATA=/path/to/alfworld/data

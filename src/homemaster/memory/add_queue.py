@@ -57,9 +57,7 @@ class MemoryAddQueue:
     def __init__(self, mindmemos: Any, *, audit_path: Path) -> None:
         self._mindmemos = mindmemos
         self._audit_path = audit_path
-        self._queue: asyncio.Queue[_MemoryAddJob | _MemoryWorkJob | object] = (
-            asyncio.Queue()
-        )
+        self._queue: asyncio.Queue[_MemoryAddJob | _MemoryWorkJob | object] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._sealed = False
         self._closed = False
@@ -69,13 +67,15 @@ class MemoryAddQueue:
     def sealed(self) -> bool:
         return self._sealed
 
+    @property
+    def started(self) -> bool:
+        return self._worker is not None and not self._closed
+
     async def start(self) -> None:
         if self._closed or self._sealed:
             raise MemoryAddQueueClosed("memory Add queue is closed")
         if self._worker is None:
-            self._worker = asyncio.create_task(
-                self._run(), name="homemaster:memory-add-worker"
-            )
+            self._worker = asyncio.create_task(self._run(), name="homemaster:memory-add-worker")
 
     async def enqueue(
         self,
@@ -162,9 +162,7 @@ class MemoryAddQueue:
                         evidence_kind=item.evidence_kind,
                         context=item.context,
                     )
-                    memory_id = (
-                        result.get("memory_id") if isinstance(result, dict) else None
-                    )
+                    memory_id = result.get("memory_id") if isinstance(result, dict) else None
                     if not isinstance(memory_id, str) or not memory_id:
                         raise RuntimeError("MindMemOS Add returned no verified raw memory")
                     self._log(

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from homemaster.application import RunResult, RunStatus
+from homemaster.application import ApplicationSession, RunResult, RunStatus
 from homemaster.cli.app import app
 from homemaster.cli.run_command import OneShotExecution
 
@@ -297,7 +297,29 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     assert all("path" not in skill for skill in preview["skills"])
 
 
-def test_dry_run_applies_limited_model_override_without_external_io() -> None:
+def test_dry_run_applies_limited_model_override_without_external_io(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text(
+        """
+providers:
+  default: Mimo
+  items:
+    - name: Mimo
+      kind: chat
+      api_format: anthropic
+      transport: anthropic_sdk
+      auth_type: auth_token
+      base_url: https://provider.example/anthropic
+      model: configured-model
+      api_keys: [\"<test-key>\"]
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("homemaster.config.config.HOMEMASTER_CONFIG_PATH", config_path)
+
     result = CliRunner().invoke(
         app,
         [
@@ -333,6 +355,10 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
                 return []
 
         session_manager = Sessions()
+        session_end_handler = None
+
+        def session(self, session_id, *, exit_reason="session_end"):
+            return ApplicationSession(self, session_id, exit_reason)
 
         async def run(self, request):
             captured["request"] = request

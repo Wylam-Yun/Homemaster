@@ -51,6 +51,7 @@ def create_application(
     extension_runner: HookRunner | None = None,
     artifact_publisher: ArtifactPublisher | None = None,
     application_services: Mapping[str, object] | None = None,
+    session_end_handler: Any | None = None,
 ) -> ApplicationRuntime:
     """Build all application-owned services without opening environment resources."""
 
@@ -124,6 +125,7 @@ def create_application(
         application_starter=application_starter,
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
+        session_end_handler=session_end_handler,
     )
 
 

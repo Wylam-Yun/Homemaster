@@ -2,13 +2,121 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+
+from homemaster.application import ApplicationSession, RunResult, RunStatus
 from homemaster.benchmarking.locomo.runner import (
     HistoricalTraceSink,
+    LocomoBenchmarkConfig,
+    LocomoBenchmarkRunner,
     load_locomo_selection,
     render_session_prompt,
 )
 from homemaster.events import RuntimeEvent
+from homemaster.experience import FinalizeResult
+
+
+def test_locomo_finalizes_source_sessions_but_not_qa_probes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data_file = tmp_path / "locomo.json"
+    data_file.write_text(
+        json.dumps(
+            [
+                {
+                    "sample_id": "conv-test",
+                    "conversation": {
+                        "speaker_a": "Caroline",
+                        "speaker_b": "Melanie",
+                        "session_1_date_time": "1:56 pm on 8 May, 2023",
+                        "session_1": [
+                            {"dia_id": "D1:1", "speaker": "Caroline", "text": "Hello."}
+                        ],
+                    },
+                    "qa": [
+                        {
+                            "question": "What happened?",
+                            "evidence": ["D1:1"],
+                            "category": 1,
+                        }
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    admitted: list[tuple[str, str]] = []
+    run_session_ids: list[str] = []
+
+    class Application:
+        def session(self, session_id: str, *, exit_reason: str) -> ApplicationSession:
+            return ApplicationSession(self, session_id, exit_reason)
+
+        def __init__(self) -> None:
+            self.session_end_handler = self._admit
+
+        def _admit(self, session_id: str, reason: str) -> object:
+            admitted.append((session_id, reason))
+            return SimpleNamespace(job_id=f"job-{len(admitted)}")
+
+        async def run(self, request):
+            run_session_ids.append(request.session_id)
+            return RunResult(
+                run_id=f"run-{len(run_session_ids)}",
+                session_id=request.session_id or "missing",
+                status=RunStatus.REPLIED,
+                final_reply="ok",
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    application = Application()
+
+    class Finalization:
+        async def wait(self, receipt):
+            assert receipt.job_id == "job-1"
+            return FinalizeResult(
+                session_id="locomo-test-conv-test-source-1",
+                status="completed",
+                collected_events=1,
+                excluded_transport_deltas=0,
+                rendered_messages=1,
+                duration_ms=1,
+                operations=(),
+                error=None,
+            )
+
+    bundle = SimpleNamespace(
+        application=application,
+        mindmemos=object(),
+        memory_add_queue=object(),
+        session_finalization=Finalization(),
+        config=SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=2)),
+    )
+    monkeypatch.setattr(
+        "homemaster.benchmarking.locomo.runner.create_home_application",
+        lambda **_kwargs: bundle,
+    )
+
+    summary = LocomoBenchmarkRunner(
+        LocomoBenchmarkConfig(
+            data_file=data_file,
+            sample_id="conv-test",
+            focal_speaker="Caroline",
+            trace_root=tmp_path / "traces",
+            home_config=object(),
+            max_source_turns=10,
+            qa_probes=1,
+            run_id="locomo-test",
+        )
+    ).run()
+
+    assert summary["status"] == "completed"
+    assert run_session_ids == ["locomo-test-conv-test-source-1", "locomo-test-conv-test-qa-1"]
+    assert admitted == [("locomo-test-conv-test-source-1", "locomo_source_session_end")]
 
 
 def test_locomo_selection_is_chronological_and_truncates_exactly(tmp_path: Path) -> None:

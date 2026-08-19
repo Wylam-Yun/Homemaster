@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 
+from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunResult
 from homemaster.cli.composition import HomeCliBackend, create_home_application
 from homemaster.cli.live_output import StreamJsonEventSink, TextStreamEventSink
@@ -97,26 +98,28 @@ def execute_one_shot(
                 bundle.skill_registry,
                 session_id=session_id,
             )
-            return await bundle.application.run(
-                RunRequest(
-                    text=resolved_skill.prompt if resolved_skill is not None else prompt,
-                    session_id=session_id,
-                    profile="home",
-                    provider_name=provider_name,
-                    model_override=(
-                        resolved_skill.model_override if resolved_skill is not None else None
-                    ),
-                    resume=session_id is not None,
-                    run_policy=RunPolicy(
-                        max_tool_iterations=config.runtime.max_tool_iterations,
-                    ),
-                    dependencies={"skill_registry": bundle.skill_registry},
-                    environment=HomeCliBackend(
-                        world_path=world_path,
-                        memory_path=memory_path,
-                    ),
+            actual_session_id = session_id or new_session_id()
+            async with bundle.application.session(actual_session_id, exit_reason="one_shot_end"):
+                return await bundle.application.run(
+                    RunRequest(
+                        text=(resolved_skill.prompt if resolved_skill is not None else prompt),
+                        session_id=actual_session_id,
+                        profile="home",
+                        provider_name=provider_name,
+                        model_override=(
+                            resolved_skill.model_override if resolved_skill is not None else None
+                        ),
+                        resume=session_id is not None,
+                        run_policy=RunPolicy(
+                            max_tool_iterations=config.runtime.max_tool_iterations,
+                        ),
+                        dependencies={"skill_registry": bundle.skill_registry},
+                        environment=HomeCliBackend(
+                            world_path=world_path,
+                            memory_path=memory_path,
+                        ),
+                    )
                 )
-            )
         finally:
             await bundle.application.aclose()
 
@@ -213,9 +216,7 @@ def handle_print(
             raise typer.Exit(code=1) from exc
         raise
     if not execution.live_rendered:
-        typer.echo(
-            render_run_result(execution.result, output_format)
-        )
+        typer.echo(render_run_result(execution.result, output_format))
     code = result_exit_code(execution.result)
     if code:
         raise typer.Exit(code=code)

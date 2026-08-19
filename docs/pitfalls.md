@@ -1,5 +1,28 @@
 # Engineering Pitfalls
 
+## 2026-08-19 - 两个 live run 复用同一状态目录，成功 summary 掩盖被 unlink 的 SQLite
+
+### 症状与根因
+
+ALFWorld 第二次编排表面上返回 `RC=0`、`success_rate=1.0`，但 stderr 同时包含
+`sqlite3.OperationalError: attempt to write a readonly database`。根因不是 SQLite 权限或产品写入逻辑：同一
+run ID 被并发启动两次，第二次启动前删除并重建了共享 trace/memory root。第一进程继续持有已被 unlink 的
+evidence DB inode，两个进程又共享同一 Neo4j/runtime 状态，最终还留下 orphan Neo4j。错误的 Xvfb 进程探测
+命令链让第一次启动继续执行，而操作者误以为它已经停止。
+
+### 修法与教训
+
+live run 在启动前一次性锁定唯一 run ID、trace root、memory root、配置和输出文件；任一已存在就 fail closed，
+不得清空复用，更不得并发运行两个共享外部状态目录的实例。每次只启动一次，输出与 stderr 分离保存，summary
+和退出码通过后仍独立扫描 stderr，并逐项核对外部环境、数据库和进程清理终态。本次用全新
+`alfworld-integration-7964bc4-visual-final-clean1` 串行重跑：`RC=0`、stderr 为零字节、ALFWorld `won=true`，
+7/7 memories 的 Qdrant/Neo4j 终态和退出后零残留全部通过。
+
+### 参考
+
+- `docs/session-handoff.md`
+- run `alfworld-integration-7964bc4-visual-final-clean1`
+
 # Qdrant float32 回读被逐位相等误报为后台增强失败（2026-08-19）
 
 - 症状：真实 `mindmemos_add` 在 78.9ms 内成功返回 `stored` 和 memory ID，增强队列也进入
@@ -29,6 +52,73 @@ dense 分支内赋值，因此这种部分完成重试会在真正的 Entity 读
 
 - `src/homemaster/memory/mindmemos_runtime.py`
 - `tests/homemaster/memory/test_mindmemos_runtime.py`
+## 2026-08-19 - FIFO 已启动但 MindMemOS 未就绪，Session 结束污染主结果
+
+### 症状与根因
+
+统一 Session Finalizer 的 focused tests 全绿，但无完整 memory provider 的 one-shot/child-worker 黑盒测试在主结果
+之后向 stderr 打出 `embedded MindMemOS is not started` traceback。根因是 admission 只检查 FIFO worker 已启动；
+队列 readiness 不等于其下游 MindMemOS readiness。两者是同一数据流上的不同外部状态。
+
+### 修法与教训
+
+`SessionFinalizationController` 同时检查 queue started 与 composition 注入的 MindMemOS available predicate，任一
+不满足就不 admission。对带可选外部 backend 的异步队列，不能用“worker 存在”替代“下游服务可接受工作”；
+黑盒测试还必须断言主结果之后 stderr 无迟到异常。
+
+Ref：`src/homemaster/experience/session_finalization.py`、`tests/homemaster/test_cli_streaming_blackbox.py`。
+
+## 2026-08-19 - ALFWorld 链路完整跑通，但模型误解 look-at 任务而得零分
+
+### 症状与根因
+
+完整视觉测评的 Provider、MindMemOS、THOR、图片和清理门全部通过，harness 也判定 episode 可计分；但模型只在
+floorlamp 和多个 statue 之间导航并调用 `observe`，随后口头宣称完成，ALFWorld 始终 `won=false`。根因是 prompt
+只暴露自然语言“look at statue under the floorlamp”，没有暴露 ALFWorld 的真实终态：目标物必须在 inventory，
+灯必须打开且可见。模型把日常语言中的“看”错当成相机观察。
+
+### 修法与教训
+
+从明确 goal type、标准 episode ID 或标准任务文本识别 `look_at_obj_in_light`，提示模型先拿起目标，再在持有状态
+下打开指定灯；继续只以外部 `won=true` 判成功。benchmark 退出码、provider availability 和非空图片只能证明
+测评链路有效，不能证明 agent 完成任务；必须同时核验环境终态。
+
+Ref：`src/homemaster/benchmarking/alfworld/prompt.py`、run `alfworld-llm-memory-statue-20260819`。
+
+## 2026-08-19 - 复制 Neo4j 安装目录后目标机无法启动
+
+### 症状与根因
+
+ALFWorld 与 MindMemOS 的非 live 测试全绿，但目标机 production composition 在 managed Neo4j start 前失败，
+Bolt 7687 没有监听。复制的不是干净 Neo4j 发行包，而是源机器已使用的安装目录：`conf/neo4j.conf` 中
+`server.directories.data/logs/run` 固化为源机 HPC2 绝对路径，目录还夹带已有 `data/logs/run` 状态。
+`ManagedNeo4jRuntime` 只管理进程和 lease，按设计不会重写用户安装配置。
+
+### 修法与教训
+
+保留污染目录取证，从已校验 SHA-256 的官方归档重新铺设发行目录；在目标机运行
+`neo4j-admin server validate-config --verbose` 并核对退出码，再做 Bolt、DBMS identity 和关闭后无进程的
+黑盒门。数据只走 Neo4j 正式备份恢复，不能靠复制 active installation directory 迁移。
+
+Ref：`plan/alfworld-mindmemos-portable-benchmark-plan.md`、`docs/memory-user-guide.md`。
+
+## 2026-08-19 - LoCoMo QA probe 被错误送入 Session Finalizer
+
+### 症状与根因
+
+LoCoMo QA 每问完都关闭 unified session scope，导致评测答案也被 admission 到 Finalizer。根因是机械地把
+source ingestion 与 evaluation probe 都当作语义 session 完成。
+
+### 修法与教训
+
+只对 source session 关闭 finalizing scope；QA probe 使用普通 `application.run()`。回归按 session ID 断言
+Finalizer admission 集合，防止标签或答案污染后续评测记忆。
+
+### 参考
+
+- `src/homemaster/benchmarking/locomo/runner.py`
+- `tests/homemaster/benchmarking/test_locomo_runner.py`
+- `plan/alfworld-mindmem-integration-plan.md`
 
 ## 2026-08-19 - HomeMaster 缩减原生 memory type，把有效 tool_trace 误报为损坏
 
