@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the HomeMaster 100-record structured-memory benchmark."""
+"""Run the HomeMaster 100-record flat-memory benchmark."""
 
 from __future__ import annotations
 

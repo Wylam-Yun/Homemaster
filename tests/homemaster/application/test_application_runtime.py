@@ -270,13 +270,7 @@ class _MemoryEvidenceTransport:
                 "mindmemos_add",
                 {
                     "memory_type": "fact",
-                    "record": {
-                        "memory_type": "fact",
-                        "subject": {"type": "object", "name": "钥匙"},
-                        "predicate": "location",
-                        "value": {"container": "玄关抽屉"},
-                        "source": "user_statement",
-                    },
+                    "content": "钥匙在玄关抽屉",
                 },
             ):
                 yield delta
@@ -287,35 +281,20 @@ class _MemoryEvidenceTransport:
 
 class _RecordingMindMemOS(EmbeddedMindMemOS):
     def __init__(self) -> None:
-        self.calls: list[tuple[FactRecord, int]] = []
+        self.calls: list[tuple[str, str, int, str]] = []
         self.records: dict[str, dict[str, object]] = {}
 
-    async def add(self, messages, context, **kwargs):
+    async def add_flat(self, content, memory_type, *, provenance_seq, evidence_kind, context):
         del context
-        metadata = kwargs["metadata"]
-        record = (
-            FactRecord.model_validate(json.loads(metadata["record_json"]))
-            if metadata["homemaster_memory_type"] == "fact"
-            else SimpleNamespace(
-                memory_type="procedure",
-                name=json.loads(metadata["record_json"])["name"],
-            )
-        )
-        provenance_seq = int(metadata["provenance_seq"])
-        self.calls.append((record, provenance_seq))
+        self.calls.append((content, memory_type, provenance_seq, evidence_kind))
         memory_id = f"memory-runtime-{len(self.calls)}"
-        self.records[memory_id] = dict(metadata)
-        return SimpleNamespace(
-            status="ok",
-            memories=[
-                SimpleNamespace(
-                    memory_id=memory_id,
-                    related_memory_ids=[memory_id],
-                    memory_type=record.memory_type,
-                    content=messages[0].text,
-                )
-            ],
-        )
+        self.records[memory_id] = {
+            "content": content,
+            "homemaster_memory_type": memory_type,
+            "provenance_seq": provenance_seq,
+            "evidence_kind": evidence_kind,
+        }
+        return {"memory_id": memory_id, "verified_terminal_state": True}
 
     async def get_raw(self, memory_id, context):
         del context
@@ -325,12 +304,8 @@ class _RecordingMindMemOS(EmbeddedMindMemOS):
         return SimpleNamespace(
             memory_id=memory_id,
             mem_type="experience" if metadata["homemaster_memory_type"] == "procedure" else "fact",
-            metadata={
-                "request_metadata": {
-                    "add_record_ids": ["add-1"],
-                    "record_metadata": [metadata],
-                }
-            },
+            content=metadata["content"],
+            metadata=metadata,
             created_at=None,
             update_at=None,
             status="active",
@@ -506,21 +481,7 @@ class _ProcedureEvidenceTransport:
                 "mindmemos_add",
                 {
                     "memory_type": "procedure",
-                    "record": {
-                        "memory_type": "procedure",
-                        "name": "查看告警",
-                        "entry_url": "https://monitor.example.com/alarms",
-                        "steps": [
-                            {
-                                "order": 1,
-                                "action": "open",
-                                "target": {"url": "https://monitor.example.com/alarms"},
-                                "expect": {"visible_text": "告警"},
-                            }
-                        ],
-                        "success": {"visible_text": "告警"},
-                        "source": "environment_observation",
-                    },
+                    "content": "查看告警：打开 https://monitor.example.com/alarms，确认看到告警。",
                 },
             ):
                 yield delta
@@ -1149,8 +1110,10 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     assert result.final_reply == "记住了"
     await queue.wait_idle()
     assert len(store.calls) == 1
-    record, provenance_seq = store.calls[0]
-    assert record.value == {"container": "玄关抽屉"}
+    content, memory_type, provenance_seq, evidence_kind = store.calls[0]
+    assert content == "钥匙在玄关抽屉"
+    assert memory_type == "fact"
+    assert evidence_kind == "user_statement"
     assert provenance_seq > 0
     first_messages = transport.calls[0]["messages"]
     assert first_messages[-1].content[0].text == "钥匙在玄关抽屉"
@@ -1251,9 +1214,10 @@ async def test_runtime_commits_ordered_observations_before_procedure_write(tmp_p
     assert result.final_reply == "流程已保存"
     await queue.wait_idle()
     assert len(store.calls) == 1
-    procedure, provenance_seq = store.calls[0]
-    assert procedure.memory_type == "procedure"
-    assert procedure.name == "查看告警"
+    content, memory_type, provenance_seq, evidence_kind = store.calls[0]
+    assert content.startswith("查看告警")
+    assert memory_type == "procedure"
+    assert evidence_kind == "environment_observation"
     assert provenance_seq > 0
     assert len(transport.calls) == 3
     await queue.aclose()

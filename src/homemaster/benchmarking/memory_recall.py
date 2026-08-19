@@ -1,4 +1,4 @@
-"""Serial public-CLI benchmark for HomeMaster structured-memory recall."""
+"""Serial public-CLI benchmark for HomeMaster flat-memory recall."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from typing import Any, Literal, Protocol
 from homemaster.config import load_config
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
-from homemaster.memory.models import MEMORY_RECORD_ADAPTER
 
 RecordKind = Literal["target", "near_distractor", "unrelated_distractor"]
 
@@ -49,6 +48,15 @@ class BenchmarkRecord:
             "value": self.value,
             "source": self.source,
         }
+
+    @property
+    def tool_content(self) -> str:
+        return json.dumps(
+            self.tool_record,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
 
 @dataclass(frozen=True)
@@ -476,14 +484,14 @@ def parse_stream_events(stdout: str) -> tuple[dict[str, Any], ...]:
 
 
 def build_write_prompt(record: BenchmarkRecord) -> str:
-    payload = json.dumps(record.tool_record, ensure_ascii=False, separators=(",", ":"))
     return (
         "这是 HomeMaster 记忆召回基准的一条合成测试事实。请使用当前 user_statement evidence，"
-        "只调用一次 mindmemos_add，把下面完整 JSON 作为 fact 保存。"
+        "只调用一次 mindmemos_add，参数 memory_type 必须是 fact，"
+        "content 必须与下面 JSON 字符串逐字一致。"
         "不要调用 mindmemos_search、mindmemos_update、mindmemos_delete、"
         "observe、机器人或浏览器工具。"
-        "不要改写 subject、predicate、value 或 source。工具完成后只报告真实 status 和 memory_id。\n"
-        f"{payload}"
+        "不要改写、重排或解释 content。工具完成后只报告真实 status 和 job_id。\n"
+        f"{record.tool_content}"
     )
 
 
@@ -597,7 +605,7 @@ def _inspect_write(
                     and terminal.get("verified_terminal_state") is True
                     and isinstance(terminal.get("memory_id"), str)
                     and bool(str(terminal["memory_id"]).strip())
-                    and _records_equal(terminal.get("record"), record.tool_record)
+                    and terminal.get("content") == record.tool_content
                 )
                 if valid_terminal:
                     return "confirmed", terminal, "confirmed post-exit raw terminal state"
@@ -713,19 +721,19 @@ def _verify_accepted_write(job_id: str, record: BenchmarkRecord) -> dict[str, An
     memory_id = completed.get("memory_id")
     if not isinstance(memory_id, str) or not memory_id:
         return None
-    raw_record = asyncio.run(_read_raw_record(config, memory_id, job_id))
-    if raw_record is None or not _records_equal(raw_record, record.tool_record):
+    raw_content = asyncio.run(_read_raw_content(config, memory_id, job_id))
+    if raw_content != record.tool_content:
         return None
     return {
         "job_id": job_id,
         "status": "completed",
         "memory_id": memory_id,
-        "record": raw_record,
+        "content": raw_content,
         "verified_terminal_state": True,
     }
 
 
-async def _read_raw_record(config: Any, memory_id: str, job_id: str) -> dict[str, Any] | None:
+async def _read_raw_content(config: Any, memory_id: str, job_id: str) -> str | None:
     managed = (
         ManagedNeo4jRuntime(config.memory) if config.memory.neo4j.mode == "managed_local" else None
     )
@@ -751,26 +759,13 @@ async def _read_raw_record(config: Any, memory_id: str, job_id: str) -> dict[str
         raw = await store.get_raw(memory_id, context)
         if raw is None or getattr(raw, "status", None) != "active":
             return None
-        metadata = getattr(raw, "metadata", None)
-        if not isinstance(metadata, Mapping):
+        if (
+            getattr(raw, "mem_type", None) != "fact"
+            or getattr(raw, "mem_extract_type", None) != "homemaster_direct_flat"
+        ):
             return None
-        request = metadata.get("request_metadata")
-        if not isinstance(request, Mapping):
-            return None
-        records = request.get("record_metadata")
-        candidates = (
-            records
-            if isinstance(records, Sequence) and not isinstance(records, (str, bytes))
-            else (request,)
-        )
-        for candidate in candidates:
-            if not isinstance(candidate, Mapping) or not isinstance(
-                candidate.get("record_json"), str
-            ):
-                continue
-            parsed = MEMORY_RECORD_ADAPTER.validate_json(candidate["record_json"])
-            return parsed.model_dump(mode="json")
-        return None
+        content = getattr(raw, "content", None)
+        return content if isinstance(content, str) else None
     finally:
         await store.close()
         if managed is not None:
@@ -871,17 +866,19 @@ def evaluate_search_events(
             ranked.extend(item for item in values if isinstance(item, dict))
     ids = [str(item.get("memory_id", "")) for item in ranked]
     rank = ids.index(expected_memory_id) + 1 if expected_memory_id in ids else None
+    projected_records = [(item, _search_item_record(item)) for item in ranked]
     expected_subject = expected.subject
     subject_matches = [
         item
-        for item in ranked
-        if isinstance(item.get("record"), Mapping)
-        and isinstance(item["record"].get("subject"), Mapping)
-        and item["record"]["subject"].get("name") == expected_subject
+        for item, record in projected_records
+        if isinstance(record, Mapping)
+        and isinstance(record.get("subject"), Mapping)
+        and record["subject"].get("name") == expected_subject
     ]
     expected_items = [item for item in ranked if item.get("memory_id") == expected_memory_id]
     exact_record = bool(
-        expected_items and _records_equal(expected_items[0].get("record"), expected.tool_record)
+        expected_items
+        and _records_equal(_search_item_record(expected_items[0]), expected.tool_record)
     )
     final_reply = ""
     for event in events:
@@ -907,6 +904,20 @@ def evaluate_search_events(
         "final_answer_steps_in_order": steps_in_order,
         "final_reply": final_reply,
     }
+
+
+def _search_item_record(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    record = item.get("record")
+    if isinstance(record, Mapping):
+        return record
+    content = item.get("content")
+    if not isinstance(content, str):
+        return None
+    try:
+        decoded = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    return decoded if isinstance(decoded, Mapping) else None
 
 
 def evaluate_run(

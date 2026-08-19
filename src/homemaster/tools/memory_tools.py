@@ -99,18 +99,12 @@ class FileMemoryInput(_MemoryToolInput):
 
 class AddMemoryInput(_MemoryToolInput):
     memory_type: Literal["fact", "procedure"]
-    record: MemoryRecordInput = Field(
+    content: _NonEmptyText = Field(
         description=(
-            "Complete FactRecord or ProcedureRecord. Send a JSON object; a JSON-encoded "
-            "object string is accepted only for provider compatibility. Fact predicate must "
-            "be lowercase English snake_case, such as location."
+            "Exact memory text to persist. Preserve the submitted wording; do not add evidence refs, "
+            "explanations, or a structured record."
         )
     )
-    @model_validator(mode="after")
-    def _memory_types_match(self) -> AddMemoryInput:
-        if self.memory_type != self.record.memory_type:
-            raise ValueError("memory_type must match record.memory_type")
-        return self
 
 
 class SearchMemoriesInput(_MemoryToolInput):
@@ -284,17 +278,21 @@ class AddMemoryExecutor:
     async def execute(
         self, arguments: Mapping[str, object], context: ToolExecutionContext
     ) -> ToolExecutionResult:
-        parsed = _record(arguments.get("record"), arguments.get("memory_type"))
-        if isinstance(parsed, ToolExecutionResult):
-            return parsed
-        evidence = _validated_evidence(context, parsed)
+        raw_content = arguments.get("content")
+        content = raw_content if isinstance(raw_content, str) else ""
+        memory_type = arguments.get("memory_type")
+        if not content.strip() or memory_type not in {"fact", "procedure"}:
+            return _failure("memory_invalid_input", "content and a supported memory_type are required")
+        evidence = _validated_untyped_evidence(context)
         if isinstance(evidence, ToolExecutionResult):
             return evidence
         try:
             queue = _service(context, "memory_add_queue", MemoryAddQueue)
             receipt = await queue.enqueue(
-                record=parsed,
+                content=content,
+                memory_type=memory_type,
                 provenance_seq=max(entry.provenance_seq for entry in evidence),
+                evidence_kind=max(evidence, key=lambda item: item.provenance_seq).kind,
                 context=_mindmemos_context(context),
                 run_id=context.run_id,
             )
@@ -336,10 +334,12 @@ class SearchMemoriesExecutor:
                 raw = await store.get_raw(hit.id, memory_context)
                 parsed = _mindmemos_record(raw)
                 if parsed is None:
-                    vanilla_payload = _vanilla_experience_payload(hit, raw, arguments)
-                    if vanilla_payload is not None:
-                        records.append(vanilla_payload)
+                    flat_payload = _flat_memory_payload(hit, raw, arguments)
+                    if flat_payload is not None:
+                        records.append(flat_payload)
                         visible_hits.append(hit)
+                        continue
+                    if _is_active_flat_memory(raw):
                         continue
                     diagnostics.append(
                         {
@@ -681,26 +681,27 @@ def _mindmemos_payload(hit: Any, raw: Any, record: MemoryRecord) -> dict[str, ob
     }
 
 
-def _vanilla_experience_payload(
+def _flat_memory_payload(
     hit: Any, raw: Any, arguments: Mapping[str, object]
 ) -> dict[str, object] | None:
-    """Project native Vanilla experience memories without weakening Schema validation."""
+    """Project active record-free fact/experience memories as exact content."""
+    metadata = _mindmemos_request_metadata(raw)
     if (
         raw is None
-        or getattr(raw, "mem_extract_type", None) != "vanilla"
-        or getattr(raw, "mem_type", None) != "experience"
+        or getattr(raw, "mem_type", None) not in {"fact", "experience"}
         or getattr(raw, "status", "active") != "active"
+        or "record_json" in metadata
     ):
         return None
     content = getattr(raw, "content", None)
     if not isinstance(content, str) or not content.strip():
         return None
-    if arguments.get("memory_type") not in {None, "procedure"}:
+    projected_type = "procedure" if getattr(raw, "mem_type", None) == "experience" else "fact"
+    if arguments.get("memory_type") not in {None, projected_type}:
         return None
     if any(arguments.get(key) is not None for key in ("subject", "predicate", "entry_url", "name")):
         return None
 
-    metadata = _mindmemos_request_metadata(raw)
     source = {
         key: metadata[key]
         for key in (
@@ -710,6 +711,9 @@ def _vanilla_experience_payload(
             "trace_schema_version",
             "trace_hash",
             "extractor_version",
+            "provenance_seq",
+            "evidence_kind",
+            "homemaster_add_mode",
         )
         if key in metadata
     }
@@ -717,7 +721,7 @@ def _vanilla_experience_payload(
     updated_at = getattr(raw, "update_at", None)
     return {
         "memory_id": hit.id,
-        "memory_type": "procedure",
+        "memory_type": projected_type,
         "content": content,
         "source": source,
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
@@ -726,6 +730,17 @@ def _vanilla_experience_payload(
         "match_sources": ["semantic"],
         "verified_terminal_state": True,
     }
+
+
+def _is_active_flat_memory(raw: Any) -> bool:
+    if raw is None or getattr(raw, "status", "active") != "active":
+        return False
+    if getattr(raw, "mem_type", None) not in {"fact", "experience"}:
+        return False
+    content = getattr(raw, "content", None)
+    if not isinstance(content, str) or not content.strip():
+        return False
+    return "record_json" not in _mindmemos_request_metadata(raw)
 
 
 class UpdateMemoryExecutor:
@@ -1028,18 +1043,24 @@ def _validated_untyped_evidence(
 ) -> tuple[Any, ...] | ToolExecutionResult:
     subject = context.permission_subject
     try:
-        evidence = _service(context, "memory_evidence_ledger", MemoryEvidenceLedger).for_scope(
-            kind="user_statement",
-            tenant_id=subject.tenant_id,
-            session_id=context.session_id,
-            run_id=context.run_id,
-            turn_id=f"turn-{context.turn_index}",
+        ledger = _service(context, "memory_evidence_ledger", MemoryEvidenceLedger)
+        evidence = tuple(
+            item
+            for kind in ("user_statement", "environment_observation")
+            for item in ledger.for_scope(
+                kind=kind,
+                tenant_id=subject.tenant_id,
+                session_id=context.session_id,
+                run_id=context.run_id,
+                turn_id=f"turn-{context.turn_index}",
+            )
         )
+        evidence = tuple(sorted(evidence, key=lambda item: item.provenance_seq))
         return (
             evidence
             if evidence
             else _failure(
-                "memory_evidence_missing", "current execution has no user-statement evidence"
+                "memory_evidence_missing", "current execution has no current-scope evidence"
             )
         )
     except MemoryEvidenceError as exc:

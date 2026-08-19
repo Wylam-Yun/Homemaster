@@ -1,4 +1,4 @@
-"""Application-owned serial queue for accepted structured MindMemOS writes."""
+"""Application-owned serial queue for accepted flat MindMemOS writes."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from homemaster.events.trace import append_jsonl_event
-from homemaster.memory.models import MemoryRecord
 
 _STOP = object()
 
@@ -36,8 +35,10 @@ class MemoryWorkReceipt:
 @dataclass(frozen=True)
 class _MemoryAddJob:
     job_id: str
-    record: MemoryRecord
+    content: str
+    memory_type: Literal["fact", "procedure"]
     provenance_seq: int
+    evidence_kind: Literal["user_statement", "environment_observation"]
     context: Any
     run_id: str | None
 
@@ -51,7 +52,7 @@ class _MemoryWorkJob:
 
 
 class MemoryAddQueue:
-    """Run accepted structured Adds and ordered memory work on one FIFO worker."""
+    """Run accepted flat Adds and ordered memory work on one FIFO worker."""
 
     def __init__(self, mindmemos: Any, *, audit_path: Path) -> None:
         self._mindmemos = mindmemos
@@ -79,8 +80,10 @@ class MemoryAddQueue:
     async def enqueue(
         self,
         *,
-        record: MemoryRecord,
+        content: str,
+        memory_type: Literal["fact", "procedure"],
         provenance_seq: int,
+        evidence_kind: Literal["user_statement", "environment_observation"],
         context: Any,
         run_id: str | None = None,
     ) -> MemoryAddReceipt:
@@ -90,8 +93,10 @@ class MemoryAddQueue:
             raise RuntimeError("memory Add queue is not started")
         job = _MemoryAddJob(
             job_id=str(uuid4()),
-            record=copy.deepcopy(record),
+            content=copy.deepcopy(content),
+            memory_type=memory_type,
             provenance_seq=provenance_seq,
+            evidence_kind=evidence_kind,
             context=copy.deepcopy(context),
             run_id=run_id,
         )
@@ -150,9 +155,11 @@ class MemoryAddQueue:
                     return
                 if isinstance(item, _MemoryAddJob):
                     self._log(item, status="processing")
-                    result = await self._mindmemos.add_record(
-                        item.record,
+                    result = await self._mindmemos.add_flat(
+                        item.content,
+                        item.memory_type,
                         provenance_seq=item.provenance_seq,
+                        evidence_kind=item.evidence_kind,
                         context=item.context,
                     )
                     memory_id = (
@@ -209,7 +216,10 @@ class MemoryAddQueue:
             event="memory_add_job",
             payload={
                 "job_id": job.job_id,
-                "job_type": "structured_add",
+                "job_type": "flat_add",
+                "memory_type": job.memory_type,
+                "evidence_kind": job.evidence_kind,
+                "provenance_seq": job.provenance_seq,
                 "status": status,
                 "tenant_id": getattr(context, "account_id", None),
                 "project_id": getattr(context, "project_id", None),

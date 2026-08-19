@@ -23,11 +23,12 @@ ordinary-name `ToolRegistry`、无 session 状态的 `ToolExecutor`、EventBus�
 config/plan/Cron/task/team/child 服务、device connection pool、physical-device lease manager 和可选
 MCP manager；每个 run 冻结 provider request、generation 和 borrowed environment binding，不冻结工具子集。
 
-公开 `mindmemos_add` 的后台任务由 application 而不是 run 持有。工具完成 record、权限和当前 scope evidence
-校验后只做内存 FIFO admission，返回 `accepted + job_id`；单 worker 随后执行 Schema Add 和 raw readback。
+公开 `mindmemos_add` 的后台任务由 application 而不是 run 持有。工具完成 content/type、权限和当前 scope evidence
+校验后只做内存 FIFO admission，返回 `accepted + job_id`；单 worker 随后执行无 LLM/Entity 的 direct flat write
+和 raw readback。
 因此 run cancellation 不传播到已 accepted job。Application resource LIFO 顺序保证 close 先 seal/drain Add
 队列，再关闭 MindMemOS 和 Neo4j。Interactive Session Finalizer 也是该 FIFO 的 typed work item，所以顺序为
-当时已 accepted 的 structured Add、旧 Session 的 Vanilla Add/implicit feedback/dreaming、之后 accepted 的
+当时已 accepted 的 flat Add、旧 Session 的 Vanilla Add/implicit feedback/dreaming、之后 accepted 的
 新 Add，三者不会重叠。`/new` 只做同步 `put_nowait` 后切换 Session；terminal exit 才等待 queue idle。队列
 不持久化、不并发、不重试；异常进程终止可能丢任务。
 

@@ -366,6 +366,9 @@ class EmbeddedMindMemOS:
         self._recorder: Any | None = None
         self._reader: Any | None = None
         self._writer: Any | None = None
+        self._flat_text_preprocessor: Any | None = None
+        self._flat_sparse_encoder: Any | None = None
+        self._flat_embed_client: Any | None = None
         self._schema_write_plan_builder: Any | None = None
         self._add_pipeline: Any | None = None
         self._vanilla_add_pipeline: Any | None = None
@@ -487,9 +490,11 @@ class EmbeddedMindMemOS:
                 response = await embed_client.embed(task=task, text=texts)
                 return response.embeddings
 
+            text_preprocessor = get_text_preprocessor(text_config)
+            sparse_encoder = SparseVectorEncoder(text_config)
             schema_write_plan_builder = SchemaWritePlanBuilder(
-                text_preprocessor=get_text_preprocessor(text_config),
-                sparse_encoder=SparseVectorEncoder(text_config),
+                text_preprocessor=text_preprocessor,
+                sparse_encoder=sparse_encoder,
                 embed_texts=embed_texts,
             )
             add_record_store = AddRecordStore(clients=clients)
@@ -599,6 +604,9 @@ class EmbeddedMindMemOS:
         self._recorder = recorder
         self._reader = reader
         self._writer = writer
+        self._flat_text_preprocessor = text_preprocessor
+        self._flat_sparse_encoder = sparse_encoder
+        self._flat_embed_client = embed_client
         self._schema_write_plan_builder = schema_write_plan_builder
         self._add_pipeline = add_pipeline
         self._vanilla_add_pipeline = vanilla_add_pipeline
@@ -719,6 +727,225 @@ class EmbeddedMindMemOS:
                     "verified_terminal_state": True,
                 }
         raise RuntimeError("MindMemOS Add returned no verified raw memory")
+
+    async def add_flat(
+        self,
+        content: str,
+        memory_type: str,
+        *,
+        provenance_seq: int,
+        evidence_kind: str,
+        context: Any,
+    ) -> dict[str, object]:
+        """Persist exact caller-authored content without extraction or entity modeling."""
+
+        from datetime import UTC, datetime
+
+        from mindmemos.components.id import generate_memory_id, generate_source_id
+        from mindmemos.pipelines.memory_db import suppress_recording_errors, utcnow
+        from mindmemos.pipelines.utils.dto_factory import build_source_write
+        from mindmemos.typing import (
+            AddPipelineInput,
+            AddPipelineSyncResult,
+            GraphNodeRef,
+            GraphRelationship,
+            MemoryAddEventItem,
+            MemoryDbWritePlan,
+            MemoryWrite,
+            SourceRef,
+            TextMessage,
+            VectorWrite,
+        )
+
+        if (
+            self._writer is None
+            or self._reader is None
+            or self._recorder is None
+            or self._flat_text_preprocessor is None
+            or self._flat_sparse_encoder is None
+            or self._flat_embed_client is None
+        ):
+            raise RuntimeError("embedded MindMemOS is not started")
+        if memory_type not in {"fact", "procedure"}:
+            raise ValueError("memory_type must be fact or procedure")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("content must not be empty")
+        if evidence_kind not in {"user_statement", "environment_observation"}:
+            raise ValueError("unsupported evidence kind")
+
+        native_type = "experience" if memory_type == "procedure" else "fact"
+        preprocessed = self._flat_text_preprocessor.preprocess_text(
+            content,
+            segment_id="homemaster-direct-flat-add",
+            include_entities=False,
+        )
+        sparse = self._flat_sparse_encoder.encode_document(list(preprocessed.tokens))
+        embedding_response = await self._flat_embed_client.embed(
+            task="memory.add.embed",
+            text=content,
+        )
+        embeddings = list(embedding_response.embeddings)
+        if not embeddings or not embeddings[0]:
+            raise RuntimeError("direct flat Add embedding returned no vector")
+
+        now = datetime.now(UTC)
+        memory_id = generate_memory_id(
+            context.project_id,
+            context.request_id,
+            f"{preprocessed.content_hash}:{native_type}",
+        )
+        source_ref = generate_source_id(
+            SourceRef(
+                source_type="message",
+                message_id=(
+                    f"homemaster-direct-flat-{context.request_id}-evidence-{provenance_seq}"
+                ),
+                is_parsed=True,
+                content_hash=preprocessed.content_hash,
+                metadata={
+                    "producer": "homemaster_explicit_add",
+                    "provenance_seq": provenance_seq,
+                    "evidence_kind": evidence_kind,
+                },
+            ),
+            context,
+        )
+        source = build_source_write(source_ref, context, now)
+        add_record_id = str(uuid4())
+        metadata = {
+            "homemaster_add_mode": "direct_flat",
+            "homemaster_memory_type": memory_type,
+            "provenance_seq": provenance_seq,
+            "evidence_kind": evidence_kind,
+            "content_hash": preprocessed.content_hash,
+            "bm25_text": preprocessed.bm25_text,
+            "tokens": list(preprocessed.tokens),
+            "lang": preprocessed.lang,
+            "source_id": source.source_id,
+            "source_type": source.source_type,
+            "source_session_id": context.session_id,
+            "add_record_id": add_record_id,
+            "entity_count": 0,
+            "entities": [],
+            "extractor": "homemaster_direct_flat_v1",
+        }
+        memory = MemoryWrite(
+            memory_id=memory_id,
+            account_id=context.account_id,
+            project_id=context.project_id,
+            api_key_uuid=context.api_key_uuid,
+            user_id=context.user_id,
+            app_id=context.app_id,
+            session_id=context.session_id,
+            agent_id=context.agent_id,
+            request_id=context.request_id,
+            content=content,
+            mem_type=native_type,
+            mem_extract_type="homemaster_direct_flat",
+            mem_extract_version="homemaster_direct_flat_v1",
+            metadata=metadata,
+            validate_from=now,
+            created_at=now,
+            root_id=[memory_id],
+        )
+        relationship = GraphRelationship(
+            source=GraphNodeRef(
+                kind="Memory", project_id=context.project_id, node_id=memory_id
+            ),
+            target=GraphNodeRef(
+                kind="Source", project_id=context.project_id, node_id=source.source_id
+            ),
+            rel_type="EXTRACTED_FROM",
+            project_id=context.project_id,
+            metadata={
+                "source_type": "message",
+                "producer": "homemaster_explicit_add",
+            },
+        )
+        plan = MemoryDbWritePlan(
+            memories=[memory],
+            sources=[source],
+            vectors=[
+                VectorWrite(
+                    memory_id=memory_id,
+                    semantic_vector=list(embeddings[0]),
+                    bm25_indices=list(sparse.indices),
+                    bm25_values=list(sparse.values),
+                )
+            ],
+            relationships=[relationship],
+        )
+        payload = AddPipelineInput(
+            messages=[TextMessage(text=content)],
+            mode="sync",
+            force_generation=False,
+            metadata=metadata,
+        )
+        await suppress_recording_errors(
+            self._recorder.record_add_input(
+                payload,
+                ctx=context,
+                request_submitted_at=utcnow(),
+                add_record_id=add_record_id,
+                status="processing",
+            ),
+            operation="homemaster.mindmemos.direct_flat_add",
+        )
+        try:
+            write_result = await self._writer.write(context, plan, consistency="strong")
+            if (
+                memory_id not in write_result.memory_ids
+                or bool(write_result.graph_pending)
+                or bool(write_result.errors)
+            ):
+                raise RuntimeError(
+                    "direct flat Add database write was incomplete: "
+                    f"graph_pending={write_result.graph_pending}, errors={write_result.errors}"
+                )
+            result = AddPipelineSyncResult(
+                status="ok",
+                memories=[
+                    MemoryAddEventItem(
+                        operation="add",
+                        content=content,
+                        memory_id=memory_id,
+                        mem_type=native_type,
+                        graph_edge_count=1,
+                    )
+                ],
+            )
+            await suppress_recording_errors(
+                self._recorder.mark_add_completed(context, add_record_id, result),
+                operation="homemaster.mindmemos.direct_flat_add",
+            )
+            raw = await self.get_raw(memory_id, context)
+            if not (
+                raw is not None
+                and getattr(raw, "status", None) == "active"
+                and getattr(raw, "content", None) == content
+                and getattr(raw, "mem_type", None) == native_type
+                and getattr(raw, "mem_extract_type", None) == "homemaster_direct_flat"
+            ):
+                raise RuntimeError("direct flat Add raw terminal state could not be verified")
+        except Exception as exc:
+            await suppress_recording_errors(
+                self._recorder.mark_add_failed(context, add_record_id, str(exc)),
+                operation="homemaster.mindmemos.direct_flat_add",
+            )
+            raise
+
+        created_at = getattr(raw, "created_at", None)
+        updated_at = getattr(raw, "update_at", None)
+        return {
+            "memory_id": memory_id,
+            "memory_type": memory_type,
+            "content": content,
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
+            "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
+            "score": None,
+            "match_sources": [],
+            "verified_terminal_state": True,
+        }
 
     async def add_vanilla(
         self,
@@ -1197,6 +1424,9 @@ class EmbeddedMindMemOS:
         self._recorder = None
         self._reader = None
         self._writer = None
+        self._flat_text_preprocessor = None
+        self._flat_sparse_encoder = None
+        self._flat_embed_client = None
         self._schema_write_plan_builder = None
         self._add_pipeline = None
         self._vanilla_add_pipeline = None

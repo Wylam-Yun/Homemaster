@@ -41,23 +41,11 @@ def live_config(tmp_path: Path):
 
 @pytest.mark.live_api
 @pytest.mark.asyncio
-async def test_real_application_close_drains_two_accepted_structured_adds(live_config) -> None:
+async def test_real_application_close_drains_two_direct_flat_adds(live_config) -> None:
     nonce = "v27-async-add-" + uuid.uuid4().hex[:10]
-    records = (
-        FactRecord(
-            memory_type="fact",
-            subject={"type": "other", "name": f"{nonce}-first"},
-            predicate="queue_position",
-            value="first",
-            source="user_statement",
-        ),
-        FactRecord(
-            memory_type="fact",
-            subject={"type": "other", "name": f"{nonce}-second"},
-            predicate="queue_position",
-            value="second",
-            source="user_statement",
-        ),
+    memories = (
+        (f"  {nonce} exact fact content.  ", "fact", "fact"),
+        (f"{nonce} reusable procedure content.", "procedure", "experience"),
     )
     bundle = create_home_application(
         config=live_config,
@@ -71,12 +59,14 @@ async def test_real_application_close_drains_two_accepted_structured_adds(live_c
     context = _memory_context(nonce, session_id=nonce)
     receipts = [
         await bundle.memory_add_queue.enqueue(
-            record=record,
+            content=content,
+            memory_type=memory_type,
             provenance_seq=index,
+            evidence_kind="user_statement",
             context=context,
             run_id=nonce,
         )
-        for index, record in enumerate(records, start=1)
+        for index, (content, memory_type, _native_type) in enumerate(memories, start=1)
     ]
     assert len({receipt.job_id for receipt in receipts}) == 2
     audit_path = live_config.memory.data_root / "mindmemos" / "add_jobs.jsonl"
@@ -95,6 +85,12 @@ async def test_real_application_close_drains_two_accepted_structured_adds(live_c
     for receipt in receipts:
         assert terminal[receipt.job_id]["status"] == "completed"
         assert terminal[receipt.job_id]["memory_id"]
+    third_party_log = (
+        live_config.runtime.runtime_root / nonce / "third_party.log"
+    ).read_text(encoding="utf-8")
+    assert third_party_log.count('"task": "memory.add.embed"') == 2
+    assert '"kind": "chat"' not in third_party_log
+    assert "memory.add.extract" not in third_party_log
 
     verifier = create_home_application(
         config=live_config,
@@ -106,12 +102,50 @@ async def test_real_application_close_drains_two_accepted_structured_adds(live_c
     await verifier.application.start()
     try:
         assert verifier.mindmemos is not None
-        for receipt, expected in zip(receipts, records, strict=True):
+        for receipt, (expected_content, expected_type, expected_native_type) in zip(
+            receipts, memories, strict=True
+        ):
             memory_id = terminal[receipt.job_id]["memory_id"]
             raw = await verifier.mindmemos.get_raw(memory_id, context)
             assert raw is not None and raw.status == "active"
-            metadata = _real_request_metadata(raw.metadata)
-            assert json.loads(metadata["record_json"]) == expected.model_dump(mode="json")
+            metadata = raw.metadata
+            assert raw.content == expected_content
+            assert raw.mem_type == expected_native_type
+            assert raw.mem_extract_type == "homemaster_direct_flat"
+            assert metadata["homemaster_memory_type"] == expected_type
+            assert metadata["entity_count"] == 0
+            assert "record_json" not in metadata
+            add_records = await verifier.mindmemos.get_add_records(
+                [metadata["add_record_id"]], context
+            )
+            assert len(add_records) == 1
+            assert add_records[0].payload["status"] == "ok"
+            assert [item["memory_id"] for item in add_records[0].payload["memories"]] == [
+                memory_id
+            ]
+            graph_rows = await verifier.mindmemos._neo4j.run_read(
+                """
+                MATCH (memory:Memory {project_id: $project_id, memory_id: $memory_id})
+                OPTIONAL MATCH (memory)-[source_edge:EXTRACTED_FROM]->(source:Source)
+                OPTIONAL MATCH (memory)-[mention_edge:MENTIONS]->(entity:Entity)
+                RETURN count(DISTINCT memory) AS memory_count,
+                       count(DISTINCT source) AS source_count,
+                       count(DISTINCT source_edge) AS extracted_from_count,
+                       count(DISTINCT entity) AS entity_count,
+                       count(DISTINCT mention_edge) AS mentions_count
+                """,
+                project_id=context.project_id,
+                memory_id=memory_id,
+            )
+            assert graph_rows == [
+                {
+                    "memory_count": 1,
+                    "source_count": 1,
+                    "extracted_from_count": 1,
+                    "entity_count": 0,
+                    "mentions_count": 0,
+                }
+            ]
             deleted = await verifier.mindmemos.delete(memory_id, context)
             assert deleted.status == "ok"
     finally:

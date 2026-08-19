@@ -17,10 +17,12 @@ the successful provider attempt's frozen recall context. Session finalization ha
 dreaming-counter and dreaming stages. Dreaming batches are scope-locked and persist under
 `memory.data_root/mindmemos/dreaming_state`.
 
-V2.7 changes public structured `mindmemos_add` to application-owned async acceptance. After scope evidence and record
-validation it returns `accepted + job_id` without `memory_id`; one process-local FIFO worker performs Schema Add and exact
-raw readback. Interactive Session finalization is now a typed item in that same FIFO. `/new` enqueues the old Session and
-immediately switches; terminal exit and application close drain structured Add plus Vanilla Add, implicit feedback and
+V2.7 public `mindmemos_add` now accepts only exact `content + memory_type`. After current-scope evidence validation it
+returns `accepted + job_id` without `memory_id`; one process-local FIFO worker performs a deterministic direct flat write
+and exact raw readback. The explicit path calls no chat/Schema/Vanilla extraction and writes no Entity or `MENTIONS`;
+it retains memory embedding/BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`. Interactive Session finalization is a
+typed item in that same FIFO. `/new` enqueues the old Session and immediately switches; terminal exit and application close
+drain flat Add plus unchanged Vanilla Add, implicit feedback and
 optional dreaming before MindMemOS closes. There is intentionally no broker, durable queue, parallelism or retry;
 crash/`SIGKILL` may lose unfinished work.
 
@@ -33,13 +35,27 @@ native same-ID updater; valid Schema memories use a deterministic versioned fast
 structured metadata, vectors and graph lineage without re-running Schema Add; corrupt `record_json` fails closed. The
 new `mindmemos_history` tool reads the real `DERIVED_FROM` component from either an active or archived version.
 
-The Schema feedback/evidence follow-up is implemented. Structured recalled memories carry their full parsed record
+Historical Schema memories remain compatible and are not migrated. The Schema feedback/evidence follow-up is implemented.
+Structured recalled memories carry their full parsed record
 into planning; update without a complete valid replacement record fails closed. HomeMaster validates type, identity
 and source, derives content from that record, reuses the deterministic versioned writer, and verifies exact persisted
 record/content plus old/new states and lineage. Add/update provider schemas and messages no longer expose
 `memory-evidence-*`; executors select current tenant/session/run/turn/source evidence from the ledger.
 
 ## Verification
+
+The direct-flat follow-up passes 253 non-live memory/application/experience tests (1 skipped, 4 live deselected), plus
+focused Ruff, compileall and `git diff --check`. Its latest real Qdrant/Neo4j gate passes in 23.10s for one fact and one procedure:
+each raw ID is independently active with exact submitted content and the expected native type, each graph has exactly one
+Source and `EXTRACTED_FROM`, and each has zero Entity and `MENTIONS`. The captured log has exactly two
+`memory.add.embed` calls, zero `kind=chat` calls and no `memory.add.extract`. Each raw memory's persisted
+`add_record_id` independently resolves to an `ok` operation record whose returned memory ID matches that raw memory.
+
+The full non-live/non-stress collection reaches `1693 passed, 7 skipped, 11 deselected`. The unfiltered run additionally
+has six expected failures because Playwright is not installed and two because the installed MCP package lacks
+`mcp.server`. After excluding those unavailable optional integrations, one order-dependent pre-existing SIGINT test fails
+with a fake run returning `None`; the complete interactive CLI file passes independently with `13 passed`. This failure
+does not traverse the Add queue or MindMemOS writer and was not changed in this follow-up.
 
 The new black-box regression executes real `pwd` and `sh -c 'exit 7'` subprocesses and parses the final Anthropic and
 OpenAI request bodies. It passes for the exact workspace, status, return code, timeout flag and structured error. Sync
@@ -98,7 +114,7 @@ entity description contains both values. The unrelated editor memory remained ac
 
 The async Session-finalization regression passes as part of 147 focused tests: 57 CLI/memory, 54
 experience/ApplicationRuntime/composition and 36 benchmark/cleanup-guard tests. It proves `/new` reaches the next real
-run before a delayed old finalizer completes; structured Add and finalization execute in exact FIFO order with maximum
+run before a delayed old finalizer completes; Add and finalization execute in exact FIFO order with maximum
 memory concurrency one; a failed finalizer produces a failed work receipt without blocking the next Add; close waits
 for queued finalization. Real SIGINT injection still proves terminal drain and application close continue after the
 signal while an ordinary run remains cancellable. Full Ruff, compileall and `git diff --check` pass.
@@ -111,9 +127,8 @@ fully finalized.
 
 ## Next Step
 
-Two pre-change HomeMaster shells are still running (`13371` and `539714`). They cannot hot-load the async `/new`
-behavior. Let their current memory work finish or terminate them explicitly, then start a fresh shell from this
-working tree before interactive verification.
+Any HomeMaster shell started before this change cannot hot-load the direct-flat Add contract. Start a fresh shell from
+this working tree before interactive verification; do not infer behavior from a pre-change process.
 
 ## Blockers
 

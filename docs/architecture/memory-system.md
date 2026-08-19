@@ -24,7 +24,7 @@ SOUL/USER/MEMORY remain file-owned. `MemoryMigrationCoordinator` only publishes 
 existing Evidence database. It never reads or migrates old mem0 Qdrant/history data. `memory.root` is the only accepted
 legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and never opens MindMemOS.
 
-## Structured Flow
+## Memory Flow
 
 ```text
 new Session / first user turn after completed Compact
@@ -36,20 +36,20 @@ new Session / first user turn after completed Compact
 
 canonical user turn / verified tool result
   -> MemoryEvidenceLedger records ordered scope evidence (not model-visible)
-  -> mindmemos_add validates FactRecord or ProcedureRecord against current scope
-  -> enqueue immutable record/provenance/request context; return accepted + job_id
+  -> mindmemos_add validates content + fact|procedure against current scope
+  -> enqueue immutable content/type/provenance/request context; return accepted + job_id
   -> one application-owned FIFO worker (eventual visibility)
-  -> deterministic TextMessage + metadata(record_json, provenance_seq, homemaster_memory_type)
-  -> EmbeddedMindMemOS.add_record()
-  -> MindMemOS schema_add.add_sync()
-  -> raw memory readback by persistent ID
+  -> EmbeddedMindMemOS.add_flat() with no Add pipeline or chat model
+  -> preprocess(include_entities=false) + memory embedding + BM25
+  -> strong MemoryDbWritePlan(memory, vector, message source, EXTRACTED_FROM)
+  -> exact raw memory readback by persistent ID
   -> completed|failed job JSONL event
 
 mindmemos_search
   -> EmbeddedMindMemOS.search()
   -> MindMemOS search_pipeline.search()
   -> raw memory read by each returned ID
-  -> nested request metadata decoded and record schema validated
+  -> legacy record_json validated or active record-free flat memory projected
   -> HomeMaster field filters
   -> model-visible records and raw IDs
 
@@ -76,7 +76,7 @@ successful provider attempt selects mindmemos_feedback
   -> per-action Qdrant status/content/full-record and Neo4j lineage readback
 
 SessionFinalizer
-  -> wait until the structured Add FIFO is idle
+  -> execute as one typed item in the shared memory FIFO
   -> vanilla add and raw readback
   -> operation-record implicit feedback and per-action readback
   -> register only confirmed ordinary add IDs in the persistent watermark
@@ -84,21 +84,15 @@ SessionFinalizer
   -> per-action raw/lineage and add-record consolidation readback
 ```
 
-HomeMaster `fact` maps to MindMemOS `fact`. HomeMaster `procedure` maps to MindMemOS `experience`, while metadata keeps
-`homemaster_memory_type=procedure` and the complete serialized `ProcedureRecord`. The model only receives raw memory IDs
-that can be passed to update and delete; episodic or aggregate view IDs are not returned as structured record IDs.
+HomeMaster `fact` maps to MindMemOS `fact`; HomeMaster `procedure` maps to MindMemOS `experience`. The direct writer keeps
+the submitted content byte-for-byte as the authoritative display text. Preprocessing is index-only and explicitly disables
+entity extraction. Its plan has empty `entities` and `entity_vectors`, and the only graph relationship is provenance
+`Memory-[:EXTRACTED_FROM]->Source`; it never writes `MENTIONS` or a semantic entity graph. Worker completion requires
+strong writer success and exact active raw readback.
 
-MindMemOS schema add is configured with HomeMaster's `fact` and `task_experience` entity schemas. The compact extraction
-prompt requires `entities` and `edges`, forbids episodic-only output, and is explicitly preserved when MindMemOS selects
-the request language prompt set. Chat output defaults to 8192 tokens when the HomeMaster provider does not set a limit,
-preventing truncated entity JSON.
-
-The validated `record_json` remains authoritative after LLM extraction. A request-scoped typed projection replaces the
-entity-generation parse with exactly one deterministic entity: `FactRecord` becomes `fact` with identity
-`<full subject name>::<predicate>`, while `ProcedureRecord` becomes `task_experience` with its exact procedure name.
-This prevents procedural-looking fact values from being reclassified by the model. Cross-identity LLM entity merge is
-disabled; native exact-name resolution still handles the same identity. Worker completion requires raw memory readback
-to equal the complete original record.
+Historical Schema memories are not migrated or deleted. Their valid `record_json` remains authoritative for structured
+update/feedback and lineage; malformed structured metadata still fails closed. This compatibility path does not restore
+structured input to public `mindmemos_add`.
 
 `EmbeddedMindMemOS` is a lifecycle and configuration adapter, not a second memory engine. It creates MindMemOS native
 add/search/get/update/delete/feedback/dreaming pipelines, maps HomeMaster chat and embedding providers into MindMemOS config, disables
@@ -111,7 +105,7 @@ without a valid matching HomeMaster owner marker is treated as external and is n
 reuse the same application-owned resources; HomeMaster does not add Kafka, HTTP self-calls or a second database. Skill
 evolution remains out of scope.
 
-`MemoryAddQueue` changes only the public structured Add timing contract. Admission occurs after permission, record and
+`MemoryAddQueue` owns the public flat Add timing contract. Admission occurs after permission, content/type and
 scope-evidence validation; it returns `accepted`, an opaque `job_id`, no `memory_id`, and
 `verified_terminal_state=false` (`status=success, domain_status=accepted` in the generic provider envelope). One worker
 runs jobs FIFO with no concurrency and no retry. A failed job is terminal and
@@ -134,12 +128,11 @@ structured update. Success requires the old raw memory archived, the new raw mem
 generated content, and `new-[:DERIVED_FROM]->old`. Any failed action makes the whole tool result an error.
 
 Opaque evidence refs remain only in the application-owned ledger and internal audit state. They are absent from
-provider messages and the public add/update schemas. Executors select evidence by exact tenant/session/run/turn and
-record source; therefore an old run's ref cannot be copied into a new mutation.
+provider messages and the public add/update schemas. Add selects current tenant/session/run/turn evidence and freezes its
+kind/provenance; therefore an old run's ref cannot be copied into a new mutation.
 
-Tool schemas and runtime validation use the same Pydantic models. Mimo may encode the nested record as a JSON object
-string; the boundary decodes only an object and then performs the unchanged discriminated `FactRecord | ProcedureRecord`
-validation. Arbitrary text, arrays and invalid records remain rejected.
+Tool schemas and runtime validation use the same Pydantic models. Public Add has exactly `content` and `memory_type`;
+legacy `record` input and extra fields are rejected before queue admission.
 
 Updates preserve evidence ordering. `record_json` is the authoritative mode discriminator: valid structured memories
 receive a deterministic versioned DB plan, absent `record_json` uses native in-place content update, and malformed
@@ -159,9 +152,9 @@ Trace：结束 Session 时直接读取当前 `HomeApplicationBundle.trace_path`�
 `vanilla_add` pipeline。Transport、usage、内部 ID 和重复终态不会进入模型；完整原始轨迹只保留在
 `runtime_events.jsonl`。
 
-`EmbeddedMindMemOS` 同时持有既有 `schema_add` 和新增 `vanilla_add`；typed `mindmemos_add` 继续走 Schema
-Add，Session 经验只走 Vanilla Add。两者共享 application-owned Qdrant、Neo4j、reader、writer、recorder、
-LLM 和 embedding client。Job ID 由 session ID、精选消息的 SHA-256 和 extractor version 组成；已完成
+`EmbeddedMindMemOS` 的显式 `mindmemos_add` 走 direct flat writer，Session 经验只走 `vanilla_add`。
+两者共享 application-owned Qdrant、Neo4j、reader、writer、recorder 和 embedding client；只有 Session
+Vanilla/feedback/dreaming 路径使用 chat LLM。Job ID 由 session ID、精选消息的 SHA-256 和 extractor version 组成；已完成
 Job 不重复提交。`job.json` schema v2 分别记录 `add`、`implicit_feedback`、`dreaming_counter` 和 `dreaming`
 阶段；失败重试从未完成阶段继续，不会重复已确认的 Vanilla Add。
 
@@ -175,6 +168,6 @@ finalizer 直接接收 messages 或 feedback 文本。成功 action 必须逐条
 终态通过时才消费 batch；provider、解析、DB、timeout 或进程崩溃都保留 pending，启动或下一次 finalization
 重试。
 
-原生 Vanilla experience 没有 typed Schema Add 的 `record_json`。`mindmemos_search` 仅对
-`mem_extract_type=vanilla`、`mem_type=experience`、`status=active` 且正文非空的记录建立公开投影，并沿用既有
-`procedure` 类型返回正文和来源 Session；其他损坏或缺失 `record_json` 的 Schema 记录仍 fail closed。
+原生 Vanilla experience 和 direct-flat memory 都没有 `record_json`。`mindmemos_search` 对 active、正文非空的
+record-free `fact|experience` 建立 content 投影，其中 experience 映射为公开 `procedure`；存在但损坏的
+`record_json` 仍 fail closed，不能降级成 flat memory。

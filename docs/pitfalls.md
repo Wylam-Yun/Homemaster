@@ -1,5 +1,24 @@
 # Engineering Pitfalls
 
+## 2026-08-18 - Direct flat memory 真实写入成功，Schema metadata helper 让黑盒门假失败
+
+### 症状与根因
+
+direct-flat fact 和 procedure 都已完成 FIFO、Qdrant 和 Neo4j 写入，但 live gate 在回读 metadata 时抛出
+`KeyError: request_metadata`。根因是验证代码复用了 Schema Add 专用 helper，假定所有 raw metadata 都包在
+`request_metadata.record_metadata`；直接通过 `MemoryDbWriter` 写入的 flat metadata 本来就在顶层。
+
+### 修法与教训
+
+黑盒门先按目标 ID 读取真实 raw shape，再用该 shape 的公开字段逐项断言；不要为了复用旧 helper，把新 writer
+伪装成旧 pipeline 的包装格式。Schema memory 继续解包 `request_metadata`，direct-flat memory 直接读取顶层
+metadata，并分别覆盖两种格式的回归。
+
+### 参考
+
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `tests/homemaster/memory/test_feedback_dreaming_integration.py`
+
 ## 2026-08-18 - 把 `/new` 当成进程退出 drain，异步 Add 又在 Session 边界同步阻塞
 
 ### 症状与根因

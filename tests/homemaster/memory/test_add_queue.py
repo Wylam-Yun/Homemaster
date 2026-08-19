@@ -8,16 +8,10 @@ from types import SimpleNamespace
 import pytest
 
 from homemaster.memory.add_queue import MemoryAddQueue, MemoryAddQueueClosed
-from homemaster.memory.models import FactRecord, Subject
 
 
-def _record(name: str) -> FactRecord:
-    return FactRecord(
-        subject=Subject(type="object", name=name),
-        predicate="location",
-        value="shelf",
-        source="environment_observation",
-    )
+def _content(name: str) -> str:
+    return f"{name} is on the shelf"
 
 
 def _context(request_id: str) -> SimpleNamespace:
@@ -40,9 +34,13 @@ async def test_enqueue_returns_before_terminal_add_and_close_waits_for_it(tmp_pa
     release = asyncio.Event()
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
-            assert record.subject.name == "apple"
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            assert content == _content("apple")
+            assert memory_type == "fact"
             assert provenance_seq == 7
+            assert evidence_kind == "environment_observation"
             assert context.request_id == "request-a"
             entered.set()
             await release.wait()
@@ -53,8 +51,10 @@ async def test_enqueue_returns_before_terminal_add_and_close_waits_for_it(tmp_pa
     await queue.start()
 
     receipt = await queue.enqueue(
-        record=_record("apple"),
+        content=_content("apple"),
+        memory_type="fact",
         provenance_seq=7,
+        evidence_kind="environment_observation",
         context=_context("request-a"),
     )
 
@@ -81,26 +81,37 @@ async def test_jobs_run_fifo_one_at_a_time_and_failure_does_not_stop_worker(
     calls: list[str] = []
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
             nonlocal active, maximum_active
-            del provenance_seq, context
+            del memory_type, provenance_seq, evidence_kind, context
             active += 1
             maximum_active = max(maximum_active, active)
-            calls.append(record.subject.name)
+            name = content.split()[0]
+            calls.append(name)
             await asyncio.sleep(0)
             active -= 1
-            if record.subject.name == "first":
+            if name == "first":
                 raise RuntimeError("first failed")
-            return {"memory_id": f"memory-{record.subject.name}"}
+            return {"memory_id": f"memory-{name}"}
 
     audit_path = tmp_path / "jobs.jsonl"
     queue = MemoryAddQueue(Store(), audit_path=audit_path)
     await queue.start()
     first = await queue.enqueue(
-        record=_record("first"), provenance_seq=1, context=_context("request-1")
+        content=_content("first"),
+        memory_type="fact",
+        provenance_seq=1,
+        evidence_kind="user_statement",
+        context=_context("request-1"),
     )
     second = await queue.enqueue(
-        record=_record("second"), provenance_seq=2, context=_context("request-2")
+        content=_content("second"),
+        memory_type="procedure",
+        provenance_seq=2,
+        evidence_kind="environment_observation",
+        context=_context("request-2"),
     )
 
     await queue.wait_idle()
@@ -120,7 +131,7 @@ async def test_jobs_run_fifo_one_at_a_time_and_failure_does_not_stop_worker(
 
 
 @pytest.mark.asyncio
-async def test_structured_adds_and_session_work_share_one_fifo(tmp_path: Path) -> None:
+async def test_flat_adds_and_session_work_share_one_fifo(tmp_path: Path) -> None:
     active = 0
     maximum_active = 0
     calls: list[str] = []
@@ -134,16 +145,23 @@ async def test_structured_adds_and_session_work_share_one_fifo(tmp_path: Path) -
         active -= 1
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
-            del provenance_seq, context
-            await enter(f"add:{record.subject.name}")
-            return {"memory_id": f"memory-{record.subject.name}"}
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            del memory_type, provenance_seq, evidence_kind, context
+            name = content.split()[0]
+            await enter(f"add:{name}")
+            return {"memory_id": f"memory-{name}"}
 
     audit_path = tmp_path / "jobs.jsonl"
     queue = MemoryAddQueue(Store(), audit_path=audit_path)
     await queue.start()
     await queue.enqueue(
-        record=_record("before"), provenance_seq=1, context=_context("request-before")
+        content=_content("before"),
+        memory_type="fact",
+        provenance_seq=1,
+        evidence_kind="user_statement",
+        context=_context("request-before"),
     )
     receipt = queue.enqueue_work(
         job_type="session_finalization",
@@ -151,7 +169,11 @@ async def test_structured_adds_and_session_work_share_one_fifo(tmp_path: Path) -
         work=lambda: enter("finalize:session-a"),
     )
     await queue.enqueue(
-        record=_record("after"), provenance_seq=2, context=_context("request-after")
+        content=_content("after"),
+        memory_type="fact",
+        provenance_seq=2,
+        evidence_kind="user_statement",
+        context=_context("request-after"),
     )
 
     await queue.wait_idle()
@@ -174,10 +196,13 @@ async def test_failed_session_work_does_not_stop_later_add(tmp_path: Path) -> No
     calls: list[str] = []
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
-            del provenance_seq, context
-            calls.append(f"add:{record.subject.name}")
-            return {"memory_id": f"memory-{record.subject.name}"}
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            del memory_type, provenance_seq, evidence_kind, context
+            name = content.split()[0]
+            calls.append(f"add:{name}")
+            return {"memory_id": f"memory-{name}"}
 
     async def fail_finalization() -> None:
         calls.append("finalize:failed")
@@ -192,8 +217,10 @@ async def test_failed_session_work_does_not_stop_later_add(tmp_path: Path) -> No
         work=fail_finalization,
     )
     await queue.enqueue(
-        record=_record("after-failure"),
+        content=_content("after-failure"),
+        memory_type="fact",
         provenance_seq=1,
+        evidence_kind="user_statement",
         context=_context("request-after-failure"),
     )
 
@@ -255,8 +282,10 @@ async def test_accepted_job_outlives_submitting_task_cancellation(tmp_path: Path
     completed = asyncio.Event()
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
-            del record, provenance_seq, context
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            del content, memory_type, provenance_seq, evidence_kind, context
             started.set()
             await release.wait()
             completed.set()
@@ -270,8 +299,10 @@ async def test_accepted_job_outlives_submitting_task_cancellation(tmp_path: Path
     async def submit():
         receipts.append(
             await queue.enqueue(
-                record=_record("cancelled-submitter"),
+                content=_content("cancelled-submitter"),
+                memory_type="fact",
                 provenance_seq=1,
+                evidence_kind="user_statement",
                 context=_context("request-cancelled"),
                 run_id="run-cancelled",
             )
@@ -300,5 +331,9 @@ async def test_closed_queue_rejects_new_jobs(tmp_path: Path) -> None:
 
     with pytest.raises(MemoryAddQueueClosed):
         await queue.enqueue(
-            record=_record("late"), provenance_seq=1, context=_context("request-late")
+            content=_content("late"),
+            memory_type="fact",
+            provenance_seq=1,
+            evidence_kind="user_statement",
+            context=_context("request-late"),
         )

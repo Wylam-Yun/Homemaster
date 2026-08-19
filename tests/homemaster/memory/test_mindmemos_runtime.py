@@ -464,6 +464,131 @@ async def test_add_record_requires_exact_raw_terminal_readback() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("declared_type", "native_type"),
+    [("fact", "fact"), ("procedure", "experience")],
+)
+async def test_add_flat_builds_memory_source_vector_only_and_reads_back_exact_content(
+    declared_type: str,
+    native_type: str,
+) -> None:
+    from mindmemos.typing import MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    content = "  Preserve this exact memory.  "
+    captured: dict[str, Any] = {}
+
+    class Preprocessor:
+        def preprocess_text(self, text, **kwargs):
+            assert text == content
+            assert kwargs["include_entities"] is False
+            return SimpleNamespace(
+                content_hash="content-hash",
+                bm25_text="preserve exact memory",
+                tokens=["preserve", "memory"],
+                lang="en",
+                entities=[],
+            )
+
+    class SparseEncoder:
+        def encode_document(self, tokens):
+            assert tokens == ["preserve", "memory"]
+            return SimpleNamespace(indices=[7, 11], values=[1.0, 2.0])
+
+    class EmbedClient:
+        async def embed(self, *, task, text):
+            assert task == "memory.add.embed"
+            assert text == content
+            return SimpleNamespace(embeddings=[[0.1, 0.2]])
+
+    class Writer:
+        async def write(self, context, plan, *, consistency):
+            assert consistency == "strong"
+            captured["plan"] = plan
+            captured["context"] = context
+            memory = plan.memories[0]
+            captured["raw"] = SimpleNamespace(
+                memory_id=memory.memory_id,
+                content=memory.content,
+                mem_type=memory.mem_type,
+                mem_extract_type=memory.mem_extract_type,
+                status=memory.status,
+                metadata=memory.metadata,
+                created_at=memory.created_at,
+                update_at=memory.update_at,
+            )
+            return SimpleNamespace(
+                memory_ids=[memory.memory_id], graph_pending=False, errors=[]
+            )
+
+    class Recorder:
+        async def record_add_input(self, payload, **kwargs):
+            captured["record_input"] = (payload, kwargs)
+
+        async def mark_add_completed(self, context, add_record_id, result):
+            captured["record_completed"] = (context, add_record_id, result)
+
+        async def mark_add_failed(self, *args):
+            captured["record_failed"] = args
+
+    class Reader:
+        async def get_memory(self, context, memory_id):
+            assert context is captured["context"]
+            assert memory_id == captured["raw"].memory_id
+            return captured["raw"]
+
+    runtime = module.EmbeddedMindMemOS.__new__(module.EmbeddedMindMemOS)
+    runtime._writer = Writer()
+    runtime._recorder = Recorder()
+    runtime._reader = Reader()
+    runtime._flat_text_preprocessor = Preprocessor()
+    runtime._flat_sparse_encoder = SparseEncoder()
+    runtime._flat_embed_client = EmbedClient()
+    context = MemoryRequestContext(
+        request_id=f"request-{declared_type}",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+        session_id="session-1",
+    )
+
+    result = await runtime.add_flat(
+        content,
+        declared_type,
+        provenance_seq=9,
+        evidence_kind="environment_observation",
+        context=context,
+    )
+
+    plan = captured["plan"]
+    assert len(plan.memories) == len(plan.vectors) == len(plan.sources) == 1
+    assert plan.entities == []
+    assert plan.entity_vectors == []
+    assert len(plan.relationships) == 1
+    assert plan.relationships[0].rel_type == "EXTRACTED_FROM"
+    assert plan.relationships[0].source.kind == "Memory"
+    assert plan.relationships[0].target.kind == "Source"
+    memory = plan.memories[0]
+    assert memory.content == content
+    assert memory.mem_type == native_type
+    assert memory.mem_extract_type == "homemaster_direct_flat"
+    assert memory.metadata["provenance_seq"] == 9
+    assert memory.metadata["evidence_kind"] == "environment_observation"
+    assert isinstance(memory.metadata["add_record_id"], str)
+    assert memory.metadata["entity_count"] == 0
+    assert plan.vectors[0].semantic_vector == [0.1, 0.2]
+    assert plan.vectors[0].bm25_indices == [7, 11]
+    assert result["memory_id"] == memory.memory_id
+    assert result["content"] == content
+    assert result["memory_type"] == declared_type
+    assert result["verified_terminal_state"] is True
+    assert "record_completed" in captured
+    assert captured["record_completed"][1] == memory.metadata["add_record_id"]
+    assert "record_failed" not in captured
+
+
+@pytest.mark.asyncio
 async def test_versioned_update_builds_native_memory_entity_and_lineage_plan(
     tmp_path: Path,
 ) -> None:

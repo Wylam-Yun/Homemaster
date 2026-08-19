@@ -4,14 +4,15 @@
 
 ### Changed
 
-- Changed model-visible structured `mindmemos_add` to application-owned asynchronous acceptance.
-  Validated calls now return `accepted` with an opaque `job_id` immediately, then one FIFO worker
-  runs Schema Add and exact Qdrant raw readback. Interactive Session finalization now enters that
-  same FIFO: `/new` queues the old Session and immediately creates the next one, while process exit
-  drains structured Add, Vanilla Add, implicit feedback and dreaming before MindMemOS closes.
-  Crashes and `SIGKILL` may still lose process-local work. The queue adds no Kafka, Docker, durable
-  broker, concurrency or retry. The recall benchmark confirms each accepted Add from its post-exit
-  job record and an independent raw readback instead of treating acceptance as persistence.
+- Replaced model-visible structured `mindmemos_add` with `content + memory_type` direct flat writes
+  because its Schema/LLM extraction dominated Add latency while the public schema is not yet stable.
+  Validated calls still return `accepted + job_id` through the application-owned FIFO, but the worker
+  now writes exact content, memory embedding/BM25, Qdrant Memory and Neo4j Source/`EXTRACTED_FROM`
+  directly, with no chat call, Entity, entity embedding or `MENTIONS`. Facts map to native `fact` and
+  procedures to `experience`; legacy structured memories remain readable/updateable. Session
+  finalization keeps native Vanilla Add with entities disabled. `/new`, clean drain, crash-loss and
+  no-broker/no-retry behavior are unchanged. The 100-record recall benchmark now writes its canonical
+  JSON as exact flat content and verifies raw content/type instead of requiring `record_json`.
 
 - Rewrote the top-level README from scratch: capability overview, architecture diagram and module
   table, quickstart, CLI reference, run modes, memory/skills/MCP/security/benchmark sections with
@@ -24,7 +25,7 @@
 
 - Prevented repeated Ctrl+C from aborting interactive Session finalization or application close.
   During terminal exit drain the shell temporarily owns SIGINT, reports the first repeated interrupt,
-  and continues draining structured Add jobs, queued Session finalizations and owned resources before
+  and continues draining flat Add jobs, queued Session finalizations and owned resources before
   restoring normal run-cancellation behavior. Background `/new` finalization does not consume a
   Ctrl+C intended to cancel the current run.
 

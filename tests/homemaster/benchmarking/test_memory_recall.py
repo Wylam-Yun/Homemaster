@@ -108,7 +108,7 @@ def test_write_run_confirms_receipt_and_resume_skips_success(tmp_path: Path) -> 
             "status": "completed",
             "verified_terminal_state": True,
             "memory_id": f"memory-{record.index}",
-            "record": record.tool_record,
+            "content": record.tool_content,
         }
 
     def runner(command, *, cwd, env, timeout):
@@ -209,8 +209,8 @@ def test_evaluate_search_events_scores_rank_and_step_order() -> None:
                         {
                             "success": True,
                             "records": [
-                                {"memory_id": "wrong", "record": wrong.tool_record},
-                                {"memory_id": "expected", "record": record.tool_record},
+                                {"memory_id": "wrong", "content": wrong.tool_content},
+                                {"memory_id": "expected", "content": record.tool_content},
                             ],
                         },
                         ensure_ascii=False,

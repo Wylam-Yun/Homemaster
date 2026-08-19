@@ -1,5 +1,9 @@
 # V2.7 Asynchronous MindMemOS Add Implementation Plan
 
+> Superseded for the worker payload and persistence path by
+> `plan/V2.7/direct-flat-mindmemos-add-implementation-plan.md`. FIFO acceptance and lifecycle semantics remain current;
+> public Add no longer accepts a structured record and the worker no longer executes Schema Add.
+
 ## Decision
 
 Change only the model-visible structured `mindmemos_add` operation from terminal write semantics to

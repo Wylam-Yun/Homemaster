@@ -127,40 +127,35 @@ coordinator 自动完成或恢复迁移。
 
 ### `mindmemos_add` / `mindmemos_update`
 
-保存完整 `FactRecord` 或 `ProcedureRecord`。模型不能提交 tenant/session/run、metadata、dedupe key、时间戳或
-provenance，也不能提交 evidence ref。工具从当前 execution scope 内部选择 evidence：`user_statement` 只绑定
-当前用户 turn；`environment_observation` 只绑定当前 run/turn 已成功提交的工具结果。procedure 仅接受环境
-证据，并要求按顺序覆盖每一步和最终成功观测。更新是完整替换，不支持 partial patch。
-工具参数说明与执行校验来自同一组 Pydantic 模型；`predicate` 使用英文小写 snake_case，例如 `location`。
-用户身份、偏好、习惯、健康建议和长期安排必须写入 `context_memory(target=user)`，不能作为结构化 fact。
+显式 Add 只接受非空 `content` 和 `memory_type=fact|procedure`。正文按模型提交的原字符串保存；模型不能提交
+tenant/session/run、metadata、时间戳、provenance 或 evidence ref。工具从当前 execution scope 内部选择最新的
+`user_statement` 或 `environment_observation` evidence。用户身份、偏好、习惯、健康建议和长期安排仍应写入
+`context_memory(target=user)`。
 
 ```json
 {
   "memory_type": "fact",
-  "record": {
-    "memory_type": "fact",
-    "subject": {"type": "object", "name": "苹果"},
-    "predicate": "location",
-    "value": {"container": "冰箱", "position": "第二层"},
-    "source": "environment_observation"
-  }
+  "content": "苹果在冰箱第二层。"
 }
 ```
 
-`mindmemos_add` 在上述校验完成后把不可变 record、provenance 和 request context 放入应用内 FIFO，并立即
+`mindmemos_add` 在上述校验完成后把不可变 content/type、provenance 和 request context 放入应用内 FIFO，并立即
 返回领域状态 `accepted`、不透明 `job_id` 和 `verified_terminal_state=false`；此时没有 `memory_id`，紧接着搜索
 也可能尚不可见。统一 provider/stream envelope 表示为 `status=success, domain_status=accepted`。单个
-application 只有一个 worker，严格串行执行原有 Schema Add 和 Qdrant raw 精确回读。
+application 只有一个 worker，严格串行执行确定性 flat write 和 raw 精确回读。该路径不调用 Schema Add、
+Vanilla `memory.add.extract` 或 chat LLM；只生成 memory embedding/BM25，写 Qdrant memory 以及 Neo4j
+Memory/Source/`EXTRACTED_FROM`，不写 Entity、entity embedding 或 `MENTIONS`。`fact` 原生存为 `fact`，
+`procedure` 原生存为 `experience`。
 任务失败写入 `memory.data_root/mindmemos/add_jobs.jsonl`，不会自动重试，也不会阻断队列后续任务。
 
-结构化 Add 和交互 Session Finalizer 共用同一个 application-owned FIFO，所以 Schema Add、Vanilla Add、
+显式 flat Add 和交互 Session Finalizer 共用同一个 application-owned FIFO，所以 direct write、Vanilla Add、
 implicit feedback 和可选 dreaming 互相排它。`/new` 只把旧 Session finalization 排在当时已 accepted 的 Add
 之后，随即创建新 Session；下一条用户任务可以继续执行，后续 Add 自然排在该 finalization 后面。正常
 one-shot/Gateway/Application 退出会封住新入队并 drain 全部已 accepted 工作。当前 run 被 Ctrl+C 取消不会
 取消队列任务；进程崩溃、断电或 `kill -9` 仍可能丢失内存队列。这一实现不需要 Kafka、Docker、SQLite
 队列、并发 worker 或 retry。
 
-`mindmemos_update` 先读取准确 ID：存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
+`mindmemos_update` 先读取准确 ID：历史记忆存在且能校验 `record_json` 时要求完整 `record`，创建新 active 版本、归档
 旧版本并写入 `DERIVED_FROM`，同时更新 metadata、memory/entity 向量和图关系，不重新运行 Schema Add；不存在
 `record_json` 时要求完整 `content`，复用 MindMemOS 原生原地更新并保持同一 ID。`record_json` 存在但损坏时
 直接报错，不能降级成 Vanilla。结构化更新不能改变 subject/predicate 或 procedure identity；这种变化应新增
@@ -177,8 +172,8 @@ MindMemOS 原生 search pipeline，并在工具边界按 fact/procedure 字段�
 为 5，最大 20；可提供 subject/predicate 或 entry_url/name hints。query 会发送给配置的
 SiliconFlow embedding endpoint，因此不要搜索凭证、token、cookie、内部地址或 evidence ref；产品边界会在发包前
 拒绝明显敏感内容。
-Session 自动沉淀的 Vanilla experience 在公开工具中作为 `procedure` 返回；检索这类可复用经验时使用
-`memory_type=procedure`，不确定是事实还是经验时省略 `memory_type`。
+显式 direct-flat fact 返回原文 `content`；显式 procedure 和 Session 自动沉淀的 Vanilla experience 都作为
+`procedure` 返回。检索可复用经验时使用 `memory_type=procedure`，不确定是事实还是经验时省略该字段。
 候选的 `record_json` 缺字段、损坏或 schema version 不支持时，该条不会作为正常命中返回；响应的
 `diagnostics` 只包含稳定错误码、脱敏 ID hash 和命中分支，不回显损坏 payload。搜索结果已经包含完整 record
 或完整 Vanilla experience 正文，因此不再提供单独的模型可见 get 工具；底层准确 ID 读取仍由搜索、更新和
@@ -247,9 +242,10 @@ PYTHONPATH=src .venv/bin/python scripts/memory_recall_benchmark.py \
 
 每条写入都会启动一次独立 `homemaster -p --output-format stream-json`，解析真实 `mindmemos_add`
 `accepted` receipt。one-shot 正常退出 drain 后，脚本按 `job_id` 核对 completed job，再独立打开真实 Qdrant
-按 `memory_id` 回读并比较完整 record；两道门都通过才更新 checkpoint。按当前 schema pipeline 的实测速度，100 条可能
-耗时 5–6 小时并产生约百万级 chat tokens。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达
-backend 但终态未知的 mutation。
+按 `memory_id` 回读并比较 exact JSON content、native fact type 和 direct-flat marker；两道门都通过才更新
+checkpoint。写入 worker 只调用 embedding，不再为每条记录追加 Schema extraction chat；总耗时仍包含每次公开
+CLI 的 agent routing。脚本严格串行，不会并发打开本地 Qdrant，也不会自动重试已经触达 backend 但终态未知的
+mutation。
 
 `overnight` 只有在 checkpoint 达到 100/100 后才开始召回；写入失败或终态未知时以非零状态停止，不会带着
 不完整数据继续评分。默认的 100 个 case 是每条记录一次精确 fact 检索。
@@ -302,7 +298,7 @@ Run 执行期间按 Ctrl+C 只取消当前 Run，不结束 Session。HomeMaster 
 模型思考、助手回复和工具结果作为带角色的 MindMemOS 输入。内部 ID、transport、usage 和重复终态不会
 发送给模型，也不会另存 `task_trace.json`。
 
-`/exit`、EOF 或提示符 Ctrl+C 触发终态 drain 后，HomeMaster 会等待 FIFO 中所有结构化 Add 和 Session
+`/exit`、EOF 或提示符 Ctrl+C 触发终态 drain 后，HomeMaster 会等待 FIFO 中所有显式 flat Add 和 Session
 finalization，再关闭 application；此时重复 Ctrl+C 被忽略，第一次会显示提示。由 `/new` 入队的后台
 finalization 不拥有 SIGINT：如果它与一个普通 Run 同时推进，Ctrl+C 仍只取消该 Run，不取消记忆任务。
 `kill -9`、断电和进程崩溃仍会强制终止。`zh_core_web_sm` 缺失日志是可选中文 NER 的降级警告，不是进程

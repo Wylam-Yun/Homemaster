@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from homemaster.adapters.profiles import build_universal_tool_registry
 from homemaster.agent.messages import UserMessage
@@ -94,36 +95,16 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
     assert "vague complaint" in feedback.definition.description
 
 
-def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
+def test_memory_tool_schemas_expose_direct_flat_add_and_legacy_structured_update() -> None:
     by_name = {
         tool.definition.model_alias: tool.definition.to_model_manifest()["input_schema"]
         for tool in build_memory_tools()
     }
 
     add_schema = by_name["mindmemos_add"]
-    record_schema = add_schema["properties"]["record"]
-    object_union = next(item for item in record_schema["anyOf"] if "oneOf" in item)
-    assert object_union["discriminator"]["propertyName"] == "memory_type"
-    fact_schema, procedure_schema = object_union["oneOf"]
-    assert set(fact_schema["properties"]) >= {
-        "memory_type",
-        "subject",
-        "predicate",
-        "value",
-        "source",
-    }
-    assert set(procedure_schema["properties"]) >= {
-        "memory_type",
-        "name",
-        "entry_url",
-        "steps",
-        "success",
-    }
-    assert set(fact_schema["properties"]["subject"]["properties"]) == {
-        "type",
-        "name",
-        "id",
-    }
+    assert set(add_schema["properties"]) == {"content", "memory_type"}
+    assert set(add_schema["required"]) == {"content", "memory_type"}
+    assert add_schema["properties"]["memory_type"]["enum"] == ["fact", "procedure"]
     search_schema = by_name["mindmemos_search"]
     subject_schema = search_schema["properties"]["subject"]["anyOf"][0]
     assert set(subject_schema["properties"]) == {
@@ -133,7 +114,6 @@ def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
     }
     assert "$defs" not in add_schema
     assert "$ref" not in json.dumps(add_schema)
-    assert {item.get("type") for item in record_schema["anyOf"]} >= {"string"}
 
     update_schema = by_name["mindmemos_update"]
     assert set(update_schema["properties"]) == {
@@ -146,25 +126,19 @@ def test_memory_tool_schemas_expose_complete_pydantic_records() -> None:
     assert set(history_schema["properties"]) == {"memory_id"}
 
 
-def test_add_memory_accepts_provider_encoded_record_string() -> None:
+def test_add_memory_accepts_exact_content_and_rejects_legacy_record() -> None:
     validated = AddMemoryInput.model_validate(
         {
             "memory_type": "fact",
-            "record": json.dumps(
-                {
-                    "memory_type": "fact",
-                    "subject": {"type": "object", "name": "probe"},
-                    "predicate": "location",
-                    "value": "cabinet",
-                    "source": "user_statement",
-                }
-            ),
+            "content": "  probe is in cabinet  ",
         }
     )
 
-    assert validated.record.memory_type == "fact"
-    assert validated.record.subject.name == "probe"
-    assert validated.record.predicate == "location"
+    assert validated.content == "  probe is in cabinet  "
+    with pytest.raises(ValidationError):
+        AddMemoryInput.model_validate(
+            {"memory_type": "fact", "record": {"memory_type": "fact"}}
+        )
 
 
 @pytest.mark.asyncio
@@ -346,6 +320,12 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
                         last_update_at="2026-08-13 00:00:00",
                     ),
                     MemorySearchItem(
+                        id="direct-fact-1",
+                        memory="  Aurora-A18 uses uv.  ",
+                        memory_type="fact",
+                        last_update_at="2026-08-18 00:00:00",
+                    ),
+                    MemorySearchItem(
                         id="malformed-schema-1",
                         memory="invalid",
                         memory_type="fact",
@@ -355,6 +335,21 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
             )
 
         async def get_raw(self, memory_id, context):
+            if memory_id == "direct-fact-1":
+                return SimpleNamespace(
+                    memory_id=memory_id,
+                    mem_extract_type="homemaster_direct_flat",
+                    mem_type="fact",
+                    content="  Aurora-A18 uses uv.  ",
+                    status="active",
+                    metadata={
+                        "homemaster_add_mode": "direct_flat",
+                        "provenance_seq": 7,
+                        "evidence_kind": "user_statement",
+                    },
+                    created_at=None,
+                    update_at=None,
+                )
             if memory_id == "experience-1":
                 return SimpleNamespace(
                     memory_id=memory_id,
@@ -425,6 +420,21 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
     assert len(result.data["diagnostics"]) == 1
     assert result.data["diagnostics"][0]["code"] == "memory_record_corrupt"
 
+    fact_result = await executor.execute(
+        {"query": "package manager", "memory_type": "fact", "limit": 5}, context
+    )
+    assert fact_result.success
+    assert fact_result.data["count"] == 1
+    fact = fact_result.data["records"][0]
+    assert fact["memory_id"] == "direct-fact-1"
+    assert fact["memory_type"] == "fact"
+    assert fact["content"] == "  Aurora-A18 uses uv.  "
+    assert fact["source"] == {
+        "provenance_seq": 7,
+        "evidence_kind": "user_statement",
+        "homemaster_add_mode": "direct_flat",
+    }
+
 
 @pytest.mark.asyncio
 async def test_structured_memory_crud_uses_embedded_mindmemos(
@@ -449,22 +459,24 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
         def __init__(self) -> None:
             self.next_id = 1
 
-        async def add(self, messages, context, **kwargs):
-            memory_id = f"raw-memory-{self.next_id}"
-            episode_id = f"episode-memory-{self.next_id}"
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            memory_id = f"raw-direct-{self.next_id}"
             self.next_id += 1
-            calls.append(("add", (messages, context, kwargs)))
-            return SimpleNamespace(
-                status="ok",
-                memories=[
-                    SimpleNamespace(
-                        memory_id=memory_id,
-                        related_memory_ids=[episode_id, memory_id],
-                        memory_type="fact",
-                        content=messages[0].text,
-                    )
-                ],
+            calls.append(
+                (
+                    "add_flat",
+                    {
+                        "content": content,
+                        "memory_type": memory_type,
+                        "provenance_seq": provenance_seq,
+                        "evidence_kind": evidence_kind,
+                        "context": context,
+                    },
+                )
             )
+            return {"memory_id": memory_id, "verified_terminal_state": True}
 
         async def get_raw(self, memory_id, context):
             calls.append(("get_raw", (memory_id, context)))
@@ -563,7 +575,7 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     added = await executors["mindmemos_add"].execute(
         {
             "memory_type": "fact",
-            "record": record,
+            "content": "苹果在冰箱第二层",
         },
         context,
     )
@@ -588,9 +600,11 @@ async def test_structured_memory_crud_uses_embedded_mindmemos(
     assert updated.success
     assert updated.data["memory_id"] == "raw-memory-2"
     assert deleted.success
-    add_calls = [payload for operation, payload in calls if operation == "add"]
+    add_calls = [payload for operation, payload in calls if operation == "add_flat"]
     assert len(add_calls) == 1
-    assert add_calls[0][2]["metadata"]["homemaster_memory_type"] == "fact"
+    assert add_calls[0]["content"] == "苹果在冰箱第二层"
+    assert add_calls[0]["memory_type"] == "fact"
+    assert add_calls[0]["evidence_kind"] == "environment_observation"
     version_call = next(payload for operation, payload in calls if operation == "update_versioned")
     assert json.loads(version_call["metadata"]["record_json"])["value"] == "餐桌上"
     delete_ids = [payload[0] for operation, payload in calls if operation == "delete"]
@@ -607,8 +621,13 @@ async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
     release = asyncio.Event()
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
-            del record, provenance_seq, context
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            assert content == "  Aurora-A18 uses uv.  "
+            assert memory_type == "fact"
+            assert evidence_kind == "user_statement"
+            del provenance_seq, context
             entered.set()
             await release.wait()
             return {"memory_id": "raw-accepted"}
@@ -651,13 +670,7 @@ async def test_mindmemos_add_returns_accepted_before_background_write_finishes(
     result = await executor.execute(
         {
             "memory_type": "fact",
-            "record": {
-                "memory_type": "fact",
-                "subject": {"type": "device", "name": "Aurora-A18"},
-                "predicate": "package_manager",
-                "value": "uv",
-                "source": "user_statement",
-            },
+            "content": "  Aurora-A18 uses uv.  ",
         },
         context,
     )
@@ -676,9 +689,11 @@ async def test_mindmemos_add_cannot_use_evidence_from_an_earlier_run(tmp_path: P
     calls = 0
 
     class Store:
-        async def add_record(self, record, *, provenance_seq, context):
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
             nonlocal calls
-            del record, provenance_seq, context
+            del content, memory_type, provenance_seq, evidence_kind, context
             calls += 1
             return {"memory_id": "must-not-exist"}
 
@@ -720,13 +735,7 @@ async def test_mindmemos_add_cannot_use_evidence_from_an_earlier_run(tmp_path: P
     result = await executor.execute(
         {
             "memory_type": "fact",
-            "record": {
-                "memory_type": "fact",
-                "subject": {"type": "device", "name": "Aurora-A18"},
-                "predicate": "package_manager",
-                "value": "uv",
-                "source": "user_statement",
-            },
+            "content": "Aurora-A18 uses uv.",
         },
         context,
     )
