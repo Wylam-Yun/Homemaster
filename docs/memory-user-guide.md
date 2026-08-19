@@ -167,13 +167,16 @@ one-shot/Gateway/Application 退出会封住新入队并 drain 全部已 accepte
 
 ### `mindmemos_search` / `mindmemos_history` / `mindmemos_delete`
 
-`mindmemos_search` 按语义搜索长期记忆，返回按相关性排序的外部事实、已验证流程和历史 Session 经验。它调用
-MindMemOS 原生 search pipeline，并在工具边界按 fact/procedure 字段过滤。默认 limit
+`mindmemos_search` 按语义搜索长期记忆，返回按相关性排序的原生 MindMemOS memory。它调用
+MindMemOS 原生 search pipeline，并可按 `profile`、`fact`、`experience`、`episodic`、`tool_trace`、
+`skill_candidate`、`file_knowledge` 过滤；省略 `memory_type` 时搜索全部类型。默认 limit
 为 5，最大 20；可提供 subject/predicate 或 entry_url/name hints。query 会发送给配置的
 SiliconFlow embedding endpoint，因此不要搜索凭证、token、cookie、内部地址或 evidence ref；产品边界会在发包前
 拒绝明显敏感内容。
-显式 direct-flat fact 返回原文 `content`；显式 procedure 和 Session 自动沉淀的 Vanilla experience 都作为
-`procedure` 返回。检索可复用经验时使用 `memory_type=procedure`，不确定是事实还是经验时省略该字段。
+所有 active、正文非空、无损坏结构副本的原生记录都返回原文 `content` 和原生 `memory_type`。显式
+procedure 与 Session 自动沉淀的 Vanilla experience 都以 `experience` 返回；旧结构化 procedure 仍在内部
+`record.memory_type` 保留 `procedure`，供结构化 update 使用。检索工具轨迹时使用
+`memory_type=tool_trace`。
 候选的 `record_json` 缺字段、损坏或 schema version 不支持时，该条不会作为正常命中返回；响应的
 `diagnostics` 只包含稳定错误码、脱敏 ID hash 和命中分支，不回显损坏 payload。搜索结果已经包含完整 record
 或完整 Vanilla experience 正文，因此不再提供单独的模型可见 get 工具；底层准确 ID 读取仍由搜索、更新和

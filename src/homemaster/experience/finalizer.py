@@ -57,12 +57,16 @@ class SessionFinalizer:
         trace_path: Path,
         data_root: Path,
         mindmemos: Any,
+        memory_tenant_id: str = "local",
         dreaming_coordinator: Any | None = None,
         event_sink: Any | None = None,
     ) -> None:
+        if not isinstance(memory_tenant_id, str) or not memory_tenant_id.strip():
+            raise ValueError("memory_tenant_id must be a non-empty string")
         self._trace_path = trace_path
         self._jobs_root = data_root / "experience_jobs"
         self._mindmemos = mindmemos
+        self._memory_tenant_id = memory_tenant_id
         self._dreaming_coordinator = dreaming_coordinator
         self._event_sink = event_sink
 
@@ -119,10 +123,10 @@ class SessionFinalizer:
 
             context = MemoryRequestContext(
                 request_id=job_id,
-                account_id="local",
-                project_id="local",
+                account_id=self._memory_tenant_id,
+                project_id=self._memory_tenant_id,
                 api_key_uuid="embedded-local",
-                user_id="local",
+                user_id=self._memory_tenant_id,
                 app_id="homemaster",
                 session_id=session_id,
                 agent_id="homemaster",

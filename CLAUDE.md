@@ -96,6 +96,9 @@
 
 ## 测试工作区纪律
 
+- 外部系统已有正式类型枚举时，adapter 默认保留完整原生枚举和语义；不要另建更窄的下游类型集合后把合法
+  上游值报成 corrupt。确需隐藏的类型必须显式标为 filtered，并用真实存量数据逐类型验证投影与终态。
+
 - 已通过 typed schema 和 evidence 校验的结构化记录进入 LLM pipeline 后，类型、identity 和完整 record 仍以
   调用方 typed payload 为唯一真理源；必须在 LLM 抽取输出后确定性投影并逐条 raw readback，禁止只靠 prompt
   要求模型保持 fact/procedure 类型。语义近似不得触发跨 identity 合并；连续写入两个相近但不同 identity 的

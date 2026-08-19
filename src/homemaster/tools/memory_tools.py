@@ -49,6 +49,24 @@ _REFERENCE = "homemaster.tools.memory_tools"
 _READ_CAPABILITY = "tool.read"
 _MUTATE_CAPABILITY = "tool.mutate"
 _NonEmptyText = Annotated[str, Field(min_length=1)]
+NativeMemoryType = Literal[
+    "profile",
+    "fact",
+    "experience",
+    "episodic",
+    "tool_trace",
+    "skill_candidate",
+    "file_knowledge",
+]
+_NATIVE_MEMORY_TYPES = {
+    "profile",
+    "fact",
+    "experience",
+    "episodic",
+    "tool_trace",
+    "skill_candidate",
+    "file_knowledge",
+}
 
 
 class MemoryToolServiceError(RuntimeError):
@@ -109,11 +127,11 @@ class AddMemoryInput(_MemoryToolInput):
 
 class SearchMemoriesInput(_MemoryToolInput):
     query: _NonEmptyText
-    memory_type: Literal["fact", "procedure"] | None = Field(
+    memory_type: NativeMemoryType | None = Field(
         default=None,
         description=(
-            "Use fact for external-world state; use procedure for reusable guidance and "
-            "Session-derived experience memories. Omit when both may be relevant."
+            "Optional native MindMemOS type: profile, fact, experience, episodic, "
+            "tool_trace, skill_candidate, or file_knowledge. Omit to search all types."
         ),
     )
     limit: int = Field(default=5, ge=1, le=20)
@@ -310,16 +328,12 @@ class SearchMemoriesExecutor:
         memory_type = arguments.get("memory_type")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 20:
             return _failure("memory_invalid_input", "limit must be between 1 and 20")
-        if memory_type not in {None, "fact", "procedure"}:
+        if memory_type is not None and memory_type not in _NATIVE_MEMORY_TYPES:
             return _failure("memory_invalid_input", "invalid memory_type")
         try:
             store = _service(context, "mindmemos", EmbeddedMindMemOS)
             memory_context = _mindmemos_context(context)
-            filters = (
-                {"mem_type": _mindmemos_memory_type(memory_type)}
-                if memory_type is not None
-                else None
-            )
+            filters = {"mem_type": memory_type} if memory_type is not None else None
             result = await store.search(
                 query,
                 memory_context,
@@ -339,7 +353,7 @@ class SearchMemoriesExecutor:
                         records.append(flat_payload)
                         visible_hits.append(hit)
                         continue
-                    if _is_active_flat_memory(raw):
+                    if _is_active_native_memory(raw):
                         continue
                     diagnostics.append(
                         {
@@ -616,10 +630,6 @@ def _mindmemos_context(context: ToolExecutionContext) -> Any:
     )
 
 
-def _mindmemos_memory_type(memory_type: str) -> str:
-    return "experience" if memory_type == "procedure" else memory_type
-
-
 def _mindmemos_record(raw: Any) -> MemoryRecord | None:
     record_json = _mindmemos_request_metadata(raw).get("record_json")
     if not isinstance(record_json, str):
@@ -648,7 +658,8 @@ def _mindmemos_request_metadata(raw: Any) -> dict[str, Any]:
 
 def _record_matches(record: MemoryRecord, arguments: Mapping[str, object]) -> bool:
     memory_type = arguments.get("memory_type")
-    if memory_type is not None and record.memory_type != memory_type:
+    native_record_type = "experience" if record.memory_type == "procedure" else "fact"
+    if memory_type is not None and native_record_type != memory_type:
         return False
     if record.memory_type == "fact":
         subject = _optional_mapping(arguments, "subject")
@@ -671,7 +682,8 @@ def _mindmemos_payload(hit: Any, raw: Any, record: MemoryRecord) -> dict[str, ob
     updated_at = getattr(raw, "update_at", None)
     return {
         "memory_id": hit.id,
-        "memory_type": record.memory_type,
+        "memory_type": getattr(raw, "mem_type", None)
+        or ("experience" if record.memory_type == "procedure" else "fact"),
         "record": record.model_dump(mode="json"),
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
         "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else None,
@@ -684,11 +696,12 @@ def _mindmemos_payload(hit: Any, raw: Any, record: MemoryRecord) -> dict[str, ob
 def _flat_memory_payload(
     hit: Any, raw: Any, arguments: Mapping[str, object]
 ) -> dict[str, object] | None:
-    """Project active record-free fact/experience memories as exact content."""
+    """Project active record-free native MindMemOS memories as exact content."""
     metadata = _mindmemos_request_metadata(raw)
+    native_type = getattr(raw, "mem_type", None)
     if (
         raw is None
-        or getattr(raw, "mem_type", None) not in {"fact", "experience"}
+        or native_type not in _NATIVE_MEMORY_TYPES
         or getattr(raw, "status", "active") != "active"
         or "record_json" in metadata
     ):
@@ -696,8 +709,7 @@ def _flat_memory_payload(
     content = getattr(raw, "content", None)
     if not isinstance(content, str) or not content.strip():
         return None
-    projected_type = "procedure" if getattr(raw, "mem_type", None) == "experience" else "fact"
-    if arguments.get("memory_type") not in {None, projected_type}:
+    if arguments.get("memory_type") not in {None, native_type}:
         return None
     if any(arguments.get(key) is not None for key in ("subject", "predicate", "entry_url", "name")):
         return None
@@ -721,7 +733,7 @@ def _flat_memory_payload(
     updated_at = getattr(raw, "update_at", None)
     return {
         "memory_id": hit.id,
-        "memory_type": projected_type,
+        "memory_type": native_type,
         "content": content,
         "source": source,
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else None,
@@ -732,10 +744,10 @@ def _flat_memory_payload(
     }
 
 
-def _is_active_flat_memory(raw: Any) -> bool:
+def _is_active_native_memory(raw: Any) -> bool:
     if raw is None or getattr(raw, "status", "active") != "active":
         return False
-    if getattr(raw, "mem_type", None) not in {"fact", "experience"}:
+    if getattr(raw, "mem_type", None) not in _NATIVE_MEMORY_TYPES:
         return False
     content = getattr(raw, "content", None)
     if not isinstance(content, str) or not content.strip():
@@ -1289,7 +1301,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "mindmemos_search",
-                "Search long-term memory by meaning. Returns ranked external facts, verified procedures, and experiences learned from past sessions. Use it when the current request may benefit from prior knowledge or previous attempts. Search again with different wording or follow-up queries when earlier results reveal useful clues.",
+                "Search long-term memory by meaning across native MindMemOS types: profiles, facts, experiences, episodes, tool traces, skill candidates, and file knowledge. Use it when the current request may benefit from prior knowledge, previous attempts, or reusable tool behavior. Search again with different wording or follow-up queries when earlier results reveal useful clues.",
                 SearchMemoriesInput,
             ),
             MemoryAuditExecutor("mindmemos_search", SearchMemoriesExecutor(), SearchMemoriesInput),

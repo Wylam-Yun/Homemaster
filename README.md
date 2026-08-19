@@ -187,6 +187,7 @@ uv run homemaster shell
 | `homemaster memory migrate --config ...` | 迁移旧版 `~/.homemaster/memories` 文件记忆 |
 | `homemaster gateway --config ...` | 启动飞书 Gateway（前台进程，需手动保活） |
 | `homemaster benchmark-alfworld ...` | ALFWorld benchmark 入口 |
+| `homemaster benchmark-locomo ...` | LoCoMo 全应用记忆功能试跑入口 |
 
 一次性输出三种格式：`text` 实时写入 stdout、`json` 结束后输出单文档、`stream-json` 逐行
 JSON Lines 且最后一行固定 `type=result`。Rich/状态信息只写 stderr，不污染机器可读的 stdout。
@@ -233,7 +234,9 @@ HomeMaster 记忆分两层：
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
 自动执行一次 MindMemOS 召回（`top_k=3`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；
 Agent 仍可用 `mindmemos_search` 主动补充搜索，并用 `mindmemos_history` 按准确 ID 查看 active/archived
-版本链。用户给出纠正但具体 mutation 尚未确定时，模型调用 `mindmemos_feedback`，其目标只能来自该次成功
+版本链。`mindmemos_search` 直接使用 MindMemOS 原生的 `profile`、`fact`、`experience`、`episodic`、
+`tool_trace`、`skill_candidate`、`file_knowledge` 类型；不指定 `memory_type` 时搜索全部类型。用户给出纠正但
+具体 mutation 尚未确定时，模型调用 `mindmemos_feedback`，其目标只能来自该次成功
 provider request 实际可见的 raw recall。公开记忆工具共七个：`context_memory`、`mindmemos_search`、
 `mindmemos_history`、`mindmemos_add`、`mindmemos_update`、`mindmemos_delete`、`mindmemos_feedback`。
 
@@ -341,6 +344,24 @@ uv run python scripts/memory_recall_benchmark.py overnight --run-id hm100-test -
 
 串行写入 100 条合成网页操作 fact 并分别评分 exact/paraphrase 召回、干扰项区分与自然工具路由，
 支持 checkpoint/resume。见[记忆用户指南](docs/memory-user-guide.md)。
+
+### LoCoMo 全流程试跑
+
+`benchmark-locomo` 把一个 LoCoMo 样本的原始对话按时间顺序送入完整 HomeMaster 应用，保留人物名和历史时间，
+并实际经过自动召回、模型记忆工具、Session Finalizer、implicit feedback 和 dreaming。它用于检查功能有没有触发、
+记忆是否真实落库，不计算官方 LoCoMo QA/F1 分数。
+
+```bash
+uv run homemaster benchmark-locomo \
+  --data-file ../locomo/data/locomo10.json \
+  --sample-id conv-26 --focal-speaker Caroline \
+  --max-source-turns 100 --qa-probes 10 \
+  --run-deadline-seconds 300 \
+  --memory-data-root /tmp/homemaster/locomo-memory-run
+```
+
+每次试跑应使用新的 `--memory-data-root`，避免复用旧 Qdrant 数据或与另一个进程争用本地锁。完整设计和验收字段见
+[LoCoMo 全流程试跑方案](plan/locomo-full-pipeline-pilot-plan.md)。
 
 ## 可观测性
 

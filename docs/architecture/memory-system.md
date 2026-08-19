@@ -49,7 +49,8 @@ mindmemos_search
   -> EmbeddedMindMemOS.search()
   -> MindMemOS search_pipeline.search()
   -> raw memory read by each returned ID
-  -> legacy record_json validated or active record-free flat memory projected
+  -> legacy record_json validated or active record-free native memory projected
+  -> preserve native profile|fact|experience|episodic|tool_trace|skill_candidate|file_knowledge
   -> HomeMaster field filters
   -> model-visible records and raw IDs
 
@@ -168,6 +169,7 @@ finalizer 直接接收 messages 或 feedback 文本。成功 action 必须逐条
 终态通过时才消费 batch；provider、解析、DB、timeout 或进程崩溃都保留 pending，启动或下一次 finalization
 重试。
 
-原生 Vanilla experience 和 direct-flat memory 都没有 `record_json`。`mindmemos_search` 对 active、正文非空的
-record-free `fact|experience` 建立 content 投影，其中 experience 映射为公开 `procedure`；存在但损坏的
-`record_json` 仍 fail closed，不能降级成 flat memory。
+原生 Vanilla memory 和 direct-flat memory 都没有 `record_json`。`mindmemos_search` 对 active、正文非空的
+七种原生类型建立 content 投影并保留其 native `mem_type`；旧结构化 procedure 的顶层类型按真实存储返回
+`experience`，完整 `record` 仍保留 `procedure`。存在但损坏的 `record_json` 继续 fail closed，不能降级成
+record-free memory。

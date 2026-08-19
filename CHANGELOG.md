@@ -4,6 +4,12 @@
 
 ### Changed
 
+- Changed `mindmemos_search` to accept and return the complete native MindMemOS type vocabulary instead of the reduced
+  `fact|procedure` search view. Valid active `profile`, `fact`, `experience`, `episodic`, `tool_trace`,
+  `skill_candidate`, and `file_knowledge` memories now preserve their native type and exact content; the existing LoCoMo
+  store returns both Finalizer-created tool traces by their real IDs with no corruption diagnostics. Model-authored
+  `mindmemos_add` remains restricted to evidence-backed `fact|procedure` writes.
+
 - Replaced model-visible structured `mindmemos_add` with `content + memory_type` direct flat writes
   because its Schema/LLM extraction dominated Add latency while the public schema is not yet stable.
   Validated calls still return `accepted + job_id` through the application-owned FIFO, but the worker
@@ -71,6 +77,17 @@
   product architecture without weakening its coverage of ordinary product files.
 
 ### Added
+
+- Added a `benchmark-locomo` full-application pilot that replays 50-100 dated LoCoMo
+  dialogue turns with original speaker names through the ordinary HomeMaster runtime,
+  production Session Finalizer, implicit feedback, dreaming, automatic recall, and
+  model-visible memory tools. It keeps one focal speaker's memories under a normalized
+  tenant key, applies a per-run deadline, verifies every Finalizer memory by raw ID, and
+  writes complete JSON/JSONL artifacts for manual feature inspection without claiming a
+  QA quality score.
+
+- Added `file_read_example.py` as a standalone UTF-8 file-reading example with explicit
+  missing-file and unexpected-error handling.
 
 - Added one unified `mindmemos_update` dispatch boundary and `mindmemos_history`. Memories with a
   valid `record_json` now receive a deterministic linked version that updates content, structured

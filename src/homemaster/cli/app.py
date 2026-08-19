@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 
@@ -12,6 +13,7 @@ from homemaster.cli.benchmark_alfworld import (
     handle_benchmark_alfworld,
     handle_benchmark_alfworld_taskset,
 )
+from homemaster.cli.benchmark_locomo import handle_benchmark_locomo
 from homemaster.cli.child_worker import run_child_worker
 from homemaster.cli.cron_command import cron_app
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
@@ -434,6 +436,101 @@ def benchmark_alfworld_command(
             f"formal_score_available: {str(bool(metrics['formal_score_available'])).lower()}"
         )
         typer.echo(f"trace_root: {trace_root / split_trace_bucket(split) / summary.run_id}")
+    except Exception as exc:
+        render_error_and_exit(exc)
+
+
+@app.command("benchmark-locomo")
+def benchmark_locomo_command(
+    data_file: Annotated[
+        Path,
+        typer.Option("--data-file", help="Path to LoCoMo locomo10.json."),
+    ] = Path("../locomo/data/locomo10.json"),
+    sample_id: Annotated[
+        str,
+        typer.Option("--sample-id", help="LoCoMo conversation sample id."),
+    ] = "conv-26",
+    focal_speaker: Annotated[
+        str,
+        typer.Option("--focal-speaker", help="Person name used as the memory user id."),
+    ] = "Caroline",
+    max_source_turns: Annotated[
+        int,
+        typer.Option("--max-source-turns", help="Maximum original dialogue turns to ingest."),
+    ] = 100,
+    qa_probes: Annotated[
+        int,
+        typer.Option("--qa-probes", help="Answerable LoCoMo questions to run without scoring."),
+    ] = 10,
+    run_deadline_seconds: Annotated[
+        float,
+        typer.Option(
+            "--run-deadline-seconds",
+            help="Maximum wall time for each HomeMaster source or QA run.",
+        ),
+    ] = 300.0,
+    trace_root: Annotated[
+        Path,
+        typer.Option("--trace-root", help="Output directory for LoCoMo benchmark runs."),
+    ] = Path("/tmp/homemaster/locomo"),
+    memory_data_root: Annotated[
+        Path | None,
+        typer.Option(
+            "--memory-data-root",
+            help="Separate MindMemOS data root to avoid an embedded Qdrant lock conflict.",
+        ),
+    ] = None,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+    ] = None,
+    provider_name: Annotated[
+        str | None,
+        typer.Option("--provider-name", help="Optional configured chat provider name."),
+    ] = None,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Optional chat model override."),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", help="Stable output run id; directory must not exist."),
+    ] = None,
+    log_level: Annotated[
+        str,
+        typer.Option("--log-level", help="Logging level."),
+    ] = "INFO",
+) -> None:
+    """Replay LoCoMo through HomeMaster memory, feedback, and dreaming."""
+    try:
+        summary = handle_benchmark_locomo(
+            data_file=data_file,
+            sample_id=sample_id,
+            focal_speaker=focal_speaker,
+            max_source_turns=max_source_turns,
+            qa_probes=qa_probes,
+            run_deadline_seconds=run_deadline_seconds,
+            trace_root=trace_root,
+            memory_data_root=memory_data_root,
+            config_path=config_path,
+            provider_name=provider_name,
+            model_override=model,
+            run_id=run_id,
+            log_level=log_level,
+        )
+        typer.echo(f"run_id: {summary['run_id']}")
+        typer.echo(f"status: {summary['status']}")
+        typer.echo(f"sample_id: {summary['sample_id']}")
+        typer.echo(f"focal_speaker: {summary['focal_speaker']}")
+        typer.echo(f"source_turns: {summary['source_turn_count']}")
+        typer.echo(f"source_sessions: {summary['source_session_count']}")
+        typer.echo(f"qa_probes: {summary['qa_probe_count']}")
+        typer.echo(
+            "feature_counts: "
+            + json.dumps(summary["feature_counts"], ensure_ascii=False)
+        )
+        summary_path = trace_root.expanduser().resolve() / str(summary["run_id"]) / "summary.json"
+        typer.echo(f"summary: {summary_path}")
     except Exception as exc:
         render_error_and_exit(exc)
 

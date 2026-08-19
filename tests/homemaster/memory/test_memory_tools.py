@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -84,7 +85,8 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
 
     search_description = by_name["mindmemos_search"].definition.description
     assert "Search long-term memory by meaning" in search_description
-    assert "experiences learned from past sessions" in search_description
+    assert "native MindMemOS types" in search_description
+    assert "tool traces" in search_description
     assert "Search again" in search_description
     feedback = by_name["mindmemos_feedback"]
     assert feedback.definition.required_capabilities == ("tool.read", "tool.mutate")
@@ -106,6 +108,19 @@ def test_memory_tool_schemas_expose_direct_flat_add_and_legacy_structured_update
     assert set(add_schema["required"]) == {"content", "memory_type"}
     assert add_schema["properties"]["memory_type"]["enum"] == ["fact", "procedure"]
     search_schema = by_name["mindmemos_search"]
+    search_type_schema = search_schema["properties"]["memory_type"]
+    search_type_enum = next(
+        item["enum"] for item in search_type_schema["anyOf"] if "enum" in item
+    )
+    assert search_type_enum == [
+        "profile",
+        "fact",
+        "experience",
+        "episodic",
+        "tool_trace",
+        "skill_candidate",
+        "file_knowledge",
+    ]
     subject_schema = search_schema["properties"]["subject"]["anyOf"][0]
     assert set(subject_schema["properties"]) == {
         "type",
@@ -326,6 +341,12 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
                         last_update_at="2026-08-18 00:00:00",
                     ),
                     MemorySearchItem(
+                        id="tool-trace-1",
+                        memory="terminal returned exit code 7 for the deployment check",
+                        memory_type="tool_trace",
+                        last_update_at="2026-08-18 00:00:00",
+                    ),
+                    MemorySearchItem(
                         id="malformed-schema-1",
                         memory="invalid",
                         memory_type="fact",
@@ -335,6 +356,22 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
             )
 
         async def get_raw(self, memory_id, context):
+            if memory_id == "tool-trace-1":
+                return SimpleNamespace(
+                    memory_id=memory_id,
+                    mem_extract_type="vanilla",
+                    mem_type="tool_trace",
+                    content="terminal returned exit code 7 for the deployment check",
+                    status="active",
+                    metadata={
+                        "request_metadata": {
+                            "source_type": "homemaster_task_trace",
+                            "source_session_id": "session-source",
+                        }
+                    },
+                    created_at=None,
+                    update_at=None,
+                )
             if memory_id == "direct-fact-1":
                 return SimpleNamespace(
                     memory_id=memory_id,
@@ -401,14 +438,14 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
     )
 
     result = await executor.execute(
-        {"query": "写操作超时", "memory_type": "procedure", "limit": 5}, context
+        {"query": "写操作超时", "memory_type": "experience", "limit": 5}, context
     )
 
     assert result.success
     assert result.data["count"] == 1
     record = result.data["records"][0]
     assert record["memory_id"] == "experience-1"
-    assert record["memory_type"] == "procedure"
+    assert record["memory_type"] == "experience"
     assert record["content"] == content
     assert dict(record["source"]) == {
         "source_type": "homemaster_task_trace",
@@ -419,6 +456,23 @@ async def test_search_memories_returns_native_vanilla_experience(tmp_path: Path)
     assert record["verified_terminal_state"] is True
     assert len(result.data["diagnostics"]) == 1
     assert result.data["diagnostics"][0]["code"] == "memory_record_corrupt"
+
+    tool_trace_result = await executor.execute(
+        {"query": "deployment check", "memory_type": "tool_trace", "limit": 5}, context
+    )
+    assert tool_trace_result.success
+    assert tool_trace_result.data["count"] == 1
+    tool_trace = tool_trace_result.data["records"][0]
+    assert tool_trace["memory_id"] == "tool-trace-1"
+    assert tool_trace["memory_type"] == "tool_trace"
+    assert tool_trace["content"] == (
+        "terminal returned exit code 7 for the deployment check"
+    )
+    assert all(
+        diagnostic["memory_id_hash"]
+        != hashlib.sha256(b"tool-trace-1").hexdigest()[:16]
+        for diagnostic in tool_trace_result.data["diagnostics"]
+    )
 
     fact_result = await executor.execute(
         {"query": "package manager", "memory_type": "fact", "limit": 5}, context

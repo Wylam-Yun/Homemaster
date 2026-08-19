@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -190,6 +190,7 @@ async def test_finalizer_collects_session_and_persists_vanilla_result(tmp_path: 
         trace_path=trace,
         data_root=tmp_path / "memory",
         mindmemos=mindmemos,
+        memory_tenant_id="Caroline",
     )
 
     result = await finalizer.finalize("s1", "user_exit")
@@ -201,10 +202,13 @@ async def test_finalizer_collects_session_and_persists_vanilla_result(tmp_path: 
     assert result.rendered_messages == 3
     assert not list((tmp_path / "memory" / "experience_jobs").glob("*/task_trace.json"))
     assert len(mindmemos.calls) == 1
-    messages, _, _ = mindmemos.calls[0]
+    messages, context, _ = mindmemos.calls[0]
+    assert context.account_id == "Caroline"
+    assert context.project_id == "Caroline"
+    assert context.user_id == "Caroline"
     assert [message.timestamp for message in messages[:2]] == [
-        int(datetime(2026, 8, 12, 10, 0, 0, tzinfo=timezone.utc).timestamp() * 1000),
-        int(datetime(2026, 8, 12, 10, 0, 3, tzinfo=timezone.utc).timestamp() * 1000),
+        int(datetime(2026, 8, 12, 10, 0, 0, tzinfo=UTC).timestamp() * 1000),
+        int(datetime(2026, 8, 12, 10, 0, 3, tzinfo=UTC).timestamp() * 1000),
     ]
 
     jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))

@@ -1,5 +1,25 @@
 # Engineering Pitfalls
 
+## 2026-08-19 - HomeMaster 缩减原生 memory type，把有效 tool_trace 误报为损坏
+
+### 症状与根因
+
+LoCoMo Finalizer 通过 MindMemOS Vanilla Add 合法写入两条 active `tool_trace`。原生 semantic search 能命中，
+但 HomeMaster 的模型工具只允许 `fact|procedure`，投影函数也只接受 raw `fact|experience`，于是把已经成功回读
+的 `tool_trace` 归入 `memory_record_corrupt`。写入端和底层搜索都正常，错误发生在下游 wrapper 自建的缩减枚举。
+
+### 修法与教训
+
+`mindmemos_search` 直接采用 MindMemOS 七种原生类型，并从原有 LoCoMo Qdrant store 真实搜索两个已知 ID，逐条
+断言 native type、正文和空 diagnostics。包装外部系统时不要重建一个更窄的类型宇宙；若产品确实要隐藏某类，
+必须明确标为 filtered，而不能把合法上游值归类为 corrupt。
+
+### 参考
+
+- `src/homemaster/tools/memory_tools.py`
+- `tests/homemaster/memory/test_memory_tools.py`
+- `plan/native-mindmemos-search-types-implementation-plan.md`
+
 ## 2026-08-18 - Direct flat memory 真实写入成功，Schema metadata helper 让黑盒门假失败
 
 ### 症状与根因

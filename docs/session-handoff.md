@@ -2,6 +2,10 @@
 
 ## Current State
 
+`mindmemos_search` now uses all seven native MindMemOS memory types. It no longer maps `experience` to a public
+`procedure` type or reports valid `tool_trace` records as corrupt. This changes only search input/projection;
+model-authored `mindmemos_add` remains `fact|procedure`.
+
 The application now binds its authoritative working directory into the existing system prompt before frozen
 identity/profile/persistent memory. Relative terminal/file paths therefore have a model-visible base, while a named
 host, environment, device or project is explicitly not treated as the current workspace without visible evidence.
@@ -43,6 +47,11 @@ record/content plus old/new states and lineage. Add/update provider schemas and 
 `memory-evidence-*`; executors select current tenant/session/run/turn/source evidence from the ledger.
 
 ## Verification
+
+The existing LoCoMo store at `/tmp/homemaster/locomo-memory-100-20260818-v2` was opened through the production
+HomeMaster composition. A real `mindmemos_search` filtered by `tool_trace` returned exactly the two known Finalizer IDs
+`767380b8-cc62-5df0-a8d4-296f4c6d9ff6` and `bbc2af94-06bd-509b-94f9-149b99e7f3ec`, both with exact content and native
+type, and returned no diagnostics.
 
 The direct-flat follow-up passes 253 non-live memory/application/experience tests (1 skipped, 4 live deselected), plus
 focused Ruff, compileall and `git diff --check`. Its latest real Qdrant/Neo4j gate passes in 23.10s for one fact and one procedure:
