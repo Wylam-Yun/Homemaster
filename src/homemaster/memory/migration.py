@@ -20,8 +20,13 @@ from homemaster.config import MemoryConfig
 
 logger = logging.getLogger(__name__)
 
-MIGRATION_SCHEMA = "homemaster-memory-migration-v1"
+LEGACY_MIGRATION_SCHEMA = "homemaster-memory-migration-v1"
+MIGRATION_SCHEMA = "homemaster-memory-migration-v2"
 ComponentName = Literal["files", "evidence"]
+LEGACY_COMPONENT_SETS = (
+    frozenset({"files", "evidence"}),
+    frozenset({"files", "qdrant", "history", "evidence"}),
+)
 
 
 class MemoryMigrationError(RuntimeError):
@@ -67,6 +72,11 @@ class MemoryMigrationCoordinator:
         if self.manifest_path.exists():
             try:
                 manifest = _read_json(self.manifest_path)
+                if manifest.get("schema_version") == LEGACY_MIGRATION_SCHEMA:
+                    self._validate_legacy_manifest(manifest, deep=False)
+                    return self._inspection(
+                        "migration_required", "legacy migration manifest requires upgrade"
+                    )
                 self._validate_completed_manifest(manifest, deep=False)
             except MemoryMigrationError as exc:
                 return self._inspection("conflict", f"invalid migration manifest: {exc}")
@@ -96,6 +106,8 @@ class MemoryMigrationCoordinator:
             os.chmod(self.data_root, 0o700)
             if self.manifest_path.exists():
                 manifest = _read_json(self.manifest_path)
+                if manifest.get("schema_version") == LEGACY_MIGRATION_SCHEMA:
+                    return self._upgrade_legacy_manifest(manifest)
                 self._validate_completed_manifest(manifest, deep=True)
                 return manifest
             journal = self._load_or_plan_journal()
@@ -152,7 +164,9 @@ class MemoryMigrationCoordinator:
             planned = {
                 name: (str(source), str(target)) for name, (source, target) in expected.items()
             }
-            if observed != planned:
+            if set(observed) != set(planned) or any(
+                not _path_pair_equivalent(observed[name], planned[name]) for name in planned
+            ):
                 raise MemoryMigrationError(
                     "memory_migration_plan_changed",
                     "migration sources or targets changed after the journal was created",
@@ -297,10 +311,130 @@ class MemoryMigrationCoordinator:
     def _validate_identity(self, payload: dict[str, Any]) -> None:
         if payload.get("schema_version") != MIGRATION_SCHEMA:
             raise MemoryMigrationError("memory_migration_schema", "unknown migration schema")
-        if payload.get("data_root") != str(self.data_root):
+        if not _path_equivalent(payload.get("data_root"), self.data_root):
             raise MemoryMigrationError(
                 "memory_migration_root_changed", "migration data root changed"
             )
+
+    def _validate_legacy_manifest(self, payload: dict[str, Any], *, deep: bool) -> None:
+        if payload.get("schema_version") != LEGACY_MIGRATION_SCHEMA:
+            raise MemoryMigrationError("memory_migration_schema", "unknown migration schema")
+        if not _path_equivalent(payload.get("data_root"), self.data_root):
+            raise MemoryMigrationError(
+                "memory_migration_root_changed", "migration data root changed"
+            )
+        if payload.get("status") != "completed":
+            raise MemoryMigrationError(
+                "memory_migration_manifest_incomplete", "migration manifest is not completed"
+            )
+        components = payload.get("components")
+        if not isinstance(components, dict) or frozenset(components) not in LEGACY_COMPONENT_SETS:
+            raise MemoryMigrationError(
+                "memory_migration_manifest_components",
+                "legacy migration manifest components are invalid",
+            )
+        for name, item in components.items():
+            if not isinstance(item, dict) or item.get("status") != "completed":
+                raise MemoryMigrationError(
+                    "memory_migration_manifest_components",
+                    f"legacy migration manifest component {name} is incomplete",
+                )
+            publication = item.get("publication")
+            digest = item.get("sha256")
+            if publication == "absent":
+                if digest is not None:
+                    raise MemoryMigrationError(
+                        "memory_migration_manifest_digest", f"absent {name} has a digest"
+                    )
+                continue
+            if publication not in {"verified_in_place", "matched_existing", "copied"}:
+                raise MemoryMigrationError(
+                    "memory_migration_manifest_components",
+                    f"legacy migration manifest component {name} has an invalid publication",
+                )
+            if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                raise MemoryMigrationError(
+                    "memory_migration_manifest_digest",
+                    f"legacy published {name} has an invalid digest",
+                )
+            target = item.get("target")
+            if not isinstance(target, str) or not Path(target).exists():
+                raise MemoryMigrationError(
+                    "memory_migration_published_target_missing",
+                    f"legacy published {name} target is missing",
+                    target=target,
+                )
+            if deep:
+                _validate_legacy_component(name, Path(target))
+
+    def _upgrade_legacy_manifest(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        self._validate_legacy_manifest(manifest, deep=True)
+        migration_id = manifest.get("migration_id")
+        if not isinstance(migration_id, str) or not migration_id:
+            raise MemoryMigrationError(
+                "memory_migration_manifest_identity", "legacy migration ID is invalid"
+            )
+        self._preserve_legacy_audit(self.manifest_path, manifest, migration_id)
+        if self.journal_path.exists():
+            journal = _read_json(self.journal_path)
+            if journal.get("schema_version") == LEGACY_MIGRATION_SCHEMA:
+                self._validate_legacy_manifest(journal, deep=True)
+                if journal.get("migration_id") != migration_id:
+                    raise MemoryMigrationError(
+                        "memory_migration_manifest_identity",
+                        "legacy migration journal and manifest IDs differ",
+                    )
+                self._preserve_legacy_audit(self.journal_path, journal, migration_id)
+
+        upgraded_id = uuid.uuid4().hex
+        components: dict[str, dict[str, Any]] = {}
+        for name, (source, target) in self._component_paths().items():
+            if target.exists():
+                self._validate_component(name, target)
+                publication = "verified_in_place"
+                digest = self._component_digest(name, target)
+            else:
+                publication = "absent"
+                digest = None
+            components[name] = {
+                "source": str(source),
+                "target": str(target),
+                "status": "completed",
+                "publication": publication,
+                "sha256": digest,
+            }
+        journal = {
+            "schema_version": MIGRATION_SCHEMA,
+            "status": "completed",
+            "migration_id": upgraded_id,
+            "data_root": str(self.data_root),
+            "components": components,
+            "upgraded_from": {
+                "schema_version": LEGACY_MIGRATION_SCHEMA,
+                "migration_id": migration_id,
+            },
+        }
+        manifest = {
+            **journal,
+            "legacy_fields": list(self.config.migration_spec.explicit_legacy_fields),
+        }
+        _atomic_json(self.journal_path, journal)
+        _atomic_json(self.manifest_path, manifest)
+        self._validate_completed_manifest(manifest, deep=True)
+        return manifest
+
+    def _preserve_legacy_audit(
+        self, path: Path, payload: dict[str, Any], migration_id: str
+    ) -> None:
+        stem = path.name.removesuffix(".json")
+        backup = path.with_name(f"{stem}.v1.{migration_id}.json")
+        if backup.exists():
+            if _read_json(backup) != payload:
+                raise MemoryMigrationError(
+                    "memory_migration_audit_conflict", "legacy migration audit backup conflicts"
+                )
+            return
+        _atomic_json(backup, payload)
 
     def _validate_completed_manifest(self, payload: dict[str, Any], *, deep: bool) -> None:
         self._validate_identity(payload)
@@ -321,7 +455,9 @@ class MemoryMigrationCoordinator:
                     "memory_migration_manifest_components",
                     f"migration manifest component {name} is incomplete",
                 )
-            if item.get("source") != str(source) or item.get("target") != str(target):
+            if not _path_pair_equivalent(
+                (item.get("source"), item.get("target")), (str(source), str(target))
+            ):
                 raise MemoryMigrationError(
                     "memory_migration_plan_changed",
                     "migration sources or targets changed after publication",
@@ -423,6 +559,82 @@ def _sqlite_digest(path: Path) -> str:
     return hashlib.sha256(statements.encode()).hexdigest()
 
 
+def _validate_legacy_component(name: str, path: Path) -> None:
+    if name == "qdrant":
+        _legacy_qdrant_snapshot(path)
+        return
+    if name in {"history", "evidence"}:
+        _validate_sqlite(path)
+        return
+    if name == "files":
+        if not path.is_dir():
+            raise MemoryMigrationError(
+                "memory_migration_invalid_files", "file memory is not a directory"
+            )
+        _inventory_digest(path)
+        return
+    raise MemoryMigrationError(
+        "memory_migration_manifest_components", f"unknown legacy component {name}"
+    )
+
+
+def _legacy_qdrant_snapshot(path: Path) -> dict[str, Any]:
+    if not path.is_dir():
+        raise MemoryMigrationError(
+            "memory_migration_invalid_qdrant", "Qdrant component is not a directory"
+        )
+    from qdrant_client import QdrantClient
+
+    client = QdrantClient(path=str(path))
+    try:
+        snapshot: dict[str, Any] = {}
+        for collection in sorted(item.name for item in client.get_collections().collections):
+            count = int(client.count(collection, exact=True).count)
+            points: list[dict[str, Any]] = []
+            offset = None
+            while True:
+                rows, offset = client.scroll(
+                    collection,
+                    limit=256,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=True,
+                )
+                points.extend(
+                    sorted(
+                        (
+                            {
+                                "id": str(row.id),
+                                "payload": row.payload,
+                                "vectors": sorted(row.vector)
+                                if isinstance(row.vector, dict)
+                                else [""],
+                            }
+                            for row in rows
+                        ),
+                        key=lambda item: item["id"],
+                    )
+                )
+                if offset is None:
+                    break
+            if len(points) != count:
+                raise MemoryMigrationError(
+                    "memory_migration_invalid_qdrant",
+                    f"Qdrant collection {collection!r} count mismatch",
+                )
+            snapshot[collection] = {"count": count, "points": points}
+        return snapshot
+    except MemoryMigrationError:
+        raise
+    except Exception as exc:
+        raise MemoryMigrationError(
+            "memory_migration_invalid_qdrant",
+            f"Qdrant inspection failed: {type(exc).__name__}",
+        ) from exc
+    finally:
+        client.close()
+
+
 def _copy_component(source: Path, target: Path) -> None:
     if source.is_dir():
         shutil.copytree(source, target, copy_function=shutil.copy2)
@@ -487,6 +699,23 @@ def _same_inventory(left: Path, right: Path) -> bool:
         return _inventory_digest(left) == _inventory_digest(right)
     except MemoryMigrationError:
         return False
+
+
+def _path_equivalent(left: object, right: object) -> bool:
+    if not isinstance(left, (str, os.PathLike)) or not isinstance(right, (str, os.PathLike)):
+        return False
+    try:
+        return Path(left).expanduser().resolve(strict=False) == Path(right).expanduser().resolve(
+            strict=False
+        )
+    except (OSError, RuntimeError):
+        return False
+
+
+def _path_pair_equivalent(
+    left: tuple[object, object], right: tuple[object, object]
+) -> bool:
+    return _path_equivalent(left[0], right[0]) and _path_equivalent(left[1], right[1])
 
 
 def _read_json(path: Path) -> dict[str, Any]:

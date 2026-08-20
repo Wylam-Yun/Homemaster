@@ -136,6 +136,11 @@ uv run homemaster memory migrate --config config/homemaster.yaml
 需要迁移时返回 `WARN migration_required`，不会创建目标、journal 或数据库，也不会打开 MindMemOS。应用、one-shot CLI 和 Gateway 启动会调用同一个
 coordinator 自动完成或恢复迁移。
 
+已有 `homemaster-memory-migration-v1` 状态会在首次 mutating migrate 或应用启动时原地升级为 `v2`。升级前会
+按 v1 的原始两组件或四组件契约验证，并把旧 manifest/journal 保存为带原 migration ID 的审计副本；已有
+memory 文件、Qdrant、history 和 Evidence 不会被删除或复制。`/home/...` 与其真实挂载路径等价时允许升级，
+但指向不同真实目录、旧结构未知、已发布目标缺失或审计副本冲突时仍拒绝启动。
+
 旧 `memory.root` 仅作为文件记忆的一次迁移输入兼容；不要与新 `memory.data_root` 同时配置。
 `memory.mem0` 已删除且配置会被拒绝。
 

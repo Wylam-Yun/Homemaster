@@ -1,5 +1,24 @@
 # Engineering Pitfalls
 
+## 2026-08-20 - 同一 migration schema 改了组件结构，挂载别名让正式服务器无法启动 memory
+
+### 症状与根因
+
+hkust4 的正式 worktree 已用相对配置和 `.runtime/memory` 绑定同一份已有数据，但 `doctor` 报
+`migration data root changed`。服务器的 `/home/haodong2` 实际是 `/data1/haodong2` 的符号链接；配置解析后的
+真实路径与旧 manifest 的逻辑路径指向同一目录，却被字符串比较判为不同。越过这一层后还会失败：旧 Mem0
+manifest 用 `v1` 记录 `files/qdrant/history/evidence`，MindMemOS 替换时删成 `files/evidence` 却继续沿用 `v1`，
+导致当前 reader 把合法旧状态判成未知组件。
+
+### 修法与教训
+
+当前协议升为 `v2`。reader 严格识别两种历史 `v1` 组件集合，按旧契约验证已发布目标，以真实路径等价接受挂载
+别名；mutating migrate 在锁内保留带原 migration ID 的 v1 manifest/journal 审计副本，再生成只含当前组件的
+v2 状态。任何未知结构、不同真实路径、缺失目标或审计冲突仍 fail closed。持久化协议改结构必须同步升级版本，
+不能只改 reader 的期望集合。
+
+Ref：`src/homemaster/memory/migration.py`、`tests/homemaster/memory/test_migration.py`
+
 ## 2026-08-20 - 正式 worktree 与验证 worktree 的运行环境错配
 
 ### 症状与根因

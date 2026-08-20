@@ -53,6 +53,11 @@
 
 ### Fixed
 
+- Upgraded the memory migration manifest contract to v2 so a portable runtime accepts logical mount aliases that
+  resolve to the same data root and can safely open historical v1 manifests from either the Mem0 four-component or
+  MindMemOS two-component era. The locked upgrade validates the original contract, preserves immutable v1 audit
+  copies, and still rejects unknown shapes, genuinely different roots, missing published targets and audit conflicts.
+
 - Fixed stored-first memory enrichment falsely rejecting successful Qdrant dense-vector writes
   when float32 persistence introduces normal round-trip precision differences; the readback gate
   now checks dimensions, nonzero content, and per-value numerical tolerance before Entity enrichment.

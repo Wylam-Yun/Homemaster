@@ -17,6 +17,8 @@ selection.
 - Setup is idempotent for the same targets and fails closed for conflicting existing paths.
 - The launcher works from any cwd, fixes `HOMEMASTER_CONFIG_PATH` and `PYTHONPATH`, and refuses an incomplete runtime.
 - A successful CLI import is separate from memory readiness; deployment verification checks both.
+- Persistent migration protocols are versioned. Mount aliases resolving to the same target are equivalent, while
+  legacy manifests are validated under their original schema and preserved before an in-place schema upgrade.
 
 ## Implementation
 
@@ -30,6 +32,8 @@ selection.
    Java or Neo4j installations.
 6. Verify CLI import, managed Neo4j readiness, exact Qdrant/Neo4j memory readback, then one LoCoMo and one visual
    ALFWorld instance with independent stderr and cleanup gates.
+7. Upgrade historical v1 migration state to v2 under the memory lock, preserving the exact v1 manifest/journal as
+   audit files and rejecting unknown legacy shapes or genuinely different roots.
 
 ## Rollback
 

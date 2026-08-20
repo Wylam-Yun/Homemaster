@@ -10,7 +10,12 @@ from typer.testing import CliRunner
 from homemaster.cli.app import app
 from homemaster.cli.composition import create_home_application
 from homemaster.config import HomeMasterConfig, MemoryConfig
-from homemaster.memory.migration import MemoryMigrationCoordinator, MemoryMigrationError
+from homemaster.memory.migration import (
+    LEGACY_MIGRATION_SCHEMA,
+    MIGRATION_SCHEMA,
+    MemoryMigrationCoordinator,
+    MemoryMigrationError,
+)
 
 
 def _legacy_files(path: Path, marker: str = "legacy") -> None:
@@ -61,6 +66,77 @@ def test_component_migration_preserves_source_and_is_idempotent(
         json.loads(coordinator.manifest_path.read_text())["migration_id"] == first["migration_id"]
     )
     assert not list(config.data_root.joinpath(".staging").glob("*"))
+
+
+def test_legacy_manifest_upgrade_accepts_mount_alias_and_preserves_audit(
+    tmp_path: Path,
+) -> None:
+    physical_root = tmp_path / "physical" / "memory"
+    physical_root.mkdir(parents=True)
+    alias_parent = tmp_path / "alias"
+    alias_parent.symlink_to(tmp_path / "physical", target_is_directory=True)
+    config = MemoryConfig.model_validate({"data_root": alias_parent / "memory"})
+    migration_id = "legacy-four-component"
+    components = {
+        name: {
+            "source": str(physical_root / source),
+            "target": str(physical_root / target),
+            "status": "completed",
+            "publication": "absent",
+            "sha256": None,
+        }
+        for name, source, target in (
+            ("files", "../memories", "files"),
+            ("qdrant", "qdrant", "qdrant"),
+            ("history", "history.sqlite3", "history.sqlite3"),
+            ("evidence", "evidence.sqlite3", "evidence.sqlite3"),
+        )
+    }
+    legacy = {
+        "schema_version": LEGACY_MIGRATION_SCHEMA,
+        "status": "completed",
+        "migration_id": migration_id,
+        "data_root": str(physical_root),
+        "components": components,
+    }
+    for name in ("migration-manifest.json", "migration-journal.json"):
+        physical_root.joinpath(name).write_text(json.dumps(legacy), encoding="utf-8")
+    coordinator = MemoryMigrationCoordinator(config)
+
+    inspection = coordinator.inspect()
+    upgraded = coordinator.ensure_ready(auto_migrate=True)
+
+    assert inspection.status == "migration_required"
+    assert upgraded["schema_version"] == MIGRATION_SCHEMA
+    assert upgraded["upgraded_from"] == {
+        "schema_version": LEGACY_MIGRATION_SCHEMA,
+        "migration_id": migration_id,
+    }
+    assert set(upgraded["components"]) == {"files", "evidence"}
+    assert coordinator.inspect().status == "ready"
+    for name in ("migration-manifest", "migration-journal"):
+        audit = physical_root / f"{name}.v1.{migration_id}.json"
+        assert json.loads(audit.read_text(encoding="utf-8")) == legacy
+
+
+def test_legacy_manifest_upgrade_rejects_unknown_component_shape(tmp_path: Path) -> None:
+    config = MemoryConfig.model_validate({"data_root": tmp_path / "memory"})
+    config.data_root.mkdir()
+    invalid = {
+        "schema_version": LEGACY_MIGRATION_SCHEMA,
+        "status": "completed",
+        "migration_id": "unknown-shape",
+        "data_root": str(config.data_root),
+        "components": {"files": {}},
+    }
+    config.data_root.joinpath("migration-manifest.json").write_text(
+        json.dumps(invalid), encoding="utf-8"
+    )
+
+    inspection = MemoryMigrationCoordinator(config).inspect()
+
+    assert inspection.status == "conflict"
+    assert "components are invalid" in inspection.reason
 
 
 def test_completed_manifest_rejects_missing_published_target(

@@ -149,6 +149,9 @@
   digest schema，以及所有已发布目标的存在和结构。发布时在适用的旧 store 锁或一致性 snapshot 下复制，并在
   atomic publish 前重读源；源变化必须 fail closed。发布摘要只证明迁移瞬间一致，活跃数据正常变更后不得用
   陈旧摘要冒充永久内容完整性。
+- 持久化 manifest/journal 的字段集合或组件语义改变时必须升级 schema 版本；旧 schema 按其原始完整契约验证，
+  在锁内保留不可变审计副本后再生成新 schema。路径 identity 应接受 `resolve()` 后相同的挂载别名，但不同真实
+  目标、未知旧结构、缺失已发布目标或审计副本冲突必须 fail closed。不得改结构却沿用同一个版本号。
 - 声明只读的 doctor/inspect 必须用完整文件树前后对比验零写入，ready、migration-required、cold-cache 都要
   覆盖。不得从诊断路径启动 store、创建数据库、物化 cache 或为了 import check 执行有全局副作用的第三方包；
   真正 backend 可用性只由显式启动或独立 mutating probe 验证。
