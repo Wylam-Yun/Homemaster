@@ -29,6 +29,9 @@ var/alfworld_smoke/
 /record/
 report/
 log/
+web/node_modules/
+web/.vite/
+web/*.tsbuildinfo
 
 # macOS AppleDouble resource-fork junk (._* files from macOS copy/zip)
 ._*

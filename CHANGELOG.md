@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Added `homemaster serve`, a loopback-only FastAPI + React Web Console with session creation/resume,
+  HTTP command and cancellation endpoints, one session-scoped reconnecting WebSocket, streamed thinking and answer
+  deltas with snapshot calibration, per-`tool_call_id` tool cards, opaque artifact downloads, and one-shot dangerous
+  operation approval. The browser reducer fences every request to its authoritative run ID, and production packaging
+  includes the Vite build plus required DeepSeek Harness and Hermes Agent MIT notices.
+
 ### Documentation
 
 - Recorded the formal HPC2/hkust4 portability gates, the editable MindMemOS cross-venv fix, and the one-instance

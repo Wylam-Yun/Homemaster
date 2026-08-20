@@ -90,6 +90,7 @@ homemaster = [
   "skills/builtin/*/SKILL.md",
   "skills/builtin/*/**/*",
   "skills/bundled/content/*.md",
+  "web/static_dist/**/*",
 ]
 
 [tool.pytest.ini_options]

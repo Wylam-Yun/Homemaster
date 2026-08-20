@@ -8,7 +8,7 @@
 
 HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的 **ApplicationRuntime** 负责上下文组装、
 任务状态快照、权限门控与工具执行，在其上组合通用工具集、家庭机器人领域工具、分层记忆系统、
-飞书消息通道与 MCP 扩展生态。同一套 Runtime 驱动 CLI、交互 Shell、飞书 Gateway
+飞书消息通道与 MCP 扩展生态。同一套 Runtime 驱动 CLI、交互 Shell、本地 Web Console、飞书 Gateway
 （含 ALFWorld 具身环境与通用浏览器两种模式）以及 ALFWorld benchmark。
 
 > [!IMPORTANT]
@@ -47,6 +47,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   正常关闭时统一 drain。
 - **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发与建群/改名；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
+- **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
+  session 恢复、取消、危险操作审批与断线重连；默认且仅允许 loopback 绑定。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
   tool/resource 调用全部落 JSONL audit。
 - **安全模型** — typed capability 权限、generation-aware 设备租约、带双重回执的急停（emergency stop）、
@@ -58,8 +60,10 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 ```mermaid
 flowchart LR
     CLI[CLI / 交互 Shell]
+    WEB[Web Console]
     FEI[飞书 Gateway]
     CLI --> RT
+    WEB --> RT
     FEI --> RT
 
     subgraph Runtime[ApplicationRuntime]
@@ -92,6 +96,7 @@ flowchart LR
 | `devices/` | connection pool、generation lease、急停与设备 audit |
 | `channels/` `gateway/` | typed channel DTO、bounded priority bus、飞书 adapter 与 Gateway 生命周期 |
 | `events/` | RuntimeEvent schema、sinks 与远程投影 allowlist |
+| `web/` | FastAPI Web adapter、公开事件投影、审批 Future 与生产 SPA |
 | `artifacts/` | tenant/session/run 分区的 opaque 工具产物存储 |
 | `browser/` | run-scoped Playwright 会话与语义浏览器工具 |
 | `extensions/` | 受部署者批准的可信本地扩展（CL-21） |
@@ -200,6 +205,20 @@ uv run homemaster shell --permission-mode confirm
 ```
 
 ## CLI 参考
+
+### 本地 Web Console
+
+```bash
+# 打开 http://127.0.0.1:8000
+scripts/homemaster serve
+
+# 可改 loopback 地址和端口；0.0.0.0、LAN IP 与任意 hostname 会在 Runtime 构造前拒绝
+scripts/homemaster serve --host 127.0.0.1 --port 8765
+```
+
+浏览器必须先建立当前 session 的 WebSocket，composer 才允许发送。危险工具在网页弹出一次性审批，
+Reject、断线、超时或进程关闭都 fail closed。完整开发、构建与使用说明见
+[Web Console 用户指南](docs/web-console-user-guide.md)。
 
 | 命令 | 说明 |
 | --- | --- |

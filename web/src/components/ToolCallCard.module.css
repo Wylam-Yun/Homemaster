@@ -1,0 +1,13 @@
+.card { margin: .75rem 0; overflow: hidden; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-2); }
+.card header { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; }
+.dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--warning); }
+.card[data-state='completed'] .dot { background: var(--success); }
+.card[data-state='failed'] .dot { background: var(--danger); }
+.status { margin-left: auto; color: var(--muted-2); font-size: .75rem; text-transform: uppercase; }
+.card details { border-top: 1px solid var(--border); padding: .5rem .85rem; color: var(--muted); }
+.card pre { overflow: auto; margin: .5rem 0 0; font-size: .8rem; white-space: pre-wrap; }
+.output { border-top: 1px solid var(--border); padding: .75rem .85rem; color: var(--text); }
+.artifacts { margin: 0; padding: .6rem .85rem; border-top: 1px solid var(--border); list-style: none; }
+.artifacts li { display: flex; justify-content: space-between; gap: 1rem; }
+.artifacts small { color: var(--muted-2); }
+.artifacts a { color: var(--accent); }

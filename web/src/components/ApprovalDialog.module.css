@@ -1,0 +1,12 @@
+.backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(5 8 12 / 82%); backdrop-filter: blur(8px); }
+.dialog { width: min(32rem, 100%); overflow: hidden; border: 1px solid var(--border-strong); border-radius: 1rem; background: var(--surface); box-shadow: 0 2rem 5rem rgb(0 0 0 / 45%); }
+.dialog header { display: flex; gap: .8rem; padding: 1.1rem; border-bottom: 1px solid var(--border); }
+.dialog h2 { margin: 0; font-size: 1rem; }
+.dialog p { margin: .3rem 0 0; color: var(--muted); }
+.dialog dl { margin: 0; padding: .9rem 1.1rem 0; }
+.dialog dt { color: var(--muted-2); font-size: .72rem; text-transform: uppercase; }
+.dialog dd { margin: .25rem 0; word-break: break-all; }
+.dialog pre { max-height: 15rem; overflow: auto; margin: .9rem 1.1rem; padding: .75rem; border-radius: .6rem; background: var(--surface-2); font-size: .8rem; white-space: pre-wrap; }
+.dialog footer { display: flex; justify-content: flex-end; gap: .6rem; padding: .9rem 1.1rem; border-top: 1px solid var(--border); }
+.dialog button { min-width: 5.5rem; border: 1px solid var(--border-strong); border-radius: .55rem; padding: .55rem .9rem; color: var(--text); background: transparent; cursor: pointer; }
+.dialog .approve { border-color: var(--accent); color: #07120e; background: var(--accent); }

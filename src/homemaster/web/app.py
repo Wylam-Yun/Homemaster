@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from homemaster.application import RunRequest
+from homemaster.artifacts.tool_output_store import ArtifactStoreError
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.web.confirmations import UnknownApprovalError, WebConfirmationHandler
 from homemaster.web.event_hub import WebEventHub
@@ -23,6 +25,7 @@ from homemaster.web.schemas import (
     SendMessageRequest,
     WebEvent,
 )
+from homemaster.web.static import mount_web_static
 
 _DEFAULT_SUBJECT = RunRequest(text="Web permission subject").permission_subject
 _WEB_PERMISSION_SUBJECT = PermissionSubject(
@@ -224,6 +227,36 @@ def create_web_app(
             )
         return {"approval_id": approval_id, "approved": approved}
 
+    @app.get("/api/artifacts/{artifact_handle}")
+    async def download_artifact(
+        artifact_handle: str,
+        session_id: str,
+        run_id: str,
+    ) -> object:
+        publisher = getattr(application, "artifact_publisher", None)
+        store = getattr(publisher, "store", None)
+        try:
+            if store is None or session_id not in _session_ids(application.session_manager):
+                raise ArtifactStoreError("artifact store unavailable")
+            content = store.read(
+                artifact_handle,
+                tenant_id="local",
+                session_id=session_id,
+                run_id=run_id,
+            )
+        except (ArtifactStoreError, ValueError):
+            return _error(
+                404,
+                "artifact_not_found",
+                "The artifact is unavailable or expired.",
+                retryable=False,
+            )
+        return Response(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"X-Content-SHA256": hashlib.sha256(content).hexdigest()},
+        )
+
     @app.websocket("/api/events")
     async def events(websocket: WebSocket, session_id: str) -> None:
         if session_id not in _session_ids(application.session_manager):
@@ -245,6 +278,7 @@ def create_web_app(
                 confirmation_handler=confirmation_handler,
             )
 
+    mount_web_static(app)
     return app
 
 

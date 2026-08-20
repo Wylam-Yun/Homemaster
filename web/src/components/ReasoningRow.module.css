@@ -1,0 +1,11 @@
+/* Adapted from DeepSeek Harness ReasoningRow.module.css (MIT, 2026 DeepSeek). */
+.root { position: relative; overflow: hidden; border-left: 2px solid var(--accent-soft); }
+.toggle { width: 100%; display: flex; align-items: center; gap: .55rem; border: 0; padding: .55rem .75rem; color: var(--muted); background: transparent; text-align: left; cursor: pointer; }
+.toggle:hover { color: var(--text); background: var(--surface-hover); }
+.icon { color: var(--accent); }
+.summary { min-width: 0; flex: 1; overflow: hidden; color: var(--muted-2); text-overflow: ellipsis; white-space: nowrap; }
+.chevron { margin-left: auto; }
+.body { margin: 0; padding: .4rem 1rem .9rem 2rem; color: var(--muted); font: inherit; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.root[data-state='running']::after { content: ''; position: absolute; inset: 0 auto 0 -16rem; width: 16rem; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 9%, transparent), transparent); animation: sweep 2.6s ease-out infinite; pointer-events: none; }
+@keyframes sweep { 90%, 100% { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .root[data-state='running']::after { animation: none; } }

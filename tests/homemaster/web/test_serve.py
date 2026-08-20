@@ -47,6 +47,7 @@ def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> Non
     assert captured["console_show_replies"] is False
     assert captured["progress"] is False
     assert captured["quiet"] is True
+    assert captured["publish_artifacts"] is True
     assert captured["web_application"] is application
     assert captured["web_confirmation_handler"] is captured["confirmation_handler"]
     assert expected_app.state.home_bundle is bundle

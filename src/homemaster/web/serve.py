@@ -37,6 +37,7 @@ def create_home_web_app() -> FastAPI:
         console_show_replies=False,
         permission_mode=PermissionMode.DEFAULT,
         confirmation_handler=confirmation_handler,
+        publish_artifacts=True,
     )
     app = create_web_app(
         application=bundle.application,

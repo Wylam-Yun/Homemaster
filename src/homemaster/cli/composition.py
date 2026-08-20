@@ -146,6 +146,7 @@ def create_home_application(
     session_finalizer_trace_path: Path | None = None,
     permission_mode: PermissionMode | None = None,
     confirmation_handler: Any | None = None,
+    publish_artifacts: bool = False,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
@@ -223,6 +224,7 @@ def create_home_application(
             session_finalizer_trace_path=session_finalizer_trace_path,
             permission_settings=permission_settings,
             confirmation_handler=confirmation_handler,
+            publish_artifacts=publish_artifacts,
         )
     except BaseException:
         if extension_generation is not None and extension_disposer is not None:
@@ -250,6 +252,7 @@ def _finish_home_application(
     session_finalizer_trace_path: Path | None,
     permission_settings: PermissionSettingsConfig,
     confirmation_handler: Any | None,
+    publish_artifacts: bool,
 ) -> HomeApplicationBundle:
     """Finish composition while the caller retains extension rollback ownership."""
 
@@ -265,15 +268,16 @@ def _finish_home_application(
                 lifetime=ResourceLifetime.APPLICATION,
             )
         )
-    if resolved.gateway.enabled and resolved.gateway.feishu.enabled:
+    gateway_artifacts = resolved.gateway.enabled and resolved.gateway.feishu.enabled
+    if publish_artifacts or gateway_artifacts:
         gateway_store = ToolOutputStore(
-            run_dir / "gateway-artifacts",
+            run_dir / ("gateway-artifacts" if gateway_artifacts else "web-artifacts"),
             quota_bytes=256 * 1024 * 1024,
             ttl_seconds=3600,
         )
         scope.bind(
             ResourceBinding.owned(
-                "gateway-tool-output-store",
+                "gateway-tool-output-store" if gateway_artifacts else "web-tool-output-store",
                 gateway_store,
                 lifetime=ResourceLifetime.APPLICATION,
             )

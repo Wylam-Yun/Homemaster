@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from homemaster.application import RunRequest, SessionManager
+from homemaster.artifacts import ToolOutputStore
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.web.app import (
@@ -266,3 +267,39 @@ def test_session_cancel_approval_and_validation_endpoints_use_stable_json() -> N
         )
         assert missing_resume.status_code == 404
         assert missing_resume.json()["code"] == "session_not_found"
+
+
+def test_artifact_download_enforces_exact_session_and_run_partition(tmp_path) -> None:
+    application = _FakeApplication()
+    store = ToolOutputStore(tmp_path / "artifacts", quota_bytes=1024, ttl_seconds=60)
+    application.artifact_publisher = SimpleNamespace(store=store)
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions").json()["session_id"]
+        stored = store.write(
+            tenant_id="local",
+            session_id=session_id,
+            run_id="run-01",
+            content=b"artifact bytes",
+            media_type="text/plain",
+        )
+
+        downloaded = client.get(
+            f"/api/artifacts/{stored.handle}",
+            params={"session_id": session_id, "run_id": "run-01"},
+        )
+        denied = client.get(
+            f"/api/artifacts/{stored.handle}",
+            params={"session_id": session_id, "run_id": "run-other"},
+        )
+
+        assert downloaded.status_code == 200
+        assert downloaded.content == b"artifact bytes"
+        assert downloaded.headers["content-type"] == "application/octet-stream"
+        assert downloaded.headers["x-content-sha256"] == stored.content_sha256
+        assert denied.status_code == 404
+        assert denied.json()["code"] == "artifact_not_found"
