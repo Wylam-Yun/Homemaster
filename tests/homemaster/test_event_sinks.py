@@ -292,6 +292,34 @@ def test_rich_renderer_pairs_same_name_tools_fifo_and_cleans_every_active_state(
     assert all(status.stopped == 1 for status in _FakeStatus.instances)
 
 
+def test_confirmation_request_stops_tool_spinner_before_terminal_prompt() -> None:
+    module = _load_module("homemaster.cli.live_output")
+    renderer_module = _load_module("homemaster.cli.rich_renderer")
+    _FakeStatus.instances.clear()
+    renderer = renderer_module.RichOutputRenderer(
+        console=Console(file=StringIO(), force_terminal=False, color_system=None),
+        live_factory=_FakeLive,
+        status_factory=_FakeStatus,
+    )
+    sink = module.RichStreamEventSink(renderer)
+    renderer.render(ToolExecutionStarted("write_file", {"path": "permission-test.txt"}))
+
+    sink.emit(
+        RuntimeEvent(
+            type="permission.confirmation_requested",
+            session_id="s1",
+            run_id="r1",
+            turn_index=0,
+            tool_call_id="call-1",
+            name="write_file",
+            payload={"arguments": {"path": "permission-test.txt"}},
+        )
+    )
+
+    assert renderer.state == "waiting-confirmation"
+    assert _FakeStatus.instances[-1].stopped == 1
+
+
 def test_rich_renderer_error_status_and_close_are_idempotent() -> None:
     module = _load_module("homemaster.cli.rich_renderer")
     output = StringIO()

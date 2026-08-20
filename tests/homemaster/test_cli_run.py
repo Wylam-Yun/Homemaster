@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from homemaster.application import ApplicationSession, RunResult, RunStatus
 from homemaster.cli.app import app
+from homemaster.cli.confirmation import CliPermissionMode
 from homemaster.cli.run_command import OneShotExecution
 
 
@@ -399,7 +401,53 @@ def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:
     result = CliRunner().invoke(app, [])
 
     assert result.exit_code == 0
-    assert calls == [{"resume_session_id": None, "continue_latest": False, "debug": False}]
+    assert calls == [
+        {
+            "resume_session_id": None,
+            "continue_latest": False,
+            "debug": False,
+            "permission_mode": CliPermissionMode.FULL_AUTO,
+        }
+    ]
+
+
+def test_top_level_interactive_permission_mode_is_forwarded(monkeypatch) -> None:
+    calls = []
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
+
+    result = CliRunner().invoke(app, ["--permission-mode", "confirm"])
+
+    assert result.exit_code == 0
+    assert calls[0]["permission_mode"] is CliPermissionMode.CONFIRM
+
+
+def test_shell_permission_mode_is_forwarded(monkeypatch) -> None:
+    calls = []
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
+
+    result = CliRunner().invoke(app, ["shell", "--permission-mode", "plan"])
+
+    assert result.exit_code == 0
+    assert calls == [
+        {"resume_session_id": None, "permission_mode": CliPermissionMode.PLAN}
+    ]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--permission-mode", "confirm", "-p", "question"],
+        ["--permission-mode", "confirm", "--dry-run"],
+        ["--permission-mode", "confirm", "--gateway"],
+        ["--permission-mode", "confirm", "shell"],
+    ],
+)
+def test_permission_mode_rejects_noninteractive_or_ambiguous_routes(arguments) -> None:
+    result = CliRunner().invoke(app, arguments)
+
+    assert result.exit_code != 0
 
 
 def test_result_status_controls_process_exit(monkeypatch, tmp_path: Path) -> None:

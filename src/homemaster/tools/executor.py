@@ -85,19 +85,20 @@ class ToolExecutor:
             arguments = tool.input_model.model_validate(call.arguments)
         except ValidationError as exc:
             return _invalid_arguments_result(tool, call, exc)
+        normalized_arguments = arguments.model_dump(mode="json")
         is_read_only = tool.is_read_only(arguments)
         decision = self.permission_checker.evaluate_tool(
             tool_name=tool.name,
             is_read_only=is_read_only,
             required_capabilities=tool.required_capabilities,
-            arguments=call.arguments,
+            arguments=normalized_arguments,
             context=context,
         )
         if decision.requires_confirmation:
             approved = False
             confirm = getattr(self.confirmation_handler, "confirm", None)
             if callable(confirm):
-                value = confirm(tool, call.arguments, context, decision)
+                value = confirm(tool, normalized_arguments, context, decision)
                 approved = bool(await value if inspect.isawaitable(value) else value)
             if not approved:
                 return ToolResult(
@@ -111,7 +112,7 @@ class ToolExecutor:
                 True,
                 {"status": "permission_denied", "error_code": "permission_denied"},
             )
-        resource_key, resource_error = self._resource_key(tool, call.arguments, context)
+        resource_key, resource_error = self._resource_key(tool, normalized_arguments, context)
         if resource_error is not None:
             return resource_error
         backend_started = False

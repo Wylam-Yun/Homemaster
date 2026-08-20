@@ -12,8 +12,10 @@ import typer
 from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.cli.composition import HomeCliBackend, create_home_application
+from homemaster.cli.confirmation import CliConfirmationHandler, CliPermissionMode
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.skills.commands import resolve_skill_command
+from homemaster.tools.contracts import PermissionSubject
 
 
 def run_interactive_shell(
@@ -21,6 +23,7 @@ def run_interactive_shell(
     resume_session_id: str | None = None,
     continue_latest: bool = False,
     debug: bool = False,
+    permission_mode: CliPermissionMode = CliPermissionMode.FULL_AUTO,
 ) -> None:
     _enable_line_editing()
     typer.echo("HomeMaster V1.9")
@@ -32,7 +35,17 @@ def run_interactive_shell(
     if resume_session_id is not None and continue_latest:
         raise ValueError("--continue cannot be combined with --resume")
 
-    bundle = create_home_application(run_label=f"shell-{new_session_id()}", progress=True)
+    if not isinstance(permission_mode, CliPermissionMode):
+        raise TypeError("permission_mode must be CliPermissionMode")
+    confirmation_handler = (
+        CliConfirmationHandler() if permission_mode is CliPermissionMode.CONFIRM else None
+    )
+    bundle = create_home_application(
+        run_label=f"shell-{new_session_id()}",
+        progress=True,
+        permission_mode=permission_mode.policy_mode,
+        confirmation_handler=confirmation_handler,
+    )
     application = bundle.application
     backend = HomeCliBackend(world_path=None, memory_path=None)
     session_id = resume_session_id or new_session_id()
@@ -40,6 +53,7 @@ def run_interactive_shell(
     last_status = "idle"
     last_run_id: str | None = None
     application_session = None
+    permission_subject = _interactive_permission_subject(permission_mode)
 
     with asyncio.Runner() as runner:
 
@@ -176,6 +190,7 @@ def run_interactive_shell(
                                 run_policy=RunPolicy(
                                     max_tool_iterations=(bundle.config.runtime.max_tool_iterations),
                                 ),
+                                permission_subject=permission_subject,
                                 dependencies={
                                     "skill_registry": bundle.skill_registry,
                                     "ask_user_prompt": ask_user,
@@ -245,6 +260,20 @@ def _render_help() -> str:
             "/doctor: check local configuration and dependencies.",
             "/exit: close owned application resources and exit.",
         ]
+    )
+
+
+def _interactive_permission_subject(mode: CliPermissionMode) -> PermissionSubject:
+    subject = RunRequest(text="interactive permission subject").permission_subject
+    capabilities = subject.capabilities
+    if mode is CliPermissionMode.CONFIRM:
+        capabilities = tuple(value for value in capabilities if value != "tool.auto")
+    return PermissionSubject(
+        subject_id=subject.subject_id,
+        channel=subject.channel,
+        roles=subject.roles,
+        tenant_id=subject.tenant_id,
+        capabilities=capabilities,
     )
 
 

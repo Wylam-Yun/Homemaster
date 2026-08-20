@@ -15,6 +15,7 @@ from homemaster.cli.benchmark_alfworld import (
 )
 from homemaster.cli.benchmark_locomo import handle_benchmark_locomo
 from homemaster.cli.child_worker import run_child_worker
+from homemaster.cli.confirmation import CliPermissionMode
 from homemaster.cli.cron_command import cron_app
 from homemaster.cli.doctor import doctor_report_to_json, render_doctor_text, run_doctor
 from homemaster.cli.dry_run import build_dry_run_preview
@@ -111,10 +112,22 @@ def main_callback(
         str | None,
         typer.Option("--model", help="Override the selected provider model for this request."),
     ] = None,
+    permission_mode: Annotated[
+        CliPermissionMode | None,
+        typer.Option(
+            "--permission-mode",
+            help="Interactive tool policy: full_auto, confirm, or plan.",
+        ),
+    ] = None,
 ) -> None:
     """Start interactive HomeMaster or execute one typed request."""
 
     if ctx.invoked_subcommand is not None:
+        if permission_mode is not None:
+            raise typer.BadParameter(
+                "global --permission-mode is only valid without a subcommand; "
+                "use 'homemaster shell --permission-mode ...'"
+            )
         return
     try:
         if gateway:
@@ -130,6 +143,7 @@ def main_callback(
                     probe,
                     provider_name is not None,
                     model is not None,
+                    permission_mode is not None,
                 )
             ):
                 raise typer.BadParameter(
@@ -144,6 +158,10 @@ def main_callback(
             raise typer.BadParameter("--alfworld requires --gateway")
         if browser:
             raise typer.BadParameter("--browser requires --gateway")
+        if permission_mode is not None and (print_prompt is not None or dry_run):
+            raise typer.BadParameter(
+                "--permission-mode is only valid for the interactive shell"
+            )
         if config_path is not None:
             raise typer.BadParameter("--config requires --gateway")
         resolved_format = parse_output_format(output_format)
@@ -185,6 +203,7 @@ def main_callback(
             resume_session_id=resume_session_id,
             continue_latest=continue_latest,
             debug=debug,
+            permission_mode=permission_mode or CliPermissionMode.FULL_AUTO,
         )
     except (typer.Exit, typer.BadParameter, SystemExit):
         raise
@@ -299,9 +318,19 @@ def shell_command(
         str | None,
         typer.Option("--resume", help="Resume the specified persisted session id."),
     ] = None,
+    permission_mode: Annotated[
+        CliPermissionMode,
+        typer.Option(
+            "--permission-mode",
+            help="Interactive tool policy: full_auto, confirm, or plan.",
+        ),
+    ] = CliPermissionMode.FULL_AUTO,
 ) -> None:
     """Launch the interactive HomeMaster shell."""
-    run_interactive_shell(resume_session_id=resume_session_id)
+    run_interactive_shell(
+        resume_session_id=resume_session_id,
+        permission_mode=permission_mode,
+    )
 
 
 @app.command("gateway")

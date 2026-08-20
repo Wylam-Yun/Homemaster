@@ -43,6 +43,8 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "tool.call_started",
         "tool.call_completed",
         "tool.call_failed",
+        "permission.confirmation_requested",
+        "permission.confirmation_completed",
         "extension.hook_completed",
         "extension.cleanup_completed",
     }

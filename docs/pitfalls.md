@@ -18,6 +18,22 @@ site-packages 代替。
 
 Ref：`scripts/homemaster`、`tests/homemaster/test_memory_runtime_setup.py`
 
+## 2026-08-20 - `asyncio.to_thread(input)` 返回后进程仍卡在默认线程池关闭
+
+### 症状与根因
+
+本地确认输入函数已经返回，单测也显示用例主体 PASSED，但 pytest 和独立 `asyncio.run()` 进程不退出；并发时
+Future 甚至不恢复。最小复现证明当前 Python 3.13 环境的默认 executor 关闭和跨线程 event-loop wakeup 路径
+异常，业务输入、确认锁和 Typer stdin 都不是根因。
+
+### 修法与教训
+
+交互输入使用一次性 daemon thread 写入线程安全结果，owner event loop 以短间隔异步轮询完成状态；不依赖默认
+executor，也不依赖 `loop.call_soon_threadsafe` 唤醒。验证阻塞输入时必须同时检查函数返回、并发串行化和进程
+真实退出，不能把测试打印 PASSED 当作终态。
+
+Ref：`src/homemaster/cli/confirmation.py`、`tests/homemaster/test_cli_confirmation.py`
+
 ## 2026-08-20 - ALFWorld 只绑定 Python，正式 benchmark 仍需服务器绝对资源路径
 
 ### 症状与根因

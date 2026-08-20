@@ -22,7 +22,11 @@ from homemaster.config import (
 )
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError
 from homemaster.events.bus import EventBus
-from homemaster.permissions import PermissionChecker
+from homemaster.permissions import (
+    PermissionChecker,
+    PermissionMode,
+    PermissionSettingsConfig,
+)
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
@@ -212,6 +216,37 @@ def test_factory_default_executor_uses_application_resource_manager() -> None:
     assert isinstance(connections, DeviceConnectionPool)
     assert connections.lease_manager is application.tool_executor.resource_manager
     assert application.resource_scope.get("device-connection-pool").resource is connections
+
+
+def test_factory_injects_permission_overrides_into_default_executor() -> None:
+    registry = _registry()
+    handler = object()
+    settings = PermissionSettingsConfig(
+        mode=PermissionMode.DEFAULT,
+        allowed_tools=("echo",),
+    )
+
+    application = create_application(
+        config=HomeMasterConfig(),
+        registry=registry,
+        permission_settings=settings,
+        confirmation_handler=handler,
+    )
+
+    assert application.tool_executor.permission_checker._settings is settings
+    assert application.tool_executor.confirmation_handler is handler
+
+
+def test_factory_rejects_permission_overrides_with_custom_executor() -> None:
+    registry = _registry()
+
+    with pytest.raises(ValueError, match="cannot override a supplied tool executor"):
+        create_application(
+            config=HomeMasterConfig(),
+            registry=registry,
+            tool_executor=ToolExecutor(registry),
+            permission_settings=PermissionSettingsConfig(mode=PermissionMode.DEFAULT),
+        )
 
 
 def test_factory_does_not_collect_configured_secrets_into_runtime_settings() -> None:

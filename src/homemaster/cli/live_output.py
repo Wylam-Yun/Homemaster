@@ -92,6 +92,9 @@ class RichStreamEventSink(_ProjectedRuntimeSink):
         if event.type == "transport.request_started":
             self._renderer.model_request_started()
             return
+        if event.type == "permission.confirmation_requested":
+            self._renderer.confirmation_requested()
+            return
         public = self._project(event)
         if public is None:
             return

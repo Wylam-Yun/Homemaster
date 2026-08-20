@@ -174,6 +174,14 @@ Home 的命令与搜索工具共用同一执行边界：`terminal` 接收模型�
 `backend_attempted=false`。工具边界只报告这些可观测事实，不推断 Provider、文本格式或参数丢失来源，
 也不建议重试或替代工具。
 
+交互式 CLI 的权限覆盖只在 composition boundary 注入：公开的 `confirm` 映射为现有
+`PermissionMode.DEFAULT`，并从该 shell 唯一复用的 `PermissionSubject` 移除 `tool.auto`。默认
+`full_auto`、one-shot、dry-run、Gateway 和 benchmark 不注入 confirmation handler，保持既有自动执行路径。
+工具执行顺序固定为：schema validation -> normalized arguments -> permission decision -> optional local
+confirmation -> resource key/lease -> backend。审批展示、policy 判断、resource-key resolver 使用同一份校验后
+参数；拒绝不会取得资源或尝试 backend。并发确认由一个 handler-owned `asyncio.Lock` 串行化，requested 与
+completed 事件写入 application EventBus/JSONL trace，审计写入失败不改变 fail-closed 审批结果。
+
 远程 `ask_user_question` 不保持 webhook task：executor 返回嵌套在 canonical `ToolResultMessage` 中的
 `waiting_user` marker，ApplicationRuntime 持久化包含 assistant tool call 与 tool result 的 snapshot，
 ChannelBridge 结束当前 run 且不发送重复 terminal。下一条 inbound 自动设置 `resume=True`，恢复同一

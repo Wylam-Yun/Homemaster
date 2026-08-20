@@ -312,6 +312,16 @@ permissions:
 benchmark 拥有完整本地能力；远程入口必须由 Bearer credential 映射到配置中的 tenant、principal、
 roles 和 capabilities，不能从请求 metadata 或 prompt 读取这些字段。
 
+交互式 CLI 把本地审批公开为 `full_auto|confirm|plan` 三个易读选项。默认仍为 `full_auto`，便于自动化测试；
+只有显式运行 `homemaster --permission-mode confirm` 或
+`homemaster shell --permission-mode confirm` 才把内部策略映射为 `default` 并移除本地 principal 的
+`tool.auto`。此时 mutating tool 会在终端显示工具名、工作目录和校验后的参数，只有输入 `y` 或 `yes`
+才执行；空输入、其他输入、EOF、Ctrl+C 或输入错误均拒绝。只读工具和 `allowed_tools` 不询问，`plan`
+直接拒绝写操作也不询问。审批拒绝发生在 resource lease 和 backend 调用之前。
+
+`--permission-mode` 仅属于交互式入口，不能与 `-p/--print`、`--dry-run`、`--gateway` 或其他子命令组合。
+非交互入口和配置文件的既有权限行为不变。
+
 常用 capability 为 `tool.read`、`tool.mutate`、`tool.auto`、`device.read`、`device.control`、
 `filesystem.read`、`filesystem.write`、`network.http`、`process.exec` 和 `mcp.call`。任务/agent/team、
 Cron、配置修改和 MCP 凭证管理还分别要求 `process.spawn`、`scheduler.manage`、`config.mutate`、

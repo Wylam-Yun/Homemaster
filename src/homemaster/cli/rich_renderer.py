@@ -62,6 +62,13 @@ class RichOutputRenderer:
         self._state = "waiting-model"
         self._start_spinner("Model working...")
 
+    def confirmation_requested(self) -> None:
+        """Yield terminal ownership before the blocking approval prompt."""
+
+        self._stop_spinner()
+        self._stop_live()
+        self._state = "waiting-confirmation"
+
     def render(self, event: StreamEvent) -> None:
         if self._state == "closed":
             return

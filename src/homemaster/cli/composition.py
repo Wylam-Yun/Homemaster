@@ -52,6 +52,7 @@ from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
 from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+from homemaster.permissions import PermissionMode, PermissionSettingsConfig
 from homemaster.prompts.loader import PromptId
 from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
@@ -143,10 +144,19 @@ def create_home_application(
     session_root: Path | None = None,
     memory_tenant_id: str = "local",
     session_finalizer_trace_path: Path | None = None,
+    permission_mode: PermissionMode | None = None,
+    confirmation_handler: Any | None = None,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
 
     resolved = config or load_config()
+    permission_settings = resolved.permissions
+    if permission_mode is not None:
+        if not isinstance(permission_mode, PermissionMode):
+            raise TypeError("permission_mode must be PermissionMode or None")
+        payload = permission_settings.model_dump(mode="python")
+        payload["mode"] = permission_mode
+        permission_settings = PermissionSettingsConfig.model_validate(payload)
     if tool_environment == "browser":
         resolved = resolved.model_copy(
             update={
@@ -211,6 +221,8 @@ def create_home_application(
             session_root=session_root,
             memory_tenant_id=memory_tenant_id,
             session_finalizer_trace_path=session_finalizer_trace_path,
+            permission_settings=permission_settings,
+            confirmation_handler=confirmation_handler,
         )
     except BaseException:
         if extension_generation is not None and extension_disposer is not None:
@@ -236,6 +248,8 @@ def _finish_home_application(
     session_root: Path | None,
     memory_tenant_id: str,
     session_finalizer_trace_path: Path | None,
+    permission_settings: PermissionSettingsConfig,
+    confirmation_handler: Any | None,
 ) -> HomeApplicationBundle:
     """Finish composition while the caller retains extension rollback ownership."""
 
@@ -554,6 +568,8 @@ def _finish_home_application(
             **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
         },
         session_end_handler=session_end_handler,
+        permission_settings=permission_settings,
+        confirmation_handler=confirmation_handler,
     )
     return HomeApplicationBundle(
         application=application,

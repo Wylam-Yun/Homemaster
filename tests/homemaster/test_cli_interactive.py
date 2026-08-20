@@ -19,6 +19,8 @@ from homemaster.application import (
     SessionStatus,
 )
 from homemaster.cli.app import app
+from homemaster.cli.confirmation import CliConfirmationHandler
+from homemaster.permissions import PermissionMode
 
 
 class RecordingMemoryQueue:
@@ -124,7 +126,13 @@ def _install_shell(monkeypatch, tmp_path: Path):
         mindmemos=None,
         memory_add_queue=None,
     )
-    monkeypatch.setattr(module, "create_home_application", lambda **kwargs: bundle)
+    bundle.composition_kwargs = None
+
+    def create(**kwargs):
+        bundle.composition_kwargs = kwargs
+        return bundle
+
+    monkeypatch.setattr(module, "create_home_application", create)
     monkeypatch.setattr(
         module,
         "run_doctor",
@@ -194,6 +202,32 @@ def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_
     assert "Assistant: reply-1" in result.stdout
     assert "Assistant: reply-2" in result.stdout
     assert application.closed == 1
+
+
+def test_shell_confirm_mode_injects_handler_and_removes_tool_auto(monkeypatch, tmp_path) -> None:
+    application, bundle = _install_shell(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(
+        app,
+        ["shell", "--permission-mode", "confirm"],
+        input="first\n/exit\n",
+    )
+
+    assert result.exit_code == 0
+    assert bundle.composition_kwargs["permission_mode"] is PermissionMode.DEFAULT
+    assert isinstance(bundle.composition_kwargs["confirmation_handler"], CliConfirmationHandler)
+    assert "tool.auto" not in application.requests[0].permission_subject.capabilities
+
+
+def test_shell_full_auto_keeps_default_subject_capabilities(monkeypatch, tmp_path) -> None:
+    application, bundle = _install_shell(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
+
+    assert result.exit_code == 0
+    assert bundle.composition_kwargs["permission_mode"] is PermissionMode.FULL_AUTO
+    assert bundle.composition_kwargs["confirmation_handler"] is None
+    assert "tool.auto" in application.requests[0].permission_subject.capabilities
 
 
 def test_shell_sends_json_and_ticket_text_to_normal_agent(monkeypatch, tmp_path) -> None:

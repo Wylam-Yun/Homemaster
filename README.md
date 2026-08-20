@@ -194,13 +194,17 @@ uv run homemaster run --utterance "去厨房找水杯，然后拿给我" --progr
 
 # 交互式 shell
 uv run homemaster shell
+
+# 手动测试权限审批：只有交互式写操作会询问
+uv run homemaster shell --permission-mode confirm
 ```
 
 ## CLI 参考
 
 | 命令 | 说明 |
 | --- | --- |
-| `homemaster` | 启动交互式 shell（Rich 展示工具进度、错误与压缩状态） |
+| `homemaster` | 启动交互式 shell；可选 `--permission-mode full_auto\|confirm\|plan`，默认 `full_auto` |
+| `homemaster shell` | 显式启动交互式 shell；支持同一 `--permission-mode` 参数 |
 | `homemaster -p "..."` | 一次性请求并退出；`--output-format text\|json\|stream-json` |
 | `homemaster run --utterance ...` | 单任务运行，`--progress` 向 stderr 流式输出进度 |
 | `homemaster --dry-run [-p ...] [--probe]` | 预览 provider/model 解析来源与已加载 Skill，无外部 I/O；`--probe` 才连接 MCP 做 discovery |

@@ -182,6 +182,141 @@ async def test_default_mode_honors_tool_auto_capability(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [True, False])
+async def test_confirmation_gates_external_mutation_before_resource_acquisition(
+    tmp_path: Path,
+    approved: bool,
+) -> None:
+    terminal = tmp_path / "approved-mutation.txt"
+    backend_calls = 0
+    acquisitions = 0
+    confirmed_arguments = []
+
+    async def mutate(arguments, context):
+        nonlocal backend_calls
+        del context
+        backend_calls += 1
+        terminal.write_text(arguments["value"], encoding="utf-8")
+        return ToolResult("written")
+
+    class ResourceManager:
+        @asynccontextmanager
+        async def acquire(self, resource_key, context):
+            nonlocal acquisitions
+            del resource_key, context
+            acquisitions += 1
+            yield
+
+    class ConfirmationHandler:
+        async def confirm(self, tool, arguments, context, decision):
+            del tool, context, decision
+            confirmed_arguments.append(arguments)
+            return approved
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="write_note",
+            description="Write one note.",
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+            execute=mutate,
+            concurrency_policy="resource_key",
+            resource_key="note",
+        )
+    )
+    executor = ToolExecutor(
+        registry,
+        permission_checker=PermissionChecker(PermissionSettingsConfig(mode=PermissionMode.DEFAULT)),
+        confirmation_handler=ConfirmationHandler(),
+        resource_manager=ResourceManager(),
+    )
+    context = ToolExecutionContext(
+        tmp_path,
+        metadata={
+            "permission_subject": PermissionSubject(
+                "operator",
+                "cli",
+                capabilities=(),
+            )
+        },
+    )
+
+    result = await executor.execute(
+        ToolCall(id="1", name="write_note", arguments={"value": "confirmed content"}),
+        context,
+    )
+
+    assert confirmed_arguments == [{"value": "confirmed content"}]
+    if approved:
+        assert result == ToolResult("written")
+        assert terminal.read_text(encoding="utf-8") == "confirmed content"
+        assert acquisitions == 1
+        assert backend_calls == 1
+    else:
+        assert result.metadata["status"] == "permission_denied"
+        assert not terminal.exists()
+        assert acquisitions == 0
+        assert backend_calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "read_only", "allowed_tools"),
+    [
+        (PermissionMode.DEFAULT, True, ()),
+        (PermissionMode.DEFAULT, False, ("echo",)),
+        (PermissionMode.PLAN, False, ()),
+    ],
+)
+async def test_nonconfirmation_policy_branches_never_call_handler(
+    tmp_path: Path,
+    mode: PermissionMode,
+    read_only: bool,
+    allowed_tools: tuple[str, ...],
+) -> None:
+    confirmation_calls = 0
+
+    class ConfirmationHandler:
+        async def confirm(self, tool, arguments, context, decision):
+            nonlocal confirmation_calls
+            del tool, arguments, context, decision
+            confirmation_calls += 1
+            return True
+
+    executor = ToolExecutor(
+        _registry(read_only=read_only),
+        permission_checker=PermissionChecker(
+            PermissionSettingsConfig(mode=mode, allowed_tools=allowed_tools)
+        ),
+        confirmation_handler=ConfirmationHandler(),
+    )
+    result = await executor.execute(
+        ToolCall(id="1", name="echo", arguments={"value": "value"}),
+        ToolExecutionContext(
+            tmp_path,
+            metadata={
+                "permission_subject": PermissionSubject(
+                    "operator",
+                    "cli",
+                    capabilities=(),
+                )
+            },
+        ),
+    )
+
+    assert confirmation_calls == 0
+    if mode is PermissionMode.PLAN:
+        assert result.metadata["status"] == "permission_denied"
+    else:
+        assert result == ToolResult("value")
+
+
+@pytest.mark.asyncio
 async def test_executor_serializes_resource_key_calls(tmp_path: Path) -> None:
     active: set[str] = set()
     overlaps: list[str] = []

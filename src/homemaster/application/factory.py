@@ -27,7 +27,7 @@ from homemaster.devices import (
 )
 from homemaster.events.bus import EventBus
 from homemaster.extensions.hook_runner import HookRunner
-from homemaster.permissions import PermissionChecker
+from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.prompts.loader import load_prompt
 from homemaster.providers.llm_client import LLMClient
 from homemaster.tools.base import ToolRegistry
@@ -40,6 +40,8 @@ def create_application(
     config_path: str | Path | None = None,
     registry: ToolRegistry,
     tool_executor: ToolExecutor | None = None,
+    permission_settings: PermissionSettingsConfig | None = None,
+    confirmation_handler: Any | None = None,
     resource_manager: Any | None = None,
     event_bus: EventBus | None = None,
     session_manager: SessionManager | None = None,
@@ -58,8 +60,19 @@ def create_application(
     resolved_config = config or load_config(config_path)
     if not isinstance(registry, ToolRegistry):
         raise TypeError("registry must be a ToolRegistry")
-    configured_tool_names = set(resolved_config.permissions.allowed_tools) | set(
-        resolved_config.permissions.denied_tools
+    if permission_settings is not None and not isinstance(
+        permission_settings, PermissionSettingsConfig
+    ):
+        raise TypeError("permission_settings must be PermissionSettingsConfig or None")
+    if tool_executor is not None and (
+        permission_settings is not None or confirmation_handler is not None
+    ):
+        raise ValueError(
+            "permission settings and confirmation handler cannot override a supplied tool executor"
+        )
+    effective_permissions = permission_settings or resolved_config.permissions
+    configured_tool_names = set(effective_permissions.allowed_tools) | set(
+        effective_permissions.denied_tools
     )
     unknown_tool_names = sorted(configured_tool_names - set(registry.all_names()))
     if unknown_tool_names:
@@ -74,7 +87,8 @@ def create_application(
         resource_manager = ApplicationResourceManager(event_store=device_events)
     resolved_tool_executor = tool_executor or ToolExecutor(
         registry,
-        permission_checker=PermissionChecker(resolved_config.permissions),
+        permission_checker=PermissionChecker(effective_permissions),
+        confirmation_handler=confirmation_handler,
         resource_manager=resource_manager,
     )
     if resolved_tool_executor.registry is not registry:

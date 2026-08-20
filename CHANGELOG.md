@@ -9,6 +9,13 @@
 
 ### Changed
 
+- Added opt-in local approval to the interactive CLI through
+  `--permission-mode full_auto|confirm|plan`, while preserving `full_auto` as the default for automation and leaving
+  one-shot, dry-run, Gateway, and benchmark paths unchanged. `confirm` reuses the canonical permission checker and
+  prompts only for mutating tools not already allowed; denial occurs before resource acquisition/backend invocation,
+  concurrent prompts are serialized, and requested/completed decisions enter the runtime trace. Rich tool progress now
+  yields terminal ownership before the approval prompt so `Execute? [y/N]:` remains visible and interactive.
+
 - Changed model-visible `mindmemos_add` from admission-only `accepted + job_id` to verified
   `stored + memory_id`: the call waits only for exact Memory, BM25 and Neo4j provenance readback, while two
   application-owned workers enrich the same ID with dense vectors and native Entity/`MENTIONS`. Internal pending state

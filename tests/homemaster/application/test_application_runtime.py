@@ -61,6 +61,7 @@ async def test_application_session_notifies_end_on_exception() -> None:
 
 from homemaster.application.session import SessionManager
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
+from homemaster.cli.confirmation import CliConfirmationHandler
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError, DeviceLeaseManager
 from homemaster.events.bus import EventBus
@@ -79,6 +80,7 @@ from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.memory.models import FactRecord
+from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
@@ -772,6 +774,8 @@ def _application(
     extension_runner: HookRunner | None = None,
     artifact_publisher: ArtifactPublisher | None = None,
     application_services: dict[str, object] | None = None,
+    permission_settings: PermissionSettingsConfig | None = None,
+    confirmation_handler: Any | None = None,
 ) -> ApplicationRuntime:
     del profile_name
     registry = ToolRegistry()
@@ -813,9 +817,18 @@ def _application(
             return next(iter(transports.values()))
         return transports[request.text]
 
+    tool_executor = ToolExecutor(
+        registry,
+        **(
+            {"permission_checker": PermissionChecker(permission_settings)}
+            if permission_settings is not None
+            else {}
+        ),
+        confirmation_handler=confirmation_handler,
+    )
     return ApplicationRuntime(
         registry=registry,
-        tool_executor=ToolExecutor(registry),
+        tool_executor=tool_executor,
         event_bus=bus,
         session_manager=SessionManager(session_root=tmp_path),
         provider_factory=provider_factory,
@@ -824,6 +837,90 @@ def _application(
         extension_runner=extension_runner,
         artifact_publisher=artifact_publisher,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [True, False])
+async def test_runtime_confirmation_controls_real_mutation_and_emits_events(
+    tmp_path: Path,
+    approved: bool,
+) -> None:
+    terminal = tmp_path / "runtime-confirmed.txt"
+    backend_calls = 0
+
+    class WriteExecutor:
+        async def execute(self, arguments, context) -> ToolExecutionResult:
+            nonlocal backend_calls
+            del context
+            backend_calls += 1
+            terminal.write_text(str(arguments["value"]), encoding="utf-8")
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                text="written",
+                backend_attempted=True,
+            )
+
+    write_tool = RegisteredTool(
+        definition=_definition(
+            "test.write_note.v1",
+            "write_note",
+            state_effects=("write",),
+            input_schema={
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+                "additionalProperties": False,
+            },
+        ),
+        executor=WriteExecutor(),
+    )
+    transport = _FakeTransport(
+        [
+            _tool("call-confirm", "write_note", {"value": "external terminal"}),
+            _text("done"),
+        ]
+    )
+    app = _application(
+        tmp_path,
+        [write_tool],
+        {"confirm mutation": transport},
+        permission_settings=PermissionSettingsConfig(mode=PermissionMode.DEFAULT),
+        confirmation_handler=CliConfirmationHandler(
+            input_fn=lambda prompt: "yes" if approved else "no",
+            output_fn=lambda value: None,
+        ),
+    )
+    request = RunRequest(
+        text="confirm mutation",
+        session_id=f"confirm-{approved}",
+        profile="test",
+        permission_subject=PermissionSubject(
+            subject_id="local-operator",
+            channel="cli",
+            capabilities=("tool.mutate",),
+        ),
+    )
+
+    result = await app.run(request)
+
+    assert result.status is RunStatus.REPLIED
+    event_types = [event.type for event in app.event_bus.events]
+    assert event_types.count("permission.confirmation_requested") == 1
+    assert event_types.count("permission.confirmation_completed") == 1
+    completed = next(
+        event
+        for event in app.event_bus.events
+        if event.type == "permission.confirmation_completed"
+    )
+    assert completed.tool_call_id == "call-confirm"
+    assert completed.payload["approved"] is approved
+    if approved:
+        assert terminal.read_text(encoding="utf-8") == "external terminal"
+        assert backend_calls == 1
+    else:
+        assert not terminal.exists()
+        assert backend_calls == 0
+    await app.aclose()
 
 
 @pytest.mark.asyncio

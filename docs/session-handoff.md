@@ -16,6 +16,14 @@ The HPC2 formal launcher run `locomo-portable-hpc2-20260820-1200` completed `con
 one Finalizer session, one active memory readback, and zero QA probes. Its stderr contains only the structured
 `memory.migration.completed` event for the fresh isolated root; no traceback or external failure occurred.
 
+Interactive CLI local approval is implemented and awaiting commit. `homemaster` and `homemaster shell` expose
+`--permission-mode full_auto|confirm|plan`; the default remains `full_auto`, while explicit `confirm` maps to the
+existing default policy and removes `tool.auto` only from the local shell subject. Approval is fail-closed, serialized,
+audited, and occurs before resource acquisition/backend invocation. The permission-focused gate passed 89 tests with
+one pre-existing Python 3.13 `asyncio.to_thread` cancellation test deselected; the independent application black-box
+gate passed both approval and denial, including exact file terminal state and backend call counts. Ruff, compileall,
+CLI help and `git diff --check` also pass. `plan/V2.8/` remains untouched.
+
 Portable deployment work is in progress on top of `ba1be641885c72c7c1a4068eb7c878ffb129f2bc`: the repository now
 contains a one-time runtime setup and `scripts/homemaster` launcher, with tests for relative configuration, existing
 memory binding and conflict rejection. The formal worktree on hkust4 must be initialized independently; the previous
