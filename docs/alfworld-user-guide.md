@@ -77,6 +77,22 @@ token usage 或 `tool.call_started/completed` 这类内部事件；完整机器�
 
 ## 环境与输入
 
+ALFWorld benchmark 必须从正式 HomeMaster checkout 的 `scripts/homemaster` launcher 启动。launcher 固定当前
+worktree 的 `.runtime/venv`、`config/homemaster.yaml` 和 `src`，不会误用另一台服务器或旧 worktree 的环境。
+首次部署先执行：
+
+```bash
+uv sync --all-extras
+uv run python scripts/setup_memory_runtime.py setup \
+  --python .venv/bin/python \
+  --neo4j-home /path/to/neo4j-community \
+  --java-home /path/to/jdk-21 \
+  --memory-home ~/.homemaster/memory
+```
+
+之后将下文命令中的 `.venv/bin/python -m homemaster.cli` 替换为 `scripts/homemaster`，不再手动设置
+`HOMEMASTER_CONFIG_PATH` 或依赖启动 cwd。
+
 项目要求 Python 3.11。THOR 需要可用 display；无桌面环境时使用 Xvfb。真实认证信息只放在本机忽略的
 provider 配置或环境变量中，不写入命令、trace 或 manifest。`memory.data_root`、`memory.neo4j.home` 和
 `memory.neo4j.java_home` 可写成相对路径，并统一相对 `homemaster.yaml` 所在目录解析，不能依赖启动 cwd。

@@ -1,5 +1,21 @@
 # Engineering Pitfalls
 
+## 2026-08-20 - 正式 worktree 与验证 worktree 的运行环境错配
+
+### 症状与根因
+
+合并后的正式 `Homemaster` worktree 在 `hkust4` 启动 benchmark 前就报缺少 `structlog`，私有 YAML 还引用
+HPC2 的 Neo4j/Java 绝对路径。此前视觉真测使用的是临时整合 checkout 的代码、旧 ALFWorld checkout 的专用
+Python/Neo4j runtime 组合，不能证明正式迁移入口可用。
+
+### 修法与教训
+
+代码、私有配置、服务器状态和外部依赖必须分层：setup 一次性绑定本机 Python/Java/Neo4j/memory 到 ignored
+`.runtime`，配置只保存相对路径，日常命令统一从 `scripts/homemaster` 启动。迁移验收必须从正式 worktree
+独立核对 import、memory readiness 和 benchmark 终态，不能借用另一个 worktree 的虚拟环境或数据库。
+
+Ref：`scripts/setup_memory_runtime.py`、`scripts/homemaster`、`plan/portable-memory-runtime-implementation-plan.md`
+
 ## 2026-08-19 - 两个 live run 复用同一状态目录，成功 summary 掩盖被 unlink 的 SQLite
 
 ### 症状与根因

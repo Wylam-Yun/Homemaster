@@ -2,6 +2,11 @@
 
 ## Current State
 
+Portable deployment work is in progress on top of `ba1be641885c72c7c1a4068eb7c878ffb129f2bc`: the repository now
+contains a one-time runtime setup and `scripts/homemaster` launcher, with tests for relative configuration, existing
+memory binding and conflict rejection. The formal worktree on hkust4 must be initialized independently; the previous
+visual candidate used a detached code checkout plus the old ALFWorld runtime and is not the formal migration gate.
+
 The integration is committed locally at `HEAD` on branch `integration/alfworld-into-mindmem-20260819`. Its two parents
 are
 `b96e603a542584cb6754cc2c517790a74e6eb986` (stored-first `mindmem`) and

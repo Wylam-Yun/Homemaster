@@ -117,6 +117,11 @@
 
 ### Added
 
+- Added a portable per-checkout memory runtime setup and launcher. One server-local setup binds Python, Java, Neo4j
+  and an existing or new memory root into ignored `.runtime` paths, rewrites the ignored private YAML to stable relative
+  paths, and refuses conflicting bindings. `scripts/homemaster` then fixes the config, `PYTHONPATH` and cwd for every
+  command, so migration does not require repeated exports or machine-specific code changes.
+
 - Added a `benchmark-locomo` full-application pilot that replays 50-100 dated LoCoMo
   dialogue turns with original speaker names through the ordinary HomeMaster runtime,
   production Session Finalizer, implicit feedback, dreaming, automatic recall, and

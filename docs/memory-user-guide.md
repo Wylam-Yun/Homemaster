@@ -52,7 +52,7 @@ uv sync --all-extras
 `Qwen/Qwen3-Embedding-8B`、4096 维和准确 `/v1/embeddings` endpoint。`memory.enabled: false` 会同时移除
 六个公开工具和固定记忆上下文；它不会选择另一个 backend。
 
-持久数据只有一个外部根目录：
+持久数据只有一个服务器本地根目录，由一次性 setup 绑定到 checkout 的 `.runtime`：
 
 ```yaml
 memory:
@@ -80,7 +80,7 @@ memory:
 目录固定派生为：
 
 ```text
-~/.homemaster/memory/
+<memory-home>/
   files/SOUL.md
   files/USER.md
   files/MEMORY.md
@@ -90,6 +90,10 @@ memory:
   mindmemos/neo4j/runtime/
   evidence.sqlite3
 ```
+
+推荐的迁移流程是：在每台服务器分别执行一次 `scripts/setup_memory_runtime.py setup`，将
+`--memory-home` 指向该服务器已有的 memory 数据（新部署可以省略，setup 会创建空目录），并提供本机的
+Neo4j、Java 和 Python 路径。之后使用 `scripts/homemaster ...`，不需要每次手动设置环境变量。
 
 `neo4j.mode: managed_local` 由 HomeMaster 管理同一节点上的私有 Neo4j。第一个 HomeMaster 进程启动服务，每个
 进程持有独立 lease；中间进程退出不会停止服务，最后一个进程退出才停止。异常退出遗留的 lease 会在下次启动

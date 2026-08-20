@@ -119,7 +119,9 @@ runtime_defaults:
 memory:
   enabled: true
   dreaming_memory_threshold: 8
-  data_root: ~/.homemaster/memory
+  # `scripts/setup_memory_runtime.py setup` writes this portable value and binds
+  # the ignored .runtime directory once per server. Do not commit server paths.
+  data_root: ../.runtime/memory
   soul_file: SOUL.md
   user_file: USER.md
   memory_file: MEMORY.md
@@ -132,8 +134,8 @@ memory:
   # only in the gitignored config/homemaster.yaml (chmod 600).
   neo4j:
     mode: external
-    home: null
-    java_home: null
+    home: ../.runtime/neo4j
+    java_home: ../.runtime/java
     uri: bolt://127.0.0.1:7687
     username: neo4j
     password: ""

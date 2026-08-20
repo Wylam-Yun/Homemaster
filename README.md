@@ -107,7 +107,7 @@ flowchart LR
 # 若无 uv：curl -LsSf https://astral.sh/uv/install.sh | sh
 cd Homemaster
 uv venv --python 3.11 .venv
-uv sync --extra dev
+uv sync --all-extras
 
 # 验证安装
 uv run python -c "import homemaster; print(homemaster.__version__)"
@@ -121,6 +121,25 @@ Provider 配置只从 YAML 真理源读取。首次配置时复制脱敏模板�
 cp config/homemaster.example.yaml config/homemaster.yaml
 chmod 600 config/homemaster.yaml
 ```
+
+### 3. 初始化本机运行目录
+
+服务器路径只在第一次初始化时提供一次；之后不要手动 `export`，统一使用仓库内的 launcher。Neo4j、Java 和
+memory 数据不会写入 Git，也不会被 setup 自动复制或删除：
+
+```bash
+uv run python scripts/setup_memory_runtime.py setup \
+  --python .venv/bin/python \
+  --neo4j-home /path/to/neo4j-community \
+  --java-home /path/to/jdk-21 \
+  --memory-home ~/.homemaster/memory
+
+scripts/homemaster doctor --json
+```
+
+初始化会把 ignored `config/homemaster.yaml` 固定为相对 `.runtime` 路径，并绑定本机的 Python、Neo4j、Java
+和已有 memory root。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
+`scripts/homemaster` 启动，因此不依赖当前工作目录或 shell 环境变量。
 
 配置至少包含两类 provider（示例为占位值，字段说明见
 [Skills 与配置用户指南](docs/skills-and-config-user-guide.md)）：

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+config_path="$repo_root/config/homemaster.yaml"
+python_path="$repo_root/.runtime/venv/bin/python"
+
+if [[ ! -f "$config_path" ]]; then
+  printf 'HomeMaster config is missing: %s\nRun: cp config/homemaster.example.yaml config/homemaster.yaml\n' "$config_path" >&2
+  exit 2
+fi
+if [[ ! -x "$python_path" ]]; then
+  printf 'HomeMaster runtime is not initialized: %s\nRun scripts/setup_memory_runtime.py setup ... once on this server.\n' "$python_path" >&2
+  exit 2
+fi
+
+export HOMEMASTER_CONFIG_PATH="$config_path"
+export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+cd "$repo_root"
+
+if [[ "${HOMEMASTER_SKIP_RUNTIME_CHECK:-0}" != "1" ]]; then
+  "$python_path" "$repo_root/scripts/setup_memory_runtime.py" check --repo-root "$repo_root" --config "$config_path"
+fi
+
+exec "$python_path" -m homemaster.cli "$@"
