@@ -2,6 +2,20 @@
 
 ## Current State
 
+Latest portable deployment gates (2026-08-20): `mindmem` commit `f052a67` is pushed. The formal hkust4 checkout
+`/home/haodong2/weilin/red_bird/Homemaster` fast-forwarded to that commit and one-time setup now reports
+`alfworld_ready=true`, binding `.runtime/alfworld` to the complete config/dataset root. A first formal visual run
+failed before the model request because an editable MindMemOS `.pth` was not executed across the ALFWorld venv; the
+launcher now resolves the formal source root and performs a final-consumer import preflight. The fresh rerun
+`alfworld-portable-hkust4-20260820-1230` passed one frozen `AlfredThorEnv` episode with external `won=true`,
+`agent_success`, goal-condition/formal success 1.0, provider/runtime/harness/evaluation coverage 1.0, ten nonblank
+PNG frames, and no stderr. Its Finalizer job `f1608581f4703520f0059fcde40ffe9d08ceac304cb77775582b7e2c3da1b52c`
+completed; six memory IDs were independently read back active from Qdrant and Neo4j with nonzero dense vectors,
+BM25, `EXTRACTED_FROM`, and `MENTIONS`. THOR, Xvfb, benchmark, Bolt listener, and lease cleanup returned to zero.
+The HPC2 formal launcher run `locomo-portable-hpc2-20260820-1200` completed `conv-26` with two source turns,
+one Finalizer session, one active memory readback, and zero QA probes. Its stderr contains only the structured
+`memory.migration.completed` event for the fresh isolated root; no traceback or external failure occurred.
+
 Portable deployment work is in progress on top of `ba1be641885c72c7c1a4068eb7c878ffb129f2bc`: the repository now
 contains a one-time runtime setup and `scripts/homemaster` launcher, with tests for relative configuration, existing
 memory binding and conflict rejection. The formal worktree on hkust4 must be initialized independently; the previous

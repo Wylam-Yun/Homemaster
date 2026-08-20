@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Documentation
+
+- Recorded the formal HPC2/hkust4 portability gates, the editable MindMemOS cross-venv fix, and the one-instance
+  LoCoMo and visual ALFWorld external termination evidence in the session handoff.
+
 ### Changed
 
 - Changed model-visible `mindmemos_add` from admission-only `accepted + job_id` to verified
