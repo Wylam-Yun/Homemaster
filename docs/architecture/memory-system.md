@@ -163,9 +163,9 @@ finalizer 直接接收 messages 或 feedback 文本。成功 action 必须逐条
 
 `DreamingStateStore` 以 `sha256(project_id NUL user_id)` 为 scope 文件名，使用 `flock`、临时文件、文件
 `fsync`、原子替换和目录 `fsync`。默认累计 8 条已回读 active 的普通 session add memory 后锁定一个 batch；
-执行期间的新 arrival 留给下一批。只有 typed `actions` 或真实 `no_action` 且所有 raw/lineage/add-record
-终态通过时才消费 batch；provider、解析、DB、timeout 或进程崩溃都保留 pending，启动或下一次 finalization
-重试。
+执行期间的新 arrival 留给下一批。执行中的 Dreaming 直接等待 native pipeline 终态，不设置 HomeMaster
+墙钟超时；只有 typed `actions` 或真实 `no_action` 且所有 raw/lineage/add-record 终态通过时才消费 batch。
+Provider、解析或 DB 错误、显式取消及进程崩溃不会被改写成成功，持久 batch 在启动或下一次 finalization 恢复。
 
 原生 Vanilla memory 和 direct-flat memory 都没有 `record_json`。`mindmemos_search` 对 active、正文非空的
 七种原生类型建立 content 投影并保留其 native `mem_type`；旧结构化 procedure 的顶层类型按真实存储返回

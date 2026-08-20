@@ -21,6 +21,11 @@
 
 ### Changed
 
+- Removed HomeMaster's fixed 300-second Dreaming cancellation. Session finalization now waits for the native
+  consolidation pipeline's real terminal result while preserving explicit caller cancellation, durable pending/startup
+  recovery, terminal verification, and duration events; unrelated Agent, Provider, benchmark, and tool timeouts remain
+  unchanged.
+
 - Added opt-in local approval to the interactive CLI through
   `--permission-mode full_auto|confirm|plan`, while preserving `full_auto` as the default for automation and leaving
   one-shot, dry-run, Gateway, and benchmark paths unchanged. `confirm` reuses the canonical permission checker and

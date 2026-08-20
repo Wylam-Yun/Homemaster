@@ -345,7 +345,9 @@ finalization 不拥有 SIGINT：如果它与一个普通 Run 同时推进，Ctrl
 同一 project/user 自上次成功 dreaming 后，每累计 `dreaming_memory_threshold` 条已回读 active 的普通
 Session 新增 raw memory（默认 8）触发一次批量去重、冲突处理和合并。批次先持久化为 pending；只有 pipeline
 返回成功、每个 action 的 raw/lineage 终态和每个 add record 的 consolidation 状态都通过，才推进水位。
-失败或进程退出会在下次 HomeMaster 启动或 Session finalization 重试，不会创建每日定时任务。
+Dreaming 没有固定等待上限，不会因运行超过 300 秒或其他墙钟时长而被 HomeMaster 取消；长调用会延长该
+finalization job 和正常关闭 drain。真实 pipeline 错误、显式取消或进程退出会保留可恢复状态，并在下次
+HomeMaster 启动或 Session finalization 重试，不会创建每日定时任务。
 
 调试时使用：
 

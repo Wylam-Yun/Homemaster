@@ -1,3 +1,4 @@
+import asyncio
 import multiprocessing
 from pathlib import Path
 from types import SimpleNamespace
@@ -197,6 +198,53 @@ async def test_coordinator_keeps_pending_when_add_record_not_done(tmp_path: Path
     assert state["pending_add_records"][0]["add_record_id"] == "add-1"
     assert event_sink.events[-1].type == "memory.dreaming.failed"
     assert "not consolidated" in event_sink.events[-1].payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_coordinator_waits_without_wall_clock_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mindmemos.typing import DreamingPipelineResult
+
+    class FakeMindMemOS:
+        async def dream(self, *, seed_add_record_ids, context):
+            assert seed_add_record_ids == ["add-1"]
+            del context
+            return DreamingPipelineResult(
+                status="ok",
+                outcome="no_action",
+                reviewed_add_record_ids=["add-1"],
+                completed_add_record_ids=["add-1"],
+            )
+
+        async def get_add_records(self, add_record_ids, context):
+            del context
+            return [
+                SimpleNamespace(
+                    point_id=add_record_ids[0],
+                    payload={"consolidation_status": "done"},
+                )
+            ]
+
+    def reject_wall_clock_timeout(*args, **kwargs):
+        del args, kwargs
+        raise AssertionError("Dreaming must not enter asyncio.timeout")
+
+    monkeypatch.setattr(asyncio, "timeout", reject_wall_clock_timeout)
+    store = DreamingStateStore(tmp_path, threshold=1)
+    coordinator = DreamingCoordinator(store=store, mindmemos=FakeMindMemOS())
+
+    assert (
+        await coordinator.register_and_run(
+            context=_context(),
+            add_record_id="add-1",
+            memory_ids=("memory-1",),
+        )
+        == "no_action"
+    )
+    state = store.read(project_id="project-a", user_id="user-a")
+    assert state["pending"] is False
+    assert state["inflight"] is None
 
 
 def _context():

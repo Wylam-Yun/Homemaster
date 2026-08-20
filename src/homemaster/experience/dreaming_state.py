@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import fcntl
 import hashlib
 import json
@@ -190,12 +189,10 @@ class DreamingCoordinator:
         *,
         store: DreamingStateStore,
         mindmemos: Any,
-        timeout_seconds: float = 300.0,
         event_sink: Any | None = None,
     ) -> None:
         self._store = store
         self._mindmemos = mindmemos
-        self._timeout_seconds = timeout_seconds
         self._event_sink = event_sink
 
     async def register_and_run(
@@ -272,12 +269,11 @@ class DreamingCoordinator:
             },
         )
         try:
-            async with asyncio.timeout(self._timeout_seconds):
-                result = await self._mindmemos.dream(
-                    seed_add_record_ids=list(batch.add_record_ids),
-                    context=context,
-                )
-                await self._verify_result(result, batch, context)
+            result = await self._mindmemos.dream(
+                seed_add_record_ids=list(batch.add_record_ids),
+                context=context,
+            )
+            await self._verify_result(result, batch, context)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             self._store.fail(batch, error=error)

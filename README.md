@@ -293,7 +293,8 @@ one-shot/Gateway/Application close 会等待已入队任务；交互 Shell 按 F
 交互 Session 结束后，HomeMaster 在 Vanilla Add 写后回读成功的基础上运行 operation-record implicit
 feedback；同一 project/user 每累计 8 条有效普通新增 raw memory 后运行一次 native dreaming。计数与 pending
 batch 持久化，失败在下次启动或 finalization 重试，只有 per-action raw/lineage 与 add-record 终态全部通过
-才消费批次。阈值可用 `memory.dreaming_memory_threshold` 配置。
+才消费批次。阈值可用 `memory.dreaming_memory_threshold` 配置。Dreaming 启动后不设置墙钟超时；正常关闭
+drain 会继续等待，只有真实 pipeline 错误、调用方显式取消或进程终止才会中断。
 
 持久数据统一位于 `memory.data_root`（默认 `~/.homemaster/memory`）。`memory.neo4j.mode:
 managed_local` 下同节点多进程共享一套托管 Neo4j（首启自动拉起、末个进程退出自动停止），
