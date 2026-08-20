@@ -85,6 +85,7 @@ worktree 的 `.runtime/venv`、`config/homemaster.yaml` 和 `src`，不会误用
 uv sync --all-extras
 uv run python scripts/setup_memory_runtime.py setup \
   --python .venv/bin/python \
+  --alfworld-python /path/to/alfworld-env/bin/python \
   --neo4j-home /path/to/neo4j-community \
   --java-home /path/to/jdk-21 \
   --memory-home ~/.homemaster/memory

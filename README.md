@@ -132,13 +132,15 @@ uv run python scripts/setup_memory_runtime.py setup \
   --python .venv/bin/python \
   --neo4j-home /path/to/neo4j-community \
   --java-home /path/to/jdk-21 \
+  --alfworld-python /path/to/alfworld-env/bin/python \
   --memory-home ~/.homemaster/memory
 
 scripts/homemaster doctor --json
 ```
 
-初始化会把 ignored `config/homemaster.yaml` 固定为相对 `.runtime` 路径，并绑定本机的 Python、Neo4j、Java
-和已有 memory root。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
+初始化会把 ignored `config/homemaster.yaml` 固定为相对 `.runtime` 路径，并绑定本机的 HomeMaster Python、
+可选 ALFWorld Python、Neo4j、Java 和已有 memory root。ALFWorld 的 Torch/THOR 环境可以和 HomeMaster 主 venv
+分开维护，launcher 会在 benchmark 时组合二者。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
 `scripts/homemaster` 启动，因此不依赖当前工作目录或 shell 环境变量。
 
 配置至少包含两类 provider（示例为占位值，字段说明见

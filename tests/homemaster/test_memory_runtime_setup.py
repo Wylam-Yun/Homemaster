@@ -88,6 +88,7 @@ def test_initialize_runtime_writes_portable_config_and_preserves_existing_memory
     assert (repo / ".runtime" / "venv").resolve() == python.parent.parent.resolve()
     assert (existing_memory / "sentinel.txt").read_text(encoding="utf-8") == "keep"
     assert result["status"] == "ready"
+    assert result["alfworld_ready"] is False
 
 
 def test_initialize_runtime_is_idempotent_and_check_is_read_only(tmp_path: Path) -> None:

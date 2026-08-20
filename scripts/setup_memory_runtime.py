@@ -72,6 +72,23 @@ def _validate_inputs(
     return neo4j, java, python
 
 
+def _validate_alfworld_python(path: Path) -> Path:
+    python = _require_executable(path, "ALFWorld Python executable")
+    probe = subprocess.run(
+        [str(python), "-c", "import alfworld, ai2thor"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if probe.returncode != 0:
+        detail = (probe.stderr or probe.stdout).strip().splitlines()[-1:]
+        raise RuntimeSetupError(
+            "ALFWorld Python cannot import alfworld and ai2thor: "
+            f"{detail[0] if detail else 'unknown error'}"
+        )
+    return python
+
+
 def _bind(path: Path, target: Path, *, create_directory: bool = False) -> None:
     target = target.expanduser().resolve(strict=True)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -153,6 +170,7 @@ def _status(repo_root: Path, config_path: Path) -> dict[str, Any]:
         "neo4j": runtime / "neo4j",
         "java": runtime / "java",
         "venv": runtime / "venv",
+        "alfworld_venv": runtime / "alfworld-venv",
     }
     payload = _load_yaml(config_path)
     memory = payload.get("memory")
@@ -185,7 +203,13 @@ def _status(repo_root: Path, config_path: Path) -> dict[str, Any]:
         raise RuntimeSetupError(f"Neo4j executable is missing: {expected['neo4j']}")
     if not (expected["java"] / "bin" / "java").is_file():
         raise RuntimeSetupError(f"Java executable is missing: {expected['java']}")
-    return {"status": "ready", "repo_root": str(repo_root), "config": str(config_path)}
+    alfworld_python = expected["alfworld_venv"] / "bin" / "python"
+    return {
+        "status": "ready",
+        "repo_root": str(repo_root),
+        "config": str(config_path),
+        "alfworld_ready": alfworld_python.is_file(),
+    }
 
 
 def initialize_runtime(
@@ -195,6 +219,7 @@ def initialize_runtime(
     neo4j_home: Path,
     java_home: Path,
     python_executable: Path,
+    alfworld_python: Path | None = None,
     memory_home: Path | None = None,
     validate_python: bool = True,
 ) -> dict[str, Any]:
@@ -212,6 +237,8 @@ def initialize_runtime(
     _bind(runtime / "neo4j", neo4j)
     _bind(runtime / "java", java)
     _bind(runtime / "venv", python.parent.parent)
+    if alfworld_python is not None:
+        _bind(runtime / "alfworld-venv", _validate_alfworld_python(alfworld_python).parent.parent)
     _write_yaml(config_path, _portable_payload(_load_yaml(config_path)))
     return _status(repo_root, config_path)
 
@@ -241,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     setup.add_argument("--java-home", type=Path, required=True)
     setup.add_argument("--python", dest="python_executable", type=Path, required=True)
     setup.add_argument("--memory-home", type=Path, default=None)
+    setup.add_argument("--alfworld-python", type=Path, default=None)
     setup.add_argument("--no-python-check", action="store_true")
     check = subparsers.add_parser("check")
     check.add_argument("--repo-root", type=Path, default=None)
@@ -260,6 +288,11 @@ def main(argv: list[str] | None = None) -> int:
                 memory_home=(
                     _repo_path(repo_root, args.memory_home)
                     if args.memory_home is not None
+                    else None
+                ),
+                alfworld_python=(
+                    _repo_path(repo_root, args.alfworld_python)
+                    if args.alfworld_python is not None
                     else None
                 ),
                 validate_python=not args.no_python_check,
