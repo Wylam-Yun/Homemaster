@@ -89,6 +89,15 @@ def _validate_alfworld_python(path: Path) -> Path:
     return python
 
 
+def _validate_alfworld_root(path: Path) -> Path:
+    root = _require_dir(path, "ALFWorld root")
+    if not (root / "configs" / "base_config.yaml").is_file():
+        raise RuntimeSetupError(f"ALFWorld base config is missing: {root}")
+    if not (root / "data" / "json_2.1.1").is_dir():
+        raise RuntimeSetupError(f"ALFWorld dataset is missing: {root}")
+    return root
+
+
 def _bind(path: Path, target: Path, *, create_directory: bool = False) -> None:
     target = target.expanduser().resolve(strict=True)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -171,6 +180,7 @@ def _status(repo_root: Path, config_path: Path) -> dict[str, Any]:
         "java": runtime / "java",
         "venv": runtime / "venv",
         "alfworld_venv": runtime / "alfworld-venv",
+        "alfworld": runtime / "alfworld",
     }
     payload = _load_yaml(config_path)
     memory = payload.get("memory")
@@ -204,11 +214,17 @@ def _status(repo_root: Path, config_path: Path) -> dict[str, Any]:
     if not (expected["java"] / "bin" / "java").is_file():
         raise RuntimeSetupError(f"Java executable is missing: {expected['java']}")
     alfworld_python = expected["alfworld_venv"] / "bin" / "python"
+    alfworld_root = expected["alfworld"]
+    alfworld_ready = (
+        alfworld_python.is_file()
+        and (alfworld_root / "configs" / "base_config.yaml").is_file()
+        and (alfworld_root / "data" / "json_2.1.1").is_dir()
+    )
     return {
         "status": "ready",
         "repo_root": str(repo_root),
         "config": str(config_path),
-        "alfworld_ready": alfworld_python.is_file(),
+        "alfworld_ready": alfworld_ready,
     }
 
 
@@ -220,11 +236,16 @@ def initialize_runtime(
     java_home: Path,
     python_executable: Path,
     alfworld_python: Path | None = None,
+    alfworld_root: Path | None = None,
     memory_home: Path | None = None,
     validate_python: bool = True,
 ) -> dict[str, Any]:
     repo_root = repo_root.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
+    if (alfworld_python is None) != (alfworld_root is None):
+        raise RuntimeSetupError(
+            "ALFWorld setup requires both --alfworld-python and --alfworld-root"
+        )
     neo4j, java, python = _validate_inputs(
         neo4j_home=neo4j_home,
         java_home=java_home,
@@ -239,6 +260,8 @@ def initialize_runtime(
     _bind(runtime / "venv", python.parent.parent)
     if alfworld_python is not None:
         _bind(runtime / "alfworld-venv", _validate_alfworld_python(alfworld_python).parent.parent)
+    if alfworld_root is not None:
+        _bind(runtime / "alfworld", _validate_alfworld_root(alfworld_root))
     _write_yaml(config_path, _portable_payload(_load_yaml(config_path)))
     return _status(repo_root, config_path)
 
@@ -269,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     setup.add_argument("--python", dest="python_executable", type=Path, required=True)
     setup.add_argument("--memory-home", type=Path, default=None)
     setup.add_argument("--alfworld-python", type=Path, default=None)
+    setup.add_argument("--alfworld-root", type=Path, default=None)
     setup.add_argument("--no-python-check", action="store_true")
     check = subparsers.add_parser("check")
     check.add_argument("--repo-root", type=Path, default=None)
@@ -293,6 +317,11 @@ def main(argv: list[str] | None = None) -> int:
                 alfworld_python=(
                     _repo_path(repo_root, args.alfworld_python)
                     if args.alfworld_python is not None
+                    else None
+                ),
+                alfworld_root=(
+                    _repo_path(repo_root, args.alfworld_root)
+                    if args.alfworld_root is not None
                     else None
                 ),
                 validate_python=not args.no_python_check,

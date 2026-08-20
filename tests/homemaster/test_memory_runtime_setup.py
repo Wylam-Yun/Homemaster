@@ -55,6 +55,14 @@ def _runtime_inputs(tmp_path: Path) -> tuple[Path, Path, Path]:
     return neo4j, java, python
 
 
+def _alfworld_root(tmp_path: Path) -> Path:
+    root = tmp_path / "installs" / "alfworld"
+    root.joinpath("configs").mkdir(parents=True)
+    root.joinpath("configs", "base_config.yaml").write_text("env: {}\n", encoding="utf-8")
+    root.joinpath("data", "json_2.1.1").mkdir(parents=True)
+    return root
+
+
 def test_initialize_runtime_writes_portable_config_and_preserves_existing_memory(
     tmp_path: Path,
 ) -> None:
@@ -117,6 +125,48 @@ def test_initialize_runtime_is_idempotent_and_check_is_read_only(tmp_path: Path)
 
     assert first == second == checked
     assert config.read_bytes() == before
+
+
+def test_initialize_runtime_binds_complete_alfworld_installation(tmp_path: Path) -> None:
+    repo = tmp_path / "Homemaster"
+    config = _private_config(repo / "config" / "homemaster.yaml")
+    neo4j, java, python = _runtime_inputs(tmp_path)
+    alfworld_python = _executable(
+        tmp_path / "alfworld-env" / "bin" / "python",
+        "#!/bin/sh\nexit 0\n",
+    )
+    alfworld_root = _alfworld_root(tmp_path)
+
+    result = initialize_runtime(
+        repo_root=repo,
+        config_path=config,
+        neo4j_home=neo4j,
+        java_home=java,
+        python_executable=python,
+        alfworld_python=alfworld_python,
+        alfworld_root=alfworld_root,
+        validate_python=False,
+    )
+
+    assert result["alfworld_ready"] is True
+    assert (repo / ".runtime" / "alfworld").resolve() == alfworld_root.resolve()
+
+
+def test_initialize_runtime_requires_alfworld_python_and_root_together(tmp_path: Path) -> None:
+    repo = tmp_path / "Homemaster"
+    config = _private_config(repo / "config" / "homemaster.yaml")
+    neo4j, java, python = _runtime_inputs(tmp_path)
+
+    with pytest.raises(RuntimeSetupError, match="requires both"):
+        initialize_runtime(
+            repo_root=repo,
+            config_path=config,
+            neo4j_home=neo4j,
+            java_home=java,
+            python_executable=python,
+            alfworld_root=_alfworld_root(tmp_path),
+            validate_python=False,
+        )
 
 
 def test_initialize_runtime_refuses_conflicting_existing_binding(tmp_path: Path) -> None:

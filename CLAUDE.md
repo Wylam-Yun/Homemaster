@@ -9,6 +9,9 @@
   traceback、外部 DB 错误或迟到异常时整次 run 不得记为 PASS，即使正式 score 为 1.0。
 - CLI wrapper 的成功 preflight 不得写入被包装命令的 stdout；machine-readable 模式必须从真实 wrapper 入口
   产生且只产生一个可解析 payload。preflight 失败保留非零退出码和独立诊断，不能用静默成功掩盖失败。
+- 可选 benchmark/runtime 的一次性部署绑定必须覆盖完整资源闭包：interpreter、依赖 import、config、dataset/
+  assets 和外部服务逐项验证；只绑定 Python 环境不得宣称 ready。正式命令只能引用当前 checkout 的 ignored
+  runtime binding，不能把旧 worktree 当资源目录。
 
 ## 外部向量终态验证纪律
 

@@ -11,8 +11,9 @@ selection.
 - Tracked configuration and documentation contain no live server path or credential.
 - The ignored `config/homemaster.yaml` always stores the same relative runtime paths:
   `../.runtime/memory`, `../.runtime/neo4j`, and `../.runtime/java`.
-- `.runtime/venv`, optional `.runtime/alfworld-venv`, `.runtime/neo4j`, and `.runtime/java` are server-local bindings
-  created once by setup. ALFWorld may keep its THOR/Torch environment separate from the HomeMaster dependency venv.
+- `.runtime/venv`, optional `.runtime/alfworld-venv` and `.runtime/alfworld`, `.runtime/neo4j`, and `.runtime/java` are
+  server-local bindings created once by setup. ALFWorld keeps both its THOR/Torch environment and config/dataset root
+  separate from the HomeMaster dependency venv and old HomeMaster worktrees.
 - Existing memory data is never copied, deleted or replaced implicitly. `--memory-home` binds it explicitly.
 - Setup is idempotent for the same targets and fails closed for conflicting existing paths.
 - The launcher works from any cwd, fixes `HOMEMASTER_CONFIG_PATH` and `PYTHONPATH`, and refuses an incomplete runtime.

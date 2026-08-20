@@ -94,8 +94,9 @@ memory:
 推荐的迁移流程是：在每台服务器分别执行一次 `scripts/setup_memory_runtime.py setup`，将
 `--memory-home` 指向该服务器已有的 memory 数据（新部署可以省略，setup 会创建空目录），并提供本机的
 Neo4j、Java 和 Python 路径。之后使用 `scripts/homemaster ...`，不需要每次手动设置环境变量。
-若 ALFWorld 的 Torch/THOR 依赖位于独立环境，再传一次 `--alfworld-python`；普通 HomeMaster 命令继续使用
-`--python` 绑定的主环境，只有 ALFWorld benchmark 会切换到专用环境。
+若 ALFWorld 的 Torch/THOR 依赖位于独立环境，同时传 `--alfworld-python` 与 `--alfworld-root`；后者必须包含
+`configs/base_config.yaml` 和 `data/json_2.1.1`。普通 HomeMaster 命令继续使用 `--python` 绑定的主环境，只有
+ALFWorld benchmark 会切换到专用环境并从 `.runtime/alfworld` 使用本机 config/dataset。
 
 `neo4j.mode: managed_local` 由 HomeMaster 管理同一节点上的私有 Neo4j。第一个 HomeMaster 进程启动服务，每个
 进程持有独立 lease；中间进程退出不会停止服务，最后一个进程退出才停止。异常退出遗留的 lease 会在下次启动

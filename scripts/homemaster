@@ -21,6 +21,11 @@ if [[ "$command_name" == "benchmark-alfworld" || "$command_name" == "benchmark-a
     printf 'ALFWorld runtime is not initialized: %s\nRun setup with --alfworld-python ... once on this server.\n' "$python_path" >&2
     exit 2
   fi
+  if [[ ! -f "$repo_root/.runtime/alfworld/configs/base_config.yaml" || \
+        ! -d "$repo_root/.runtime/alfworld/data/json_2.1.1" ]]; then
+    printf 'ALFWorld root is not initialized: %s\nRun setup with --alfworld-python and --alfworld-root once on this server.\n' "$repo_root/.runtime/alfworld" >&2
+    exit 2
+  fi
   formal_site="$($repo_root/.runtime/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"
   export PYTHONPATH="$repo_root/src:$formal_site${PYTHONPATH:+:$PYTHONPATH}"
 fi

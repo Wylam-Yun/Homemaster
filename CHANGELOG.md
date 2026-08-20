@@ -53,6 +53,10 @@
 
 ### Fixed
 
+- Extended one-time ALFWorld setup to bind and validate the external config/dataset root alongside its dedicated
+  Python environment. Portable benchmark commands now use `.runtime/alfworld` and no longer depend on an old
+  HomeMaster worktree or machine-specific ALFWorld path.
+
 - Kept the portable launcher's successful runtime preflight off stdout so JSON CLI commands emit exactly one
   machine-readable payload; preflight failures still retain their nonzero status and diagnostics.
 

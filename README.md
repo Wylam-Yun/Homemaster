@@ -133,14 +133,15 @@ uv run python scripts/setup_memory_runtime.py setup \
   --neo4j-home /path/to/neo4j-community \
   --java-home /path/to/jdk-21 \
   --alfworld-python /path/to/alfworld-env/bin/python \
+  --alfworld-root /path/to/alfworld \
   --memory-home ~/.homemaster/memory
 
 scripts/homemaster doctor --json
 ```
 
 初始化会把 ignored `config/homemaster.yaml` 固定为相对 `.runtime` 路径，并绑定本机的 HomeMaster Python、
-可选 ALFWorld Python、Neo4j、Java 和已有 memory root。ALFWorld 的 Torch/THOR 环境可以和 HomeMaster 主 venv
-分开维护，launcher 会在 benchmark 时组合二者。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
+可选 ALFWorld Python 与 config/dataset root、Neo4j、Java 和已有 memory root。ALFWorld 的 Torch/THOR 环境可以和
+HomeMaster 主 venv 分开维护，launcher 会在 benchmark 时组合二者。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
 `scripts/homemaster` 启动，因此不依赖当前工作目录或 shell 环境变量。
 
 配置至少包含两类 provider（示例为占位值，字段说明见
@@ -339,10 +340,9 @@ Benchmark 复用完整 HomeMaster composition，因此 `memory.enabled: true` �
 FIFO Add、自动召回和清理生命周期；ALFWorld 仍只负责环境、动作和画面，不保存或复用记忆。
 
 ```bash
-export ALFWORLD_DATA=/path/to/alfworld/data
-uv run homemaster benchmark-alfworld \
-  --alfworld-root /path/to/alfworld \
-  --alfworld-config /path/to/alfworld/configs/base_config.yaml \
+scripts/homemaster benchmark-alfworld \
+  --alfworld-root .runtime/alfworld \
+  --alfworld-config .runtime/alfworld/configs/base_config.yaml \
   --env-type AlfredThorEnv --split valid_unseen \
   --trace-root var/alfworld-trace --episodes 1 \
   --trial-manifest /path/to/trial-manifest.json \

@@ -1,5 +1,23 @@
 # Engineering Pitfalls
 
+## 2026-08-20 - ALFWorld 只绑定 Python，正式 benchmark 仍需服务器绝对资源路径
+
+### 症状与根因
+
+hkust4 的 `.runtime/alfworld-venv` 已能 import `alfworld/ai2thor`，setup 因而报告 `alfworld_ready=true`；但正式
+worktree 没有 `data/json_2.1.1` 或 ALFWorld base config，真正视觉命令仍需手写服务器上的 ALFWorld root。此前
+成功命令的 config/dataset 来自独立 `/home/.../alfworld` 安装，不来自 Python wheel，也不属于旧 HomeMaster
+worktree。readiness 只检查 interpreter，漏掉了完整资源闭包。
+
+### 修法与教训
+
+一次性 setup 同时要求 `--alfworld-python` 与 `--alfworld-root`，验证 root 内的
+`configs/base_config.yaml` 和 `data/json_2.1.1`，分别绑定为 `.runtime/alfworld-venv` 与
+`.runtime/alfworld`。launcher 在视觉命令前再次检查两者，正式命令只引用当前 checkout 的相对 runtime 路径。
+可选 benchmark 的 ready 判据必须覆盖 interpreter、config 和 dataset，不能用 import 成功代替资源可用。
+
+Ref：`scripts/setup_memory_runtime.py`、`scripts/homemaster`、`tests/homemaster/test_memory_runtime_setup.py`
+
 ## 2026-08-20 - Launcher preflight 污染 JSON 命令输出
 
 ### 症状与根因

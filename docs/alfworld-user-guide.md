@@ -86,6 +86,7 @@ uv sync --all-extras
 uv run python scripts/setup_memory_runtime.py setup \
   --python .venv/bin/python \
   --alfworld-python /path/to/alfworld-env/bin/python \
+  --alfworld-root /path/to/alfworld \
   --neo4j-home /path/to/neo4j-community \
   --java-home /path/to/jdk-21 \
   --memory-home ~/.homemaster/memory
@@ -101,12 +102,10 @@ provider 配置或环境变量中，不写入命令、trace 或 manifest。`memo
 `AlfredThorEnv` 必须提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
 
 ```bash
-export ALFWORLD_DATA=/path/to/alfworld/data
-
-PYTHONPATH=src xvfb-run -a -s '-screen 0 1280x1024x24' \
-  .venv/bin/python -m homemaster.cli benchmark-alfworld \
-  --alfworld-root /path/to/alfworld \
-  --alfworld-config /path/to/alfworld/configs/base_config.yaml \
+xvfb-run -a -s '-screen 0 1280x1024x24' \
+  scripts/homemaster benchmark-alfworld \
+  --alfworld-root .runtime/alfworld \
+  --alfworld-config .runtime/alfworld/configs/base_config.yaml \
   --trace-root var/alfworld-trace \
   --env-type AlfredThorEnv \
   --split valid_unseen \
