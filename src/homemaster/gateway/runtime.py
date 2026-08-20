@@ -33,6 +33,7 @@ from homemaster.events.public_projection import (
     PublicEventProjection,
     public_gateway_stream,
 )
+from homemaster.gateway.confirmation import FeishuApprovalRoute
 
 _GATEWAY_AUDIT_LOGGER = logging.getLogger("homemaster.feishu.audit")
 
@@ -79,6 +80,7 @@ class GatewayRuntime:
         public_projection: PublicEventProjection | None = None,
         shutdown_deadline_s: float = 5.0,
         group_operations: Any | None = None,
+        confirmation_handler: Any | None = None,
     ) -> None:
         self.bridge = bridge
         self.bus = bus
@@ -100,6 +102,7 @@ class GatewayRuntime:
             raise ValueError("shutdown_deadline_s must be positive")
         self._shutdown_deadline_s = shutdown_deadline_s
         self._group_operations = group_operations
+        self._confirmation_handler = confirmation_handler
 
     async def serve(self, channel: BaseChannel) -> None:
         if self._service_tasks:
@@ -229,6 +232,16 @@ class GatewayRuntime:
                 active_tasks.append(task)
             active_complete = await _wait_until(active_tasks, deadline)
 
+            confirmation_complete = self._confirmation_handler is None
+            if self._confirmation_handler is not None:
+                close_confirmation = asyncio.create_task(
+                    self._confirmation_handler.aclose(deadline=deadline),
+                    name="gateway:confirmation-close",
+                )
+                confirmation_complete = await _wait_until((close_confirmation,), deadline)
+                if confirmation_complete:
+                    confirmation_complete = close_confirmation.result() is not False
+
             discard = asyncio.create_task(self._discard_inbound(), name="gateway:discard-inbound")
             try:
                 remaining = _remaining(deadline)
@@ -262,7 +275,11 @@ class GatewayRuntime:
                 service_complete = await _wait_until(tasks, deadline)
 
             self._close_complete = (
-                active_complete and self._drained and channel_complete and service_complete
+                active_complete
+                and confirmation_complete
+                and self._drained
+                and channel_complete
+                and service_complete
             )
             if self._close_complete:
                 self._service_tasks = ()
@@ -306,6 +323,11 @@ class GatewayRuntime:
             await asyncio.Future()
             return
         async for event in public_gateway_stream(event_bus, self._public_projection):
+            if event.event_type in {
+                "permission.confirmation_completed",
+                "permission.confirmation_requested",
+            }:
+                continue
             if event.event_type in {
                 "runtime.budget_exhausted",
                 "runtime.cancelled",
@@ -385,7 +407,51 @@ class GatewayRuntime:
         task = asyncio.current_task()
         if task is not None:
             task._homemaster_identity = message.identity  # type: ignore[attr-defined]
+        confirmation_bound = False
         try:
+            delivery = message.delivery_context
+            if (
+                self._confirmation_handler is not None
+                and message.identity.channel == "feishu"
+                and delivery is not None
+                and delivery.source_chat_id is not None
+            ):
+
+                async def notify(request):
+                    channel = self._channel
+                    send = getattr(channel, "send_exec_approval", None)
+                    if not callable(send):
+                        return DeliveryReceipt(
+                            status=DeliveryStatus.CONFIRMED_FAILURE,
+                            operation="feishu.approval.send",
+                            api_message="Feishu approval transport is unavailable",
+                            failed_count=1,
+                        )
+                    return await send(delivery=delivery, request=request)
+
+                async def update(message_id: str, outcome: str, actor: str):
+                    channel = self._channel
+                    patch = getattr(channel, "update_exec_approval", None)
+                    if not callable(patch):
+                        return DeliveryReceipt(
+                            status=DeliveryStatus.CONFIRMED_FAILURE,
+                            operation="feishu.approval.update",
+                            api_message="Feishu approval transport is unavailable",
+                            failed_count=1,
+                        )
+                    return await patch(message_id, outcome, actor)
+
+                self._confirmation_handler.bind_session(
+                    FeishuApprovalRoute(
+                        session_id=session_id,
+                        generation=generation,
+                        expected_open_chat_id=delivery.source_chat_id,
+                        requester_open_id=message.identity.sender_id,
+                        notify=notify,
+                        update=update,
+                    )
+                )
+                confirmation_bound = True
             await self.bridge.handle(
                 message,
                 generation=generation,
@@ -409,6 +475,8 @@ class GatewayRuntime:
                     )
                 )
         finally:
+            if confirmation_bound:
+                await self._confirmation_handler.unbind_session(session_id, generation)
             if self._active.get(session_id) is task:
                 self._active.pop(session_id, None)
 
@@ -476,6 +544,7 @@ def build_gateway_assembly(
     api_service: FeishuApiService | None = None,
     group_operations: Any | None = None,
     profile: str = "home",
+    confirmation_handler: Any | None = None,
 ) -> GatewayAssembly:
     """Wire remote ingress around the exact application-factory runtime instance."""
 
@@ -501,6 +570,7 @@ def build_gateway_assembly(
         public_projection=projection,
         shutdown_deadline_s=config.shutdown_deadline_s,
         group_operations=group_operations,
+        confirmation_handler=confirmation_handler,
     )
     publisher = getattr(application, "artifact_publisher", None)
     artifact_resolver = (
@@ -514,6 +584,7 @@ def build_gateway_assembly(
             bus,
             api_service=api_service or FeishuApiService.from_config(config.feishu),
             artifact_resolver=artifact_resolver,
+            approval_handler=confirmation_handler,
         ),
     )
 

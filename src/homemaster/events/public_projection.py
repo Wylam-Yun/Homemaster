@@ -16,6 +16,8 @@ _ALLOWED_TYPES = frozenset(
     {
         "assistant.reply",
         "context.compaction",
+        "permission.confirmation_completed",
+        "permission.confirmation_requested",
         "runtime.budget_exhausted",
         "runtime.cancelled",
         "runtime.turn_completed",
@@ -27,6 +29,14 @@ _ALLOWED_TYPES = frozenset(
         "usage.update",
     }
 )
+_CONFIRMATION_METADATA_KEYS = {
+    "permission.confirmation_requested": frozenset(
+        {"approval_id", "arguments", "cwd", "reason", "subject_id"}
+    ),
+    "permission.confirmation_completed": frozenset(
+        {"approval_id", "approved", "outcome", "subject_id"}
+    ),
+}
 _SAFE_METADATA_KEYS = frozenset(
     {
         "attempt",
@@ -78,10 +88,12 @@ class PublicEventProjection:
         payload = event.payload if isinstance(event.payload, dict) else {}
         artifacts = self._artifact_refs(payload) if event.type == "tool.call_completed" else ()
         content = self._content(event.type, payload, tool_name=event.name)
-        if content is None and not artifacts:
+        confirmation_keys = _CONFIRMATION_METADATA_KEYS.get(event.type)
+        if content is None and not artifacts and confirmation_keys is None:
             return None
+        selected_keys = confirmation_keys or _SAFE_METADATA_KEYS
         metadata = {
-            key: _copy_value(value) for key, value in payload.items() if key in _SAFE_METADATA_KEYS
+            key: _copy_value(value) for key, value in payload.items() if key in selected_keys
         }
         if event.name and event.type.startswith("tool.call_"):
             metadata["tool_name"] = _copy_value(event.name)
@@ -246,6 +258,8 @@ def _thaw(value: object) -> object:
     if isinstance(value, Mapping):
         return {str(key): _thaw(item) for key, item in value.items()}
     if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    if isinstance(value, list):
         return [_thaw(item) for item in value]
     return value
 

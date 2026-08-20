@@ -45,7 +45,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   结构化检索（本地 Qdrant + Neo4j）；支持自动召回、用户反馈纠正、会话结束隐式反馈，以及每 8 条有效
   新增记忆触发的可恢复 dreaming。具有明确结束点的入口共用异步 Session Finalizer；切换 session 不等待，
   正常关闭时统一 drain。
-- **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发与建群/改名；
+- **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发、建群/改名，以及权限策略
+  真正返回 `requires_confirmation=True` 时的同消息卡片审批；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
 - **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
   session 恢复、取消、危险操作审批与断线重连；默认且仅允许 loopback 绑定。
@@ -257,6 +258,11 @@ uv run homemaster --gateway --browser --config config/homemaster.yaml
 
 - Gateway 把所有非 bot sender 映射为固定 `feishu-owner` principal；`app_id/app_secret` 只从
   mode 0600、gitignored 的真实 YAML 读取。进程退出或重启后需手动重新启动，仓库不提供守护/自启服务。
+- 当上游权限策略返回 `requires_confirmation=True` 时，Gateway 会把校验后的工具名、参数、工作目录和原因
+  发成飞书卡片，只接受原请求者在原会话对原卡片的一次批准/拒绝。拒绝、超时、session 替换、重启和关闭
+  都 fail closed；回调不生成入站消息或新的模型轮次。当前内置 `feishu-owner` 仍拥有 `tool.auto`，因此正式
+  Gateway 配置会绕过这道门。真实发送、patch 与同卡 readback 已取得业务 `code=0`，且逐卡确认按钮消失；
+  callback 身份闭环和批准后 backend exactly-once 的 live 主链仍标记为 `UNVERIFIED`。
 - Browser 模式下飞书正文可直接包含变更单 URL；通用 `change-ticket-executor` Skill 从票据自然语言
   动态提取步骤与验收，每次写操作后强制 `observe` 回传截图，`browser_backfill` 以 SHA-256 一致性
   校验回填。当前验收范围是 Ant Design Pro Mock UI，不代表真实业务系统变更。

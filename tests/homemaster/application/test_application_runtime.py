@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import weakref
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -61,6 +62,7 @@ async def test_application_session_notifies_end_on_exception() -> None:
 
 from homemaster.application.session import SessionManager
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
+from homemaster.channels.contracts import DeliveryReceipt, DeliveryStatus
 from homemaster.cli.confirmation import CliConfirmationHandler
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError, DeviceLeaseManager
@@ -74,6 +76,12 @@ from homemaster.extensions import (
     HookRunner,
     HookSpec,
     LoadedExtension,
+)
+from homemaster.gateway.confirmation import (
+    ApprovalDecision,
+    ApprovalResolveStatus,
+    FeishuApprovalRoute,
+    FeishuGatewayConfirmationHandler,
 )
 from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
@@ -91,6 +99,7 @@ from homemaster.task_state.tools import make_task_progress_check_tool
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
+    ConcurrencyPolicy,
     ExecutionProof,
     PermissionSubject,
     RegisteredTool,
@@ -776,6 +785,7 @@ def _application(
     application_services: dict[str, object] | None = None,
     permission_settings: PermissionSettingsConfig | None = None,
     confirmation_handler: Any | None = None,
+    resource_manager: Any | None = None,
 ) -> ApplicationRuntime:
     del profile_name
     registry = ToolRegistry()
@@ -825,6 +835,7 @@ def _application(
             else {}
         ),
         confirmation_handler=confirmation_handler,
+        **({"resource_manager": resource_manager} if resource_manager is not None else {}),
     )
     return ApplicationRuntime(
         registry=registry,
@@ -920,6 +931,146 @@ async def test_runtime_confirmation_controls_real_mutation_and_emits_events(
     else:
         assert not terminal.exists()
         assert backend_calls == 0
+    await app.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approved", [True, False])
+async def test_runtime_feishu_callback_controls_one_real_mutation(
+    tmp_path: Path,
+    approved: bool,
+) -> None:
+    terminal = tmp_path / "feishu-confirmed.txt"
+    backend_calls = 0
+    lease_acquires = 0
+    requests = []
+    updates = []
+
+    class WriteExecutor:
+        async def execute(self, arguments, context) -> ToolExecutionResult:
+            nonlocal backend_calls
+            del context
+            backend_calls += 1
+            terminal.write_text(str(arguments["value"]), encoding="utf-8")
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                text="written",
+                backend_attempted=True,
+            )
+
+    class ResourceManager:
+        @asynccontextmanager
+        async def acquire(self, resource_key, context):
+            nonlocal lease_acquires
+            del resource_key, context
+            lease_acquires += 1
+            yield
+
+    async def notify(request):
+        requests.append(request)
+        return DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="feishu.approval.send",
+            platform_ids=("om-approval",),
+            sent_count=1,
+        )
+
+    async def update(message_id, outcome, actor):
+        updates.append((message_id, outcome, actor))
+        return DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="feishu.approval.update",
+            platform_ids=(message_id,),
+            sent_count=1,
+        )
+
+    handler = FeishuGatewayConfirmationHandler(timeout_s=1)
+    handler.bind_session(
+        FeishuApprovalRoute(
+            session_id=f"feishu-confirm-{approved}",
+            generation=1,
+            expected_open_chat_id="oc-chat",
+            requester_open_id="ou-owner",
+            notify=notify,
+            update=update,
+        )
+    )
+    write_tool = RegisteredTool(
+        definition=replace(
+            _definition(
+                "test.write_feishu_note.v1",
+                "write_feishu_note",
+                state_effects=("write",),
+                input_schema={
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"],
+                    "additionalProperties": False,
+                },
+            ),
+            concurrency_policy=ConcurrencyPolicy.RESOURCE_KEY,
+            resource_key="test:feishu-note",
+        ),
+        executor=WriteExecutor(),
+    )
+    transport = _FakeTransport(
+        [
+            _tool("call-confirm", "write_feishu_note", {"value": "external terminal"}),
+            _text("done"),
+        ]
+    )
+    app = _application(
+        tmp_path / "sessions",
+        [write_tool],
+        {"confirm mutation": transport},
+        permission_settings=PermissionSettingsConfig(mode=PermissionMode.DEFAULT),
+        confirmation_handler=handler,
+        resource_manager=ResourceManager(),
+    )
+    request = RunRequest(
+        text="confirm mutation",
+        session_id=f"feishu-confirm-{approved}",
+        profile="test",
+        permission_subject=PermissionSubject(
+            subject_id="feishu-owner",
+            channel="feishu",
+            capabilities=("tool.mutate",),
+        ),
+        metadata={"gateway_generation": 1},
+    )
+    run = asyncio.create_task(app.run(request))
+    for _ in range(200):
+        if requests:
+            for _settle in range(3):
+                await asyncio.sleep(0)
+            break
+        await asyncio.sleep(0)
+    assert len(requests) == 1
+
+    status = await handler.resolve(
+        requests[0].approval_id,
+        ApprovalDecision.APPROVE if approved else ApprovalDecision.DENY,
+        operator_open_id="ou-owner",
+        open_chat_id="oc-chat",
+        open_message_id="om-approval",
+    )
+    result = await run
+
+    assert status is ApprovalResolveStatus.RESOLVED
+    assert result.status is RunStatus.REPLIED
+    assert handler.pending_count == 0
+    assert len(transport.calls) == 2
+    if approved:
+        assert backend_calls == 1
+        assert lease_acquires == 1
+        assert terminal.read_text(encoding="utf-8") == "external terminal"
+        assert updates == [("om-approval", "approved", "ou-owner")]
+    else:
+        assert backend_calls == 0
+        assert lease_acquires == 0
+        assert not terminal.exists()
+        assert updates == [("om-approval", "denied", "ou-owner")]
+    await handler.aclose()
     await app.aclose()
 
 

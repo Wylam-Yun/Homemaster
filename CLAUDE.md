@@ -109,6 +109,9 @@
 - Gateway shutdown 使用一个 absolute deadline 覆盖 active worker cancel/join、bus drain、channel stop 和
   service task join；对抗取消 task 用 `asyncio.wait` 硬上限，禁止用会等待 cancellation 完成的
   `wait_for` 冒充总 deadline。未全部完成只返回 false，不能提前标 close complete。
+- 通过 `asyncio.to_thread`、进程或第三方 SDK 发出的外部调用一旦开始，禁止把 asyncio awaitable 的取消当成
+  外部动作已停止。必须保留真实完成 owner，晚到成功回执要做 reconciliation/终态化；shutdown 在共享 hard
+  deadline 内等待同一 tracked task，未完成返回 false，后续 close 继续等待，不能丢失任务后伪装完成。
 - Public progress 的 Gateway generation 必须在 RunRequest/event 生产时固化到 RuntimeEvent；消费 backlog
   时只核对事件携带的 generation 与 current generation，禁止读取 current 值后给旧事件重新贴标签。
 - 公共投影没有用户语义内容时必须丢弃事件，禁止用内部 event type 作为 fallback 文本。usage、thinking

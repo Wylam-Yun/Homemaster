@@ -388,6 +388,28 @@ uv run homemaster --gateway --config config/homemaster.yaml
 `homemaster --gateway` 仅运行飞书/Lark Gateway，不启动交互 shell。兼容入口
 `homemaster gateway --config ...` 保持可用。
 
+### 飞书工具确认卡片
+
+只有 canonical `PermissionChecker` 对一个已通过 schema 校验的工具调用返回
+`requires_confirmation=True` 时，Gateway 才发送审批卡片。例如策略要求确认 `write_file` 时，原请求者会在
+原 chat/thread 看到工具名、校验后的参数、工作目录和确认原因；点击“批准”后同一个 tool call 继续执行，点击
+“拒绝”则在取得 resource lease 或调用 backend 之前结束。按钮只携带 opaque `approval_id` 和动作，不携带
+session、用户、chat 或 message 等可伪造授权字段。
+
+确认严格绑定请求 session、Gateway generation、请求者 `open_id`、源 `open_chat_id` 和审批卡片
+`open_message_id`。只接受原卡片的一次回调；未知、重复、错误用户/chat/message 和发送期间的提前回调都不
+执行工具。拒绝、发送失败、超时、取消、session 替换、进程重启及关闭均 fail closed，并尽力把同一张卡片改为
+不可操作的终态。卡片更新失败不会反转已经锁定的决定，但会留下结构化 warning。确认回调由 Gateway 的独立
+control path 消费，不发布 `InboundMessage`，不创建新模型 turn，也不会重放原 tool call。
+
+当前部署边界必须明确：内置飞书 trusted principal `feishu-owner` 仍具有 `tool.auto`，所以现有正式权限策略会
+直接允许 mutation，不会自然触发卡片。不要为了演示临时削弱正式 principal；只有部署策略本身产生
+`requires_confirmation=True` 时这项能力才进入主链路。`lark-oapi==1.7.1` 的 callback response 和 message
+patch 符号已在安装环境核对；安全 live harness 的两次发送和两次 patch 均返回业务 `code=0`，随后逐卡
+`message.get code=0` 读回 `Status: closed` 且不含 action/button value。因为当前旧 Gateway 同时运行，两张
+卡在时限内都没有被 harness 收到 callback；所以真实 callback operator/chat/message 身份闭环，以及
+批准后 backend exactly-once 的 live 主链仍为 `UNVERIFIED`。
+
 ### Browser Gateway
 
 在同一份 ignored 配置中增加允许的 Ant Design Pro Mock UI 入口：

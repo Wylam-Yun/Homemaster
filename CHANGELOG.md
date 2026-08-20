@@ -4,6 +4,17 @@
 
 ### Added
 
+- Added exact Feishu tool-confirmation cards for permission decisions that return
+  `requires_confirmation=True`. One application-owned handler now binds an opaque approval to the requester,
+  source chat, original card message, session, and Gateway generation; deny, timeout, cancellation, session
+  replacement, restart, and shutdown fail closed before resource/backend execution, while callbacks create no
+  inbound message or model turn. Focused black-box coverage proves approve mutates isolated external state exactly
+  once and deny leaves it unchanged. The current trusted `feishu-owner` still has `tool.auto`, so production policy
+  bypasses this gate. A safe live harness confirmed two sends, two same-card patches, and two independent message
+  readbacks with Feishu business code 0; each card read back as terminal with no action value. Because the concurrently
+  running legacy Gateway may consume the same app's WebSocket events, neither callback reached the harness, so the
+  callback identity loop and approve-backend exactly-once live path remain `UNVERIFIED`.
+
 - Added `homemaster serve`, a loopback-only FastAPI + React Web Console with session creation/resume,
   HTTP command and cancellation endpoints, one session-scoped reconnecting WebSocket, streamed thinking and answer
   deltas with snapshot calibration, per-`tool_call_id` tool cards, opaque artifact downloads, and one-shot dangerous

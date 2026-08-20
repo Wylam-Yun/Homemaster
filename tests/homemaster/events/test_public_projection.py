@@ -457,6 +457,65 @@ def test_gateway_projection_rejects_private_and_unknown_events() -> None:
     )
 
 
+def test_gateway_projection_preserves_exact_confirmation_audit_fields() -> None:
+    projection = PublicEventProjection()
+    requested = projection.project(
+        _event(
+            "permission.confirmation_requested",
+            name="terminal",
+            tool_call_id="call-approval",
+            gateway_generation=4,
+            payload={
+                "approval_id": "opaque-approval",
+                "arguments": {
+                    "command": "printf 'exact secret-shaped value'",
+                    "nested": {"values": ["a", "b"]},
+                },
+                "cwd": "/exact/cwd",
+                "reason": "confirmation required",
+                "subject_id": "feishu-owner",
+                "private_extra": "drop-me",
+            },
+        )
+    )
+    completed = projection.project(
+        _event(
+            "permission.confirmation_completed",
+            name="terminal",
+            tool_call_id="call-approval",
+            gateway_generation=4,
+            payload={
+                "approval_id": "opaque-approval",
+                "approved": True,
+                "outcome": "approved",
+                "subject_id": "feishu-owner",
+                "private_extra": "drop-me",
+            },
+        )
+    )
+
+    assert requested is not None
+    assert requested.content == ""
+    assert requested.metadata == {
+        "approval_id": "opaque-approval",
+        "arguments": {
+            "command": "printf 'exact secret-shaped value'",
+            "nested": {"values": ["a", "b"]},
+        },
+        "cwd": "/exact/cwd",
+        "reason": "confirmation required",
+        "subject_id": "feishu-owner",
+    }
+    assert completed is not None
+    assert completed.content == ""
+    assert completed.metadata == {
+        "approval_id": "opaque-approval",
+        "approved": True,
+        "outcome": "approved",
+        "subject_id": "feishu-owner",
+    }
+
+
 def test_tool_completed_projects_only_valid_opaque_artifact_refs() -> None:
     valid = {
         "artifact_handle": f"hm-artifact:{'a' * 32}",

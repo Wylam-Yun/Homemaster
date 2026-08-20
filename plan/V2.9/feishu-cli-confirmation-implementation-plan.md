@@ -21,13 +21,52 @@
 - Default remote approval timeout is 300 seconds and is capped by the existing run deadline when one exists.
 - Existing dirty work in `docs/session-handoff.md` and `plan/V2.8/` must remain untouched.
 
+## Plan review disposition (locked before implementation)
+
+The required independent plan review completed with `CHANGES_REQUIRED`. All findings below are
+accepted and are part of the implementation contract:
+
+- Preserve the authenticated SDK `chat_id` separately from the reply target. Extend the immutable
+  delivery context with `source_chat_id`; private-chat fixtures must use different sender and chat
+  IDs. Approval authorization compares the callback `open_chat_id` with this exact source chat ID.
+- Carry callback `open_message_id` across the worker boundary and compare it with the one and only
+  non-empty platform message ID returned by the approval-card send. A missing or multiple message
+  ID fails closed. Pending state is explicitly `SENDING -> WAITING -> TERMINAL`, and only `WAITING`
+  may resolve.
+- The confirmation handler is the single owner of every card terminal transition. Approved,
+  denied, expired, cancelled, closed, and session-replaced cards are finalized exactly once on a
+  best-effort basis; unauthorized/unknown/stale callbacks never remove live buttons. Card-update
+  failure is audited and never reverses a locked decision.
+- Compute one absolute confirmation deadline before sending. Card send and Future wait share that
+  budget, capped by both 300 seconds and the run deadline. Gateway shutdown closes the handler
+  within the existing absolute shutdown deadline; it does not start a fresh timeout budget.
+- The public projection exposes the exact selected confirmation audit fields, but
+  `GatewayRuntime._public_event_loop` explicitly skips both confirmation event types so the direct
+  notifier remains the only approval-card control plane.
+- Requested/completed audit emission is best effort and isolated from business semantics. An audit
+  sink failure cannot leak pending state, convert an approved decision to failure, or change backend
+  execution count.
+- The SDK callback returns a real `P2CardActionTriggerResponse`. Worker enqueue is non-blocking;
+  queue-full returns a fail-closed ACK/toast instead of blocking the SDK callback.
+- `confirm()` requires the trusted run metadata session ID and Gateway generation to match the
+  currently bound route exactly. Missing or stale generation fails closed.
+- `register_p2_card_action_trigger`, `P2CardActionTriggerResponse`, `PatchMessageRequest`, and
+  `UpdateMessageRequest` exist in the installed `lark-oapi==1.7.1`; real callback serialization and
+  card-update endpoint behavior remain **UNVERIFIED** until a live Feishu return-code and visible
+  card-terminal-state gate passes.
+- Delivery includes README capability coverage, a user-guide example, architecture data flow and
+  invariants, and a CHANGELOG entry. Until the live permission gate is available, documentation
+  must state the current `tool.auto` limitation and must not claim end-to-end live mutation approval.
+
 ## File map
 
 - Create `src/homemaster/gateway/confirmation.py`: asyncio pending approvals, per-session notifier binding, exact callback resolution, timeout/cancel/close cleanup, confirmation audit events.
 - Modify `src/homemaster/gateway/runtime.py` and `src/homemaster/cli/gateway_command.py`: construct one handler, inject it into the application, bind/unbind the current Feishu route around a run, and close it during Gateway shutdown.
 - Modify `src/homemaster/channels/impl/feishu.py`: render/send/update approval cards, register `p2_card_action_trigger`, normalize callback packets in the worker, and resolve them in the main process.
+- Modify `src/homemaster/channels/contracts.py`: retain the authenticated SDK source chat ID independently of the Feishu reply target.
 - Modify `src/homemaster/events/public_projection.py`: allow the two existing confirmation audit events with exact selected values; do not use the public event stream as the card control plane.
 - Create `tests/homemaster/gateway/test_confirmation.py`; extend `tests/homemaster/channels/test_feishu.py`, `tests/homemaster/gateway/test_runtime.py`, and `tests/homemaster/events/test_public_projection.py`.
+- Update `README.md`, the Gateway user guide and architecture documentation, and `CHANGELOG.md`.
 
 ### Task 1: Build the async Gateway confirmation core
 
@@ -50,12 +89,17 @@ async def test_approve_resolves_exact_pending_call(): ...
 async def test_deny_returns_false(): ...
 async def test_unknown_and_duplicate_id_resolve_nothing(): ...
 async def test_wrong_operator_or_chat_is_rejected(): ...
+async def test_wrong_card_message_id_is_rejected(): ...
+async def test_stale_gateway_generation_cannot_select_new_route(): ...
 async def test_notify_failure_denies_without_waiting(): ...
+async def test_blocked_notify_shares_absolute_confirmation_deadline(): ...
 async def test_timeout_denies_and_removes_pending_entry(): ...
 async def test_run_deadline_caps_confirmation_timeout(): ...
 async def test_cancel_removes_pending_and_propagates_cancelled_error(): ...
 async def test_unbind_denies_only_matching_generation(): ...
 async def test_close_denies_every_pending_confirmation(): ...
+async def test_requested_audit_failure_is_isolated_and_cleans_pending(): ...
+async def test_completed_audit_failure_preserves_locked_decision(): ...
 ```
 
 Use a fake async notifier that records the request and returns a successful `DeliveryReceipt` containing a message ID. Use different `session_id`, `run_id`, `tool_call_id`, `chat_id`, and sender values so accidental session-only resolution cannot pass.
@@ -109,7 +153,10 @@ Implementation invariants:
 - Store pending entries by `approval_id`, never by session FIFO.
 - Reject a missing route before waiting.
 - Await the notifier and require `DeliveryStatus.CONFIRMED_SUCCESS`; otherwise return `False`.
-- Await the Future with `asyncio.timeout(min(300, remaining_deadline))` without cancelling unrelated tasks.
+- Require exactly one non-empty returned platform message ID, transition `SENDING -> WAITING`, and
+  validate callback `open_message_id` before resolving.
+- Compute one absolute deadline before notify; notify and Future wait share
+  `min(300, remaining_deadline)` without resetting the budget or cancelling unrelated tasks.
 - Remove the entry in `finally`; emit outcome `approved`, `denied`, `timeout`, `cancelled`, `send_failed`, or `closed`.
 - On cancellation, emit/clean up and re-raise `CancelledError`.
 - `unbind_session(session, generation)` may remove only the matching generation and denies that generation's entries.
@@ -181,6 +228,8 @@ Lock the card contract:
 - A successful send returns the platform message ID in `DeliveryReceipt.platform_ids`.
 - API rejection, exception, or missing message ID is not confirmed success.
 - Resolved cards remove buttons and show approved, denied, or expired state.
+- Cancelled, closed, and session-replaced cards also remove buttons; unauthorized callbacks leave
+  the original live card unchanged.
 
 - [ ] **Step 2: Run the Feishu test module and confirm failure**
 
@@ -219,7 +268,10 @@ Build SDK-shaped callback fixtures and pass them through the actual dispatcher c
 
 - `p2_card_action_trigger` is registered.
 - The synchronous SDK callback returns an ACK.
-- The worker emits one packet with type `approval_action` and exact `approval_id`, decision, operator open ID, and open chat ID.
+- The synchronous SDK callback returns an SDK `P2CardActionTriggerResponse`; queue-full produces a
+  fail-closed response without blocking.
+- The worker emits one packet with type `approval_action` and exact `approval_id`, decision,
+  operator open ID, open chat ID, and open message ID.
 - Invalid actions, missing IDs, and unsupported decisions fail closed.
 - Duplicate callbacks cannot execute twice even if duplicate packets reach the main process.
 
@@ -257,6 +309,7 @@ Assert one handler instance is:
 - passed to `GatewayRuntime` and `FeishuChannel`;
 - bound before `ChannelBridge.handle()`;
 - unbound in `finally` on success, failure, cancellation, session replacement, and shutdown.
+- selected only when trusted run metadata session ID and Gateway generation exactly match the bound route.
 
 Add a generation race test: generation 1 cleanup after generation 2 is bound must not remove generation 2's notifier or approval.
 
@@ -329,6 +382,15 @@ Expected: all pass. The live Feishu mutation gate is intentionally deferred unti
 
 **Files:**
 - Do not modify `docs/session-handoff.md` or `plan/V2.8/` in this task.
+- Modify: `README.md`, the existing Gateway user guide and architecture document, and `CHANGELOG.md`.
+
+- [ ] **Step 0: Update user-facing and architecture documentation**
+
+Document the approval-card behavior, exact approver/chat/card binding, timeout and cleanup semantics,
+one practical Feishu example, and the audit/control-plane separation. Record the change and rationale
+in `CHANGELOG.md`. Until the live gate passes, mark real callback/update behavior UNVERIFIED and state
+that the current trusted Feishu principal's `tool.auto` capability bypasses the production permission
+gate.
 
 - [ ] **Step 1: Run static gates**
 
@@ -353,3 +415,13 @@ Confirm only the planned confirmation, Feishu, Gateway, event, and test files ch
 - [ ] **Step 3: Report the evidence**
 
 Report focused pytest counts, static-gate results, approve/deny backend call counts, pending-entry cleanup, and the explicit dependency on the future permission redesign for a real live Feishu mutation run. Do not claim live Feishu approval is verified until that external gate is actually run.
+
+- [ ] **Step 4: Run the available live Feishu transport gate**
+
+With the configured real app, send a safe approval card and require a successful API return plus one
+real message ID. Consume an actual callback, verify operator/open-chat/open-message IDs, update the
+same card, and visibly/readably confirm that its buttons are gone. Test deny and approve with an
+isolated harmless external state target and assert per case that backend count/state are respectively
+zero/unchanged and one/changed-once. If `tool.auto` prevents the natural production permission path,
+report that exact gate as blocked rather than weakening production authorization or claiming full
+end-to-end verification.

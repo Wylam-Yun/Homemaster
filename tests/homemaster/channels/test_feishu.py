@@ -7,6 +7,7 @@ import logging
 import queue
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -33,6 +34,11 @@ from homemaster.channels.impl.feishu import (
 )
 from homemaster.channels.impl.telegram import TelegramChannel
 from homemaster.config import FeishuChannelConfig
+from homemaster.gateway.confirmation import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalResolveStatus,
+)
 
 
 def _blocking_ws_worker(*_args) -> None:
@@ -42,6 +48,21 @@ def _blocking_ws_worker(*_args) -> None:
 
 def _fatal_ws_worker(*args) -> None:
     args[-1].put({"type": "fatal", "error_type": "SyntheticWsFailure"})
+
+
+def _approval_ws_worker(*args) -> None:
+    args[-1].put(
+        {
+            "type": "approval_action",
+            "approval_id": "approval-1",
+            "decision": "approve",
+            "operator_open_id": "ou-owner",
+            "open_chat_id": "oc-private",
+            "open_message_id": "om-approval",
+        }
+    )
+    while True:
+        time.sleep(0.05)
 
 
 def _config(**updates) -> FeishuChannelConfig:
@@ -237,6 +258,7 @@ async def test_p2p_access_is_acknowledged_and_sdk_message_reaches_private_bus(
     assert inbound.delivery_context.chat_type == "private"
     assert inbound.delivery_context.receive_id_type == "open_id"
     assert inbound.delivery_context.receive_id == "ou-owner"
+    assert inbound.delivery_context.source_chat_id == "oc-private"
 
 
 @pytest.mark.asyncio
@@ -380,6 +402,7 @@ async def test_group_text_maps_typed_delivery_context_and_deduplicates_message_i
     assert inbound.delivery_context.receive_id_type == "chat_id"
     assert inbound.delivery_context.receive_id == "oc-group"
     assert inbound.delivery_context.source_message_id == "om-1"
+    assert inbound.delivery_context.source_chat_id == "oc-group"
     assert channel.bus.inbound_size == 0
 
 
@@ -455,8 +478,268 @@ async def test_private_thread_mapping_uses_sender_address_and_source_message() -
     assert inbound.delivery_context is not None
     assert inbound.delivery_context.receive_id_type == "open_id"
     assert inbound.delivery_context.receive_id == "ou_owner"
+    assert inbound.delivery_context.source_chat_id == "oc-sdk-private"
     assert inbound.delivery_context.root_id == "om-root"
     assert inbound.delivery_context.thread_id == "omt-thread"
+
+
+@pytest.mark.asyncio
+async def test_approval_card_send_preserves_exact_values_and_two_buttons(tmp_path) -> None:
+    config = _config(attachment_root=tmp_path)
+    service = FeishuApiService(config, app_id="cli_identifier", app_secret="secret")
+    service.send_message = AsyncMock(
+        return_value=DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="feishu.message.send",
+            platform_ids=("om-approval",),
+            sent_count=1,
+        )
+    )
+    channel = FeishuChannel(config, BoundedPriorityBus(), api_service=service)
+    channel._running = True
+    delivery = ChannelDeliveryContext(
+        "open_id",
+        "ou-owner",
+        "om-source",
+        chat_type="private",
+        source_chat_id="oc-private",
+    )
+    request = ApprovalRequest(
+        approval_id="approval-1",
+        tool_name="terminal",
+        arguments={"command": "printf 'exact value'", "nested": {"items": [1, 2]}},
+        cwd="/exact/cwd",
+        reason="confirmation required",
+        subject_id="feishu-owner",
+    )
+
+    receipt = await channel.send_exec_approval(delivery=delivery, request=request)
+
+    assert receipt.platform_ids == ("om-approval",)
+    call = service.send_message.await_args.kwargs
+    assert call["delivery"] is delivery
+    assert call["msg_type"] == "interactive"
+    assert call["reply_to_message_id"] == "om-source"
+    card = json.loads(call["content"])
+    rendered = json.dumps(card, ensure_ascii=False)
+    assert "terminal" in rendered
+    assert "printf 'exact value'" in rendered
+    assert "/exact/cwd" in rendered
+    assert "confirmation required" in rendered
+    actions = next(element for element in card["elements"] if element["tag"] == "action")
+    assert [button["value"] for button in actions["actions"]] == [
+        {"homemaster_action": "approve", "approval_id": "approval-1"},
+        {"homemaster_action": "deny", "approval_id": "approval-1"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_approval_card_update_removes_buttons_and_targets_original_message(tmp_path) -> None:
+    config = _config(attachment_root=tmp_path)
+    service = FeishuApiService(config, app_id="cli_identifier", app_secret="secret")
+    service.patch_message = AsyncMock(
+        return_value=DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="feishu.message.patch",
+            platform_ids=("om-approval",),
+            sent_count=1,
+        )
+    )
+    channel = FeishuChannel(config, BoundedPriorityBus(), api_service=service)
+
+    receipt = await channel.update_exec_approval("om-approval", "approved", "ou-owner")
+
+    assert receipt.status is DeliveryStatus.CONFIRMED_SUCCESS
+    call = service.patch_message.await_args.kwargs
+    assert call["message_id"] == "om-approval"
+    card = json.loads(call["content"])
+    assert all(element["tag"] != "action" for element in card["elements"])
+    assert "approved" in json.dumps(card, ensure_ascii=False)
+    assert "ou-owner" in json.dumps(card, ensure_ascii=False)
+
+
+def test_real_sdk_card_callback_emits_exact_packet_and_returns_typed_ack() -> None:
+    lark = pytest.importorskip("lark_oapi")
+    callback_model = pytest.importorskip(
+        "lark_oapi.event.callback.model.p2_card_action_trigger"
+    )
+    packets: queue.Queue[dict[str, object]] = queue.Queue()
+    handler = feishu_impl._build_feishu_event_handler(
+        lark,
+        packets,
+        encrypt_key="",
+        verification_token="",
+    )
+    processor = handler._callback_processor_map["p2.card.action.trigger"]
+    callback = callback_model.P2CardActionTrigger(
+        {
+            "event": {
+                "operator": {"open_id": "ou-owner"},
+                "action": {
+                    "value": {
+                        "homemaster_action": "approve",
+                        "approval_id": "approval-1",
+                    }
+                },
+                "context": {
+                    "open_chat_id": "oc-private",
+                    "open_message_id": "om-approval",
+                },
+            }
+        }
+    )
+
+    response = processor.do(callback)
+
+    assert isinstance(response, callback_model.P2CardActionTriggerResponse)
+    assert response.toast.type == "success"
+    assert packets.get_nowait() == {
+        "type": "approval_action",
+        "approval_id": "approval-1",
+        "decision": "approve",
+        "operator_open_id": "ou-owner",
+        "open_chat_id": "oc-private",
+        "open_message_id": "om-approval",
+    }
+
+
+def test_invalid_or_queue_full_card_callback_fails_closed_without_blocking() -> None:
+    lark = pytest.importorskip("lark_oapi")
+    callback_model = pytest.importorskip(
+        "lark_oapi.event.callback.model.p2_card_action_trigger"
+    )
+    packets: queue.Queue[dict[str, object]] = queue.Queue(maxsize=1)
+    packets.put_nowait({"occupied": True})
+    handler = feishu_impl._build_feishu_event_handler(
+        lark,
+        packets,
+        encrypt_key="",
+        verification_token="",
+    )
+    processor = handler._callback_processor_map["p2.card.action.trigger"]
+    callback = callback_model.P2CardActionTrigger(
+        {
+            "event": {
+                "operator": {"open_id": "ou-owner"},
+                "action": {
+                    "value": {
+                        "homemaster_action": "approve",
+                        "approval_id": "approval-1",
+                    }
+                },
+                "context": {
+                    "open_chat_id": "oc-private",
+                    "open_message_id": "om-approval",
+                },
+            }
+        }
+    )
+
+    started = time.monotonic()
+    response = processor.do(callback)
+
+    assert time.monotonic() - started < 0.1
+    assert response.toast.type == "error"
+    assert packets.qsize() == 1
+
+
+def test_closed_card_callback_queue_returns_typed_error_ack() -> None:
+    lark = pytest.importorskip("lark_oapi")
+    callback_model = pytest.importorskip(
+        "lark_oapi.event.callback.model.p2_card_action_trigger"
+    )
+    packets: queue.Queue[dict[str, object]] = queue.Queue()
+    packets.put_nowait = Mock(side_effect=ValueError("queue is closed"))
+    handler = feishu_impl._build_feishu_event_handler(
+        lark,
+        packets,
+        encrypt_key="",
+        verification_token="",
+    )
+    processor = handler._callback_processor_map["p2.card.action.trigger"]
+    callback = callback_model.P2CardActionTrigger(
+        {
+            "event": {
+                "operator": {"open_id": "ou-owner"},
+                "action": {
+                    "value": {
+                        "homemaster_action": "approve",
+                        "approval_id": "approval-closed",
+                    }
+                },
+                "context": {
+                    "open_chat_id": "oc-private",
+                    "open_message_id": "om-approval",
+                },
+            }
+        }
+    )
+
+    response = processor.do(callback)
+
+    assert isinstance(response, callback_model.P2CardActionTriggerResponse)
+    assert response.toast.type == "error"
+
+
+def test_successful_send_without_message_id_fails_closed() -> None:
+    service = FeishuApiService(_config(), app_id="cli_identifier", app_secret="secret")
+    response = SimpleNamespace(
+        success=lambda: True,
+        code=0,
+        msg="success",
+        data=SimpleNamespace(message_id=""),
+    )
+    create = Mock(return_value=response)
+    service.ensure_rest_client = Mock(
+        return_value=SimpleNamespace(
+            im=SimpleNamespace(v1=SimpleNamespace(message=SimpleNamespace(create=create)))
+        )
+    )
+    delivery = ChannelDeliveryContext(
+        receive_id_type="chat_id",
+        receive_id="oc-chat",
+        source_message_id="om-source",
+        chat_type="group",
+    )
+
+    receipt = service._send_message_sync(delivery, "interactive", "{}", None)
+
+    assert receipt.status is DeliveryStatus.CONFIRMED_FAILURE
+    assert receipt.platform_ids == ()
+    assert receipt.failed_count == 1
+
+
+@pytest.mark.asyncio
+async def test_main_process_dispatches_approval_without_inbound_message(tmp_path) -> None:
+    config = _config(enabled=True, attachment_root=tmp_path)
+    service = FeishuApiService(config, app_id="cli_identifier", app_secret="secret")
+    service.ensure_rest_client = Mock(return_value=object())
+    approval_handler = SimpleNamespace(
+        resolve=AsyncMock(return_value=ApprovalResolveStatus.RESOLVED)
+    )
+    channel = FeishuChannel(
+        config,
+        BoundedPriorityBus(),
+        api_service=service,
+        approval_handler=approval_handler,
+        ws_worker=_approval_ws_worker,
+    )
+    start = asyncio.create_task(channel.start())
+    for _ in range(200):
+        if approval_handler.resolve.await_count:
+            break
+        await asyncio.sleep(0.01)
+
+    approval_handler.resolve.assert_awaited_once_with(
+        "approval-1",
+        ApprovalDecision.APPROVE,
+        operator_open_id="ou-owner",
+        open_chat_id="oc-private",
+        open_message_id="om-approval",
+    )
+    assert channel.bus.inbound_size == 0
+    await channel.stop()
+    await asyncio.wait_for(start, timeout=2)
 
 
 @pytest.mark.parametrize(

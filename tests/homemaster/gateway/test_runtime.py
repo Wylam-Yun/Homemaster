@@ -6,6 +6,7 @@ import logging
 import signal
 import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,6 +33,7 @@ from homemaster.channels.contracts import (
 )
 from homemaster.channels.impl.base import ChannelDeliveryError
 from homemaster.channels.router import AttachmentPolicy, ChannelRouter
+from homemaster.cli import gateway_command
 from homemaster.cli.gateway_command import (
     _install_shutdown_handlers,
     _serve_until_shutdown,
@@ -41,6 +43,7 @@ from homemaster.config import GatewayConfig, HomeMasterConfig
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.gateway.auth import AuthenticatedPrincipal
+from homemaster.gateway.confirmation import FeishuApprovalRoute, FeishuGatewayConfirmationHandler
 from homemaster.gateway.runtime import (
     GatewayRuntime,
     build_gateway_assembly,
@@ -148,6 +151,22 @@ class _FakeGroupOperations:
 
     def clear(self, session_id, *, generation) -> None:
         self.clears.append((session_id, generation))
+
+
+class _FakeConfirmationHandler:
+    def __init__(self) -> None:
+        self.bindings: list[FeishuApprovalRoute] = []
+        self.unbindings: list[tuple[str, int]] = []
+        self.close_deadlines: list[float | None] = []
+
+    def bind_session(self, route: FeishuApprovalRoute) -> None:
+        self.bindings.append(route)
+
+    async def unbind_session(self, session_id: str, generation: int) -> None:
+        self.unbindings.append((session_id, generation))
+
+    async def aclose(self, *, deadline: float | None = None) -> None:
+        self.close_deadlines.append(deadline)
 
 
 class _SignalLoop:
@@ -431,6 +450,143 @@ def test_gateway_assembly_reuses_supplied_application_runtime(tmp_path) -> None:
         assembly.runtime.bridge.public_projection.project_content("configured-provider-secret")
         == "configured-provider-secret"
     )
+
+
+def test_gateway_assembly_wires_one_confirmation_handler_to_runtime_and_channel(tmp_path) -> None:
+    application = _FakeApplication()
+    handler = FeishuGatewayConfirmationHandler(timeout_s=1)
+    config = GatewayConfig(
+        bus_capacity=8,
+        per_tenant_capacity=6,
+        per_session_capacity=4,
+        feishu={"attachment_root": tmp_path},
+    )
+
+    assembly = build_gateway_assembly(
+        application,
+        config,
+        confirmation_handler=handler,
+    )
+
+    assert assembly.runtime._confirmation_handler is handler
+    assert assembly.channel.approval_handler is handler
+
+
+@pytest.mark.asyncio
+async def test_gateway_binds_and_unbinds_exact_feishu_generation_around_run(tmp_path) -> None:
+    application = _FakeApplication()
+    application.release.set()
+    bus = BoundedPriorityBus()
+    handler = _FakeConfirmationHandler()
+    gateway = GatewayRuntime(
+        bridge=ChannelBridge(
+            application=application,
+            bus=bus,
+            router=ChannelRouter(),
+            attachment_policy=AttachmentPolicy((tmp_path,)),
+        ),
+        bus=bus,
+        confirmation_handler=handler,
+    )
+    inbound = InboundMessage(
+        identity=ChannelIdentity(
+            "tenant-a", "feishu", "ou-owner", "ou-owner", chat_type="private"
+        ),
+        principal=AuthenticatedPrincipal("tenant-a", "owner", "feishu"),
+        content="hello",
+        correlation_id="om-source",
+        delivery_context=ChannelDeliveryContext(
+            "open_id",
+            "ou-owner",
+            "om-source",
+            chat_type="private",
+            source_chat_id="oc-private",
+        ),
+    )
+
+    session_id = await gateway.submit(inbound)
+    await application.entered.wait()
+    for _ in range(100):
+        if handler.unbindings:
+            break
+        await asyncio.sleep(0)
+
+    assert len(handler.bindings) == 1
+    route = handler.bindings[0]
+    assert route.session_id == session_id
+    assert route.generation == 1
+    assert route.requester_open_id == "ou-owner"
+    assert route.expected_open_chat_id == "oc-private"
+    assert handler.unbindings == [(session_id, 1)]
+
+
+@pytest.mark.asyncio
+async def test_confirmation_public_events_never_enter_gateway_outbound(tmp_path) -> None:
+    application = _FakeApplication()
+    bus = BoundedPriorityBus()
+    gateway = GatewayRuntime(
+        bridge=ChannelBridge(
+            application=application,
+            bus=bus,
+            router=ChannelRouter(),
+            attachment_policy=AttachmentPolicy((tmp_path,)),
+        ),
+        bus=bus,
+    )
+    inbound = _inbound()
+    session_id = ChannelRouter().route(inbound).session_id
+    gateway._identities[session_id] = inbound.identity
+    gateway._generations[session_id] = 1
+    public_loop = asyncio.create_task(gateway._public_event_loop())
+    while application.event_bus.subscriber_count == 0:
+        await asyncio.sleep(0)
+
+    await application.event_bus.aemit(
+        RuntimeEvent(
+            type="permission.confirmation_requested",
+            session_id=session_id,
+            run_id="run-approval",
+            turn_index=1,
+            tool_call_id="call-approval",
+            name="terminal",
+            payload={
+                "approval_id": "approval-1",
+                "arguments": {"command": "exact"},
+                "cwd": "/exact",
+                "reason": "confirmation required",
+                "subject_id": "owner",
+            },
+            gateway_generation=1,
+        )
+    )
+    await asyncio.sleep(0.01)
+
+    assert bus.outbound_size == 0
+    public_loop.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await public_loop
+
+
+@pytest.mark.asyncio
+async def test_gateway_close_includes_confirmation_handler_in_same_deadline(tmp_path) -> None:
+    application = _FakeApplication()
+    bus = BoundedPriorityBus()
+    handler = _FakeConfirmationHandler()
+    gateway = GatewayRuntime(
+        bridge=ChannelBridge(
+            application=application,
+            bus=bus,
+            router=ChannelRouter(),
+            attachment_policy=AttachmentPolicy((tmp_path,)),
+        ),
+        bus=bus,
+        confirmation_handler=handler,
+    )
+
+    assert await gateway.aclose(deadline_s=1)
+
+    assert len(handler.close_deadlines) == 1
+    assert handler.close_deadlines[0] is not None
 
 
 @pytest.mark.asyncio
@@ -885,3 +1041,56 @@ async def test_gateway_drain_timeout_still_stops_channel_with_same_deadline(tmp_
 async def test_gateway_cli_lifecycle_fails_before_composition_when_disabled() -> None:
     with pytest.raises(ValueError, match="must both be enabled"):
         await serve_gateway(HomeMasterConfig())
+
+
+@pytest.mark.asyncio
+async def test_gateway_cli_composes_one_handler_before_application_and_transport(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    captured = {}
+    api_service = object()
+    application = SimpleNamespace(aclose=AsyncMock())
+    bundle = SimpleNamespace(application=application, run_dir=tmp_path)
+    runtime = SimpleNamespace(aclose=AsyncMock(return_value=True))
+    assembly = SimpleNamespace(runtime=runtime, channel=object())
+
+    def fake_create_home_application(**kwargs):
+        captured["application_handler"] = kwargs["confirmation_handler"]
+        return bundle
+
+    def fake_build_gateway_assembly(*args, **kwargs):
+        captured["assembly_handler"] = kwargs["confirmation_handler"]
+        return assembly
+
+    async def fake_serve(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        gateway_command.FeishuApiService,
+        "from_config",
+        lambda config: api_service,
+    )
+    monkeypatch.setattr(gateway_command, "create_home_application", fake_create_home_application)
+    monkeypatch.setattr(gateway_command, "build_gateway_assembly", fake_build_gateway_assembly)
+    monkeypatch.setattr(gateway_command, "_serve_until_shutdown", fake_serve)
+    monkeypatch.setattr(gateway_command, "_install_shutdown_handlers", lambda *args: lambda: None)
+
+    await serve_gateway(
+        HomeMasterConfig(
+            gateway={
+                "enabled": True,
+                "feishu": {
+                    "enabled": True,
+                    "app_id": "app-id",
+                    "app_secret": "app-secret",
+                },
+            }
+        )
+    )
+
+    handler = captured["application_handler"]
+    assert isinstance(handler, FeishuGatewayConfirmationHandler)
+    assert captured["assembly_handler"] is handler
+    runtime.aclose.assert_awaited_once()
+    application.aclose.assert_awaited_once()

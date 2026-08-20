@@ -102,6 +102,7 @@ class ChannelDeliveryContext:
     root_id: str | None = None
     thread_id: str | None = None
     chat_type: str = "private"
+    source_chat_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.receive_id_type not in {"open_id", "chat_id"}:
@@ -112,6 +113,8 @@ class ChannelDeliveryContext:
             _require_token(self.root_id, "root_id")
         if self.thread_id is not None:
             _require_token(self.thread_id, "thread_id")
+        if self.source_chat_id is not None:
+            _require_token(self.source_chat_id, "source_chat_id")
         if self.chat_type not in {"private", "group"}:
             raise ValueError("chat_type must be private or group")
 

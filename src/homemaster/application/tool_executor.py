@@ -156,6 +156,13 @@ class ApplicationToolExecutor:
             "domain_observer": self._request.dependencies.get("domain_observer"),
             "deadline": self,
         }
+        gateway_generation = self._request.metadata.get("gateway_generation")
+        if (
+            not isinstance(gateway_generation, bool)
+            and isinstance(gateway_generation, int)
+            and gateway_generation >= 1
+        ):
+            metadata["gateway_generation"] = gateway_generation
         if feedback_context is not None:
             metadata["memory_feedback_context"] = feedback_context
         return ToolExecutionContext(self._working_directory, metadata=metadata)

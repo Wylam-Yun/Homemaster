@@ -176,11 +176,12 @@ Home 的命令与搜索工具共用同一执行边界：`terminal` 接收模型�
 
 交互式 CLI 的权限覆盖只在 composition boundary 注入：公开的 `confirm` 映射为现有
 `PermissionMode.DEFAULT`，并从该 shell 唯一复用的 `PermissionSubject` 移除 `tool.auto`。默认
-`full_auto`、one-shot、dry-run、Gateway 和 benchmark 不注入 confirmation handler，保持既有自动执行路径。
-工具执行顺序固定为：schema validation -> normalized arguments -> permission decision -> optional local
-confirmation -> resource key/lease -> backend。审批展示、policy 判断、resource-key resolver 使用同一份校验后
-参数；拒绝不会取得资源或尝试 backend。并发确认由一个 handler-owned `asyncio.Lock` 串行化，requested 与
-completed 事件写入 application EventBus/JSONL trace，审计写入失败不改变 fail-closed 审批结果。
+`full_auto`、one-shot、dry-run 和 benchmark 不注入 confirmation handler，保持既有自动执行路径；交互 CLI
+注入串行 stdin handler，飞书 Gateway 注入 application/channel/runtime 共用的 Future handler。工具执行顺序
+固定为：schema validation -> normalized arguments -> permission decision -> optional confirmation -> resource
+key/lease -> backend。审批展示、policy 判断、resource-key resolver 使用同一份校验后参数；拒绝不会取得资源
+或尝试 backend。CLI 并发确认由 handler-owned `asyncio.Lock` 串行化；飞书确认按 opaque approval ID 独立
+挂起。requested/completed 事件写入 application EventBus/JSONL trace，审计写入失败不改变 fail-closed 结果。
 
 远程 `ask_user_question` 不保持 webhook task：executor 返回嵌套在 canonical `ToolResultMessage` 中的
 `waiting_user` marker，ApplicationRuntime 持久化包含 assistant tool call 与 tool result 的 snapshot，
@@ -262,6 +263,7 @@ Feishu SDK WebSocket subprocess
   -> attachment realpath containment
   -> Gateway generation + cancel-and-join
   -> existing ApplicationRuntime.run(RunRequest)
+  -> optional permission confirmation card -> exact callback Future
   -> private RuntimeEvent appended to application EventBus ledger
   -> events.public_gateway_stream / PublicEventProjection
   -> bounded priority outbound bus
@@ -285,6 +287,19 @@ owner boundary：任意非 bot sender 都得到同一个固定 principal/capabil
 固定 principal、message-id dedup、外部资源、安全落盘、reaction、入站 publish；群消息无需 mention。
 下载后与 bridge 消费前仍做 realpath containment，`..` 与 symlink escape 都 fail closed。真实平台是否回投
 机器人自身消息以及回投时 `sender_type` 的值仍为 `UNVERIFIED`，不能把合成测试当作无循环证明。
+
+Gateway composition 在 application 创建前构造唯一 `FeishuGatewayConfirmationHandler`，并把同一实例注入
+ToolExecutor、GatewayRuntime 与 FeishuChannel。每次 inbound 在 `bridge.handle()` 前绑定由 SDK 保留的源
+`open_chat_id`、请求者 `open_id`、session 和当前 Gateway generation，run 结束后只解绑该代际。确认状态机为
+`SENDING -> WAITING -> TERMINAL`；发送和等待共用一个 absolute deadline，只有 confirmed-success 且恰好一个
+非空 message ID 才进入 WAITING。回调必须同时匹配 opaque approval ID、请求者、源 chat、原卡片 message、
+session 和 generation。handler 是终态卡片的唯一 owner；deny/timeout/cancel/session replacement/shutdown
+均先锁定 fail-closed 决定再 best-effort patch 同一张卡片。callback packet 不进入普通 inbound bus，确认事件
+虽可公开投影但 egress 明确跳过，因此不会产生第二条消息、模型 turn 或工具调用。当前 trusted
+`feishu-owner` 具有 `tool.auto`，正式策略不会自然产生 `requires_confirmation=True`。安全 live harness 已对
+两张卡取得 send/patch/message-get 业务 `code=0`，并逐卡读回无 action 的 terminal content；运行中的旧
+Gateway 可能竞争同一 app 的 WebSocket 事件，两张卡均未被 harness 收到 callback，因此 callback
+operator/chat/message 身份闭环和 approve backend exactly-once 主链仍为 `UNVERIFIED`。
 
 Gateway restart 通过 application `SessionBackend` 恢复纯数据 snapshot，删除没有配对结果的
 assistant tool-call tail 与 orphan tool result；下一次 application turn 增加 generation。取消会先请求

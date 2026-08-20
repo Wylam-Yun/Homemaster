@@ -1,5 +1,27 @@
 # Engineering Pitfalls
 
+## 2026-08-21 - 取消 `asyncio.to_thread` awaitable 不会停止已经开始的外部调用
+
+### 症状与根因
+
+飞书确认超时、session 替换或 Gateway shutdown 后，handler 的 pending/Future 已正确 fail closed，聚焦单测也
+全部通过；但真实 REST send 运行在 `asyncio.to_thread()` 中。取消包装它的 asyncio task 只让等待者收到
+`CancelledError`，不会停止已经运行的线程。SDK 仍可能稍后成功创建一张卡片，而原实现已经丢失 receipt 和
+message ID，无法把这张晚到卡片 patch 成不可操作终态；shutdown 还可能因此形成“内部 close 完成、外部发送
+仍在继续”的假阳性。
+
+### 修法与教训
+
+timeout/close 只锁定工具决定，不取消并遗失 send owner。handler 保留 notifier task，并跟踪一个 late-send
+reconciliation：真实调用返回后校验 confirmed-success + 唯一 message ID，再把同卡 patch 为
+expired/closed。close 等待同一个 tracked reconciliation 到共享 hard deadline；没完成就返回 false，后续
+close 继续等待同一任务。测试使用 cancellation-resistant send，逐次断言第一次 close=false、晚到 message ID
+被终态化、第二次 close=true。凡经线程/进程/SDK 发往外部系统的调用，都不能用“awaitable 已取消”推断外部
+动作已停止。
+
+Ref：`src/homemaster/gateway/confirmation.py`、`src/homemaster/gateway/runtime.py`、
+`tests/homemaster/gateway/test_confirmation.py`
+
 ## 2026-08-20 - 跨 venv 只加入 site-packages 不会执行 editable `.pth`
 
 ### 症状与根因

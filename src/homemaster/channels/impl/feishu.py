@@ -36,6 +36,11 @@ from homemaster.channels.contracts import (
 from homemaster.channels.impl.base import BaseChannel
 from homemaster.config.config import FeishuChannelConfig
 from homemaster.gateway.auth import AuthenticatedPrincipal
+from homemaster.gateway.confirmation import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalResolveStatus,
+)
 
 _DOMAIN_URLS = {
     "feishu": "https://open.feishu.cn",
@@ -110,13 +115,75 @@ def _build_feishu_event_handler(
             DeliveryStatus.CONFIRMED_SUCCESS.value,
         )
 
+    def on_card_action(data: Any) -> Any:
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            P2CardActionTriggerResponse,
+        )
+
+        packet = _normalize_card_action(data)
+        if packet is None:
+            return P2CardActionTriggerResponse(
+                {"toast": {"type": "error", "content": "Invalid or expired approval"}}
+            )
+        try:
+            packets.put_nowait(packet)
+        except (queue.Full, ValueError, OSError):
+            _emit_feishu_audit(
+                "event.card_action.enqueue",
+                str(packet["approval_id"]),
+                time.monotonic(),
+                None,
+                DeliveryStatus.CONFIRMED_FAILURE.value,
+            )
+            return P2CardActionTriggerResponse(
+                {"toast": {"type": "error", "content": "Approval service is busy"}}
+            )
+        return P2CardActionTriggerResponse(
+            {"toast": {"type": "success", "content": "Approval received"}}
+        )
+
     return (
         lark.EventDispatcherHandler.builder(encrypt_key, verification_token)
+        .register_p2_card_action_trigger(on_card_action)
         .register_p2_im_message_receive_v1(on_message)
         .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(on_p2p_chat_entered)
         .register_p2_im_message_message_read_v1(on_message_read)
         .build()
     )
+
+
+def _normalize_card_action(data: object) -> dict[str, object] | None:
+    event = getattr(data, "event", None)
+    operator = getattr(event, "operator", None)
+    action = getattr(event, "action", None)
+    context = getattr(event, "context", None)
+    value = getattr(action, "value", None)
+    if not isinstance(value, Mapping) or set(value) != {
+        "homemaster_action",
+        "approval_id",
+    }:
+        return None
+    decision = _required_text(value.get("homemaster_action"))
+    approval_id = _required_text(value.get("approval_id"))
+    operator_open_id = _required_text(getattr(operator, "open_id", None))
+    open_chat_id = _required_text(getattr(context, "open_chat_id", None))
+    open_message_id = _required_text(getattr(context, "open_message_id", None))
+    if (
+        decision not in {ApprovalDecision.APPROVE.value, ApprovalDecision.DENY.value}
+        or not approval_id
+        or not operator_open_id
+        or not open_chat_id
+        or not open_message_id
+    ):
+        return None
+    return {
+        "type": "approval_action",
+        "approval_id": approval_id,
+        "decision": decision,
+        "operator_open_id": operator_open_id,
+        "open_chat_id": open_chat_id,
+        "open_message_id": open_message_id,
+    }
 
 
 def _feishu_ws_worker(
@@ -413,6 +480,49 @@ class FeishuApiService:
             reply_to_message_id,
         )
 
+    async def patch_message(self, *, message_id: str, content: str) -> DeliveryReceipt:
+        return await self._audited_thread_call(
+            "message.patch",
+            message_id,
+            self._patch_message_sync,
+            message_id,
+            content,
+        )
+
+    def _patch_message_sync(self, message_id: str, content: str) -> DeliveryReceipt:
+        try:
+            from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+
+            request = (
+                PatchMessageRequest.builder()
+                .message_id(message_id)
+                .request_body(PatchMessageRequestBody.builder().content(content).build())
+                .build()
+            )
+            response = self.ensure_rest_client().im.v1.message.patch(request)
+        except Exception as exc:
+            return DeliveryReceipt(
+                status=DeliveryStatus.OUTCOME_UNKNOWN,
+                operation="feishu.message.patch",
+                api_message=type(exc).__name__,
+                failed_count=1,
+            )
+        if not response.success():
+            return DeliveryReceipt(
+                status=DeliveryStatus.CONFIRMED_FAILURE,
+                operation="feishu.message.patch",
+                api_code=getattr(response, "code", None),
+                api_message=str(getattr(response, "msg", "")),
+                failed_count=1,
+            )
+        return DeliveryReceipt(
+            status=DeliveryStatus.CONFIRMED_SUCCESS,
+            operation="feishu.message.patch",
+            platform_ids=(message_id,),
+            api_code=getattr(response, "code", 0),
+            sent_count=1,
+        )
+
     async def add_reaction(self, message_id: str, emoji_type: str) -> DeliveryReceipt:
         return await self._audited_thread_call(
             "reaction.add", message_id, self._add_reaction_sync, message_id, emoji_type
@@ -620,7 +730,15 @@ class FeishuApiService:
                 api_message=str(getattr(response, "msg", "")),
                 failed_count=1,
             )
-        message_id = str(getattr(getattr(response, "data", None), "message_id", "") or "unknown")
+        message_id = str(getattr(getattr(response, "data", None), "message_id", "") or "").strip()
+        if not message_id:
+            return DeliveryReceipt(
+                status=DeliveryStatus.CONFIRMED_FAILURE,
+                operation="feishu.message.send",
+                api_code=getattr(response, "code", 0),
+                api_message="successful response omitted message_id",
+                failed_count=1,
+            )
         return DeliveryReceipt(
             status=DeliveryStatus.CONFIRMED_SUCCESS,
             operation="feishu.message.send",
@@ -741,12 +859,14 @@ class FeishuChannel(BaseChannel):
         *,
         api_service: FeishuApiService,
         artifact_resolver: ToolOutputArtifactResolver | None = None,
+        approval_handler: Any | None = None,
         ws_worker: Callable[..., None] = _feishu_ws_worker,
     ) -> None:
         super().__init__(bus)
         self.config = config
         self.api_service = api_service
         self.artifact_resolver = artifact_resolver
+        self.approval_handler = approval_handler
         self._ws_worker = ws_worker
         self._stop_event = asyncio.Event()
         self._ws_process: multiprocessing.Process | None = None
@@ -810,7 +930,7 @@ class FeishuChannel(BaseChannel):
             if not content.strip():
                 return False
             source_chat_id = _required_text(envelope.get("chat_id"))
-            if chat_type == "group" and not source_chat_id:
+            if not source_chat_id:
                 return False
             receive_id_type = "chat_id" if chat_type == "group" else "open_id"
             receive_id = source_chat_id if chat_type == "group" else sender_open_id
@@ -823,6 +943,7 @@ class FeishuChannel(BaseChannel):
                 root_id=root_id,
                 thread_id=thread_id,
                 chat_type=chat_type,
+                source_chat_id=source_chat_id,
             )
             attachments: tuple[str, ...] = ()
             message_type = str(envelope.get("message_type") or "text")
@@ -989,6 +1110,8 @@ class FeishuChannel(BaseChannel):
                     payload = packet.get("payload")
                     if isinstance(payload, Mapping):
                         await self.accept_event(payload)
+                elif packet_type == "approval_action":
+                    await self._accept_approval_action(packet)
                 elif packet_type == "fatal":
                     _emit_feishu_audit(
                         "websocket.worker",
@@ -1005,6 +1128,38 @@ class FeishuChannel(BaseChannel):
         finally:
             self._running = False
             await self._stop_ws_worker()
+
+    async def _accept_approval_action(self, packet: Mapping[str, object]) -> None:
+        handler = self.approval_handler
+        resolve = getattr(handler, "resolve", None)
+        if not callable(resolve):
+            return
+        try:
+            decision = ApprovalDecision(_required_text(packet.get("decision")))
+        except ValueError:
+            return
+        values = {
+            "approval_id": _required_text(packet.get("approval_id")),
+            "operator_open_id": _required_text(packet.get("operator_open_id")),
+            "open_chat_id": _required_text(packet.get("open_chat_id")),
+            "open_message_id": _required_text(packet.get("open_message_id")),
+        }
+        if not all(values.values()):
+            return
+        status = await resolve(
+            values["approval_id"],
+            decision,
+            operator_open_id=values["operator_open_id"],
+            open_chat_id=values["open_chat_id"],
+            open_message_id=values["open_message_id"],
+        )
+        _emit_feishu_audit(
+            "approval.resolve",
+            values["approval_id"],
+            time.monotonic(),
+            status.value if isinstance(status, ApprovalResolveStatus) else None,
+            status.value if isinstance(status, ApprovalResolveStatus) else "outcome_unknown",
+        )
 
     async def stop(self) -> None:
         self._running = False
@@ -1109,6 +1264,39 @@ class FeishuChannel(BaseChannel):
             operation="feishu.media.send",
             platform_ids=tuple(completed_ids),
             sent_count=len(message.attachments),
+        )
+
+    async def send_exec_approval(
+        self,
+        *,
+        delivery: ChannelDeliveryContext,
+        request: ApprovalRequest,
+    ) -> DeliveryReceipt:
+        if not self._running:
+            return DeliveryReceipt(
+                status=DeliveryStatus.CONFIRMED_FAILURE,
+                operation="feishu.approval.send",
+                api_message="Feishu channel is not running",
+                failed_count=1,
+            )
+        rendered = render_feishu_approval_card(request)
+        return await self.api_service.send_message(
+            delivery=delivery,
+            msg_type=rendered.msg_type,
+            content=rendered.content,
+            reply_to_message_id=delivery.source_message_id,
+        )
+
+    async def update_exec_approval(
+        self,
+        message_id: str,
+        outcome: str,
+        actor: str,
+    ) -> DeliveryReceipt:
+        rendered = render_feishu_approval_terminal(outcome, actor)
+        return await self.api_service.patch_message(
+            message_id=message_id,
+            content=rendered.content,
         )
 
     @contextmanager
@@ -1222,6 +1410,87 @@ def render_feishu_text(content: str) -> FeishuRenderedMessage:
     )
 
 
+def render_feishu_approval_card(request: ApprovalRequest) -> FeishuRenderedMessage:
+    arguments = json.dumps(
+        dict(request.arguments),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "orange",
+            "title": {"tag": "plain_text", "content": "HomeMaster execution approval"},
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "plain_text",
+                    "content": "\n".join(
+                        (
+                            f"Tool: {request.tool_name}",
+                            f"Working directory: {request.cwd}",
+                            f"Reason: {request.reason}",
+                            "Arguments:",
+                            arguments,
+                        )
+                    ),
+                },
+            },
+            {
+                "tag": "action",
+                "actions": [
+                    {
+                        "tag": "button",
+                        "type": "primary",
+                        "text": {"tag": "plain_text", "content": "Approve"},
+                        "value": {
+                            "homemaster_action": ApprovalDecision.APPROVE.value,
+                            "approval_id": request.approval_id,
+                        },
+                    },
+                    {
+                        "tag": "button",
+                        "type": "danger",
+                        "text": {"tag": "plain_text", "content": "Deny"},
+                        "value": {
+                            "homemaster_action": ApprovalDecision.DENY.value,
+                            "approval_id": request.approval_id,
+                        },
+                    },
+                ],
+            },
+        ],
+    }
+    return FeishuRenderedMessage(
+        "interactive", json.dumps(card, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
+def render_feishu_approval_terminal(outcome: str, actor: str) -> FeishuRenderedMessage:
+    card = {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "template": "green" if outcome == "approved" else "grey",
+            "title": {"tag": "plain_text", "content": "HomeMaster execution approval"},
+        },
+        "elements": [
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "plain_text",
+                    "content": f"Status: {outcome}\nActor: {actor}",
+                },
+            }
+        ],
+    }
+    return FeishuRenderedMessage(
+        "interactive", json.dumps(card, ensure_ascii=False, separators=(",", ":"))
+    )
+
+
 def _looks_like_markdown_table(content: str) -> bool:
     lines = content.splitlines()
     return len(lines) >= 2 and "|" in lines[0] and "---" in lines[1]
@@ -1233,5 +1502,7 @@ __all__ = [
     "FeishuChannel",
     "FeishuDownload",
     "FeishuRenderedMessage",
+    "render_feishu_approval_card",
+    "render_feishu_approval_terminal",
     "render_feishu_text",
 ]

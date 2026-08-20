@@ -17,6 +17,7 @@ from homemaster.gateway.alfworld import (
     create_alfworld_gateway_binding,
 )
 from homemaster.gateway.browser import create_browser_gateway_application
+from homemaster.gateway.confirmation import FeishuGatewayConfirmationHandler
 from homemaster.gateway.runtime import build_gateway_assembly
 
 
@@ -29,12 +30,14 @@ async def serve_gateway(
         raise ValueError("gateway and gateway.feishu must both be enabled")
     api_service = FeishuApiService.from_config(config.gateway.feishu)
     group_operations = FeishuGroupOperations(api_service)
+    confirmation_handler = FeishuGatewayConfirmationHandler(timeout_s=300)
     bundle = create_home_application(
         config=config,
         progress=False,
         quiet=True,
         feishu_group_operations=group_operations,
         tool_environment=environment,
+        confirmation_handler=confirmation_handler,
     )
     gateway_application = bundle.application
     profile = "home"
@@ -66,8 +69,10 @@ async def serve_gateway(
             api_service=api_service,
             group_operations=group_operations,
             profile=profile,
+            confirmation_handler=confirmation_handler,
         )
     except BaseException:
+        await confirmation_handler.aclose()
         await bundle.application.aclose()
         raise
     shutdown_requested = asyncio.Event()
