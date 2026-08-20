@@ -28,6 +28,7 @@ from homemaster.cli.run_command import handle_print, handle_run
 from homemaster.cli.session_command import session_app
 from homemaster.config import load_config
 from homemaster.events.logger import setup_logging
+from homemaster.web.serve import run_web_server
 
 app = typer.Typer(
     add_completion=False,
@@ -343,6 +344,30 @@ def gateway_command(
     """Run the configured Feishu/Lark WebSocket Gateway."""
     try:
         run_gateway(load_config(config_path))
+    except (typer.Exit, SystemExit):
+        raise
+    except Exception as exc:
+        render_error_and_exit(exc)
+
+
+@app.command("serve")
+def serve_command(
+    host: Annotated[
+        str,
+        typer.Option("--host", help="Loopback address for the local Web Console."),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=1, max=65535, help="Local Web Console port."),
+    ] = 8000,
+) -> None:
+    """Run the loopback-only HomeMaster Web Console."""
+
+    try:
+        run_web_server(host=host, port=port)
+    except ValueError as exc:
+        typer.echo(str(exc))
+        raise typer.Exit(code=2) from exc
     except (typer.Exit, SystemExit):
         raise
     except Exception as exc:
