@@ -16,6 +16,35 @@ existing `ApplicationRuntime`, plus a browser React frontend that talks to it. O
 is one driver, but the console is domain-general. This is the first HTTP/browser surface for
 HomeMaster, which today has only the CLI and the Feishu Gateway.
 
+## Phase 0 — Verify the Streaming-Thinking linchpin BEFORE any code
+
+The whole streaming-thinking feature rests on the configured provider emitting reasoning as
+**incremental deltas**, not as one whole blob at message end. Per CLAUDE.md §3/§8 (no fix without root
+cause; an external symbol's existence ≠ it is usable), this must be verified against a real provider
+before building on it.
+
+- **Step:** run one real `application.run()` against the configured provider (Mimo, anthropic
+  transport) with a prompt that elicits reasoning, and capture the raw `transport.delta` stream.
+- **Pass:** ≥2 non-empty `reasoning_delta` chunks arrive strictly before the terminal `assistant.thinking`
+  / `assistant.reply`. → streaming thinking is real; proceed to Phase 1.
+- **Fail (whole-blob only):** the provider emits reasoning only once at the end. → the streaming
+  `thinking.delta` feature cannot ship for this provider. Do NOT paper over it with a mock playback of
+  `assistant.thinking` (spec §13.2 / §16 forbid faking thinking). Instead: record this provider as
+  "reasoning not streamed", and either (a) switch the verification gate to a provider that does stream
+  reasoning, or (b) fall back to snapshot-only `thinking.snapshot` display and revisit the decision.
+  Either branch is a decision point that must be surfaced to the user, not silently worked around.
+
+This gate is orthogonal to the `_reasoning_only_delta` retry-path check (still required, see
+"Streaming Thinking — Constraint to verify") and to the fast-stream ordering check (spec §6.5: WS
+subscription must be established before the first prompt, or early deltas are lost).
+
+**Result (2026-08-20): PASS.** A real `ApplicationRuntime` run used the configured Mimo v2.5
+Anthropic transport and produced 283 non-empty reasoning chunks before `assistant.thinking`. The
+first reasoning chunk arrived at 5.634 seconds and the first terminal snapshot at 39.576 seconds;
+the event order ended with `assistant.thinking`, `assistant.reply`, then `runtime.turn_completed`,
+and the authoritative run status was `replied`. The diagnostic printed only chunk counts, lengths,
+timing, and event names; it did not print reasoning text or credentials.
+
 ## Reference Projects (selectively adapted)
 
 - **OpenHarness** (`/hpc2hdd/home/wyuan140/weilin_workspace/OpenHarness`) — HomeMaster's upstream base.
@@ -71,7 +100,7 @@ POST /api/sessions/{id}/messages {text,rpc_id} ─► application.run(RunRequest
    ←WS assistant.reply                      │                                   │
    ←WS runtime.turn_completed               │                                   │
                                             │  application.run() returns ───────► RunResult
-POST /api/approvals/{id} (if approval req) ─► resolve confirmation_handler Future ─► agent resumes
+POST /api/approvals/{id} (if approval req) ─► resolve Web-owned approval Future ─► WebHandler.confirm() returns ─► agent resumes
 ```
 
 The FastAPI layer is a thin translator: left side speaks HTTP/WebSocket to the browser; right side
@@ -115,9 +144,12 @@ Thinking is added back by the streaming-thinking decision below; the rest stay i
    `tool.call_started → tool.call_completed → transport.delta(thinking)* → assistant.reply → runtime.turn_completed`.
 5. **Run returns** — `application.run()` yields `RunResult` (final_reply, status). `final_reply` was
    already delivered via `assistant.reply` in step 4; this is backend bookkeeping only.
-6. **Approval / question** — if the agent hits a gated action, `confirmation_handler` suspends on a
-   Future. Backend pushes an approval frame over WS; browser shows approve/reject; browser
-   `POST /api/approvals/{id}`; backend resolves the Future; agent resumes.
+6. **Approval / question** — if the agent hits a gated action, the Web-owned `WebConfirmationHandler.confirm()`
+   (a new confirmation_handler implementation, same interface the executor already calls — see below) creates
+   an approval_id, registers an `asyncio.Future`, and `await`s it. Backend pushes the approval frame over WS;
+   browser shows approve/reject; browser `POST /api/approvals/{id}`; backend resolves the Future;
+   `confirm()` returns True/False; agent resumes. The executor's contract is unchanged: it still just
+   `await confirm(...)` for a bool. No Future pre-exists; the handler builds one per request.
 
 ## Streaming Thinking — DECIDED (do streaming)
 
@@ -152,10 +184,11 @@ safe — verify in a real environment.
    receiver can tell thinking vs reply apart (e.g. `transport.delta` payload gains a
    `reasoning_delta` field distinct from `text_delta`, or a `kind` discriminator). One variable
    changed at a time.
-2. **`public_projection.py`** — let thinking through. **OPEN: scope** — prefer a per-channel
-   `include_thinking` flag on `public_gateway_stream` (default False, Web layer passes True) so the
-   Feishu Gateway behaviour is unchanged, rather than globally adding `assistant.thinking` to
-   `_ALLOWED_TYPES`. Decide before editing.
+2. **`event_projection.py` (new `WebEventProjection`)** — let thinking through via the per-channel
+   `include_thinking=True` flag (DECIDED above). The Web adapter builds its own projection and
+   subscribes the EventBus; the existing `public_projection.py` / `public_gateway_stream()` default
+   (Feishu/Telegram) stays unchanged. `assistant.thinking` and `transport.delta` are NOT added to the
+   global `_ALLOWED_TYPES`.
 3. **Frontend** — buffer `transport.delta` reasoning deltas into a per-turn collapsible "thinking"
    region under the assistant message; default collapsed, click to expand. Reuse the same
    rpc_id/turn_index grouping as the reply.
@@ -170,25 +203,34 @@ sketch (final schema in implementation):
 - `GET /api/sessions/{id}/history` — session transcript.
 - `POST /api/sessions/{id}/messages` — send prompt → `application.run()`, returns `accepted` + `rpc_id`.
 - `POST /api/sessions/{id}/cancel` — `application.cancel()`.
-- `POST /api/approvals/{id}` — resolve a suspended `confirmation_handler` Future.
+- `POST /api/approvals/{id}` — resolve a Web-owned approval `asyncio.Future` registered by
+  `WebConfirmationHandler.confirm()`. The executor contract is unchanged; the handler builds one
+  Future per request (see "First Prompt" step 6).
 - `WS /api/events?session_id=<id>` — downstream event stream over `public_gateway_stream()`.
 - `GET /api/tools` — `registry.list_tools()` / `to_api_schema()` for tool-call visualization.
 
-### OPEN decisions (resolve before coding these parts)
+### Decisions (resolved against the spec; no longer OPEN)
 
-1. **Runtime lifecycle** — one long-lived `ApplicationRuntime` instance per process (shared across
-   requests) vs per-request. Affects concurrency model and the session-ownership design. Recommend
-   single shared instance with session-level isolation (matches how the shell uses one `application`
-   for many sessions).
-2. **Permission subject** — `RunRequest` defaults to `local_operator` with full capabilities
-   (`process.exec`, `device.control`, ...). Web exposure needs a chosen `permission_subject` and a
-   decision on whether to keep the human-approval gate for dangerous ops. Recommend keeping the
-   `confirmation_handler` approval flow (maps to the approval frame above).
-3. **Session ownership / multi-user** — how a browser user maps to `tenant_id`/`session_id`. No auth
-   layer exists today. For MVP, single-user local is acceptable; note it as a known boundary.
-4. **Thinking scope** — per-channel flag (recommended) vs global allowlist add. See above.
-5. **Other allowlist openings** — any other currently-private events to surface collapsed (e.g.
-   `memory.automatic_recall`, `context.compaction` detail)? None requested yet; default = none.
+All five items below were OPEN in the earlier discussion; the normative spec (`web-console-spec.md`)
+now closes them. Repeated here so the plan is self-contained:
+
+1. **Runtime lifecycle** — **DECIDED:** one long-lived `ApplicationRuntime` per Web process
+   (spec §7.1), shared across requests. Session-level isolation comes from the existing
+   `SessionManager` generation/ownership rules (spec §7.2); the Web adapter adds no global serial lock.
+2. **Permission subject** — **DECIDED:** a dedicated server-owned Web permission subject; the client
+   never supplies tenant/capability/subject. Dangerous operations keep the `confirmation_handler`
+   gate, backed by the new `WebConfirmationHandler` (spec §8.2, "First Prompt" step 6).
+3. **Session ownership / multi-user** — **DECIDED:** single-user local MVP. Default bind is loopback;
+   a non-loopback bind with no auth configured fails closed at startup (spec §8.1). Recorded as a
+   known boundary; no auth/multi-tenant hardening in V2.8.
+4. **Thinking scope** — **DECIDED:** a per-channel `include_thinking` flag, default False. The Web
+   adapter constructs an independent `WebEventProjection(include_thinking=True)` and subscribes the
+   application-owned EventBus; the existing `PublicEventProjection` default allowlist (Feishu/Telegram)
+   is untouched (spec §7.3). Do NOT globally add `assistant.thinking` / `transport.delta` to
+   `_ALLOWED_TYPES`.
+5. **Other allowlist openings** — **DECIDED:** none. Only the 15-event Web allowlist in spec §7.3 is
+   projected; all other RuntimeEvents default-deny. Surfacing any new event requires updating the
+   spec, the Python projector tests, and the TypeScript reducer exhaustiveness test together.
 
 ## Frontend — NEW (browser, React + Vite + TypeScript)
 
@@ -233,3 +275,9 @@ When implementing, the black-box gates for the external boundary (FastAPI ↔ ru
 - 2026-08-20: captured full discussion — browser console decision, reference projects, transport
   model, first-prompt flow, streaming-thinking decision with root cause and the
   `_reasoning_only_delta` constraint to verify, FastAPI/frontend sketch, open decisions.
+- 2026-08-20: corrected the approval mechanism description (no pre-existing Future — the Web layer
+  builds one per request via a new `WebConfirmationHandler.confirm()`; executor contract unchanged).
+  Resolved all five OPEN decisions against the spec (single runtime, dedicated Web subject,
+  loopback fail-closed, per-channel `include_thinking`, no other allowlist openings). Fixed the
+  `POST /api/approvals` endpoint line to match. Added Phase 0 — the streaming-thinking linchpin
+  verification step that gates all code.

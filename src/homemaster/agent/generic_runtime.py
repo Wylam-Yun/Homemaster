@@ -928,9 +928,15 @@ class AgentRuntime:
         *,
         emit: Callable[..., Awaitable[None]],
     ) -> None:
+        payload = {}
         text = getattr(delta, "text_delta", None)
         if text:
-            await emit("transport.delta", payload={"text_delta": text})
+            payload["text_delta"] = text
+        reasoning = getattr(delta, "reasoning_delta", None)
+        if reasoning:
+            payload["reasoning_delta"] = reasoning
+        if payload:
+            await emit("transport.delta", payload=payload)
 
     @staticmethod
     async def _record_usage(

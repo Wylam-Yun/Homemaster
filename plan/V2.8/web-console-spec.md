@@ -44,7 +44,7 @@ HomeMaster Runtime
 - `RuntimeEvent` 中的 session、run、turn、tool call 和时间字段；
 - `transport.delta`、`assistant.reply`、`assistant.thinking`、工具、usage、权限和 runtime 终态事件；
 - `PublicEventProjection` 与 `public_gateway_stream()` 形成的远程公开边界；
-- `confirmation_handler` 人工确认入口，以及 CLI handler 已使用的权限确认事件名；
+- `confirmation_handler` 人工确认入口，以及 CLI handler 已使用的权限确认事件名。现有 `ToolExecutor` 只与 `confirmation_handler.confirm() -> bool` 协程契约耦合；它不暴露也不持有任何 Future，也不关心 `confirm()` 在何处等待用户回答。V2.8 不复用 CLI 的 `CliConfirmationHandler`（其内部阻塞读 stdin），而是新建 `WebConfirmationHandler`：每次 `confirm()` 内部生成 `approval_id`、登记一个 `asyncio.Future`、发 `permission.confirmation_requested`（payload 内含 `approval_id`）、`await future` 挂起，由 `POST /api/approvals/{approval_id}` 解析后再发 `permission.confirmation_completed` 并返回 bool。执行器一行不改；
 - FastAPI 与 Uvicorn 项目依赖。
 
 ### 2.2 Thinking 当前缺口

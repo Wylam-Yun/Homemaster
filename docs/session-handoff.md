@@ -1,5 +1,83 @@
 # Session Handoff
 
+## Permission Approval Handoff (2026-08-20)
+
+### User Decision
+
+The local CLI approval flow is the reference behavior. Feishu must use the same permission decision
+and approval lifecycle; do not create a second Feishu-only permission policy. The future Web console
+must reuse the same approval contract as both CLI and Feishu.
+
+The default remains unrestricted automation (`full_auto`). Approval is opt-in: a caller selects the
+normal/confirm policy mode, or a configured permission subject lacks `tool.auto`. `plan` remains a
+deny-without-prompt mode. This scope does not include remote approval policy, risk tiers, approval
+receipts, task authorization, or multi-tenant auth.
+
+### What Is Implemented
+
+- `src/homemaster/tools/executor.py` is the single execution gate. It validates arguments, calls
+  `PermissionChecker`, then invokes `confirmation_handler` before resource acquisition and backend
+  execution. Denial produces no resource lease and no external mutation.
+- `src/homemaster/cli/confirmation.py` implements the current local adapter. Prompts are serialized,
+  fail closed (`y`/`yes` only), and emit `permission.confirmation_requested` and
+  `permission.confirmation_completed` into the runtime trace.
+- `src/homemaster/application/factory.py` and `src/homemaster/cli/composition.py` already inject
+  permission settings and an optional confirmation handler without changing the default.
+- CLI entry points support `--permission-mode full_auto|confirm|plan`; only explicit `confirm` removes
+  `tool.auto` from the local interactive subject.
+
+### Feishu Gap (Current Reality)
+
+`src/homemaster/channels/bridge.py` already creates a `RunRequest` with the inbound principal's
+`permission_subject`, so Feishu is on the same application/runtime path. However, the Gateway/Feishu
+composition does not currently provide a remote confirmation handler. Also,
+`src/homemaster/events/public_projection.py` does not yet expose the two confirmation events. Therefore
+Feishu currently has no way to display a pending approval or resolve it; adding a Feishu-side policy
+checker would create the split this handoff explicitly forbids.
+
+### Recommended Unified Design
+
+1. Move the handler contract and request/decision DTO out of `cli/` into `homemaster.permissions` (or a
+   small application-level confirmation module). The executor should depend only on this protocol:
+   `confirm(request) -> bool` (or a typed decision), never on CLI/Feishu/Web types.
+2. Keep channel adapters thin:
+   - CLI adapter renders the request and reads `y`/`yes`.
+   - Remote adapter stores one pending request keyed by `approval_id`, emits the public request event,
+     and awaits a single resolver call. Feishu cards/callbacks and Web HTTP/WS endpoints only render
+     and resolve that request; they do not decide permissions.
+3. Select policy in one place through `PermissionSettingsConfig.mode` and the same
+   `PermissionChecker`. Feishu and Web subjects must be constructed without `tool.auto` when their
+   selected mode requires approval. No `feishu_confirm` or `web_confirm` mode should be added.
+4. Extend the public event projection with a safe confirmation-request/completed schema. Include the
+   approval id, tool name, validated arguments, cwd and correlation fields; define redaction before
+   exposing arguments because tool arguments can contain secrets. Preserve the full payload only in the
+   private JSONL trace.
+5. Define pending-request lifecycle before transport work: timeout/cancel/close resolves as denied,
+   duplicate or late callbacks are rejected, and every request is removed after resolution. The
+   `session_id`, `run_id`, `turn_index` and `tool_call_id` must be checked on resolution.
+
+### Next Steps For The Successor
+
+1. Add the shared confirmation protocol/DTO and adapt `CliConfirmationHandler` without changing CLI
+   behavior or the `ToolExecutor` gate.
+2. Implement an application-owned pending confirmation registry/handler. Keep it independent of
+   Feishu and Web transport; inject it from the Gateway composition.
+3. Add public event projection and Feishu card/callback plumbing, then add the Web API/WS plumbing by
+   reusing the same registry.
+4. Run black-box gates per channel: approve and deny one real mutating tool, assert the external state
+   and return status, assert denial acquires no resource and calls no backend, and verify timeout,
+   cancellation, duplicate and stale callback behavior. Also verify `full_auto` still performs an
+   automated mutation without waiting.
+
+### Current Blockers / Boundaries
+
+- No Feishu or Web implementation has been started in this workspace; this is a design handoff, not a
+  claim that remote approval is already functional.
+- Feishu callback identity/authentication and the exact card format still need to be decided at the
+  channel layer. They must resolve an existing approval id, never re-run permission logic.
+- Do not commit or revert unrelated portable-memory changes. `plan/V2.8/` is pre-existing work and must
+  remain untouched.
+
 ## Current State
 
 Latest portable deployment gates (2026-08-20): `mindmem` commit `f052a67` is pushed. The formal hkust4 checkout
