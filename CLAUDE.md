@@ -7,6 +7,8 @@
   run 已停止。每次编排只能启动一次；需要重跑时使用全新 ID/root。
 - summary 与退出码成功后仍必须独立检查完整 stderr，并逐实例核对环境、数据库和进程清理终态。stderr 中存在
   traceback、外部 DB 错误或迟到异常时整次 run 不得记为 PASS，即使正式 score 为 1.0。
+- CLI wrapper 的成功 preflight 不得写入被包装命令的 stdout；machine-readable 模式必须从真实 wrapper 入口
+  产生且只产生一个可解析 payload。preflight 失败保留非零退出码和独立诊断，不能用静默成功掩盖失败。
 
 ## 外部向量终态验证纪律
 

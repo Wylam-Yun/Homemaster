@@ -30,7 +30,8 @@ export PYTHONPATH="${PYTHONPATH:-$repo_root/src}"
 cd "$repo_root"
 
 if [[ "${HOMEMASTER_SKIP_RUNTIME_CHECK:-0}" != "1" ]]; then
-  "$python_path" "$repo_root/scripts/setup_memory_runtime.py" check --repo-root "$repo_root" --config "$config_path"
+  "$python_path" "$repo_root/scripts/setup_memory_runtime.py" check \
+    --repo-root "$repo_root" --config "$config_path" >/dev/null
 fi
 
 exec "$python_path" -m homemaster.cli "$@"

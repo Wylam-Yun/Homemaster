@@ -190,3 +190,42 @@ def test_launcher_uses_bound_python_and_config_from_unrelated_cwd(tmp_path: Path
     assert recorded["config"] == str(config)
     assert recorded["pythonpath"] == str(repo / "src")
     assert recorded["args"] == "-m homemaster.cli doctor --json"
+
+
+def test_launcher_keeps_runtime_preflight_out_of_machine_readable_stdout(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "Homemaster"
+    scripts = repo / "scripts"
+    scripts.mkdir(parents=True)
+    source_launcher = Path(__file__).resolve().parents[2] / "scripts" / "homemaster"
+    launcher = scripts / "homemaster"
+    launcher.write_bytes(source_launcher.read_bytes())
+    launcher.chmod(0o755)
+    _private_config(repo / "config" / "homemaster.yaml")
+    runtime = repo / ".runtime"
+    runtime.mkdir()
+    fake_python = _executable(
+        tmp_path / "fake-python",
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"-c\" ]; then exit 0; fi\n"
+        "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then\n"
+        "  printf '{\"status\":\"ready\"}\\n'\n"
+        "  exit 0\n"
+        "fi\n"
+        "printf '{\"checks\":[],\"live\":false}\\n'\n",
+    )
+    fake_venv = tmp_path / "fake-venv"
+    fake_venv.joinpath("bin").mkdir(parents=True)
+    fake_venv.joinpath("bin", "python").symlink_to(fake_python)
+    (runtime / "venv").symlink_to(fake_venv)
+
+    completed = subprocess.run(
+        [str(launcher), "doctor", "--json"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout) == {"checks": [], "live": False}

@@ -53,6 +53,9 @@
 
 ### Fixed
 
+- Kept the portable launcher's successful runtime preflight off stdout so JSON CLI commands emit exactly one
+  machine-readable payload; preflight failures still retain their nonzero status and diagnostics.
+
 - Upgraded the memory migration manifest contract to v2 so a portable runtime accepts logical mount aliases that
   resolve to the same data root and can safely open historical v1 manifests from either the Mem0 four-component or
   MindMemOS two-component era. The locked upgrade validates the original contract, preserves immutable v1 audit

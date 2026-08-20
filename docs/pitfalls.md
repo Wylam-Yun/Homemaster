@@ -1,5 +1,21 @@
 # Engineering Pitfalls
 
+## 2026-08-20 - Launcher preflight 污染 JSON 命令输出
+
+### 症状与根因
+
+`scripts/homemaster doctor --json` 的 doctor 本身成功，但自动化解析报 `JSONDecodeError: Extra data`。根因是
+launcher 先执行 `setup_memory_runtime.py check`，该 preflight 成功时向 stdout 打一段 ready JSON，随后真正
+doctor 又打印一段 JSON；人眼看两段都正常，机器协议却已经无效。
+
+### 修法与教训
+
+launcher 丢弃成功 preflight 的 stdout，让被包装命令独占 stdout；preflight 非零退出仍由 `set -e` 传播并保留
+stderr。黑盒回归从真实 launcher 入口让 fake preflight 主动输出，再对完整 stdout 执行一次 `json.loads`。
+wrapper 的辅助日志不能进入被包装命令的 machine-readable channel。
+
+Ref：`scripts/homemaster`、`tests/homemaster/test_memory_runtime_setup.py`
+
 ## 2026-08-20 - 同一 migration schema 改了组件结构，挂载别名让正式服务器无法启动 memory
 
 ### 症状与根因
