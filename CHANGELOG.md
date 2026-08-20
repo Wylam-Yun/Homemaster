@@ -12,6 +12,10 @@
 
 ### Documentation
 
+- Documented the approved unbounded Dreaming wait design: HomeMaster will stop cancelling consolidation at a fixed
+  wall-clock deadline, retain durable pending/recovery state and explicit cancellation semantics, and verify the
+  external finalization terminal without changing unrelated Provider, Agent, benchmark, or tool timeouts.
+
 - Recorded the formal HPC2/hkust4 portability gates, the editable MindMemOS cross-venv fix, and the one-instance
   LoCoMo and visual ALFWorld external termination evidence in the session handoff.
 
