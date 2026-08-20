@@ -53,6 +53,10 @@
 
 ### Fixed
 
+- Fixed the portable ALFWorld launcher failing at real memory startup when MindMemOS is installed editable in the
+  formal HomeMaster environment. The launcher now resolves that source root through the bound formal Python, adds it
+  to the dedicated ALFWorld process, and verifies the complete cross-environment import closure before starting THOR.
+
 - Extended one-time ALFWorld setup to bind and validate the external config/dataset root alongside its dedicated
   Python environment. Portable benchmark commands now use `.runtime/alfworld` and no longer depend on an old
   HomeMaster worktree or machine-specific ALFWorld path.

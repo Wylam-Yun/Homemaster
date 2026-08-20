@@ -16,6 +16,7 @@ fi
 
 command_name="${1:-}"
 if [[ "$command_name" == "benchmark-alfworld" || "$command_name" == "benchmark-alfworld-taskset" ]]; then
+  formal_python="$python_path"
   python_path="$repo_root/.runtime/alfworld-venv/bin/python"
   if [[ ! -x "$python_path" ]]; then
     printf 'ALFWorld runtime is not initialized: %s\nRun setup with --alfworld-python ... once on this server.\n' "$python_path" >&2
@@ -26,8 +27,20 @@ if [[ "$command_name" == "benchmark-alfworld" || "$command_name" == "benchmark-a
     printf 'ALFWorld root is not initialized: %s\nRun setup with --alfworld-python and --alfworld-root once on this server.\n' "$repo_root/.runtime/alfworld" >&2
     exit 2
   fi
-  formal_site="$($repo_root/.runtime/venv/bin/python -c 'import site; print(site.getsitepackages()[0])')"
-  export PYTHONPATH="$repo_root/src:$formal_site${PYTHONPATH:+:$PYTHONPATH}"
+  formal_site="$($formal_python -c 'import site; print(site.getsitepackages()[0])')"
+  if ! mindmemos_source="$($formal_python -c 'from pathlib import Path; import mindmemos; print(Path(mindmemos.__file__).resolve().parent.parent)')"; then
+    printf 'Formal HomeMaster runtime cannot resolve MindMemOS. Run uv sync in the project environment.\n' >&2
+    exit 2
+  fi
+  if [[ ! -d "$mindmemos_source" ]]; then
+    printf 'Formal HomeMaster MindMemOS source is missing: %s\n' "$mindmemos_source" >&2
+    exit 2
+  fi
+  export PYTHONPATH="$repo_root/src:$formal_site:$mindmemos_source${PYTHONPATH:+:$PYTHONPATH}"
+  if ! "$python_path" -c 'import alfworld, ai2thor, homemaster, mindmemos' >/dev/null; then
+    printf 'ALFWorld runtime cannot import the complete HomeMaster benchmark dependency closure.\n' >&2
+    exit 2
+  fi
 fi
 
 export HOMEMASTER_CONFIG_PATH="$config_path"

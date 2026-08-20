@@ -1,5 +1,23 @@
 # Engineering Pitfalls
 
+## 2026-08-20 - 跨 venv 只加入 site-packages 不会执行 editable `.pth`
+
+### 症状与根因
+
+正式 launcher 已绑定独立 ALFWorld Python、config 和 dataset，THOR reset 也成功，但 canonical HomeMaster
+composition 启动 memory 时仍报 `ModuleNotFoundError: mindmemos`。正式 venv 可以 import MindMemOS，因为其
+site 初始化执行 editable `.pth` 并注册 import finder；把该 `site-packages` 路径放进另一个已启动解释器的
+`PYTHONPATH` 只增加普通搜索目录，不会重新处理其中的 `.pth`，所以 setup 的分环境 import 检查形成假阳性。
+
+### 修法与教训
+
+launcher 通过正式 Python import 并解析 MindMemOS 的真实源码根，把该根显式传给 ALFWorld Python，再由
+ALFWorld Python 一次性 import `alfworld`、`ai2thor`、`homemaster` 和 `mindmemos` 后才启动环境。跨 venv
+复用 editable 包时必须验证最终 consumer 的完整 import closure，不能用 producer venv 可导入或单独加入
+site-packages 代替。
+
+Ref：`scripts/homemaster`、`tests/homemaster/test_memory_runtime_setup.py`
+
 ## 2026-08-20 - ALFWorld 只绑定 Python，正式 benchmark 仍需服务器绝对资源路径
 
 ### 症状与根因

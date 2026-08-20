@@ -279,3 +279,79 @@ def test_launcher_keeps_runtime_preflight_out_of_machine_readable_stdout(
 
     assert completed.returncode == 0, completed.stderr
     assert json.loads(completed.stdout) == {"checks": [], "live": False}
+
+
+def test_alfworld_launcher_bridges_formal_editable_mindmemos_source(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "Homemaster"
+    scripts = repo / "scripts"
+    scripts.mkdir(parents=True)
+    source_launcher = Path(__file__).resolve().parents[2] / "scripts" / "homemaster"
+    launcher = scripts / "homemaster"
+    launcher.write_bytes(source_launcher.read_bytes())
+    launcher.chmod(0o755)
+    _private_config(repo / "config" / "homemaster.yaml")
+    runtime = repo / ".runtime"
+    runtime.mkdir()
+    formal_site = tmp_path / "formal-site"
+    mindmemos_source = tmp_path / "MindMemOS" / "src" / "mindmemos"
+    formal_site.mkdir()
+    mindmemos_source.mkdir(parents=True)
+    capture = tmp_path / "alfworld-capture.json"
+    probe = tmp_path / "alfworld-probe.txt"
+    formal_python = _executable(
+        tmp_path / "formal-python",
+        "#!/bin/sh\n"
+        "case \"$2\" in\n"
+        f"  *site.getsitepackages*) printf '%s\\n' {formal_site} ;;\n"
+        f"  *mindmemos.__file__*) printf '%s\\n' {mindmemos_source} ;;\n"
+        "  *) exit 3 ;;\n"
+        "esac\n",
+    )
+    alfworld_python = _executable(
+        tmp_path / "alfworld-python",
+        "#!/bin/sh\n"
+        f"if [ \"$1\" = \"-c\" ]; then printf '%s\\n' \"$2\" > {probe}; exit 0; fi\n"
+        "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then exit 0; fi\n"
+        f"printf '%s\\n' \"{{\\\"pythonpath\\\":\\\"$PYTHONPATH\\\","
+        f"\\\"args\\\":\\\"$*\\\"}}\" > {capture}\n",
+    )
+    formal_venv = tmp_path / "formal-venv"
+    alfworld_venv = tmp_path / "alfworld-venv"
+    formal_venv.joinpath("bin").mkdir(parents=True)
+    alfworld_venv.joinpath("bin").mkdir(parents=True)
+    formal_venv.joinpath("bin", "python").symlink_to(formal_python)
+    alfworld_venv.joinpath("bin", "python").symlink_to(alfworld_python)
+    (runtime / "venv").symlink_to(formal_venv)
+    (runtime / "alfworld-venv").symlink_to(alfworld_venv)
+    (runtime / "alfworld" / "configs").mkdir(parents=True)
+    (runtime / "alfworld" / "configs" / "base_config.yaml").write_text(
+        "env: {}\n", encoding="utf-8"
+    )
+    (runtime / "alfworld" / "data" / "json_2.1.1").mkdir(parents=True)
+
+    completed = subprocess.run(
+        [
+            str(launcher),
+            "benchmark-alfworld",
+            "--alfworld-root",
+            ".runtime/alfworld",
+            "--alfworld-config",
+            ".runtime/alfworld/configs/base_config.yaml",
+        ],
+        text=True,
+        capture_output=True,
+        env={**os.environ, "HOMEMASTER_SKIP_RUNTIME_CHECK": "1"},
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    recorded = json.loads(capture.read_text(encoding="utf-8"))
+    python_paths = recorded["pythonpath"].split(os.pathsep)
+    assert str(repo / "src") in python_paths
+    assert str(formal_site) in python_paths
+    assert str(mindmemos_source) in python_paths
+    assert "import alfworld, ai2thor, homemaster, mindmemos" in probe.read_text(
+        encoding="utf-8"
+    )

@@ -12,6 +12,9 @@
 - 可选 benchmark/runtime 的一次性部署绑定必须覆盖完整资源闭包：interpreter、依赖 import、config、dataset/
   assets 和外部服务逐项验证；只绑定 Python 环境不得宣称 ready。正式命令只能引用当前 checkout 的 ignored
   runtime binding，不能把旧 worktree 当资源目录。
+- 跨 venv 复用 editable 依赖时，不能假定把 producer 的 `site-packages` 加入 `PYTHONPATH` 会执行其中的
+  `.pth`。必须由 producer Python 解析真实源码根并显式传入，随后从最终 consumer Python 一次性 import 完整
+  依赖闭包；两个环境分别 import 成功不能替代组合边界验证。
 
 ## 外部向量终态验证纪律
 
