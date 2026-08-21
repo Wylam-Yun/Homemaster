@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- Fixed the Web Console silently completing a turn when a disconnected approval failed closed and the
+  runtime returned an `ask_user_question` prompt in `runtime.turn_completed.question`. The public projection
+  now emits that exact question as `answer.snapshot` before `run.completed`, while ordinary
+  `assistant.reply`/`final_reply` handling remains non-duplicating. A real four-approval Web protocol run
+  returned HTTP 200 for every decision and independently finished the fixed ALFWorld episode with
+  `won=true`, `done=true`, the statue still held, and zero invalid actions.
+
 ### Added
 
 - Added `homemaster serve --alfworld` so the existing React/FastAPI Web Console can run the configured

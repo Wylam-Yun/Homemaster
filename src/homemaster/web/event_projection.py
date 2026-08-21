@@ -60,6 +60,17 @@ class WebEventProjection:
                 )
             return ()
         if event.type == "runtime.turn_completed":
+            question = payload.get("question")
+            if isinstance(question, str) and question:
+                return (
+                    self._web_event(
+                        event,
+                        request_id,
+                        "answer.snapshot",
+                        {"text": question},
+                    ),
+                    self._web_event(event, request_id, "run.completed", {}),
+                )
             return (self._web_event(event, request_id, "run.completed", {}),)
         if event.type in {"runtime.turn_failed", "runtime.budget_exhausted"}:
             code = str(payload.get("error_code") or "run_failed")

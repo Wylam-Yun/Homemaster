@@ -72,6 +72,9 @@
 
 ## Gateway 远程边界纪律
 
+- Runtime terminal payload 中任何要求用户继续交互的语义字段（例如 `question`）都必须在 lifecycle terminal
+  前投影为浏览器可见事件；禁止只发空 `run.completed` 丢失内容。回归必须锁定可见事件原文与顺序，同时证明
+  ordinary reply/final 不重复。
 - Outbound-only WebSocket 必须同时等待发送队列和 ASGI receive/disconnect；不能靠下一次
   `send_json()` 才发现客户端已断开。回归必须覆盖连接后无新事件的 idle disconnect，并以单次正常信号后
   handler、lifespan、外部 worker/display 和 listener 全部消失且 stderr 无 traceback 为关闭门。

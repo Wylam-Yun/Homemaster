@@ -1,5 +1,26 @@
 # Engineering Pitfalls
 
+## 2026-08-21 - Runtime terminal question 未投影，审批断线后 Web 看起来一直没回
+
+### 症状与根因
+
+Web 消息已返回 HTTP 202，模型和工具 trace 也持续运行，但页面没有审批结果或最终回答。SSH 隧道断开使待审批
+Future 按设计 fail closed；模型随后调用 `ask_user_question`，Runtime 把问题写入
+`runtime.turn_completed.payload.question`。Web 投影却无条件把该事件压缩成空的 `run.completed`，既没有
+`answer.snapshot`，history 也没有 assistant 文本，因此页面只结束 loading 而不显示问题。已有测试只验证
+`final_reply` 不重复，漏掉了 terminal question 这一种真实停止语义。
+
+### 修法与教训
+
+`runtime.turn_completed` 携带非空 `question` 时，Web 投影先发 exact `answer.snapshot`，再发
+`run.completed`；普通 completion 仍只发 terminal，`final_reply` 继续由 `assistant.reply` 独占。回归锁定两条事件
+的顺序和原文。真环境通过同一 HTTP/WebSocket 协议连续接收并批准四个 `approval.requested`，每次审批 HTTP
+均为 200；随后独立读取 ALFWorld worker 状态，确认 `won=true`、`done=true`、库存持有 `statue 1` 且
+`invalid_action_count=0`。凡 Runtime terminal payload 含用户需要继续交互的语义字段，都必须显式投影并覆盖
+可见终态，不能把空 lifecycle terminal 当作完整回答。
+
+Ref：`src/homemaster/web/event_projection.py`、`tests/homemaster/web/test_event_projection.py`
+
 ## 2026-08-21 - 只发送不接收的 WebSocket 无法感知安静断开并阻塞服务关闭
 
 ### 症状与根因
