@@ -49,7 +49,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   真正返回 `requires_confirmation=True` 时的同消息卡片审批；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
 - **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
-  session 恢复、取消、危险操作审批与断线重连；默认且仅允许 loopback 绑定。
+  session 恢复、取消、危险操作审批与断线重连；`serve --alfworld` 复用同一 ALFWorld backend，
+  默认且仅允许 loopback 绑定。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
   tool/resource 调用全部落 JSONL audit。
 - **安全模型** — typed capability 权限、generation-aware 设备租约、带双重回执的急停（emergency stop）、
@@ -215,10 +216,14 @@ scripts/homemaster serve
 
 # 可改 loopback 地址和端口；0.0.0.0、LAN IP 与任意 hostname 会在 Runtime 构造前拒绝
 scripts/homemaster serve --host 127.0.0.1 --port 8765
+
+# 使用 config/homemaster.yaml 中的固定 ALFWorld episode；第一个 Web session 独占该 episode
+scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
 ```
 
 浏览器必须先建立当前 session 的 WebSocket，composer 才允许发送。危险工具在网页弹出一次性审批，
-Reject、断线、超时或进程关闭都 fail closed。完整开发、构建与使用说明见
+Reject、断线、超时或进程关闭都 fail closed。ALFWorld 模式继续使用同一个 `ApplicationRuntime`、
+`ToolExecutor -> PermissionChecker` 和 Web 审批协议，不是另一套前端执行器。完整开发、构建与使用说明见
 [Web Console 用户指南](docs/web-console-user-guide.md)。
 
 | 命令 | 说明 |

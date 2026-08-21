@@ -236,7 +236,7 @@ gateway:
     react_emoji: EYES
     attachment_root: ~/.homemaster/attachments/feishu
 
-# Optional fixed-episode ALFWorld mode for `homemaster --gateway --alfworld`.
+# Optional fixed-episode ALFWorld mode for Gateway or `homemaster serve --alfworld`.
 # These are placeholders only; put real paths in ignored config/homemaster.yaml.
 alfworld_gateway:
   asset_root: /replace/with/alfworld-assets

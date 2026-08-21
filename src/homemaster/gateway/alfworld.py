@@ -117,6 +117,12 @@ class AlfworldGatewayApplication:
     async def seal(self) -> None:
         await self._owner.seal()
 
+    async def aclose(self) -> None:
+        """Seal new ALFWorld claims before closing the shared application."""
+
+        await self.seal()
+        await self._application.aclose()
+
 
 class _AlfworldTerminalOwner:
     def __init__(self, adapter: AlfworldHttpEnvironment) -> None:

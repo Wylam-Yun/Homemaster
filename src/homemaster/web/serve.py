@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
+from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI
 
 from homemaster.cli.composition import create_home_application
+from homemaster.gateway.alfworld import (
+    AlfworldGatewayApplication,
+    create_alfworld_gateway_binding,
+)
 from homemaster.permissions import PermissionMode
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
@@ -47,12 +53,81 @@ def create_home_web_app() -> FastAPI:
     return app
 
 
-def run_web_server(*, host: str = "127.0.0.1", port: int = 8000) -> None:
+async def create_alfworld_web_app() -> FastAPI:
+    """Compose the Web Console around the existing fixed-episode ALFWorld adapter."""
+
+    confirmation_handler = WebConfirmationHandler()
+    bundle = create_home_application(
+        progress=False,
+        quiet=True,
+        console_show_replies=False,
+        tool_environment="alfworld",
+        permission_mode=PermissionMode.DEFAULT,
+        confirmation_handler=confirmation_handler,
+        publish_artifacts=True,
+    )
+    application = bundle.application
+    try:
+        binding, owner = await create_alfworld_gateway_binding(
+            bundle.config.alfworld_gateway,
+            run_dir=bundle.run_dir,
+            resource_scope=bundle.application.resource_scope,
+        )
+        application = AlfworldGatewayApplication(bundle.application, owner, binding)
+        app = create_web_app(
+            application=application,
+            confirmation_handler=confirmation_handler,
+        )
+    except BaseException:
+        await confirmation_handler.aclose()
+        await application.aclose()
+        raise
+    app.state.home_bundle = bundle
+    app.state.alfworld_application = application
+    return app
+
+
+async def _serve_web_server(
+    *,
+    host: str,
+    port: int,
+    environment: Literal["alfworld"] | None,
+) -> None:
+    if environment not in (None, "alfworld"):
+        raise ValueError(f"unsupported Web environment: {environment}")
+    app = (
+        await create_alfworld_web_app()
+        if environment == "alfworld"
+        else create_home_web_app()
+    )
+    try:
+        config = uvicorn.Config(app=app, host=host, port=port)
+        await uvicorn.Server(config).serve()
+    finally:
+        await app.state.aclose()
+
+
+def run_web_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    environment: Literal["alfworld"] | None = None,
+) -> None:
     """Validate the local bind before constructing any runtime resources."""
 
     validated_host = validate_bind_host(host)
-    app = create_home_web_app()
-    uvicorn.run(app, host=validated_host, port=port)
+    asyncio.run(
+        _serve_web_server(
+            host=validated_host,
+            port=port,
+            environment=environment,
+        )
+    )
 
 
-__all__ = ["create_home_web_app", "run_web_server", "validate_bind_host"]
+__all__ = [
+    "create_alfworld_web_app",
+    "create_home_web_app",
+    "run_web_server",
+    "validate_bind_host",
+]

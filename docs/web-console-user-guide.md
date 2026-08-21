@@ -17,6 +17,26 @@ scripts/homemaster serve
 scripts/homemaster serve --host 127.0.0.1 --port 8765
 ```
 
+固定 episode 的 ALFWorld 模式复用 Gateway 已有的 worker、tool profile 和 session owner：
+
+```bash
+scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
+```
+
+该模式要求 ignored `config/homemaster.yaml` 的 `alfworld_gateway` 已配置 `asset_root`、`data_root`、
+`config_path`、`python_executable` 和 `trial_manifest`。第一个执行任务的 Web session 独占 episode；其他
+session 会收到 `alfworld_session_busy`，重启服务才会创建全新 episode。每个会改变环境的
+`robot_go_to` / `robot_manipulate` 都经过现有审批框，Approve 恢复同一个被阻塞的 tool call，Reject 在
+backend 前失败关闭。
+
+从本机访问远端服务器时，保持服务绑定 loopback，并另开本机终端建立 tunnel：
+
+```bash
+ssh -N -L 8765:127.0.0.1:8765 hkust4
+```
+
+然后打开 `http://127.0.0.1:8765`。不要把未认证端口绑定到 `0.0.0.0`。
+
 当前版本没有认证，只允许 `127.0.0.0/8`、`::1` 或 `localhost`。`0.0.0.0`、LAN 地址和其他 hostname
 会在模型、工具和 Runtime 构造前直接失败。不要用端口转发把它公开到不可信网络；需要远程访问时应先在
 可信 reverse proxy 增加认证和 TLS。
@@ -56,5 +76,8 @@ npm run build
 - `event_stream_not_ready`：等待连接状态变成 connected 后再发消息。
 - `session_busy`：当前 session 已有 run，等待结束或点击 Stop。
 - `approval_not_found`：审批已解决、过期或因断线清理，刷新状态后重新发起任务。
+- `alfworld_session_busy`：固定 episode 已归另一个 Web session 所有；恢复原 session 或重启服务。
+- `ALFWorld Gateway requires configured paths`：补齐真实、ignored 的 `alfworld_gateway` 路径配置。
+- `display ... is not usable`：启用 `manage_xvfb` 并使用空闲 display，或为既有 Xvfb 正确提供授权。
 - 页面只显示旧资源：重新执行 `npm run build` 并刷新浏览器。
 - `/usr/bin/google-chrome` 缺失与 Web Console 服务本身无关；只有依赖远端浏览器环境的单独工具/基线需要它。

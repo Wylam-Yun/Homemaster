@@ -54,6 +54,19 @@ def create_web_app(
         run_registry,
         WebEventProjection(include_thinking=True),
     )
+    close_lock = asyncio.Lock()
+    closed = False
+
+    async def close_resources() -> None:
+        nonlocal closed
+        async with close_lock:
+            if closed:
+                return
+            await confirmation_handler.aclose()
+            await run_registry.aclose()
+            await hub.aclose()
+            await application.aclose()
+            closed = True
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -62,16 +75,14 @@ def create_web_app(
         try:
             yield
         finally:
-            await confirmation_handler.aclose()
-            await run_registry.aclose()
-            await hub.aclose()
-            await application.aclose()
+            await close_resources()
 
     app = FastAPI(title="HomeMaster Web Console", lifespan=lifespan)
     app.state.application = application
     app.state.confirmation_handler = confirmation_handler
     app.state.run_registry = run_registry
     app.state.event_hub = hub
+    app.state.aclose = close_resources
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: object, exc: RequestValidationError) -> JSONResponse:
@@ -265,9 +276,7 @@ def create_web_app(
         queue = await hub.subscribe(session_id)
         await websocket.accept()
         try:
-            while True:
-                event = await queue.get()
-                await websocket.send_json(event.to_dict())
+            await _stream_events(websocket, queue)
         except WebSocketDisconnect:
             pass
         finally:
@@ -280,6 +289,36 @@ def create_web_app(
 
     mount_web_static(app)
     return app
+
+
+async def _stream_events(
+    websocket: WebSocket,
+    queue: asyncio.Queue[WebEvent],
+) -> None:
+    """Forward events while independently observing an idle client disconnect."""
+
+    event_task = asyncio.create_task(queue.get())
+    receive_task = asyncio.create_task(websocket.receive())
+    try:
+        while True:
+            done, _pending = await asyncio.wait(
+                (event_task, receive_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if receive_task in done:
+                message = receive_task.result()
+                if message.get("type") == "websocket.disconnect":
+                    return
+                receive_task = asyncio.create_task(websocket.receive())
+            if event_task in done:
+                event = event_task.result()
+                await websocket.send_json(event.to_dict())
+                event_task = asyncio.create_task(queue.get())
+    finally:
+        for task in (event_task, receive_task):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(event_task, receive_task, return_exceptions=True)
 
 
 async def _run_and_report_prestart_failure(

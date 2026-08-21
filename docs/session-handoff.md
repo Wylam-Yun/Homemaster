@@ -1,5 +1,25 @@
 # Session Handoff
 
+## Web ALFWorld Serve (2026-08-21)
+
+- `homemaster serve --alfworld` now registers the ALFWorld profile, starts the configured fixed-episode worker,
+  wraps the shared application with `AlfworldGatewayApplication`, and keeps the existing Web approval protocol.
+  Ordinary `serve` remains loopback-only and unchanged.
+- hkust4 real run `run-d28943a728f9` used the public Web session/message/WebSocket/approval/artifact APIs. Five
+  mutating tool calls each produced an exact approval ID and returned HTTP 200/approved before execution. The run
+  completed the statue/floorlamp goal. An independent authenticated `/v1/state` read returned state sequence 6,
+  `won=true`, `done=true`, inventory `statue 1`, and invalid-action count 0. All five public 300x300 PNG artifacts
+  independently decoded nonblank and matched their event hash and `X-Content-SHA256`.
+- A first run with shared production memory was correctly not counted as success: a recalled peppershaker task
+  caused model goal drift and exhausted the tool budget. The successful deterministic demonstration disabled memory
+  only in the already-loaded process configuration; the ignored canonical config was restored immediately after
+  startup.
+- Live shutdown exposed and fixed an outbound-only WebSocket leak. After the fix, an idle client disconnect followed
+  by one SIGINT completed application shutdown with no traceback; the exact HomeMaster, worker, Unity, Xvfb, display
+  lock, and port listener all disappeared.
+- The persistent hkust4 ignored `config/homemaster.yaml` now points `alfworld_gateway` at the existing
+  `.runtime/alfworld`, `.runtime/alfworld-venv`, one-trial statue manifest, and application-managed display `:120`.
+
 ## Permission Approval Handoff (2026-08-20)
 
 ### User Decision

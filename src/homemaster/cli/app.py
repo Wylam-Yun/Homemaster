@@ -360,11 +360,22 @@ def serve_command(
         int,
         typer.Option("--port", min=1, max=65535, help="Local Web Console port."),
     ] = 8000,
+    alfworld: Annotated[
+        bool,
+        typer.Option(
+            "--alfworld",
+            help="Use the configured fixed ALFWorld environment in the Web Console.",
+        ),
+    ] = False,
 ) -> None:
     """Run the loopback-only HomeMaster Web Console."""
 
     try:
-        run_web_server(host=host, port=port)
+        run_web_server(
+            host=host,
+            port=port,
+            environment="alfworld" if alfworld else None,
+        )
     except ValueError as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=2) from exc

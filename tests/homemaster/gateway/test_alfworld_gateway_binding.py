@@ -15,6 +15,7 @@ from homemaster.gateway.alfworld import (
 class _Application:
     def __init__(self) -> None:
         self.requests: list[RunRequest] = []
+        self.close_count = 0
 
     async def run(self, request: RunRequest) -> RunResult:
         self.requests.append(request)
@@ -28,6 +29,9 @@ class _Application:
 
     def cancel(self, _session_id: str) -> bool:
         return True
+
+    async def aclose(self) -> None:
+        self.close_count += 1
 
 
 def _binding():
@@ -74,6 +78,20 @@ async def test_session_owner_retains_owner_allows_resume_and_seals_on_close() ->
     assert first.status == resumed.status == RunStatus.REPLIED
     assert after_close.error_code == "alfworld_session_busy"
     assert [request.session_id for request in application.requests] == ["same", "same"]
+
+
+@pytest.mark.asyncio
+async def test_application_close_seals_new_runs_before_delegating_cleanup() -> None:
+    application = _Application()
+    owner = AlfworldSessionOwner()
+    wrapped = AlfworldGatewayApplication(application, owner, _binding())
+
+    await wrapped.aclose()
+    result = await wrapped.run(RunRequest(text="late", session_id="session"))
+
+    assert application.close_count == 1
+    assert result.error_code == "alfworld_session_busy"
+    assert application.requests == []
 
 
 @pytest.mark.asyncio

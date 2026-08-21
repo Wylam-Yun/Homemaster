@@ -252,6 +252,18 @@ venv，并从源码 checkout 外使用 `importlib.resources` 读取文件；源�
 
 ## Gateway、Channel 与公共事件流
 
+Web Console 与 CLI/Gateway 共享同一个 composition root，而不是在 React 中复制工具能力。普通
+`homemaster serve` 组合 `local_robot` Registry；`homemaster serve --alfworld` 组合 `alfworld`
+Registry，异步创建现有 `AlfworldGatewayBinding`，再用 `AlfworldGatewayApplication` 给每个 Web
+`RunRequest` 固化 `profile="alfworld"`、environment 和 dependencies。Web 的
+`web-local-operator` 不含 `tool.auto`，因此同一 `ToolExecutor -> PermissionChecker` 在 backend 前把
+mutating tool call 交给 `WebConfirmationHandler`；React 只渲染/解决 opaque approval ID。
+
+ALFWorld worker、Unity 和可选 Xvfb 均绑定 application resource scope。Web app 暴露一个幂等 close owner，
+FastAPI lifespan 与 Uvicorn 启动失败兜底共用它。事件 WebSocket 同时等待 outbound queue 和客户端
+disconnect，避免安静断开的浏览器永久卡住 shutdown；关闭先封住新的 ALFWorld session claim，再清 pending
+approval/run/event hub，最后逆序关闭 worker 和 display。固定 episode 仍只允许首个 Web session owner。
+
 ```text
 Feishu SDK WebSocket subprocess
   -> typed IPC event envelope

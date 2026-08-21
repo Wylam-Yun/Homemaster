@@ -1,5 +1,25 @@
 # Engineering Pitfalls
 
+## 2026-08-21 - 只发送不接收的 WebSocket 无法感知安静断开并阻塞服务关闭
+
+### 症状与根因
+
+Web 任务、审批和 ALFWorld 外部终态全部成功，客户端也已退出，但一次 SIGINT 后 Uvicorn 长期停在
+`Waiting for background tasks to complete`；listener 已关闭，worker、Unity 和 Xvfb 却仍存活。WebSocket
+handler 只在 `queue.get()` 后调用 `send_json()`，从不读取 ASGI receive channel。客户端在没有下一条事件时
+断开，服务端就永远收不到 `websocket.disconnect`，因此 handler 和整个 lifespan 都不能结束。单测只覆盖了
+有事件可发送的连接，形成了关闭假阳性。
+
+### 修法与教训
+
+每个 outbound WebSocket handler 同时创建事件队列 waiter 和 `websocket.receive()` waiter，以
+`FIRST_COMPLETED` 竞争；disconnect 立即退出，普通客户端帧重建 receive waiter，事件发送后重建 queue
+waiter，finally 取消并 join 两者。回归必须覆盖“连接后没有任何新事件就断开”，真环境再用一次 SIGINT
+逐个断言主进程、worker、Unity、Xvfb、display lock 和 listener 全部消失且 stderr 无 traceback。只看连接
+关闭、listener 消失或第二次强制信号退出都不能算 graceful shutdown。
+
+Ref：`src/homemaster/web/app.py`、`tests/homemaster/web/test_app.py`
+
 ## 2026-08-21 - 正常省略历史图片被误当成请求变异，视觉 Provider 超时不重试
 
 ### 症状与根因

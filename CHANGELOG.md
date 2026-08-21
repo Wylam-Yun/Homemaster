@@ -4,6 +4,14 @@
 
 ### Added
 
+- Added `homemaster serve --alfworld` so the existing React/FastAPI Web Console can run the configured
+  fixed ALFWorld episode through the same application wrapper, tool profile, environment dependencies,
+  session owner, `ToolExecutor -> PermissionChecker`, and one-shot Web approval Future as other entries.
+  Ordinary `serve` remains unchanged and loopback-only. A real Web HTTP/WebSocket run approved five
+  independently correlated mutations, completed the statue/floorlamp task, and the authenticated worker
+  state endpoint independently returned `won=true`, `done=true`, the held statue, and zero invalid actions;
+  five public PNG artifacts independently decoded nonblank with matching response, event, and byte hashes.
+
 - Added exact Feishu tool-confirmation cards for permission decisions that return
   `requires_confirmation=True`. One application-owned handler now binds an opaque approval to the requester,
   source chat, original card message, session, and Gateway generation; deny, timeout, cancellation, session
@@ -106,6 +114,11 @@
   (`context_memory`, `mindmemos_search/history/add/update/delete/feedback`).
 
 ### Fixed
+
+- Fixed idle browser disconnects leaving outbound-only WebSocket handlers blocked forever on the event
+  queue. The stream now races event delivery with the ASGI receive channel and always cancels/joins the
+  losing waiter. A real idle disconnect followed by one `SIGINT` completed FastAPI, ALFWorld worker, Unity,
+  Xvfb, display-lock, and listener cleanup without a traceback.
 
 - Fixed the portable ALFWorld launcher failing at real memory startup when MindMemOS is installed editable in the
   formal HomeMaster environment. The launcher now resolves that source root through the bound formal Python, adds it

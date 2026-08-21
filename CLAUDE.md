@@ -72,6 +72,9 @@
 
 ## Gateway 远程边界纪律
 
+- Outbound-only WebSocket 必须同时等待发送队列和 ASGI receive/disconnect；不能靠下一次
+  `send_json()` 才发现客户端已断开。回归必须覆盖连接后无新事件的 idle disconnect，并以单次正常信号后
+  handler、lifespan、外部 worker/display 和 listener 全部消失且 stderr 无 traceback 为关闭门。
 - 浏览器 clipboard 回填成功必须验证目标内容与发送字节完全一致，并在回执中核对两侧 SHA-256；
   `preventDefault`、clipboard item 数量或任意 DOM 变化都不能单独证明回填成功。对抗测试必须覆盖
   “接受 paste 并显示错误状态、但未生成目标内容”的控件。

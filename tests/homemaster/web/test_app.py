@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.web.app import (
     _deny_approvals_without_subscriber,
     _run_and_report_prestart_failure,
+    _stream_events,
     create_web_app,
 )
 from homemaster.web.confirmations import WebConfirmationHandler
@@ -23,6 +25,7 @@ class _FakeApplication:
         self.session_manager = SessionManager()
         self.run_requests: list[RunRequest] = []
         self.closed = False
+        self.close_count = 0
 
     async def run(self, request: RunRequest):
         self.run_requests.append(request)
@@ -72,6 +75,7 @@ class _FakeApplication:
 
     async def aclose(self) -> None:
         self.closed = True
+        self.close_count += 1
         await self.event_bus.aclose()
 
 
@@ -147,6 +151,38 @@ async def test_disconnect_denies_approvals_only_after_last_subscriber_leaves() -
     )
 
     assert denied == [("session-01", "disconnected")]
+
+
+@pytest.mark.asyncio
+async def test_public_web_close_hook_is_idempotent() -> None:
+    application = _FakeApplication()
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+
+    await app.state.aclose()
+    await app.state.aclose()
+
+    assert application.close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_idle_websocket_disconnect_stops_event_stream_without_an_event() -> None:
+    websocket = SimpleNamespace(
+        receive=lambda: _disconnect_message(),
+        send_json=lambda _payload: _unexpected_send(),
+    )
+
+    await asyncio.wait_for(_stream_events(websocket, asyncio.Queue()), timeout=1)
+
+
+async def _disconnect_message() -> dict[str, str]:
+    return {"type": "websocket.disconnect"}
+
+
+async def _unexpected_send() -> None:
+    raise AssertionError("an idle disconnect must not send an event")
 
 
 async def _record_denial(items, session_id: str, outcome: str) -> int:
