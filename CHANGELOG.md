@@ -45,7 +45,8 @@
 
 - Defined the Web inline-image artifact design: authorized `image/*` artifacts stay inside their producing
   tool card, open in an accessible viewport-bounded lightbox, retain an original-artifact link, and fall back
-  to the existing link row on load failure. The design changes no backend protocol or artifact authorization.
+  to the existing link row on load failure. Added the task-level TDD, packaging, documentation, and real
+  ALFWorld/browser verification plan. The design changes no backend protocol or artifact authorization.
 
 - Defined the Web ALFWorld composition contract and implementation plan so
   `homemaster serve --alfworld` reuses the existing ALFWorld application wrapper, shared
