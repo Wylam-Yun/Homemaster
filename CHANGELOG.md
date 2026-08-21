@@ -26,6 +26,12 @@
 
 ### Documentation
 
+- Defined the Web ALFWorld composition contract and implementation plan so
+  `homemaster serve --alfworld` reuses the existing ALFWorld application wrapper, shared
+  `ApplicationRuntime`, permission gate, and Web approval protocol instead of creating a
+  transport-specific execution path. The plan preserves loopback binding and fixed-episode
+  single-session ownership, and requires a real `won=true` browser approval gate before release.
+
 - Documented the approved unbounded Dreaming wait design: HomeMaster will stop cancelling consolidation at a fixed
   wall-clock deadline, retain durable pending/recovery state and explicit cancellation semantics, and verify the
   external finalization terminal without changing unrelated Provider, Agent, benchmark, or tool timeouts.
