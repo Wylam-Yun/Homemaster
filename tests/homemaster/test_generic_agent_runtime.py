@@ -163,12 +163,14 @@ class AuditedRetryTransport:
         partial_delta: bool = False,
         reasoning_delta: bool = False,
         change_retry_hash: bool = False,
+        stripped_images: bool = False,
     ) -> None:
         self.first_error = first_error
         self.fail_attempts = fail_attempts
         self.partial_delta = partial_delta
         self.reasoning_delta = reasoning_delta
         self.change_retry_hash = change_retry_hash
+        self.stripped_images = stripped_images
         self.call_count = 0
         self.key_indices: list[int] = []
         self.attempt_ids: list[str] = []
@@ -218,7 +220,7 @@ class AuditedRetryTransport:
                     model_attempt_id=model_attempt_id,
                     request_sha256=request_sha256,
                     outbound_images=(),
-                    stripped_images=False,
+                    stripped_images=self.stripped_images,
                     response_completed=False,
                     error_type=error_type,
                     cause_code=cause_code,
@@ -230,7 +232,7 @@ class AuditedRetryTransport:
                 model_attempt_id=model_attempt_id,
                 request_sha256=request_sha256,
                 outbound_images=(),
-                stripped_images=False,
+                stripped_images=self.stripped_images,
                 response_completed=True,
                 error_type=None,
                 cause_code=None,
@@ -927,6 +929,30 @@ def test_runtime_retries_one_frozen_retryable_provider_attempt() -> None:
     assert len(sinks) == 2
     assert sinks[0].records[0].response_completed is False
     assert sinks[1].records[0].response_completed is True
+    assert sum(event.type == "transport.request_retrying" for event in result.events) == 1
+
+
+def test_runtime_retries_frozen_request_when_transport_omits_historical_images() -> None:
+    transport = AuditedRetryTransport(
+        first_error=LLMNetworkError(
+            error_type="network_error",
+            message="connection reset",
+            cause_code="transient_network",
+        ),
+        stripped_images=True,
+    )
+    runtime = AgentRuntime(
+        transport=transport,
+        tool_executor=FakeToolExecutor(),
+        max_tool_iterations=1,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+
+    result = asyncio.run(runtime.run(AgentSession(session_id="stripped-images-retry"), "hello"))
+
+    assert result.status == "replied"
+    assert transport.call_count == 2
+    assert transport.request_hashes[0] == transport.request_hashes[1]
     assert sum(event.type == "transport.request_retrying" for event in result.events) == 1
 
 

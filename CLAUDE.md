@@ -274,6 +274,10 @@
 
 ## Provider 外部门纪律
 
+- Provider 重试以第一次最终 serialized request body 为唯一真理源：先冻结 body 和 hash，之后只允许逐字节
+  相同且尚无可见正文、工具调用或外部副作用的请求重试。transport 确定性省略历史媒体不等于重试修改请求，
+  不得再用上游 message 与最终 body 的结构差异设置重复禁令；当前媒体是否进入 body 必须在首次发送前独立验证。
+
 - 同一 update surface 覆盖文本与 Schema 记忆时，必须先读取旧 raw record 再按权威结构字段分流：结构字段
   不存在才允许文本原地更新，存在且合法则同步正文、完整结构 metadata、向量和图关系，存在但损坏必须
   fail closed。禁止用 content-only update 修改含结构副本的记录，也禁止为已经完整校验的 replacement record

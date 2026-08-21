@@ -1,5 +1,24 @@
 # Engineering Pitfalls
 
+## 2026-08-21 - 正常省略历史图片被误当成请求变异，视觉 Provider 超时不重试
+
+### 症状与根因
+
+多轮 ALFWorld 视觉请求已冻结最终 body、尚未收到任何 delta，也没有提交工具或外部动作，但 60 秒网络超时后
+直接终止，没有 `transport.request_retrying`。Anthropic transport 正常只发送最新截图，把旧截图替换成文本；
+attempt recorder 因上游 messages 仍含旧图而标记 `stripped_images=true`，runtime 又把该审计标志当作请求在重试
+期间被修改的证据，一刀切禁止重试。单测分别覆盖了历史图省略和普通冻结请求重试，却漏了二者组合边界。
+
+### 修法与教训
+
+重试只以第一次最终 serialized body 及其 hash 为准；body 已冻结且重试 hash 相同，正常省略历史图不会改变请求
+语义。继续禁止已完成响应、可见正文/工具 delta、assistant/tool/external commit 和 hash 漂移；当前截图进入最终
+body 在首次发送前验证，不用 `stripped_images` 重复做代理安全门。跨层策略必须补组合回归，不能把两个各自通过
+的单测当成边界已覆盖。
+
+Ref：`src/homemaster/agent/generic_runtime.py`、`src/homemaster/providers/llm_client.py`、
+`src/homemaster/providers/transports/anthropic.py`、`tests/homemaster/test_generic_agent_runtime.py`
+
 ## 2026-08-21 - 取消 `asyncio.to_thread` awaitable 不会停止已经开始的外部调用
 
 ### 症状与根因

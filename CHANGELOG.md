@@ -41,6 +41,11 @@
 
 ### Changed
 
+- Allowed frozen Provider requests to retry after transports deterministically omit historical images. Retry safety
+  continues to require an incomplete response, no visible non-reasoning delta or committed assistant/tool/external
+  action, and an identical serialized request hash; normal historical-image omission no longer disables retries for
+  later visual turns.
+
 - Removed HomeMaster's fixed 300-second Dreaming cancellation. Session finalization now waits for the native
   consolidation pipeline's real terminal result while preserving explicit caller cancellation, durable pending/startup
   recovery, terminal verification, and duration events; unrelated Agent, Provider, benchmark, and tool timeouts remain

@@ -107,7 +107,7 @@ error, terminal, classification, score_eligible, detail
 
 `LLMClient` 每次调用只选择一个 key、发送一个请求并产生一个 `ProviderAttemptRecord`；它不内部轮换 key，也不删除图片后重试。GenericRuntime 在 provider 请求真正开始、且尚未产生可见正文、工具调用或提交副作用时，最多执行 8 次总请求。第一次失败后立即重试，之后等待 3、6、12、24、48、96 秒再重试。
 
-重试前要求 assistant/tool/external 三个 commit flag 都为 false，且每次请求的 serialized hash 与第一次完全相同。每次 attempt 有独立 ID 和 call-scoped sink。没有真正发出 provider 请求的本地错误、partial delta、已完成响应、图片剥离、请求 hash 漂移或 run deadline 到期均不重试。
+重试前要求 assistant/tool/external 三个 commit flag 都为 false，且每次请求的 serialized hash 与第一次完全相同。每次 attempt 有独立 ID 和 call-scoped sink。transport 确定性省略历史图片不阻止冻结请求重试；当前图片是否进入最终 body 在首次发送前独立验证。没有真正发出 provider 请求的本地错误、可见正文或工具 partial delta、已完成响应、请求 hash 漂移或 run deadline 到期均不重试。
 
 ## Runner、Taskset 与计数
 

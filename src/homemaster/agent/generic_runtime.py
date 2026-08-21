@@ -1248,7 +1248,7 @@ def _provider_retry_allowed(
         )
     ):
         return False
-    if attempt.response_completed or attempt.stripped_images:
+    if attempt.response_completed:
         return False
     failure = (error.error_type, error.cause_code)
     return (attempt.error_type, attempt.cause_code) == failure
