@@ -294,7 +294,10 @@ ToolExecutor、GatewayRuntime 与 FeishuChannel。每次 inbound 在 `bridge.han
 `SENDING -> WAITING -> TERMINAL`；发送和等待共用一个 absolute deadline，只有 confirmed-success 且恰好一个
 非空 message ID 才进入 WAITING。回调必须同时匹配 opaque approval ID、请求者、源 chat、原卡片 message、
 session 和 generation。handler 是终态卡片的唯一 owner；deny/timeout/cancel/session replacement/shutdown
-均先锁定 fail-closed 决定再 best-effort patch 同一张卡片。callback packet 不进入普通 inbound bus，确认事件
+均先锁定 fail-closed 决定再 best-effort patch 同一张卡片。`asyncio.to_thread` REST send 超时后仍保留真实
+task owner；晚到成功 receipt 会按唯一 message ID reconciliation 为 expired/closed，close 在同一 hard
+deadline 内等待该 tracked task，未完成返回 false 且后续 close 继续等待。requested/completed audit 也受确认
+deadline 约束，阻塞或失败不改变锁定决定。callback packet 不进入普通 inbound bus，确认事件
 虽可公开投影但 egress 明确跳过，因此不会产生第二条消息、模型 turn 或工具调用。当前 trusted
 `feishu-owner` 具有 `tool.auto`，正式策略不会自然产生 `requires_confirmation=True`。安全 live harness 已对
 两张卡取得 send/patch/message-get 业务 `code=0`，并逐卡读回无 action 的 terminal content；运行中的旧
