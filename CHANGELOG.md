@@ -13,6 +13,14 @@
 
 ### Added
 
+- Added inline Web previews for authorized `image/*` tool artifacts. Each image stays inside its producing tool
+  card, opens in a keyboard-accessible viewport-bounded lightbox, restores focus on close, retains an original
+  artifact link, and falls back to the same authorized link when either image load fails. Non-image artifacts and
+  the backend artifact protocol remain unchanged. A real Chrome/ALFWorld run rendered six inline 300x300 PNGs,
+  verified Escape/backdrop/button close behavior at desktop and 375px mobile widths, read the artifact with HTTP
+  200 and nonblank pixels, and independently finished with worker `won=true`, held `statue 1`, and zero invalid
+  actions.
+
 - Added `homemaster serve --alfworld` so the existing React/FastAPI Web Console can run the configured
   fixed ALFWorld episode through the same application wrapper, tool profile, environment dependencies,
   session owner, `ToolExecutor -> PermissionChecker`, and one-shot Web approval Future as other entries.

@@ -7,7 +7,7 @@
 .card details { border-top: 1px solid var(--border); padding: .5rem .85rem; color: var(--muted); }
 .card pre { overflow: auto; margin: .5rem 0 0; font-size: .8rem; white-space: pre-wrap; }
 .output { border-top: 1px solid var(--border); padding: .75rem .85rem; color: var(--text); }
-.artifacts { margin: 0; padding: .6rem .85rem; border-top: 1px solid var(--border); list-style: none; }
-.artifacts li { display: flex; justify-content: space-between; gap: 1rem; }
-.artifacts small { color: var(--muted-2); }
-.artifacts a { color: var(--accent); }
+.artifacts { margin: 0; padding: 0; border-top: 1px solid var(--border); list-style: none; }
+.artifactRow { display: flex; justify-content: space-between; gap: 1rem; padding: .6rem .85rem; }
+.artifactRow small { color: var(--muted-2); }
+.artifactRow a { color: var(--accent); }

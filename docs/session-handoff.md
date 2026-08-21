@@ -2,6 +2,12 @@
 
 ## Web ALFWorld Serve (2026-08-21)
 
+- Inline image artifacts are implemented on `mindmem`: `image/*` refs render in their producing tool card and open
+  in a focus-restoring lightbox; non-images and failures retain the authorized link. Frontend tests/typecheck/build
+  and the Python Web suite pass. A real Chrome run rendered six 300x300 PNGs, verified desktop/mobile geometry and
+  all three close mechanisms, read nonblank bytes through HTTP 200, and independently reached ALFWorld `won=true`
+  while holding `statue 1` with zero invalid actions. The shipped demo should be reset to a fresh episode after
+  delivery so the next browser session can exercise the same approval and image flow.
 - `homemaster serve --alfworld` now registers the ALFWorld profile, starts the configured fixed-episode worker,
   wraps the shared application with `AlfworldGatewayApplication`, and keeps the existing Web approval protocol.
   Ordinary `serve` remains loopback-only and unchanged.

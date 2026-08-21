@@ -49,8 +49,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   真正返回 `requires_confirmation=True` 时的同消息卡片审批；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
 - **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
-  session 恢复、取消、危险操作审批与断线重连；`serve --alfworld` 复用同一 ALFWorld backend，
-  默认且仅允许 loopback 绑定。
+  session 恢复、取消、危险操作审批与断线重连；图片 artifact 在对应工具卡片内预览并可点击放大，
+  `serve --alfworld` 复用同一 ALFWorld backend，默认且仅允许 loopback 绑定。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
   tool/resource 调用全部落 JSONL audit。
 - **安全模型** — typed capability 权限、generation-aware 设备租约、带双重回执的急停（emergency stop）、

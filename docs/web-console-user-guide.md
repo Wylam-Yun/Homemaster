@@ -46,8 +46,9 @@ ssh -N -L 8765:127.0.0.1:8765 hkust4
 - 左栏创建、选择和恢复 session；移动端通过左上角按钮打开 session side sheet。
 - 连接状态为 `connected` 后才能发送；重连期间可以阅读，但 composer 禁止发送。
 - Thinking 默认折叠，首个 reasoning delta 到达就出现；展开后查看完整流，snapshot 会校准最终文本。
-- 每个工具调用按 `tool_call_id` 独立显示参数、结果、错误和 artifact；artifact 下载仍校验
-  tenant/session/run 分区和 opaque handle。
+- 每个工具调用按 `tool_call_id` 独立显示参数、结果、错误和 artifact。`image/*` artifact 直接显示在
+  对应工具卡片内，点击图片可放大；关闭按钮、`Esc` 或点击遮罩可退出，`Open original` 保留原图入口。
+  图片加载失败和非图片 artifact 继续显示授权链接；所有读取仍校验 tenant/session/run 分区和 opaque handle。
 - Stop 请求 Runtime 取消当前 session run。
 - 危险操作显示一次性审批框。Reject 不调用工具 backend；重复、过期或已消费的 approval ID 会失败。
 - WebSocket 最后一个订阅者断开、run 取消、超时或服务关闭时，pending approval fail closed。
