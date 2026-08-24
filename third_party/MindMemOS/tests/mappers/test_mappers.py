@@ -11,6 +11,7 @@ from mindmemos.mappers import (
     to_add_record_point,
     to_db_write_primitives,
     to_memory_point,
+    to_memory_view,
     to_search_hit,
     to_search_record_point,
 )
@@ -74,6 +75,23 @@ def make_memory_write(*, project_id: str = "proj-1") -> MemoryWrite:
         entity_type="database",
         metadata={"quality_score": 0.8},
     )
+
+
+def test_memory_view_preserves_status_changed_at() -> None:
+    changed = datetime(2026, 8, 24, 8, 30, tzinfo=UTC)
+
+    view = to_memory_view(
+        {
+            "memory_id": "memory-01",
+            "project_id": "local",
+            "content": "archived content",
+            "mem_type": "fact",
+            "status": "archived",
+            "status_changed_at": changed.isoformat(),
+        }
+    )
+
+    assert view.status_changed_at == changed
 
 
 def test_request_context_and_service_add_input_use_shared_contracts() -> None:

@@ -609,6 +609,7 @@ class MemoryView(BaseModel):
     validate_to: datetime | None = None
     created_at: datetime | None = None
     update_at: datetime | None = None
+    status_changed_at: datetime | None = None
 
 
 class EntityView(BaseModel):

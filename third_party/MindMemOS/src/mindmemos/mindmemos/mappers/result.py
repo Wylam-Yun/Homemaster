@@ -121,6 +121,7 @@ def to_memory_view(payload: dict[str, Any]) -> MemoryView:
         validate_to=_dt_from_payload(payload.get("validate_to")),
         created_at=_dt_from_payload(payload.get("created_at")),
         update_at=_dt_from_payload(payload.get("update_at")),
+        status_changed_at=_dt_from_payload(payload.get("status_changed_at")),
     )
 
 
