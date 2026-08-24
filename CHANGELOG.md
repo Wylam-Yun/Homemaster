@@ -13,6 +13,8 @@
 
 ### Added
 
+- Added a Chinese, read-only Web memory management page with dynamic active, archived, total, and source-session counts; exact `session_id` grouping; collapsible session groups and history; search and native-type filtering; safe detail projection; and lazy version history. The application now cursor-reads every MindMemOS page, preserves archive timestamps, reads historical session titles without resuming runtimes, and explicitly injects one tenant-scoped read service into both Home and ALFWorld Web compositions. No memory mutation route or control is exposed.
+
 - Added inline Web previews for authorized `image/*` tool artifacts. Each image stays inside its producing tool
   card, opens in a keyboard-accessible viewport-bounded lightbox, restores focus on close, retains an original
   artifact link, and falls back to the same authorized link when either image load fails. Non-image artifacts and
