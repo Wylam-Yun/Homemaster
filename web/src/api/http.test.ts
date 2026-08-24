@@ -32,4 +32,27 @@ describe('HomeMasterApi', () => {
       new HttpError(409, 'session_busy', 'busy', true),
     )
   })
+
+  it('reads memory snapshots and encoded history ids', async () => {
+    const snapshot = {
+      stats: { active_count: 1, archived_count: 0, total_count: 1, session_group_count: 1 },
+      groups: [],
+    }
+    const history = { memory_id: 'memory/01', versions: [] }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(snapshot), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(history), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HomeMasterApi()
+
+    await expect(api.memories()).resolves.toEqual(snapshot)
+    await expect(api.memoryHistory('memory/01')).resolves.toEqual(history)
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/memories', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/memories/memory%2F01/history',
+      expect.anything(),
+    )
+  })
 })
