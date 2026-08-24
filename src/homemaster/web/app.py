@@ -77,8 +77,9 @@ def create_web_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app
-        await hub.start()
         try:
+            await application.start()
+            await hub.start()
             yield
         finally:
             await close_resources()

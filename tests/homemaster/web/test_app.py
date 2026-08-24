@@ -32,8 +32,12 @@ class _FakeApplication:
         self.event_bus = EventBus()
         self.session_manager = SessionManager()
         self.run_requests: list[RunRequest] = []
+        self.started = False
         self.closed = False
         self.close_count = 0
+
+    async def start(self) -> None:
+        self.started = True
 
     async def run(self, request: RunRequest):
         self.run_requests.append(request)
@@ -222,6 +226,17 @@ async def test_public_web_close_hook_is_idempotent() -> None:
     await app.state.aclose()
 
     assert application.close_count == 1
+
+
+def test_web_lifespan_starts_application_before_serving() -> None:
+    application = _FakeApplication()
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+
+    with TestClient(app):
+        assert application.started is True
 
 
 @pytest.mark.asyncio
