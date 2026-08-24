@@ -53,6 +53,9 @@
 
 ### Documentation
 
+- Recorded the Ops Monitor Agent browser handoff, including the confirmed generic Browser Gateway
+  route, current Ant Design control blockers, and the required browser-tool and mock-state follow-up.
+
 - Defined the Web inline-image artifact design: authorized `image/*` artifacts stay inside their producing
   tool card, open in an accessible viewport-bounded lightbox, retain an original-artifact link, and fall back
   to the existing link row on load failure. Added the task-level TDD, packaging, documentation, and real
