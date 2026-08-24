@@ -52,16 +52,22 @@ HomeMaster 当前的 React Web Console 只提供对话、会话恢复、实时�
 - 从 authoritative tenant/project scope 构造 MindMemOS request context；
 - 遍历底层 cursor，完整读取 active 与 archived `MemoryView`；
 - 保留 `session_id`，解析安全的结构化 record，并提取归档原因；
-- 通过现有 SessionManager 的只读会话存储读取第一条用户消息；
+- 通过 SessionManager 的纯读取边界取得第一条用户消息；
 - 生成统计、稳定排序、分组标题和详情 DTO；
 - 读取准确 memory ID 的既有版本历史；
 - 对损坏或缺失数据做单条降级，不让一条坏记录击穿整页。
 
 `EmbeddedMindMemOS` 应新增正式、只读的管理查询方法，由该类内部使用其 reader。任何上层代码都不得读取 `_reader`、`_qdrant` 或 `_neo4j` 私有属性。
 
+现有 `SessionManager.resume()` 会把 snapshot 加入活动 runtime cache，并会把 paused task state 规范化为 active，因此不能用它批量生成分组标题。SessionManager 应新增窄的 `read_session_messages(session_id)` 纯读取方法：已加载 session 返回消息副本，未加载 session 直接从 backend snapshot 解码，但不写 `_sessions`、不改变 task state、不保存 snapshot。
+
+Home 和 ALFWorld 两个 `serve` composition 都从基础 `HomeApplicationBundle` 创建同一个只读服务并显式传给 `create_web_app`。不能依赖 Web adapter 从 wrapper 私有结构里自行寻找 MindMemOS；测试中的 fake application 可显式传 fake 服务或 `None`，后者让 memory route 稳定返回 unavailable。
+
 ### 4.3 数据真理源
 
 列表、状态、正文、类型、`session_id`、时间和归档 metadata 以 Qdrant 中的 raw memory 为准。版本关系继续通过 MindMemOS 已有 history 能力读取。Neo4j 不作为另一套页面统计来源，避免把两个存储的独立计数拼成一个表面一致的结果。
+
+当前 MindMemOS `MemoryView`/mapper 没有投影 payload 已存在的 `status_changed_at`。为准确展示归档时间，应对 vendored MindMemOS 做最小兼容扩展：给 `MemoryView` 增加可选 `status_changed_at` 并在 mapper 中读取它。不能用 `created_at` 猜归档时间，也不能让 Web 层读取 Qdrant raw payload 绕过 typed view。
 
 ## 5. 读取模型与排序
 
@@ -157,6 +163,8 @@ HomeMaster 当前的 React Web Console 只提供对话、会话恢复、实时�
 
 折叠历史会话只隐藏列表，不改变当前 session、连接或对话状态。折叠状态保存在浏览器 localStorage。移动端继续使用现有 side sheet。
 
+App 启动时在会话初始化之外并行请求一次 memory snapshot，以便显示 sidebar active 数量。memory 请求的 loading/error state 与 conversation state 完全隔离；memory 不可用不得阻塞 session 创建、WebSocket 连接或聊天输入。进入记忆页和点击“刷新”时复用同一 snapshot loader。
+
 ## 8. 记忆页面
 
 页面结构：
@@ -219,8 +227,10 @@ HomeMaster 当前的 React Web Console 只提供对话、会话恢复、实时�
 - active、archived、total 和 distinct session 统计正确；
 - 同一 session 精确归为一组，无 session 归入专组；
 - 第一条用户消息标题和 fallback 正确；
+- session 标题读取不调用 resume、不填充活动 runtime cache、不改变 paused task state；
 - known/unknown memory type 均保留；
 - structured、vanilla 和损坏 record 分别正确投影；
+- raw payload 的 `status_changed_at` 准确进入 typed `MemoryView` 和 Web DTO；
 - archive reason、时间和 history 顺序正确；
 - unavailable、read failure、unknown/wrong-scope ID 返回稳定错误；
 - ASGI 集成测试锁定 `/api/memories` 与 history JSON；
@@ -244,11 +254,11 @@ HomeMaster 当前的 React Web Console 只提供对话、会话恢复、实时�
 - `npm test`；
 - `npm run typecheck`；
 - `npm run build`；
-- 当前 local runtime 的只读 smoke 动态核对观测到的 101/17/118；
-- 请求前后 memory data root 完整树对比零变化；
+- 在独立、静止、无后台 finalizer 的真实 memory root 中，先用同一 authoritative raw reader 取得 baseline，再核对 Web snapshot 计数和 ID 集合完全一致；
+- 在上述隔离 runtime 中对请求前后 memory data root 做完整树 metadata/hash 对比，证明零变化；
 - 检查 stderr 无 traceback 或迟到异常。
 
-当前 101/17/118 只用于本次真实环境 smoke，不写进产品逻辑或固定单元测试。
+当前 101/17/118 只作为 2026-08-24 的环境观测记录，不作为会随后台 finalizer 或用户操作变化的验收常量，也不写进产品逻辑或固定测试。共享活跃数据根上的前后树差异不能证明 GET 写入，因为并发后台任务可能合法写入；零写入门必须使用隔离且静止的 runtime。
 
 ## 12. 未来扩展
 
@@ -257,6 +267,8 @@ HomeMaster 当前的 React Web Console 只提供对话、会话恢复、实时�
 ## 13. 预计改动范围
 
 - `src/homemaster/memory/`：只读管理服务和 MindMemOS raw list public boundary；
+- `src/homemaster/application/session.py`：不激活 runtime 的纯读取消息边界；
+- `third_party/MindMemOS/`：`MemoryView.status_changed_at` 的最小 typed projection；
 - `src/homemaster/web/app.py`、`schemas.py`、`serve.py`：服务注入和两个 GET route；
 - `tests/homemaster/web/` 与 memory tests：只读契约、隔离和零 mutation；
 - `web/src/api/http.ts`：只读 memory DTO/client；
