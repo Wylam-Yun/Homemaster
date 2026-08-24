@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import contextlib
+import copy
 import json
 import os
 import threading
@@ -361,17 +361,13 @@ class SessionFileBackend:
             handle.close()
 
     def _revisions_dir(self, session_id: str) -> Path:
-        path = self._session_dir(session_id) / "revisions"
-        path.mkdir(parents=True, exist_ok=True)
-        return path
+        return self._session_dir(session_id) / "revisions"
 
     def _revision_path(self, session_id: str, revision: int) -> Path:
         return self._revisions_dir(session_id) / f"{revision:020d}.json"
 
     def _latest_path(self, session_id: str) -> Path:
-        path = self._session_dir(session_id) / "latest.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
+        return self._session_dir(session_id) / "latest.json"
 
     def _session_dir(self, session_id: str) -> Path:
         _validate_session_id(session_id)

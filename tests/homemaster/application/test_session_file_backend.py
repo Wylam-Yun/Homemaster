@@ -150,3 +150,11 @@ async def test_manager_snapshot_excludes_live_resources_and_resumes_cleanly(tmp_
     assert SessionFileBackend(tmp_path).list_session_ids() == ("persisted",)
     assert "## user\nhello" in SessionFileBackend(tmp_path).export_markdown("persisted")
 
+
+def test_missing_session_read_does_not_create_session_directories(tmp_path: Path) -> None:
+    backend = SessionFileBackend(tmp_path)
+
+    with pytest.raises(FileNotFoundError):
+        backend.load("missing-session")
+
+    assert tuple(tmp_path.iterdir()) == ()
