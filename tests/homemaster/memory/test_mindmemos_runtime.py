@@ -1016,3 +1016,64 @@ async def test_structured_feedback_derives_content_from_replacement_record(tmp_p
     assert calls[0]["content"] == result.after_content
     assert json.loads(calls[0]["metadata"]["record_json"]) == replacement
     assert calls[0]["metadata"]["provenance_seq"] == 11
+
+
+@pytest.mark.asyncio
+async def test_list_raw_memories_consumes_all_cursors_and_deduplicates() -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    pages = {
+        None: (
+            [
+                SimpleNamespace(memory_id="m1", status="active"),
+                SimpleNamespace(memory_id="m2", status="archived"),
+                SimpleNamespace(memory_id="m-deleted", status="deleted"),
+            ],
+            "cursor-2",
+        ),
+        "cursor-2": (
+            [
+                SimpleNamespace(memory_id="m2", status="archived"),
+                SimpleNamespace(memory_id="m3", status="active"),
+            ],
+            None,
+        ),
+    }
+
+    class FakeReader:
+        def __init__(self) -> None:
+            self.calls: list[tuple[Any, int, Any]] = []
+
+        async def list_memories(
+            self, context: Any, *, limit: int, cursor: Any
+        ) -> tuple[list[Any], Any]:
+            self.calls.append((context, limit, cursor))
+            return pages[cursor]
+
+    context = object()
+    reader = FakeReader()
+    runtime = object.__new__(module.EmbeddedMindMemOS)
+    runtime._reader = reader
+
+    rows = await runtime.list_raw_memories(context)
+
+    assert [row.memory_id for row in rows] == ["m1", "m2", "m3"]
+    assert reader.calls == [(context, 50, None), (context, 50, "cursor-2")]
+
+
+@pytest.mark.asyncio
+async def test_list_raw_memories_rejects_repeated_cursor() -> None:
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+
+    class FakeReader:
+        async def list_memories(
+            self, context: Any, *, limit: int, cursor: Any
+        ) -> tuple[list[Any], Any]:
+            if cursor is None:
+                return [SimpleNamespace(memory_id="m1", status="deleted")], "same"
+            return [], "same"
+
+    runtime = object.__new__(module.EmbeddedMindMemOS)
+    runtime._reader = FakeReader()
+
+    with pytest.raises(RuntimeError, match="cursor repeated"):
+        await runtime.list_raw_memories(object())

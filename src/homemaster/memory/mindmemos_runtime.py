@@ -1510,6 +1510,39 @@ class EmbeddedMindMemOS:
             }
         )
 
+    async def list_raw_memories(
+        self,
+        context: Any,
+        *,
+        statuses: frozenset[str] = frozenset({"active", "archived"}),
+        page_size: int = 50,
+    ) -> list[Any]:
+        """Return every matching memory from the project-scoped cursor stream."""
+
+        if self._reader is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        cursor: Any | None = None
+        seen_cursors: set[str] = set()
+        seen_ids: set[str] = set()
+        rows: list[Any] = []
+        while True:
+            page, next_cursor = await self._reader.list_memories(
+                context,
+                limit=page_size,
+                cursor=cursor,
+            )
+            for memory in page:
+                if memory.status in statuses and memory.memory_id not in seen_ids:
+                    seen_ids.add(memory.memory_id)
+                    rows.append(memory)
+            if next_cursor is None:
+                return rows
+            cursor_key = repr(next_cursor)
+            if cursor_key in seen_cursors:
+                raise RuntimeError("MindMemOS list cursor repeated")
+            seen_cursors.add(cursor_key)
+            cursor = next_cursor
+
     async def get_history(self, memory_id: str, context: Any) -> list[Any]:
         """Return every Qdrant version connected to one memory through DERIVED_FROM."""
 
