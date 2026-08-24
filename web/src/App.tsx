@@ -3,8 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type HistoryMessage, type SessionSummary } from './api/http'
+import { HomeMasterApi, HttpError, type HistoryMessage, type MemorySnapshot, type SessionSummary } from './api/http'
 import { ApprovalDialog } from './components/ApprovalDialog'
+import { MemoryPage } from './components/MemoryPage'
 import { ReasoningRow } from './components/ReasoningRow'
 import { ToolCallCard } from './components/ToolCallCard'
 import { initialConversationState, reduceWebEvent } from './state/conversation'
@@ -12,6 +13,7 @@ import { initialConversationState, reduceWebEvent } from './state/conversation'
 const api = new HomeMasterApi()
 
 export function App() {
+  const [view, setView] = useState<'conversation' | 'memories'>('conversation')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryMessage[]>([])
@@ -22,6 +24,12 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [approvalBusy, setApprovalBusy] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [historyCollapsed, setHistoryCollapsed] = useState(
+    () => localStorage.getItem('homemaster:web:history-collapsed') === 'true',
+  )
+  const [memorySnapshot, setMemorySnapshot] = useState<MemorySnapshot | null>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [memoryError, setMemoryError] = useState<string | null>(null)
   const connectionRef = useRef<EventConnection | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -31,7 +39,20 @@ export function App() {
     return listed.sessions
   }, [])
 
+  const refreshMemories = useCallback(async () => {
+    setMemoryLoading(true)
+    try {
+      setMemorySnapshot(await api.memories())
+      setMemoryError(null)
+    } catch {
+      setMemoryError('记忆服务暂不可用，请稍后重试。')
+    } finally {
+      setMemoryLoading(false)
+    }
+  }, [])
+
   const selectSession = useCallback(async (nextId: string) => {
+    setView('conversation')
     connectionRef.current?.stop()
     setSessionId(nextId)
     setConnectionState('connecting')
@@ -50,6 +71,7 @@ export function App() {
   }, [])
 
   const newSession = useCallback(async () => {
+    setView('conversation')
     connectionRef.current?.stop()
     connectionRef.current = null
     setConnectionState('connecting')
@@ -70,6 +92,8 @@ export function App() {
     }).catch(error => { setNotice(error instanceof Error ? error.message : 'Service unavailable.') })
     return () => { connectionRef.current?.stop() }
   }, [newSession, refreshSessions, selectSession])
+
+  useEffect(() => { void refreshMemories() }, [refreshMemories])
 
   const turns = useMemo(() => Object.values(state.turns).filter(turn => turn.sessionId === sessionId), [sessionId, state.turns])
   const active = turns.find(turn => turn.status === 'pending' || turn.status === 'running')
@@ -101,19 +125,42 @@ export function App() {
     finally { setApprovalBusy(false) }
   }
 
+  const toggleHistory = () => {
+    setHistoryCollapsed(value => {
+      const next = !value
+      localStorage.setItem('homemaster:web:history-collapsed', String(next))
+      return next
+    })
+  }
+
   return (
     <div className="shell">
       <aside className="sidebar" data-open={sidebarOpen || undefined}>
         <div className="brand"><span className="brand-mark">HM</span><div><strong>HomeMaster</strong><small>Local agent console</small></div></div>
-        <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); void newSession() }}>＋ New chat</button>
-        <nav aria-label="Sessions">
-          {sessions.map(session => <button type="button" key={session.session_id} data-active={session.session_id === sessionId || undefined} onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}><span>Conversation</span><small>{session.session_id.slice(0, 12)}</small></button>)}
-        </nav>
+        <div className="sidebar-views" aria-label="主导航">
+          <button type="button" aria-label="对话" data-active={view === 'conversation' || undefined} onClick={() => { setView('conversation'); setSidebarOpen(false) }}><span>◉</span>对话</button>
+          <button type="button" aria-label="记忆管理" data-active={view === 'memories' || undefined} onClick={() => { setView('memories'); setSidebarOpen(false) }}><span>◇</span>记忆管理</button>
+        </div>
+        <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); void newSession() }}>＋ 新建会话</button>
+        <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
+        {!historyCollapsed && <nav aria-label="历史会话">
+          {sessions.map(session => <button type="button" aria-label={`打开会话 ${session.session_id}`} key={session.session_id} data-active={session.session_id === sessionId || undefined} onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}><span>会话</span><small>{session.session_id.slice(0, 12)}</small></button>)}
+        </nav>}
+        {historyCollapsed && <div className="history-spacer" />}
         <div className="local-note"><span>●</span> Loopback only</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="Open sessions" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>Conversation</strong><small>{sessionId ?? 'Starting…'}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
-        <section className="conversation" aria-live="polite">
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{view === 'memories' ? '记忆管理' : '对话'}</strong><small>{view === 'memories' ? '只读查看' : (sessionId ?? '正在启动…')}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        {view === 'memories' ? (
+          <MemoryPage
+            snapshot={memorySnapshot}
+            loading={memoryLoading}
+            error={memoryError}
+            onRefresh={refreshMemories}
+            loadHistory={memoryId => api.memoryHistory(memoryId)}
+          />
+        ) : <>
+          <section className="conversation" aria-live="polite">
           {history.map((message, index) => <HistoryRow key={`${index}:${message.role}`} message={message} />)}
           {turns.map(turn => <article className="turn" key={turn.requestId}>
             {submitted[turn.requestId] && <div className="user-row"><div>{submitted[turn.requestId]}</div></div>}
@@ -127,13 +174,14 @@ export function App() {
           </article>)}
           {history.length === 0 && turns.length === 0 && <div className="empty"><span>✦</span><h1>What should we work on?</h1><p>HomeMaster can reason, use local tools, and ask before dangerous operations.</p></div>}
           <div ref={endRef} />
-        </section>
-        {notice && <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={() => { setNotice(null) }}>Dismiss</button></div>}
-        <form className="composer" onSubmit={event => { void send(event) }}>
+          </section>
+          {notice && <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={() => { setNotice(null) }}>关闭</button></div>}
+          <form className="composer" onSubmit={event => { void send(event) }}>
           <textarea value={draft} onChange={event => { setDraft(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={connectionState === 'connected' ? 'Message HomeMaster…' : 'Waiting for connection…'} disabled={connectionState !== 'connected'} rows={1} />
           {active !== undefined ? <button className="stop" type="button" onClick={() => { if (sessionId) void api.cancel(sessionId) }} aria-label="Stop run">■</button> : <button className="send" type="submit" disabled={!canSend || draft.trim().length === 0} aria-label="Send message">↑</button>}
           <small>Enter to send · Shift+Enter for a new line</small>
-        </form>
+          </form>
+        </>}
       </main>
       {approvalTurn?.approval && <ApprovalDialog approval={approvalTurn.approval} busy={approvalBusy} onApprove={() => { void resolveApproval('approve') }} onReject={() => { void resolveApproval('reject') }} />}
     </div>

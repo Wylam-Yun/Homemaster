@@ -9,7 +9,11 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .brand { display: flex; align-items: center; gap: .7rem; padding: .25rem .25rem 1.2rem; }
 .brand-mark { display: grid; width: 2.15rem; height: 2.15rem; place-items: center; border: 1px solid var(--accent-soft); border-radius: .65rem; color: var(--accent); font-size: .72rem; font-weight: 800; background: #10211e; }
 .brand div { display: flex; flex-direction: column; }.brand small, .topbar small { color: var(--muted-2); font-size: .7rem; }
+.sidebar-views { display: grid; gap: .35rem; margin-bottom: .85rem; }
+.sidebar-views button { display: flex; align-items: center; gap: .65rem; width: 100%; border: 0; border-radius: .65rem; padding: .7rem .75rem; color: var(--muted); background: transparent; text-align: left; cursor: pointer; }
+.sidebar-views button:hover, .sidebar-views button[data-active] { color: var(--text); background: var(--surface-hover); }.sidebar-views button span { width: 1rem; color: var(--accent); text-align: center; }
 .new-chat { width: 100%; border: 1px solid var(--border-strong); border-radius: .7rem; padding: .65rem .8rem; color: var(--text); background: var(--surface); text-align: left; cursor: pointer; }.new-chat:hover { background: var(--surface-hover); }
+.history-heading { display: flex; align-items: center; justify-content: space-between; margin: 1rem .25rem .25rem; color: var(--muted-2); font-size: .7rem; font-weight: 800; letter-spacing: .08em; }.history-heading button { display: grid; width: 1.6rem; height: 1.6rem; place-items: center; border: 0; border-radius: .4rem; color: var(--muted); background: transparent; cursor: pointer; }.history-heading button:hover { background: var(--surface-hover); }.history-spacer { flex: 1; }
 .sidebar nav { display: flex; flex: 1; min-height: 0; flex-direction: column; gap: .35rem; overflow: auto; margin-top: 1rem; }
 .sidebar nav button { display: flex; flex-direction: column; gap: .15rem; border: 0; border-radius: .6rem; padding: .65rem .75rem; color: var(--muted); background: transparent; text-align: left; cursor: pointer; }.sidebar nav button[data-active] { color: var(--text); background: var(--surface-hover); }.sidebar nav small { color: var(--muted-2); }
 .local-note { color: var(--muted-2); font-size: .75rem; }.local-note span { color: var(--success); }
