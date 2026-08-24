@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,6 +35,69 @@ class ApprovalDecisionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outcome: ApprovalOutcome
+
+
+class ManagedMemoryResponse(BaseModel):
+    """Browser-safe projection of one persistent memory."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    memory_id: str
+    content: str
+    memory_type: str
+    memory_type_label: str
+    status: str
+    session_id: str | None
+    created_at: datetime | None
+    updated_at: datetime | None
+    archived_at: datetime | None
+    archive_reason: str | None
+    record: dict[str, object] | None
+    structure_status: Literal["plain", "valid", "invalid"]
+    has_history: bool
+
+
+class MemoryStatsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    active_count: int
+    archived_count: int
+    total_count: int
+    session_group_count: int
+
+
+class MemoryGroupResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    session_id: str | None
+    title: str
+    active_count: int
+    archived_count: int
+    memories: tuple[ManagedMemoryResponse, ...]
+
+
+class MemorySnapshotResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    stats: MemoryStatsResponse
+    groups: tuple[MemoryGroupResponse, ...]
+
+    @classmethod
+    def from_domain(cls, snapshot: Any) -> MemorySnapshotResponse:
+        return cls.model_validate(snapshot)
+
+
+class MemoryHistoryResponse(BaseModel):
+    memory_id: str
+    versions: tuple[ManagedMemoryResponse, ...]
+
+    @classmethod
+    def from_domain(
+        cls,
+        memory_id: str,
+        versions: object,
+    ) -> MemoryHistoryResponse:
+        return cls.model_validate({"memory_id": memory_id, "versions": versions})
 
 
 @dataclass(frozen=True)
@@ -68,6 +133,11 @@ def _copy_json(value: object) -> object:
 __all__ = [
     "ApprovalDecisionRequest",
     "CreateSessionRequest",
+    "ManagedMemoryResponse",
+    "MemoryGroupResponse",
+    "MemoryHistoryResponse",
+    "MemorySnapshotResponse",
+    "MemoryStatsResponse",
     "SendMessageRequest",
     "WebEvent",
 ]

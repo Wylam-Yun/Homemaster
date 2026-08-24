@@ -10,6 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
+from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web import serve
 
@@ -27,8 +28,10 @@ def test_validate_bind_host_rejects_non_loopback(host: str) -> None:
 
 def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
-    application = object()
-    bundle = SimpleNamespace(application=application)
+    session_manager = object()
+    mindmemos = object()
+    application = SimpleNamespace(session_manager=session_manager)
+    bundle = SimpleNamespace(application=application, mindmemos=mindmemos)
     expected_app = SimpleNamespace(state=SimpleNamespace())
 
     def fake_create_home_application(**kwargs):
@@ -52,6 +55,10 @@ def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> Non
     assert captured["publish_artifacts"] is True
     assert captured["web_application"] is application
     assert captured["web_confirmation_handler"] is captured["confirmation_handler"]
+    memory_service = captured["web_memory_management_service"]
+    assert isinstance(memory_service, MemoryManagementService)
+    assert memory_service._mindmemos is mindmemos
+    assert memory_service._sessions is session_manager
     assert expected_app.state.home_bundle is bundle
 
 
@@ -112,12 +119,19 @@ def test_run_web_server_validates_then_owns_async_server(monkeypatch) -> None:
 async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> None:
     captured: dict[str, object] = {}
     close_base = AsyncMock()
-    base_application = SimpleNamespace(resource_scope=object(), aclose=close_base)
+    session_manager = object()
+    mindmemos = object()
+    base_application = SimpleNamespace(
+        resource_scope=object(),
+        session_manager=session_manager,
+        aclose=close_base,
+    )
     config = SimpleNamespace(alfworld_gateway=object())
     bundle = SimpleNamespace(
         application=base_application,
         config=config,
         run_dir=object(),
+        mindmemos=mindmemos,
     )
     binding = object()
     owner = SimpleNamespace(claim=AsyncMock(return_value=True), seal=AsyncMock())
@@ -156,6 +170,10 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
     assert wrapped._application is base_application
     assert wrapped._binding is binding
     assert wrapped._owner is owner
+    memory_service = captured["web_memory_management_service"]
+    assert isinstance(memory_service, MemoryManagementService)
+    assert memory_service._mindmemos is mindmemos
+    assert memory_service._sessions is session_manager
     assert expected_app.state.home_bundle is bundle
     close_base.assert_not_awaited()
 
@@ -163,11 +181,16 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
 @pytest.mark.asyncio
 async def test_create_alfworld_web_app_closes_base_when_binding_fails(monkeypatch) -> None:
     close_base = AsyncMock()
-    base_application = SimpleNamespace(resource_scope=object(), aclose=close_base)
+    base_application = SimpleNamespace(
+        resource_scope=object(),
+        session_manager=object(),
+        aclose=close_base,
+    )
     bundle = SimpleNamespace(
         application=base_application,
         config=SimpleNamespace(alfworld_gateway=object()),
         run_dir=object(),
+        mindmemos=object(),
     )
 
     monkeypatch.setattr(serve, "create_home_application", lambda **_kwargs: bundle)

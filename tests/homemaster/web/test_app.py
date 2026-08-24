@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +11,13 @@ from homemaster.application import RunRequest, SessionManager
 from homemaster.artifacts import ToolOutputStore
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.memory.management import (
+    ManagedMemory,
+    MemoryGroup,
+    MemoryNotFoundError,
+    MemorySnapshot,
+    MemoryStats,
+)
 from homemaster.web.app import (
     _deny_approvals_without_subscriber,
     _run_and_report_prestart_failure,
@@ -77,6 +85,55 @@ class _FakeApplication:
         self.closed = True
         self.close_count += 1
         await self.event_bus.aclose()
+
+
+def _managed_memory(memory_id: str, *, status: str = "active") -> ManagedMemory:
+    now = datetime(2026, 8, 24, 8, 30, tzinfo=UTC)
+    return ManagedMemory(
+        memory_id=memory_id,
+        content="visible memory",
+        memory_type="fact",
+        memory_type_label="事实",
+        status=status,
+        session_id="session-01",
+        created_at=now,
+        updated_at=now,
+        archived_at=now if status == "archived" else None,
+        archive_reason="user_request" if status == "archived" else None,
+        record=None,
+        structure_status="plain",
+        has_history=True,
+    )
+
+
+class _FakeMemoryManagementService:
+    def __init__(self) -> None:
+        self.snapshot_tenants: list[str] = []
+        self.history_calls: list[tuple[str, str]] = []
+
+    async def snapshot(self, *, tenant_id: str) -> MemorySnapshot:
+        self.snapshot_tenants.append(tenant_id)
+        memory = _managed_memory("memory-01")
+        return MemorySnapshot(
+            stats=MemoryStats(2, 1, 3, 1),
+            groups=(
+                MemoryGroup(
+                    session_id="session-01",
+                    title="first request",
+                    active_count=1,
+                    archived_count=0,
+                    memories=(memory,),
+                ),
+            ),
+        )
+
+    async def history(
+        self, memory_id: str, *, tenant_id: str
+    ) -> tuple[ManagedMemory, ...]:
+        self.history_calls.append((memory_id, tenant_id))
+        if memory_id == "missing":
+            raise MemoryNotFoundError(memory_id)
+        return (_managed_memory(memory_id),)
 
 
 class _FailingApplication:
@@ -339,3 +396,59 @@ def test_artifact_download_enforces_exact_session_and_run_partition(tmp_path) ->
         assert downloaded.headers["x-content-sha256"] == stored.content_sha256
         assert denied.status_code == 404
         assert denied.json()["code"] == "artifact_not_found"
+
+
+def test_memory_snapshot_and_history_are_get_only() -> None:
+    service = _FakeMemoryManagementService()
+    app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=service,
+    )
+
+    with TestClient(app) as client:
+        snapshot = client.get("/api/memories")
+        history = client.get("/api/memories/memory-01/history")
+
+        assert snapshot.status_code == 200
+        assert snapshot.json()["stats"] == {
+            "active_count": 2,
+            "archived_count": 1,
+            "total_count": 3,
+            "session_group_count": 1,
+        }
+        memory = snapshot.json()["groups"][0]["memories"][0]
+        assert memory["memory_type_label"] == "事实"
+        assert memory["updated_at"] == "2026-08-24T08:30:00Z"
+        assert "metadata" not in memory
+        assert history.status_code == 200
+        assert history.json()["memory_id"] == "memory-01"
+        assert service.snapshot_tenants == ["local"]
+        assert service.history_calls == [("memory-01", "local")]
+        for method in (client.post, client.put, client.patch, client.delete):
+            assert method("/api/memories").status_code == 405
+
+
+def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
+    without_service = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+    )
+    with TestClient(without_service) as client:
+        unavailable = client.get("/api/memories")
+        assert unavailable.status_code == 503
+        assert unavailable.json()["code"] == "memory_unavailable"
+
+    with_service = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=_FakeMemoryManagementService(),
+    )
+    with TestClient(with_service) as client:
+        missing = client.get("/api/memories/missing/history")
+        assert missing.status_code == 404
+        assert missing.json() == {
+            "code": "memory_not_found",
+            "message": "The memory does not exist.",
+            "retryable": False,
+        }

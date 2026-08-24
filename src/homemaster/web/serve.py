@@ -14,6 +14,7 @@ from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
     create_alfworld_gateway_binding,
 )
+from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web.app import create_web_app
 from homemaster.web.confirmations import WebConfirmationHandler
@@ -45,9 +46,15 @@ def create_home_web_app() -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
+    memory_management_service = (
+        MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
+        if bundle.mindmemos is not None
+        else None
+    )
     app = create_web_app(
         application=bundle.application,
         confirmation_handler=confirmation_handler,
+        memory_management_service=memory_management_service,
     )
     app.state.home_bundle = bundle
     return app
@@ -66,6 +73,11 @@ async def create_alfworld_web_app() -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
+    memory_management_service = (
+        MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
+        if bundle.mindmemos is not None
+        else None
+    )
     application = bundle.application
     try:
         binding, owner = await create_alfworld_gateway_binding(
@@ -77,6 +89,7 @@ async def create_alfworld_web_app() -> FastAPI:
         app = create_web_app(
             application=application,
             confirmation_handler=confirmation_handler,
+            memory_management_service=memory_management_service,
         )
     except BaseException:
         await confirmation_handler.aclose()

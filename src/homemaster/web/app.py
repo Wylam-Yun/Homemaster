@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 
 from homemaster.application import RunRequest
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
+from homemaster.memory.management import MemoryManagementService, MemoryNotFoundError
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.web.confirmations import UnknownApprovalError, WebConfirmationHandler
 from homemaster.web.event_hub import WebEventHub
@@ -22,12 +24,15 @@ from homemaster.web.run_registry import SessionBusyError, WebRunRegistry
 from homemaster.web.schemas import (
     ApprovalDecisionRequest,
     CreateSessionRequest,
+    MemoryHistoryResponse,
+    MemorySnapshotResponse,
     SendMessageRequest,
     WebEvent,
 )
 from homemaster.web.static import mount_web_static
 
 _DEFAULT_SUBJECT = RunRequest(text="Web permission subject").permission_subject
+logger = logging.getLogger(__name__)
 _WEB_PERMISSION_SUBJECT = PermissionSubject(
     subject_id="web-local-operator",
     channel="web",
@@ -45,6 +50,7 @@ def create_web_app(
     *,
     application: Any,
     confirmation_handler: WebConfirmationHandler,
+    memory_management_service: MemoryManagementService | None = None,
 ) -> FastAPI:
     """Build a Web adapter around one long-lived ApplicationRuntime."""
 
@@ -82,6 +88,7 @@ def create_web_app(
     app.state.confirmation_handler = confirmation_handler
     app.state.run_registry = run_registry
     app.state.event_hub = hub
+    app.state.memory_management_service = memory_management_service
     app.state.aclose = close_resources
 
     @app.exception_handler(RequestValidationError)
@@ -139,6 +146,64 @@ def create_web_app(
             "session_id": session_id,
             "messages": [_history_message(message) for message in runtime.session.messages],
         }
+
+    @app.get("/api/memories")
+    async def memories() -> object:
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        try:
+            snapshot = await service.snapshot(
+                tenant_id=_WEB_PERMISSION_SUBJECT.tenant_id
+            )
+        except Exception:
+            logger.exception("web_memory_snapshot_failed")
+            return _error(
+                503,
+                "memory_read_failed",
+                "Memory data could not be read.",
+                retryable=True,
+            )
+        return MemorySnapshotResponse.from_domain(snapshot).model_dump(mode="json")
+
+    @app.get("/api/memories/{memory_id}/history")
+    async def memory_history(memory_id: str) -> object:
+        service = app.state.memory_management_service
+        if service is None:
+            return _error(
+                503,
+                "memory_unavailable",
+                "Memory service is unavailable.",
+                retryable=True,
+            )
+        try:
+            versions = await service.history(
+                memory_id,
+                tenant_id=_WEB_PERMISSION_SUBJECT.tenant_id,
+            )
+        except MemoryNotFoundError:
+            return _error(
+                404,
+                "memory_not_found",
+                "The memory does not exist.",
+                retryable=False,
+            )
+        except Exception:
+            logger.exception("web_memory_history_failed", extra={"memory_id": memory_id})
+            return _error(
+                503,
+                "memory_read_failed",
+                "Memory data could not be read.",
+                retryable=True,
+            )
+        return MemoryHistoryResponse.from_domain(memory_id, versions).model_dump(
+            mode="json"
+        )
 
     @app.post("/api/sessions/{session_id}/messages", status_code=202)
     async def send_message(session_id: str, body: SendMessageRequest) -> object:
