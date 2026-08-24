@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from homemaster.agent.messages import UserMessage
 from homemaster.application.session import SessionConflictError, SessionManager
 
 
@@ -162,3 +163,30 @@ async def test_queued_turn_rebinds_only_after_it_acquires_the_turn_lock() -> Non
     release_first.set()
     await asyncio.gather(first_task, second_task)
     assert runtime.environment_ref == "backend-b"
+
+
+@pytest.mark.asyncio
+async def test_read_session_messages_does_not_resume_persisted_runtime(tmp_path) -> None:
+    writer = SessionManager(session_root=tmp_path)
+    runtime = await writer.open_or_resume("session-01")
+    runtime.session.append(UserMessage.from_text("first request"))
+    await writer.save("session-01", generation=runtime.generation)
+
+    reader = SessionManager(session_root=tmp_path)
+    before_ids = tuple(item.session.session_id for item in reader.sessions)
+    messages = reader.read_session_messages("session-01")
+
+    assert messages[0].content[0].text == "first request"
+    assert tuple(item.session.session_id for item in reader.sessions) == before_ids == ()
+
+
+@pytest.mark.asyncio
+async def test_read_session_messages_returns_copy_for_active_runtime() -> None:
+    manager = SessionManager()
+    runtime = await manager.open_or_resume("session-01")
+    runtime.session.append(UserMessage.from_text("first request"))
+
+    messages = manager.read_session_messages("session-01")
+
+    assert messages[0] is not runtime.session.messages[0]
+    assert messages[0].content[0].text == "first request"

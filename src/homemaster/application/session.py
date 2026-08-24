@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import contextlib
 import json
 import os
@@ -561,6 +562,25 @@ class SessionManager:
             return self._sessions[session_id]
         except KeyError as exc:
             raise KeyError(f"unknown session: {session_id}") from exc
+
+    def read_session_messages(self, session_id: str) -> tuple[Message, ...]:
+        """Read session messages without activating a persisted runtime."""
+
+        _validate_session_id(session_id)
+        runtime = self._sessions.get(session_id)
+        if runtime is not None:
+            with runtime.state_lock:
+                return tuple(copy.deepcopy(runtime.session.messages))
+        if self._backend is None:
+            raise KeyError(f"unknown session: {session_id}")
+        try:
+            snapshot = self._backend.load(session_id)
+        except (FileNotFoundError, KeyError) as exc:
+            raise KeyError(f"unknown session: {session_id}") from exc
+        session, _agent_state, _task_state = AgentSession.from_snapshot_dict(
+            snapshot.payload
+        )
+        return tuple(copy.deepcopy(session.messages))
 
     def _runtime_from_snapshot(self, snapshot: SessionSnapshot) -> SessionRuntime:
         session, agent_state, task_state = AgentSession.from_snapshot_dict(snapshot.payload)
