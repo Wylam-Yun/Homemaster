@@ -1,5 +1,24 @@
 # Current HomeMaster Progress
 
+## 2026-08-25 Ops Monitor Agent run 25 acceptance verifier repair
+
+- Status: `COMPLETED`. The original `ops-monitor-real-20260825-25` business run remains immutable and successful:
+  RC 0, empty stderr, exact fixture `agent_version=1.0.0`, asset API
+  `fixture-node-01/running/1.0.0/fixture-region-01`, and zero residual run processes.
+- Root cause: the first deterministic bundle was materialized before click-result route tracking was in place, so
+  post-change asset work was mislabeled and the independent verifier rejected missing `change_verified`. The
+  materializer had already published a `succeeded` output before that final check, leaving a misleading invalid bundle.
+- Repair: verifier now rebuilds trajectory from copied raw runtime events and requires exact equality; materialization
+  verifies the private temporary bundle before atomic publication. Regressions prove a self-consistent derived
+  trajectory mutation is rejected and a failed final check leaves no formal directory.
+- Evidence: focused pytest `3 passed`; Ruff and format checks pass. Fresh immutable-log bundle
+  `/tmp/homemaster/runs/ops-monitor-real-20260825-25/deterministic-verifier-v2` passes a fresh product verifier,
+  independent SHA-256/size/mode checks for all 35 artifacts, exact external asset readback, RC/stderr/fixture checks,
+  and process cleanup. Its 81 executed calls classify as framework 8, pre-change 45, implementation 12, post-change
+  16; ten model protocol mistakes were blocked with zero hard tool failures.
+- Blocking items: none for the requested verifier repair and run-25 acceptance report. The original invalid
+  `deterministic` directory is intentionally preserved as negative evidence and is not an accepted bundle.
+
 ## 2026-07-28 Self-contained mem0, OpenHarness cleanup and memory data root
 
 - Status: `COMPLETED`. The complete proven `mem0ai==2.0.13` runtime is vendored into Git and

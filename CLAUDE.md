@@ -2,6 +2,9 @@
 
 ## Live run 状态隔离纪律
 
+- 派生验收轨迹必须由 verifier 从 bundle 内的原始事件重新计算，并与派生文件逐项一致；manifest 哈希
+  自洽不能替代原始来源一致性。验收包只能在私有临时目录通过完整语义校验后原子发布，任何失败不得
+  留下正式输出目录或 `succeeded` manifest。
 - live run 启动前一次性锁定唯一 run ID、trace root、数据库/memory root、临时配置和 stdout/stderr 文件；任一
   路径已存在就 fail closed。禁止并发复用或删除另一个活跃 run 的外部状态目录，也不能用模糊进程探测推导旧
   run 已停止。每次编排只能启动一次；需要重跑时使用全新 ID/root。

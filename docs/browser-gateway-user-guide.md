@@ -73,6 +73,10 @@ Browser Gateway 不设置数值型工具迭代预算，完整票据轨迹不会�
 5. 每个重要动作和回填都有飞书可见的观察图。
 6. browser action JSONL、Playwright trace 和 WebM 非空，run 结束后浏览器 session 已关闭。
 
+Deterministic bundle 的 verifier 会从包内原始 `runtime_events.jsonl` 重新构建执行轨迹，
+再与 `trajectory.jsonl` 逐项比较。只有私有临时目录通过哈希、工具生命周期、三个 SOP 阶段、
+终端验证和外部终态校验后，bundle 才会原子发布；失败不得留下标记为成功的正式目录。
+
 当前完整正常与异常回滚轨迹见
 `data/browser_demo/case_02/agent_trajectory_ground_truth.md`。该文件是冻结规范：当前
 Mock UI 已验证正常实现段，完整正常后检和异常回滚 UI 仍标 `UNVERIFIED`。真实 provider

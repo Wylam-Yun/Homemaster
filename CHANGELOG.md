@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Fixed deterministic browser acceptance bundles being published with `status=succeeded`
+  before final semantic verification. The verifier now rebuilds the executed trajectory from
+  copied raw runtime events and rejects any self-consistent derived trajectory that differs;
+  materialization verifies the private temporary bundle before atomically publishing it, so a
+  failed final gate leaves no formal output directory.
+
 - Fixed the Web Console silently completing a turn when a disconnected approval failed closed and the
   runtime returned an `ask_user_question` prompt in `runtime.turn_completed.question`. The public projection
   now emits that exact question as `answer.snapshot` before `run.completed`, while ordinary

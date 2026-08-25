@@ -1,5 +1,29 @@
 # Engineering Pitfalls
 
+## 2026-08-25 - 验收轨迹错分阶段且校验失败后仍遗留 succeeded bundle
+
+### 症状与根因
+
+`ops-monitor-real-20260825-25` 的真实工具调用、配置写入、资产读回和进程退出都成功，但首次生成的
+deterministic bundle 把点击侧栏进入 `/ops/asset-check` 后的操作继续标为
+`check_before_change`，独立 verifier 因缺少 `change_verified` 拒绝。与此同时，
+materializer 已先把临时目录 rename 为正式输出并写入 `status=succeeded`，所以失败后仍留下一个
+哈希自洽、表面成功但语义无效的 bundle。verifier 只校验派生 trajectory 自身及其 manifest 哈希，
+也无法发现 trajectory 与原始 runtime events 不一致。
+
+### 修法与教训
+
+verifier 现在从 bundle 内的原始 `runtime_events.jsonl` 重新构建 trajectory，并要求与派生文件
+逐项完全一致。materializer 必须在私有临时目录完成全部语义校验后才能原子发布；任何失败只删除临时
+目录，正式输出路径不得出现。回归分别锁定“trajectory 与 manifest 一起被改仍拒绝”和“最终校验失败
+不发布目录”。
+
+### Ref
+
+- `src/homemaster/browser/trajectory_bundle.py`
+- `tests/homemaster/browser/test_trajectory_bundle.py`
+- `/tmp/homemaster/runs/ops-monitor-real-20260825-25/`
+
 ## 2026-08-21 - Runtime terminal question 未投影，审批断线后 Web 看起来一直没回
 
 ### 症状与根因
