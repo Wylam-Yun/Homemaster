@@ -47,6 +47,16 @@ schema；标题、段落、列表和表格会一起解释。Skill 只定义通�
 执行、读取外部终态、逐步截图、页面回填、确认和按票据回滚。任何具体字段、命令、顺序
 和回滚值都必须来自票据，不在 prompt 或 Skill 中硬编码。
 
+## 任务清单
+
+`task_planner` 创建或整体替换当前任务的 TODO list；`task_progress_check` 是保留旧名称的
+增量更新工具，用于写入已有步骤的状态、证据、当前步骤和下一关注点。两者只维护任务状态，
+不读取页面、不执行步骤，也不验收证据真实性。模型只能在已有工具结果支持状态变化后更新
+清单，更新结果不规定下一轮必须调用什么工具。
+
+浏览器写操作仍使用独立的 `browser_inspect -> browser write` 引用对。一次 TODO 更新不能
+插在 inspect 与消费该引用的写操作之间；更新清单后若要继续操作页面，必须重新 inspect。
+
 ## 截图与回填
 
 每次 `browser_fill`、`browser_select`、`browser_check`、`browser_uncheck`、

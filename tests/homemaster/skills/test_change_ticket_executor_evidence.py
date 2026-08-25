@@ -84,11 +84,14 @@ def test_write_actions_are_observed_by_runtime_without_model_scheduling() -> Non
     assert "call `observe` after confirmation" not in skill
 
 
-def test_browser_write_and_task_progress_calls_are_never_batched() -> None:
+def test_task_todo_updates_do_not_break_the_inspect_write_pair() -> None:
     skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
         encoding="utf-8"
     )
 
     assert "must be the only tool call in that model response" in skill
-    assert "Call `task_progress_check` in its own model response" in skill
-    assert "Only after its result returns may you issue the browser write" in skill
+    assert "`task_progress_check` updates selected TODO items" in skill
+    assert "It does not determine the next tool" in skill
+    assert "never place task-state bookkeeping between an inspection" in skill
+    assert "call `task_progress_check` alone to" in skill
+    assert "Only after its result returns may you issue the browser write" not in skill

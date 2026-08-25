@@ -1,5 +1,21 @@
 # Current HomeMaster Progress
 
+## 2026-08-25 Task TODO tool contract clarification
+
+- Status: `COMPLETED`. `task_planner` now explicitly creates or completely replaces the
+  model-owned TODO list, while the legacy-named `task_progress_check` explicitly updates selected
+  statuses, evidence, focus, and overall task state. Both descriptions state that they do not
+  observe, execute, or independently verify external work, and every public schema property now
+  has a model-facing description.
+- Browser Gateway and `change-ticket-executor` no longer require a browser write immediately after
+  a progress update. TODO updates occur only after model-visible terminal evidence supports a state
+  change; the only strict adjacent pair is a fresh `browser_inspect` followed by the browser write
+  that consumes its references.
+- Evidence: focused task/prompt/Skill tests `14 passed`; shared task-state/context/runtime tests
+  `72 passed`; Ruff, format, and `git diff --check` pass. A fresh Anthropic request-boundary probe
+  confirms both expanded descriptions and all top-level property descriptions reach Provider tool
+  schemas unchanged.
+
 ## 2026-08-25 Browser tool model-contract clarification
 
 - Status: `COMPLETED`. All ten generic browser tools now carry detailed

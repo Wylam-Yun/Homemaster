@@ -24,7 +24,9 @@ def _store(run_context: RunContext) -> TaskStateStore:
 
 
 def task_planner_executor(
-    *, arguments: dict[str, Any], run_context: RunContext,
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
 ) -> ToolResultMessage:
     store = _store(run_context)
     snapshot = store.create_or_replace_plan(
@@ -55,7 +57,9 @@ def _evidence_list(value: Any) -> list[str]:
 
 
 def task_progress_check_executor(
-    *, arguments: dict[str, Any], run_context: RunContext,
+    *,
+    arguments: dict[str, Any],
+    run_context: RunContext,
 ) -> ToolResultMessage | ToolExecutionResult:
     store = _store(run_context)
     raw_task_status = arguments.get("task_status")
@@ -112,16 +116,28 @@ def task_progress_check_executor(
 def make_task_planner_tool() -> ToolSpec:
     return ToolSpec(
         name="task_planner",
-        description="Create or replace the model-owned task plan snapshot.",
+        description=(
+            "Create or completely replace the model-owned TODO list for one multi-step task, "
+            "then return the stored task-state snapshot. Use this before work begins or when "
+            "the user's goal changes enough to require a new plan. Give every subtask a stable "
+            "ID and an initial status. This tool writes planning state only: it does not observe "
+            "the environment, execute work, verify evidence, or complete any subtask."
+        ),
         input_schema={
             "type": "object",
             "properties": {
-                "goal": {"type": "string", "description": "The task goal."},
+                "goal": {
+                    "type": "string",
+                    "description": (
+                        "The single overall outcome this TODO list is intended to achieve."
+                    ),
+                },
                 "subtasks": {
                     "type": "array",
                     "description": (
-                        "Concise subtask list. Use stable string ids and refer to those "
-                        "ids from current_subtask and next_focus."
+                        "The complete ordered TODO list. Include every currently known subtask, "
+                        "use stable string IDs, and refer to those IDs from current_subtask and "
+                        "next_focus. Calling task_planner again replaces this entire list."
                     ),
                     "items": {
                         "type": "object",
@@ -130,7 +146,13 @@ def make_task_planner_tool() -> ToolSpec:
                                 "type": "string",
                                 "description": "Stable subtask id, such as '1' or 'find_mug'.",
                             },
-                            "description": {"type": "string"},
+                            "description": {
+                                "type": "string",
+                                "description": (
+                                    "Concrete work represented by this TODO item, including its "
+                                    "target or completion condition when known."
+                                ),
+                            },
                             "status": {
                                 "type": "string",
                                 "enum": [
@@ -141,12 +163,17 @@ def make_task_planner_tool() -> ToolSpec:
                                     "cancelled",
                                     "uncertain",
                                 ],
+                                "description": (
+                                    "Initial state of this TODO item. Use pending for work that "
+                                    "has not started; never predict completion."
+                                ),
                             },
                             "evidence": {
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": (
-                                    "Model-visible evidence supporting the subtask status."
+                                    "Evidence already visible in user input or tool results that "
+                                    "supports the initial status. Do not add expected future proof."
                                 ),
                             },
                         },
@@ -155,14 +182,33 @@ def make_task_planner_tool() -> ToolSpec:
                 },
                 "current_subtask": {
                     "type": "string",
-                    "description": "Subtask id currently being worked on.",
+                    "description": (
+                        "Stable subtask ID currently being worked on. Omit when work has not begun."
+                    ),
                 },
                 "next_focus": {
                     "type": "string",
-                    "description": "Subtask id or short focus statement for the next action.",
+                    "description": (
+                        "Stable subtask ID or concise focus for the next work, not a command that "
+                        "must run in the next model response."
+                    ),
                 },
-                "open_questions": {"type": "array", "items": {"type": "string"}},
-                "constraints": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Unresolved inputs that may change execution. Use an empty array when none "
+                        "are known."
+                    ),
+                },
+                "constraints": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Stable task constraints taken from authoritative instructions or "
+                        "model-visible evidence."
+                    ),
+                },
             },
             "required": ["goal", "subtasks"],
         },
@@ -174,13 +220,23 @@ def make_task_planner_tool() -> ToolSpec:
 def make_task_progress_check_tool() -> ToolSpec:
     return ToolSpec(
         name="task_progress_check",
-        description="Update progress on subtasks with explicit status and evidence.",
+        description=(
+            "Update selected items in the existing model-owned TODO list and return the latest "
+            "task-state snapshot. Despite the legacy name, this tool records explicit status, "
+            "evidence, focus, and overall-task changes supplied by the model; it does not inspect "
+            "the environment, execute work, or independently check whether evidence is true. "
+            "Call it only after model-visible results justify a state change. It does not require "
+            "any particular next tool or action."
+        ),
         input_schema={
             "type": "object",
             "properties": {
                 "updates": {
                     "type": "array",
-                    "description": "Explicit progress updates for known subtask ids.",
+                    "description": (
+                        "Only the existing TODO items whose status or evidence must change. This "
+                        "may be empty when updating only focus or overall task status."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -198,13 +254,19 @@ def make_task_progress_check_tool() -> ToolSpec:
                                     "cancelled",
                                     "uncertain",
                                 ],
+                                "description": (
+                                    "New status to store for this TODO item. Mark completed only "
+                                    "after model-visible terminal evidence supports completion."
+                                ),
                             },
                             "evidence": {
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": (
-                                    "Model-visible evidence. If there is one item, still "
-                                    "pass it as an array."
+                                    "Literal evidence already returned by the user or tools that "
+                                    "supports this update. Do not use plans, predictions, or the "
+                                    "TODO update itself as evidence. If there is one item, still "
+                                    "pass an array."
                                 ),
                             },
                         },
@@ -213,19 +275,34 @@ def make_task_progress_check_tool() -> ToolSpec:
                 },
                 "current_subtask": {
                     "type": "string",
-                    "description": "Existing subtask id currently being worked on.",
+                    "description": (
+                        "Existing stable subtask ID that is now being worked on. This changes "
+                        "task-state focus only and does not start external work."
+                    ),
                 },
                 "next_focus": {
                     "type": "string",
                     "description": (
-                        "Existing subtask id or short focus statement for the next action."
+                        "Existing subtask ID or concise future focus. It is TODO metadata, not a "
+                        "requirement to call a particular tool in the next model response."
                     ),
                 },
                 "task_status": {
                     "type": "string",
                     "enum": ["active", "paused", "completed", "failed", "cancelled"],
+                    "description": (
+                        "Optional overall task status. completed is accepted only when the "
+                        "runtime completion guard also permits completion; this tool does not "
+                        "itself verify the external result."
+                    ),
                 },
-                "completion_summary": {"type": "string"},
+                "completion_summary": {
+                    "type": "string",
+                    "description": (
+                        "Concise final outcome to store when task_status is completed. Base it "
+                        "only on already recorded terminal evidence."
+                    ),
+                },
             },
             "required": ["updates"],
         },

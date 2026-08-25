@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Clarified the model-facing task-state tool contract: `task_planner` creates or replaces the
+  task TODO list, while the legacy-named `task_progress_check` incrementally updates explicit
+  statuses, evidence, and focus without observing, executing, or verifying external work. Browser
+  prompt and Skill sequencing no longer require a write immediately after a progress update;
+  only the fresh `browser_inspect` reference must directly precede its browser write.
+
 - Fixed deterministic browser acceptance bundles being published with `status=succeeded`
   before final semantic verification. The verifier now rebuilds the executed trajectory from
   copied raw runtime events and rejects any self-consistent derived trajectory that differs;

@@ -30,7 +30,8 @@ Before the first external mutation, create one ordered plan from the extracted t
 prechecks, implementation, independent verification, postchecks, business verification, and every
 ticket-defined rollback branch that can apply. Keep the same step identities and targets throughout
 the run; do not reinterpret or reorder them after each observation. Update progress only after the
-step's external terminal evidence has been read back.
+step's external terminal evidence has been read back. `task_planner` creates or completely replaces
+this model-owned TODO list; it does not execute any item.
 
 ## Execute A Step
 
@@ -44,9 +45,11 @@ page. Report the missing semantic control and preserve the current evidence.
 
 Every browser write or interaction must be the only tool call in that model response. Never batch
 it with `task_progress_check`, a query, a wait, navigation, or another browser write.
-Call `task_progress_check` in its own model response and wait for that tool result.
-Only after its result returns may you issue the browser write in the next model response. This sequencing keeps
-task-state bookkeeping from racing with an external action or prematurely claiming its outcome.
+Despite its legacy name, `task_progress_check` updates selected TODO items with model-supplied
+status and evidence; it does not inspect the environment, execute work, or verify evidence. Call it
+alone only after model-visible terminal evidence supports a status change.
+It does not determine the next tool. Before any later browser write, begin a fresh `browser_inspect` then write sequence;
+never place task-state bookkeeping between an inspection and the write that consumes its reference.
 
 For every planned step:
 
@@ -91,6 +94,9 @@ For every planned step:
    Do not require browser_backfill when a structured EvidenceDrawer records and confirms the same
    step evidence. In either path, use the review image automatically attached to the confirming
    write action, then inspect the terminal state before marking the step complete.
+8. Once the terminal evidence supports a TODO status change, call `task_progress_check` alone to
+   record that update. The returned task snapshot is bookkeeping context, not a page observation or
+   instruction to perform a particular next action. Inspect a fresh target before the next write.
 
 Never claim that a structured record or image backfill occurred without page-confirmed evidence.
 

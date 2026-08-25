@@ -176,11 +176,28 @@ def test_task_state_tool_schemas_describe_nested_fields() -> None:
     planner = make_task_planner_tool()
     progress = make_task_progress_check_tool()
 
+    assert "TODO list" in planner.description
+    assert "completely replace" in planner.description
+    assert "does not observe" in planner.description
+    assert "TODO list" in progress.description
+    assert "Despite the legacy name" in progress.description
+    assert "does not inspect" in progress.description
+    assert "does not require any particular next tool" in progress.description
+
+    for property_schema in planner.input_schema["properties"].values():
+        assert property_schema.get("description")
+    for property_schema in progress.input_schema["properties"].values():
+        assert property_schema.get("description")
+
     subtask_schema = planner.input_schema["properties"]["subtasks"]["items"]
     assert {"id", "description"}.issubset(set(subtask_schema["required"]))
     assert "status" in subtask_schema["properties"]
     assert subtask_schema["properties"]["evidence"]["items"]["type"] == "string"
+    for property_schema in subtask_schema["properties"].values():
+        assert property_schema.get("description")
 
     update_schema = progress.input_schema["properties"]["updates"]["items"]
     assert {"subtask_id", "status"}.issubset(set(update_schema["required"]))
     assert update_schema["properties"]["evidence"]["type"] == "array"
+    for property_schema in update_schema["properties"].values():
+        assert property_schema.get("description")

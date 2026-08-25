@@ -17,13 +17,17 @@ def test_browser_gateway_prompt_is_independent_and_requires_review_images() -> N
     assert "automatically captures one review image" in prompt
     assert "`browser_navigate` are read-only and do not" in prompt
     assert "must be the only tool call in its model response" in prompt
-    assert "Call `task_progress_check` in a separate model response" in prompt
+    assert "`task_planner` creates or replaces the model-owned TODO list" in prompt
+    assert "`task_progress_check` updates that list" in prompt
+    assert "It does not determine the next tool" in prompt
+    assert "never place a task-state call between that inspection and its write" in prompt
     assert "browser_inspect accepts filters only" in prompt
     assert "never pass snapshot_id or element_id to it" in prompt
     assert "Before every browser write or interaction, call browser_inspect" in prompt
     assert "Treat next_snapshot as review context only" in prompt
     assert "action directly" not in prompt
     assert "call observe exactly once" not in prompt
+    assert "issue the browser write only on the next" not in prompt
     for case_specific in (
         "svc_cfg_cli_runner",
         "TenantId",

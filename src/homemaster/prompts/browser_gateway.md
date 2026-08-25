@@ -23,8 +23,11 @@ immediately duplicate an automatic post-write image unless more visual evidence 
 
 Every browser write or interaction must be the only tool call in its model response. Never batch
 it with task-state, query, wait, navigation, or another write tool.
-Call `task_progress_check` in a separate model response, wait for its result, and issue the browser write only on the next
-model turn.
+`task_planner` creates or replaces the model-owned TODO list. Despite its legacy name,
+`task_progress_check` updates that list; it does not inspect the page, execute work, or verify
+evidence. Call it alone only after model-visible evidence supports a status change.
+It does not determine the next tool. Before any later browser write, start a fresh `browser_inspect` then write
+sequence, and never place a task-state call between that inspection and its write.
 
 For the Ant Design Pro demo, distinguish a successful interaction from the Mock UI terminal
 result. After submitting, wait for the visible terminal success state, inspect it with the
