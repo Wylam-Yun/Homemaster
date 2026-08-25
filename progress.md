@@ -1,5 +1,23 @@
 # Current HomeMaster Progress
 
+## 2026-08-25 Browser tool model-contract clarification
+
+- Status: `COMPLETED`. All ten generic browser tools now carry detailed
+  model-facing usage and recovery descriptions, and every public input property explains its
+  exact meaning. `snapshot_id` remains the inspection-batch identifier and `element_id` remains
+  local to that same inspection; `browser_check` and `browser_uncheck` remain separate tools.
+- `observe` is now both the Runtime-owned automatic post-write capture and a model-selectable
+  read-only visual inspection tool. A valid manual observation receives one post-image model-turn
+  grace, does not recursively trigger automatic observation, grants no action reference, and
+  requires a fresh `browser_inspect` before interaction.
+- Evidence: focused browser/observation/schema/Skill tests `27 passed`; shared Runtime/context
+  tests `58 passed`; CLI/config tests `69 passed`; real Playwright integration `15 passed, 1
+  skipped`; scoped Ruff, format, `git diff --check`, and a fresh Provider-schema probe pass. The
+  probe exposes all ten browser tools including model-selectable `observe` and confirms nonempty
+  descriptions for every top-level browser-tool property.
+- Blocking items: none. The repository still contains unrelated pre-existing dirty-worktree
+  changes; this work does not stage, revert, or commit them.
+
 ## 2026-08-25 Ops Monitor Agent run 25 acceptance verifier repair
 
 - Status: `COMPLETED`. The original `ops-monitor-real-20260825-25` business run remains immutable and successful:

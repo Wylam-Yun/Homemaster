@@ -18,6 +18,7 @@ from homemaster.agent.compact import (
     split_preserving_recent_context,
     strip_old_images,
 )
+from homemaster.agent.context_projection import project_model_tool_context
 from homemaster.agent.messages import ContentBlock, Message, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState, CompactionRecord
@@ -420,6 +421,11 @@ class ContextAssembler:
             elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
                 conversation_messages = rendered
 
+        canonical_conversation_messages = conversation_messages
+        conversation_messages = project_model_tool_context(
+            canonical_conversation_messages,
+            tools=tools,
+        )
         estimated = self._estimator.estimate_text(system_prompt)
         estimated += self._estimator.estimate_messages(conversation_messages)
         estimated += sum(self._estimator.estimate_text(text) for text in prelude_texts)
@@ -441,10 +447,15 @@ class ContextAssembler:
             force_mode = str(force_compact) if force_compact else ""
             compaction_triggered, compaction_kind, conversation_messages = self._compact(
                 session=session,
-                messages=conversation_messages,
+                messages=canonical_conversation_messages,
                 budget=budget,
                 aggressive=force_mode in {"aggressive", "manual"},
                 force_summary=force_mode == "manual",
+            )
+            canonical_conversation_messages = conversation_messages
+            conversation_messages = project_model_tool_context(
+                canonical_conversation_messages,
+                tools=tools,
             )
             if compaction_triggered:
                 if force_mode == "manual":
@@ -523,6 +534,11 @@ class ContextAssembler:
             elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
                 conversation_messages = rendered
 
+        canonical_conversation_messages = conversation_messages
+        conversation_messages = project_model_tool_context(
+            canonical_conversation_messages,
+            tools=tools,
+        )
         estimated = self._estimator.estimate_text(system_prompt)
         estimated += self._estimator.estimate_messages(conversation_messages)
         estimated += sum(self._estimator.estimate_text(text) for text in prelude_texts)
@@ -543,10 +559,15 @@ class ContextAssembler:
             force_mode = str(force_compact) if force_compact else ""
             compaction_triggered, compaction_kind, conversation_messages = await self._acompact(
                 session=session,
-                messages=conversation_messages,
+                messages=canonical_conversation_messages,
                 budget=budget,
                 aggressive=force_mode in {"aggressive", "manual"},
                 force_summary=force_mode == "manual",
+            )
+            canonical_conversation_messages = conversation_messages
+            conversation_messages = project_model_tool_context(
+                canonical_conversation_messages,
+                tools=tools,
             )
             if compaction_triggered:
                 if force_mode == "manual":

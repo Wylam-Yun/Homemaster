@@ -260,14 +260,16 @@ async def test_enabled_and_disabled_runs_use_isolated_immutable_tool_views(tmp_p
     assert set(enabled_names) - set(disabled_names) == {
         "browser_navigate",
         "browser_inspect",
+        "browser_wait",
+    }
+    assert not {
         "browser_fill",
         "browser_select",
         "browser_check",
         "browser_uncheck",
         "browser_click",
         "browser_backfill",
-        "browser_wait",
-    }
+    }.intersection(enabled_names)
     assert "observe" in enabled_names and "observe" in disabled_names
     assert tuple(registry.all_names()) == original_names
     assert len(factory.sessions) == 1

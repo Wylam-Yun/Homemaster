@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.browser.contracts import BrowserSession, BrowserSessionError
+from homemaster.browser.contracts import BrowserSession, BrowserSessionError, BrowserSnapshot
 from homemaster.browser.playwright_session import PlaywrightBrowserSession
 from homemaster.browser.policy import BrowserPolicy
 from homemaster.browser.tools import build_browser_registered_tools, build_browser_run_registry
@@ -111,15 +111,54 @@ def test_browser_registered_tools_lock_schema_and_execution_matrix() -> None:
         name for name, definition in definitions.items() if definition.requires_model_observation
     }
     assert observation_actions == {
-        "browser_navigate",
         "browser_fill",
         "browser_select",
         "browser_check",
         "browser_uncheck",
         "browser_click",
         "browser_backfill",
-        "browser_wait",
     }
+    for definition in definitions.values():
+        for property_schema in definition.input_schema.get("properties", {}).values():
+            assert property_schema.get("description"), definition.model_alias
+
+    condition_schema = definitions["browser_wait"].input_schema["properties"]["condition"]
+    for property_schema in condition_schema["properties"].values():
+        assert property_schema.get("description")
+
+    mutation_names = {
+        "browser_fill",
+        "browser_select",
+        "browser_check",
+        "browser_uncheck",
+        "browser_click",
+        "browser_backfill",
+    }
+    for name in mutation_names:
+        description = definitions[name].description
+        assert "browser_inspect alone immediately before" in description
+        assert "snapshot" in description
+        assert "next_snapshot is review-only" in description
+
+    reference_properties = definitions["browser_click"].input_schema["properties"]
+    assert "Inspection-batch identifier" in reference_properties["snapshot_id"]["description"]
+    assert "local to snapshot_id" in reference_properties["element_id"]["description"]
+    assert "never mix, guess, or reuse" in reference_properties["element_id"]["description"]
+
+    click_description = definitions["browser_click"].description
+    assert "visible=true" in click_description
+    assert "enabled=true" in click_description
+    assert "obscured=false" in click_description
+    assert "Do not use click to fill" in click_description
+    assert "exact intended target" in definitions["browser_inspect"].description
+    assert "invalidates every earlier snapshot" in definitions["browser_inspect"].description
+    assert "absolute HTTP(S) URL" in definitions["browser_navigate"].description
+    assert "timeout means the condition was not reached" in definitions["browser_wait"].description
+    assert (
+        "Call this when semantic text and controls are insufficient"
+        in definitions["observe"].description
+    )
+    assert "call browser_inspect before any interaction" in definitions["observe"].description
 
 
 def test_browser_run_registry_is_frozen() -> None:
@@ -151,3 +190,53 @@ async def test_failed_browser_action_preserves_executor_error(tmp_path: Path) ->
     assert result.metadata["status"] == "failure"
     assert result.metadata["error_code"] == "target_obscured"
     assert result.output == "target is obscured"
+
+
+@pytest.mark.asyncio
+async def test_successful_browser_action_requires_a_fresh_inspection(tmp_path: Path) -> None:
+    class _ClickableSession:
+        inspect_calls: list[dict[str, object]] = []
+
+        async def click(self, snapshot_id: str, element_id: str):
+            return {
+                "snapshot_id_used": snapshot_id,
+                "element_id_used": element_id,
+                "interaction_verified": True,
+            }
+
+        async def inspect(self, filters: dict[str, object]):
+            self.inspect_calls.append(filters)
+            return BrowserSnapshot(
+                snapshot_id="snapshot-after-click",
+                generation=1,
+                url="http://example.test/after",
+                title="After click",
+                text="updated",
+                elements=(),
+                total_matches=0,
+                truncated=False,
+            )
+
+    session = _ClickableSession()
+    registered = next(
+        tool
+        for tool in build_browser_registered_tools(session)
+        if tool.definition.model_alias == "browser_click"
+    )
+    tool = from_registered_tool(registered)
+    arguments = tool.input_model(snapshot_id="snapshot-1", element_id="element-1")
+
+    result = await tool.execute(arguments, ToolExecutionContext(tmp_path))
+
+    assert result.is_error is False
+    assert result.metadata["snapshot_consumed"] is True
+    assert result.metadata["next_action_requires_new_inspect"] is True
+    assert session.inspect_calls == [
+        {"interactive_only": True, "actionable_only": True, "limit": 200}
+    ]
+    assert "snapshot_id" not in result.metadata["next_snapshot"]
+    assert result.metadata["next_snapshot"]["reference_mode"] == "review_only"
+    assert all(
+        "element_id" not in element for element in result.metadata["next_snapshot"]["elements"]
+    )
+    assert result.metadata["next_snapshot_ready"] is True

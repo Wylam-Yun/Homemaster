@@ -65,11 +65,11 @@ class _DeterministicBrowserTransport:
         self.iteration = 0
         self.manifests: list[tuple[str, ...]] = []
         self.tool_calls: list[str] = []
+        self.request_image_counts: list[int] = []
+        self.automatic_observations: list[dict[str, object]] = []
         self.independent_dom: dict[str, str] = {}
         self.independent_console = ""
         self.independent_command = ""
-        self.observe_image_seen = False
-        self.observe_image_count = 0
         self.backfill_confirmed = False
         self.backfill_receipt_sha256 = ""
         self.backfill_preview_sha256 = ""
@@ -86,6 +86,14 @@ class _DeterministicBrowserTransport:
         del kwargs
         names = tuple(item["name"] for item in tools or [])
         self.manifests.append(names)
+        self.request_image_counts.append(
+            sum(block.type == "image" for block in messages[-1].content)
+        )
+        automatic_observation = getattr(messages[-1], "data", None) or {}
+        if "automatic_observation" in automatic_observation:
+            self.automatic_observations.append(
+                dict(automatic_observation["automatic_observation"])
+            )
         if attempt_sink is not None:
             attempt_sink.record_attempt(
                 ProviderAttemptRecord(
@@ -113,16 +121,11 @@ class _DeterministicBrowserTransport:
                 "browser_navigate",
                 {"url": f"{self.origin}/dashboard/automation"},
             )
-        if index in {1, 4, 7, 10, 13, 16, 18, 21, 24}:
-            if index == 21:
-                self.backfill_receipt_sha256 = str(messages[-1].data["sha256"])
-            return self._call("observe", {})
-        if index in {2, 5, 8, 11}:
-            self._record_observe_image(messages)
-            label = tuple(VALUES)[(index - 2) // 3]
+        if index in {1, 3, 5, 7}:
+            label = tuple(VALUES)[(index - 1) // 2]
             return self._call("browser_inspect", {"name": label})
-        if index in {3, 6, 9, 12}:
-            label = tuple(VALUES)[(index - 3) // 3]
+        if index in {2, 4, 6, 8}:
+            label = tuple(VALUES)[(index - 2) // 2]
             snapshot_id, element_id = _single_ref(messages[-1], label)
             return self._call(
                 "browser_fill",
@@ -132,17 +135,15 @@ class _DeterministicBrowserTransport:
                     "value": VALUES[label],
                 },
             )
-        if index == 14:
-            self._record_observe_image(messages)
+        if index == 9:
             return self._call("browser_inspect", {"name": "确认执行"})
-        if index == 15:
+        if index == 10:
             snapshot_id, element_id = _single_ref(messages[-1], "确认执行")
             return self._call(
                 "browser_click",
                 {"snapshot_id": snapshot_id, "element_id": element_id},
             )
-        if index == 17:
-            self._record_observe_image(messages)
+        if index == 11:
             return self._call(
                 "browser_wait",
                 {
@@ -153,26 +154,24 @@ class _DeterministicBrowserTransport:
                     }
                 },
             )
-        if index == 19:
-            self._record_observe_image(messages)
+        if index == 12:
             return self._call("browser_inspect", {"name": "自动化执行回填截图"})
-        if index == 20:
+        if index == 13:
             snapshot_id, element_id = _single_ref(messages[-1], "自动化执行回填截图")
             return self._call(
                 "browser_backfill",
                 {"snapshot_id": snapshot_id, "element_id": element_id},
             )
-        if index == 22:
-            self._record_observe_image(messages)
+        if index == 14:
+            self.backfill_receipt_sha256 = str(messages[-1].data["sha256"])
             return self._call("browser_inspect", {"name": "确认回填"})
-        if index == 23:
+        if index == 15:
             snapshot_id, element_id = _single_ref(messages[-1], "确认回填")
             return self._call(
                 "browser_click",
                 {"snapshot_id": snapshot_id, "element_id": element_id},
             )
-        if index == 25:
-            self._record_observe_image(messages)
+        if index == 16:
             page = self.factory.sessions[0]._page
             self.independent_dom = {
                 name: await page.locator(f"#{name}").input_value() for name in VALUES
@@ -191,11 +190,6 @@ class _DeterministicBrowserTransport:
             ).hexdigest()
             return None
         raise AssertionError(f"unexpected deterministic provider iteration {index}")
-
-    def _record_observe_image(self, messages) -> None:
-        image_seen = any(block.type == "image" for block in messages[-1].content)
-        self.observe_image_seen = self.observe_image_seen or image_seen
-        self.observe_image_count += int(image_seen)
 
     def _call(self, name: str, arguments: dict[str, object]) -> ToolCall:
         return ToolCall(id=f"call-{self.iteration}-{name}", name=name, arguments=arguments)
@@ -302,9 +296,8 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
         while True:
             message = await asyncio.wait_for(gateway_bus.receive_outbound(), timeout=60)
             outbound.append(message)
-            media_count = sum(item.kind is ChannelEventKind.MEDIA for item in outbound)
             final_seen = any(item.kind is ChannelEventKind.FINAL for item in outbound)
-            if media_count == 9 and final_seen:
+            if final_seen:
                 break
     finally:
         public_events.cancel()
@@ -316,7 +309,7 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
 
     media = [item for item in outbound if item.kind is ChannelEventKind.MEDIA]
     final = [item for item in outbound if item.kind is ChannelEventKind.FINAL]
-    assert len(media) == 9
+    assert media == []
     assert len(final) == 1 and final[0].content == "completed"
     assert all(item.identity == identity for item in (*media, *final))
     assert all(item.session_id == session_id for item in (*media, *final))
@@ -326,37 +319,51 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
     assert transport.independent_dom == VALUES
     assert "执行状态：SUCCESS (exitCode=0)" in transport.independent_console
     assert all(value in transport.independent_command for value in VALUES.values())
-    assert transport.observe_image_seen is True
-    assert transport.observe_image_count == 9
+    assert transport.request_image_counts == [
+        0,
+        0,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        0,
+        1,
+        0,
+        1,
+    ]
+    assert len(transport.automatic_observations) == 7
+    assert all(
+        observation["status"] == "success"
+        for observation in transport.automatic_observations
+    )
     assert transport.backfill_confirmed is True
     assert transport.backfill_receipt_sha256 == transport.backfill_preview_sha256
     assert transport.tool_calls == [
         "browser_navigate",
-        "observe",
         "browser_inspect",
         "browser_fill",
-        "observe",
         "browser_inspect",
         "browser_fill",
-        "observe",
         "browser_inspect",
         "browser_fill",
-        "observe",
         "browser_inspect",
         "browser_fill",
-        "observe",
         "browser_inspect",
         "browser_click",
-        "observe",
         "browser_wait",
-        "observe",
         "browser_inspect",
         "browser_backfill",
-        "observe",
         "browser_inspect",
         "browser_click",
-        "observe",
     ]
+    assert "observe" not in transport.tool_calls
     assert len(transport.manifests) == len(transport.tool_calls) + 1
     assert all(
         tool_name in manifest

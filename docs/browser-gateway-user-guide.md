@@ -49,14 +49,16 @@ schema；标题、段落、列表和表格会一起解释。Skill 只定义通�
 
 ## 截图与回填
 
-每次 navigate、写操作、wait 或 `browser_backfill` 后，Runtime 会把下一次工具选择限制为
-`observe`。该 PNG 同时进入下一轮模型上下文，并沿现有 Gateway MEDIA 链发送到飞书；模型
-看图后继续执行，不等待人工批准，除非消息明确要求暂停。
+每次 `browser_fill`、`browser_select`、`browser_check`、`browser_uncheck`、
+`browser_click` 或 `browser_backfill` 真正执行后，Runtime 自动截取一张 PNG 并附加到该操作
+结果。模型不需要为了完成写操作而额外调用 `observe`。如果语义文本和控件不足以判断页面布局、
+图片、图表、Canvas 内容或视觉遮挡，模型仍可主动调用只读的 `observe` 查看当前页面；截图不返回
+可执行元素引用，看图后必须重新 `browser_inspect` 才能操作页面。
 
 `browser_backfill(snapshot_id, element_id)` 使用当前页面 PNG 触发目标控件的真实 clipboard
 paste。只有页面明确接收 paste、DOM 随后变化且页面中的图片预览与该 PNG 字节完全一致才
 返回成功；回执同时给出原图和预览 SHA-256。模型随后重新 inspect、点击页面
-的确认回填控件，再 `observe` 展示确认状态。普通文本框拒绝图片 paste 时，工具返回
+的确认回填控件，并使用写操作自动附加的截图查看确认状态。普通文本框拒绝图片 paste 时，工具返回
 `backfill_rejected`，不会伪造成功。
 
 Browser Gateway 不设置数值型工具迭代预算，完整票据轨迹不会被默认 12 次工具调用截断；

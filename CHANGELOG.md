@@ -19,6 +19,12 @@
 
 ### Added
 
+- Expanded every generic browser tool and input-property description with exact usage,
+  reference ownership, actionability, readback, snapshot-consumption, wait-condition, and
+  recovery semantics. `observe` remains the runtime-owned automatic post-write capture and is
+  now also model-selectable for additional read-only visual inspection; its result grants no
+  action reference, so a fresh `browser_inspect` is still required before interaction.
+
 - Added a Chinese, read-only Web memory management page with dynamic active, archived, total, and source-session counts; exact `session_id` grouping; collapsible session groups and history; search and native-type filtering; safe detail projection; and lazy version history. The application now cursor-reads every MindMemOS page, preserves archive timestamps, reads historical session titles without resuming runtimes, and explicitly injects one tenant-scoped read service into both Home and ALFWorld Web compositions. No memory mutation route or control is exposed.
 
 - Added inline Web previews for authorized `image/*` tool artifacts. Each image stays inside its producing tool

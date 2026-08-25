@@ -269,8 +269,9 @@ uv run homemaster --gateway --browser --config config/homemaster.yaml
   Gateway 配置会绕过这道门。真实发送、patch 与同卡 readback 已取得业务 `code=0`，且逐卡确认按钮消失；
   callback 身份闭环和批准后 backend exactly-once 的 live 主链仍标记为 `UNVERIFIED`。
 - Browser 模式下飞书正文可直接包含变更单 URL；通用 `change-ticket-executor` Skill 从票据自然语言
-  动态提取步骤与验收，每次写操作后强制 `observe` 回传截图，`browser_backfill` 以 SHA-256 一致性
-  校验回填。当前验收范围是 Ant Design Pro Mock UI，不代表真实业务系统变更。
+  动态提取步骤与验收；Runtime 为每次浏览器写操作自动附加截图，模型也可在语义信息不足时主动
+  `observe` 页面，再通过新的 `browser_inspect` 获取可执行引用。`browser_backfill` 以 SHA-256
+  一致性校验回填。当前验收范围是 Ant Design Pro Mock UI，不代表真实业务系统变更。
 
 详见 [Browser Gateway 用户指南](docs/browser-gateway-user-guide.md) 与
 [ALFWorld 用户指南](docs/alfworld-user-guide.md)。

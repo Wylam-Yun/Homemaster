@@ -44,6 +44,22 @@ def append_model_observation_prompt(system_prompt: str) -> str:
     return f"{system_prompt.rstrip()}\n\n{prompt}" if system_prompt.strip() else prompt
 
 
+def model_selectable_tool_schemas(
+    tool_schemas: list[dict[str, object]],
+    registry: ToolRegistry | None,
+) -> list[dict[str, object]]:
+    """Keep manual observation available alongside runtime-owned action captures."""
+
+    if registry is None or not any(
+        tool.requires_model_observation for tool in registry.list_tools()
+    ):
+        return list(tool_schemas)
+    observations = [schema for schema in tool_schemas if schema.get("name") == "observe"]
+    if len(observations) != 1:
+        raise RuntimeError("automatic model observation requires exactly one observe tool")
+    return list(tool_schemas)
+
+
 def observation_tool_schema(tool_schemas: list[dict[str, object]]) -> list[dict[str, object]]:
     selected = [schema for schema in tool_schemas if schema.get("name") == "observe"]
     if len(selected) != 1:
@@ -113,12 +129,49 @@ def validate_observation_result(result: ToolResultMessage) -> ObservationImageEv
     )
 
 
+def automatic_observation_call(source: ToolCall, attempt: int) -> ToolCall:
+    """Build one deterministic runtime-owned observation call for an action."""
+
+    if attempt < 1:
+        raise ValueError("automatic observation attempt must be positive")
+    return ToolCall(
+        id=f"auto-observe-{source.id}-{attempt}",
+        name="observe",
+        arguments={},
+    )
+
+
+def attach_automatic_observation(
+    action_result: ToolResultMessage,
+    observation_result: ToolResultMessage,
+    evidence: ObservationImageEvidence,
+) -> None:
+    """Attach a validated runtime observation to its model-selected action."""
+
+    image_blocks = [block for block in observation_result.content if block.type == "image"]
+    if len(image_blocks) != 1:
+        raise ValueError("automatic observation must contain exactly one image")
+    action_result.content.extend(block.model_copy(deep=True) for block in image_blocks)
+    data = dict(action_result.data or {})
+    data["automatic_observation"] = {
+        "status": "success",
+        "source_tool_call_id": action_result.tool_call_id,
+        "observation_tool_call_id": observation_result.tool_call_id,
+        "content_sha256": evidence.content_sha256,
+        "pixel_sha256": evidence.pixel_sha256,
+    }
+    action_result.data = data
+
+
 __all__ = [
     "MAX_OBSERVE_FAILURES",
     "MAX_PROTOCOL_FAILURES",
     "ObservationImageEvidence",
     "action_requires_model_observation",
     "append_model_observation_prompt",
+    "model_selectable_tool_schemas",
+    "attach_automatic_observation",
+    "automatic_observation_call",
     "observation_batch_error_results",
     "observation_tool_schema",
     "validate_observation_result",

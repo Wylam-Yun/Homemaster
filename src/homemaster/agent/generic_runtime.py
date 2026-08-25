@@ -15,6 +15,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from homemaster.agent.context import ContextMetrics
+from homemaster.agent.context_projection import (
+    browser_reference_protocol_results,
+    project_model_tool_schemas,
+    terminal_command_protocol_results,
+    unavailable_tool_protocol_results,
+)
 from homemaster.agent.interrupt import InterruptController
 from homemaster.agent.messages import (
     ContentBlock,
@@ -28,6 +34,9 @@ from homemaster.agent.model_observation import (
     MAX_PROTOCOL_FAILURES,
     action_requires_model_observation,
     append_model_observation_prompt,
+    attach_automatic_observation,
+    automatic_observation_call,
+    model_selectable_tool_schemas,
     observation_batch_error_results,
     observation_tool_schema,
     validate_observation_result,
@@ -36,7 +45,7 @@ from homemaster.agent.normalized import RunContext
 from homemaster.agent.runtime_contracts import RuntimeStopDecision
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
-from homemaster.agent.state import AgentState, ModelObservationBarrier, ProviderUsage
+from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.events.sinks import FanoutEventSink
 from homemaster.providers.attempts import (
@@ -214,8 +223,10 @@ class AgentRuntime:
         )
 
         if tool_registry is not None:
-            tool_schemas = list(tool_registry.to_api_schema())
+            all_tool_schemas = list(tool_registry.to_api_schema())
+            tool_schemas = model_selectable_tool_schemas(all_tool_schemas, tool_registry)
         else:
+            all_tool_schemas = []
             tool_schemas = []
 
         iteration = 0
@@ -304,8 +315,12 @@ class AgentRuntime:
                                 await callback_result
                         save_snapshot()
 
+                context_tools = project_model_tool_schemas(
+                    context_tools,
+                    messages=context_messages,
+                )
                 if agent_state.pending_model_observation is not None:
-                    context_tools = observation_tool_schema(tool_schemas)
+                    context_tools = observation_tool_schema(all_tool_schemas)
                     context_system_prompt = append_model_observation_prompt(context_system_prompt)
 
                 # Freeze provider inputs once so retry cannot recapture or rebuild media.
@@ -662,6 +677,132 @@ class AgentRuntime:
                     save_snapshot()
                     iteration += 1
                     continue
+                reference_rejected = browser_reference_protocol_results(
+                    tool_calls,
+                    messages=frozen_messages,
+                )
+                if reference_rejected is not None:
+                    for result in reference_rejected:
+                        session.append(result)
+                    agent_state.record_tool_results(
+                        [
+                            {
+                                "tool_call_id": result.tool_call_id,
+                                "name": result.name,
+                                "is_error": False,
+                                "text": "\n".join(
+                                    block.text for block in result.content if block.text
+                                )[:500],
+                            }
+                            for result in reference_rejected
+                        ]
+                    )
+                    for result in reference_rejected:
+                        await emit(
+                            "browser.reference_protocol_rejected",
+                            tool_call_id=result.tool_call_id,
+                            name=result.name,
+                            payload={
+                                "error_code": (result.data or {}).get("error_code"),
+                                "backend_attempted": False,
+                                "required_tool": "browser_inspect",
+                            },
+                        )
+                    await self._publish_tool_results(
+                        tool_calls,
+                        reference_rejected,
+                        dispatch_ms=0.0,
+                        emit=emit,
+                    )
+                    save_snapshot()
+                    iteration += 1
+                    continue
+                unavailable_rejected = unavailable_tool_protocol_results(
+                    tool_calls,
+                    tools=frozen_tools,
+                )
+                if unavailable_rejected is not None:
+                    for result in unavailable_rejected:
+                        session.append(result)
+                    agent_state.record_tool_results(
+                        [
+                            {
+                                "tool_call_id": result.tool_call_id,
+                                "name": result.name,
+                                "is_error": False,
+                                "text": "\n".join(
+                                    block.text for block in result.content if block.text
+                                )[:500],
+                            }
+                            for result in unavailable_rejected
+                        ]
+                    )
+                    for result in unavailable_rejected:
+                        await emit(
+                            "tool.protocol_rejected",
+                            tool_call_id=result.tool_call_id,
+                            name=result.name,
+                            payload={
+                                "error_code": (result.data or {}).get("error_code"),
+                                "backend_attempted": False,
+                                "unavailable_tools": (result.data or {}).get(
+                                    "unavailable_tools", []
+                                ),
+                            },
+                        )
+                    await self._publish_tool_results(
+                        tool_calls,
+                        unavailable_rejected,
+                        dispatch_ms=0.0,
+                        emit=emit,
+                    )
+                    save_snapshot()
+                    iteration += 1
+                    continue
+                permission_settings = getattr(settings, "permissions", None)
+                terminal_rejected = terminal_command_protocol_results(
+                    tool_calls,
+                    allowed_commands=getattr(
+                        permission_settings,
+                        "allowed_terminal_commands",
+                        (),
+                    ),
+                )
+                if terminal_rejected is not None:
+                    for result in terminal_rejected:
+                        session.append(result)
+                    agent_state.record_tool_results(
+                        [
+                            {
+                                "tool_call_id": result.tool_call_id,
+                                "name": result.name,
+                                "is_error": False,
+                                "text": "\n".join(
+                                    block.text for block in result.content if block.text
+                                )[:500],
+                            }
+                            for result in terminal_rejected
+                        ]
+                    )
+                    for result in terminal_rejected:
+                        await emit(
+                            "terminal.command_protocol_rejected",
+                            tool_call_id=result.tool_call_id,
+                            name=result.name,
+                            payload={
+                                "error_code": (result.data or {}).get("error_code"),
+                                "backend_attempted": False,
+                            },
+                        )
+                    await self._publish_tool_results(
+                        tool_calls,
+                        terminal_rejected,
+                        dispatch_ms=0.0,
+                        emit=emit,
+                    )
+                    save_snapshot()
+                    iteration += 1
+                    continue
                 for tool_call in tool_calls:
                     await emit(
                         "tool.call_started",
@@ -723,6 +864,113 @@ class AgentRuntime:
                         local_only=True,
                     )
 
+                automatic_observation_error: str | None = None
+                if barrier is None and observation_actions:
+                    action_call = observation_actions[0]
+                    action_result = next(
+                        result for result in tool_results if result.tool_call_id == action_call.id
+                    )
+                    action_data = action_result.data or {}
+                    if action_data.get("backend_attempted") is True:
+                        await emit(
+                            "model_observation.automatic_started",
+                            tool_call_id=action_call.id,
+                            name=action_call.name,
+                            payload={"source_tool_call_id": action_call.id},
+                        )
+                        failure_reason = "automatic observation did not run"
+                        for attempt in range(1, MAX_OBSERVE_FAILURES + 1):
+                            observe_call = automatic_observation_call(action_call, attempt)
+                            observe_results = await self._dispatch_tools(
+                                [observe_call],
+                                session,
+                                run_id,
+                                event_sink,
+                                settings,
+                                events,
+                                run_context=run_context,
+                                cancellation_token=interrupt,
+                            )
+                            if len(observe_results) != 1:
+                                failure_reason = "automatic observe returned an invalid batch"
+                            else:
+                                observe_result = observe_results[0]
+                                try:
+                                    image_evidence = validate_observation_result(observe_result)
+                                except ValueError as exc:
+                                    failure_reason = str(exc)
+                                else:
+                                    attach_automatic_observation(
+                                        action_result,
+                                        observe_result,
+                                        image_evidence,
+                                    )
+                                    agent_state.unconsumed_observation_tool_call_id = (
+                                        action_result.tool_call_id
+                                    )
+                                    await emit(
+                                        "model_observation.automatic_completed",
+                                        tool_call_id=action_call.id,
+                                        name=action_call.name,
+                                        payload={
+                                            "attempt": attempt,
+                                            "content_sha256": image_evidence.content_sha256,
+                                            "pixel_sha256": image_evidence.pixel_sha256,
+                                            "source_tool_call_id": action_call.id,
+                                        },
+                                    )
+                                    break
+                            await emit(
+                                "model_observation.automatic_attempt_failed",
+                                tool_call_id=action_call.id,
+                                name=action_call.name,
+                                payload={
+                                    "attempt": attempt,
+                                    "reason": failure_reason,
+                                    "source_tool_call_id": action_call.id,
+                                },
+                            )
+                        else:
+                            data = dict(action_result.data or {})
+                            data["automatic_observation"] = {
+                                "status": "failed",
+                                "source_tool_call_id": action_call.id,
+                                "attempts": MAX_OBSERVE_FAILURES,
+                                "reason": failure_reason,
+                            }
+                            action_result.data = data
+                            automatic_observation_error = failure_reason
+
+                if barrier is None:
+                    manual_observations = [
+                        (call, result)
+                        for call in tool_calls
+                        for result in tool_results
+                        if call.name == "observe" and result.tool_call_id == call.id
+                    ]
+                    if len(manual_observations) == 1:
+                        manual_call, manual_result = manual_observations[0]
+                        try:
+                            image_evidence = validate_observation_result(manual_result)
+                        except ValueError as exc:
+                            await emit(
+                                "model_observation.manual_failed",
+                                tool_call_id=manual_call.id,
+                                name=manual_call.name,
+                                payload={"reason": str(exc)},
+                            )
+                        else:
+                            agent_state.unconsumed_observation_tool_call_id = manual_call.id
+                            await emit(
+                                "model_observation.manual_completed",
+                                tool_call_id=manual_call.id,
+                                name=manual_call.name,
+                                payload={
+                                    "content_sha256": image_evidence.content_sha256,
+                                    "pixel_sha256": image_evidence.pixel_sha256,
+                                },
+                            )
+
                 for result in tool_results:
                     session.append(result)
 
@@ -753,6 +1001,33 @@ class AgentRuntime:
                     dispatch_ms=dispatch_ms,
                     emit=emit,
                 )
+
+                if automatic_observation_error is not None:
+                    await emit(
+                        "model_observation.automatic_failed",
+                        tool_call_id=observation_actions[0].id,
+                        name=observation_actions[0].name,
+                        payload={
+                            "error": automatic_observation_error,
+                            "error_code": "automatic_observation_failed",
+                            "source_tool_call_id": observation_actions[0].id,
+                        },
+                    )
+                    await emit(
+                        "runtime.turn_failed",
+                        payload={
+                            "error": automatic_observation_error,
+                            "error_code": "automatic_observation_failed",
+                        },
+                    )
+                    save_snapshot("failed")
+                    return GenericRunResult(
+                        run_id=run_id,
+                        status="failed",
+                        session=session,
+                        events=events,
+                        error_code="automatic_observation_failed",
+                    )
 
                 if barrier is not None:
                     observe_result = tool_results[0]
@@ -799,31 +1074,6 @@ class AgentRuntime:
                                 "content_sha256": image_evidence.content_sha256,
                                 "pixel_sha256": image_evidence.pixel_sha256,
                                 "source_tool_call_id": barrier.source_tool_call_id,
-                            },
-                        )
-                elif observation_actions:
-                    action_call = observation_actions[0]
-                    action_result = next(
-                        result for result in tool_results if result.tool_call_id == action_call.id
-                    )
-                    action_data = action_result.data or {}
-                    if action_data.get("backend_attempted") is True:
-                        source_status = str(
-                            action_data.get("status")
-                            or ("failure" if action_result.is_error else "success")
-                        )
-                        agent_state.pending_model_observation = ModelObservationBarrier(
-                            source_tool_name=action_call.name,
-                            source_tool_call_id=action_call.id,
-                            source_status=source_status,
-                        )
-                        await emit(
-                            "model_observation.barrier_set",
-                            tool_call_id=action_call.id,
-                            name=action_call.name,
-                            payload={
-                                "backend_attempted": True,
-                                "source_status": source_status,
                             },
                         )
 

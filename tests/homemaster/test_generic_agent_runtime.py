@@ -44,6 +44,7 @@ from homemaster.providers.errors import (
     LLMProviderError,
 )
 from homemaster.providers.transports import TransportDelta
+from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
 
 
 class FakeTransport:
@@ -261,6 +262,517 @@ class FakeToolExecutor:
                 )
             )
         return results
+
+
+@pytest.mark.asyncio
+async def test_browser_mutation_schema_requires_immediately_preceding_inspect() -> None:
+    class SchemaRecordingTransport:
+        def __init__(self) -> None:
+            self.responses = [
+                ToolCall(id="inspect-1", name="browser_inspect", arguments={"name": "确 定"}),
+                ToolCall(
+                    id="click-1",
+                    name="browser_click",
+                    arguments={"snapshot_id": "s-current", "element_id": "e1"},
+                ),
+                "done",
+            ]
+            self.tool_name_batches: list[tuple[str, ...]] = []
+
+        async def stream(self, messages, *, tools=None, **_kwargs):
+            del messages
+            self.tool_name_batches.append(
+                tuple(str(tool.get("name")) for tool in (tools or []))
+            )
+            response = self.responses.pop(0)
+            if isinstance(response, str):
+                yield TransportDelta(
+                    type="transport.delta",
+                    text_delta=response,
+                    finish_reason="stop",
+                )
+                return
+            yield TransportDelta(type="transport.delta", tool_call_delta=response)
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class BrowserDispatcher:
+        def dispatch(self, *, tool_calls, run_context):
+            del run_context
+            results = []
+            for call in tool_calls:
+                if call.name == "browser_inspect":
+                    data = {
+                        "snapshot_id": "s-current",
+                        "elements": [{"element_id": "e1", "name": "确 定"}],
+                        "total_matches": 1,
+                    }
+                else:
+                    data = {
+                        "snapshot_consumed": True,
+                        "next_snapshot": {
+                            "reference_mode": "review_only",
+                            "elements": [{"name": "after click"}],
+                        },
+                    }
+                payload = {"status": "success", "success": True, "data": data}
+                results.append(
+                    ToolResultMessage(
+                        tool_call_id=call.id,
+                        name=call.name,
+                        content=[
+                            ContentBlock(
+                                text=json.dumps(
+                                    payload,
+                                    ensure_ascii=False,
+                                    separators=(",", ":"),
+                                )
+                            )
+                        ],
+                        data=payload,
+                    )
+                )
+            return results
+
+    registry = ToolRegistry()
+    for name in ("browser_inspect", "browser_click"):
+        registry.register(
+            FunctionTool(
+                name=name,
+                description=name,
+                input_schema={"type": "object", "properties": {}},
+                execute=lambda arguments, context: ToolResult("unused"),
+                read_only=name == "browser_inspect",
+            )
+        )
+    transport = SchemaRecordingTransport()
+    result = await AgentRuntime(
+        transport=transport,
+        tool_executor=BrowserDispatcher(),
+        max_tool_iterations=3,
+    ).run(
+        AgentSession("browser-schema-lease"),
+        "inspect then click",
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert "browser_inspect" in transport.tool_name_batches[0]
+    assert "browser_click" not in transport.tool_name_batches[0]
+    assert "browser_click" in transport.tool_name_batches[1]
+    assert "browser_click" not in transport.tool_name_batches[2]
+
+
+@pytest.mark.asyncio
+async def test_browser_reference_fence_blocks_hidden_and_mismatched_mutations() -> None:
+    class FenceTransport:
+        def __init__(self) -> None:
+            self.responses: list[ToolCall | str] = [
+                ToolCall(
+                    id="hidden-fill",
+                    name="browser_fill",
+                    arguments={
+                        "snapshot_id": "s-hidden",
+                        "element_id": "e2",
+                        "value": "value",
+                    },
+                ),
+                ToolCall(id="inspect-1", name="browser_inspect", arguments={"name": "target"}),
+                ToolCall(
+                    id="old-click",
+                    name="browser_click",
+                    arguments={"snapshot_id": "s-old", "element_id": "e3"},
+                ),
+                ToolCall(id="inspect-2", name="browser_inspect", arguments={"name": "target"}),
+                ToolCall(
+                    id="exact-click",
+                    name="browser_click",
+                    arguments={"snapshot_id": "s-current", "element_id": "e1"},
+                ),
+                "done",
+            ]
+
+        async def stream(self, messages, *, tools=None, **_kwargs):
+            del messages, tools
+            response = self.responses.pop(0)
+            if isinstance(response, str):
+                yield TransportDelta(
+                    type="transport.delta",
+                    text_delta=response,
+                    finish_reason="stop",
+                )
+                return
+            yield TransportDelta(type="transport.delta", tool_call_delta=response)
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class FenceDispatcher:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def dispatch(self, *, tool_calls, run_context):
+            del run_context
+            results = []
+            for call in tool_calls:
+                self.calls.append((call.name, call.arguments))
+                if call.name == "browser_inspect":
+                    data = {
+                        "snapshot_id": "s-current",
+                        "elements": [{"element_id": "e1", "name": "target"}],
+                        "total_matches": 1,
+                    }
+                else:
+                    data = {"snapshot_consumed": True}
+                payload = {"status": "success", "success": True, "data": data}
+                results.append(
+                    ToolResultMessage(
+                        tool_call_id=call.id,
+                        name=call.name,
+                        content=[ContentBlock(text=json.dumps(payload))],
+                        data=payload,
+                    )
+                )
+            return results
+
+    registry = ToolRegistry()
+    for name in ("browser_inspect", "browser_fill", "browser_click"):
+        registry.register(
+            FunctionTool(
+                name=name,
+                description=name,
+                input_schema={"type": "object", "properties": {}},
+                execute=lambda arguments, context: ToolResult("unused"),
+                read_only=name == "browser_inspect",
+            )
+        )
+    dispatcher = FenceDispatcher()
+    session = AgentSession("browser-reference-fence")
+    result = await AgentRuntime(
+        transport=FenceTransport(),
+        tool_executor=dispatcher,
+        max_tool_iterations=6,
+    ).run(
+        session,
+        "enforce exact browser references",
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert dispatcher.calls == [
+        ("browser_inspect", {"name": "target"}),
+        ("browser_inspect", {"name": "target"}),
+        ("browser_click", {"snapshot_id": "s-current", "element_id": "e1"}),
+    ]
+    rejected = [
+        event for event in result.events if event.type == "browser.reference_protocol_rejected"
+    ]
+    assert [event.payload["error_code"] for event in rejected] == [
+        "browser_inspect_required",
+        "browser_inspect_reference_mismatch",
+    ]
+    blocked = [
+        message
+        for message in session.messages
+        if isinstance(message, ToolResultMessage)
+        and message.tool_call_id in {"hidden-fill", "old-click"}
+    ]
+    assert len(blocked) == 2
+    assert all(message.is_error is False for message in blocked)
+    assert all(message.data["backend_attempted"] is False for message in blocked)
+
+
+@pytest.mark.asyncio
+async def test_browser_reference_fence_blocks_non_actionable_inspected_target() -> None:
+    class DisabledTargetTransport:
+        def __init__(self) -> None:
+            self.responses: list[ToolCall | str] = [
+                ToolCall(
+                    id="inspect-disabled",
+                    name="browser_inspect",
+                    arguments={"name": "确 定"},
+                ),
+                ToolCall(
+                    id="click-disabled",
+                    name="browser_click",
+                    arguments={"snapshot_id": "s-disabled", "element_id": "e1"},
+                ),
+                "recovered",
+            ]
+
+        async def stream(self, messages, *, tools=None, **_kwargs):
+            del messages, tools
+            response = self.responses.pop(0)
+            if isinstance(response, str):
+                yield TransportDelta(
+                    type="transport.delta",
+                    text_delta=response,
+                    finish_reason="stop",
+                )
+                return
+            yield TransportDelta(type="transport.delta", tool_call_delta=response)
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class DisabledTargetDispatcher:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def dispatch(self, *, tool_calls, run_context):
+            del run_context
+            self.calls.extend((call.name, call.arguments) for call in tool_calls)
+            call = tool_calls[0]
+            payload = {
+                "status": "success",
+                "success": True,
+                "data": {
+                    "snapshot_id": "s-disabled",
+                    "elements": [
+                        {
+                            "element_id": "e1",
+                            "name": "确 定",
+                            "enabled": False,
+                            "visible": True,
+                            "obscured": False,
+                        }
+                    ],
+                    "total_matches": 1,
+                },
+            }
+            return [
+                ToolResultMessage(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    content=[ContentBlock(text=json.dumps(payload))],
+                    data=payload,
+                )
+            ]
+
+    registry = ToolRegistry()
+    for name in ("browser_inspect", "browser_click"):
+        registry.register(
+            FunctionTool(
+                name=name,
+                description=name,
+                input_schema={"type": "object", "properties": {}},
+                execute=lambda arguments, context: ToolResult("unused"),
+                read_only=name == "browser_inspect",
+            )
+        )
+    dispatcher = DisabledTargetDispatcher()
+    session = AgentSession("browser-disabled-target-fence")
+    result = await AgentRuntime(
+        transport=DisabledTargetTransport(),
+        tool_executor=dispatcher,
+        max_tool_iterations=3,
+    ).run(
+        session,
+        "do not click disabled targets",
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert dispatcher.calls == [("browser_inspect", {"name": "确 定"})]
+    blocked = next(
+        message
+        for message in session.messages
+        if isinstance(message, ToolResultMessage)
+        and message.tool_call_id == "click-disabled"
+    )
+    assert blocked.is_error is False
+    assert blocked.data["status"] == "protocol_blocked"
+    assert blocked.data["backend_attempted"] is False
+    assert blocked.data["error_code"] == "browser_target_not_actionable"
+    assert "enabled=false" in blocked.data["message"]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_tool_fence_blocks_invented_call_before_dispatch() -> None:
+    class InventingTransport:
+        def __init__(self) -> None:
+            self.responses: list[ToolCall | str] = [
+                ToolCall(
+                    id="invented-keypress",
+                    name="browser_press_key",
+                    arguments={"key": "Escape"},
+                ),
+                "recovered",
+            ]
+
+        async def stream(self, messages, *, tools=None, **_kwargs):
+            del messages
+            assert tools is not None
+            assert "browser_press_key" not in {
+                str(tool.get("name")) for tool in tools
+            }
+            response = self.responses.pop(0)
+            if isinstance(response, str):
+                yield TransportDelta(
+                    type="transport.delta",
+                    text_delta=response,
+                    finish_reason="stop",
+                )
+                return
+            yield TransportDelta(type="transport.delta", tool_call_delta=response)
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class RecordingDispatcher:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def dispatch(self, *, tool_calls, run_context):
+            del run_context
+            self.calls.extend((call.name, call.arguments) for call in tool_calls)
+            return []
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="browser_inspect",
+            description="inspect",
+            input_schema={"type": "object", "properties": {}},
+            execute=lambda arguments, context: ToolResult("unused"),
+            read_only=True,
+        )
+    )
+    dispatcher = RecordingDispatcher()
+    session = AgentSession("invented-tool-fence")
+    result = await AgentRuntime(
+        transport=InventingTransport(),
+        tool_executor=dispatcher,
+        max_tool_iterations=2,
+    ).run(
+        session,
+        "reject invented tool",
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert result.final_reply == "recovered"
+    assert dispatcher.calls == []
+    blocked = next(
+        message
+        for message in session.messages
+        if isinstance(message, ToolResultMessage)
+        and message.tool_call_id == "invented-keypress"
+    )
+    assert blocked.is_error is False
+    assert blocked.data == {
+        "status": "protocol_blocked",
+        "backend_attempted": False,
+        "error_code": "tool_not_available",
+        "rejected_tool": "browser_press_key",
+        "unavailable_tools": ["browser_press_key"],
+        "message": (
+            "Tool 'browser_press_key' was not executed because it was not offered in "
+            "this model request. Use only a currently available tool. For browser "
+            "interaction, inspect the semantic target first and then use an offered "
+            "browser tool."
+        ),
+    }
+    rejected = [event for event in result.events if event.type == "tool.protocol_rejected"]
+    assert len(rejected) == 1
+    assert rejected[0].payload == {
+        "error_code": "tool_not_available",
+        "backend_attempted": False,
+        "unavailable_tools": ["browser_press_key"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_terminal_allowlist_fence_blocks_before_dispatch_without_leaking_allowlist() -> None:
+    allowed_command = "grep -Fxq expected fixture && echo OK"
+
+    class TerminalTransport:
+        def __init__(self) -> None:
+            self.responses: list[ToolCall | str] = [
+                ToolCall(
+                    id="disallowed-terminal",
+                    name="terminal",
+                    arguments={"command": 'echo "test"'},
+                ),
+                ToolCall(
+                    id="allowed-terminal",
+                    name="terminal",
+                    arguments={"command": allowed_command},
+                ),
+                "done",
+            ]
+
+        async def stream(self, messages, *, tools=None, **_kwargs):
+            del messages, tools
+            response = self.responses.pop(0)
+            if isinstance(response, str):
+                yield TransportDelta(
+                    type="transport.delta",
+                    text_delta=response,
+                    finish_reason="stop",
+                )
+                return
+            yield TransportDelta(type="transport.delta", tool_call_delta=response)
+            yield TransportDelta(type="transport.delta", finish_reason="tool_calls")
+
+    class TerminalDispatcher:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def dispatch(self, *, tool_calls, run_context):
+            del run_context
+            self.calls.extend((call.name, call.arguments) for call in tool_calls)
+            return [
+                ToolResultMessage(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    content=[ContentBlock(text="OK")],
+                    data={"status": "success", "backend_attempted": True},
+                )
+                for call in tool_calls
+            ]
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="terminal",
+            description="terminal",
+            input_schema={"type": "object", "properties": {}},
+            execute=lambda arguments, context: ToolResult("unused"),
+            read_only=False,
+        )
+    )
+    dispatcher = TerminalDispatcher()
+    session = AgentSession("terminal-allowlist-fence")
+    result = await AgentRuntime(
+        transport=TerminalTransport(),
+        tool_executor=dispatcher,
+        max_tool_iterations=3,
+    ).run(
+        session,
+        "enforce terminal allowlist",
+        tool_registry=registry,
+        settings=SimpleNamespace(
+            permissions=SimpleNamespace(
+                allowed_terminal_commands=(allowed_command,),
+            )
+        ),
+    )
+
+    assert result.status == "replied"
+    assert dispatcher.calls == [("terminal", {"command": allowed_command})]
+    blocked = next(
+        message
+        for message in session.messages
+        if isinstance(message, ToolResultMessage)
+        and message.tool_call_id == "disallowed-terminal"
+    )
+    assert blocked.is_error is False
+    assert blocked.data["status"] == "protocol_blocked"
+    assert blocked.data["backend_attempted"] is False
+    assert blocked.data["error_code"] == "terminal_command_not_allowed"
+    blocked_text = "\n".join(block.text for block in blocked.content if block.text)
+    assert allowed_command not in blocked_text
+    assert not any(
+        event.type == "tool.call_started" and event.name == "terminal"
+        and event.tool_call_id == "disallowed-terminal"
+        for event in result.events
+    )
 
 
 @pytest.mark.parametrize("triggered", [True, False])

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import (
     AssistantMessage,
@@ -485,3 +489,256 @@ def test_compaction_without_summary_client_does_not_build_basic_summary() -> Non
     assert context.metrics.compaction_triggered is False
     assert "CONTEXT COMPACTION" not in text
     assert "Earlier history contained no compactable text" not in text
+
+
+def _browser_result(
+    *,
+    tool_call_id: str,
+    name: str,
+    data: dict[str, object],
+) -> ToolResultMessage:
+    payload = {
+        "status": "success",
+        "success": True,
+        "text": "",
+        "data": data,
+        "images": [],
+        "attachments": [],
+        "evidence_refs": [],
+        "error": None,
+        "failure_reason": None,
+        "retryable": False,
+        "outcome_certainty": "confirmed",
+        "verification": {"status": "not_required", "detail": "", "evidence_refs": []},
+        "terminal": None,
+        "backend_attempted": name != "browser_inspect",
+        "model_projection": "standard",
+    }
+    return ToolResultMessage(
+        tool_call_id=tool_call_id,
+        name=name,
+        content=[
+            ContentBlock(
+                text=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            )
+        ],
+        data=payload,
+    )
+
+
+def _append_browser_pair(
+    session: AgentSession,
+    *,
+    tool_call_id: str,
+    name: str,
+    arguments: dict[str, object],
+    data: dict[str, object],
+) -> None:
+    session.append(
+        AssistantMessage(
+            tool_calls=[ToolCall(id=tool_call_id, name=name, arguments=arguments)],
+            finish_reason="tool_calls",
+        )
+    )
+    session.append(_browser_result(tool_call_id=tool_call_id, name=name, data=data))
+
+
+def _browser_tools() -> list[dict[str, object]]:
+    return [
+        {
+            "name": "browser_inspect",
+            "description": "inspect",
+            "input_schema": {"type": "object"},
+        },
+        {
+            "name": "browser_click",
+            "description": "click",
+            "input_schema": {"type": "object"},
+        },
+    ]
+
+
+def _context_result(context, tool_call_id: str) -> ToolResultMessage:
+    return next(
+        message
+        for message in context.messages
+        if isinstance(message, ToolResultMessage)
+        and message.tool_call_id == tool_call_id
+    )
+
+
+def test_browser_context_exposes_only_immediately_preceding_inspect_reference() -> None:
+    session = AgentSession(session_id="browser-reference-lease")
+    session.append(UserMessage(content=[ContentBlock(text="continue")]))
+    _append_browser_pair(
+        session,
+        tool_call_id="click-before",
+        name="browser_click",
+        arguments={"snapshot_id": "s-action", "element_id": "e9"},
+        data={
+            "next_snapshot": {
+                "reference_mode": "review_only",
+                "total_matches": 200,
+                "elements": [
+                    {"name": "old review marker", "text": "large old review body"}
+                ],
+            }
+        },
+    )
+    _append_browser_pair(
+        session,
+        tool_call_id="inspect-old",
+        name="browser_inspect",
+        arguments={"text": "07", "limit": 10},
+        data={
+            "snapshot_id": "s-old-second-column",
+            "elements": [
+                {"element_id": "e3", "name": "second 7", "text": "07"}
+            ],
+            "total_matches": 3,
+        },
+    )
+    _append_browser_pair(
+        session,
+        tool_call_id="inspect-current",
+        name="browser_inspect",
+        arguments={"name": "确 定", "limit": 10},
+        data={
+            "snapshot_id": "s-current-confirm",
+            "elements": [
+                {"element_id": "e1", "name": "确 定", "text": "确 定"}
+            ],
+            "total_matches": 1,
+        },
+    )
+    canonical = [message.model_dump(mode="json") for message in session.messages]
+
+    context = _make_assembler().prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id=session.session_id),
+        task_state_store=None,
+        tools=_browser_tools(),
+    )
+
+    projected_text = "\n".join(
+        block.text
+        for message in context.messages
+        for block in message.content
+        if block.text
+    )
+    expired_inspect = _context_result(context, "inspect-old")
+    current_inspect = _context_result(context, "inspect-current")
+    expired_review = _context_result(context, "click-before")
+
+    assert "s-old-second-column" not in projected_text
+    assert '"element_id":"e3"' not in projected_text
+    assert expired_inspect.data["data"]["reference_mode"] == "expired_review_only"
+    assert expired_inspect.data["data"]["elements"] == []
+    assert current_inspect.data["data"]["snapshot_id"] == "s-current-confirm"
+    assert current_inspect.data["data"]["elements"][0]["element_id"] == "e1"
+    assert (
+        expired_review.data["data"]["next_snapshot"]["reference_mode"]
+        == "expired_review_only"
+    )
+    assert "old review marker" not in projected_text
+    assert [message.model_dump(mode="json") for message in session.messages] == canonical
+
+
+def test_browser_context_keeps_latest_mutation_review_snapshot() -> None:
+    session = AgentSession(session_id="latest-review")
+    _append_browser_pair(
+        session,
+        tool_call_id="inspect-before-click",
+        name="browser_inspect",
+        arguments={"name": "查 询", "limit": 10},
+        data={
+            "snapshot_id": "s-query",
+            "elements": [{"element_id": "e1", "name": "查 询"}],
+            "total_matches": 1,
+        },
+    )
+    _append_browser_pair(
+        session,
+        tool_call_id="click-latest",
+        name="browser_click",
+        arguments={"snapshot_id": "s-query", "element_id": "e1"},
+        data={
+            "next_snapshot": {
+                "reference_mode": "review_only",
+                "total_matches": 200,
+                "elements": [{"name": "latest review marker"}],
+            }
+        },
+    )
+
+    context = _make_assembler().prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id=session.session_id),
+        task_state_store=None,
+        tools=_browser_tools(),
+    )
+
+    latest = _context_result(context, "click-latest")
+    assert latest.data["data"]["next_snapshot"]["reference_mode"] == "review_only"
+    assert latest.data["data"]["next_snapshot"]["elements"] == [
+        {"name": "latest review marker"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_browser_reference_projection_matches_sync_and_async_context() -> None:
+    session = AgentSession(session_id="sync-async-browser-reference")
+    _append_browser_pair(
+        session,
+        tool_call_id="inspect-current",
+        name="browser_inspect",
+        arguments={"name": "确 定", "limit": 10},
+        data={
+            "snapshot_id": "s-current",
+            "elements": [{"element_id": "e1", "name": "确 定"}],
+            "total_matches": 1,
+        },
+    )
+    assembler = _make_assembler()
+    sync_context = assembler.prepare(
+        session=session,
+        agent_state=AgentState(run_id="sync", session_id=session.session_id),
+        task_state_store=None,
+        tools=_browser_tools(),
+    )
+    async_context = await assembler.aprepare(
+        session=session,
+        agent_state=AgentState(run_id="async", session_id=session.session_id),
+        task_state_store=None,
+        tools=_browser_tools(),
+    )
+
+    assert [message.model_dump(mode="json") for message in async_context.messages] == [
+        message.model_dump(mode="json") for message in sync_context.messages
+    ]
+
+
+def test_non_browser_context_keeps_tool_results_unchanged() -> None:
+    session = AgentSession(session_id="non-browser")
+    _append_browser_pair(
+        session,
+        tool_call_id="inspect-old",
+        name="browser_inspect",
+        arguments={"text": "07", "limit": 10},
+        data={
+            "snapshot_id": "s-old",
+            "elements": [{"element_id": "e3", "name": "second 7"}],
+            "total_matches": 1,
+        },
+    )
+
+    context = _make_assembler().prepare(
+        session=session,
+        agent_state=AgentState(run_id="r1", session_id=session.session_id),
+        task_state_store=None,
+        tools=[],
+    )
+
+    unchanged = _context_result(context, "inspect-old")
+    assert unchanged.data["data"]["snapshot_id"] == "s-old"
+    assert unchanged.data["data"]["elements"][0]["element_id"] == "e3"
