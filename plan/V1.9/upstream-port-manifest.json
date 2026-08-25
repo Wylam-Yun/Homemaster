@@ -307,40 +307,6 @@
       "sync_policy": "Recompare the OpenHarness inbound/outbound DTO and adapter call surface before future sync; never restore metadata session overrides or unbounded queues."
     },
     {
-      "id": "cl20-openharness-telegram-channel",
-      "mode": "A",
-      "source": {
-        "repo": "../OpenHarness",
-        "commit": "9b2efd795c6aa09f88b0c257d269a9e518da6ae7",
-        "path": "src/openharness/channels/impl/telegram.py",
-        "symbol": "TelegramChannel",
-        "sha256": "9c60293117cbf38b2e06a2f606c80ad24d8761e0929bdc8a7358a3a7310340b8"
-      },
-      "copied_test_ids": [
-        "tests/test_channels/test_telegram_security.py::test_silence_telegram_token_url_loggers_raises_dependency_log_levels",
-        "tests/test_channels/test_telegram_security.py::test_telegram_error_handler_records_last_error"
-      ],
-      "upstream_test_gap": null,
-      "mechanical_deltas": [
-        "retain python-telegram-bot long polling, dependency logger silencing, message receive, attachment download, and outbound send flow",
-        "load python-telegram-bot lazily from the optional gateway dependency"
-      ],
-      "homemaster_deltas": [
-        "load the bot token only from a configured environment variable",
-        "map exact numeric Telegram sender ids to immutable configured principals and reject wildcard access",
-        "resolve downloaded attachments under one configured root before publishing inbound messages",
-        "mark concrete python-telegram-bot runtime symbols UNVERIFIED until the user-led hkust4 gate"
-      ],
-      "characterization_test_ids": [
-        "tests/homemaster/channels/test_telegram.py::test_telegram_exact_sender_mapping_creates_authoritative_identity",
-        "tests/homemaster/channels/test_telegram.py::test_telegram_configuration_fails_closed_and_repr_has_no_token",
-        "tests/homemaster/channels/test_telegram.py::test_telegram_dependency_loggers_are_silenced",
-        "tests/homemaster/channels/test_telegram.py::test_disabled_telegram_channel_does_not_import_or_start_network"
-      ],
-      "destination": "src/homemaster/channels/impl/telegram.py",
-      "sync_policy": "Recompare locked Telegram polling and media handling before upgrades; preserve exact principal mapping, environment-only token loading, and attachment containment."
-    },
-    {
       "id": "cl20-ohmo-gateway-seed",
       "mode": "A",
       "source": {

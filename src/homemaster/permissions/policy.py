@@ -70,6 +70,15 @@ class PermissionChecker:
                         False,
                         reason=f"access denied: command matches deny rule {pattern}",
                     )
+            if (
+                tool_name == "terminal"
+                and self._settings.allowed_terminal_commands
+                and command not in self._settings.allowed_terminal_commands
+            ):
+                return UniversalPermissionDecision(
+                    False,
+                    reason="access denied: terminal command is not in the exact allowlist",
+                )
         if tool_name in self._settings.denied_tools:
             return UniversalPermissionDecision(
                 False,

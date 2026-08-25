@@ -7,7 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from homemaster.agent.normalized import RunContext
-from homemaster.domain.tool_registry import build_home_tool_registry
+from homemaster.domain.tools import make_memory_writer
+
+
+def build_home_tool_registry():
+    spec = make_memory_writer()
+    return {spec.name: spec}
 
 
 def _make_run_context(tmp_path: Path, **kwargs: Path | None) -> RunContext:

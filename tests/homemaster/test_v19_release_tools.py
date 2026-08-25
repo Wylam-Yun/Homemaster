@@ -357,10 +357,8 @@ def test_baseline_capture_writes_exact_sanitized_contract_artifacts(
             stdout=(
                 "tests/homemaster/test_cli_run.py::test_run_command_status_field\n"
                 "tests/homemaster/test_cli_interactive.py::test_shell_status_reports_last_turn_status\n"
-                "tests/homemaster/benchmarking/test_alfworld_runtime_contract.py::"
-                "test_runtime_contract_requires_exact_identity\n"
-                "tests/homemaster/benchmarking/coworker_demo/test_registry.py::"
-                "test_registry_contains_exactly_eleven_tools_in_stable_order\n"
+                "tests/homemaster/integration/test_observation_profiles.py::"
+                "test_environment_registries_expose_only_the_selected_surface\n"
             ),
         ),
     )

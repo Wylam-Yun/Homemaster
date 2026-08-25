@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Semantic controls</title>
+  </head>
+  <body>
+    <button
+      id="service"
+      role="combobox"
+      aria-label="Cloud service"
+      aria-controls="service-options"
+      aria-expanded="false"
+      data-value="VPC"
+    >VPC</button>
+    <div id="popup-root"></div>
+    <button
+      data-browser-action="date"
+      aria-label="Date 2026-08-21"
+    >21</button>
+    <button
+      data-browser-action="hour"
+      aria-label="Hour 15"
+    >15</button>
+    <script>
+      const combobox = document.getElementById('service');
+      const popupRoot = document.getElementById('popup-root');
+      const renderOptions = () => {
+        window.setTimeout(() => {
+          popupRoot.innerHTML = `
+            <div id="service-options" role="listbox">
+              <div role="option" aria-label="VPC" aria-selected="${combobox.dataset.value === 'VPC'}">VPC</div>
+              <div role="option" aria-label="Monitor Agent Service" aria-selected="${combobox.dataset.value === 'Monitor Agent Service'}">Monitor Agent Service</div>
+            </div>`;
+          popupRoot.querySelectorAll('[role=option]').forEach((option) => {
+            option.addEventListener('click', () => {
+              combobox.dataset.value = option.getAttribute('aria-label');
+              combobox.setAttribute('aria-expanded', 'false');
+              popupRoot.innerHTML = '';
+            });
+          });
+        }, 150);
+      };
+      combobox.addEventListener('click', () => {
+        if (combobox.getAttribute('aria-expanded') === 'true') {
+          combobox.setAttribute('aria-expanded', 'false');
+          popupRoot.innerHTML = '';
+          return;
+        }
+        combobox.setAttribute('aria-expanded', 'true');
+        renderOptions();
+      });
+      combobox.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          combobox.setAttribute('aria-expanded', 'false');
+          popupRoot.innerHTML = '';
+        }
+      });
+    </script>
+  </body>
+</html>

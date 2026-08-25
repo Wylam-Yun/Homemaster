@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from homemaster.adapters.profiles import _coworker_task_tool
 from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.coworker_demo.browser_tools import make_browser_navigate
 from homemaster.benchmarking.coworker_demo.budget import CoworkerBudget
 from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
-from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
 from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
 from homemaster.benchmarking.coworker_demo.types import CoworkerOutcome
 from homemaster.task_state.store import TaskStateStore
+from homemaster.task_state.tools import make_task_planner_tool
 
 
 class RecordingEnvironment:
@@ -81,8 +82,7 @@ def test_all_coworker_external_tools_route_to_domain_run_id() -> None:
         {"stage": "check_before_change", "decision": "proceed", "evidence_refs": []},
         context,
     )
-    planner = build_coworker_tool_registry().get("task_planner")
-    assert planner is not None
+    planner = _coworker_task_tool(make_task_planner_tool(), planner=True)
     _execute(
         planner,
         {

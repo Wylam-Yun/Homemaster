@@ -7,6 +7,9 @@
   <body>
     <label for="tenant">TenantId</label>
     <input id="tenant" name="tenant" required>
+    <label for="masked-date-time">Masked date time</label>
+    <input id="masked-date-time" name="masked-date-time">
+
 
     <label for="region">Region</label>
     <select id="region">
@@ -30,6 +33,14 @@
     <button id="offscreen" onclick="this.textContent = 'Offscreen applied'">Offscreen apply</button>
     <button id="delayed-leave" onclick="setTimeout(() => { location.href = new URLSearchParams(location.search).get('target'); }, 100)">Delayed leave</button>
     <script>
+      const maskedDateTime = document.getElementById('masked-date-time');
+      let maskedDateTimeUsesKeyboard = false;
+      maskedDateTime.addEventListener('keydown', () => {
+        maskedDateTimeUsesKeyboard = true;
+      });
+      maskedDateTime.addEventListener('input', () => {
+        if (!maskedDateTimeUsesKeyboard) maskedDateTime.value = 'component-normalized';
+      });
       document.getElementById('backfill').addEventListener('paste', (event) => {
         const image = Array.from(event.clipboardData.items)
           .map((item) => item.getAsFile())

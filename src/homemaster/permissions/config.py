@@ -41,6 +41,21 @@ class PermissionSettingsConfig(BaseModel):
     denied_tools: tuple[str, ...] = ()
     path_rules: tuple[PathRuleConfig, ...] = ()
     denied_commands: tuple[str, ...] = ()
+    allowed_terminal_commands: tuple[str, ...] = ()
+
+    @field_validator("allowed_terminal_commands")
+    @classmethod
+    def _terminal_commands_are_exact_and_nonblank(
+        cls, value: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if any(not command or command != command.strip() for command in value):
+            raise ValueError(
+                "allowed terminal commands must be nonblank exact strings without "
+                "leading or trailing whitespace"
+            )
+        if len(set(value)) != len(value):
+            raise ValueError("allowed terminal commands must be unique")
+        return value
 
     @model_validator(mode="before")
     @classmethod

@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from homemaster.agent.context import ContextAssembler
-from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
@@ -130,71 +128,3 @@ async def test_context_assembler_with_task_snapshot(transport, provider_profile)
             "搜索",
         ]
     )
-
-
-@pytest.mark.live_api
-def test_full_agent_loop_with_real_api(transport, provider_profile, runtime_settings) -> None:
-    """Full agent loop: user message -> model -> tool -> model -> reply."""
-    from homemaster.tools.adapters import from_tool_spec
-    from homemaster.tools.base import ToolRegistry
-    from homemaster.tools.dispatcher import ToolDispatcher
-    from homemaster.tools.results import ToolResult
-    from homemaster.tools.spec import ToolSpec
-
-    def echo_executor(*, arguments, run_context):
-        return ToolResult(
-            success=True,
-            tool_name="echo",
-            data={"echo": arguments.get("text", "")},
-        )
-
-    spec = ToolSpec(
-        name="echo",
-        description="Echo back the input text.",
-        input_schema={
-            "type": "object",
-            "properties": {"text": {"type": "string"}},
-            "required": ["text"],
-        },
-        executor_mode="programmatic",
-        executor=echo_executor,
-    )
-
-    dispatcher = ToolDispatcher()
-    dispatcher.register(spec)
-    registry = ToolRegistry()
-    registry.register(from_tool_spec(spec))
-
-    system_prompt = (
-        "You are a helpful assistant. When the user says hello, "
-        "use the echo tool with text='world', then tell the user "
-        "what the tool returned."
-    )
-    assembler = ContextAssembler(
-        provider=provider_profile,
-        policy=ContextPolicyConfig(),
-        system_prompt=system_prompt,
-    )
-
-    runtime = AgentRuntime(
-        transport=transport,
-        tool_executor=dispatcher,
-        max_tool_iterations=5,
-        context_assembler=assembler,
-        system_prompt=system_prompt,
-    )
-
-    session = AgentSession(session_id="e2e-loop")
-    result = asyncio.run(
-        runtime.run(
-            session,
-            "hello",
-            settings=runtime_settings,
-            tool_registry=registry,
-        )
-    )
-
-    assert result.status == "replied"
-    assert result.final_reply
-    # Model should mention "world" from the echo tool
-    assert "world" in result.final_reply.lower()

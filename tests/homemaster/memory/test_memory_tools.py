@@ -11,9 +11,8 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from homemaster.adapters.profiles import build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry, build_universal_tool_registry
 from homemaster.agent.messages import UserMessage
-from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
@@ -52,14 +51,16 @@ def test_default_home_surface_has_exactly_seven_memory_tools() -> None:
     assert not (MEMORY_TOOL_NAMES & disabled)
 
 
-def test_benchmark_memory_profiles_keep_the_legacy_tools() -> None:
-    readonly = set(build_alfworld_tool_registry(memory_mode="readonly").all_names())
-    full = set(build_alfworld_tool_registry(memory_mode="full").all_names())
+def test_benchmark_memory_profiles_keep_legacy_and_canonical_memory_tools() -> None:
+    readonly = set(
+        build_tool_registry(environment="alfworld", memory_mode="readonly").all_names()
+    )
+    full = set(build_tool_registry(environment="alfworld", memory_mode="full").all_names())
     assert "memory_retriever" in readonly
     assert "memory_writer" not in readonly
     assert {"memory_retriever", "memory_writer"} <= full
-    assert not (MEMORY_TOOL_NAMES & readonly)
-    assert not (MEMORY_TOOL_NAMES & full)
+    assert MEMORY_TOOL_NAMES <= readonly
+    assert MEMORY_TOOL_NAMES <= full
 
 
 def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> None:

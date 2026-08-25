@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delayed render</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const delay = Number(
+        new URLSearchParams(window.location.search).get('delay') || '800',
+      );
+      window.setTimeout(() => {
+        const button = document.createElement('button');
+        button.textContent = 'Hydrated action';
+        document.querySelector('#root').appendChild(button);
+      }, delay);
+    </script>
+  </body>
+</html>

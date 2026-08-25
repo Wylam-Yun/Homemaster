@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any
 
-from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
+from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.contracts import (
     ExecutionBackend,
@@ -316,29 +316,6 @@ def normalize_legacy_tool_result(
     name: str,
 ) -> NormalizedLegacyResult:
     return normalize_legacy_result(value, tool_call_id=tool_call_id, name=name)
-
-
-class LegacyObserverAdapter:
-    """Transparent observer proxy preserving dispatcher callback ordering."""
-
-    def __init__(self, observer: Any) -> None:
-        self._observer = observer
-
-    def on_call(self, tool_call: ToolCall) -> None:
-        self._observer.on_call(tool_call)
-
-    def terminal_result(self, tool_call: ToolCall) -> ToolResultMessage | None:
-        return self._observer.terminal_result(tool_call)
-
-    def on_result(self, tool_call: ToolCall, result: Any) -> None:
-        self._observer.on_result(tool_call, result)
-
-    def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage:
-        return self._observer.on_exception(tool_call, error)
-
-
-def adapt_legacy_observer(observer: Any) -> LegacyObserverAdapter:
-    return LegacyObserverAdapter(observer)
 
 
 def _normalize_tool_result(
@@ -685,10 +662,8 @@ __all__ = [
     "AdaptedLegacyTool",
     "LegacyAdapterDebt",
     "LegacyExecutorAdapter",
-    "LegacyObserverAdapter",
     "LegacyToolExecutionContext",
     "NormalizedLegacyResult",
-    "adapt_legacy_observer",
     "adapt_legacy_tool_spec",
     "adapt_tool_spec",
     "normalize_legacy_result",

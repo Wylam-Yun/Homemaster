@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRY_PATHS = (
     "src/homemaster/agent/turn.py",
@@ -29,6 +31,29 @@ FORBIDDEN_CONSTRUCTORS = {
     "build_coworker_tool_registry",
     "build_home_tool_registry",
 }
+
+REMOVED_DEAD_PATHS = (
+    "src/homemaster/benchmarking/alfworld/registry.py",
+    "src/homemaster/benchmarking/alfworld/runtime_contract.py",
+    "src/homemaster/benchmarking/browser_demo/trajectory.py",
+    "src/homemaster/benchmarking/browser_demo/__init__.py",
+    "src/homemaster/benchmarking/coworker_demo/registry.py",
+    "src/homemaster/channels/impl/telegram.py",
+    "src/homemaster/domain/grounding.py",
+    "src/homemaster/domain/contracts.py",
+    "src/homemaster/domain/tool_registry.py",
+    "src/homemaster/memory/bm25_preflight.py",
+    "src/homemaster/memory/index.py",
+    "src/homemaster/memory/outbound_policy.py",
+    "src/homemaster/memory/retrieval.py",
+    "src/homemaster/memory/tokenizer.py",
+    "src/homemaster/prompts/memory_query_prompt.md",
+    "src/homemaster/prompts/memory_query_retry.md",
+    "src/homemaster/prompts/task_interpreter_prompt.md",
+    "src/homemaster/prompts/task_summary_prompt.md",
+    "src/homemaster/tools/dispatcher.py",
+    "src/homemaster/tools/registry.py",
+)
 
 
 def test_all_four_entries_have_no_legacy_model_runtime_assembly() -> None:
@@ -68,9 +93,8 @@ def test_profiles_use_only_the_universal_registry_builder() -> None:
     } & (imported | called)
 
 
-def test_agent_and_dispatcher_have_no_private_run_context_or_runtime_tool_spec() -> None:
+def test_agent_has_no_private_run_context_or_runtime_tool_spec() -> None:
     runtime = _tree("src/homemaster/agent/generic_runtime.py")
-    dispatcher = _tree("src/homemaster/tools/dispatcher.py")
 
     assert not any(
         isinstance(node, ast.ClassDef) and node.name == "ToolSpec"
@@ -80,17 +104,33 @@ def test_agent_and_dispatcher_have_no_private_run_context_or_runtime_tool_spec()
         isinstance(node, ast.Attribute) and node.attr == "_run_context"
         for node in ast.walk(runtime)
     )
-    assert not any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name == "set_run_context"
-        for node in ast.walk(dispatcher)
-    )
+
+
+@pytest.mark.parametrize("relative", REMOVED_DEAD_PATHS)
+def test_migrated_dead_path_is_absent_from_distribution_source(relative: str) -> None:
+    assert not (REPO_ROOT / relative).exists(), relative
 
 
 def test_removed_execution_modules_are_absent_from_production() -> None:
     removed_modules = {
+        "homemaster.benchmarking.alfworld.registry",
+        "homemaster.benchmarking.alfworld.runtime_contract",
+        "homemaster.benchmarking.browser_demo.trajectory",
+        "homemaster.benchmarking.browser_demo",
+        "homemaster.benchmarking.coworker_demo.registry",
+        "homemaster.channels.impl.telegram",
+        "homemaster.domain.grounding",
+        "homemaster.domain.contracts",
+        "homemaster.domain.tool_registry",
+        "homemaster.memory.bm25_preflight",
+        "homemaster.memory.index",
+        "homemaster.memory.outbound_policy",
+        "homemaster.memory.retrieval",
+        "homemaster.memory.tokenizer",
         "homemaster.tools.catalog",
+        "homemaster.tools.dispatcher",
         "homemaster.tools.pipeline",
+        "homemaster.tools.registry",
     }
     imported_modules = []
     for path in (REPO_ROOT / "src/homemaster").rglob("*.py"):
@@ -105,8 +145,6 @@ def test_removed_execution_modules_are_absent_from_production() -> None:
                     if alias.name in removed_modules
                 )
 
-    assert not (REPO_ROOT / "src/homemaster/tools/catalog.py").exists()
-    assert not (REPO_ROOT / "src/homemaster/tools/pipeline.py").exists()
     assert imported_modules == []
 
 

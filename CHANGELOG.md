@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Work In Progress
+
+- Archived the current in-progress workspace as a non-accepted checkpoint spanning configuration
+  and legacy-code cleanup, browser composition and semantic-control work, Coworker domain-run
+  routing, Ops Monitor run 29 diagnostics, and story/report artifacts. This snapshot intentionally
+  preserves known incomplete plans and verification gaps: the changed-test slice has three
+  environment-dependent failures because the external OpenHarness checkout is unavailable, the
+  inherited ALFWorld baseline has two existing failures, and the repository-wide run did not
+  complete. This entry records state for recovery and review; it does not claim release readiness.
+
 ### Fixed
 
 - Clarified the model-facing task-state tool contract: `task_planner` creates or replaces the

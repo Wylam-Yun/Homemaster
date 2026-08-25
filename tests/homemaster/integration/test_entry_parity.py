@@ -8,8 +8,9 @@ from pathlib import Path
 
 from homemaster.agent.messages import Message
 from homemaster.application import RunRequest, RunStatus
+from homemaster.browser.application import BrowserApplication
 from homemaster.cli.composition import HomeCliBackend, create_home_application
-from homemaster.config import HomeMasterConfig
+from homemaster.config import BrowserGatewayConfig, HomeMasterConfig
 from homemaster.providers.transports import TransportDelta
 
 
@@ -128,6 +129,31 @@ def test_home_application_injects_skill_registry_without_entry_specific_dependen
     assert result.status is RunStatus.REPLIED
     assert captured["request_dependencies"] == {}
     assert captured["skill_registry"] is bundle.skill_registry
+
+
+def test_configured_browser_capability_is_composed_independent_of_input_channel(
+    tmp_path,
+) -> None:
+    config = _config(tmp_path).model_copy(
+        update={
+            "browser_gateway": BrowserGatewayConfig(
+                start_url="http://127.0.0.1:8000/ops/alarm-query",
+                allowed_origins=("http://127.0.0.1:8000",),
+            )
+        }
+    )
+
+    bundle = create_home_application(
+        config=config,
+        run_label="configured-browser",
+        tool_environment=None,
+    )
+
+    try:
+        assert isinstance(bundle.application, BrowserApplication)
+        assert bundle.config.prompts.agent_system_prompt == "browser_gateway"
+    finally:
+        asyncio.run(bundle.application.aclose())
 
 
 def test_compact_persists_revision_then_process_rebuild_resumes_same_session(

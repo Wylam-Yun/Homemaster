@@ -135,23 +135,92 @@
   .glossary-term span { display: block; color: var(--faint); font-size: 12px; margin-top: 2px; }
   .glossary-item p { margin: 0; color: var(--muted); font-size: 15px; }
 
-  .lifecycle-shell { border: 1px solid #354052; background: #161f2d; padding: 34px; }
-  .lifecycle { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
-  .life-step { position: relative; min-height: 224px; padding: 20px 18px; border: 1px solid #344054; border-right: 0; background: #1b2636; }
-  .life-step:last-child { border-right: 1px solid #344054; }
-  .life-step:not(:last-child)::after { content: ""; position: absolute; z-index: 2; right: -8px; top: 46px; width: 14px; height: 14px; background: #1b2636; border-top: 1px solid #566277; border-right: 1px solid #566277; transform: rotate(45deg); }
-  .life-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 7px; margin-bottom: 14px; }
-  .life-step:nth-child(1) .life-icon, .life-step:nth-child(2) .life-icon { color: #5eead4; background: rgba(45,212,191,.1); }
-  .life-step:nth-child(3) .life-icon, .life-step:nth-child(4) .life-icon { color: #93c5fd; background: rgba(96,165,250,.1); }
-  .life-step:nth-child(5) .life-icon { color: #fcd34d; background: rgba(251,191,36,.1); }
-  .life-step:nth-child(6) .life-icon { color: #c4b5fd; background: rgba(167,139,250,.1); }
-  .life-step h3 { margin: 0 0 7px; font-size: 18px; }
-  .life-step p { margin: 0; color: #99a6b7; font-size: 15px; line-height: 1.58; }
-  .call-tag { display: inline-block; margin-top: 13px; padding: 3px 7px; border: 1px solid #475569; color: #d9e1eb; border-radius: 4px; font-size: 12px; }
-  .lifecycle-caption { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 26px; }
-  .caption-block { border-top: 1px solid #374151; padding-top: 18px; }
-  .caption-block strong { display: block; color: #fff; font-size: 16px; margin-bottom: 4px; }
-  .caption-block span { color: #9ca8b8; font-size: 15px; }
+  .memory-loop-shell { border: 1px solid #354052; background: #161f2d; padding: 30px; }
+  .loop-thesis { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 0 0 22px; border-bottom: 1px solid #344054; }
+  .loop-thesis-copy span { display: block; color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: 1.2px; margin-bottom: 5px; }
+  .loop-thesis-copy strong { display: block; color: #fff; font-size: 22px; line-height: 1.45; }
+  .loop-legend { display: flex; align-items: center; gap: 16px; color: #9ca8b8; font-size: 12px; white-space: nowrap; }
+  .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+  .legend-line { width: 24px; height: 0; border-top: 2px solid #5eead4; }
+  .legend-line.conditional { border-top-color: #fbbf24; border-top-style: dashed; }
+
+  .loop-band { display: grid; grid-template-columns: 132px minmax(0, 1fr); border-bottom: 1px solid #344054; }
+  .loop-band-label { padding: 24px 20px 24px 0; border-right: 1px solid #344054; display: flex; flex-direction: column; justify-content: center; }
+  .loop-band-label span { color: #8b98aa; font-size: 12px; font-weight: 800; letter-spacing: 1px; }
+  .loop-band-label strong { color: #fff; font-size: 18px; margin-top: 3px; }
+  .loop-band-use .loop-band-label strong { color: #93c5fd; }
+  .loop-band-learn .loop-band-label strong { color: #6ee7b7; }
+  .loop-track { display: grid; min-width: 0; }
+  .loop-band-use .loop-track { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .loop-band-learn .loop-track { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .loop-step { position: relative; min-width: 0; min-height: 158px; padding: 24px 18px 20px; border-right: 1px solid #303c4e; }
+  .loop-step:last-child { border-right: 0; }
+  .loop-step:not(:last-child)::after { content: ""; position: absolute; right: -5px; top: 52px; z-index: 2; width: 9px; height: 9px; border-top: 2px solid #64748b; border-right: 2px solid #64748b; transform: rotate(45deg); background: #161f2d; }
+  .loop-step-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; }
+  .loop-no { width: 26px; height: 26px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: #0f172a; background: #93c5fd; font-size: 11px; font-weight: 800; }
+  .loop-band-learn .loop-no { background: #6ee7b7; }
+  .loop-owner { min-width: 0; color: #9ca8b8; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; overflow-wrap: anywhere; }
+  .loop-step h3 { margin: 0 0 6px; color: #f8fafc; font-size: 16px; line-height: 1.42; }
+  .loop-step p { margin: 0; color: #9ca8b8; font-size: 13px; line-height: 1.58; }
+  .loop-step code { color: #bfdbfe; font-size: 11px; }
+  .loop-band-learn .loop-step code { color: #a7f3d0; }
+
+  .loop-bridge { display: grid; grid-template-columns: 132px minmax(0, 1fr); border-bottom: 1px solid #344054; background: #182231; }
+  .loop-bridge-label { padding: 17px 20px 17px 0; border-right: 1px solid #344054; color: #fcd34d; font-size: 12px; font-weight: 800; letter-spacing: .8px; }
+  .loop-bridge-content { padding: 14px 18px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; color: #c6d0dd; font-size: 13px; }
+  .loop-bridge-item { display: flex; align-items: center; gap: 9px; min-width: 0; }
+  .loop-bridge-item svg { flex: 0 0 auto; color: #fbbf24; width: 17px; height: 17px; }
+  .loop-bridge-arrow { color: #64748b; }
+
+  .loop-return { min-height: 58px; display: grid; grid-template-columns: 132px minmax(0, 1fr); border-bottom: 1px solid #344054; background: #111a27; }
+  .loop-return-label { border-right: 1px solid #344054; }
+  .loop-return-path { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 13px 18px; color: #cbd5e1; font-size: 13px; text-align: center; }
+  .loop-return-path svg { width: 18px; height: 18px; color: #5eead4; }
+  .loop-return-path strong { color: #fff; }
+
+  .governance-strip { display: grid; grid-template-columns: 132px minmax(0, 1fr); border-bottom: 1px solid #344054; }
+  .governance-label { padding: 20px 20px 20px 0; border-right: 1px solid #344054; }
+  .governance-label span { display: block; color: #8b98aa; font-size: 12px; font-weight: 800; letter-spacing: 1px; }
+  .governance-label strong { display: block; color: #fcd34d; font-size: 18px; margin-top: 3px; }
+  .governance-flow { padding: 17px 18px; display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 10px; align-items: center; }
+  .governance-node { min-height: 62px; padding: 11px 13px; display: flex; align-items: center; gap: 10px; border: 1px solid #3f4858; background: #1a2330; color: #d7dee8; font-size: 13px; }
+  .governance-node svg { flex: 0 0 auto; color: #fbbf24; width: 18px; height: 18px; }
+  .governance-arrow { color: #64748b; font-size: 16px; }
+
+  .loop-guardrails { padding-top: 22px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+  .loop-guard { min-height: 70px; padding: 2px 18px; display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; border-right: 1px solid #344054; }
+  .loop-guard:first-child { padding-left: 0; }
+  .loop-guard:last-child { border-right: 0; padding-right: 0; }
+  .loop-guard svg { color: #5eead4; width: 19px; height: 19px; margin-top: 2px; }
+  .loop-guard strong { display: block; color: #f8fafc; font-size: 13px; margin-bottom: 3px; }
+  .loop-guard span { display: block; color: #8f9cad; font-size: 12px; line-height: 1.5; }
+
+  .result-case { display: grid; grid-template-columns: 340px minmax(0, 1fr); border-top: 3px solid var(--teal); border-bottom: 1px solid var(--line); background: var(--white); }
+  .result-source { padding: 30px; color: #fff; background: var(--nav); }
+  .result-badge { display: inline-flex; align-items: center; gap: 7px; color: #5eead4; font-size: 12px; font-weight: 800; letter-spacing: .8px; }
+  .result-badge svg { width: 16px; height: 16px; }
+  .result-source blockquote { margin: 24px 0 18px; font-size: 22px; line-height: 1.55; font-weight: 650; }
+  .result-source p { margin: 0; color: #9ca8b8; font-size: 13px; }
+  .result-detail { min-width: 0; }
+  .result-flow { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .result-step { position: relative; min-height: 214px; padding: 28px 24px; border-right: 1px solid var(--line); }
+  .result-step:last-child { border-right: 0; }
+  .result-step:not(:last-child)::after { content: ""; position: absolute; right: -6px; top: 50px; z-index: 2; width: 10px; height: 10px; border-top: 2px solid var(--line-strong); border-right: 2px solid var(--line-strong); background: var(--white); transform: rotate(45deg); }
+  .result-step-icon { width: 34px; height: 34px; display: grid; place-items: center; color: var(--blue); background: var(--blue-soft); border-radius: 6px; margin-bottom: 14px; }
+  .result-step-icon svg { width: 18px; height: 18px; }
+  .result-step span { color: var(--blue); font-size: 12px; font-weight: 800; }
+  .result-step h3 { margin: 5px 0 7px; font-size: 18px; }
+  .result-step p { margin: 0; color: var(--muted); font-size: 14px; }
+  .result-step code { color: var(--teal); font-size: 12px; }
+  .result-outcome { min-height: 82px; padding: 18px 24px; display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: center; border-top: 1px solid var(--line); background: var(--green-soft); }
+  .result-outcome svg { color: var(--green); width: 23px; height: 23px; }
+  .result-outcome strong { display: block; color: var(--green); margin-bottom: 2px; }
+  .result-outcome span { color: #456454; font-size: 14px; }
+  .result-proof { margin-top: 20px; display: flex; align-items: center; gap: 0; border: 1px solid var(--line); background: var(--white); }
+  .proof-item { flex: 1 1 0; min-width: 0; padding: 13px 16px; border-right: 1px solid var(--line); }
+  .proof-item:last-child { border-right: 0; }
+  .proof-item span { display: block; color: var(--faint); font-size: 11px; font-weight: 800; margin-bottom: 3px; }
+  .proof-item strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
 
   .capability-tabs { display: flex; gap: 8px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
   .cap-tab { border: 1px solid var(--line-strong); color: var(--muted); background: var(--white); padding: 9px 14px; border-radius: 5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
@@ -267,9 +336,17 @@
     .glossary-grid { grid-template-columns: 1fr; }
     .glossary-item:nth-child(odd) { border-right: 0; }
     .glossary-item:nth-last-child(2) { border-bottom: 1px solid var(--line); }
-    .lifecycle { grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-    .life-step, .life-step:last-child { border: 1px solid #344054; }
-    .life-step::after { display: none; }
+    .memory-loop-shell { padding: 24px; }
+    .loop-thesis { align-items: flex-start; flex-direction: column; gap: 12px; }
+    .loop-band, .loop-bridge, .loop-return, .governance-strip { grid-template-columns: 112px minmax(0, 1fr); }
+    .loop-step { padding-left: 13px; padding-right: 13px; }
+    .loop-step h3 { font-size: 15px; }
+    .loop-step p { font-size: 12px; }
+    .loop-return-path { justify-content: flex-start; text-align: left; }
+    .result-case { grid-template-columns: 280px minmax(0, 1fr); }
+    .result-source { padding: 24px; }
+    .result-source blockquote { font-size: 19px; }
+    .result-step { padding: 24px 18px; }
     .five-questions { grid-template-columns: 1fr 1fr; }
     .answer { border-bottom: 1px solid var(--line); }
     .answer:nth-child(2n) { border-right: 0; }
@@ -293,13 +370,44 @@
     .hero-stat:last-child { border-bottom: 0; }
     section { padding: 68px 0; }
     .section-head { grid-template-columns: 1fr; gap: 4px; margin-bottom: 30px; }
-    .problem-chain, .lifecycle, .lifecycle-caption, .cap-summary, .io-grid, .stores, .safety-grid, .close-grid { grid-template-columns: 1fr; }
+    .problem-chain, .cap-summary, .io-grid, .stores, .safety-grid, .close-grid { grid-template-columns: 1fr; }
     .problem-step, .problem-step:nth-child(2n) { border-right: 0; }
     .problem-step:last-child { grid-column: auto; }
     .glossary-head { padding: 20px 18px 14px; }
     .glossary-item { grid-template-columns: 1fr; gap: 5px; padding: 15px 18px; }
-    .lifecycle-shell { padding: 16px; }
-    .life-step { min-height: 170px; }
+    .memory-loop-shell { padding: 18px; }
+    .loop-thesis-copy strong { font-size: 19px; }
+    .loop-legend { flex-wrap: wrap; white-space: normal; }
+    .loop-band, .loop-bridge, .loop-return, .governance-strip { grid-template-columns: 1fr; }
+    .loop-band-label, .governance-label { padding: 16px 0 10px; border-right: 0; border-bottom: 1px solid #344054; }
+    .loop-band-label { flex-direction: row; justify-content: flex-start; align-items: baseline; gap: 9px; }
+    .loop-band-label strong, .governance-label strong { font-size: 16px; }
+    .loop-band-label strong, .governance-label strong { margin-top: 0; }
+    .loop-band-use .loop-track, .loop-band-learn .loop-track { grid-template-columns: 1fr; }
+    .loop-step { min-height: auto; padding: 17px 8px 17px 42px; border-right: 0; border-bottom: 1px solid #303c4e; }
+    .loop-step:last-child { border-bottom: 0; }
+    .loop-step:not(:last-child)::after { right: auto; left: 17px; top: auto; bottom: -5px; transform: rotate(135deg); }
+    .loop-step-head { margin-left: -34px; }
+    .loop-bridge-label { padding: 15px 0 8px; border-right: 0; }
+    .loop-bridge-content { padding: 10px 0 16px; grid-template-columns: 1fr; }
+    .loop-bridge-arrow { display: none; }
+    .loop-return-label { display: none; }
+    .loop-return-path { padding: 16px 0; }
+    .governance-flow { padding: 14px 0 18px; grid-template-columns: 1fr; }
+    .governance-arrow { justify-self: center; transform: rotate(90deg); }
+    .loop-guardrails { grid-template-columns: 1fr; }
+    .loop-guard, .loop-guard:first-child, .loop-guard:last-child { min-height: auto; padding: 13px 0; border-right: 0; border-bottom: 1px solid #344054; }
+    .loop-guard:last-child { border-bottom: 0; }
+    .result-case { grid-template-columns: 1fr; }
+    .result-source { padding: 24px 20px; }
+    .result-flow { grid-template-columns: 1fr; }
+    .result-step { min-height: auto; padding: 20px; border-right: 0; border-bottom: 1px solid var(--line); }
+    .result-step:last-child { border-bottom: 0; }
+    .result-step:not(:last-child)::after { right: auto; left: 32px; top: auto; bottom: -6px; transform: rotate(135deg); }
+    .result-proof { display: grid; grid-template-columns: 1fr 1fr; }
+    .proof-item { border-bottom: 1px solid var(--line); }
+    .proof-item:nth-child(2n) { border-right: 0; }
+    .proof-item:nth-last-child(-n+2) { border-bottom: 0; }
     .capability-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 13px; }
     .cap-tab { white-space: nowrap; }
     .five-questions { grid-template-columns: 1fr; }
@@ -338,6 +446,7 @@
     <ul class="nav-links" id="navLinks">
       <li><a href="#problem">业务需求</a></li>
       <li><a href="#lifecycle">调用全景</a></li>
+      <li><a href="#result-case">真实成果</a></li>
       <li><a href="#capabilities">功能逻辑</a></li>
       <li><a href="#architecture">存取使用</a></li>
       <li><a href="#build">适配工作</a></li>
@@ -398,21 +507,95 @@
     <div class="wrap">
       <div class="section-head reveal">
         <div class="eyebrow">02 · When</div>
-        <div><h2>六项能力不是一起调用，而是分布在任务生命周期中</h2><p class="section-desc">调用时机决定了记忆是否可信、是否来得及影响决策，也决定了系统会不会频繁误改历史经验。</p></div>
+        <div><h2>一张图看懂：记忆如何进入任务，又如何从任务中沉淀</h2><p class="section-desc">系统由两个速度不同但首尾相接的闭环组成：前台在第一次决策前使用历史经验，后台把真实结果沉淀为下一次可复用的记忆。</p></div>
       </div>
-      <div class="lifecycle-shell reveal">
-        <div class="lifecycle">
-          <article class="life-step"><div class="life-icon"><i data-lucide="message-square"></i></div><h3>用户提交任务</h3><p>Runtime登记当前用户陈述，形成当前任务可信来源。</p><span class="call-tag">证据建立</span></article>
-          <article class="life-step"><div class="life-icon"><i data-lucide="search"></i></div><h3>任务开始前</h3><p>新Session或Compact后自动查找Top-3相关历史经验。</p><span class="call-tag">SEARCH</span></article>
-          <article class="life-step"><div class="life-icon"><i data-lucide="route"></i></div><h3>Agent决策</h3><p>经验进入上下文，辅助规划、工具选择、检查和风险判断。</p><span class="call-tag">READ & USE</span></article>
-          <article class="life-step"><div class="life-icon"><i data-lucide="wrench"></i></div><h3>任务执行中</h3><p>确认新事实时Add；发现历史变化时Update、Delete或Feedback。</p><span class="call-tag">ADD / UPDATE / DELETE</span></article>
-          <article class="life-step"><div class="life-icon"><i data-lucide="archive"></i></div><h3>Session结束</h3><p>Finalizer从真实轨迹提炼经验，并执行隐式Feedback。</p><span class="call-tag">AUTO ADD / FEEDBACK</span></article>
-          <article class="life-step"><div class="life-icon"><i data-lucide="sparkles"></i></div><h3>经验累计后</h3><p>默认每累计8条已确认新增，锁定批次进行Dreaming整理。</p><span class="call-tag">DREAMING</span></article>
+      <div class="memory-loop-shell reveal">
+        <div class="loop-thesis">
+          <div class="loop-thesis-copy"><span>核心闭环</span><strong>过去经验影响本次决策，本次真实结果成为下一次经验</strong></div>
+          <div class="loop-legend" aria-label="流程图图例"><span class="legend-item"><i class="legend-line"></i>自动主链</span><span class="legend-item"><i class="legend-line conditional"></i>按需或条件触发</span></div>
         </div>
-        <div class="lifecycle-caption">
-          <div class="caption-block"><strong>为什么Search放在第一次决策前？</strong><span>再晚一步，Agent可能已经按“没有历史经验”的前提完成了错误规划。</span></div>
-          <div class="caption-block"><strong>为什么Dreaming不在每次Add后执行？</strong><span>积累足够样本后再比较，才能减少频繁改写和单条经验造成的误判。</span></div>
+
+        <div class="loop-band loop-band-use">
+          <div class="loop-band-label"><span>当前任务</span><strong>使用记忆</strong></div>
+          <div class="loop-track">
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">1</span><span class="loop-owner">用户</span></div><h3>提交当前任务</h3><p>问题和目标成为本轮可信输入。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">2</span><span class="loop-owner">Runtime</span></div><h3>建立证据并构造查询</h3><p>绑定当前用户、Session、任务和轮次。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">3</span><span class="loop-owner">MindMemOS · Qdrant</span></div><h3>自动召回 Top-3</h3><p>新Session或Compact后执行语义检索。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">4</span><span class="loop-owner">Runtime</span></div><h3>注入 Agent 真实请求</h3><p>历史经验在第一次规划前进入上下文。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">5</span><span class="loop-owner">Agent</span></div><h3>规划、执行并核验</h3><p>辅助工具选择和风险判断，仍以当前环境为准。</p></article>
+          </div>
         </div>
+
+        <div class="loop-bridge">
+          <div class="loop-bridge-label">任务中按需调用</div>
+          <div class="loop-bridge-content">
+            <div class="loop-bridge-item"><i data-lucide="search"></i><span>线索不足时主动 <strong>Search</strong>，结果进入下一轮模型请求</span></div>
+            <span class="loop-bridge-arrow">·</span>
+            <div class="loop-bridge-item"><i data-lucide="refresh-cw"></i><span>确认事实或发现变化时调用 <strong>Add / Update / Delete / Feedback</strong></span></div>
+          </div>
+        </div>
+
+        <div class="loop-band loop-band-learn">
+          <div class="loop-band-label"><span>任务执行后</span><strong>沉淀记忆</strong></div>
+          <div class="loop-track">
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">6</span><span class="loop-owner">Finalizer</span></div><h3>从真实轨迹提炼</h3><p>Session结束后提取成功方法、失败线索，并执行隐式反馈。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">7</span><span class="loop-owner">Runtime Gate</span></div><h3>校验证据与范围</h3><p>核对权限、用户、任务范围和本轮真实可见记忆。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">8</span><span class="loop-owner">MindMemOS</span></div><h3>执行新增或纠错</h3><p>后台任务由FIFO串行；修改按准确ID和确定动作执行。</p></article>
+            <article class="loop-step"><div class="loop-step-head"><span class="loop-no">9</span><span class="loop-owner">Qdrant · Neo4j</span></div><h3>持久化并真实回读</h3><p>核对正文、状态、来源和版本关系，确认记忆已经生效。</p></article>
+          </div>
+        </div>
+
+        <div class="loop-return">
+          <div class="loop-return-label"></div>
+          <div class="loop-return-path"><i data-lucide="rotate-ccw"></i><span><strong>经数据库真实回读确认的有效记忆</strong>，回到下一次任务的自动召回入口</span><i data-lucide="arrow-up-right"></i></div>
+        </div>
+
+        <div class="governance-strip">
+          <div class="governance-label"><span>经验累计后</span><strong>治理记忆</strong></div>
+          <div class="governance-flow">
+            <div class="governance-node"><i data-lucide="badge-check"></i><span>同一范围累计 <strong>8条</strong> 已确认新增</span></div>
+            <span class="governance-arrow">→</span>
+            <div class="governance-node"><i data-lucide="lock-keyhole"></i><span>Dreaming锁定固定批次</span></div>
+            <span class="governance-arrow">→</span>
+            <div class="governance-node"><i data-lucide="combine"></i><span>去重、处理冲突、建立关联，再回写记忆库</span></div>
+          </div>
+        </div>
+
+        <div class="loop-guardrails">
+          <div class="loop-guard"><i data-lucide="route"></i><div><strong>召回必须足够早</strong><span>在Agent第一次决策前进入上下文。</span></div></div>
+          <div class="loop-guard"><i data-lucide="fingerprint"></i><div><strong>修改必须有当前证据</strong><span>旧任务证据不能支持新任务写入。</span></div></div>
+          <div class="loop-guard"><i data-lucide="database-backup"></i><div><strong>回读成功才算完成</strong><span>日志或命令已发送都不是最终结果。</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="result-case" class="tint">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="eyebrow">03 · Result</div>
+        <div><h2>一条真实记忆，如何从自然表达变成可复用事实</h2><p class="section-desc">以下案例来自非ALFWorld会话。展示内容已脱敏转述，但日期、处理动作、记忆状态和数据标识均来自数据库真实记录。</p></div>
+      </div>
+      <div class="result-case reveal">
+        <div class="result-source">
+          <div class="result-badge"><i data-lucide="message-circle"></i>原始会话 · 2023-05-08</div>
+          <blockquote>“我昨天参加了一个支持小组，这段经历很有力量。”</blockquote>
+          <p>自然表达包含相对时间；如果只保存原文，离开原会话后“昨天”就失去准确含义。</p>
+        </div>
+        <div class="result-detail">
+          <div class="result-flow">
+            <article class="result-step"><div class="result-step-icon"><i data-lucide="archive"></i></div><span>SESSION结束</span><h3>自动识别稳定事实</h3><p>Finalizer从真实对话轨迹中识别出“参加支持小组”是值得长期保存的事实。</p></article>
+            <article class="result-step"><div class="result-step-icon"><i data-lucide="calendar-check"></i></div><span>时间归一化</span><h3>“昨天”解析为明确日期</h3><p>结合消息时间，将相对时间确定为 <code>2023-05-07</code>，避免后续任务产生歧义。</p></article>
+            <article class="result-step"><div class="result-step-icon"><i data-lucide="refresh-cw"></i></div><span>反馈与纠正</span><h3>同一记忆更新为准确版本</h3><p>后续处理把正文更新为明确日期版本，并保留原始来源Session和更新时间。</p></article>
+          </div>
+          <div class="result-outcome"><i data-lucide="badge-check"></i><div><strong>数据库真实结果</strong><span>最终生效的是明确日期版本，不再依赖原会话中的“昨天”；该记录已从Qdrant按准确ID回读为active。</span></div></div>
+        </div>
+      </div>
+      <div class="result-proof reveal">
+        <div class="proof-item"><span>记忆类型</span><strong>Fact · 事实</strong></div>
+        <div class="proof-item"><span>最终状态</span><strong>Active · 生效中</strong></div>
+        <div class="proof-item"><span>记忆ID</span><strong class="mono">19757cfd…2546</strong></div>
+        <div class="proof-item"><span>来源</span><strong>Session可追溯</strong></div>
       </div>
     </div>
   </section>
@@ -420,7 +603,7 @@
   <section id="capabilities" class="white">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">03 · Logic</div>
+        <div class="eyebrow">04 · Logic</div>
         <div><h2>每项功能都回答五个问题</h2><p class="section-desc">点击功能查看：何时调用、为什么此时调用、数据怎么存、怎么取、取出后怎么进入Agent，以及对应的风险控制。</p></div>
       </div>
       <div class="capability-tabs reveal" role="tablist" aria-label="记忆能力">
@@ -509,7 +692,7 @@
   <section id="architecture" class="tint">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">04 · Store / Read / Use</div>
+        <div class="eyebrow">05 · Store / Read / Use</div>
         <div><h2>存、取、用是三条不同的责任链</h2><p class="section-desc">Agent判断是否需要记忆；Runtime校验当前用户、任务范围与证据；MindMemOS执行记忆管理；Qdrant向量数据库与Neo4j知识图谱提供可验证的真实结果。</p></div>
       </div>
       <div class="io-grid reveal">
@@ -543,7 +726,7 @@
   <section id="build" class="dark">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">05 · Engineering</div>
+        <div class="eyebrow">06 · Engineering</div>
         <div><h2>不是“接入一个库”，而是重构六类记忆运行逻辑</h2><p class="section-desc">8个近期提交被归并为6类逻辑变化：每一类都说明原有问题、系统改成什么、实际完成什么，以及最终解决的业务风险。</p></div>
       </div>
       <div class="build-layout reveal">
@@ -622,7 +805,7 @@
   <section id="safety" class="white">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">06 · Safety</div>
+        <div class="eyebrow">07 · Safety</div>
         <div><h2>业务关心的不是“能不能记”，而是“会不会记错、改错、用错”</h2><p class="section-desc">当前系统把成功标准放在外部真实数据，而不是模型说“我记住了”或日志显示“命令已发送”。</p></div>
       </div>
       <div class="safety-grid reveal">
@@ -639,7 +822,7 @@
   <section id="requirements" class="tint">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">07 · Requirement Map</div>
+        <div class="eyebrow">08 · Requirement Map</div>
         <div><h2>对照蓝图：Memory闭环基本形成，运维规则和Skill演进仍待建设</h2><p class="section-desc">这里区分“底层能力已经存在”和“业务目标已经完全达成”，避免把技术接线当作最终业务效果。</p></div>
       </div>
       <div class="requirements reveal">
@@ -659,7 +842,7 @@
   <section id="outcome" class="white">
     <div class="wrap">
       <div class="section-head reveal">
-        <div class="eyebrow">08 · Outcome</div>
+        <div class="eyebrow">09 · Outcome</div>
         <div><h2>本阶段解决了什么，下一阶段要补什么</h2><p class="section-desc">当前交付定位是“经验自迭代底座和Memory核心闭环”，不是已经完成完全自主进化。</p></div>
       </div>
       <div class="close-grid reveal">

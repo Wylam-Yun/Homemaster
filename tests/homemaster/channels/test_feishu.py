@@ -32,7 +32,6 @@ from homemaster.channels.impl.feishu import (
     FeishuDownload,
     render_feishu_text,
 )
-from homemaster.channels.impl.telegram import TelegramChannel
 from homemaster.config import FeishuChannelConfig
 from homemaster.gateway.confirmation import (
     ApprovalDecision,
@@ -73,10 +72,9 @@ def _config(**updates) -> FeishuChannelConfig:
 
 def test_all_concrete_channel_implementations_cover_public_interface() -> None:
     expected_methods = {"start", "stop", "send"}
-    for implementation in (FeishuChannel, TelegramChannel):
-        assert issubclass(implementation, BaseChannel)
-        assert not implementation.__abstractmethods__
-        assert expected_methods <= implementation.__dict__.keys()
+    assert issubclass(FeishuChannel, BaseChannel)
+    assert not FeishuChannel.__abstractmethods__
+    assert expected_methods <= FeishuChannel.__dict__.keys()
 
 
 @pytest.mark.asyncio

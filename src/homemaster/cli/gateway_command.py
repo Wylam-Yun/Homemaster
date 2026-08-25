@@ -16,7 +16,6 @@ from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
     create_alfworld_gateway_binding,
 )
-from homemaster.gateway.browser import create_browser_gateway_application
 from homemaster.gateway.confirmation import FeishuGatewayConfirmationHandler
 from homemaster.gateway.runtime import build_gateway_assembly
 
@@ -56,12 +55,7 @@ async def serve_gateway(
             )
             gateway_application = alfworld_application
             profile = "alfworld"
-        elif environment == "browser":
-            gateway_application = create_browser_gateway_application(
-                bundle.application,
-                config.browser_gateway,
-                run_dir=bundle.run_dir,
-            )
+        elif environment == "browser" or config.browser_gateway.start_url is not None:
             profile = "browser"
         assembly = build_gateway_assembly(
             gateway_application,

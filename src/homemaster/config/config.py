@@ -56,7 +56,7 @@ class ConfigError(RuntimeError):
 class ProviderProfileConfig(BaseModel):
     """Single model/embedding provider profile."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str
     api_format: ApiFormatName
@@ -76,7 +76,9 @@ class ProviderProfileConfig(BaseModel):
         if isinstance(value, dict):
             data = dict(value)
             if "api_format" not in data and "protocol" in data:
-                data["api_format"] = data["protocol"]
+                data["api_format"] = data.pop("protocol")
+            else:
+                data.pop("protocol", None)
             if "transport" not in data:
                 api_format = str(data.get("api_format") or "").strip().lower()
                 if api_format == "anthropic":
@@ -149,11 +151,15 @@ class ProviderProfileConfig(BaseModel):
 
 
 class ProviderConfigSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     default: str = DEFAULT_PROVIDER_NAME
     items: list[ProviderProfileConfig] = Field(default_factory=list)
 
 
 class ContextPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     auto_compact_enabled: bool = True
     compression_threshold_ratio: float = 0.50
     output_reserve_tokens: int = 8192
@@ -182,73 +188,37 @@ class ContextPolicyConfig(BaseModel):
     )
     default_keep_recent_tool_results: int = 3
     enable_llm_summary: bool = True
-    summary_model: str | None = None
     abort_on_summary_failure: bool = True
-    summary_failure_cooldown_seconds: int = 60
     reactive_compact_max_retries: int = 2
-    enable_disk_overflow: bool = False
-    tool_result_overflow_threshold_chars: int = 4000
 
 
 class RuntimeGuardConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     max_tool_iterations: int | None = None
     max_consecutive_tool_errors: int = 5
     max_no_progress_iterations: int = 20
-    max_wall_clock_minutes: float | None = None
     runtime_root: Path = Path("/tmp/homemaster/runs")
     debug_root: Path = Path("/tmp/homemaster/debug")
     results_root: Path = Path("/tmp/homemaster/results")
 
 
 class PromptConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     agent_system_prompt: str = "agent_system_prompt"
-    compact_summary_prompt: str = "compact_summary_prompt"
-    task_interpreter_prompt: str = "task_interpreter_prompt"
-    memory_query_prompt: str = "memory_query_prompt"
-    memory_query_retry: str = "memory_query_retry"
-    task_summary_prompt: str = "task_summary_prompt"
-
-
-class RetrievalScoringConfig(BaseModel):
-    metadata_weights: dict[str, float] = Field(
-        default_factory=lambda: {
-            "target_category_match": 0.2,
-            "target_alias_match": 0.2,
-            "location_match": 0.15,
-            "high_confidence": 0.1,
-            "medium_confidence": 0.05,
-            "stale_penalty": -0.1,
-        }
-    )
-    rrf_k: int = 60
-    top_k_limit: int = 50
-
-
-class GroundingConfig(BaseModel):
-    room_hints: dict[str, list[str]] = Field(default_factory=dict)
-    anchor_hints: dict[str, list[str]] = Field(default_factory=dict)
-    specific_anchor_words: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class ProviderClientConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     timeout_s: float = 60.0
-    connect_timeout_s: float = 10.0
-    write_timeout_s: float = 15.0
-    pool_timeout_s: float = 10.0
     max_retries: int = 2
 
 
-class RuntimePathsConfig(BaseModel):
-    runtime_root: str | None = None
-    debug_root: str | None = None
-    results_root: str | None = None
-    test_results_root: str | None = None
-    llm_case_root: str | None = None
-    memory_case_root: str | None = None
-    memory_results_root: str | None = None
-
-
 class RuntimeDefaultsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     default_provider_name: str = DEFAULT_PROVIDER_NAME
     default_embedding_provider_name: str = DEFAULT_EMBEDDING_PROVIDER_NAME
 
@@ -435,6 +405,8 @@ class MemoryConfig(BaseModel):
 
 
 class SkillSourcesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_dirs: tuple[Path, ...] = (Path("~/.homemaster/skills"),)
     project_dirs: tuple[str, ...] = (".homemaster/skills",)
     explicit_dirs: tuple[Path, ...] = ()
@@ -452,29 +424,6 @@ class SkillSourcesConfig(BaseModel):
             if path.is_absolute() or ".." in path.parts:
                 raise ValueError("project skill directories must be safe relative paths")
         return values
-
-
-class ChannelPrincipalConfig(BaseModel):
-    principal_id: str
-    roles: tuple[str, ...] = ()
-    capabilities: tuple[str, ...] = ()
-
-
-class TelegramChannelConfig(BaseModel):
-    enabled: bool = False
-    token_env: str = "HOMEMASTER_TELEGRAM_BOT_TOKEN"
-    tenant_id: str = "local"
-    bot_name: str = "HomeMaster"
-    attachment_root: Path = Path("~/.homemaster/attachments/telegram")
-    principals: dict[str, ChannelPrincipalConfig] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _enabled_channel_has_explicit_principals(self) -> TelegramChannelConfig:
-        if self.enabled and not self.principals:
-            raise ValueError("enabled Telegram channel requires explicit principals")
-        if "*" in self.principals:
-            raise ValueError("Telegram wildcard principals are not allowed")
-        return self
 
 
 class FeishuChannelConfig(BaseModel):
@@ -506,6 +455,8 @@ class FeishuChannelConfig(BaseModel):
 
 
 class GatewayConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     enabled: bool = False
     bus_capacity: int = Field(default=128, ge=1)
     per_tenant_capacity: int = Field(default=64, ge=1)
@@ -650,14 +601,13 @@ class ExtensionsConfig(BaseModel):
 
 
 class HomeMasterConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     providers: ProviderConfigSection = Field(default_factory=ProviderConfigSection)
     context: ContextPolicyConfig = Field(default_factory=ContextPolicyConfig)
     runtime: RuntimeGuardConfig = Field(default_factory=RuntimeGuardConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
-    retrieval_scoring: RetrievalScoringConfig = Field(default_factory=RetrievalScoringConfig)
-    grounding: GroundingConfig = Field(default_factory=GroundingConfig)
     provider_client: ProviderClientConfig = Field(default_factory=ProviderClientConfig)
-    runtime_paths: RuntimePathsConfig = Field(default_factory=RuntimePathsConfig)
     runtime_defaults: RuntimeDefaultsConfig = Field(default_factory=RuntimeDefaultsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)

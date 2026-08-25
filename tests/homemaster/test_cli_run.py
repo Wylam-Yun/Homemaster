@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from homemaster.application import ApplicationSession, RunResult, RunStatus
 from homemaster.cli.app import app
 from homemaster.cli.confirmation import CliPermissionMode
+from homemaster.cli.renderers import OutputFormat
 from homemaster.cli.run_command import OneShotExecution
 
 
@@ -391,6 +392,67 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
     request = captured["request"]
     assert request.dependencies["skill_registry"] is Bundle.skill_registry
     assert request.run_policy.max_tool_iterations is None
+
+
+def test_browser_print_selects_browser_environment_and_private_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+    config_path = tmp_path / "homemaster.yaml"
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "handle_print", lambda **kwargs: calls.append(kwargs))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--browser",
+            "--config",
+            str(config_path),
+            "--print",
+            "execute ticket",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [
+        {
+            "prompt": "execute ticket",
+            "output_format": OutputFormat.TEXT,
+            "resume_session_id": None,
+            "continue_latest": False,
+            "provider_name": None,
+            "model": None,
+            "config_path": config_path,
+            "tool_environment": "browser",
+            "run_label": None,
+        }
+    ]
+
+
+def test_configured_print_uses_common_capability_resolution_without_browser_flag(
+    monkeypatch, tmp_path: Path
+) -> None:
+    calls: list[dict[str, object]] = []
+    config_path = tmp_path / "homemaster.yaml"
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "handle_print", lambda **kwargs: calls.append(kwargs))
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "--config",
+            str(config_path),
+            "--run-label",
+            "ops-monitor-real-001",
+            "--print",
+            "execute ticket",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert calls[0]["config_path"] == config_path
+    assert calls[0]["tool_environment"] is None
+    assert calls[0]["run_label"] == "ops-monitor-real-001"
 
 
 def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:

@@ -5,12 +5,12 @@ import inspect
 import textwrap
 from pathlib import Path
 
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
 from homemaster.benchmarking.alfworld.execution import (
     OracleManipulationExecutor,
     OracleNavigationExecutor,
 )
-from homemaster.benchmarking.alfworld.registry import build_alfworld_tool_registry
 from homemaster.benchmarking.alfworld.types import AlfworldStepResult
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -43,7 +43,7 @@ def test_step_failure_reason_is_read_only_projection() -> None:
 
 
 def test_alfworld_registry_has_one_navigation_tool_and_no_legacy_bypasses() -> None:
-    names = set(build_alfworld_tool_registry().all_names())
+    names = set(build_tool_registry(environment="alfworld").all_names())
 
     assert "robot_go_to" in names
     assert "robot_navigate" not in names

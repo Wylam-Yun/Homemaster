@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.benchmarking.coworker_demo.registry import build_coworker_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from scripts.coworker_demo.scripted_shell_gate import ScriptedConversation
 from scripts.coworker_demo.verify_run_bundle import (
     verify_presentation_bundle,
@@ -20,7 +20,7 @@ def test_scripted_conversation_only_calls_registered_coworker_tools(
     case_id: str,
     profile: str,
 ) -> None:
-    registry = build_coworker_tool_registry()
+    registry = build_tool_registry(environment="coworker")
     registered = set(registry.all_names())
     steps = ScriptedConversation(case_id, profile).steps
 

@@ -42,75 +42,23 @@ context:
     robot_verify: 2
   default_keep_recent_tool_results: 3
   enable_llm_summary: true
-  summary_model: null
   abort_on_summary_failure: true
-  summary_failure_cooldown_seconds: 60
   reactive_compact_max_retries: 2
-  enable_disk_overflow: false
-  tool_result_overflow_threshold_chars: 4000
 
 runtime:
   max_tool_iterations: null
   max_consecutive_tool_errors: 5
   max_no_progress_iterations: 20
-  max_wall_clock_minutes: null
   runtime_root: /tmp/homemaster/runs
   debug_root: /tmp/homemaster/debug
   results_root: /tmp/homemaster/results
 
 prompts:
   agent_system_prompt: agent_system_prompt
-  compact_summary_prompt: compact_summary_prompt
-  task_interpreter_prompt: task_interpreter_prompt
-  memory_query_prompt: memory_query_prompt
-  memory_query_retry: memory_query_retry
-  task_summary_prompt: task_summary_prompt
-
-retrieval_scoring:
-  metadata_weights:
-    target_category_match: 0.2
-    target_alias_match: 0.2
-    location_match: 0.15
-    high_confidence: 0.1
-    medium_confidence: 0.05
-    stale_penalty: -0.1
-  rrf_k: 60
-  top_k_limit: 50
-
-grounding:
-  room_hints:
-    kitchen: ["厨房", "kitchen"]
-    living_room: ["客厅", "living room", "living_room"]
-    pantry: ["储物间", "pantry"]
-    bedroom: ["卧室", "bedroom"]
-    study: ["书房", "study"]
-    entryway: ["门口", "entryway"]
-  anchor_hints:
-    table: ["桌", "桌子", "table"]
-    cabinet: ["柜", "柜子", "药柜", "橱柜", "cabinet"]
-    shelf: ["搁架", "架子", "shelf"]
-    counter: ["台面", "柜台", "counter"]
-    sofa: ["沙发", "sofa"]
-  specific_anchor_words:
-    table: ["餐桌", "边桌", "茶几", "书桌", "床头柜", "梳妆台"]
-    shelf: ["置物架", "书架"]
-    counter: ["操作台"]
 
 provider_client:
   timeout_s: 60.0
-  connect_timeout_s: 10.0
-  write_timeout_s: 15.0
-  pool_timeout_s: 10.0
   max_retries: 2
-
-runtime_paths:
-  runtime_root: null
-  debug_root: null
-  results_root: null
-  test_results_root: null
-  llm_case_root: null
-  memory_case_root: null
-  memory_results_root: null
 
 runtime_defaults:
   default_provider_name: Mimo

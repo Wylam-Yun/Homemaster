@@ -63,6 +63,15 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
         with pytest.raises(BrowserSessionError, match="stale_ref"):
             await session.fill(tenant_snapshot.snapshot_id, tenant.element_id, "stale")
 
+        masked_snapshot = await session.inspect({"name": "Masked date time"})
+        masked = _find(masked_snapshot, "Masked date time")
+        masked_receipt = await session.fill(
+            masked_snapshot.snapshot_id, masked.element_id, "2026-08-21 21:25:07"
+        )
+        assert masked_receipt["actual"] == "2026-08-21 21:25:07"
+        assert masked_receipt["input_method"] == "keyboard_fallback"
+        assert masked_receipt["initial_actual"] == "component-normalized"
+
         region_snapshot = await session.inspect({"name": "Region"})
         region = _find(region_snapshot, "Region")
         selected = await session.select(
@@ -138,10 +147,58 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
     assert session.video_path is not None
     assert session.video_path.is_file() and session.video_path.stat().st_size > 0
     assert session.trace_path.is_file() and session.trace_path.stat().st_size > 0
+    screenshots = sorted((session.video_dir / "screenshots").glob("observe-*.png"))
+    assert len(screenshots) >= 1
+    assert all(path.stat().st_size > 0 for path in screenshots)
     rows = [json.loads(line) for line in session.action_log_path.read_text().splitlines()]
     assert rows[0]["operation"] == "session_started"
     assert rows[-1]["operation"] == "session_closed"
-    assert [row["operation"] for row in rows].count("fill") == 2
+    assert [row["operation"] for row in rows].count("fill") == 3
+
+
+@pytest.mark.asyncio
+async def test_navigate_waits_for_spa_hydration_before_reporting_dom_stable(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="delayed-hydration",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        navigation = await session.navigate(f"{control_origin}/delayed-render.html")
+        snapshot = await session.inspect({"name": "Hydrated action"})
+
+        assert navigation["load_state"] == "dom_stable"
+        assert [_find(snapshot, "Hydrated action").role] == ["button"]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_navigate_honors_configured_timeout_beyond_five_seconds(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="slow-hydration",
+        policy=BrowserPolicy(
+            allowed_origins=(control_origin,),
+            navigation_timeout_ms=7_000,
+        ),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        navigation = await session.navigate(
+            f"{control_origin}/delayed-render.html?delay=5200"
+        )
+        snapshot = await session.inspect({"name": "Hydrated action"})
+
+        assert navigation["load_state"] == "dom_stable"
+        assert [_find(snapshot, "Hydrated action").role] == ["button"]
+    finally:
+        await session.aclose()
 
 
 @pytest.mark.asyncio
@@ -172,6 +229,49 @@ async def test_infrastructure_timeout_fences_session(tmp_path: Path, control_ori
 
 
 @pytest.mark.asyncio
+async def test_exact_successful_mutation_retry_replays_receipt_without_backend_call(
+    tmp_path: Path,
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="idempotent-mutation",
+        policy=BrowserPolicy(allowed_origins=("http://example.test",)),
+        video_dir=tmp_path / "video",
+    )
+    session._started = True
+    backend_calls = 0
+
+    async def mutation():
+        nonlocal backend_calls
+        backend_calls += 1
+        return {"interaction_verified": True, "backend_sequence": backend_calls}
+
+    first = await session._execute(
+        "click",
+        {"snapshot_id": "snapshot-1", "element_id": "element-1"},
+        mutation,
+        timeout_ms=1_000,
+        mutating=True,
+    )
+    second = await session._execute(
+        "click",
+        {"snapshot_id": "snapshot-1", "element_id": "element-1"},
+        mutation,
+        timeout_ms=1_000,
+        mutating=True,
+    )
+
+    assert backend_calls == 1
+    assert first == {"interaction_verified": True, "backend_sequence": 1}
+    assert second == {
+        "interaction_verified": True,
+        "backend_sequence": 1,
+        "idempotent_replay": True,
+    }
+    rows = [json.loads(line) for line in session.action_log_path.read_text().splitlines()]
+    assert [row["outcome"] for row in rows] == ["success", "replayed"]
+
+
+@pytest.mark.asyncio
 async def test_offscreen_target_scrolls_into_view_before_actionability_check(
     tmp_path: Path, control_origin: str
 ) -> None:
@@ -185,6 +285,7 @@ async def test_offscreen_target_scrolls_into_view_before_actionability_check(
         await session.navigate(f"{control_origin}/controls.html")
         snapshot = await session.inspect({"name": "Offscreen apply"})
         target = _find(snapshot, "Offscreen apply")
+        assert target.obscured is False
 
         receipt = await session.click(snapshot.snapshot_id, target.element_id)
 
@@ -192,6 +293,98 @@ async def test_offscreen_target_scrolls_into_view_before_actionability_check(
         assert await target.handle.inner_text() == "Offscreen applied"
     finally:
         await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_action_rejects_target_that_was_obscured_in_cited_snapshot(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="snapshot-actionability",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/controls.html")
+        await session._page.evaluate(
+            """() => {
+              const target = document.createElement('button');
+              target.id = 'covered-action';
+              target.textContent = 'Covered action';
+              target.style.position = 'fixed';
+              target.style.top = '100px';
+              target.style.left = '100px';
+              target.style.zIndex = '1';
+              target.onclick = () => { target.textContent = 'Clicked'; };
+              document.body.appendChild(target);
+              const cover = document.createElement('div');
+              cover.id = 'action-cover';
+              cover.style.cssText = [
+                'position: fixed', 'inset: 0', 'z-index: 999999',
+                'background: rgba(0,0,0,.1)'
+              ].join(';');
+              document.body.appendChild(cover);
+            }"""
+        )
+        snapshot = await session.inspect({"name": "Covered action"})
+        target = _find(snapshot, "Covered action")
+        assert target.obscured is True
+
+        await session._page.locator("#action-cover").evaluate("element => element.remove()")
+        with pytest.raises(BrowserSessionError) as caught:
+            await session.click(snapshot.snapshot_id, target.element_id)
+
+        assert caught.value.code == "target_obscured"
+        assert caught.value.backend_attempted is False
+        assert await session._page.locator("#covered-action").inner_text() == "Covered action"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_navigation_request_without_frame_is_still_origin_checked(
+    tmp_path: Path,
+) -> None:
+    from playwright.async_api import Error as PlaywrightError
+
+    class _Route:
+        aborted = False
+        continued = False
+
+        async def abort(self) -> None:
+            self.aborted = True
+
+        async def continue_(self) -> None:
+            self.continued = True
+
+    class _Request:
+        url = "https://outside.example.test/"
+
+        def is_navigation_request(self) -> bool:
+            return True
+
+        @property
+        def frame(self):
+            raise PlaywrightError(
+                "Frame for this navigation request is not available, because the request "
+                "was issued before the frame is created."
+            )
+
+    session = PlaywrightBrowserSession(
+        session_id="missing-navigation-frame",
+        policy=BrowserPolicy(allowed_origins=("http://example.test",)),
+        video_dir=tmp_path / "video",
+    )
+    route = _Route()
+
+    await session._route_request(route, _Request())
+
+    assert route.aborted is True
+    assert route.continued is False
+    assert session.fenced is True
+    assert session._origin_violation is not None
+    assert session._origin_violation.code == "origin_not_allowed"
 
 
 @pytest.mark.asyncio
@@ -291,5 +484,131 @@ async def test_navigate_waits_for_async_dom_to_be_stable(
 
         assert navigation["load_state"] == "dom_stable"
         assert [element.name for element in snapshot.elements] == ["Late field"]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_inspect_discovers_semantic_popup_date_and_time_elements(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="semantic-inspect",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/semantic-controls.html")
+        snapshot = await session.inspect({})
+
+        assert {element.name for element in snapshot.elements} >= {
+            "Cloud service",
+            "Date 2026-08-21",
+            "Hour 15",
+        }
+
+        combobox = _find(snapshot, "Cloud service")
+        await combobox.handle.click()
+        await asyncio.sleep(0.2)
+        popup_snapshot = await session.inspect({"role": "option"})
+
+        assert {element.name for element in popup_snapshot.elements} == {
+            "VPC",
+            "Monitor Agent Service",
+        }
+        expanded_snapshot = await session.inspect({"name": "Cloud service"})
+        expanded_combobox = _find(expanded_snapshot, "Cloud service")
+        assert expanded_combobox.expanded is True
+
+        selected = await session.select(
+            expanded_snapshot.snapshot_id, expanded_combobox.element_id, "Monitor Agent Service"
+        )
+        assert selected["actual"] == "Monitor Agent Service"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_inspect_filters_before_applying_the_public_element_limit(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="filtered-limit",
+        policy=BrowserPolicy(allowed_origins=(control_origin,), max_elements=5),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/many-controls.html")
+
+        snapshot = await session.inspect({"name": "Target after limit"})
+
+        assert snapshot.total_matches == 1
+        assert [_find(snapshot, "Target after limit").role] == ["button"]
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_select_waits_for_async_options_and_verifies_semantic_readback(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="semantic-select",
+        policy=BrowserPolicy(
+            allowed_origins=(control_origin,),
+            action_timeout_ms=2_000,
+            wait_timeout_ms=1_000,
+        ),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/semantic-controls.html")
+        snapshot = await session.inspect({"name": "Cloud service"})
+        combobox = _find(snapshot, "Cloud service")
+
+        receipt = await session.select(
+            snapshot.snapshot_id,
+            combobox.element_id,
+            "Monitor Agent Service",
+        )
+
+        assert receipt["actual"] == "Monitor Agent Service"
+        assert receipt["verified"] is True
+        assert receipt["match"] == "exact"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_select_failure_lists_requested_matches_and_available_options(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="semantic-select-failure",
+        policy=BrowserPolicy(
+            allowed_origins=(control_origin,),
+            action_timeout_ms=2_000,
+            wait_timeout_ms=1_000,
+        ),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/semantic-controls.html")
+        snapshot = await session.inspect({"name": "Cloud service"})
+        combobox = _find(snapshot, "Cloud service")
+
+        with pytest.raises(BrowserSessionError) as caught:
+            await session.select(snapshot.snapshot_id, combobox.element_id, "Unknown")
+
+        assert caught.value.code == "option_not_unique"
+        assert caught.value.details == {
+            "requested": "Unknown",
+            "matches": [],
+            "available": ["VPC", "Monitor Agent Service"],
+        }
     finally:
         await session.aclose()

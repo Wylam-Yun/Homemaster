@@ -1,5 +1,35 @@
 # Session Handoff
 
+## Ops Monitor Run 29 Diagnosis (2026-08-25)
+
+- The run 29 recording was inspected as a fully decodable H.264 1440x900/25fps video lasting
+  1414.32 seconds; SHA-256 was
+  `3cf81c2f396392b9f421dd8d5ddd02eb38fe4e5baa681b1d17c6dec2bc6b0f31`. The recording was
+  intentionally removed from the checkout after diagnosis and is not tracked in Git.
+- Run artifacts are in `/tmp/homemaster/runs/ops-monitor-real-20260825-29-video`. The run had 32 provider requests,
+  31 completed responses, no `finish_reason=length`, and was intentionally terminated while request 32 was still
+  streaming. No run process remains.
+- Root-cause evidence: the AntD time cell visibly renders second `07`, but its `aria-label` is `second 7`.
+  A live DOM probe found 60 second cells, one `[aria-label="second 7"]`, and zero
+  `[aria-label="second 07"]`. The production HomeMaster collector independently returned the same 0/1 result.
+  A fallback name query for `07` returned six July date cells, beginning with `date 2026-07-27 00:00:00`.
+- The model successfully inspected/clicked hour 21 and minute 25, then repeatedly queried `second 07`, `07` with
+  role `option`, and bare `07`. Request 32 streamed for 652.795 seconds with 8,968 deltas and 83,851 reasoning
+  characters, but zero text, tool calls, or completion. Its reasoning repeats `browser_inspect` 516 times and
+  512 instances each of `try to find` and `time picker`. This is a real MiMo single-response reasoning loop
+  triggered after the semantic-name mismatch and ambiguous fallback, not HomeMaster log duplication. The larger
+  output allowance permits the loop to continue longer but does not cause the mismatch.
+- Current configuration sets MiMo `context_window_tokens: 1000000` and `max_output_tokens: 104857`. A real minimal
+  request accepted that output cap and returned `finish_reason=stop`.
+- The selected frontend fix is now applied in `ant-design-pro`: a shared `SemanticPickerCell` gives every Alarm and
+  SLA time cell an exact zero-padded `hour HH`, `minute mm`, or `second ss` name. The regression failed for all three
+  units before the fix and passes afterward. Live per-page checks independently verified 24/60/60 cells, exact
+  text/name agreement, one HomeMaster match for `second 07`, and zero matches for legacy `second 7` on both routes.
+  Static audit found no other project-owned numeric `aria-label` formatter; the remaining Dashboard RangePicker is
+  date-only. HomeMaster matching, provider settings, prompt/skill behavior and runtime loop handling were not changed.
+- The next benchmark must use a new run ID/root and independently verify the ticket terminal state; run 29 remains a
+  failed diagnostic run and must not be reclassified.
+
 ## Web ALFWorld Serve (2026-08-21)
 
 - Inline image artifacts are implemented on `mindmem`: `image/*` refs render in their producing tool card and open

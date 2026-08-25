@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta name="description" content="Homemaster 云运维 Agent 安全需求阻断点分析与参考方案" />
-<title>云运维 Agent 安全需求 · 现状与阻断点分析</title>
+<meta name="description" content="Homemaster 云运维 Agent 安全需求、当前权限进度、剩余缺口与建设逻辑" />
+<title>云运维 Agent 安全需求 · 权限进度与剩余缺口</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet" />
 <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
 <style>
   :root {
@@ -167,7 +167,69 @@
   .risk-now { margin: 0; padding: 11px 13px; background: var(--red-soft); color: #7a2e2e; font-size: 13.5px; line-height: 1.58; }
   .risk-now b { display: block; color: var(--red); font-size: 12px; letter-spacing: .5px; margin-bottom: 3px; }
 
-  /* ---- 03/04 需求页：一屏一页 ---- */
+  /* ---- 03 当前权限进度 ---- */
+  .progress-lead { display: grid; grid-template-columns: 190px 1fr; gap: 26px; align-items: center; margin-bottom: 28px; padding: 24px 28px; background: var(--nav); color: #fff; border-radius: 8px; }
+  .progress-lead strong { color: #5eead4; font-size: 13px; letter-spacing: 1px; }
+  .progress-lead p { margin: 0; font-size: clamp(17px, 2vw, 22px); line-height: 1.55; font-weight: 650; }
+  .progress-lead p span { color: #f6c978; }
+  .logic-title { margin: 0 0 12px; font-size: 17px; }
+  .policy-flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin-bottom: 28px; border: 1px solid var(--line); background: var(--white); }
+  .policy-step { position: relative; min-height: 152px; padding: 18px 16px; border-right: 1px solid var(--line); }
+  .policy-step:last-child { border-right: 0; }
+  .policy-step:not(:last-child)::after { content: ""; position: absolute; z-index: 2; right: -7px; top: 28px; width: 12px; height: 12px; background: var(--white); border-top: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); transform: rotate(45deg); }
+  .policy-step b { display: block; margin-bottom: 8px; color: var(--teal); font-size: 12px; letter-spacing: .6px; }
+  .policy-step strong { display: block; margin-bottom: 7px; font-size: 15px; }
+  .policy-step p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .policy-note { margin: -10px 0 30px; padding: 13px 16px; border-left: 4px solid var(--teal); background: var(--teal-soft); color: #285e59; font-size: 14px; line-height: 1.65; }
+  .progress-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .progress-card { border: 1px solid var(--line); background: var(--white); border-top-width: 5px; }
+  .progress-card.live { border-top-color: var(--green); }
+  .progress-card.verify { border-top-color: var(--amber); }
+  .progress-card.missing { border-top-color: var(--red); }
+  .progress-card-head { padding: 18px 20px 13px; border-bottom: 1px solid var(--line); }
+  .progress-card-head h3 { margin: 7px 0 3px; font-size: 19px; }
+  .progress-card-head p { margin: 0; color: var(--muted); font-size: 13.5px; }
+  .status-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+  .live .status-badge { color: var(--green); background: var(--green-soft); }
+  .verify .status-badge { color: var(--amber); background: var(--amber-soft); }
+  .missing .status-badge { color: var(--red); background: var(--red-soft); }
+  .progress-card ul { list-style: none; margin: 0; padding: 5px 20px 16px; }
+  .progress-card li { padding: 12px 0; border-bottom: 1px dashed var(--line); color: #3d4757; font-size: 14px; line-height: 1.62; }
+  .progress-card li:last-child { border-bottom: 0; }
+  .progress-card li b { display: block; margin-bottom: 2px; color: var(--ink); }
+  .progress-card .boundary { margin: 0 20px 20px; padding: 11px 13px; font-size: 12.5px; line-height: 1.6; }
+  .progress-card.live .boundary { background: var(--green-soft); color: #316245; }
+  .progress-card.verify .boundary { background: var(--amber-soft); color: #745022; }
+  .progress-card.missing .boundary { background: var(--red-soft); color: #7a2e2e; }
+  .approval-visual { margin: 0 0 30px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--white); box-shadow: var(--shadow); }
+  .approval-visual-head { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+  .approval-visual-head h3 { margin: 0; font-size: 18px; }
+  .approval-visual-head span { color: var(--muted); font-size: 12.5px; }
+  .approval-ui { display: grid; grid-template-columns: 190px 1fr; min-height: 480px; background: #0d151a; color: #edf4f5; }
+  .approval-ui-sidebar { padding: 16px; border-right: 1px solid #26373d; background: #101b21; }
+  .approval-ui-brand { margin-bottom: 24px; font-weight: 800; }
+  .approval-ui-new { padding: 9px; border: 1px solid #3d535a; border-radius: 6px; font-size: 12px; }
+  .approval-ui-session { margin-top: 13px; padding: 9px; border-radius: 5px; background: #19282e; color: #b9c9cd; font-size: 11px; }
+  .approval-ui-main { display: grid; grid-template-rows: 52px 1fr 62px; min-width: 0; }
+  .approval-ui-top { display: flex; justify-content: space-between; align-items: center; padding: 0 18px; border-bottom: 1px solid #26373d; font-size: 12px; }
+  .approval-ui-connected { color: #69dfb7; }
+  .approval-ui-conversation { padding: 24px; overflow: hidden; }
+  .approval-ui-bubble { max-width: 74%; margin-left: auto; padding: 10px 13px; border-radius: 8px 8px 2px 8px; background: #18493e; font-size: 12px; }
+  .approval-ui-thinking { margin-top: 17px; color: #9eafb4; font-size: 11px; }
+  .approval-ui-card { margin-top: 10px; padding: 14px; border: 1px solid #31454c; border-radius: 6px; background: #142228; }
+  .approval-ui-card-head { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+  .approval-ui-card-head span { color: #69dfb7; }
+  .approval-ui-card pre { margin: 9px 0 0; color: #9fb5bb; font-size: 11px; white-space: pre-wrap; }
+  .approval-ui-prompt { width: min(390px, 90%); margin: 18px auto 0; padding: 16px; border: 1px solid #73572d; border-radius: 7px; background: #251e14; }
+  .approval-ui-prompt strong { color: #f3c873; }
+  .approval-ui-prompt p { margin: 6px 0; color: #c7bca8; font-size: 11px; }
+  .approval-ui-actions { display: flex; justify-content: flex-end; gap: 7px; }
+  .approval-ui-action { display: inline-block; padding: 6px 10px; border: 1px solid #4b5c61; border-radius: 5px; background: #17252a; color: #fff; font-size: 11px; }
+  .approval-ui-action.approve { border-color: #24785f; background: #185442; }
+  .approval-ui-composer { margin: 8px 18px 14px; padding: 12px; border: 1px solid #3b5057; border-radius: 7px; color: #72878e; font-size: 11px; }
+  .approval-visual figcaption { padding: 13px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+  /* ---- 04/05 需求页：一屏一页 ---- */
   .reqpage { min-height: 100vh; display: flex; align-items: center; padding: 96px 0 64px; scroll-snap-align: start; background: var(--white); }
   .reqpage.alt { background: #f2f5f8; }
   .rp-inner { width: min(1020px, calc(100% - 40px)); margin: 0 auto; }
@@ -351,6 +413,10 @@
     .pipe-node, .pipe-node:last-child { border: 1px solid #344054; }
     .pipe-node::after { display: none; }
     .risk-grid, .road-grid { grid-template-columns: 1fr 1fr; }
+    .policy-flow { grid-template-columns: 1fr 1fr 1fr; gap: 10px; border: 0; background: transparent; }
+    .policy-step, .policy-step:last-child { border: 1px solid var(--line); background: var(--white); }
+    .policy-step::after { display: none; }
+    .progress-grid { grid-template-columns: 1fr; }
     .ref-intro-grid, .module-grid { grid-template-columns: 1fr 1fr; }
     .rp-now { grid-template-columns: 1fr; }
     .req-index { grid-template-columns: repeat(3, 1fr); }
@@ -369,8 +435,17 @@
     .hero-stat:nth-child(-n+2) { border-bottom: 1px solid #364154; }
     section { padding: 64px 0; }
     .section-head { grid-template-columns: 1fr; gap: 4px; margin-bottom: 30px; }
-    .flow-chain, .pipe-chain, .risk-grid, .road-grid, .pipe-caption, .close-grid, .ref-intro-grid, .module-grid, .review-nodes, .rp-now { grid-template-columns: 1fr; }
+    .flow-chain, .pipe-chain, .risk-grid, .road-grid, .pipe-caption, .close-grid, .ref-intro-grid, .module-grid, .review-nodes, .rp-now, .policy-flow { grid-template-columns: 1fr; }
     .flow-step, .pipe-node { min-height: auto; }
+    .progress-lead { grid-template-columns: 1fr; gap: 8px; padding: 22px; }
+    .policy-step { min-height: auto; }
+    .approval-visual-head { align-items: flex-start; flex-direction: column; gap: 4px; }
+    .approval-ui { grid-template-columns: 1fr; min-height: auto; }
+    .approval-ui-sidebar { display: none; }
+    .approval-ui-main { grid-template-rows: 52px auto 62px; }
+    .approval-ui-conversation { padding: 18px; }
+    .approval-ui-bubble { max-width: 90%; }
+    .approval-ui-prompt { width: auto; margin: 16px 0 0; }
     .reqpage { min-height: auto; padding: 64px 0; }
     .rp-head { grid-template-columns: 1fr; gap: 12px; }
     .rp-chips { flex-direction: row; align-items: flex-start; }
@@ -405,6 +480,7 @@
     <ul class="nav-links" id="navLinks">
       <li><a href="#scene">业务场景</a></li>
       <li><a href="#risk">风险分级</a></li>
+      <li><a href="#progress">当前进度</a></li>
       <li><a href="#reqs">需求逐条</a></li>
       <li><a href="#evolution">演化安全</a></li>
       <li><a href="#reference">参考项目</a></li>
@@ -419,13 +495,13 @@
 <header id="top">
   <div class="wrap hero">
     <div class="hero-kicker">安全需求阻断点分析 · CLOUD OPS AGENT</div>
-    <h1>云运维 Agent 安全需求：现状、阻断点与参考方案</h1>
-    <p class="hero-lead">Homemaster 在变更场景中要整段接下<b>配合人</b>的工作：按 SOP 做变更前检查、查平台查日志、执行 Linux 命令、核对实例状态、执行后验证、回填结果--人只退到关键节点做审核。这串动作混着完全不同的风险等级。本报告对照 15 条安全需求逐条核对系统现状，并给出可参考的开源方案（微软 AGT 治理工具箱、YoloFS 文件系统）。</p>
+    <h1>云运维 Agent 安全需求：当前进度、剩余缺口与建设逻辑</h1>
+    <p class="hero-lead">Homemaster 在变更场景中要整段接下<b>配合人</b>的工作：按 SOP 做变更前检查、查平台查日志、执行 Linux 命令、核对实例状态、执行后验证、回填结果--人只退到关键节点做审核。这串动作混着完全不同的风险等级。本报告在 8 月 19 日缺口分析的基础上，补充截至 <b>2026-08-24</b> 的权限实现进度，并继续对照 15 条安全需求说明下一步为何这样建设。</p>
     <div class="hero-status">
       <div class="hero-stat"><strong>15 条</strong><span>安全需求：执行安全 8 条 + 演化安全 7 条，每条独占一页</span></div>
-      <div class="hero-stat"><strong>0 条完全达标</strong><span>尚无一条需求的所有控制点齐备</span></div>
-      <div class="hero-stat"><strong>6 条部分具备</strong><span>止损 / 结果验证 / 审计 / 记忆受控 / 规则受控 / 版本</span></div>
-      <div class="hero-stat"><strong>9 个可借模块</strong><span>来自 AGT 与 YoloFS，逐条对应到需求</span></div>
+      <div class="hero-stat"><strong>底座已成形</strong><span>身份能力、硬拒绝、模式控制、人工确认、资源租约和审计已串入统一执行链</span></div>
+      <div class="hero-stat"><strong>3 个确认入口</strong><span>CLI、Web、飞书均有实现；但验证和正式启用状态不同</span></div>
+      <div class="hero-stat"><strong>业务闭环未完成</strong><span>任务边界、参数来源、四档分流、接管、回退和防篡改审计仍需建设</span></div>
     </div>
     <div class="hero-note"><i data-lucide="shield-alert"></i><span>权限层要解决的不是传统的"这个用户有没有某个按钮权限"，而是：配合人那串运维动作里，哪些可以安全交给 Agent 自动做，哪些要人确认，哪些要人补信息，哪些必须由人接管。</span></div>
   </div>
@@ -477,21 +553,21 @@
         <div class="risk-head"><i data-lucide="zap"></i><h3>自动执行</h3><div class="risk-level">风险低 · Agent 自己做</div></div>
         <div class="risk-body">
           <p class="ex">如 <code>ps -ef | grep java</code>、查日志、看监控--基本无风险。</p>
-          <p class="risk-now"><b>现状：做不到精准放行</b>权限只有"只读 / 会改动"两档。这类命令要么和重启命令一起被拒，要么一起放开--查日志和 <code>service restart</code> 在权限眼里是同一件事。</p>
+          <p class="risk-now"><b>现状：底座能分能力，仍不能按运维语义精准放行</b>现在已经能区分读工具、写工具、设备读取、设备控制、外部系统调用等能力，也有计划 / 确认 / 全自动模式；但还没有根据“查日志 / 改配置 / 重启 / 删除”的真实业务风险自动定级。</p>
         </div>
       </article>
       <article class="risk-card">
         <div class="risk-head"><i data-lucide="user-check"></i><h3>人工确认</h3><div class="risk-level">风险中 · 人批准后执行</div></div>
         <div class="risk-body">
           <p class="ex">如"确认是否执行这个脚本"--有一定风险，应当经人工确认。</p>
-          <p class="risk-now"><b>现状：确认环节名存实亡</b>框架预留了确认接口，但全系统没有任何一处真正实现"发出确认请求、等待人工批准"。Agent 发不出请求，人也收不到。</p>
+          <p class="risk-now"><b>现状：主链已接通，成熟度分三档</b>CLI 可在本地阻塞确认；Web 已完成真实 HTTP / WebSocket 协议审批运行；飞书卡片代码已接通，但正式账号当前带 <code>tool.auto</code> 会绕过确认，真实回调身份闭环仍待验证。</p>
         </div>
       </article>
       <article class="risk-card">
         <div class="risk-head"><i data-lucide="help-circle"></i><h3>人工补参</h3><div class="risk-level">信息缺口 · 人来补信息</div></div>
         <div class="risk-body">
           <p class="ex">如"需要操作哪个实例？"--Agent 不应该自行推断，应由人补充参数。</p>
-          <p class="risk-now"><b>现状：没有补参通道</b>参数只验"格式对不对"，不验"值哪来的"。SOP 写"重启对应实例"但没写实例名时，Agent 现在可以自行选择一个。</p>
+          <p class="risk-now"><b>现状：没有权限级补参闭环</b>系统有通用提问能力，但权限层仍只验参数“格式对不对”，不记录“值从哪来”。缺失或模型推断的关键参数不会自动进入带来源标注、重新校验和超时拒绝的补参流程。</p>
         </div>
       </article>
       <article class="risk-card">
@@ -505,11 +581,98 @@
   </div>
 </section>
 
-<!-- ============ 03 需求逐条（索引页） ============ -->
+<!-- ============ 03 当前权限进度 ============ -->
+<section id="progress" class="white">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">03 · Current Progress</div>
+      <div><h2>截至 2026-08-24：权限底座已成形，业务安全闭环还没收口</h2><p class="section-desc">先把“已经写了代码”“已经跑过验证”“正式部署会不会实际走这条链”分开。下面的进度只按事实分三档，不把局部实现写成生产可用。</p></div>
+    </div>
+
+    <div class="progress-lead"><strong>一句话结论</strong><p>现在已经具备统一的执行前权限链和人工确认能力；下一阶段的核心不是再造一个权限框架，而是补上<span>面向变更单的业务策略</span>，并关掉正式配置中的绕行路径、完成真机闭环。</p></div>
+
+    <h3 class="logic-title">一次工具调用，到底怎么被允许或拒绝</h3>
+    <div class="policy-flow">
+      <div class="policy-step"><b>01 · WHO</b><strong>身份与能力</strong><p>先确认请求者是谁、属于哪个租户，以及是否具备读工具、写工具、设备控制、外部系统调用等能力。</p></div>
+      <div class="policy-step"><b>02 · HARD DENY</b><strong>硬拒绝规则</strong><p>敏感路径、禁用命令、禁用工具和路径黑名单优先判断；即使工具被显式允许，也不能绕过这些拒绝。</p></div>
+      <div class="policy-step"><b>03 · MODE</b><strong>运行模式</strong><p>计划模式阻断写操作；确认模式把写操作交给人；全自动模式在前置检查通过后直接继续。</p></div>
+      <div class="policy-step"><b>04 · HUMAN</b><strong>人工确认</strong><p>需要确认时，绑定校验后的工具名、参数、目录、请求者和会话；拒绝、超时、断线或代际变化都按不执行处理。</p></div>
+      <div class="policy-step"><b>05 · EXECUTE</b><strong>资源租约与执行</strong><p>确认通过后才申请资源租约并调用 backend；设备写动作按物理设备串行，断线、旧代际和急停可在执行前拦截。</p></div>
+      <div class="policy-step"><b>06 · EVIDENCE</b><strong>事件与审计</strong><p>工具结果、确认申请与结果、设备控制和急停写入事件 / JSONL 记录，供事后还原；防篡改链尚未完成。</p></div>
+    </div>
+    <p class="policy-note"><b>要点：</b>这条链解决“谁可以通过哪条执行通道做什么”；它还没有解决“这次变更单是否允许操作这台机器、这个参数是否来自 SOP、这个动作应自动执行还是移交人工”。后者正是剩余业务权限层。</p>
+
+    <figure class="approval-visual" aria-labelledby="approval-visual-title">
+      <div class="approval-visual-head"><h3 id="approval-visual-title">Web 前端权限批准界面</h3><span>用户看到工具与参数后，再决定是否放行</span></div>
+      <div class="approval-ui" aria-label="HomeMaster Web Console 审批界面示意">
+        <aside class="approval-ui-sidebar">
+          <div class="approval-ui-brand">HM · HomeMaster</div>
+          <div class="approval-ui-new">＋ New chat</div>
+          <div class="approval-ui-session">Conversation<br><small>alfworld-demo</small></div>
+        </aside>
+        <div class="approval-ui-main">
+          <header class="approval-ui-top"><strong>Conversation</strong><span class="approval-ui-connected">● connected</span></header>
+          <div class="approval-ui-conversation">
+            <div class="approval-ui-bubble">请检查当前任务并执行必要操作。</div>
+            <div class="approval-ui-thinking">Thinking · 已折叠</div>
+            <div class="approval-ui-card">
+              <div class="approval-ui-card-head"><strong>robot_manipulate</strong><span>waiting approval</span></div>
+              <pre>{ "action": "use", "object": "desklamp" }</pre>
+            </div>
+            <div class="approval-ui-prompt">
+              <strong>批准这个操作？</strong>
+              <p>该工具将改变当前环境状态。请确认工具名称和参数。</p>
+              <div class="approval-ui-actions"><span class="approval-ui-action">拒绝</span><span class="approval-ui-action approve">批准</span></div>
+            </div>
+          </div>
+          <div class="approval-ui-composer">Message HomeMaster...</div>
+        </div>
+      </div>
+      <figcaption>前端展示权限层校验后的工具和参数；拒绝则 backend 不执行，批准后同一个工具调用继续。</figcaption>
+    </figure>
+
+    <div class="progress-grid">
+      <article class="progress-card live">
+        <div class="progress-card-head"><span class="status-badge">已实现并实测</span><h3>统一权限链与本地 / Web 确认</h3><p>主链存在，并有与结论匹配的自动化或真实协议证据。</p></div>
+        <ul>
+          <li><b>统一执行前权限门</b>能力缺失、敏感路径、禁用命令、计划模式等均在 backend 前拒绝；本次复核权限策略 3 项测试通过。</li>
+          <li><b>CLI 人工确认</b><code>confirm</code> 模式会移除自动放行能力，写操作串行询问；非明确同意即拒绝，拒绝发生在资源申请和 backend 之前。</li>
+          <li><b>Web 人工确认</b>危险操作使用一次性 opaque approval ID；已有真实 HTTP / WebSocket 协议运行连续完成 4 次审批并独立验证任务终态。</li>
+          <li><b>可信本地扩展批准</b>部署者固定版本、内容摘要和能力授权；这是“生成者不能自行发布”的已实现正样本，但目前只覆盖扩展。</li>
+        </ul>
+        <p class="boundary"><b>本次复核：</b>CLI、飞书与 Web confirmation 聚焦测试 36 项通过。这里的“实测”不代表全部 15 条需求已达标。</p>
+      </article>
+
+      <article class="progress-card verify">
+        <div class="progress-card-head"><span class="status-badge">已实现待真机闭环</span><h3>飞书审批与设备控制</h3><p>代码和非 live 证据已具备，但还不能按正式生产闭环汇报。</p></div>
+        <ul>
+          <li><b>飞书确认卡片</b>卡片严格绑定请求者、原会话、原消息和 Gateway 代际；拒绝、超时、替换、重启和关闭均 fail-closed。</li>
+          <li><b>飞书真实 API 局部证据</b>发送、更新和同卡读回取得业务 <code>code=0</code>；但真实 callback 身份闭环和批准后 backend exactly-once 仍为 <code>UNVERIFIED</code>。</li>
+          <li><b>正式配置仍会绕行</b>当前内置 <code>feishu-owner</code> 具有 <code>tool.auto</code>，策略会直接放行写操作，不会自然触发审批卡。</li>
+          <li><b>设备租约与急停</b>能力校验、物理设备租约、代际 fencing、急停双证据和结果未知语义已实现；本次复核 25 项测试通过，但没有真实设备 gate。</li>
+        </ul>
+        <p class="boundary"><b>汇报边界：</b>可说“代码完成、非 live 测试通过”；不能说“飞书和真实设备已经生产验证完成”。</p>
+      </article>
+
+      <article class="progress-card missing">
+        <div class="progress-card-head"><span class="status-badge">尚未实现</span><h3>面向变更单的业务权限层</h3><p>这是从“通用工具权限”走向“云运维安全”的主要剩余工作。</p></div>
+        <ul>
+          <li><b>任务与对象边界</b>权限判定尚不读取变更单、SOP、当前步骤和允许操作的机器 / 实例清单。</li>
+          <li><b>参数来源与人工补参</b>尚未区分票据、SOP、人工补充和模型推断，也没有低可信参数挂起补参后重新校验的闭环。</li>
+          <li><b>四档风险路由</b>尚未把动作稳定地路由到自动执行、人工确认、人工补参、人工接管四种处理。</li>
+          <li><b>接管、回退和防篡改审计</b>仍缺带上下文的人机交接状态、高风险动作前回退声明 / 快照，以及串联任务依据、参数来源、审批人和策略版本的防篡改审计链。</li>
+        </ul>
+        <p class="boundary"><b>因此：</b>当前不是“权限没做”，也不是“权限已完成”，而是“执行底座完成，业务策略与生产闭环未完成”。</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 需求逐条（索引页） ============ -->
 <section id="reqs" class="tint">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">03 · Requirements</div>
+      <div class="eyebrow">04 · Requirements</div>
       <div><h2>15 条需求逐条拆解：每条一页</h2><p class="section-desc">从这一页起，每条需求独占一屏：先讲系统现状（已有 / 断在），再讲从参考项目借鉴的具体模块与它在原项目里的真实机制，最后是落到 Homemaster 的接入方式。状态图例：<span class="chip todo">缺失</span> <span class="chip partial">部分具备</span> <span class="chip done">具备</span>；优先级 P0 = 必须先做，P1 = 其次。来源：<span class="src-chip agt">AGT</span> 微软治理工具箱 · <span class="src-chip yolo">YoloFS</span> 文件系统 · <span class="src-chip own">自建</span>。专业名词首次出现时以"注"标注。</p></div>
     </div>
     <div class="req-index">
@@ -607,11 +770,11 @@
     <div class="rp-head">
       <div class="rp-no">需求<b>04</b><span>/ 15 · 执行安全</span></div>
       <div class="rp-title"><h3>风险分级与人工介入</h3><p class="need"><b>需求：</b>查询类自动执行、确认类经人工批准、缺信息由人工补充、高危动作移交人工执行--四档分开管理。</p></div>
-      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
     </div>
     <div class="rp-now">
-      <div class="rp-row have"><b>已有</b><p>按身份授予能力集（读设备 / 控设备 / 调外部系统 / 改配置互相独立）；计划模式仅允许只读动作；未经核实的"只读"声明一律从严处理。</p></div>
-      <div class="rp-row brk"><b>断在</b><p>权限维度只有"只读 / 写"两档；执行器预留的确认接口（confirmation_handler）全系统无任何实现，人工确认与人工接管两条通道不存在，实际只剩"全自动执行"与"一律拒绝"两个极端。</p></div>
+      <div class="rp-row have"><b>已有</b><p>按身份授予能力集（读设备 / 控设备 / 调外部系统 / 改配置互相独立）；计划模式阻断写动作；确认模式可把写动作交给 CLI、Web 或飞书 handler，拒绝发生在资源租约与 backend 之前。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>现有分级依据仍是能力、读写属性和运行模式，不是运维动作的业务风险；人工补参与人工接管尚无独立状态。飞书正式 principal 的 <code>tool.auto</code> 还会绕过确认，因此四档路由没有形成可生产使用的统一策略。</p></div>
     </div>
     <div class="rp-borrow">
       <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>ActionClassifier 动作定级 + Approval 审批<span class="en">hypervisor/rings · approval</span></div>
@@ -619,7 +782,7 @@
       <div class="rp-chain">
         <span class="rc-node">动作提交</span><span class="rc-node">ActionClassifier 按属性定级</span><span class="rc-node dec">只读 → 自动执行</span><span class="rc-node dec">可逆 → 发审批请求</span><span class="rc-node deny">破坏性 → 移交人工</span>
       </div>
-      <div class="rp-land"><b>落地</b><p>定级器接在 Homemaster 权限门输出端，四档（自动 / 确认 / 补参 / 接管）映射不同处理；confirmation_handler 按 ApprovalHandler 接口实现，飞书消息审批作为一个回调实现。</p></div>
+      <div class="rp-land"><b>落地</b><p>保留已经实现的 confirmation handler，下一步在其前面增加确定性动作定级器，把自动 / 确认 / 补参 / 接管映射为四种 typed decision；同时去掉正式 principal 的确认绕行配置，并完成飞书 live 主链验证。</p></div>
     </div>
   </div>
 </section>
@@ -702,8 +865,8 @@
       <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
     </div>
     <div class="rp-now">
-      <div class="rp-row have"><b>已有</b><p>每次运行有完整 JSONL 事件流水；设备、急停、外部调用有独立审计链；会话结束有归档工序。</p></div>
-      <div class="rp-row brk"><b>断在</b><p>记录了"做了什么"，缺少"依据与授权"字段：决策依据（哪张变更单哪一步）、参数来源、审批人不是独立字段；记录之间没有以变更单为键的关联索引。</p></div>
+      <div class="rp-row have"><b>已有</b><p>每次运行有 JSONL 事件流水；工具调用、确认申请 / 结果、请求主体、设备控制与急停均有记录；审批事件已经能回答“谁对哪次请求作了什么决定”。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>仍不能完整回答“为什么允许”：缺少变更单 / SOP / 当前步骤、参数来源与策略版本等统一字段；记录之间没有防篡改哈希链，也没有以变更单为键的跨记录索引。</p></div>
     </div>
     <div class="rp-borrow">
       <div class="rp-borrow-title"><span class="src-chip agt">AGT</span>MerkleAuditChain 防篡改审计链<span class="en">audit</span></div>
@@ -711,16 +874,16 @@
       <div class="rp-chain">
         <span class="rc-node">决策发生</span><span class="rc-node dec">追加记录：参数指纹 + 审批人 + 策略版本</span><span class="rc-node">记录含上一条哈希，首尾成链</span><span class="rc-node deny">篡改任意一条 -> 后续校验失败</span>
       </div>
-      <div class="rp-land"><b>落地</b><p>在现有 JSONL 流水中增加参数指纹、审批人、策略版本、变更单键四个字段，并按变更单 ID 建立跨记录索引；归档工序增加链式校验。</p></div>
+      <div class="rp-land"><b>落地</b><p>保留已有主体与审批结果字段，补齐参数指纹、参数来源、策略版本、变更单 / 步骤键，并按变更单 ID 建立跨记录索引；归档工序增加链式校验。</p></div>
     </div>
   </div>
 </section>
 
-<!-- ============ 04 演化安全 · 总览 ============ -->
+<!-- ============ 05 演化安全 · 总览 ============ -->
 <section id="evolution" class="dark">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">04 · Evolution Safety</div>
+      <div class="eyebrow">05 · Evolution Safety</div>
       <div><h2>演化安全（需求 9–15）：以后不能越学越错</h2><p class="section-desc">Homemaster 的学习通道是自动的：会话结束总结经验、定期记忆整理（系统内称 dreaming）、可创建技能候选。但"审核后再生效"的流水线，六段里只有第一段存在。YoloFS 的 Staging-Commit 范式恰好补的是后面五段。</p></div>
     </div>
     <div class="pipe-chain">
@@ -836,11 +999,11 @@
     <div class="rp-head">
       <div class="rp-no">需求<b>13</b><span>/ 15 · 演化安全</span></div>
       <div class="rp-title"><h3>人工审核与发布</h3><p class="need"><b>需求：</b>生成的主体（Agent）与发布的主体（人）必须分离；任何资产的生效须人工批准。</p></div>
-      <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0</span></div>
+      <div class="rp-chips"><span class="chip partial">部分具备</span><span class="pchip p0">P0</span></div>
     </div>
     <div class="rp-now">
-      <div class="rp-row have"><b>已有</b><p>插件机制完整实现"部署者预先批准 + 指纹锁定 + 版本核对 + 权限取交集"的发布管控。</p></div>
-      <div class="rp-row brk"><b>断在</b><p>该管控仅覆盖插件；技能、记忆、知识没有任何审批发布环节，用户技能目录写入即生效。</p></div>
+      <div class="rp-row have"><b>已有</b><p>可信本地扩展机制实现“部署者预先批准 + canonical 内容摘要 + 版本核对 + 权限取交集 + 代际 fencing”；未声明依赖或摘要不一致会拒绝加载。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>该管控仅覆盖可信本地扩展，且不是恶意代码沙箱；技能、记忆、知识仍没有统一审批发布环节，用户技能目录写入即生效。</p></div>
     </div>
     <div class="rp-borrow">
       <div class="rp-borrow-title"><span class="src-chip yolo">YoloFS</span>提交权分离（commit 仅限人工）<span class="en">staging</span></div>
@@ -885,8 +1048,8 @@
       <div class="rp-chips"><span class="chip todo">缺失</span><span class="pchip p0">P0 · 需自建</span></div>
     </div>
     <div class="rp-now">
-      <div class="rp-row have"><b>已有</b><p>体检命令可静态列出本次将加载的技能与模型。</p></div>
-      <div class="rp-row brk"><b>断在</b><p>只有发布前检查，没有发布后闭环--"后台已更新、运行中 Agent 仍使用旧版本"无法被发现。</p></div>
+      <div class="rp-row have"><b>已有</b><p>体检命令可静态列出本次将加载的技能与模型；可信扩展加载固定版本与内容摘要，reload 使用代际 fencing，旧代际结果不能覆盖新代际。</p></div>
+      <div class="rp-row brk"><b>断在</b><p>上述能力只覆盖扩展加载边界，尚未形成技能 / 规则 / 知识资产统一的发布后闭环；“后台已更新、运行中 Agent 仍使用旧版本”仍无法被系统级发现。</p></div>
     </div>
     <div class="rp-borrow">
       <div class="rp-borrow-title"><span class="src-chip own">自建</span>发布后版本核对闭环<span class="src-chip agt">AGT</span>policy_version 字段作积木<span class="en">audit</span></div>
@@ -899,11 +1062,11 @@
   </div>
 </section>
 
-<!-- ============ 05 参考项目 ============ -->
+<!-- ============ 06 参考项目 ============ -->
 <section id="reference" class="white">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">05 · Reference</div>
+      <div class="eyebrow">06 · Reference</div>
       <div><h2>两个开源项目：能借什么、怎么借</h2><p class="section-desc">前面 15 页里反复出现的模块，在这里集中说明。先讲清两个项目是什么、跟我们的关系，再逐个讲模块--每个模块按"是什么 / 怎么运作 / 借来做什么"三行。</p></div>
     </div>
 
@@ -937,7 +1100,7 @@
         <div class="module-body">
           <div class="mod-row what"><b>是什么</b><p>规则判"此事需人工批准"时，系统生成审批请求（动作 + 目标 + 参数 + 理由），发送给人，等待答复。</p></div>
           <div class="mod-row how"><b>怎么运作</b><p>两条约束：①审批绑定具体参数，参数变更即审批失效、须重新申请；②超时未答复一律按拒绝处理，绝不超时自动放行。答复渠道可插拔：控制台、外部回调均可（接飞书消息就是实现一个回调）。</p></div>
-          <div class="mod-row use"><b>借来做什么</b><p>需求 04 / 05 的人工确认 + 人工补参：Homemaster 权限门预留了确认接口但没有实现，这套接口设计直接采用。</p></div>
+          <div class="mod-row use"><b>借来做什么</b><p>需求 04 / 05 的人工介入：Homemaster 已经实现 confirmation handler；继续借鉴的是业务动作定级、参数来源绑定、人工补参 / 接管状态，以及统一的超时拒绝纪律。</p></div>
         </div>
       </article>
 
@@ -1012,21 +1175,21 @@
   </div>
 </section>
 
-<!-- ============ 06 横切断点 ============ -->
+<!-- ============ 07 横切断点 ============ -->
 <section id="gaps" class="dark">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">06 · Root Blockers</div>
-      <div><h2>三个横切断点，堵住 15 条里的大半</h2><p class="section-desc">15 条阻断点不是 15 个独立问题。向上游看，是三个架构级缺口；它们不补，逐条打补丁会被反复绕过。每个断点都标注了对应的参考模块。</p></div>
+      <div class="eyebrow">07 · Root Blockers</div>
+      <div><h2>三个横切断点，决定权限能否从“底座”走到“业务闭环”</h2><p class="section-desc">15 条需求不是 15 个独立问题。执行底座已经补上了一部分共性能力；剩余工作仍集中在三个架构级断点，必须按先后关系收口。</p></div>
     </div>
     <div class="gap-list">
       <div class="gap-stage">
-        <div class="gap-head"><div class="gap-no">01</div><h3>没有人工确认通道</h3><div class="gap-cover">卡住需求 03 · 04</div></div>
+        <div class="gap-head"><div class="gap-no">01</div><h3>确认主链已打通，正式启用与四档分流未收口</h3><div class="gap-cover">卡住需求 03 · 04 · 05</div></div>
         <div class="gap-body">
-          <div class="gap-field"><span>现状</span><p>框架预留了确认接口，但全系统没有任何一处真正实现"发出确认请求、等待人工批准"；本地和远程渠道（飞书）都没有。</p></div>
-          <div class="gap-field"><span>后果</span><p>四级管控里的中间两档（人工确认、人工补参）无处落地。系统只剩两个极端：全自动，或一律拒绝--前者不敢启用，后者等于不可用。</p></div>
-          <div class="gap-field"><span>补法</span><p>先做本地交互确认，再做远程（飞书消息审批）；审批绑定具体参数，超时即拒；确认记录落审计。</p></div>
-          <div class="gap-field"><span>参考</span><p class="refnote"><b>AGT Approval</b>：审批请求（动作 + 目标 + 参数 + 理由）、参数变更即失效重新申请、超时 = 拒绝、答复渠道可插拔。</p></div>
+          <div class="gap-field"><span>现状</span><p>CLI、Web、飞书三条 confirmation handler 已实现；Web 有真实协议闭环。飞书正式 principal 仍以 <code>tool.auto</code> 绕过确认，真实 callback 与批准后 exactly-once 未验证；补参与接管仍无 typed 状态。</p></div>
+          <div class="gap-field"><span>后果</span><p>代码层“能确认”不等于正式链路“会确认”。当前还不能根据业务风险把动作稳定分到自动、确认、补参、接管四档，也不能把飞书链路汇报成生产闭环。</p></div>
+          <div class="gap-field"><span>补法</span><p>先移除正式部署绕行并完成飞书 live gate；再引入确定性动作定级与 typed decision，把已实现的确认 handler 作为“人工确认”档执行器。</p></div>
+          <div class="gap-field"><span>参考</span><p class="refnote"><b>AGT Approval + ActionClassifier</b>：审批绑定动作、目标、参数和理由；参数变化即失效；超时拒绝；定级逻辑不依赖模型临场判断。</p></div>
         </div>
       </div>
       <div class="gap-stage">
@@ -1051,20 +1214,20 @@
   </div>
 </section>
 
-<!-- ============ 07 建设路线 ============ -->
+<!-- ============ 08 建设路线 ============ -->
 <section id="roadmap" class="white">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">07 · Roadmap</div>
-      <div><h2>建设路线：三步走</h2><p class="section-desc">排序原则：先打通"人"和"任务"进入权限体系的通道（否则一切分级管控无处落地），再推广已有的成熟范式，最后一次性建成演化安全流水线。每项都标注了参考来源。</p></div>
+      <div class="eyebrow">08 · Roadmap</div>
+      <div><h2>建设路线：先关生产绕行，再补业务策略，最后完善资产治理</h2><p class="section-desc">排序原则：先把已经写好的确认与设备控制变成正式可验证链路，再让变更单、对象和参数来源进入权限判断；随后补齐接管、回退、审计与演化安全。</p></div>
     </div>
     <div class="road-grid">
       <article class="road-card t1">
-        <div class="road-head"><div class="road-priority">第一优先</div><h3>把「人」和「任务」接进权限体系</h3><p>现在权限只认身份，既不认任务，也没有人工介入的通道。</p></div>
+        <div class="road-head"><div class="road-priority">第一优先</div><h3>把“已有代码”变成“正式会走的链”</h3><p>先消除配置绕行并完成 live gate，再叠加业务策略；否则新增规则仍可能绕过。</p></div>
         <div class="road-body">
-          <div class="road-item"><strong>1 · 实现人工确认通道</strong><p>先本地、后远程；确认记录落审计。</p><p class="ref"><b>参考</b>：AGT Approval（超时即拒、绑定参数、飞书可接）</p><span class="cover">解决需求 03 · 04</span></div>
-          <div class="road-item"><strong>2 · 任务级动作清单进权限门</strong><p>从变更单 + SOP + 当前步骤派生允许 / 禁止清单，作为硬约束。</p><p class="ref"><b>参考</b>：AGT Policy Engine（规则引用任务上下文）</p><span class="cover">解决需求 01 · 02</span></div>
-          <div class="road-item"><strong>3 · 技能、人格、记忆文件列入禁改清单</strong><p>一行配置，堵住"模型修改自身规则"最大的缺口。</p><p class="ref"><b>参考</b>：YoloFS 默认 ask 状态</p><span class="cover">解决需求 09 · 11</span></div>
+          <div class="road-item"><strong>1 · 关闭确认绕行并完成真环境门</strong><p>重新定义正式飞书 principal 能力，确保写操作实际触发审批；验证 callback 身份闭环、批准后 backend exactly-once，并完成真实设备租约 / 急停 gate。</p><p class="ref"><b>复用</b>：现有 CLI / Web / 飞书 handler 与 device lease / emergency-stop</p><span class="cover">收口部署与验证边界</span></div>
+          <div class="road-item"><strong>2 · 任务与对象清单进入权限门</strong><p>从变更单 + SOP + 当前步骤派生允许动作、机器和实例清单，作为执行前硬约束。</p><p class="ref"><b>参考</b>：AGT Policy Engine（规则引用任务上下文）</p><span class="cover">解决需求 01 · 02</span></div>
+          <div class="road-item"><strong>3 · 参数来源与四档 decision</strong><p>标注票据 / SOP / 人工 / 模型四类来源；低可信参数进入补参；确定性定级器输出自动 / 确认 / 补参 / 接管。</p><p class="ref"><b>参考</b>：AGT ActionClassifier + YoloFS ask</p><span class="cover">解决需求 03 · 04</span></div>
         </div>
       </article>
       <article class="road-card t2">
@@ -1086,16 +1249,17 @@
   </div>
 </section>
 
-<!-- ============ 08 结论 ============ -->
+<!-- ============ 09 结论 ============ -->
 <section id="outcome" class="tint">
   <div class="wrap">
     <div class="section-head">
-      <div class="eyebrow">08 · Outcome</div>
-      <div><h2>架构基础是健康的，缺口是明确的，参考是现成的</h2><p class="section-desc">这次分析没有推翻任何现有设计--多数需求的"标准答案"已经存在于系统的某个环节或两个开源项目中，问题在于把它们接入 Homemaster 的权限门并推广成制度。</p></div>
+      <div class="eyebrow">09 · Outcome</div>
+      <div><h2>当前应汇报为：底座完成，业务权限和生产闭环仍在建设</h2><p class="section-desc">这既不是“权限还没做”，也不是“权限已经完成”。最准确的说法是：通用执行控制已经成形，接下来要让它理解变更单语义，并把正式部署、真实回调和真实设备验证收口。</p></div>
     </div>
     <div class="close-grid">
       <div class="close-col"><h3>已经就位 / 有现成参考</h3><ul>
         <li><i data-lucide="check"></i><span>所有工具调用经过同一道权限门，按身份授予能力集</span></li>
+        <li><i data-lucide="check"></i><span>CLI、Web、飞书三条人工确认入口已经实现；Web 有真实协议闭环</span></li>
         <li><i data-lucide="check"></i><span>设备租约 + 急停"双证据"，是结果验证的成熟范式</span></li>
         <li><i data-lucide="check"></i><span>连续失败自动停止、命令超时、被中断动作禁止自动重试</span></li>
         <li><i data-lucide="check"></i><span>Hawkeye 证据核验是自家优势，需求 06 无需外部参考</span></li>
@@ -1103,21 +1267,22 @@
         <li><i data-lucide="check"></i><span>暂存 / 快照 / 先问后写：YoloFS 三项范式可平移到知识资产层</span></li>
       </ul></div>
       <div class="close-col gap"><h3>缺口在哪</h3><ul>
-        <li><i data-lucide="arrow-right"></i><span>权限判定中没有任务、没有人工：不识别变更单范围，也没有确认 / 补参 / 接管通道</span></li>
-        <li><i data-lucide="arrow-right"></i><span>风险不分级：<code class="mono">ps -ef</code> 和 <code class="mono">service restart</code> 同档</span></li>
+        <li><i data-lucide="arrow-right"></i><span>权限判定仍不识别变更单、SOP、步骤、目标范围和参数来源</span></li>
+        <li><i data-lucide="arrow-right"></i><span>人工确认已有，人工补参与接管未形成；业务风险四档仍未统一</span></li>
+        <li><i data-lucide="arrow-right"></i><span>飞书正式 principal 仍会绕过确认；真实 callback、exactly-once 和设备真机门待完成</span></li>
         <li><i data-lucide="arrow-right"></i><span>异常停止后不升级人工处理；高风险动作执行前不检查回退方案</span></li>
         <li><i data-lucide="arrow-right"></i><span>学习只生成、无发布管控，且技能 / 知识文件可被模型直接修改</span></li>
-        <li><i data-lucide="arrow-right"></i><span>审计记录了"做了什么"，拼不出"依据什么、经谁授权"</span></li>
+        <li><i data-lucide="arrow-right"></i><span>审计能记录审批主体与结果，但尚未串起任务依据、参数来源、策略版本和防篡改链</span></li>
         <li><i data-lucide="arrow-right"></i><span>需求 15（生效验证）两个项目都不够，必须自建</span></li>
       </ul></div>
     </div>
-    <div class="final-statement"><span>结论</span><p>15 条需求，0 条完全达标、6 条部分具备。补齐路径明确：给现有权限门增加"任务"和"人工"两个输入，把急停双证据、插件审批这两个自家范式，连同 AGT 审批、YoloFS 暂存这些现成设计，统一推广成制度。</p></div>
+    <div class="final-statement"><span>结论</span><p>权限建设已经跨过“有没有统一门、能不能人工确认”的阶段。下一步先关闭正式配置绕行并完成飞书 / 设备真环境验证，再把任务边界、对象清单、参数来源和四档 decision 接入同一道权限链；之后补齐接管、回退、防篡改审计与资产发布治理。</p></div>
   </div>
 </section>
 
 </main>
 
-<footer><div class="wrap"><span>Homemaster · 云运维 Agent 安全需求阻断点分析 · 2026-08-19</span><span class="mono">参考：microsoft/agent-governance-toolkit · YoloFS/YoloFS</span></div></footer>
+<footer><div class="wrap"><span>Homemaster · 云运维 Agent 安全需求与权限进度 · 更新于 2026-08-24</span><span class="mono">参考：当前实现与同源验证记录 · microsoft/agent-governance-toolkit · YoloFS/YoloFS</span></div></footer>
 <button class="to-top" id="toTop" aria-label="返回顶部"><i data-lucide="arrow-up"></i></button>
 
 <nav class="dotnav" id="dotnav" aria-label="需求页导航">

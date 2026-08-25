@@ -50,7 +50,6 @@ ALFWORLD_CONTRACT_PATHS = (
     "src/homemaster/benchmarking/alfworld/gateway.py",
     "src/homemaster/benchmarking/alfworld/object_view.py",
     "src/homemaster/benchmarking/alfworld/reset_transaction.py",
-    "src/homemaster/benchmarking/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/alfworld/tracing.py",
     "src/homemaster/benchmarking/alfworld/trial_selection.py",
     "src/homemaster/benchmarking/alfworld/types.py",
@@ -67,7 +66,6 @@ COWORKER_CONTRACT_PATHS = (
     "scripts/coworker_demo/verify_dataset_bundle.py",
     "scripts/coworker_demo/verify_run_bundle.py",
     "src/homemaster/benchmarking/coworker_demo/presentation.py",
-    "src/homemaster/benchmarking/coworker_demo/registry.py",
     "src/homemaster/benchmarking/coworker_demo/types.py",
 )
 _SECRET_ENV_KEY_PARTS = (

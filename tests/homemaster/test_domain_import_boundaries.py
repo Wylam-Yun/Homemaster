@@ -69,7 +69,7 @@ def test_no_old_contracts_imports_in_domain() -> None:
 
 
 def test_no_old_contracts_imports_in_memory() -> None:
-    """memory/ must use homemaster.domain.contracts, not homemaster.contracts."""
+    """memory/ must not restore the deleted homemaster.contracts path."""
     matches = _rg(
         "from homemaster\\.contracts import",
         "src/homemaster/memory/",

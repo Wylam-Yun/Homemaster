@@ -23,6 +23,8 @@ INTERACTIVE_SELECTOR = ",".join(
         "[role=switch]",
         "[role=radio]",
         "[role=tab]",
+        "[role=option]",
+        "[data-browser-action]",
     )
 )
 
@@ -69,10 +71,13 @@ _ELEMENT_STATE_JS = r"""
     ? null : el.getAttribute('aria-expanded') === 'true';
   let obscured = false;
   if (visible) {
-    const x = Math.max(0, Math.min(innerWidth - 1, rect.left + rect.width / 2));
-    const y = Math.max(0, Math.min(innerHeight - 1, rect.top + rect.height / 2));
-    const top = document.elementFromPoint(x, y);
-    obscured = Boolean(top && top !== el && !el.contains(top) && !top.contains(el));
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const centerInViewport = x >= 0 && x < innerWidth && y >= 0 && y < innerHeight;
+    if (centerInViewport) {
+      const top = document.elementFromPoint(x, y);
+      obscured = Boolean(top && top !== el && !el.contains(top) && !top.contains(el));
+    }
   }
   let value = null;
   if (type !== 'password') {
@@ -88,17 +93,23 @@ _ELEMENT_STATE_JS = r"""
     required: Boolean(el.required || el.getAttribute('aria-required') === 'true'),
     readonly: Boolean(el.readOnly || el.getAttribute('aria-readonly') === 'true'),
     checked, selected, expanded, obscured, options,
-    stableId: el.id || '', testId: el.getAttribute('data-testid') || ''
+    stableId: el.id || '', testId: el.getAttribute('data-testid') || '',
+    browserAction: el.getAttribute('data-browser-action') || '',
+    ariaControls: el.getAttribute('aria-controls') || ''
   };
 }
 """
 
 
 async def collect_elements(
-    page: Any, *, limit: int
+    page: Any,
+    *,
+    limit: int,
+    filters: Mapping[str, object] | None = None,
 ) -> tuple[list[BrowserElement], int, list[dict[str, object]]]:
     elements: list[BrowserElement] = []
     total = 0
+    semantic_filters = filters or {}
     frames: list[dict[str, object]] = []
     for frame_index, frame in enumerate(page.frames):
         frame_id = f"f{frame_index}"
@@ -114,6 +125,8 @@ async def collect_elements(
         for handle in handles:
             state = await handle.evaluate(_ELEMENT_STATE_JS)
             if not bool(state["visible"]):
+                continue
+            if not _state_matches_filters(state, semantic_filters):
                 continue
             total += 1
             if len(elements) >= limit:
@@ -148,6 +161,21 @@ async def collect_elements(
     return elements, total, frames
 
 
+def _state_matches_filters(
+    state: Mapping[str, object], filters: Mapping[str, object]
+) -> bool:
+    if filters.get("actionable_only") is True and (
+        not bool(state.get("enabled")) or bool(state.get("obscured"))
+    ):
+        return False
+    for attribute in ("role", "name", "label", "text"):
+        query = filters.get(attribute)
+        if isinstance(query, str) and query.strip():
+            if query.strip().casefold() not in str(state.get(attribute, "")).casefold():
+                return False
+    return True
+
+
 async def current_state(element: BrowserElement) -> dict[str, object]:
     return dict(await element.handle.evaluate(_ELEMENT_STATE_JS))
 
@@ -160,6 +188,7 @@ def fingerprint_from_state(state: Mapping[str, object], *, frame_id: str) -> tup
         str(state.get("label", "")),
         str(state.get("stableId", "")),
         str(state.get("testId", "")),
+        str(state.get("browserAction", "")),
         frame_id,
     )
 
@@ -184,7 +213,16 @@ def _control_type(state: Mapping[str, object]) -> str:
     role = str(state.get("role", ""))
     tag = str(state.get("tag", ""))
     input_type = str(state.get("type", ""))
-    if role in {"checkbox", "switch", "radio", "button", "link", "tab", "combobox"}:
+    if role in {
+        "checkbox",
+        "switch",
+        "radio",
+        "button",
+        "link",
+        "tab",
+        "combobox",
+        "option",
+    }:
         return role
     if tag == "select":
         return "select"

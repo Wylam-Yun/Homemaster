@@ -538,3 +538,86 @@
 - The fixed run `alfworld-valid_unseen-v18-realapi-20260718-001` validated all ten manifest entries and reset all ten exact trials. Every row ended `execution_state_uncertain` at trigger `scan_pose_mismatch`, final `scan_time_scale_restore_rejected`, with five setup requests and no Provider/model/tool request. Aggregate evidence is 50 setup requests, 0/10 raw success, 0% evaluation/Harness coverage and no formal score.
 - CLI reports `provider_availability=1.0` for this run because no Provider failure occurred. Since setup stopped before Provider construction, the authoritative Provider execution count is zero; availability must not be presented as proof of a model request.
 - The final direct review found no additional blocking defect after the runtime-scene repair. With the committed-manifest regression, the plan's exact focused command closes at `193 passed` and the repository-wide run at `395 passed, 1 skipped`; static/structured guards pass. The inherited format baseline is recorded rather than bulk-rewritten.
+
+## 2026-08-21 Configuration And Dead-Code Audit
+
+- Repository is `/home/haodong2/weilin/red_bird/Homemaster` on `hkust4`, branch
+  `mindmem` tracking `origin/mindmem`.
+- Baseline Git dirt is limited to untracked `story/alfworld-memory-report.html`,
+  `story/alfworld-memory-report.md`, and `story/assets/`; these are user-owned and
+  outside the cleanup scope.
+- `config/` contains six files, not a large number of separate configs. Tracked:
+  `homemaster.example.yaml`, `coworker_demo.example.yaml`, and two ALFWorld trial
+  manifests. Ignored real configs: `homemaster.yaml` and `coworker_demo.yaml`.
+- The perceived config bloat is therefore likely the broad schema in
+  `homemaster.example.yaml` and/or runtime defaults accumulated across product
+  verticals, not file-count bloat.
+- Top-level real HomeMaster config currently uses only `providers`,
+  `runtime_defaults`, `memory`, `alfworld_gateway`, and `gateway`; this is not yet
+  proof that other example sections are dead because omitted fields may have
+  defaults and remain supported capabilities.
+- The shipped console entrypoint is `homemaster = homemaster.cli.app:app`.
+  Additional subprocess/module entrypoints include child worker, cron worker,
+  ALFWorld HTTP worker, the case02 app, and many release/demo scripts.
+- Source contains dynamic surfaces that invalidate naive import counting:
+  extensions, skills, MCP, channel implementations, CLI composition, subprocess
+  workers, and package-data/resource loading must each be audited explicitly.
+- Historical findings already identify physically retained V1.7 ALFWorld
+  compatibility implementations that formal V1.8 entrypoints cannot reach. They
+  are a high-value candidate, but deleting them requires current-branch
+  reachability and public-compatibility evidence rather than relying on the old
+  report alone.
+- No deletion has been made.
+- `pyproject.toml` exposes one installed console script but also packages dynamic
+  assets and subprocess entrypoints. Its package-data list names legacy-looking
+  paths (`skills/builtin`, coworker skills, ALFWorld JSON, prompt/tool/memory
+  assets); each glob must be compared with both the source tree and built wheel.
+- The unified config model mixes current runtime settings with compatibility and
+  vertical-specific settings. Several sections seen in the example but absent
+  from the real config may still be constructed from defaults, so absence from
+  the operator file is not deadness evidence.
+- `ruff 0.15.21` and Python 3.11.15 are present; `vulture` is not installed. The
+  audit will use repository-native Ruff plus an explicit AST/reachability report
+  rather than mutate dependencies.
+
+### Strategy Decision
+
+- Default to proven-dead-only cleanup.
+- Treat removal of benchmark/demo verticals as a separate user product-scope
+  decision.
+- Treat a memory-only reduction as a new architecture project, not as dead-code
+  cleanup.
+- Reject archive-only as the final result for code that is conclusively dead.
+
+### Confirmed Migration Boundaries
+
+- V1.9 `tests/homemaster/integration/test_adapter_ownership.py` explicitly
+  forbids production entrypoints and profile composition from importing or
+  constructing the old home/ALFWorld/coworker registries and `ToolDispatcher`.
+  Production uses `adapters.profiles.build_tool_registry`,
+  `tools.base.ToolRegistry`, and the application-owned executor instead.
+- The old `domain/tool_registry.py`, `benchmarking/alfworld/registry.py`,
+  `benchmarking/coworker_demo/registry.py`, and `tools/dispatcher.py` have no
+  production import. Their remaining direct consumers are compatibility/unit
+  tests and baseline capture lists. This is a test-maintained dead execution
+  stack, pending public-surface and release-script cleanup.
+- The V1.6 object-memory RAG chain
+  (`memory/retrieval.py -> memory/index.py -> memory/tokenizer.py`) has no
+  production import. Current runtime composition imports
+  `EmbeddedMindMemOS`, automatic recall, context/evidence/file stores, and
+  memory queues instead.
+- `memory/outbound_policy.py` has no consumer at all. It was added during a V2.1
+  checkpoint but never wired into the shipped embedding path.
+- Direct `bm25s` imports exist only in the dead V1.6 index. The dependency is a
+  deletion candidate with that chain. `jieba` is not: current MindMemOS runtime
+  and vendored MindMemOS use it directly.
+- `memory/bm25_preflight.py` is test-only, but current documentation requires a
+  packaged offline FastEmbed BM25 artifact. This is not yet classified dead:
+  removing an apparently unwired preflight could remove a security/offline
+  invariant rather than dead behavior. Its startup/doctor relationship needs a
+  separate decision.
+- `application/session_manager.py` is a deliberate stable import re-export, not
+  duplicate implementation. It has no internal consumer but remains a public
+  compatibility surface and is retained under proven-dead-only policy.
+- `skills/spec.py` is likewise an explicit compatibility alias and is retained
+  unless public compatibility is intentionally broken.

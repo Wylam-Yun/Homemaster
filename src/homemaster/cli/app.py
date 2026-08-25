@@ -78,6 +78,10 @@ def main_callback(
         Path | None,
         typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
     ] = None,
+    run_label: Annotated[
+        str | None,
+        typer.Option("--run-label", help="Stable artifact directory label for one-shot runs."),
+    ] = None,
     print_prompt: Annotated[
         str | None,
         typer.Option("--print", "-p", help="Print one response and exit."),
@@ -131,9 +135,9 @@ def main_callback(
             )
         return
     try:
+        if alfworld and browser:
+            raise typer.BadParameter("--alfworld and --browser are mutually exclusive")
         if gateway:
-            if alfworld and browser:
-                raise typer.BadParameter("--alfworld and --browser are mutually exclusive")
             if any(
                 (
                     print_prompt is not None,
@@ -145,6 +149,7 @@ def main_callback(
                     provider_name is not None,
                     model is not None,
                     permission_mode is not None,
+                    run_label is not None,
                 )
             ):
                 raise typer.BadParameter(
@@ -157,14 +162,18 @@ def main_callback(
             return
         if alfworld:
             raise typer.BadParameter("--alfworld requires --gateway")
-        if browser:
-            raise typer.BadParameter("--browser requires --gateway")
+        if browser and print_prompt is None:
+            raise typer.BadParameter("--browser requires --gateway or --print")
+        if browser and dry_run:
+            raise typer.BadParameter("--browser cannot be combined with --dry-run")
         if permission_mode is not None and (print_prompt is not None or dry_run):
             raise typer.BadParameter(
                 "--permission-mode is only valid for the interactive shell"
             )
-        if config_path is not None:
-            raise typer.BadParameter("--config requires --gateway")
+        if config_path is not None and print_prompt is None:
+            raise typer.BadParameter("--config requires --gateway or --print")
+        if run_label is not None and (print_prompt is None or dry_run):
+            raise typer.BadParameter("--run-label requires a non-dry-run --print")
         resolved_format = parse_output_format(output_format)
         if resume_session_id is not None and continue_latest:
             raise typer.BadParameter("--continue cannot be combined with --resume")
@@ -193,6 +202,9 @@ def main_callback(
                 continue_latest=continue_latest,
                 provider_name=provider_name,
                 model=model,
+                config_path=config_path,
+                tool_environment="browser" if browser else None,
+                run_label=run_label,
             )
             return
         if provider_name is not None or model is not None:
@@ -367,16 +379,30 @@ def serve_command(
             help="Use the configured fixed ALFWorld environment in the Web Console.",
         ),
     ] = False,
+    browser: Annotated[
+        bool,
+        typer.Option(
+            "--browser",
+            help="Use the configured browser environment in the Web Console.",
+        ),
+    ] = False,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+    ] = None,
 ) -> None:
     """Run the loopback-only HomeMaster Web Console."""
 
     try:
+        if alfworld and browser:
+            raise typer.BadParameter("--alfworld and --browser are mutually exclusive")
         run_web_server(
             host=host,
             port=port,
-            environment="alfworld" if alfworld else None,
+            environment="alfworld" if alfworld else "browser" if browser else None,
+            config_path=config_path,
         )
-    except ValueError as exc:
+    except (ValueError, typer.BadParameter) as exc:
         typer.echo(str(exc))
         raise typer.Exit(code=2) from exc
     except (typer.Exit, SystemExit):

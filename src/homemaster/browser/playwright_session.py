@@ -6,10 +6,12 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from homemaster.browser.contracts import (
     BrowserElement,
@@ -58,6 +60,8 @@ class PlaywrightBrowserSession:
         self._page: Any = None
         self._video: Any = None
         self._origin_violation: BrowserSessionError | None = None
+        self._screenshot_index = 0
+        self._successful_mutations: dict[tuple[str, str], dict[str, object]] = {}
 
     @property
     def fenced(self) -> bool:
@@ -145,10 +149,12 @@ class PlaywrightBrowserSession:
 
         async def action() -> BrowserSnapshot:
             elements, total, frames = await collect_elements(
-                self._page, limit=self.policy.max_elements
+                self._page,
+                limit=self.policy.max_elements,
+                filters=filters,
             )
             selected = filter_elements(elements, filters)
-            selected_total = len(selected)
+            selected_total = total
             selected = selected[:limit]
             body_text = await self._page.locator("body").inner_text()
             text = body_text[: self.policy.max_text_chars]
@@ -161,7 +167,7 @@ class PlaywrightBrowserSession:
                 total_matches=selected_total
                 if any(filters.get(key) for key in ("role", "name", "label", "text"))
                 else total,
-                truncated=(selected_total > len(selected) or total > len(elements)),
+                truncated=selected_total > len(selected),
                 frames=frames,
             )
 
@@ -190,13 +196,36 @@ class PlaywrightBrowserSession:
                 raise BrowserSessionError("unsupported_control", "target is not editable")
             await element.handle.fill(value, timeout=self.policy.action_timeout_ms)
             actual_state = await current_state(element)
-            actual = str(actual_state.get("value") or "")
+            initial_actual = str(actual_state.get("value") or "")
+            actual = initial_actual
+            input_method = "fill"
+            if actual != value:
+                await element.handle.click(timeout=self.policy.action_timeout_ms)
+                await self._page.wait_for_timeout(50)
+                await self._page.keyboard.press("ControlOrMeta+A")
+                if value:
+                    await self._page.keyboard.type(value, delay=1)
+                else:
+                    await self._page.keyboard.press("Backspace")
+                deadline = time.monotonic() + min(
+                    self.policy.action_timeout_ms / 1000,
+                    0.5,
+                )
+                while actual != value and time.monotonic() < deadline:
+                    await self._page.wait_for_timeout(25)
+                    actual_state = await current_state(element)
+                    actual = str(actual_state.get("value") or "")
+                input_method = "keyboard_fallback"
             self._snapshots.invalidate()
             if actual != value:
                 raise BrowserSessionError(
                     "readback_mismatch",
                     "filled value did not match DOM readback",
-                    details={"expected": value, "actual": actual},
+                    details={
+                        "expected": value,
+                        "initial_actual": initial_actual,
+                        "actual": actual,
+                    },
                     backend_attempted=True,
                 )
             return self._receipt(
@@ -204,6 +233,8 @@ class PlaywrightBrowserSession:
                 expected=value,
                 actual=actual,
                 verified=True,
+                input_method=input_method,
+                initial_actual=initial_actual,
                 match="exact",
             )
 
@@ -243,21 +274,28 @@ class PlaywrightBrowserSession:
                 actual = str(actual_state.get("value", ""))
                 expected = str(chosen["value"])
             elif element.role == "combobox":
-                await element.handle.click(timeout=self.policy.action_timeout_ms)
-                matches: list[tuple[Any, dict[str, object]]] = []
-                for frame in self._page.frames:
-                    for handle in await frame.query_selector_all('[role="option"]'):
-                        option_state = dict(await current_state(_temporary_element(handle)))
-                        if (
-                            bool(option_state.get("visible"))
-                            and str(option_state.get("name", "")).casefold() == option.casefold()
-                        ):
-                            matches.append((handle, option_state))
+                if state.get("expanded") is not True:
+                    await element.handle.click(timeout=self.policy.action_timeout_ms)
+                available = await self._combobox_options(element, state)
+                matches = [
+                    (handle, option_state)
+                    for handle, option_state in available
+                    if str(option_state.get("name", "")).casefold() == option.casefold()
+                ]
                 if len(matches) != 1:
                     raise BrowserSessionError(
                         "option_not_unique",
                         "ARIA option must match exactly one accessible name",
-                        details={"match_count": len(matches)},
+                        details={
+                            "requested": option,
+                            "matches": [
+                                str(option_state.get("name", "")) for _, option_state in matches
+                            ],
+                            "available": [
+                                str(option_state.get("name", ""))
+                                for _, option_state in available[:20]
+                            ],
+                        },
                         backend_attempted=True,
                     )
                 await matches[0][0].click(timeout=self.policy.action_timeout_ms)
@@ -265,12 +303,7 @@ class PlaywrightBrowserSession:
                 actual = str(actual_state.get("value") or actual_state.get("text") or "")
                 expected = option
                 if option.casefold() not in actual.casefold():
-                    raise BrowserSessionError(
-                        "readback_mismatch",
-                        "selected option did not match combobox DOM readback",
-                        details={"expected": option, "actual": actual},
-                        backend_attempted=True,
-                    )
+                    actual = await self._verify_combobox_selection(element, option)
             else:
                 raise BrowserSessionError(
                     "unsupported_control", "target is not a select or combobox"
@@ -291,6 +324,61 @@ class PlaywrightBrowserSession:
             timeout_ms=self.policy.action_timeout_ms,
             mutating=True,
         )
+
+    async def _combobox_options(
+        self,
+        element: BrowserElement,
+        state: Mapping[str, object] | None = None,
+    ) -> list[tuple[Any, dict[str, object]]]:
+        current = dict(state or await current_state(element))
+        controls = str(current.get("ariaControls") or "")
+        frame = await element.handle.owner_frame()
+        if frame is None:
+            raise BrowserSessionError(
+                "option_discovery_failed",
+                "combobox is not attached to a frame",
+                backend_attempted=True,
+            )
+        selector = '[role="option"]'
+        if controls:
+            selector = f'[id={json.dumps(controls)}] [role="option"]'
+        deadline = time.monotonic() + self.policy.wait_timeout_ms / 1000
+        while True:
+            available: list[tuple[Any, dict[str, object]]] = []
+            for handle in await frame.query_selector_all(selector):
+                option_state = dict(await current_state(_temporary_element(handle)))
+                if bool(option_state.get("visible")):
+                    available.append((handle, option_state))
+            if available or time.monotonic() >= deadline:
+                return available
+            await self._page.wait_for_timeout(50)
+
+    async def _verify_combobox_selection(self, element: BrowserElement, option: str) -> str:
+        await element.handle.click(timeout=self.policy.action_timeout_ms)
+        available = await self._combobox_options(element)
+        matches = [
+            option_state
+            for _, option_state in available
+            if str(option_state.get("name", "")).casefold() == option.casefold()
+        ]
+        try:
+            if len(matches) == 1 and matches[0].get("selected") is True:
+                return str(matches[0].get("name", ""))
+            raise BrowserSessionError(
+                "readback_mismatch",
+                "selected option did not match semantic combobox readback",
+                details={
+                    "expected": option,
+                    "selected": [
+                        str(option_state.get("name", ""))
+                        for _, option_state in available
+                        if option_state.get("selected") is True
+                    ],
+                },
+                backend_attempted=True,
+            )
+        finally:
+            await element.handle.press("Escape", timeout=self.policy.action_timeout_ms)
 
     async def check(self, snapshot_id: str, element_id: str) -> Mapping[str, object]:
         return await self._set_checked(snapshot_id, element_id, desired=True)
@@ -469,7 +557,15 @@ class PlaywrightBrowserSession:
 
     async def screenshot(self) -> bytes:
         async def action() -> bytes:
-            return await self._page.screenshot(type="png", timeout=self.policy.action_timeout_ms)
+            png = await self._page.screenshot(type="png", timeout=self.policy.action_timeout_ms)
+            self._screenshot_index += 1
+            screenshot_dir = self.video_dir / "screenshots"
+            screenshot_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(screenshot_dir, 0o700)
+            path = screenshot_dir / f"observe-{self._screenshot_index:04d}.png"
+            path.write_bytes(png)
+            os.chmod(path, 0o600)
+            return png
 
         return await self._execute(
             "screenshot",
@@ -548,6 +644,18 @@ class PlaywrightBrowserSession:
             element = self._snapshots.resolve(snapshot_id, element_id, generation=self.generation)
         except TargetResolutionError as exc:
             raise BrowserSessionError(exc.code, str(exc)) from exc
+        if not element.visible:
+            raise BrowserSessionError(
+                "target_not_visible", "target was not visible in snapshot"
+            )
+        if not element.enabled:
+            raise BrowserSessionError(
+                "target_disabled", "target was disabled in snapshot"
+            )
+        if element.obscured:
+            raise BrowserSessionError(
+                "target_obscured", "target was obscured in snapshot"
+            )
         connected = bool(await element.handle.evaluate("el => el.isConnected"))
         if not connected:
             raise BrowserSessionError("stale_ref", "target element is detached")
@@ -638,7 +746,17 @@ class PlaywrightBrowserSession:
         )
 
     async def _route_request(self, route: Any, request: Any) -> None:
-        if request.is_navigation_request() and request.frame.parent_frame is None:
+        is_main_navigation = False
+        if request.is_navigation_request():
+            try:
+                frame = request.frame
+            except Exception as exc:
+                if type(exc).__module__.split(".")[0] != "playwright":
+                    raise
+                is_main_navigation = True
+            else:
+                is_main_navigation = frame.parent_frame is None
+        if is_main_navigation:
             try:
                 self.policy.validate_final_url(request.url)
             except BrowserSessionError as exc:
@@ -657,16 +775,28 @@ class PlaywrightBrowserSession:
 
     async def _wait_for_dom_stable(self) -> bool:
         started = time.monotonic()
-        deadline = started + min(self.policy.navigation_timeout_ms / 1000, 5.0)
+        deadline = started + self.policy.navigation_timeout_ms / 1000
         last_hash = ""
         stable_since = started
         while time.monotonic() < deadline:
             current_hash = await self._dom_hash()
+            has_rendered_content = bool(
+                await self._page.evaluate(
+                    """() => {
+                      const body = document.body;
+                      if (!body) return false;
+                      if ((body.innerText || '').trim()) return true;
+                      return Boolean(body.querySelector(
+                        'input, textarea, select, button, a[href], img, svg, canvas, video, iframe'
+                      ));
+                    }"""
+                )
+            )
             now = time.monotonic()
             if current_hash != last_hash:
                 last_hash = current_hash
                 stable_since = now
-            if now - started >= 0.4 and now - stable_since >= 0.3:
+            if has_rendered_content and now - started >= 0.4 and now - stable_since >= 0.3:
                 return True
             await self._page.wait_for_timeout(50)
         return False
@@ -683,6 +813,30 @@ class PlaywrightBrowserSession:
         async with self._lock:
             self._require_available()
             started = time.monotonic()
+            mutation_key = (
+                (
+                    operation,
+                    json.dumps(
+                        dict(arguments),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                )
+                if mutating
+                else None
+            )
+            if mutation_key is not None and mutation_key in self._successful_mutations:
+                replay = deepcopy(self._successful_mutations[mutation_key])
+                replay["idempotent_replay"] = True
+                self._write_event(
+                    operation,
+                    arguments,
+                    started=started,
+                    result=replay,
+                    outcome="replayed",
+                )
+                return cast(T, replay)
             try:
                 result = await asyncio.wait_for(action(), timeout=timeout_ms / 1000)
             except asyncio.CancelledError:
@@ -748,6 +902,8 @@ class PlaywrightBrowserSession:
                     backend_attempted=True,
                     outcome_unknown=mutating,
                 ) from exc
+            if mutation_key is not None and isinstance(result, Mapping):
+                self._successful_mutations[mutation_key] = deepcopy(dict(result))
             self._write_event(operation, arguments, started=started, result=result)
             return result
 

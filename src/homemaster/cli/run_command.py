@@ -6,6 +6,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import typer
 
@@ -52,6 +53,7 @@ def execute_one_shot(
     model: str | None = None,
     output_format: OutputFormat | None = None,
     config_path: Path | None = None,
+    tool_environment: Literal["browser"] | None = None,
 ) -> OneShotExecution:
     if not prompt.strip():
         raise ValueError("a non-empty prompt is required")
@@ -81,6 +83,7 @@ def execute_one_shot(
             verbose=verbose,
             quiet=quiet,
             event_sink=live_sink,
+            tool_environment=tool_environment or "local_robot",
         )
     except Exception as exc:
         raise _PublicCliError(projection.project_content(str(exc))) from exc
@@ -192,6 +195,9 @@ def handle_print(
     continue_latest: bool = False,
     provider_name: str | None = None,
     model: str | None = None,
+    config_path: Path | None = None,
+    tool_environment: Literal["browser"] | None = None,
+    run_label: str | None = None,
 ) -> None:
     try:
         execution = execute_one_shot(
@@ -202,6 +208,9 @@ def handle_print(
             model=model,
             quiet=True,
             output_format=output_format,
+            config_path=config_path,
+            tool_environment=tool_environment,
+            run_label=run_label,
         )
     except Exception as exc:
         if output_format is OutputFormat.STREAM_JSON:

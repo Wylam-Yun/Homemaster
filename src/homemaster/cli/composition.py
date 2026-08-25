@@ -6,7 +6,7 @@ import asyncio
 import io
 import os
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -151,6 +151,7 @@ def create_home_application(
     """Compose one Home application without opening provider connections."""
 
     resolved = config or load_config()
+    effective_tool_environment = _resolve_tool_environment(resolved, tool_environment)
     permission_settings = resolved.permissions
     if permission_mode is not None:
         if not isinstance(permission_mode, PermissionMode):
@@ -158,7 +159,7 @@ def create_home_application(
         payload = permission_settings.model_dump(mode="python")
         payload["mode"] = permission_mode
         permission_settings = PermissionSettingsConfig.model_validate(payload)
-    if tool_environment == "browser":
+    if effective_tool_environment == "browser":
         resolved = resolved.model_copy(
             update={
                 "prompts": resolved.prompts.model_copy(
@@ -173,7 +174,7 @@ def create_home_application(
         else Path(resolved.runtime.runtime_root).expanduser() / label
     )
     registry = build_tool_registry(
-        environment=tool_environment,
+        environment=effective_tool_environment,
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
@@ -205,7 +206,7 @@ def create_home_application(
         extension_runner = HookRunner(extension_generation)
         extension_reloader = ExtensionReloader(extension_runner)
     try:
-        return _finish_home_application(
+        bundle = _finish_home_application(
             resolved=resolved,
             label=label,
             registry=registry,
@@ -226,10 +227,33 @@ def create_home_application(
             confirmation_handler=confirmation_handler,
             publish_artifacts=publish_artifacts,
         )
+        if effective_tool_environment == "browser":
+            from homemaster.browser.application import create_browser_application
+
+            return replace(
+                bundle,
+                application=create_browser_application(
+                    bundle.application,
+                    resolved.browser_gateway,
+                    run_dir=bundle.run_dir,
+                ),
+            )
+        return bundle
     except BaseException:
         if extension_generation is not None and extension_disposer is not None:
             extension_disposer(extension_generation)
         raise
+
+
+def _resolve_tool_environment(
+    config: HomeMasterConfig,
+    requested: Literal["local_robot", "alfworld", "coworker", "browser"] | None,
+) -> Literal["local_robot", "alfworld", "coworker", "browser"] | None:
+    """Enable configured Browser capability before an input channel is attached."""
+
+    if requested not in {"alfworld", "coworker"} and config.browser_gateway.start_url is not None:
+        return "browser"
+    return requested
 
 
 def _finish_home_application(

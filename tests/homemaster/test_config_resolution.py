@@ -593,3 +593,38 @@ def test_browser_gateway_config_is_strict_and_requires_start_url() -> None:
         )
     with pytest.raises(ValueError, match="extra_forbidden"):
         BrowserGatewayConfig.model_validate({"unknown": True})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        "unknown_top_level: true\n",
+        "retrieval_scoring:\n  rrf_k: 60\n",
+        "grounding:\n  room_hints: {}\n",
+        "runtime_paths:\n  memory_case_root: null\n",
+        "telegram:\n  enabled: false\n",
+        "gateway:\n  telegram:\n    enabled: false\n",
+        "context:\n  summary_model: null\n",
+        "context:\n  summary_failure_cooldown_seconds: 60\n",
+        "context:\n  enable_disk_overflow: false\n",
+        "context:\n  tool_result_overflow_threshold_chars: 4000\n",
+        "runtime:\n  max_wall_clock_minutes: null\n",
+        "prompts:\n  compact_summary_prompt: compact_summary_prompt\n",
+        "prompts:\n  task_interpreter_prompt: task_interpreter_prompt\n",
+        "prompts:\n  memory_query_prompt: memory_query_prompt\n",
+        "prompts:\n  memory_query_retry: memory_query_retry\n",
+        "prompts:\n  task_summary_prompt: task_summary_prompt\n",
+        "provider_client:\n  connect_timeout_s: 10\n",
+        "provider_client:\n  write_timeout_s: 15\n",
+        "provider_client:\n  pool_timeout_s: 10\n",
+    ),
+)
+def test_removed_or_unknown_configuration_fails_closed(
+    tmp_path: Path,
+    payload: str,
+) -> None:
+    path = tmp_path / "homemaster.yaml"
+    path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(Exception, match="Extra inputs are not permitted"):
+        load_config(path)

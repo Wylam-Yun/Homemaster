@@ -121,6 +121,7 @@ def create_application(
     settings = SimpleNamespace(
         runtime_guards=resolved_config.runtime,
         context=resolved_config.context,
+        permissions=effective_permissions,
         provider_name=resolved_config.runtime_defaults.default_provider_name,
         device_connection_pool=connections,
         device_lease_manager=resource_manager,

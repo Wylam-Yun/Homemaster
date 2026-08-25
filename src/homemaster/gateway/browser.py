@@ -1,62 +1,11 @@
-"""Browser Gateway binding for the shared application runtime."""
+"""Compatibility imports for the channel-independent browser binding."""
 
 from __future__ import annotations
 
-from dataclasses import replace
-from pathlib import Path
-from typing import Any
+from homemaster.browser.application import BrowserApplication, create_browser_application
 
-from homemaster.application.contracts import RunRequest, RunResult
-from homemaster.browser.factory import PlaywrightBrowserSessionFactory
-from homemaster.browser.policy import BrowserPolicy
-from homemaster.config import BrowserGatewayConfig
-
-
-class BrowserGatewayApplication:
-    """Bind one run-scoped browser factory after Gateway authentication."""
-
-    def __init__(self, application: Any, factory: object) -> None:
-        self._application = application
-        self._factory = factory
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._application, name)
-
-    async def run(self, request: RunRequest) -> RunResult:
-        dependencies = dict(request.dependencies)
-        dependencies["browser_session_factory"] = self._factory
-        return await self._application.run(
-            replace(
-                request,
-                profile="browser",
-                dependencies=dependencies,
-                run_policy=replace(request.run_policy, max_tool_iterations=None),
-            )
-        )
-
-    def cancel(self, session_id: str) -> bool:
-        return self._application.cancel(session_id)
-
-
-def create_browser_gateway_application(
-    application: Any,
-    config: BrowserGatewayConfig,
-    *,
-    run_dir: Path,
-) -> BrowserGatewayApplication:
-    start_url, allowed_origins = config.require_runtime()
-    factory = PlaywrightBrowserSessionFactory(
-        policy=BrowserPolicy(
-            allowed_origins=allowed_origins,
-            action_timeout_ms=config.action_timeout_ms,
-            navigation_timeout_ms=config.navigation_timeout_ms,
-            wait_timeout_ms=config.wait_timeout_ms,
-        ),
-        video_root=run_dir / "browser",
-        headless=config.headless,
-        start_url=start_url,
-    )
-    return BrowserGatewayApplication(application, factory)
+BrowserGatewayApplication = BrowserApplication
+create_browser_gateway_application = create_browser_application
 
 
 __all__ = ["BrowserGatewayApplication", "create_browser_gateway_application"]

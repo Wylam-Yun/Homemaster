@@ -112,8 +112,6 @@ providers:
       api_keys: [test-key]
 runtime_defaults:
   default_provider_name: child
-runtime_paths:
-  runtime_root: {tmp_path / "runtime"}
 observability:
   trace_dir: {tmp_path / "trace"}
   session_dir: {tmp_path / "sessions"}

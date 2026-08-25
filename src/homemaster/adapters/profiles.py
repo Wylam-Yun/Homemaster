@@ -13,7 +13,10 @@ from homemaster.benchmarking.alfworld.tools import (
     make_alfworld_robot_verify,
 )
 from homemaster.benchmarking.coworker_demo.browser_tools import browser_tool_specs
-from homemaster.benchmarking.coworker_demo.correlation import correlated_action_id
+from homemaster.benchmarking.coworker_demo.correlation import (
+    correlated_action_id,
+    coworker_domain_run_id,
+)
 from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
 from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
 from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
@@ -456,7 +459,8 @@ def _coworker_task_tool(spec: Any, *, planner: bool) -> Any:
         run_context.deps["coworker_budget"].before_external(run_context.deps["coworker_outcome"])
         result = original(arguments=arguments, run_context=run_context)
         client: EnvironmentClient = run_context.deps["coworker_environment"]
-        state = client.state(run_context.run_id)
+        domain_run_id = coworker_domain_run_id(run_context)
+        state = client.state(domain_run_id)
         if planner:
             node_id = "PLAN_CREATED"
         elif state["phase"] == "ready_to_change":
@@ -468,7 +472,7 @@ def _coworker_task_tool(spec: Any, *, planner: bool) -> Any:
         else:
             node_id = None
         mirrored = client.runtime_event(
-            run_context.run_id,
+            domain_run_id,
             action_id=correlated_action_id(run_context),
             tool_name=spec.name,
             arguments=arguments,

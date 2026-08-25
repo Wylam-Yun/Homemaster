@@ -21,10 +21,6 @@ class PromptId(StrEnum):
     AGENT_SYSTEM = "agent_system_prompt"
     BROWSER_GATEWAY = "browser_gateway"
     COMPACT_SUMMARY = "compact_summary_prompt"
-    TASK_INTERPRETER = "task_interpreter_prompt"
-    MEMORY_QUERY = "memory_query_prompt"
-    MEMORY_QUERY_RETRY = "memory_query_retry"
-    TASK_SUMMARY = "task_summary_prompt"
 
 
 def load_prompt(prompt_id: str | PromptId) -> str:

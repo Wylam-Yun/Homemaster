@@ -10,16 +10,14 @@ from types import SimpleNamespace
 from typing import Any
 
 from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
-from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
+from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.contracts import (
     PermissionSubject,
     ToolExecutionContext,
     ToolExecutionStatus,
 )
-from homemaster.tools.dispatcher import ToolDispatcher
 from homemaster.tools.legacy_adapter import (
-    LegacyObserverAdapter,
     LegacyToolExecutionContext,
     adapt_legacy_tool_spec,
     normalize_legacy_result,
@@ -298,99 +296,3 @@ def test_message_without_data_recovers_structured_error_from_text() -> None:
     assert normalized.result.error is not None
     assert normalized.result.error.message == "rejected"
     assert normalized.debt.has("message_data_recovered_from_content")
-
-
-def test_observer_adapter_preserves_exception_and_result_order() -> None:
-    order: list[str] = []
-
-    class Observer:
-        def on_call(self, tool_call: ToolCall) -> None:
-            order.append(f"call:{tool_call.id}")
-
-        def terminal_result(self, tool_call: ToolCall) -> None:
-            order.append(f"terminal:{tool_call.id}")
-            return None
-
-        def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage:
-            order.append(f"exception:{tool_call.id}:{type(error).__name__}")
-            return ToolResultMessage(
-                tool_call_id=tool_call.id,
-                name=tool_call.name,
-                content=[ContentBlock(text="failed")],
-                is_error=True,
-                data={"success": False, "error": "failed"},
-            )
-
-        def on_result(self, tool_call: ToolCall, result: Any) -> None:
-            order.append(f"result:{tool_call.id}:{type(result).__name__}")
-
-    def executor(**_: Any) -> ToolResult:
-        order.append("execute")
-        raise RuntimeError("boom")
-
-    dispatcher = ToolDispatcher()
-    dispatcher.register(
-        ToolSpec(
-            name="explode",
-            description="Explodes.",
-            input_schema={"type": "object"},
-            executor_mode="programmatic",
-            executor=executor,
-        )
-    )
-    result = dispatcher.dispatch(
-        tool_calls=[ToolCall(id="call-1", name="explode", arguments={})],
-        run_context=_run_context(tool_dispatch_observer=LegacyObserverAdapter(Observer())),
-    )
-
-    assert order == [
-        "call:call-1",
-        "terminal:call-1",
-        "execute",
-        "exception:call-1:RuntimeError",
-        "result:call-1:ToolResultMessage",
-    ]
-    assert result[0].tool_call_id == "call-1"
-
-
-def test_observer_terminal_fence_skips_executor_and_result_callback() -> None:
-    order: list[str] = []
-
-    class Observer:
-        def on_call(self, tool_call: ToolCall) -> None:
-            order.append("call")
-
-        def terminal_result(self, tool_call: ToolCall) -> ToolResultMessage:
-            order.append("terminal")
-            return ToolResultMessage(
-                tool_call_id=tool_call.id,
-                name=tool_call.name,
-                content=[ContentBlock(text="terminal")],
-                is_error=True,
-            )
-
-        def on_exception(self, tool_call: ToolCall, error: Exception) -> ToolResultMessage:
-            raise AssertionError("exception callback must not run")
-
-        def on_result(self, tool_call: ToolCall, result: Any) -> None:
-            raise AssertionError("result callback must not run")
-
-    def executor(**_: Any) -> ToolResult:
-        raise AssertionError("terminal fence must skip executor")
-
-    dispatcher = ToolDispatcher()
-    dispatcher.register(
-        ToolSpec(
-            name="fenced",
-            description="Fenced.",
-            executor_mode="programmatic",
-            executor=executor,
-        )
-    )
-    result = dispatcher.dispatch(
-        tool_calls=[ToolCall(id="call-terminal", name="fenced", arguments={})],
-        run_context=_run_context(tool_dispatch_observer=LegacyObserverAdapter(Observer())),
-    )
-
-    assert order == ["call", "terminal"]
-    assert result[0].tool_call_id == "call-terminal"

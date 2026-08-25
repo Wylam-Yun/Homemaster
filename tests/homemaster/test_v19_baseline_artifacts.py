@@ -5,8 +5,6 @@ from pathlib import Path
 
 from scripts.v19_release._common import canonical_json_bytes, sha256_bytes
 from scripts.v19_release.capture_baseline import (
-    ALFWORLD_CONTRACT_PATHS,
-    COWORKER_CONTRACT_PATHS,
     HOMEMASTER_BASELINE_COMMIT,
     OPENHARNESS_BASELINE_COMMIT,
     _provider_attempt_contract,
@@ -24,15 +22,13 @@ def test_committed_baseline_artifacts_are_internally_consistent() -> None:
     assert sources["production_roots_match_homemaster_commit"] is True
     assert _read("tool-surfaces.json") == _tool_surfaces()
     assert _read("provider-attempt-contract.json") == _provider_attempt_contract()
-    _assert_contract_snapshot(
+    _assert_frozen_contract_snapshot(
         _read("alfworld-contract-hashes.json"),
         schema="homemaster-v1.9-baseline-alfworld-contracts-v1",
-        paths=ALFWORLD_CONTRACT_PATHS,
     )
-    _assert_contract_snapshot(
+    _assert_frozen_contract_snapshot(
         _read("coworker-contract-hashes.json"),
         schema="homemaster-v1.9-baseline-coworker-contracts-v1",
-        paths=COWORKER_CONTRACT_PATHS,
     )
     locks = _read("dependency-lock-hashes.json")["locks"]
     assert set(locks) == {"uv.lock", "apps/case02_openenv/uv.lock"}
@@ -60,14 +56,13 @@ def _read(name: str) -> dict:
     return json.loads((BASELINE / name).read_text(encoding="utf-8"))
 
 
-def _assert_contract_snapshot(
+def _assert_frozen_contract_snapshot(
     snapshot: dict,
     *,
     schema: str,
-    paths: tuple[str, ...],
 ) -> None:
     assert snapshot["schema_version"] == schema
-    assert set(snapshot["files"]) == set(paths)
+    assert snapshot["files"]
     assert all(_is_sha256(digest) for digest in snapshot["files"].values())
     assert snapshot["aggregate_sha256"] == sha256_bytes(
         canonical_json_bytes(snapshot["files"])

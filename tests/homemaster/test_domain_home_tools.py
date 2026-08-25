@@ -7,9 +7,43 @@ from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
-from homemaster.domain.tool_registry import build_home_tool_registry
-from homemaster.domain.tools import make_load_skill
+from homemaster.domain.tools import (
+    make_load_skill,
+    make_memory_retriever,
+    make_memory_writer,
+    make_robot_manipulate,
+    make_robot_navigate,
+    make_robot_verify,
+    make_target_grounder,
+    make_task_interpreter,
+    make_task_summarizer,
+)
 from homemaster.tools.results import ToolResult
+
+
+class _SpecRegistry(dict[str, Any]):
+    def all_names(self) -> list[str]:
+        return list(self)
+
+
+def build_home_tool_registry(
+    *,
+    world_path: Path | None = None,
+    memory_path: Path | None = None,
+    runtime_memory_root: Path | None = None,
+) -> _SpecRegistry:
+    specs = (
+        make_task_interpreter(),
+        make_memory_retriever(memory_path=memory_path),
+        make_target_grounder(world_path=world_path),
+        make_load_skill(),
+        make_robot_navigate(),
+        make_robot_manipulate(),
+        make_robot_verify(),
+        make_memory_writer(runtime_memory_root=runtime_memory_root),
+        make_task_summarizer(),
+    )
+    return _SpecRegistry((spec.name, spec) for spec in specs)
 
 
 def _make_run_context(

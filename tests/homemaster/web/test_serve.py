@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -80,11 +81,27 @@ def test_serve_cli_rejects_public_bind_before_app_construction(monkeypatch) -> N
 
 
 @pytest.mark.parametrize(
-    ("args", "expected_environment"),
-    [(["serve"], None), (["serve", "--alfworld"], "alfworld")],
+    ("args", "expected_environment", "expected_config"),
+    [
+        (["serve"], None, None),
+        (
+            ["serve", "--config", "/tmp/homemaster.yaml"],
+            None,
+            Path("/tmp/homemaster.yaml"),
+        ),
+        (["serve", "--alfworld"], "alfworld", None),
+        (
+            ["serve", "--browser", "--config", "/tmp/homemaster.yaml"],
+            "browser",
+            Path("/tmp/homemaster.yaml"),
+        ),
+    ],
 )
 def test_serve_cli_selects_web_environment(
-    monkeypatch, args: list[str], expected_environment: str | None
+    monkeypatch,
+    args: list[str],
+    expected_environment: str | None,
+    expected_config: Path | None,
 ) -> None:
     calls: list[dict[str, object]] = []
     cli_app_module = importlib.import_module("homemaster.cli.app")
@@ -98,7 +115,12 @@ def test_serve_cli_selects_web_environment(
 
     assert result.exit_code == 0, result.stdout
     assert calls == [
-        {"host": "127.0.0.1", "port": 8000, "environment": expected_environment}
+        {
+            "host": "127.0.0.1",
+            "port": 8000,
+            "environment": expected_environment,
+            "config_path": expected_config,
+        }
     ]
 
 
@@ -112,7 +134,43 @@ def test_run_web_server_validates_then_owns_async_server(monkeypatch) -> None:
         host="127.0.0.1",
         port=9123,
         environment="alfworld",
+        config_path=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_default_web_environment_forwards_config_to_common_composition(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    expected_app = SimpleNamespace(state=SimpleNamespace(aclose=AsyncMock()))
+    captured: list[Path | None] = []
+
+    monkeypatch.setattr(
+        serve,
+        "create_home_web_app",
+        lambda path=None: captured.append(path) or expected_app,
+    )
+    monkeypatch.setattr(serve.uvicorn, "Config", lambda **_kwargs: object())
+
+    class Server:
+        def __init__(self, _config):
+            pass
+
+        async def serve(self):
+            return None
+
+    monkeypatch.setattr(serve.uvicorn, "Server", Server)
+
+    await serve._serve_web_server(
+        host="127.0.0.1",
+        port=8000,
+        environment=None,
+        config_path=config_path,
+    )
+
+    assert captured == [config_path]
+    expected_app.state.aclose.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

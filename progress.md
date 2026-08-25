@@ -993,6 +993,33 @@
 - Final HomeMaster non-live verification passed with `1242 passed, 2 skipped`; the provider/tool-call regression slice
   passed with `26 passed`. Targeted Ruff lint/format, `git diff --check`, `uv build`, and `uv lock --check` also pass.
 - Case02 environment/browser/terminal tests are outside this memory-system scope and are not part of this acceptance.
+
+## 2026-08-21 Configuration And Dead-Code Audit
+
+- Read the `planning-with-files` skill and resumed the existing root planning
+  documents instead of overwriting them.
+- Captured remote baseline: branch `mindmem`, only untracked user-owned `story/`
+  artifacts, six config files with four tracked and two ignored real configs.
+- Enumerated the Python package and executable entrypoints; identified dynamic
+  loader surfaces that require dedicated reachability checks.
+- Initial monolithic search was truncated; logged the error and switched to
+  bounded, machine-readable audit steps.
+- Added the formal seven-phase cleanup plan and four cleanup strategies. Phase A
+  is in progress; no project code or configuration has been deleted or edited.
+- Read packaging, unified config, CLI composition, application factory,
+  extension loading and skill discovery boundaries. Confirmed that dynamic
+  loading/package-data/subprocess surfaces require dedicated checks.
+- Ran the field-level AST audit and rejected naive zero counts for sections
+  consumed through `model_dump()` (`retrieval_scoring`, `grounding`). The first
+  module-graph run failed inside the audit script before producing a report; no
+  project deletion followed from it.
+- Rejected the second module-graph output after noticing its external absolute
+  `from` imports were absent. The 28 reported modules are not accepted
+  candidates; the parser is being corrected before reuse.
+- Corrected and reran the graph, then manually traced leaf candidates. Confirmed
+  the old registry/dispatcher stack and V1.6 object-memory RAG stack have no
+  shipped production consumer; separated stable public re-export modules and
+  the offline BM25 preflight for further compatibility/invariant review.
 # 2026-07-25 Gateway Activation
 
 - Root-cause evidence from the preceding diagnostic turn: the ignored mode-0600 config enables Gateway/Feishu and contains both direct credentials, but no HomeMaster Gateway process or tagged session exists.
