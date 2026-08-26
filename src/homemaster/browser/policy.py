@@ -16,6 +16,8 @@ class BrowserPolicy:
     wait_timeout_ms: int = 10_000
     max_elements: int = 120
     max_text_chars: int = 12_000
+    eval_allowed: bool = False
+    max_result_chars: int = 10_000
 
     def __post_init__(self) -> None:
         normalized = tuple(_origin(value) for value in self.allowed_origins)
@@ -32,6 +34,10 @@ class BrowserPolicy:
             raise ValueError("max_elements must be between 1 and 500")
         if not 256 <= self.max_text_chars <= 100_000:
             raise ValueError("max_text_chars must be between 256 and 100000")
+        if not isinstance(self.eval_allowed, bool):
+            raise ValueError("eval_allowed must be boolean")
+        if not 1 <= self.max_result_chars <= 100_000:
+            raise ValueError("max_result_chars must be between 1 and 100000")
 
     def validate_initial_url(self, url: str) -> str:
         try:

@@ -73,7 +73,6 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         quiet=True,
         console_show_replies=False,
         tool_environment="browser",
-        permission_mode=PermissionMode.DEFAULT,
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )

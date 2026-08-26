@@ -14,6 +14,72 @@
 
 ### Fixed
 
+- Fixed semantic `browser_find` returning an unretained short element ID that could resolve to an
+  older snapshot and produce false `stale_ref` failures after navigation. Successful semantic finds
+  now register their exact candidates in the run-owned SnapshotStore before returning namespaced refs.
+  Also fixed scoped AX inspection passing a `BrowserElement` wrapper instead of its Playwright handle
+  to the OpenCLI adapter. Two real Chromium regressions reproduce the original failures and verify an
+  action through the find ref plus scoped AX terminal output.
+
+- Removed the stale Run 32 instruction that required four explicit screenshot checkpoints and
+  incorrectly claimed browser writes automatically attach screenshots. The change-ticket Skill,
+  V3.1 acceptance prompt, tests, and user guide now consistently make screenshots optional visual
+  evidence while requiring structured receipts and independent DOM or business terminal-state
+  verification for routine browser work.
+
+- Added OpenCLI-style miss recovery to browser target errors. Semantic and CSS misses,
+  ambiguous targets, stale references, actionability failures, and infrastructure timeouts now
+  include actionable `hint` guidance; semantic misses also return up to five same-role or
+  text-overlapping candidates so the model can correct its target without blind retries.
+
+- Disabled forced model observation for browser mutations during V3.1 validation. Browser actions now
+  rely on structured receipts and independent DOM/business postconditions without an automatic
+  screenshot round trip; `browser_screenshot` remains available for explicit visual checks. Updated
+  the browser contract regression and integration expectations accordingly.
+
+- Fixed `homemaster serve --browser` overriding the configured permission mode while composing the
+  browser application. Browser Web now preserves `permissions.mode` (including `full_auto`) and
+  continues through the shared `PermissionChecker`; a focused regression proves composition does not
+  inject a second default policy. Added a gitignored browser config example and documented the
+  configuration boundary.
+
+- Fixed the V3.1 browser Runtime still applying the removed V2.1 immediately-preceding-inspect lease
+  after the provider emitted a valid semantic action. The obsolete pre-dispatch fence, schema hiding,
+  reference projection, error codes and positive legacy tests are removed; semantic targets and stable
+  refs now reach the V3.1 resolver directly, with a provider-to-dispatch regression locking the path.
+
+- Fixed V3.1 rejecting readonly ARIA comboboxes before `browser_select` could open them. Browser
+  actionability now treats visibility, enabled state and obscuration separately from text editability;
+  only fill, type and clipboard backfill reject readonly targets. A real Chromium regression uses the
+  readonly-input shape exposed by Ant Design and independently reads back the selected value.
+
+- Fixed semantic exact/contains matching missing CJK controls when UI frameworks insert display-only
+  whitespace between Han characters. Inspect, find and direct actions now share one narrowly scoped
+  matcher that folds only inter-Han whitespace while regex continues to inspect the raw string. A real
+  Chromium regression exercises all three paths and independently verifies the click's DOM terminal state.
+
+- Fixed calendar targets whose framework role varies between ARIA `cell` and `gridcell`. Date cells now
+  expose an explicit semantic role in the Ant Design fixture, while HomeMaster treats the two equivalent
+  table-cell roles as compatible and can match a visible day number against a full date aria name. Focused
+  resolver tests and a live DOM probe cover the compatibility path.
+
+- Fixed Ant Design time-picker cells being exposed as one generic AX container and semantic picker actions
+  timing out while scanning the whole page during re-render. Hour/minute/second cells now use standard
+  `role=option` semantics, and HomeMaster narrows collection selectors by requested role and passes semantic
+  target filters into action resolution. A real Chromium probe verifies all 24 hour options, including
+  `hour 21`, and the popup regression passes with the narrowed collector.
+
+- Hardened real-browser release validation after a headless Playwright probe passed on a machine that
+  lacked the full headful Chromium executable required by recorded Web runs. Headful gates now install
+  and launch the exact configured browser mode before model execution; the failed preflight run remains
+  preserved rather than being reported as a product regression.
+
+- Fixed OpenCLI vendor and wheel completeness checks that could report success while dynamic test
+  fixtures, dotfiles, or a symlink were absent. The locked 1.8.7 Git commit now supplies the three
+  npm-omitted article fixtures, tests run only from an isolated copy, generated caches are rejected,
+  lexical manifest paths preserve symlinks, and the installed wheel must match and hash all 1,525
+  manifest entries.
+
 - Clarified the model-facing task-state tool contract: `task_planner` creates or replaces the
   task TODO list, while the legacy-named `task_progress_check` incrementally updates explicit
   statuses, evidence, and focus without observing, executing, or verifying external work. Browser
@@ -34,6 +100,16 @@
   `won=true`, `done=true`, the statue still held, and zero invalid actions.
 
 ### Added
+
+- Added the V3.1 universal browser layer: 27 safe one-tool-per-file typed tools plus separately gated
+  `browser_eval`; semantic targets and session/tab/frame-scoped refs with exact/stable/reidentified
+  recovery; DOM/AX/Shadow DOM/iframe/table/compound-control discovery; read/extract/cursor, tabs,
+  popup/dialog/download, console/network, history, scroll, upload/drag, screenshot and analyze flows;
+  automatic post-write visual observations; structured errors; and independent DOM/file/URL terminal
+  readback. OpenCLI 1.8.7 browser algorithms, tests, fixtures, production dependency licenses, generated
+  scripts and provenance are vendored and hash locked without starting its daemon or a second browser
+  owner. Provider descriptions/schemas, browser Skill/prompt/runtime/profile consumers, documentation,
+  packaging, and real Playwright gates use the same V3.1 protocol.
 
 - Expanded every generic browser tool and input-property description with exact usage,
   reference ownership, actionability, readback, snapshot-consumption, wait-condition, and

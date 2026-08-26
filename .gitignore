@@ -15,6 +15,7 @@ config/api_config.json
 config/nvidia_api_config.json
 config/homemaster.json
 /config/homemaster.yaml
+/config/homemaster.browser.yaml
 /config/coworker_demo.yaml
 .cache/
 /.worktrees/

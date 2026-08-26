@@ -1026,3 +1026,16 @@
 - `uv run homemaster --help` failed because the project package was absent from `.venv`; `lark_oapi` was also absent. `uv sync --check --extra dev --extra gateway` reported seven required packages without mutating the environment.
 - Synchronized the locked environment and started the configured Gateway. Independent local inspection found the active `uv run homemaster gateway` parent and project-venv child plus Gateway session `gw-25d72ed7d051d61c3b9eba18ea0db8f6` at revision 4 with `session_status=replied` and 20 persisted messages.
 - The owner completed the Feishu-side black-box check and confirmed normal message delivery and readback. Gateway activation and live verification completed successfully; the test process was later stopped.
+
+## 2026-08-26 V3.1 Run 33
+
+- Revalidated the Ant Design fixture through parsed JSON and exact file content after rejecting SPA-fallback HTTP 200 responses as false-positive health evidence.
+- Confirmed Run 32 is terminal and preserved.
+- Stopped the old HomeMaster PID `2974749`; started fixed PID `3003492` on `127.0.0.1:8884` with fresh control/runtime roots and `DISPLAY=:123`.
+- Verified the listener owner and `GET /api/sessions` HTTP 200/JSON response. Recorded `/health` 404 as an absent-route diagnostic, not a service failure.
+- Next: create one fresh session, submit the E2E instruction once, and lock monitoring to the returned identifiers.
+- Verified the running server imports the current checkout's modified `playwright_session.py`; its source mtime predates PID `3003492`. The retained-find and scoped-AX focused Chromium regressions pass 2/2.
+- Proved the one-shot client prompt is byte-identical to Spec 9.4.2, then created session `session-383d7656955a` and submitted request `v31-run33-d4807260-6e0e-4ecf-bd27-a0eaf46cd7b1` exactly once.
+- Locked the active target to run `run-eba69a7f4e6a`. Initial lifecycle and two completed tools are present with zero client stderr; monitor this run without resubmission.
+- At the requested handoff snapshot the active client had 821 frames, 20 started tools, 17 completed tools and 3 classified pre-backend/page-state failures. Fixture remained at exact `0.9.0` initial state. Added a complete active Run 33 continuation section to the top of `docs/session-handoff.md`.
+- Refreshed the handoff after a fourth fail-closed `target_ambiguous`: bare option text `21` matched hour/minute/second, then exact `hour 21` succeeded. Latest documented snapshot is 1,131 frames, 29 started, 25 completed, 4 classified failures, no terminal.

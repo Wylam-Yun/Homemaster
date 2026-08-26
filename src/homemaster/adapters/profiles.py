@@ -182,6 +182,11 @@ def build_tool_registry(
         raise ValueError(f"unsupported tool environment: {environment}")
 
     selected = _select_universal_tools(sources)
+    if environment == "browser":
+        # Browser runs receive the run-owned V3.1 registry once a session
+        # exists; the legacy generic screenshot tool must not leak into the
+        # provider schema during profile construction.
+        selected = tuple(tool for tool in selected if tool.definition.model_alias != "observe")
     registry = ToolRegistry()
     registry.register_many(from_registered_tool(tool) for tool in selected)
     return registry

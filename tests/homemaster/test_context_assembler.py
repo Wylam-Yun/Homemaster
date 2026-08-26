@@ -548,12 +548,15 @@ def _browser_tools() -> list[dict[str, object]]:
         {
             "name": "browser_inspect",
             "description": "inspect",
-            "input_schema": {"type": "object"},
+            "input_schema": {"type": "object", "properties": {"view": {"type": "string"}}},
         },
         {
             "name": "browser_click",
             "description": "click",
-            "input_schema": {"type": "object"},
+            "input_schema": {
+                "type": "object",
+                "properties": {"target": {"type": "object"}},
+            },
         },
     ]
 
@@ -567,33 +570,31 @@ def _context_result(context, tool_call_id: str) -> ToolResultMessage:
     )
 
 
-def test_browser_context_exposes_only_immediately_preceding_inspect_reference() -> None:
-    session = AgentSession(session_id="browser-reference-lease")
+def test_browser_context_preserves_v31_semantic_targets_and_stable_refs() -> None:
+    session = AgentSession(session_id="browser-stable-refs")
     session.append(UserMessage(content=[ContentBlock(text="continue")]))
     _append_browser_pair(
         session,
         tool_call_id="click-before",
         name="browser_click",
-        arguments={"snapshot_id": "s-action", "element_id": "e9"},
+        arguments={"target": {"role": "button", "name": "查 询", "match": "exact"}},
         data={
-            "next_snapshot": {
-                "reference_mode": "review_only",
-                "total_matches": 200,
-                "elements": [
-                    {"name": "old review marker", "text": "large old review body"}
-                ],
-            }
+            "interaction_verified": True,
+            "target": {"name": "查 询", "role": "button"},
         },
     )
     _append_browser_pair(
         session,
         tool_call_id="inspect-old",
         name="browser_inspect",
-        arguments={"text": "07", "limit": 10},
+        arguments={"view": "hybrid", "text": "07", "limit": 10},
         data={
-            "snapshot_id": "s-old-second-column",
             "elements": [
-                {"element_id": "e3", "name": "second 7", "text": "07"}
+                {
+                    "name": "second 07",
+                    "text": "07",
+                    "target_ref": "ref-old-second-07",
+                }
             ],
             "total_matches": 3,
         },
@@ -602,11 +603,14 @@ def test_browser_context_exposes_only_immediately_preceding_inspect_reference() 
         session,
         tool_call_id="inspect-current",
         name="browser_inspect",
-        arguments={"name": "确 定", "limit": 10},
+        arguments={"view": "hybrid", "name": "确 定", "limit": 10},
         data={
-            "snapshot_id": "s-current-confirm",
             "elements": [
-                {"element_id": "e1", "name": "确 定", "text": "确 定"}
+                {
+                    "name": "确 定",
+                    "text": "确 定",
+                    "target_ref": "ref-current-confirm",
+                }
             ],
             "total_matches": 1,
         },
@@ -626,76 +630,22 @@ def test_browser_context_exposes_only_immediately_preceding_inspect_reference() 
         for block in message.content
         if block.text
     )
-    expired_inspect = _context_result(context, "inspect-old")
-    current_inspect = _context_result(context, "inspect-current")
-    expired_review = _context_result(context, "click-before")
-
-    assert "s-old-second-column" not in projected_text
-    assert '"element_id":"e3"' not in projected_text
-    assert expired_inspect.data["data"]["reference_mode"] == "expired_review_only"
-    assert expired_inspect.data["data"]["elements"] == []
-    assert current_inspect.data["data"]["snapshot_id"] == "s-current-confirm"
-    assert current_inspect.data["data"]["elements"][0]["element_id"] == "e1"
-    assert (
-        expired_review.data["data"]["next_snapshot"]["reference_mode"]
-        == "expired_review_only"
-    )
-    assert "old review marker" not in projected_text
+    assert "ref-old-second-07" in projected_text
+    assert "ref-current-confirm" in projected_text
+    assert '"interaction_verified":true' in projected_text
     assert [message.model_dump(mode="json") for message in session.messages] == canonical
 
 
-def test_browser_context_keeps_latest_mutation_review_snapshot() -> None:
-    session = AgentSession(session_id="latest-review")
-    _append_browser_pair(
-        session,
-        tool_call_id="inspect-before-click",
-        name="browser_inspect",
-        arguments={"name": "查 询", "limit": 10},
-        data={
-            "snapshot_id": "s-query",
-            "elements": [{"element_id": "e1", "name": "查 询"}],
-            "total_matches": 1,
-        },
-    )
-    _append_browser_pair(
-        session,
-        tool_call_id="click-latest",
-        name="browser_click",
-        arguments={"snapshot_id": "s-query", "element_id": "e1"},
-        data={
-            "next_snapshot": {
-                "reference_mode": "review_only",
-                "total_matches": 200,
-                "elements": [{"name": "latest review marker"}],
-            }
-        },
-    )
-
-    context = _make_assembler().prepare(
-        session=session,
-        agent_state=AgentState(run_id="r1", session_id=session.session_id),
-        task_state_store=None,
-        tools=_browser_tools(),
-    )
-
-    latest = _context_result(context, "click-latest")
-    assert latest.data["data"]["next_snapshot"]["reference_mode"] == "review_only"
-    assert latest.data["data"]["next_snapshot"]["elements"] == [
-        {"name": "latest review marker"}
-    ]
-
-
 @pytest.mark.asyncio
-async def test_browser_reference_projection_matches_sync_and_async_context() -> None:
+async def test_browser_semantic_context_matches_sync_and_async_assembly() -> None:
     session = AgentSession(session_id="sync-async-browser-reference")
     _append_browser_pair(
         session,
         tool_call_id="inspect-current",
         name="browser_inspect",
-        arguments={"name": "确 定", "limit": 10},
+        arguments={"view": "hybrid", "name": "确 定", "limit": 10},
         data={
-            "snapshot_id": "s-current",
-            "elements": [{"element_id": "e1", "name": "确 定"}],
+            "elements": [{"target_ref": "ref-current", "name": "确 定"}],
             "total_matches": 1,
         },
     )
@@ -724,10 +674,9 @@ def test_non_browser_context_keeps_tool_results_unchanged() -> None:
         session,
         tool_call_id="inspect-old",
         name="browser_inspect",
-        arguments={"text": "07", "limit": 10},
+        arguments={"view": "hybrid", "text": "07", "limit": 10},
         data={
-            "snapshot_id": "s-old",
-            "elements": [{"element_id": "e3", "name": "second 7"}],
+            "elements": [{"target_ref": "ref-old", "name": "second 07"}],
             "total_matches": 1,
         },
     )
@@ -740,5 +689,4 @@ def test_non_browser_context_keeps_tool_results_unchanged() -> None:
     )
 
     unchanged = _context_result(context, "inspect-old")
-    assert unchanged.data["data"]["snapshot_id"] == "s-old"
-    assert unchanged.data["data"]["elements"][0]["element_id"] == "e3"
+    assert unchanged.data["data"]["elements"][0]["target_ref"] == "ref-old"

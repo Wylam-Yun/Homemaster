@@ -1,5 +1,190 @@
 # Session Handoff
 
+## Active V3.1 Run 33 E2E (2026-08-26)
+
+### Current State
+
+- Run 33 is actively running. Do not restart HomeMaster, create another session, resend the prompt,
+  or overwrite any of the paths below while client PID `3007458` is alive and no terminal file exists.
+- Immutable identities:
+  - session: `session-383d7656955a`
+  - request: `v31-run33-d4807260-6e0e-4ecf-bd27-a0eaf46cd7b1`
+  - run: `run-eba69a7f4e6a`
+- Fixed HomeMaster PID `3003492` owns `127.0.0.1:8884`. It started at
+  `2026-08-26 14:52:54 +0800`, after modified
+  `src/homemaster/browser/playwright_session.py` mtime `2026-08-26 14:39:44 +0800`, and imports
+  HomeMaster from this checkout's `src/`. Old PID `2974749` is absent.
+- HomeMaster config:
+  `/tmp/homemaster-v31-run33-20260826-145254-SH0rSa-control/config.yaml`.
+  Runtime root:
+  `/tmp/homemaster-v31-run33-20260826-145254-wpWh21-runtime`.
+  Control/evidence root:
+  `/tmp/homemaster-v31-run33-20260826-145254-SH0rSa-control`.
+  The process uses `DISPLAY=:123`, `browser_gateway.headless=false`, `memory.enabled=false`, and
+  `permissions.mode=full_auto`.
+- The one-shot client compared its prompt byte-for-byte with Spec 9.4.2 before submission
+  (`PROMPT_EXACT=PASS`, 1516 characters). This is the updated prompt: screenshots are optional and
+  are not required at four checkpoints. Session creation returned HTTP 201, message submission
+  returned HTTP 202 with `accepted=true`, and the request was submitted exactly once.
+- Recording is intentionally disabled by user direction. A short pre-run FFmpeg probe was stopped
+  and its video/log/PID files were removed before this session was created. Browser-owned Playwright
+  trace/video artifacts may still be produced by the product itself.
+
+### Latest Observed Progress
+
+- At the last handoff snapshot, client PID `3007458` was alive, `client.stderr` was empty, no
+  `client_terminal.json` existed, and `websocket_frames.jsonl` contained 1,131 frames: 29
+  `tool.started`, 25 `tool.completed`, and 4 `tool.failed`. The last event was a successful exact
+  click on `hour 21` after the model recovered from an intentionally fail-closed ambiguous query.
+- `load_skill(change-ticket-executor)` completed. The ticket was read only with `read_file` in two
+  pages. `task_planner` locked nine subtasks. Global `重置环境(全部)` is completed; current task
+  focus is subtask 2, STEP-001 pre-change alarm investigation. The Agent also completed the
+  page-local reset and has started filling the STEP-001 query.
+- Independent fixture readback is still the safe pre-mutation state:
+  `agent_version=0.9.0`, `monitoring_enabled=true`, `node=fixture-node-01`. No configuration update
+  has happened yet.
+- Four failures are preserved and classified, not hidden:
+  - `browser_wait` was rejected before backend execution because the model put string
+    `timeout_ms="5000"` at the top level, while the public schema accepts only the `condition`
+    object there.
+  - `browser_find(text="已重置")` returned real `target_not_found`; the page did not contain that
+    text.
+  - `browser_find(text="已重置本台状态")` returned the same real page-state miss.
+  - `browser_find(role="option", text="21")` correctly returned `target_ambiguous` because it matched
+    `hour 21`, `minute 21`, and `second 21`; the next call selected exact `name="hour 21"` and
+    completed.
+  All four had `backend_attempted=false`; the model recovered through successful exact semantic
+  reads and continued. They are model-schema/page-state/target-specificity outcomes, not the fixed
+  find-ref or scoped AX defects.
+
+### Continue From Here
+
+1. First inspect the immutable target without resubmitting:
+
+```bash
+CONTROL=/tmp/homemaster-v31-run33-20260826-145254-SH0rSa-control
+ps -o pid,stat,etime,cmd -p "$(cat "$CONTROL/client.pid")" 3003492
+test -e "$CONTROL/client_terminal.json" && cat "$CONTROL/client_terminal.json" || true
+tail -n 40 "$CONTROL/websocket_frames.jsonl"
+wc -c "$CONTROL/client.stderr" "$CONTROL/server.stderr"
+```
+
+2. If the client is alive and no terminal file exists, keep monitoring this exact run. Do not send
+   a continuation message: the WebSocket client already owns the complete one-shot request and will
+   persist every frame until `run.completed`, `run.failed`, or `run.cancelled`.
+3. If the client exited without `client_terminal.json`, preserve all control/runtime bytes and diagnose
+   the client/server boundary before any retry. If a run terminal exists, classify it first and do not
+   infer success from `run.completed` alone.
+4. On model terminal, run every Spec 9.4.3 external gate independently: three involved SOP states and
+   order; exact alarm window including `second 07`; distinct before/after evidence identities and
+   correct SOP fields; change job `exitCode=0`; ticket terminal command return code 0 with
+   `CONFIG_VERSION_OK`; exact three-line fixture readback at version `1.0.0`; per-field asset page
+   readback for `fixture-node-01 / running / 1.0.0 / fixture-region-01`; Runtime/Web terminal agreement;
+   stderr, trace, JSONL, terminal receipt, and provider request/response ownership for this run only.
+5. Preserve accepted `1.0.0` terminal evidence before cleanup. Only then stop PID `3003492` and its
+   owned Chrome resources, restore the fixture to `0.9.0`, and independently read it back. Do not stop
+   the existing Mock-enabled Ant Design process or unrelated HomeMaster port 8003 unless ownership is
+   proven for this run.
+
+### Blockers
+
+No active blocker was known at the snapshot. The Run was progressing in STEP-001 and had not mutated
+the fixture. The authoritative continuation signal is the terminal file plus external state, never
+this prose snapshot by itself.
+
+## V3.1 Browser Tools (2026-08-26)
+
+- The current Run 32 instruction no longer requires four explicit `browser_screenshot` checkpoints.
+  The V3.1 spec, builtin change-ticket Skill, focused Skill regression, user guide and CHANGELOG now
+  agree with the existing Runtime behavior: browser writes do not force screenshot observation;
+  routine verification uses structured receipts plus independent DOM/business terminal state, and
+  screenshots are only optional visual evidence. No new HomeMaster session or Run was started.
+- The preserved formal run `run-b9e8e47187c8` ended at STEP-001. Its exact alarm/trend XHRs returned
+  HTTP 404 because AntD had been launched with `start:no-mock`; AntD is now running with Mock enabled
+  and independent HTTP checks return the two expected WSO alarm rows plus 14 trend points. The existing
+  HomeMaster process/session remains untouched and no continuation Run has started.
+- That run also exposed two independently reproduced HomeMaster defects which are now fixed with real
+  Chromium regressions: semantic `browser_find` registers its exact candidates before returning a
+  namespaced ref, so a post-navigation action cannot collide with an older snapshot's `e1`; scoped AX
+  inspect passes the resolved Playwright handle to `OpenCLIPageAdapter.ax_snapshot` instead of the
+  `BrowserElement` wrapper. The focused red tests reproduced both original failures and now pass. The
+  expanded related gate passes 40 tests with the documented pre-existing Shadow DOM case explicitly
+  deselected. A live AntD black-box check then retained a namespaced find ref across navigation, clicked
+  it successfully, completed scoped AX inspection, and independently read the visible Popconfirm DOM.
+  The other tool failures remain classified as schema/model or page-state mismatches rather than these bugs.
+
+- Primary edit checkout: `/hpc2hdd/home/wyuan140/weilin_workspace/Homemaster`; real-browser checkout:
+  `hkust4:/home/haodong2/weilin/red_bird/Homemaster`. Branch remains `mindmem`; no V3.1 commit or push
+  has been made. Preserve unrelated local `story/HomeMaster.html` and remote handoff/video files.
+- V3.1 implements 27 safe one-tool-per-file browser tools and separately gated `browser_eval`. Provider
+  names, exact descriptions and complete serialized JSON schemas are hash locked. Browser Skill, prompt,
+  profile, runtime context projection use explicit `browser_screenshot` only when visual evidence is
+  needed, semantic targets, and stable refs; browser `observe`, forced post-write screenshots, and
+  required pre-write `snapshot_id/element_id` are absent.
+- The date-picker compatibility path is now covered by real Chromium: `cell`/`gridcell` are treated as
+  equivalent and a visible day such as `21` matches the full Ant Design date aria name. The remote focused
+  browser gate passes the date/time popup test plus the timeout and repeated-mutation regressions. The
+  broader V3.1 black-box gate is 30 passed with one pre-existing shadow-DOM discovery failure; it is
+  unrelated to date matching and remains open for a separate collector fix.
+- OpenCLI-style miss recovery is now implemented locally: semantic/CSS misses and ambiguous targets
+  return structured `hint` guidance, semantic misses include up to five same-role or text-overlapping
+  candidates, and stale/actionability/timeout errors explain the next recovery step. Focused local
+  target/contract tests pass; a full Playwright run remains environment-dependent on this machine.
+- The first fresh Web Run 32 is preserved at `/tmp/homemaster/v31-run32-20260826-024536`; it failed because
+  the old V2.1 Runtime inspect fence blocked 23 valid semantic clicks before dispatch. That fence and its
+  schema/context/event path are removed, and the expanded hkust4 gate passes 183 tests. The second run is
+  preserved at `/tmp/homemaster/v31-run32-20260826-032700`; it passed the Runtime boundary and exposed a
+  separate backend bug: Ant Design's readonly-input combobox was rejected as `target_readonly` before select.
+- The readonly root cause is fixed by separating common actionability from editability. A new real Chromium
+  regression failed before the change and now proves readonly ARIA selection changes the independent DOM value
+  to `Monitor Agent Service`, while fill on the same target remains rejected. The complete Playwright session
+  file passed before the next real-run finding. The local machine has no
+  Playwright Chromium binary, so real browser tests belong on hkust4.
+- The third fresh run is preserved at `/tmp/homemaster/v31-run32-20260826-044722`; it failed before model start
+  because the headless shell existed but the configured headful Chromium revision did not. Full Chromium was
+  installed and an independent headful target-page probe passed. The fourth run is preserved at
+  `/tmp/homemaster/v31-run32-20260826-045356`; it exposed Ant Design's `确 认` display spacing. A shared matcher now
+  folds only inter-Han whitespace for exact/contains across inspect, find and direct action, leaves regex raw,
+  and a real Chromium test independently verifies the clicked DOM state. The current local related gate passes
+  108 tests; the expanded hkust4 browser/runtime gate passes 132 tests; Ruff, compileall and diff-check pass on
+  both machines.
+- The fifth fresh Run 32 is preserved at `/tmp/homemaster/v31-run32-20260826-053950` with control artifacts in
+  `/tmp/homemaster-v31-run32-20260826-053950-control`. It failed before any business mutation: AntD date `21`
+  was visible but had no `role=cell`, so `role=cell,text=21` returned `target_not_found` and the subsequent
+  inspect timed out/fenced the session. Independent DOM inspection confirmed the date cell was a plain `td`
+  with an inner `aria-label="date 2026-08-21 00:00:00"`. The frontend now adds `role=cell` for date cells and
+  its focused semantic test passes 4/4; this run remains a failure and must not be reclassified.
+- The sixth fresh Run 32 is preserved at `/tmp/homemaster/v31-run32-20260826-061500` with control artifacts in
+  `/tmp/homemaster-v31-run32-20260826-061500-control`. It reached the date picker, but the model requested
+  `role=gridcell,name=21` while AntD exposed the newly semantic `role=cell`; the request returned
+  `target_not_found`, a later inspect timed out/fenced, and no business mutation occurred. HomeMaster now treats
+  `cell` and `gridcell` as compatible semantic roles with a focused resolver test. This run remains a failure.
+- The seventh fresh Run 32 is preserved at `/tmp/homemaster/v31-run32-20260826-062000` with control artifacts in
+  `/tmp/homemaster-v31-run32-20260826-062000-control`. It reached and successfully completed global reset and
+  console reset, then failed at the date picker before mutation: the model requested `gridcell,name=21`; the
+  compatibility patch was not yet extended to match the visible day against the full date aria name. The run
+  was fenced after recovery attempts and remains a failure.
+- The eighth fresh Run 32 is preserved at `/tmp/homemaster/v31-run32-20260826-063000` with control artifacts in
+  `/tmp/homemaster-v31-run32-20260826-063000-control`. It failed before browser execution with provider
+  `transport_error: deadline exceeded` during initial planning; no business mutation occurred.
+- OpenCLI remains exactly 1.8.7 at commit `87b60a36590c3e2a466c37266c3348d73d7f68fe`, Apache-2.0.
+  Its full selected ESM/test/dependency/license closure is vendored. The three article fixtures omitted by
+  npm come unmodified from the matching Git tag. Isolated pnpm/Vitest execution passes all 27 browser test
+  files and 406 tests. Vendor/cache/provenance/hash audits pass 7 tests.
+- The last package before the readonly fix is preserved under `/tmp/homemaster-v31-dist-final2` (wheel SHA-256
+  `6a43435baf2cee9a07648d3bc4c2990a1a71cb92d3b69dd4eada7876d0e16f35`; sdist SHA-256
+  `53b7207b65000a03fe1767ba6dc1c7bb8404cc4e764a3388b31105309478e9ce`). Its 1,525-entry package audit and
+  source-free installed browser gate passed, but those hashes are now stale because the backend changed and
+  must not be reported as final.
+- Documentation now reflects V3.1 in README, architecture, browser user guide, config/Skill guide,
+  CHANGELOG, pitfalls, CLAUDE, OpenCLI provenance/patches, third-party notices and capability matrix.
+
+Remaining release work is to sync the new documentation and date-role frontend fix to hkust4, rebuild and audit final4 wheel/sdist,
+repeat the source-free installed browser gate including readonly and CJK terminal assertions, then execute
+Spec 9.4 with a sixth fresh Run 32 ID/root and independently assert all 13 terminal requirements.
+Only after those pass should the full diff be reviewed and committed; the CHANGELOG entry and commit message
+must remain semantically identical.
+
 ## Ops Monitor Run 29 Diagnosis (2026-08-25)
 
 - The run 29 recording was inspected as a fully decodable H.264 1440x900/25fps video lasting
@@ -442,19 +627,16 @@ fully finalized.
 
 ## Next Step
 
-The one-episode LoCoMo and visual ALFWorld integration gates and the documentation-only merge amendment are complete.
-The branch can be handed off for review; do not push or move `mindmem`,
-`alfworld-benchmark-local` or `alfworld-benchmark` without explicit instruction. Before a larger benchmark run, freeze
-the evaluation set and scoring protocol; continue requiring per-episode external `won=true`, valid coverage and complete
-resource cleanup.
-
-Any HomeMaster shell started before this change cannot hot-load the direct-flat Add contract. Start a fresh shell from
-this working tree before interactive verification; do not infer behavior from a pre-change process.
+Finish the V3.1 browser release gates described in the top handoff section. Use a fresh Web process and browser
+context after synchronization; no running process can hot-load the new Registry or provider schemas. Do not push or
+move `mindmem`, `alfworld-benchmark-local` or `alfworld-benchmark` without explicit instruction.
 
 ## Blockers
 
-No memory, infrastructure or one-episode benchmark blocker is known. Commit authorization has been granted for this
-integration, but push authorization has not. Preserve the concurrent provider and V2.7 async-add changes. Archived
+No V3.1 implementation or package blocker is known. The remaining Run 32 gate depends on the existing hkust4 Ant
+Design Pro, provider configuration, ticket and Web runtime; classify any failure at the environment/tool/model/business
+boundary and retain its raw run instead of overwriting it. Commit authorization has been granted, but push authorization
+has not. Preserve the concurrent provider and V2.7 async-add changes. Archived
 memories created by an older direct-update implementation without a real
 `DERIVED_FROM` edge cannot be reconstructed into history and must not be guessed. Keep the structured feedback
 exact-record/content/lineage terminal gate when changing the vendored executor. Optional Playwright/MCP environment

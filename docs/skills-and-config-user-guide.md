@@ -433,10 +433,16 @@ PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --browser \
   --config config/homemaster.yaml
 ```
 
-Browser profile 保留 Home 通用工具，并按 run 增加九个 `browser_*` 工具和
-session-bound `observe`。变更单任务先用 `load_skill(name="change-ticket-executor")` 加载
-唯一通用 Skill；具体 SOP 只从飞书正文链接的票据读取。写操作、wait 和图片回填后必须
-`observe`；截图继续沿用现有 Gateway MEDIA 出站链路。详见
+Browser profile 保留 Home 通用工具，并按 run 增加 27 个 safe typed `browser_*` 工具。
+已知唯一语义目标可以直接操作；未知、多匹配或身份不确定时，使用
+`browser_inspect`/`browser_find` 返回的 scoped `target_ref`。写操作不强制 observe 或截图，默认依靠
+结构化回执和独立 DOM/业务终态；只有票据明确要求图片证据，或布局、图表、Canvas、图片、视觉遮挡
+无法通过语义读取判断时才使用 `browser_screenshot`。不要把普通写后确认、等待或滚动变成截图检查。
+不再注册 browser 同义 `observe`。`browser_eval` 默认不存在，只有 run policy 明确授予
+`browser.eval` 时才加入同一 session 的 registry。
+
+变更单任务先用 `load_skill(name="change-ticket-executor")` 加载唯一通用 Skill；具体 SOP 只从
+飞书正文链接的票据读取。截图继续沿用现有 Gateway MEDIA 出站链路。详见
 [Browser Gateway 用户指南](browser-gateway-user-guide.md)。
 
 私聊、群聊和 thread 按 tenant/channel/chat/thread/sender 生成稳定 session；权限相同但会话仍按 sender

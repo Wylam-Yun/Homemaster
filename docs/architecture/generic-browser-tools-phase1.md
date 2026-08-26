@@ -2,75 +2,130 @@
 
 ## Status
 
-The generic browser layer is available through the explicit
-`homemaster --gateway --browser` deployment mode. It remains isolated from Coworker's legacy driver;
-the browser mode does not load Coworker tools or migrate that environment.
+V3.1 is the active browser protocol for `homemaster --gateway --browser` and `homemaster serve
+--browser`. It targets previously unseen, conventional DOM/ARIA pages without site, route, ticket, or
+framework-specific branches. Browser mode remains isolated from the Coworker and ALFWorld owners.
 
 ## Ownership And Data Flow
 
-An enabled `RunRequest` carries a `browser_session_factory` dependency. `ApplicationRuntime` creates one session
-before constructing the provider, registers it in a run-owned `RunResourceScope`, and derives a frozen Registry from
-the application Registry. The same derived Registry supplies the provider manifest and tool dispatch. Disabled runs
-continue using the application Registry and do not create Chrome.
+An enabled `RunRequest` carries one `BrowserSessionFactory`. `ApplicationRuntime` creates one
+run-owned `PlaywrightBrowserSession`, derives a frozen tool Registry from that exact session, and
+closes it through `RunResourceScope` on every terminal path. Disabled runs do not create Chromium.
 
 ```text
-RunRequest dependency
+RunRequest + run policy
   -> BrowserSessionFactory.create(run_id)
-  -> run-owned PlaywrightBrowserSession
-  -> frozen Registry with browser_* and session-bound observe
-  -> provider manifest and ToolExecutor dispatch
-  -> live Playwright page
-  -> DOM readback / PNG / JSONL / trace / WebM
-  -> run-scope close
+  -> one Playwright context / pages / listeners / trace / video
+  -> 27 safe typed browser tools (+ gated browser_eval when authorized)
+  -> semantic target or retained target_ref
+  -> origin/frame/tab/actionability checks
+  -> Playwright action
+  -> independent DOM/file/URL/network terminal-state readback
+  -> structured receipt + JSONL + screenshot/trace/WebM
+  -> run-scope aclose
 ```
 
-`BrowserGatewayApplication` wraps the authoritative `RunRequest` created by `ChannelBridge`, preserving
-Feishu text, session, generation, delivery context and permission subject while adding only
-`profile=browser` and the configured session factory. The application Registry is never mutated to
-toggle a run. All ten session-bound tools use `resource_key=browser:backend`, so DOM actions and
-screenshots cannot interleave within a session.
+All browser tools serialize on `resource_key=browser:backend`; screenshots, actions, event listeners,
+and backfill therefore use the same page and cannot race inside one session. Tabs, frames, popups,
+dialogs, downloads, network responses, and refs carry run-owned identity.
 
-## Phase-One Contracts
+Browser Web composition does not select a permission mode of its own. The configured
+`permissions.mode` flows into the shared `ApplicationRuntime -> PermissionChecker` path, so
+`full_auto`, `confirm`, and `plan` retain their normal semantics. A transport must not inject a
+browser-specific default that masks the authoritative configuration.
 
-- `browser_inspect` creates the only current snapshot and returns bounded text plus visible interactive elements.
-- Actions accept only `snapshot_id + element_id`. They do not accept selectors, JavaScript or ordinal bypasses.
-- A target must remain connected, visible, enabled, unobscured and fingerprint-identical.
-- Navigation and every successful write invalidate the current snapshot. A new inspect is required before another
-  write.
-- Fill, select and binary actions read the live DOM after the action. Click proves interaction, not business success.
-- Target actions scroll the resolved element into view before refreshing visibility, enabled and obscured state.
-- `browser_backfill` captures a PNG and dispatches it as a clipboard file to an editable target. Success requires the
-  page to accept the paste, a subsequent DOM change and an image preview with the exact same data URL. The receipt
-  contains MIME type, size, source SHA-256 and matching preview SHA-256, never bytes.
-- Main-frame navigation requests are checked before network dispatch. A disallowed origin is aborted, recorded and
-  immediately fences the run-owned session, including delayed page-initiated navigation.
-- Infrastructure timeout or cancellation fences the session; it is not retried or reused.
-- `observe` captures the same page and remains image-only.
-- Navigate, mutation, backfill and wait results establish an observation barrier. The next provider tool call is
-  restricted to `observe`; its canonical image also flows through Gateway MEDIA to Feishu.
-- Session creation, provider construction failure, interface audit failure, run completion and application close all
-  converge on the same run-owned cleanup stack.
+## Tool And Target Protocol
+
+The safe surface is `browser_navigate`, `browser_inspect`, `browser_find`, `browser_read`,
+`browser_extract`, `browser_screenshot`, `browser_fill`, `browser_type`, `browser_select`,
+`browser_check`, `browser_uncheck`, `browser_click`, `browser_hover`, `browser_focus`,
+`browser_press`, `browser_scroll`, `browser_upload`, `browser_drag`, `browser_dialog`,
+`browser_tabs`, `browser_history`, `browser_wait`, `browser_console`, `browser_network`,
+`browser_download`, `browser_analyze`, and `browser_backfill`.
+
+Known unique targets may be acted on directly with role/name/label/text/testid semantics. Unknown or
+ambiguous targets are discovered with inspect/find, then acted on through the returned `target_ref`.
+References are session, tab, frame, generation, and identity scoped. Resolution reports `exact`,
+`stable`, or `reidentified`; conflicting or non-unique recovery fails as `stale_ref` or
+`target_ambiguous` and never chooses the first match silently.
+
+Inspect collection, retained-element filtering, find, and direct semantic actions share one text
+matcher. Exact and contains matching case-fold and remove whitespace only when it lies between two Han
+characters (`U+3400-U+4DBF`, `U+4E00-U+9FFF`, or `U+F900-U+FAFF`), covering framework display spacing
+such as `确 认` without changing ordinary Latin/number spaces. Regex matching always runs against the
+original unnormalized string.
+
+The Runtime does not hide action schemas before inspect and has no pre-dispatch snapshot lease. It
+passes the provider's semantic target or `target_ref` unchanged to the browser tool; the session-owned
+resolver is the single authority for uniqueness, scope, identity recovery, and actionability. This
+avoids a second V2.1 policy layer contradicting V3.1 target semantics.
+
+CSS is read-only discovery. Typed actions re-resolve a semantic target or ref and verify visibility,
+enabled state, obscuration, control type, origin, frame, and uniqueness. Editability is a separate
+dimension: fill, type, and clipboard backfill reject readonly targets, while selection, click, focus,
+keyboard, hover, scroll, drag, dialog, download, and binary-control actions do not reject a target only
+because its DOM input is readonly. This supports compound controls such as Ant Design's readonly-input
+ARIA combobox without weakening the common actionability gate. Navigation or cross-origin identity
+changes invalidate incompatible refs; ordinary DOM rerenders may recover a unique stable identity.
+
+## Representation And OpenCLI Boundary
+
+Playwright remains the only browser owner. HomeMaster vendors the locked OpenCLI 1.8.7 browser
+algorithm/test dependency closure under `browser/vendor/opencli_1_8_7` and injects deterministic
+page-side scripts through `OpenCLIPageAdapter`. It never starts the OpenCLI daemon, Extension,
+profile takeover, tab lease, CLI lifecycle, or a second Node browser session.
+
+The vendor source, dependencies, tests, fixtures, generated scripts, license, provenance, and hashes
+are package data. `SHA256SUMS` uses lexical paths so symlinks remain independently covered. Runtime
+loads generated scripts through `importlib.resources` and verifies their manifest hash before page
+evaluation.
+
+The selected launch mode is part of the deployment contract. A headless-shell probe does not establish
+that the full Chromium revision needed by a headful recorded run exists. Release preflight launches the
+same headful mode and executable as the real run, opens the target origin, and verifies an exact DOM
+control before provider execution.
+
+## Mutation And Observation
+
+Every mutation reads the actual DOM/file/URL result after dispatch. Fill/type/select/check actions
+verify exact live control state; click proves the requested interaction and reports resulting URL/DOM
+change but does not claim business success. Upload accepts approved artifact refs, never arbitrary
+host paths. Backfill locks one PNG byte sequence, pastes it, and compares the rendered image hash with
+the source hash.
+
+Browser writes do not force a screenshot observation round trip. Their structured receipts are
+checked against independent DOM or business postconditions. The model uses `browser_screenshot`
+explicitly for visual inspection or annotated refs; screenshots are evidence, not action
+authorization. Event-driven dialog, popup, download, and response operations arm their listener
+before the trigger. Cursor-based console/network/extract reads preserve bounded continuation
+without unbounded follow loops.
+
+`browser_eval` is absent from the normal Registry. A run explicitly granted `browser.eval` receives
+one gated tool scoped to an authorized tab/frame, with full input/output audit and a required external
+postcondition. Typed tools never fall back to eval implicitly.
+
+## Policy And Evidence
+
+Initial, redirected, tab, popup, and frame URLs are checked against injected HTTP(S) origins. A
+disallowed page transition is aborted and fences the session. Timeouts and cancellation also fence
+the owner rather than retrying an uncertain mutation.
+
+Each operation appends structured JSONL with input, target resolution, duration, return/error status,
+generation, and external readback. Playwright produces run-owned trace and WebM artifacts. These prove
+browser facts only; business success still requires independent per-field terminal assertions and
+external return codes.
 
 ## Ticket Skill Boundary
 
-The browser prompt contains environment and observation rules only. Change-ticket tasks load the single
-`change-ticket-executor` Skill, which defines a generic ticket-reading, plan-locking, terminal-verification,
-review-image, backfill and rollback meta-workflow. Concrete fields, commands, steps and GT node IDs are absent from
-both prompt and Skill; they come from the ticket text read with Home general tools. The current demo's complete normal
-and anomaly/rollback GT is stored separately under `data/browser_demo/case_02/`. Its ticket SHA-256 and every
-`sop_step_id` mapping are validated against the source ticket. The normal implementation is `VERIFIED`; the full
-normal and anomaly/rollback UI execution remain `UNVERIFIED`.
-
-## Evidence
-
-Each operation appends one JSONL row with input, duration, outcome, error code, generation and fence state. Playwright
-tracing captures screenshots and DOM snapshots, and the context records a run-owned WebM. These are execution facts;
-business success still requires an independent page-state assertion.
+The browser prompt defines only environment, target, observation, and verification rules.
+`change-ticket-executor` supplies a generic plan-locking, execution, terminal-verification, evidence,
+backfill, and rollback workflow. Ticket paths, SOP IDs, field values, commands, routes, and product
+names are not hardcoded in the Skill, prompt, resolver, or browser backend.
 
 ## Deployment Limits
 
-The configured start URL and every navigation remain restricted to injected HTTP(S) origins, including the final URL
-after redirects. Popup policy, full cross-origin frame policy, snapshot revision history, Shadow DOM completeness and
-timeout recovery remain outside this delivery. The verified Ant target is a deterministic Mock UI; UI success is not
-evidence of a real backend business change. Native fixture selection is verified, while any untested external Ant
-Select variant remains `UNVERIFIED` until exercised in that exact runtime.
+V3.1 covers standards-based DOM/ARIA workflows, Shadow DOM, policy-allowed frames, compound controls,
+tabs, popups, dialogs, downloads, and common SPA rerenders. Canvas or visually encoded state still
+requires screenshots; hostile anti-bot pages, browser extensions, existing-profile takeover, and
+unapproved cross-origin content are outside the supported authority. A successful Mock UI or fixture
+run is not evidence that a real backend business change occurred.

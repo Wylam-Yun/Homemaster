@@ -1,5 +1,241 @@
 # Engineering Pitfalls
 
+## 2026-08-26 - browser_find 返回裸 element_id 导致动作误命中旧 snapshot
+
+### 症状与根因
+
+正式 Web Run 中，模型按要求先调用 `browser_find`，拿到 `target_ref=e1` 后立即点击，却连续返回
+`stale_ref`，错误里的 snapshot generation 比当前页面小一代。页面并没有在 find 与 click 之间再次
+导航；根因是 semantic `find()` 直接序列化临时 `BrowserElement`，未先写入 `SnapshotStore`，于是
+`to_public_dict()` 用裸 `element_id` 充当 ref。解析 `e1` 时会在 retained snapshots 中误命中旧页面
+同名元素，形成看似合理但身份错误的引用。
+
+### 修法与教训
+
+semantic find 成功后先把精确候选注册到 `SnapshotStore`，再从 store 生成带 session/snapshot identity
+的完整 `target_ref` 并返回；CSS find 仍保持只读。真实 Chromium 回归先创建旧 snapshot、再次导航、
+调用 find，再用其返回 ref 填写控件并独立读回值。任何公开 ref producer 都必须先建立 authoritative
+retention owner；裸序号只在一个局部快照内有意义，不能作为跨调用身份。
+
+### Ref
+
+- `src/homemaster/browser/playwright_session.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-e2e-runtime/cli-35bf78b1e0a5/`
+
+## 2026-08-26 - scoped AX inspect 把领域包装对象传入 Playwright handle 接口
+
+### 症状与根因
+
+正式 Web Run 中两次 `browser_inspect(view=ax, scope=...)` 都返回
+`AttributeError: 'BrowserElement' object has no attribute 'evaluate'`。scope resolver 返回的是
+HomeMaster `BrowserElement`，其中真正的 Playwright handle 位于 `.handle`；inspect 却把包装对象本身
+传给 `OpenCLIPageAdapter.ax_snapshot()`，adapter 按 handle contract 调用 `.evaluate()` 后立即失败。
+无 scope 的 AX 测试和 DOM scope 测试均不会经过这条组合边界，因此此前全绿没有覆盖真实路径。
+
+### 修法与教训
+
+scoped AX 边界只传 `scope_element.handle`，并增加真实 Chromium 回归，从语义 scope 解析一路执行到
+AX 文本终态，准确断言 scope 根控件存在。领域对象与第三方 handle 即使都代表“同一个元素”也不是
+同一接口类型；adapter 边界必须显式解包，并逐种 view/scope 组合做跨层测试。
+
+### Ref
+
+- `src/homemaster/browser/playwright_session.py`
+- `src/homemaster/browser/opencli_adapter.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-e2e-runtime/cli-35bf78b1e0a5/`
+
+## 2026-08-26 - AntD 日期格可见但没有 cell 语义角色
+
+### 症状与根因
+
+第五次真实 Web Run 32 的截图显示日期 `21`，但 `browser_click`、`browser_find` 使用
+`role=cell,text=21` 均返回 `target_not_found`，随后大范围 inspect 超时并 fence session。独立
+Chromium DOM 取证确认 AntD 渲染的是无 role 的 `<td>`，只有内部日期节点带
+`aria-label="date 2026-08-21 00:00:00"`，因此视觉文本没有可查询的 cell 语义。
+
+### 修法与教训
+
+在共享 `SemanticPickerCell` 中为日期节点补 `role="cell"`，保留完整日期 aria 名称与可见日号，
+并用唯一可见 `role=cell` 黑盒查询验证。日期、时间的可见文本和 ARIA 语义必须同时满足模型规范中的
+角色与文本目标；截图可见不代表语义树可操作。
+
+### Ref
+
+- `/home/haodong2/weilin/red_bird/ant-design-pro/src/pages/ops/components/SemanticPickerCell.tsx`
+- `/tmp/homemaster/v31-run32-20260826-053950/`
+
+第六次 Run 32 又证明模型可能请求标准 ARIA `gridcell` 而页面提供 `cell`；HomeMaster 现在将这两个
+表格单元角色在语义 resolver/filter 中视为兼容，并分别有 resolver 回归测试。页面仍保留真实的
+`role=cell`，兼容性放在协议层而不是伪造双重 DOM 角色。
+
+## 2026-08-26 - 框架插入汉字显示空格导致截图可见但语义目标为零
+
+### 症状与根因
+
+第四次真实 Web Run 32 已打开 Ant Design Popconfirm，截图清楚显示“确认”，但模型用 exact/contains
+查询 `确认` 都返回零个目标。独立 DOM 取证发现按钮实际为 `<span>确 认</span>`：Ant Design 为两个
+汉字插入显示空格。HomeMaster 的 direct resolver、inspect collector 和 retained-element filter 各自对
+原始字符串做比较，三条路径会一致漏掉目标；截图视觉与 DOM/AX 文本并非同一个表示。
+
+### 修法与教训
+
+先保留失败 run 并在真实 Chromium fixture 中写出 `确认` 无法点击的红测，再建立唯一共享 matcher。
+exact/contains 只折叠两个汉字之间的空白，同时覆盖 CJK Extension A、Unified Ideographs 和
+Compatibility Ideographs；普通 Latin/数字空格不变，regex 继续匹配原始字符串。验收逐项经过 inspect
+exact、find contains 和 direct click exact，并独立读取点击后的 DOM status。视觉可见不等于语义字符串
+相同；语义规范化必须在所有入口同源，但验证必须逐入口和外部终态正交完成。
+
+### Ref
+
+- `src/homemaster/browser/targets.py`
+- `src/homemaster/browser/inspection.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-run32-20260826-045356/`
+
+## 2026-08-26 - headless Playwright 通过但录制所需 headful Chromium 不存在
+
+### 症状与根因
+
+浏览器单测和此前安装态门都通过，但第三次真实 Web Run 32 在启动模型前返回 `adapter_failed`。
+Playwright 1.61 的 `chromium_headless_shell-1228` 已存在，真实录制配置却使用 `headless=false`，需要
+独立的 `chromium-1228/chrome-linux64/chrome`；该 executable 当时未安装。用 headless 门替代 headful
+预检把不同 launch mode 和二进制错误地当成同一个环境能力。
+
+### 修法与教训
+
+通过项目环境安装锁定 revision 的完整 Chromium，并在新 display 上以 headful 模式真实启动，打开目标
+Ant Design 页面，核对 HTTP 200 和准确 reset button count 后才允许下一次模型 run。浏览器可用性必须
+按实际 runner、Playwright revision、launch mode、executable 和目标页逐项验证；缺少这些任一项时应在
+模型执行前 fail closed，失败 run 保留原分类。
+
+### Ref
+
+- `/home/haodong2/.cache/ms-playwright/chromium-1228/chrome-linux64/chrome`
+- `/tmp/homemaster/v31-run32-20260826-044722/`
+
+## 2026-08-26 - readonly input combobox 被统一 writable 门误判为不可交互
+
+### 症状与根因
+
+V3.1 的 button-based ARIA combobox、native select 和安装态浏览器门均通过，但第二次真实 Web Run 32
+在 Ant Design “云服务”下拉框返回 `target_readonly`，option 尚未展开，工具调用没有到达点击后端。
+真实控件是 `role=combobox` 的 readonly input；后端的 `writable=True` 同时承担 mutating match、通用
+actionability 和文本 editability 三种语义，`_prepare_actionable` 因而把 readonly 当成所有交互的拒绝条件。
+测试 fixture 只使用 button combobox，漏掉了框架真实 DOM 形态。
+
+### 修法与教训
+
+先增加 readonly input + ARIA listbox 的真实 Chromium 回归，确认修复前精确失败为 `target_readonly`。
+随后把 `require_editable` 从通用 actionability 中独立出来：所有动作仍统一校验 visible/enabled/obscured，
+只有 fill/type/backfill 要求可编辑；select/click/focus/press/hover 等不能只因 readonly 被拒。回归同时
+断言 `browser_select` 后 DOM value 真实变化，并断言同一目标的 fill 仍返回 `target_readonly`。复合控件
+兼容性必须覆盖框架实际使用的 element/tag/state 组合，角色相同的另一种简化 fixture 不是正交证据。
+
+### Ref
+
+- `src/homemaster/browser/playwright_session.py`
+- `tests/homemaster/browser/fixtures/semantic-controls.html`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-run32-20260826-032700/`
+
+## 2026-08-26 - Provider schema 与 Playwright 都是 V3.1，Runtime 中间层仍按 V2.1 拦截
+
+### 症状与根因
+
+V3.1 provider schema、Skill、prompt、纯 Runtime 子集和真实 Playwright 后端测试均通过，安装态浏览器门
+也能直接 semantic click；但首次 Web Run 32 的模型反复报告页面重渲染，23 次 `browser_click` 从未到达
+后端。原始 Runtime event 证明 `context_projection.py` 仍生成
+`browser_inspect_required/browser_inspect_reference_mismatch`，要求已经从公开 schema 删除的
+`snapshot_id/element_id`。迁移只让 schema projection 对 V3.1 休眠，却漏掉 `generic_runtime.py` 无条件调用
+的 pre-dispatch fence；聚焦测试仍把旧 fence 当正向行为，所以形成同源假绿。
+
+### 修法与教训
+
+先用真实事件稳定定位 provider→Runtime 边界，再写 provider 首轮直接发 semantic `browser_click`、并断言
+dispatcher 精确收到参数的失败回归。随后删除旧 inspect lease、schema hiding、reference projection、事件和
+同源旧测试，让 V3.1 session resolver 成为唯一目标/作用域/actionability 权威。公开协议迁移必须审计完整
+调用链上的每个 pre-dispatch guard 和 context projection；provider schema hash 与后端黑盒分别通过，仍不能
+替代一次 provider tool call 真正抵达 dispatcher/backend 的跨层门。
+
+### Ref
+
+- `src/homemaster/agent/context_projection.py`
+- `src/homemaster/agent/generic_runtime.py`
+- `tests/homemaster/test_generic_agent_runtime.py`
+- `/tmp/homemaster/v31-run32-20260826-024536/`
+
+## 2026-08-26 - Web 组合层覆盖 browser 配置的 permission mode
+
+### 症状与根因
+
+浏览器 Web 的策略单测和 `PermissionChecker` 单测都通过，但用 `full_auto` 配置启动时仍可能
+进入确认路径。根因是 `create_browser_web_app` 为 browser profile 显式传入
+`PermissionMode.DEFAULT`，把已解析的配置值在 application composition 边界覆盖掉；只测试
+策略实现看不出这个接线错误。
+
+### 修法与教训
+
+移除 transport-specific 的 permission override，让配置值沿共享 ApplicationRuntime 路径流入
+`PermissionChecker`；在组合测试中断言 browser Web 不注入 `permission_mode`。凡是多个入口共享
+权限策略，必须在每个真实 composition 边界逐项核对最终 `RunRequest`/应用参数，不能用策略层
+单测代替接线验证。
+
+### Ref
+
+- `src/homemaster/web/serve.py`
+- `tests/homemaster/web/test_serve.py`
+- `docs/browser-gateway-user-guide.md`
+
+## 2026-08-26 - 聚焦测试列表漏掉规范点名的同族文件
+
+### 症状与根因
+
+V3.1 的合同、Runtime 和 Skill 聚焦门连续全绿，但同步到 hkust4 后扩大测试集合，
+`test_change_ticket_executor_evidence.py` 的 7 个用例全部失败。浏览器后端没有回归；根因是迁移时只更新并
+运行了相邻的 `test_change_ticket_executor.py`，遗漏了规范 10.1 明确点名的 evidence 测试文件。交接中的
+“Skill coverage passes”来自手写的部分文件列表，因而把未收集误当成通过。
+
+### 修法与教训
+
+先把遗漏测试迁移为 V3.1 正向约束和 V2.1 负向扫描，再用红灯确认 Skill 真正缺少 semantic direct action、
+EvidenceDrawer/backfill 权威边界、绝对导航、自动截图去重和 task progress 独占调用指导，最后只补这些
+缺口。规范点名的验收文件必须逐个进入执行命令；聚焦门要记录 collected file/test 集合，不能用一个相邻
+文件或汇总数字代替。Skill 属于 package data，修复后必须重建 wheel 并重跑安装态 loader 和真实浏览器门。
+
+### Ref
+
+- `plan/V3.1/browser-tools-spec.md` §10.1/10.3
+- `tests/homemaster/skills/test_change_ticket_executor_evidence.py`
+- `src/homemaster/skills/builtin/change-ticket-executor/SKILL.md`
+
+## 2026-08-26 - import closure 与源码测试全绿仍漏掉动态 fixture、点文件和 symlink
+
+### 症状与根因
+
+OpenCLI ESM 依赖审计报告 `missing 0`，24 个上游测试文件也已通过，但 3 个 suite 在启动时找不到
+`jsdom`；补齐测试环境后，article e2e 又找不到 3 个通过 `fs.readFileSync` 动态读取的 fixture。
+npm 1.8.7 发布包本身漏了这些资源，单追 import 图永远发现不了。随后 wheel 能构建，源码侧 hash
+审计也全绿，但 setuptools 默认漏掉上游依赖的点文件；一次直接在 vendor 根运行 Vitest 还生成了
+`.vite/results.json` 污染。最后 `.bin/js-yaml` symlink 既未被 `find -type f` 收进清单，又被测试中的
+`resolve()` 与目标文件折叠，形成第二次假绿；wheel 将它物化后才暴露 extra 文件。
+
+### 修法与教训
+
+上游测试只在 `/tmp` 未修改副本中运行，用 Corepack/pnpm 安装锁定的 Vitest/jsdom。动态 fixture 从
+与 npm `gitHead` 完全相同的 `v1.8.7` commit 复制并锁 hash；vendor 审计拒绝测试/构建 cache。
+package-data 显式覆盖 `__fixtures__`、点文件和点目录。SHA 清单按词法路径覆盖普通文件与 symlink，
+不以 `resolve()` 合并身份。最终 wheel 的目标集合必须与“1,525 条清单 + 清单自身”完全相等，并在
+源码外空 venv 逐条重算 hash 后运行真实 Playwright 外部终态门。
+
+### Ref
+
+- `tests/homemaster/browser/test_opencli_vendor.py`
+- `src/homemaster/browser/vendor/opencli_1_8_7/`
+- `pyproject.toml`
+- `/tmp/homemaster-v31-installed-gate/`
+
 ## 2026-08-25 - 验收轨迹错分阶段且校验失败后仍遗留 succeeded bundle
 
 ### 症状与根因

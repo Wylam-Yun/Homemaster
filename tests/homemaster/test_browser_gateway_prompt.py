@@ -6,28 +6,21 @@ def test_browser_gateway_prompt_is_independent_and_requires_review_images() -> N
 
     assert "browser_inspect" in prompt
     assert "browser_backfill" in prompt
-    assert "snapshot_id" in prompt
+    assert "target_ref" in prompt
     assert "load_skill" in prompt
-    assert "You may call `observe`" in prompt
-    assert "semantic text and controls are insufficient" in prompt
-    assert "returns no actionable" in prompt
-    assert "call `browser_inspect` before any interaction" in prompt
-    assert "review" in prompt.casefold()
-    assert "Mock UI" in prompt
-    assert "automatically captures one review image" in prompt
-    assert "`browser_navigate` are read-only and do not" in prompt
+    assert "browser_screenshot" in prompt
+    assert "`browser_eval` is absent by default" in prompt
+    assert "fresh screenshot of the" in prompt
+    assert "current browser page" in prompt
+    assert "stop and report that evidence" in prompt
+    assert "terminal command, raw" in prompt
+    assert "CDP, coordinates, or a second browser session" in prompt
     assert "must be the only tool call in its model response" in prompt
-    assert "`task_planner` creates or replaces the model-owned TODO list" in prompt
-    assert "`task_progress_check` updates that list" in prompt
-    assert "It does not determine the next tool" in prompt
-    assert "never place a task-state call between that inspection and its write" in prompt
-    assert "browser_inspect accepts filters only" in prompt
-    assert "never pass snapshot_id or element_id to it" in prompt
-    assert "Before every browser write or interaction, call browser_inspect" in prompt
-    assert "Treat next_snapshot as review context only" in prompt
-    assert "action directly" not in prompt
+    assert "independently read the external terminal state" in prompt
+    assert "snapshot_id" not in prompt
+    assert "element_id" not in prompt
+    assert "`observe`" not in prompt
     assert "call observe exactly once" not in prompt
-    assert "issue the browser write only on the next" not in prompt
     for case_specific in (
         "svc_cfg_cli_runner",
         "TenantId",

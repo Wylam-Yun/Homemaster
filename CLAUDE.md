@@ -75,6 +75,9 @@
 
 ## Gateway 远程边界纪律
 
+- 公开工具协议迁移后，逐层审计 provider schema、context projection、pre-dispatch fence、dispatcher 和 backend；
+  删除所有依赖旧字段/旧调用顺序的中间 guard。必须用一次 provider 直接发新协议工具调用并断言 dispatcher
+  精确收到参数的跨层回归；schema hash 与 backend 单测分别全绿不能替代该门。
 - Runtime terminal payload 中任何要求用户继续交互的语义字段（例如 `question`）都必须在 lifecycle terminal
   前投影为浏览器可见事件；禁止只发空 `run.completed` 丢失内容。回归必须锁定可见事件原文与顺序，同时证明
   ordinary reply/final 不重复。
@@ -150,6 +153,9 @@
 
 ## 测试工作区纪律
 
+- 设计/实施规范点名的验收测试文件必须逐个进入最终命令，并记录实际 collected 文件/用例集合；禁止用相邻
+  测试、手写子集或汇总通过数推断未收集文件也通过。扩大测试集合暴露遗漏后，先迁移或修复遗漏测试，再重跑
+  package-data 和真实外部终态门。
 - 外部系统已有正式类型枚举时，adapter 默认保留完整原生枚举和语义；不要另建更窄的下游类型集合后把合法
   上游值报成 corrupt。确需隐藏的类型必须显式标为 filtered，并用真实存量数据逐类型验证投影与终态。
 
@@ -158,9 +164,19 @@
   要求模型保持 fact/procedure 类型。语义近似不得触发跨 identity 合并；连续写入两个相近但不同 identity 的
   真环境用例，分别断言准确 ID 和原始 record，单个成功样本不能证明类型门可靠。
 
+- 所有公开 `target_ref` producer 必须先把准确元素注册到 authoritative `SnapshotStore`，再返回包含
+  session/snapshot identity 的完整 ref；禁止用裸 `element_id` 作为跨工具调用身份。回归必须先保留含同名
+  element ID 的旧页面 snapshot，再导航、find、用返回 ref 执行动作并独立读取真实 DOM 终态。
+- 浏览器领域包装对象进入 Playwright/OpenCLI adapter 前必须显式传递真实 `.handle`；不得因为两者都表示
+  DOM 元素就混用类型。每个支持 scope 的 DOM/AX/hybrid 组合都要从真实语义解析执行到 adapter 输出，不能用
+  无 scope 或只测另一 view 的用例代替。
 - 浏览器 actionability 的 obscured 判断必须在目标滚入 viewport 后基于刷新状态执行；inspect
   时的首屏外坐标不能直接作为动作拒绝依据。回归必须用真实首屏外控件完成一次点击或回填并读取
   DOM 终态，不能只断言 inspect 返回目标。
+- 浏览器控件的 readonly 与不可交互必须分维度判断：readonly 只阻止 fill/type/backfill 等文本编辑，
+  不得阻止 select、click、focus、press、hover 等交互；enabled、visible、obscured 仍由统一 actionability
+  门校验。复合控件回归必须覆盖真实框架使用的 readonly input combobox 形态并读取选择后的 DOM 值，
+  不能用 button combobox 代替。
 - verifier 不得把 executor 失败认证成成功，也不得用 verifier 自身异常覆盖原始工具错误。没有
   成功 backend receipt 时保留 executor 的 status/error/outcome certainty；测试必须从最终模型可见
   ToolResult 断言原始错误码，而不是只直接调用 executor。
@@ -229,6 +245,16 @@
   model、依赖 ambient cwd 或重新加载默认配置都不算配置复用。
 - 上游兼容移植必须保留锁定 commit 的原始 fixture/test，并增加一条未经改写的真实上游格式黑盒门；
   Home 自造等价 fixture 与同源 parser 单测不能证明兼容。
+- Vendor 闭包不能只追 import/export：同时审计测试中的动态文件读取、package-data 点文件/点目录和
+  symlink 词法路径。上游测试必须在 vendor 外的临时副本运行，禁止把 runner cache 写进锁定源码。
+  构建后让 wheel 目标集合与 manifest（含 symlink）精确相等，再在源码外安装并逐项重算 hash；
+  `resolve()` 折叠链接身份或源码侧测试全绿都不能替代安装包门。
+- 浏览器语义文本的 exact/contains 规范化必须由 inspect、find 和 direct action 共享同一个 matcher；只能
+  折叠框架插入的汉字间显示空白，普通 Latin/数字空格保持语义，regex 始终匹配原始文本。回归必须逐路径
+  命中真实 DOM，并在动作后独立读取外部终态，禁止只测 helper。
+- 录制或可视 Web 门使用 headful Chromium 时，必须在模型运行前用实际 runner Python 启动同一 launch
+  mode 和 exact executable，并完成目标页 HTTP/DOM 探针。headless shell 存在、headless 单测通过或
+  Playwright package 可 import 都不能证明完整 headful browser revision 可用。
 - 检查/截图/read 工具只能提供模型确认信息，不能成为无关动作的 authorization、freshness 或 completion
   状态机。多模态 tool result 必须在实际 provider request 边界断言模型可见 block 的类型与数量；内部 trace
   或 image hash 不能替代该断言。
@@ -334,6 +360,9 @@
   分别检查工具返回、模型消息和实际 JSONL 落盘。
 - dry-run/config 报告的运行预算必须显式接入 one-shot、interactive、Gateway 等每个实际入口的
   `RunPolicy`；入口测试必须断言最终 request 值，不能用配置解析正确替代执行接线。
+- 共享权限策略的每个 Web/Gateway composition 都必须保留配置解析出的 `permissions.mode`；禁止 transport
+  入口注入自己的默认模式覆盖 `full_auto`/`confirm`/`plan`。回归要在 composition 边界断言最终应用参数，
+  不能只测 `PermissionChecker`。
 - installed CLI 的默认配置路径必须可由显式部署值覆盖；doctor/report 不能假定配置位于源码
   `REPO_ROOT`。wheel 黑盒必须从空 cwd 使用外部配置路径运行，禁止借 pytest `pythonpath=src` 假绿。
 - Cron、配置、MCP 管理和 task/agent/team 等管理工具必须声明并检查各自独立 capability；通用

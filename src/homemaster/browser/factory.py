@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 from urllib.parse import urldefrag
@@ -27,6 +28,15 @@ class PlaywrightBrowserSessionFactory:
         self._video_root = Path(video_root)
         self._headless = headless
         self._start_url = start_url
+
+    def for_run(self, *, eval_allowed: bool) -> PlaywrightBrowserSessionFactory:
+        """Return an isolated factory carrying the run-scoped eval capability."""
+        return PlaywrightBrowserSessionFactory(
+            policy=replace(self._policy, eval_allowed=eval_allowed),
+            video_root=self._video_root,
+            headless=self._headless,
+            start_url=self._start_url,
+        )
 
     async def create(self, *, run_id: str) -> BrowserSession:
         from homemaster.browser.playwright_session import PlaywrightBrowserSession

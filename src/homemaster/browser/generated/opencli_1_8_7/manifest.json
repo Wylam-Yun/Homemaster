@@ -1,0 +1,10 @@
+{
+  "upstream": "@jackwener/opencli@1.8.7",
+  "generated": {
+    "dom_snapshot_full.js": "67401b07cc5a6a3b26419f11bad8a951e2bf2da58b0c03cb4fe8cb32a5dda78a",
+    "dom_snapshot_interactive.js": "d5c4932d3b7969d4772ad4a239451e6a768929ee155b1d25fb9906839662b5e9",
+    "form_state.js": "57946d9d0f8d60d8542ad40241ec9d03faa20a3f4815d057b90bbaeb1e1ded11",
+    "extract_html.js": "8041c098b78f4e3e7e94b64cf8331197b71c2d8e07bac35e552f550bb0f23cef",
+    "html_tree.js": "08f106ed9aa179ac681213ec0dee2038d3ca462261d75acaa0ad15f025103dc5"
+  }
+}

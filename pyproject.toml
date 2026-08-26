@@ -89,6 +89,20 @@ homemaster = [
   "skills/builtin/*/**/*",
   "skills/bundled/content/*.md",
   "web/static_dist/**/*",
+  "browser/vendor/opencli_1_8_7/LICENSE",
+  "browser/vendor/opencli_1_8_7/UPSTREAM.md",
+  "browser/vendor/opencli_1_8_7/PATCHES.md",
+  "browser/vendor/opencli_1_8_7/SHA256SUMS",
+  "browser/vendor/opencli_1_8_7/package.json",
+  "browser/vendor/opencli_1_8_7/dist/src/**/*.js",
+  "browser/vendor/opencli_1_8_7/dist/src/**/*.d.ts",
+  "browser/vendor/opencli_1_8_7/dist/src/**/*.test.js",
+  "browser/vendor/opencli_1_8_7/dist/src/**/*.fixture.*",
+  "browser/vendor/opencli_1_8_7/dist/src/browser/__fixtures__/**/*",
+  "browser/vendor/opencli_1_8_7/node_modules/**/*",
+  "browser/vendor/opencli_1_8_7/node_modules/**/.*",
+  "browser/vendor/opencli_1_8_7/node_modules/**/.*/**/*",
+  "browser/generated/opencli_1_8_7/*",
 ]
 
 [tool.pytest.ini_options]
@@ -116,3 +130,6 @@ select = ["E", "F", "I", "UP", "B"]
 "tests/**" = ["E402"]
 # Scripts — standalone demo/dev tools, not part of the package
 "scripts/**" = ["E402", "E501", "E741", "F841"]
+# Browser schemas preserve locked provider descriptions; session embeds page-side JavaScript.
+"src/homemaster/browser/playwright_session.py" = ["E501"]
+"src/homemaster/tools/browser/**" = ["E501"]

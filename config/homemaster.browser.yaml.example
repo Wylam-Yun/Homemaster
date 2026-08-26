@@ -1,0 +1,40 @@
+# Copy to config/homemaster.browser.yaml, chmod 600, and replace every placeholder.
+# The real file is gitignored. Never commit provider credentials or server-specific paths.
+providers:
+  default: Mimo
+  items:
+    - name: Mimo
+      kind: chat
+      api_format: anthropic
+      transport: anthropic_sdk
+      auth_type: auth_token
+      base_url: https://provider.example/anthropic
+      model: your-chat-model
+      api_keys:
+        - "<your-api-key>"
+      context_window_tokens: 200000
+      max_output_tokens: null
+
+runtime:
+  runtime_root: /tmp/homemaster/v31-browser-runs
+
+runtime_defaults:
+  default_provider_name: Mimo
+
+memory:
+  enabled: false
+
+browser_gateway:
+  start_url: http://127.0.0.1:8000/ops/alarm-query
+  allowed_origins:
+    - http://127.0.0.1:8000
+  headless: false
+  action_timeout_ms: 15000
+  navigation_timeout_ms: 30000
+  wait_timeout_ms: 10000
+
+permissions:
+  mode: full_auto
+  allowed_terminal_commands:
+    - >-
+      grep -Fxq 'agent_version=1.0.0' /absolute/path/to/ant-design-pro/mock/fixtures/monitor-agent/agent.conf && echo CONFIG_VERSION_OK

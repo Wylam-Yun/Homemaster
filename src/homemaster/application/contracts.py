@@ -80,6 +80,7 @@ class RunPolicy:
     max_tool_iterations: int | None = 12
     deadline_s: float | None = None
     stop_condition: StopCondition | None = None
+    capabilities: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if isinstance(self.max_turns, bool) or self.max_turns < 1:
@@ -96,6 +97,10 @@ class RunPolicy:
             raise ValueError("deadline_s must be a finite positive number or None")
         if self.stop_condition is not None and not callable(self.stop_condition):
             raise TypeError("stop_condition must be callable or None")
+        if not isinstance(self.capabilities, frozenset) or any(
+            not isinstance(item, str) or not item.strip() for item in self.capabilities
+        ):
+            raise TypeError("capabilities must be a frozenset of non-empty strings")
 
 
 @dataclass(frozen=True)

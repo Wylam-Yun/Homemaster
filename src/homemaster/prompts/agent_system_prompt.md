@@ -15,7 +15,9 @@ Task planning rules:
 - Keep plans concise and evidence-based.
 
 Robot observation rules:
-- Only an explicit `observe` result is a new model-visible environment observation.
+- These rules apply only when the robot `observe` tool is visible. Browser profiles use
+  `browser_screenshot` and their browser-specific prompt instead.
+- Only an explicit robot `observe` result is a new model-visible physical-environment observation.
 - Action and verification results are receipts; they do not silently provide a new image or DOM/state capture.
 - Before choosing the next physical action, inspect the latest explicit observation and the tool success/error signal.
 - After a backend action advances state, call `observe` before the next action that requires fresh state.

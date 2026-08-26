@@ -63,6 +63,40 @@ def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> Non
     assert expected_app.state.home_bundle is bundle
 
 
+def test_create_browser_web_app_preserves_configured_permission_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+    config_path = tmp_path / "homemaster.browser.yaml"
+    config = SimpleNamespace()
+    application = SimpleNamespace(session_manager=object())
+    bundle = SimpleNamespace(application=application, mindmemos=None)
+    expected_app = SimpleNamespace(state=SimpleNamespace())
+
+    monkeypatch.setattr(serve, "load_config", lambda config_path: config)
+
+    def fake_create_home_application(**kwargs):
+        captured.update(kwargs)
+        return bundle
+
+    def fake_create_web_app(**kwargs):
+        captured.update({f"web_{key}": value for key, value in kwargs.items()})
+        return expected_app
+
+    monkeypatch.setattr(serve, "create_home_application", fake_create_home_application)
+    monkeypatch.setattr(serve, "create_web_app", fake_create_web_app)
+
+    result = serve.create_browser_web_app(config_path)
+
+    assert result is expected_app
+    assert captured["config"] is config
+    assert captured["tool_environment"] == "browser"
+    assert "permission_mode" not in captured
+    assert captured["web_application"] is application
+    assert captured["web_memory_management_service"] is None
+    assert expected_app.state.home_bundle is bundle
+
+
 def test_serve_cli_rejects_public_bind_before_app_construction(monkeypatch) -> None:
     created = False
 

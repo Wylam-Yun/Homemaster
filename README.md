@@ -48,6 +48,9 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 - **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发、建群/改名，以及权限策略
   真正返回 `requires_confirmation=True` 时的同消息卡片审批；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。
+- **V3.1 通用浏览器** — 每个 run 一个 Playwright owner，提供 27 个 safe typed tools，支持
+  DOM/AX、语义目标、稳定 ref 恢复、Shadow DOM、iframe、复合表单、tab/popup/dialog、下载、
+  console/network 和独立终态读回；高权限 `browser_eval` 默认不注册。
 - **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
   session 恢复、取消、危险操作审批与断线重连；图片 artifact 在对应工具卡片内预览并可点击放大，
   `serve --alfworld` 复用同一 ALFWorld backend，默认且仅允许 loopback 绑定。
@@ -77,6 +80,7 @@ flowchart LR
 
     PERM --> TOOLS[通用工具<br/>文件 / terminal / Web / LSP / Cron / 子 agent]
     PERM --> DOMAIN[领域工具<br/>robot_go_to / manipulate / verify / observe]
+    PERM --> BROWSER[浏览器工具<br/>DOM / AX / semantic refs / screenshots]
     PERM --> MCP[MCP Servers<br/>stdio / HTTP]
     RT --> MEM[记忆系统<br/>SOUL/USER/MEMORY + MindMemOS<br/>Qdrant + Neo4j]
 
@@ -270,9 +274,11 @@ uv run homemaster --gateway --browser --config config/homemaster.yaml
   callback 身份闭环和批准后 backend exactly-once 的 live 主链仍标记为 `UNVERIFIED`。
 - Browser 模式下飞书正文可直接包含变更单 URL；通用 `change-ticket-executor` Skill 从票据自然语言
   动态提取步骤与验收；`task_planner` 创建完整 TODO list，`task_progress_check` 只在已有证据支持
-  状态变化时增量更新清单，不执行或验收任务。Runtime 为每次浏览器写操作自动附加截图，模型也可在语义信息不足时主动
-  `observe` 页面，再通过新的 `browser_inspect` 获取可执行引用。`browser_backfill` 以 SHA-256
-  一致性校验回填。当前验收范围是 Ant Design Pro Mock UI，不代表真实业务系统变更。
+  状态变化时增量更新清单，不执行或验收任务。已知唯一目标可直接按 role/name/label/text 操作；
+  未知、多匹配或身份不确定时通过 `browser_inspect`/`browser_find` 获取 run/tab/frame scoped
+  `target_ref`。写操作不强制 observe 或截图 round trip；需要布局、Canvas、图表等视觉证据时显式使用
+  `browser_screenshot`，图片回填由 `browser_backfill` 做源/预览 SHA-256 一致性校验。普通 provider
+  schema 不包含 `browser_eval`。
 
 详见 [Browser Gateway 用户指南](docs/browser-gateway-user-guide.md) 与
 [ALFWorld 用户指南](docs/alfworld-user-guide.md)。
@@ -439,7 +445,7 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
   未接真实机器人、VLA、VLM。
 - **Benchmark** — `AlfredThorEnv` 已接入 trial/reset/snapshot/typed-feedback 产品边界，内部回归通过，
   但完整 Gate B 与十 Episode 真实 API 证据仍不可用（Gate A 19/20，不能宣称完整 PASS）。
-  Browser 模式验收范围为 Ant Design Pro Mock UI。
+  Browser V3.1 已通过通用 DOM/ARIA fixture 与 Ant Design Pro 工作流门；真实业务成功仍需独立后端终态。
 
 ## 文档
 
@@ -451,7 +457,7 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
 | [ALFWorld 用户指南](docs/alfworld-user-guide.md) | 工具协议、trial manifest、offscreen 导航实验开关 |
 | [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md) | 实现不变量与数据流 |
 | [Browser Gateway 用户指南](docs/browser-gateway-user-guide.md) | 配置、演示输入与终态判据 |
-| [通用浏览器架构](docs/architecture/generic-browser-tools-phase1.md) | 浏览器工具不变量 |
+| [通用浏览器架构](docs/architecture/generic-browser-tools-phase1.md) | V3.1 owner、target、policy、vendor 与证据不变量 |
 | [Change Coworker 用户指南](docs/coworker-demo-user-guide.md) | preflight、运行、评分与产物 |
 | [Change Coworker 架构](docs/architecture/coworker-demo.md) | 边界与证据流 |
 | [Application Runtime 架构](docs/architecture/application-runtime.md) | Runtime owner 与数据流 |
