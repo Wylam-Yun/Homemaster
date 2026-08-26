@@ -83,37 +83,113 @@ class _Session:
         self.closed = False
         self.inspect_calls = 0
 
-    async def navigate(self, url):
+    async def navigate(self, url, **kwargs):
+        del kwargs
         return {"url": url}
+
+    async def history(self, action, **kwargs):
+        del action, kwargs
+        return {}
 
     async def inspect(self, filters):
         del filters
         self.inspect_calls += 1
         return BrowserSnapshot("s1", 0, "about:blank", "", "", (), 0, False)
 
-    async def fill(self, snapshot_id, element_id, value):
+    async def find(self, query):
+        del query
+        return {}
+
+    async def read(self, query):
+        del query
+        return {}
+
+    async def extract(self, query):
+        del query
+        return {}
+
+    async def fill(self, target, value):
+        del target
         return {"actual": value}
 
-    async def select(self, snapshot_id, element_id, option):
+    async def type(self, target, text, **kwargs):
+        del target, kwargs
+        return {"actual": text}
+
+    async def select(self, target, option, **kwargs):
+        del target, kwargs
         return {"actual": option}
 
-    async def check(self, snapshot_id, element_id):
+    async def check(self, target):
+        del target
         return {"actual": True}
 
-    async def uncheck(self, snapshot_id, element_id):
+    async def uncheck(self, target):
+        del target
         return {"actual": False}
 
-    async def click(self, snapshot_id, element_id):
+    async def click(self, target, **kwargs):
+        del target, kwargs
         return {"interaction_verified": True}
 
-    async def backfill(self, snapshot_id, element_id):
+    async def hover(self, target, **kwargs):
+        del target, kwargs
+        return {"hovered": True}
+
+    async def focus(self, target):
+        del target
+        return {"focused": True}
+
+    async def press(self, key, target=None, **kwargs):
+        del key, target, kwargs
+        return {}
+
+    async def scroll(self, query):
+        del query
+        return {}
+
+    async def upload(self, target, artifact_refs):
+        del target, artifact_refs
+        return {}
+
+    async def drag(self, source, destination, **kwargs):
+        del source, destination, kwargs
+        return {}
+
+    async def backfill(self, target, **kwargs):
+        del target, kwargs
         return {"paste_accepted": True}
+
+    async def tabs(self, query):
+        del query
+        return {}
+
+    async def dialog(self, query):
+        del query
+        return {}
+
+    async def network(self, query):
+        del query
+        return {}
+
+    async def download(self, query):
+        del query
+        return {}
 
     async def wait(self, condition):
         return {"matched": True}
 
-    async def screenshot(self):
+    async def screenshot(self, **kwargs):
+        del kwargs
         return b"not-used"
+
+    async def eval(self, query):
+        del query
+        return {}
+
+    async def analyze(self, query):
+        del query
+        return {}
 
     async def aclose(self):
         self.closed = True
@@ -258,19 +334,37 @@ async def test_enabled_and_disabled_runs_use_isolated_immutable_tool_views(tmp_p
     enabled_names = tuple(item["name"] for item in transports["enabled"].tools or [])
     disabled_names = tuple(item["name"] for item in transports["disabled"].tools or [])
     assert set(enabled_names) - set(disabled_names) == {
+        "browser_analyze",
+        "browser_backfill",
+        "browser_check",
+        "browser_click",
+        "browser_console",
+        "browser_dialog",
+        "browser_download",
+        "browser_drag",
+        "browser_extract",
+        "browser_fill",
+        "browser_find",
+        "browser_focus",
+        "browser_history",
+        "browser_hover",
         "browser_navigate",
         "browser_inspect",
+        "browser_network",
+        "browser_press",
+        "browser_read",
+        "browser_screenshot",
+        "browser_scroll",
+        "browser_select",
+        "browser_tabs",
+        "browser_type",
+        "browser_uncheck",
+        "browser_upload",
         "browser_wait",
     }
-    assert not {
-        "browser_fill",
-        "browser_select",
-        "browser_check",
-        "browser_uncheck",
-        "browser_click",
-        "browser_backfill",
-    }.intersection(enabled_names)
-    assert "observe" in enabled_names and "observe" in disabled_names
+    assert "browser_eval" not in enabled_names
+    assert "observe" not in enabled_names
+    assert "observe" in disabled_names
     assert tuple(registry.all_names()) == original_names
     assert len(factory.sessions) == 1
     assert factory.sessions[0].inspect_calls == 1

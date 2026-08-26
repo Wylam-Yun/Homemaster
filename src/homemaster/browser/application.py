@@ -24,7 +24,11 @@ class BrowserApplication:
 
     async def run(self, request: RunRequest) -> RunResult:
         dependencies = dict(request.dependencies)
-        dependencies["browser_session_factory"] = self._factory
+        factory = self._factory
+        for_run = getattr(factory, "for_run", None)
+        if callable(for_run):
+            factory = for_run(eval_allowed="browser.eval" in request.run_policy.capabilities)
+        dependencies["browser_session_factory"] = factory
         return await self._application.run(
             replace(
                 request,

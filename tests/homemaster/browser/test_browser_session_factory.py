@@ -19,7 +19,8 @@ class _Session:
     async def start(self) -> None:
         self.started = True
 
-    async def navigate(self, url: str):
+    async def navigate(self, url: str, **kwargs: object):
+        del kwargs
         self.navigated.append(url)
         if self.fail:
             raise RuntimeError("navigation failed")
@@ -31,29 +32,81 @@ class _Session:
     async def inspect(self, filters):  # pragma: no cover - interface audit only
         del filters
 
-    async def fill(self, snapshot_id, element_id, value):  # pragma: no cover
-        del snapshot_id, element_id, value
+    async def history(self, action, **kwargs):  # pragma: no cover
+        del action, kwargs
 
-    async def select(self, snapshot_id, element_id, option):  # pragma: no cover
-        del snapshot_id, element_id, option
+    async def find(self, query):  # pragma: no cover
+        del query
 
-    async def check(self, snapshot_id, element_id):  # pragma: no cover
-        del snapshot_id, element_id
+    async def read(self, query):  # pragma: no cover
+        del query
 
-    async def uncheck(self, snapshot_id, element_id):  # pragma: no cover
-        del snapshot_id, element_id
+    async def extract(self, query):  # pragma: no cover
+        del query
 
-    async def click(self, snapshot_id, element_id):  # pragma: no cover
-        del snapshot_id, element_id
+    async def fill(self, target, value):  # pragma: no cover
+        del target, value
 
-    async def backfill(self, snapshot_id, element_id):  # pragma: no cover
-        del snapshot_id, element_id
+    async def type(self, target, text, **kwargs):  # pragma: no cover
+        del target, text, kwargs
+
+    async def select(self, target, option, **kwargs):  # pragma: no cover
+        del target, option, kwargs
+
+    async def check(self, target):  # pragma: no cover
+        del target
+
+    async def uncheck(self, target):  # pragma: no cover
+        del target
+
+    async def click(self, target, **kwargs):  # pragma: no cover
+        del target, kwargs
+
+    async def hover(self, target, **kwargs):  # pragma: no cover
+        del target, kwargs
+
+    async def focus(self, target):  # pragma: no cover
+        del target
+
+    async def press(self, key, target=None, **kwargs):  # pragma: no cover
+        del key, target, kwargs
+
+    async def scroll(self, query):  # pragma: no cover
+        del query
+
+    async def upload(self, target, artifact_refs):  # pragma: no cover
+        del target, artifact_refs
+
+    async def drag(self, source, destination, **kwargs):  # pragma: no cover
+        del source, destination, kwargs
+
+    async def backfill(self, target, **kwargs):  # pragma: no cover
+        del target, kwargs
+
+    async def tabs(self, query):  # pragma: no cover
+        del query
+
+    async def dialog(self, query):  # pragma: no cover
+        del query
+
+    async def network(self, query):  # pragma: no cover
+        del query
+
+    async def download(self, query):  # pragma: no cover
+        del query
 
     async def wait(self, condition):  # pragma: no cover
         del condition
 
-    async def screenshot(self):  # pragma: no cover
+    async def screenshot(self, **kwargs):  # pragma: no cover
+        del kwargs
         return b""
+
+    async def eval(self, query):  # pragma: no cover
+        del query
+
+    async def analyze(self, query):  # pragma: no cover
+        del query
 
 
 @pytest.mark.asyncio

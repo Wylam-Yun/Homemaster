@@ -6,6 +6,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from homemaster.browser.contracts import BrowserElement
+from homemaster.browser.targets import semantic_text_matches
+
+_CELL_ROLES = frozenset({"cell", "gridcell"})
 
 INTERACTIVE_SELECTOR = ",".join(
     (
@@ -15,6 +18,8 @@ INTERACTIVE_SELECTOR = ",".join(
         "button",
         "a[href]",
         "[contenteditable=true]",
+        "[role]",
+        "[aria-label]",
         "[role=button]",
         "[role=link]",
         "[role=textbox]",
@@ -93,10 +98,24 @@ _ELEMENT_STATE_JS = r"""
     required: Boolean(el.required || el.getAttribute('aria-required') === 'true'),
     readonly: Boolean(el.readOnly || el.getAttribute('aria-readonly') === 'true'),
     checked, selected, expanded, obscured, options,
+    selectedValues: tag === 'select'
+      ? Array.from(el.selectedOptions).map(option => option.value) : [],
     stableId: el.id || '', testId: el.getAttribute('data-testid') || '',
     browserAction: el.getAttribute('data-browser-action') || '',
-    ariaControls: el.getAttribute('aria-controls') || ''
+    ariaControls: el.getAttribute('aria-controls') || '',
+    accept: el.getAttribute('accept') || '', multiple: Boolean(el.multiple),
+    min: el.getAttribute('min') || '', max: el.getAttribute('max') || '',
+    step: el.getAttribute('step') || ''
   };
+}
+"""
+
+# Keep the state projection in the page so a large semantic query uses one
+# browser round trip per frame instead of one CDP evaluation per element.
+_COLLECT_ELEMENT_STATES_JS = r"""
+([selector, state_source]) => {
+  const state_of = eval(`(${state_source})`);
+  return Array.from(document.querySelectorAll(selector)).map(state_of);
 }
 """
 
@@ -111,9 +130,13 @@ async def collect_elements(
     total = 0
     semantic_filters = filters or {}
     frames: list[dict[str, object]] = []
+    selector = _selector_for_filters(semantic_filters)
     for frame_index, frame in enumerate(page.frames):
         frame_id = f"f{frame_index}"
-        handles = await frame.query_selector_all(INTERACTIVE_SELECTOR)
+        handles = await frame.query_selector_all(selector)
+        states = await frame.evaluate(
+            _COLLECT_ELEMENT_STATES_JS, [selector, _ELEMENT_STATE_JS]
+        )
         frames.append(
             {
                 "frame_id": frame_id,
@@ -122,8 +145,10 @@ async def collect_elements(
                 "element_count": len(handles),
             }
         )
-        for handle in handles:
-            state = await handle.evaluate(_ELEMENT_STATE_JS)
+        requested_frame = semantic_filters.get("frame_ref")
+        if requested_frame is not None and str(requested_frame) != frame_id:
+            continue
+        for handle, state in zip(handles, states, strict=False):
             if not bool(state["visible"]):
                 continue
             if not _state_matches_filters(state, semantic_filters):
@@ -156,22 +181,51 @@ async def collect_elements(
                     options=tuple(dict(option) for option in state["options"]),
                     fingerprint=fingerprint,
                     handle=handle,
+                    testid=str(state.get("testId", "")),
+                    stable_id=str(state.get("stableId", "")),
+                    compound=_compound_info(state),
                 )
             )
     return elements, total, frames
 
 
-def _state_matches_filters(
-    state: Mapping[str, object], filters: Mapping[str, object]
-) -> bool:
+def _selector_for_filters(filters: Mapping[str, object]) -> str:
+    role = str(filters.get("role", "")).strip()
+    if role in _CELL_ROLES:
+        return '[role="cell"],[role="gridcell"]'
+    if role == "option":
+        return '[role="option"]'
+    role_selectors = {
+        "button": 'button,[role="button"]',
+        "link": 'a[href],[role="link"]',
+        "textbox": 'input:not([type=hidden]),textarea,[contenteditable=true],[role="textbox"]',
+        "combobox": 'select,[role="combobox"]',
+        "checkbox": 'input[type="checkbox"],[role="checkbox"]',
+        "radio": 'input[type="radio"],[role="radio"]',
+        "switch": '[role="switch"]',
+        "tab": '[role="tab"]',
+    }
+    if role in role_selectors:
+        return role_selectors[role]
+    return INTERACTIVE_SELECTOR
+
+
+def _state_matches_filters(state: Mapping[str, object], filters: Mapping[str, object]) -> bool:
     if filters.get("actionable_only") is True and (
         not bool(state.get("enabled")) or bool(state.get("obscured"))
     ):
         return False
-    for attribute in ("role", "name", "label", "text"):
+    match = str(filters.get("match", "contains"))
+    for attribute in ("role", "name", "label", "text", "testid"):
         query = filters.get(attribute)
         if isinstance(query, str) and query.strip():
-            if query.strip().casefold() not in str(state.get(attribute, "")).casefold():
+            actual = str(state.get("testId" if attribute == "testid" else attribute, ""))
+            if attribute == "role" and {actual, query.strip()} <= _CELL_ROLES:
+                continue
+            if attribute == "name" and str(state.get("role", "")) in _CELL_ROLES:
+                if semantic_text_matches(str(state.get("text", "")), query.strip(), match):
+                    continue
+            if not semantic_text_matches(actual, query.strip(), match):
                 return False
     return True
 
@@ -189,6 +243,8 @@ def fingerprint_from_state(state: Mapping[str, object], *, frame_id: str) -> tup
         str(state.get("stableId", "")),
         str(state.get("testId", "")),
         str(state.get("browserAction", "")),
+        str(state.get("type", "")),
+        str(state.get("text", ""))[:120],
         frame_id,
     )
 
@@ -197,16 +253,33 @@ def filter_elements(
     elements: list[BrowserElement], filters: Mapping[str, object]
 ) -> list[BrowserElement]:
     selected = elements
-    for attribute in ("role", "name", "label", "text"):
+    match = str(filters.get("match", "contains"))
+    for attribute in ("role", "name", "label", "text", "testid"):
         query = filters.get(attribute)
         if isinstance(query, str) and query.strip():
-            needle = query.strip().casefold()
             selected = [
                 element
                 for element in selected
-                if needle in str(getattr(element, attribute)).casefold()
+                if _element_matches_filter(element, attribute, query, match)
             ]
     return selected
+
+
+def _element_matches_filter(
+    element: BrowserElement, attribute: str, query: str, match: str
+) -> bool:
+    actual = str(getattr(element, attribute))
+    requested = query.strip()
+    if attribute == "role" and {actual, requested} <= _CELL_ROLES:
+        return True
+    if attribute == "name" and element.role in _CELL_ROLES:
+        if semantic_text_matches(element.text, requested, match):
+            return True
+    return _match_value(actual, requested, match)
+
+
+def _match_value(actual: str, query: str, match: str) -> bool:
+    return semantic_text_matches(actual, query, match)
 
 
 def _control_type(state: Mapping[str, object]) -> str:
@@ -231,6 +304,49 @@ def _control_type(state: Mapping[str, object]) -> str:
     if tag == "input":
         return input_type or "input"
     return "contenteditable" if bool(state.get("editable")) else role or tag
+
+
+def _compound_info(state: Mapping[str, object]) -> dict[str, object]:
+    """Expose bounded form metadata without returning secrets or arbitrary HTML."""
+
+    tag = str(state.get("tag", ""))
+    input_type = str(state.get("type", ""))
+    options = state.get("options")
+    info: dict[str, object] = {}
+    if tag == "select" and isinstance(options, list):
+        info.update(
+            {
+                "kind": "select",
+                "multiple": bool(state.get("multiple", False)),
+                "options_total": len(options),
+                "options": options[:100],
+            }
+        )
+    elif input_type in {"date", "time", "datetime-local", "month", "week"}:
+        info.update(
+            {
+                "kind": input_type,
+                "format": {
+                    "date": "YYYY-MM-DD",
+                    "time": "HH:mm or HH:mm:ss",
+                    "datetime-local": "YYYY-MM-DDTHH:mm[:ss]",
+                    "month": "YYYY-MM",
+                    "week": "YYYY-Www",
+                }[input_type],
+                "min": str(state.get("min", "")),
+                "max": str(state.get("max", "")),
+                "step": str(state.get("step", "")),
+            }
+        )
+    elif input_type == "file":
+        info.update(
+            {
+                "kind": "file",
+                "accept": str(state.get("accept", "")),
+                "multiple": bool(state.get("multiple", False)),
+            }
+        )
+    return info
 
 
 __all__ = [

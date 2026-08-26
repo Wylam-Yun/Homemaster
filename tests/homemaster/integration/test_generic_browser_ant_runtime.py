@@ -319,30 +319,8 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
     assert transport.independent_dom == VALUES
     assert "执行状态：SUCCESS (exitCode=0)" in transport.independent_console
     assert all(value in transport.independent_command for value in VALUES.values())
-    assert transport.request_image_counts == [
-        0,
-        0,
-        0,
-        1,
-        0,
-        1,
-        0,
-        1,
-        0,
-        1,
-        0,
-        1,
-        0,
-        0,
-        1,
-        0,
-        1,
-    ]
-    assert len(transport.automatic_observations) == 7
-    assert all(
-        observation["status"] == "success"
-        for observation in transport.automatic_observations
-    )
+    assert transport.request_image_counts == [0] * 17
+    assert transport.automatic_observations == []
     assert transport.backfill_confirmed is True
     assert transport.backfill_receipt_sha256 == transport.backfill_preview_sha256
     assert transport.tool_calls == [

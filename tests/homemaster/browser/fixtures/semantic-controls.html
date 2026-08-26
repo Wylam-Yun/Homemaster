@@ -14,6 +14,18 @@
       data-value="VPC"
     >VPC</button>
     <div id="popup-root"></div>
+    <label for="readonly-service">Readonly cloud service</label>
+    <input
+      id="readonly-service"
+      role="combobox"
+      aria-controls="readonly-service-options"
+      aria-expanded="false"
+      readonly
+      value="VPC"
+    />
+    <div id="readonly-popup-root"></div>
+    <button id="cjk-confirm"><span>确 认</span></button>
+    <div id="cjk-confirm-status" role="status">CJK confirm idle</div>
     <button
       data-browser-action="date"
       aria-label="Date 2026-08-21"
@@ -22,6 +34,7 @@
       data-browser-action="hour"
       aria-label="Hour 15"
     >15</button>
+    <div id="date-cell" role="cell" aria-label="date 2026-08-21 00:00:00">21</div>
     <script>
       const combobox = document.getElementById('service');
       const popupRoot = document.getElementById('popup-root');
@@ -55,6 +68,33 @@
           combobox.setAttribute('aria-expanded', 'false');
           popupRoot.innerHTML = '';
         }
+      });
+
+      const readonlyCombobox = document.getElementById('readonly-service');
+      const readonlyPopupRoot = document.getElementById('readonly-popup-root');
+      readonlyCombobox.addEventListener('click', () => {
+        readonlyCombobox.setAttribute('aria-expanded', 'true');
+        readonlyPopupRoot.innerHTML = `
+          <div id="readonly-service-options" role="listbox">
+            <div role="option" aria-label="VPC" aria-selected="${readonlyCombobox.value === 'VPC'}">VPC</div>
+            <div role="option" aria-label="Monitor Agent Service" aria-selected="${readonlyCombobox.value === 'Monitor Agent Service'}">Monitor Agent Service</div>
+          </div>`;
+        readonlyPopupRoot.querySelectorAll('[role=option]').forEach((option) => {
+          option.addEventListener('click', () => {
+            readonlyCombobox.value = option.getAttribute('aria-label');
+            readonlyCombobox.setAttribute('aria-expanded', 'false');
+            readonlyPopupRoot.innerHTML = '';
+          });
+        });
+      });
+      readonlyCombobox.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          readonlyCombobox.setAttribute('aria-expanded', 'false');
+          readonlyPopupRoot.innerHTML = '';
+        }
+      });
+      document.getElementById('cjk-confirm').addEventListener('click', () => {
+        document.getElementById('cjk-confirm-status').textContent = 'CJK confirm clicked';
       });
     </script>
   </body>

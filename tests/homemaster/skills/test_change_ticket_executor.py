@@ -8,12 +8,18 @@ def test_change_ticket_executor_is_one_generic_model_visible_skill() -> None:
     skill = registry.get_model_visible("change-ticket-executor")
 
     assert skill is not None
-    assert "any change ticket" in skill.description.casefold()
+    assert "a change ticket" in skill.description.casefold()
     assert skill.disable_model_invocation is False
     assert "load_skill" in skill.content
     assert "browser_inspect" in skill.content
     assert "browser_backfill" in skill.content
-    assert "snapshot_id" in skill.content
+    assert "target_ref" in skill.content
+    assert "snapshot_id" not in skill.content
+    assert "element_id" not in skill.content
+    assert "required only when the ticket explicitly requires" in skill.content
+    assert "terminal command, raw JavaScript" in skill.content
+    assert "CDP, coordinates, or a second browser session" in skill.content
+    assert "stop and report the missing evidence" in skill.content
     assert "rollback" in skill.content.casefold()
 
 

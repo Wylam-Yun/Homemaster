@@ -694,7 +694,7 @@ class ApplicationRuntime:
             async with scope:
                 session = await _maybe_await(create(run_id=run_id))
                 from homemaster.browser.contracts import audit_browser_session_implementation
-                from homemaster.browser.tools import build_browser_run_registry
+                from homemaster.tools.browser import build_browser_run_registry
 
                 scope.bind(
                     ResourceBinding.owned(

@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any
 
 from homemaster.agent.context import ContextMetrics
 from homemaster.agent.context_projection import (
-    browser_reference_protocol_results,
     project_model_tool_schemas,
     terminal_command_protocol_results,
     unavailable_tool_protocol_results,
@@ -38,6 +37,7 @@ from homemaster.agent.model_observation import (
     automatic_observation_call,
     model_selectable_tool_schemas,
     observation_batch_error_results,
+    observation_tool_name,
     observation_tool_schema,
     validate_observation_result,
 )
@@ -321,7 +321,10 @@ class AgentRuntime:
                 )
                 if agent_state.pending_model_observation is not None:
                     context_tools = observation_tool_schema(all_tool_schemas)
-                    context_system_prompt = append_model_observation_prompt(context_system_prompt)
+                    context_system_prompt = append_model_observation_prompt(
+                        context_system_prompt,
+                        tool_name=observation_tool_name(all_tool_schemas),
+                    )
 
                 # Freeze provider inputs once so retry cannot recapture or rebuild media.
                 frozen_messages = [message.model_copy(deep=True) for message in context_messages]
@@ -507,7 +510,7 @@ class AgentRuntime:
                     await emit(
                         "model_observation.image_consumed",
                         tool_call_id=consumed_observation_call_id,
-                        name="observe",
+                        name=observation_tool_name(all_tool_schemas),
                         payload={"tool_call_id": consumed_observation_call_id},
                     )
                 attempt_commit_state = AttemptCommitState(
@@ -677,46 +680,6 @@ class AgentRuntime:
                     save_snapshot()
                     iteration += 1
                     continue
-                reference_rejected = browser_reference_protocol_results(
-                    tool_calls,
-                    messages=frozen_messages,
-                )
-                if reference_rejected is not None:
-                    for result in reference_rejected:
-                        session.append(result)
-                    agent_state.record_tool_results(
-                        [
-                            {
-                                "tool_call_id": result.tool_call_id,
-                                "name": result.name,
-                                "is_error": False,
-                                "text": "\n".join(
-                                    block.text for block in result.content if block.text
-                                )[:500],
-                            }
-                            for result in reference_rejected
-                        ]
-                    )
-                    for result in reference_rejected:
-                        await emit(
-                            "browser.reference_protocol_rejected",
-                            tool_call_id=result.tool_call_id,
-                            name=result.name,
-                            payload={
-                                "error_code": (result.data or {}).get("error_code"),
-                                "backend_attempted": False,
-                                "required_tool": "browser_inspect",
-                            },
-                        )
-                    await self._publish_tool_results(
-                        tool_calls,
-                        reference_rejected,
-                        dispatch_ms=0.0,
-                        emit=emit,
-                    )
-                    save_snapshot()
-                    iteration += 1
-                    continue
                 unavailable_rejected = unavailable_tool_protocol_results(
                     tool_calls,
                     tools=frozen_tools,
@@ -880,7 +843,11 @@ class AgentRuntime:
                         )
                         failure_reason = "automatic observation did not run"
                         for attempt in range(1, MAX_OBSERVE_FAILURES + 1):
-                            observe_call = automatic_observation_call(action_call, attempt)
+                            observe_call = automatic_observation_call(
+                                action_call,
+                                attempt,
+                                tool_name=observation_tool_name(all_tool_schemas),
+                            )
                             observe_results = await self._dispatch_tools(
                                 [observe_call],
                                 session,
@@ -946,7 +913,8 @@ class AgentRuntime:
                         (call, result)
                         for call in tool_calls
                         for result in tool_results
-                        if call.name == "observe" and result.tool_call_id == call.id
+                        if call.name in {"observe", "browser_screenshot"}
+                        and result.tool_call_id == call.id
                     ]
                     if len(manual_observations) == 1:
                         manual_call, manual_result = manual_observations[0]

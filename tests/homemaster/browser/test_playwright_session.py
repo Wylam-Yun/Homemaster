@@ -60,8 +60,12 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
         receipt = await session.fill(tenant_snapshot.snapshot_id, tenant.element_id, "tenant-42")
         assert receipt["actual"] == "tenant-42"
         assert receipt["verified"] is True
-        with pytest.raises(BrowserSessionError, match="stale_ref"):
-            await session.fill(tenant_snapshot.snapshot_id, tenant.element_id, "stale")
+        recovered = await session.fill(
+            {"target_ref": tenant.target_ref},
+            "tenant-43",
+        )
+        assert recovered["actual"] == "tenant-43"
+        assert recovered["verified"] is True
 
         masked_snapshot = await session.inspect({"name": "Masked date time"})
         masked = _find(masked_snapshot, "Masked date time")
@@ -104,7 +108,7 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
         click = await session.click(apply_snapshot.snapshot_id, apply.element_id)
         assert click["interaction_verified"] is True
         waited = await session.wait(
-            {"kind": "text_present", "value": "Applied tenant-42", "timeout_ms": 2_000}
+            {"kind": "text_present", "value": "Applied tenant-43", "timeout_ms": 2_000}
         )
         assert waited["matched"] is True
 
@@ -147,7 +151,7 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
     assert session.video_path is not None
     assert session.video_path.is_file() and session.video_path.stat().st_size > 0
     assert session.trace_path.is_file() and session.trace_path.stat().st_size > 0
-    screenshots = sorted((session.video_dir / "screenshots").glob("observe-*.png"))
+    screenshots = sorted((session.video_dir / "screenshots").glob("screenshot-*.png"))
     assert len(screenshots) >= 1
     assert all(path.stat().st_size > 0 for path in screenshots)
     rows = [json.loads(line) for line in session.action_log_path.read_text().splitlines()]
@@ -208,28 +212,46 @@ async def test_infrastructure_timeout_fences_session(tmp_path: Path, control_ori
         policy=BrowserPolicy(allowed_origins=(control_origin,)),
         video_dir=tmp_path / "video",
     )
-    await session.start()
-    try:
-        with pytest.raises(BrowserSessionError) as caught:
-            await session._execute(
-                "test_timeout",
-                {},
-                lambda: asyncio.sleep(1),
-                timeout_ms=10,
-                mutating=True,
-            )
-        assert caught.value.code == "action_timeout"
-        assert caught.value.outcome_unknown is True
-        assert session.fenced is True
-        with pytest.raises(BrowserSessionError) as fenced:
-            await session.screenshot()
-        assert fenced.value.code == "session_fenced"
-    finally:
-        await session.aclose()
+    session._started = True
+    with pytest.raises(BrowserSessionError) as caught:
+        await session._execute(
+            "test_timeout",
+            {},
+            lambda: asyncio.sleep(1),
+            timeout_ms=10,
+            mutating=True,
+        )
+    assert caught.value.code == "action_timeout"
+    assert caught.value.outcome_unknown is True
+    assert session.fenced is True
+    with pytest.raises(BrowserSessionError) as fenced:
+        await session.screenshot()
+    assert fenced.value.code == "session_fenced"
 
 
 @pytest.mark.asyncio
-async def test_exact_successful_mutation_retry_replays_receipt_without_backend_call(
+async def test_readonly_timeout_does_not_fence_session(tmp_path: Path) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="readonly-timeout",
+        policy=BrowserPolicy(allowed_origins=("http://example.test",)),
+        video_dir=tmp_path / "video",
+    )
+    session._started = True
+    with pytest.raises(BrowserSessionError) as caught:
+        await session._execute(
+            "inspect",
+            {},
+            lambda: asyncio.sleep(1),
+            timeout_ms=10,
+            mutating=False,
+        )
+    assert caught.value.code == "action_timeout"
+    assert caught.value.outcome_unknown is False
+    assert session.fenced is False
+
+
+@pytest.mark.asyncio
+async def test_repeated_mutation_executes_again_instead_of_replaying_receipt(
     tmp_path: Path,
 ) -> None:
     session = PlaywrightBrowserSession(
@@ -260,15 +282,11 @@ async def test_exact_successful_mutation_retry_replays_receipt_without_backend_c
         mutating=True,
     )
 
-    assert backend_calls == 1
+    assert backend_calls == 2
     assert first == {"interaction_verified": True, "backend_sequence": 1}
-    assert second == {
-        "interaction_verified": True,
-        "backend_sequence": 1,
-        "idempotent_replay": True,
-    }
+    assert second == {"interaction_verified": True, "backend_sequence": 2}
     rows = [json.loads(line) for line in session.action_log_path.read_text().splitlines()]
-    assert [row["outcome"] for row in rows] == ["success", "replayed"]
+    assert [row["outcome"] for row in rows] == ["success", "success"]
 
 
 @pytest.mark.asyncio
@@ -296,7 +314,7 @@ async def test_offscreen_target_scrolls_into_view_before_actionability_check(
 
 
 @pytest.mark.asyncio
-async def test_action_rejects_target_that_was_obscured_in_cited_snapshot(
+async def test_action_refreshes_obscured_state_after_snapshot(
     tmp_path: Path, control_origin: str
 ) -> None:
     session = PlaywrightBrowserSession(
@@ -332,12 +350,10 @@ async def test_action_rejects_target_that_was_obscured_in_cited_snapshot(
         assert target.obscured is True
 
         await session._page.locator("#action-cover").evaluate("element => element.remove()")
-        with pytest.raises(BrowserSessionError) as caught:
-            await session.click(snapshot.snapshot_id, target.element_id)
+        receipt = await session.click(snapshot.snapshot_id, target.element_id)
 
-        assert caught.value.code == "target_obscured"
-        assert caught.value.backend_attempted is False
-        assert await session._page.locator("#covered-action").inner_text() == "Covered action"
+        assert receipt["interaction_verified"] is True
+        assert await session._page.locator("#covered-action").inner_text() == "Clicked"
     finally:
         await session.aclose()
 
@@ -508,6 +524,13 @@ async def test_inspect_discovers_semantic_popup_date_and_time_elements(
             "Hour 15",
         }
 
+        date_cell = await session.find({"role": "gridcell", "name": "21", "match": "exact"})
+        assert date_cell["matches_n"] == 1
+        clicked_date = await session.click(
+            {"role": "gridcell", "name": "21", "match": "exact"}
+        )
+        assert clicked_date["interaction_verified"] is True
+
         combobox = _find(snapshot, "Cloud service")
         await combobox.handle.click()
         await asyncio.sleep(0.2)
@@ -578,6 +601,77 @@ async def test_select_waits_for_async_options_and_verifies_semantic_readback(
         assert receipt["actual"] == "Monitor Agent Service"
         assert receipt["verified"] is True
         assert receipt["match"] == "exact"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_select_accepts_readonly_aria_combobox_but_fill_rejects_it(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="readonly-semantic-select",
+        policy=BrowserPolicy(
+            allowed_origins=(control_origin,),
+            action_timeout_ms=2_000,
+            wait_timeout_ms=1_000,
+        ),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/semantic-controls.html")
+        target = {
+            "role": "combobox",
+            "name": "Readonly cloud service",
+            "match": "exact",
+        }
+
+        receipt = await session.select(target, "Monitor Agent Service")
+
+        assert receipt["actual"] == "Monitor Agent Service"
+        assert receipt["verified"] is True
+        assert receipt["match"] == "exact"
+        with pytest.raises(BrowserSessionError) as caught:
+            await session.fill(target, "must not replace the value")
+        assert caught.value.code == "target_readonly"
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_click_matches_cjk_label_with_framework_inserted_display_spacing(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="cjk-display-spacing",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/semantic-controls.html")
+
+        snapshot = await session.inspect(
+            {"role": "button", "name": "确认", "match": "exact"}
+        )
+        assert snapshot.total_matches == 1
+        assert snapshot.elements[0].name == "确 认"
+
+        found = await session.find(
+            {"role": "button", "name": "确认", "match": "contains"}
+        )
+        assert found["matches_n"] == 1
+        assert found["target"]["name"] == "确 认"
+
+        receipt = await session.click(
+            {"role": "button", "name": "确认", "match": "exact"}
+        )
+
+        assert receipt["interaction_verified"] is True
+        assert await session._page.locator("#cjk-confirm-status").inner_text() == (
+            "CJK confirm clicked"
+        )
     finally:
         await session.aclose()
 

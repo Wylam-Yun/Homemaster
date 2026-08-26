@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>V3.1 Browser Black Box</title>
+    <style>
+      #scroll-box { height: 100px; overflow: auto; border: 1px solid #333; }
+      #scroll-space { height: 500px; }
+      #drop-target { min-height: 40px; border: 1px dashed #333; }
+      #tooltip { display: none; }
+      #hover-target:hover + #tooltip { display: block; }
+    </style>
+  </head>
+  <body>
+    <h1>V3.1 Browser Black Box</h1>
+    <article role="region" aria-label="Readable report region">
+      <h2>Readable report</h2>
+      <p>Paragraph alpha contains deterministic extraction evidence.</p>
+      <p>Paragraph beta provides a second cursor-sized section.</p>
+    </article>
+
+    <form id="settings-form">
+      <label for="account">Account name</label>
+      <input id="account" name="account" value="initial">
+      <label for="date">Run date</label>
+      <input id="date" name="date" type="date" min="2026-01-01" max="2026-12-31">
+      <label for="time">Run time</label>
+      <input id="time" name="time" type="time" step="1">
+      <label for="datetime">Run timestamp</label>
+      <input id="datetime" name="datetime" type="datetime-local" step="1">
+      <label for="region">Region</label>
+      <select id="region" name="region">
+        <option value="cn">China</option>
+        <option value="us">United States</option>
+      </select>
+      <label for="zones">Zones</label>
+      <select id="zones" name="zones" multiple>
+        <option value="a">Zone A</option>
+        <option value="b">Zone B</option>
+        <option value="c">Zone C</option>
+      </select>
+      <label><input id="enabled" type="checkbox"> Enabled</label>
+      <label><input id="radio-a" name="choice" type="radio" value="a"> Choice A</label>
+      <label><input id="radio-b" name="choice" type="radio" value="b"> Choice B</label>
+      <button id="switch" type="button" role="switch" aria-checked="false">Notifications</button>
+      <label for="upload">Attachment</label>
+      <input id="upload" type="file" accept="text/plain">
+    </form>
+
+    <button id="hover-target" type="button">Hover details</button>
+    <div id="tooltip" role="tooltip">Tooltip visible</div>
+    <button id="double" type="button">Double action</button>
+    <div id="double-status" role="status">Double count 0</div>
+    <label for="keyboard">Keyboard target</label>
+    <input id="keyboard">
+    <div id="key-status" role="status">No key</div>
+    <button id="rerender" type="button">Rerender action</button>
+    <button id="duplicate-one" type="button">Duplicate action</button>
+    <button id="duplicate-two" type="button">Duplicate action</button>
+    <button id="disabled" type="button" disabled>Disabled action</button>
+
+    <div id="scroll-box" role="region" aria-label="Scroll box">
+      <div id="scroll-space"></div>
+      <button id="scroll-target" type="button">Scrollable action</button>
+    </div>
+
+    <section role="region" aria-label="Scoped controls">
+      <button type="button">Scoped child</button>
+    </section>
+    <button type="button">Outside child</button>
+
+    <div id="drag-source" draggable="true" role="button" aria-label="Drag source">Drag source</div>
+    <div id="drop-target" role="button" aria-label="Drop target">Drop target</div>
+    <div id="drag-status" role="status">Not dropped</div>
+
+    <button id="dialog" type="button">Open confirm</button>
+    <a id="download" href="v31-download.txt" download="v31-download.txt">Download report</a>
+    <a id="popup" href="v31-frame.html" target="_blank">Open popup</a>
+    <button id="fetch-ok" type="button">Fetch success</button>
+    <button id="fetch-fail" type="button">Fetch failure</button>
+    <div id="fetch-status" role="status">No request</div>
+
+    <table aria-label="Inventory table">
+      <thead><tr><th>Item</th><th>Status</th></tr></thead>
+      <tbody><tr><td>fixture-node-01</td><td>running</td></tr></tbody>
+    </table>
+    <iframe title="Allowed child frame" src="v31-frame.html"></iframe>
+    <div id="shadow-host"></div>
+    <canvas id="chart" width="120" height="60" aria-label="Status chart"></canvas>
+
+    <script>
+      document.getElementById('switch').addEventListener('click', (event) => {
+        const next = event.currentTarget.getAttribute('aria-checked') !== 'true';
+        event.currentTarget.setAttribute('aria-checked', String(next));
+      });
+      let doubleCount = 0;
+      document.getElementById('double').addEventListener('dblclick', () => {
+        doubleCount += 1;
+        document.getElementById('double-status').textContent = `Double count ${doubleCount}`;
+      });
+      document.getElementById('keyboard').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') document.getElementById('key-status').textContent = 'Enter received';
+      });
+      document.getElementById('dialog').addEventListener('click', () => {
+        document.body.dataset.dialogResult = confirm('Proceed with V3.1?') ? 'accepted' : 'dismissed';
+      });
+      document.getElementById('upload').addEventListener('change', (event) => {
+        document.body.dataset.uploadName = event.target.files[0]?.name || '';
+      });
+      const source = document.getElementById('drag-source');
+      const destination = document.getElementById('drop-target');
+      source.addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', 'dragged'));
+      destination.addEventListener('dragover', (event) => event.preventDefault());
+      destination.addEventListener('drop', (event) => {
+        event.preventDefault();
+        destination.appendChild(source);
+        document.getElementById('drag-status').textContent = 'Dropped';
+      });
+      document.getElementById('fetch-ok').addEventListener('click', async () => {
+        const response = await fetch('v31-network.json');
+        const value = await response.json();
+        document.getElementById('fetch-status').textContent = value.status;
+      });
+      document.getElementById('fetch-fail').addEventListener('click', async () => {
+        const response = await fetch('missing-v31.json');
+        document.getElementById('fetch-status').textContent = `HTTP ${response.status}`;
+      });
+      const shadow = document.getElementById('shadow-host').attachShadow({mode: 'open'});
+      shadow.innerHTML = '<button id="shadow-action">Shadow action</button>';
+      const context = document.getElementById('chart').getContext('2d');
+      context.fillStyle = '#198754';
+      context.fillRect(0, 0, 120, 60);
+      console.info('v31-console-ready');
+    </script>
+  </body>
+</html>

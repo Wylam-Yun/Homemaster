@@ -1,97 +1,88 @@
 from pathlib import Path
 
 
-def test_structured_evidence_drawer_can_replace_image_backfill() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
+def _skill() -> str:
+    content = Path(
+        "src/homemaster/skills/builtin/change-ticket-executor/SKILL.md"
+    ).read_text(
+        encoding="utf-8",
     )
-
-    assert "browser_backfill is required only" in skill
-    assert "EvidenceDrawer" in skill
-    assert "Do not require browser_backfill" in skill
+    return " ".join(content.split())
 
 
-def test_missing_semantic_control_stops_without_terminal_browser_fallback() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+def test_ticket_and_ui_decide_structured_evidence_and_image_backfill_authority() -> None:
+    skill = _skill()
 
-    assert "Stop the run when a required page control is not exposed" in skill
+    assert "`browser_backfill` is required only" in skill
+    assert "structured EvidenceDrawer" in skill
+    assert "do not require image backfill" in skill
+    assert "not a substitute for `browser_screenshot` or `browser_upload`" in skill
+
+
+def test_missing_semantic_control_stops_without_browser_bypass() -> None:
+    skill = _skill()
+
+    assert "stop and report the missing evidence" in skill
     for forbidden_fallback in (
-        "terminal",
+        "terminal command",
         "raw JavaScript",
         "CDP",
-        "alternate Playwright",
+        "coordinates",
+        "second browser session",
     ):
         assert forbidden_fallback in skill
+    assert "`browser_eval` is deliberately absent from this Skill" in skill
 
 
-def test_browser_inspect_never_receives_snapshot_or_element_ids() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
+def test_semantic_targets_replace_the_v21_snapshot_write_pair() -> None:
+    skill = _skill()
+
+    assert "known unique semantic target" in skill
+    assert "Use a returned `target_ref`" in skill
+    assert "On `stale_ref`, `target_ambiguous`" in skill
+    assert "inspect again or stop" in skill
+    for legacy_protocol in (
+        "snapshot_id",
+        "element_id",
+        "next_snapshot",
+        "immediately preceding inspection",
+        "Before every browser write",
+        "`observe`",
+    ):
+        assert legacy_protocol not in skill
+
+
+def test_browser_navigate_uses_policy_allowed_absolute_http_urls() -> None:
+    skill = _skill()
+
+    assert "absolute policy-allowed `http://` or `https://` URL" in skill
+    assert "Do not navigate again when the browser is already on the required page" in skill
+
+
+def test_browser_wait_is_bounded_and_does_not_claim_prior_success() -> None:
+    skill = _skill()
+
+    assert "Use `browser_wait` for one explicit bounded condition" in skill
+    assert (
+        "event listeners through the typed dialog/network/download flows before triggering" in skill
     )
-
-    assert "`browser_inspect` never accepts `snapshot_id` or `element_id`" in skill
-    assert "supported filters and `limit`" in skill
-    assert "action tools such as `browser_click`, `browser_select`, and `browser_fill`" in skill
-    assert "`element_id` values are local to one `snapshot_id`" in skill
-    assert "copy both values from the same `browser_inspect` result" in skill
-    assert "never combine a new `snapshot_id` with an `element_id` from an older result" in skill
-    assert "confirm `enabled=true` and `obscured=false`" in skill
-    assert "wait or inspect again instead of calling an action tool" in skill
-    assert "`next_snapshot` captured after the action" in skill
-    assert "Treat `next_snapshot` as review context only" in skill
-    assert "Before every browser write, call `browser_inspect`" in skill
-    assert "immediately preceding inspection" in skill
-    assert "call `browser_inspect` without `snapshot_id` or `element_id`" in skill
-    assert "use that matching pair directly for the next action" not in skill
-    assert "Never reuse the consumed input snapshot" in skill
+    assert "A timeout never proves that a previous write succeeded" in skill
 
 
-def test_browser_navigate_uses_only_absolute_http_urls() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+def test_write_actions_receive_automatic_browser_screenshot_without_duplication() -> None:
+    skill = _skill()
 
-    assert "`browser_navigate` accepts only an absolute `http://` or `https://` URL" in skill
-    assert "Do not pass relative paths such as `/`" in skill
-    assert "If the browser already starts on the required page, inspect it directly" in skill
-
-
-def test_browser_wait_keeps_timeout_inside_condition() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "`browser_wait` accepts exactly one top-level argument: `condition`" in skill
-    assert "put `timeout_ms` inside the `condition` object" in skill
-    assert "never pass `timeout_ms` beside `condition`" in skill
+    assert "runtime captures `browser_screenshot` after write tools" in skill
+    assert "attaches a validated PNG to their result" in skill
+    assert "Do not immediately duplicate that automatic image" in skill
+    assert "Screenshots do not grant action references" in skill
+    assert "`observe`" not in skill
 
 
-def test_write_actions_are_observed_by_runtime_without_model_scheduling() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
-    )
+def test_task_progress_and_browser_writes_each_use_a_separate_model_response() -> None:
+    skill = _skill()
 
-    assert "runtime automatically captures a review image" in skill
-    assert "attached to that action's tool result" in skill
-    assert "You may call `observe` yourself" in skill
-    assert "semantic text and controls are insufficient" in skill
-    assert "no actionable element reference" in skill
-    assert "call `browser_inspect` before any interaction" in skill
-    assert "Do not immediately duplicate the automatic image" in skill
-    assert "Call `observe` after the important action" not in skill
-    assert "call `observe` after confirmation" not in skill
-
-
-def test_task_todo_updates_do_not_break_the_inspect_write_pair() -> None:
-    skill = Path("src/homemaster/skills/builtin/change-ticket-executor/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-
-    assert "must be the only tool call in that model response" in skill
-    assert "`task_progress_check` updates selected TODO items" in skill
-    assert "It does not determine the next tool" in skill
-    assert "never place task-state bookkeeping between an inspection" in skill
-    assert "call `task_progress_check` alone to" in skill
-    assert "Only after its result returns may you issue the browser write" not in skill
+    assert "Every browser write or interaction must be the sole tool call" in skill
+    assert "`task_planner` and `task_progress_check` are bookkeeping tools" in skill
+    assert "Call `task_progress_check` as the sole tool call" in skill
+    assert "wait for its result before issuing a browser write" in skill

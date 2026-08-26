@@ -39,8 +39,8 @@ def load_model_observation_prompt() -> str:
     return prompt
 
 
-def append_model_observation_prompt(system_prompt: str) -> str:
-    prompt = load_model_observation_prompt()
+def append_model_observation_prompt(system_prompt: str, *, tool_name: str = "observe") -> str:
+    prompt = load_model_observation_prompt().replace("`observe`", f"`{tool_name}`")
     return f"{system_prompt.rstrip()}\n\n{prompt}" if system_prompt.strip() else prompt
 
 
@@ -54,14 +54,26 @@ def model_selectable_tool_schemas(
         tool.requires_model_observation for tool in registry.list_tools()
     ):
         return list(tool_schemas)
-    observations = [schema for schema in tool_schemas if schema.get("name") == "observe"]
+    observations = [
+        schema for schema in tool_schemas if schema.get("name") in {"observe", "browser_screenshot"}
+    ]
     if len(observations) != 1:
         raise RuntimeError("automatic model observation requires exactly one observe tool")
     return list(tool_schemas)
 
 
+def observation_tool_name(tool_schemas: list[dict[str, object]]) -> str:
+    names = {str(schema.get("name")) for schema in tool_schemas}
+    if "browser_screenshot" in names:
+        return "browser_screenshot"
+    if "observe" in names:
+        return "observe"
+    raise RuntimeError("model observation barrier requires an observation tool")
+
+
 def observation_tool_schema(tool_schemas: list[dict[str, object]]) -> list[dict[str, object]]:
-    selected = [schema for schema in tool_schemas if schema.get("name") == "observe"]
+    name = observation_tool_name(tool_schemas)
+    selected = [schema for schema in tool_schemas if schema.get("name") == name]
     if len(selected) != 1:
         raise RuntimeError("model observation barrier requires exactly one observe tool")
     return selected
@@ -129,15 +141,17 @@ def validate_observation_result(result: ToolResultMessage) -> ObservationImageEv
     )
 
 
-def automatic_observation_call(source: ToolCall, attempt: int) -> ToolCall:
+def automatic_observation_call(
+    source: ToolCall, attempt: int, *, tool_name: str = "observe"
+) -> ToolCall:
     """Build one deterministic runtime-owned observation call for an action."""
 
     if attempt < 1:
         raise ValueError("automatic observation attempt must be positive")
     return ToolCall(
         id=f"auto-observe-{source.id}-{attempt}",
-        name="observe",
-        arguments={},
+        name=tool_name,
+        arguments={"full_page": False} if tool_name == "browser_screenshot" else {},
     )
 
 
@@ -173,6 +187,7 @@ __all__ = [
     "attach_automatic_observation",
     "automatic_observation_call",
     "observation_batch_error_results",
+    "observation_tool_name",
     "observation_tool_schema",
     "validate_observation_result",
 ]

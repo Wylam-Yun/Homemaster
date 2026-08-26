@@ -1,0 +1,2871 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="HomeMaster 运行框架、Compact、工具控制、MindMemOS 记忆、Feedback、Dreaming 与 Skill 自进化源码级梳理">
+  <title>HomeMaster：从一条请求到真实执行</title>
+  <style>
+    :root {
+      --bg: #f4f1e9;
+      --paper: #fffdfa;
+      --ink: #15222c;
+      --muted: #63717a;
+      --line: #d9d3c7;
+      --navy: #173a4c;
+      --blue: #246682;
+      --cyan: #66b5c8;
+      --green: #287255;
+      --amber: #a26416;
+      --red: #a43d35;
+      --code: #10242f;
+      --shadow: 0 18px 55px rgba(29, 39, 45, .09);
+      --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+    body { margin: 0; color: var(--ink); background: var(--bg); font-family: var(--sans); line-height: 1.72; }
+    body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 88% 6%, rgba(102,181,200,.18), transparent 30rem), linear-gradient(90deg, rgba(21,34,44,.022) 1px, transparent 1px), linear-gradient(rgba(21,34,44,.022) 1px, transparent 1px); background-size: auto, 30px 30px, 30px 30px; z-index: -1; }
+    #progress { position: fixed; inset: 0 auto auto 0; height: 3px; width: 0; background: linear-gradient(90deg, var(--cyan), var(--blue)); z-index: 20; }
+    .layout { display: grid; grid-template-columns: 292px minmax(0, 1fr); min-height: 100vh; }
+    aside { position: sticky; top: 0; height: 100vh; padding: 26px 20px 22px; border-right: 1px solid rgba(21,34,44,.12); background: rgba(244,241,233,.9); backdrop-filter: blur(16px); overflow: auto; z-index: 10; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; color: white; background: linear-gradient(135deg, var(--navy), var(--blue)); font-weight: 900; letter-spacing: -.06em; box-shadow: 0 9px 22px rgba(23,58,76,.22); }
+    .brand b { display: block; line-height: 1.1; }
+    .brand small { color: var(--muted); font-size: 11px; }
+    .search { position: relative; margin-bottom: 14px; }
+    .search input { width: 100%; border: 1px solid var(--line); border-radius: 11px; background: rgba(255,255,255,.72); padding: 10px 11px; color: var(--ink); outline: none; }
+    .search input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(36,102,130,.1); }
+    #TOC > ul { padding: 0; margin: 0; list-style: none; }
+    #TOC li { margin: 2px 0; }
+    #TOC li ul { display: none; }
+    #TOC a { display: block; padding: 6px 9px; border-radius: 9px; color: #53636e; text-decoration: none; font-size: 12px; line-height: 1.35; transition: .15s ease; }
+    #TOC a:hover, #TOC a.active { color: var(--blue); background: rgba(36,102,130,.09); }
+    .side-meta { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; }
+    main { min-width: 0; }
+    .hero { min-height: 72vh; padding: clamp(66px, 9vw, 120px) clamp(28px, 7vw, 110px) 70px; display: grid; align-content: center; border-bottom: 1px solid rgba(21,34,44,.12); position: relative; overflow: hidden; }
+    .hero::after { content: "HM"; position: absolute; right: -2vw; bottom: -10vh; color: rgba(23,58,76,.045); font-size: clamp(180px, 33vw, 500px); font-weight: 950; line-height: .8; letter-spacing: -.12em; pointer-events: none; }
+    .eyebrow { color: var(--blue); font-size: 12px; font-weight: 850; text-transform: uppercase; letter-spacing: .16em; }
+    h1 { max-width: 1050px; margin: 15px 0 18px; font-size: clamp(42px, 6.3vw, 82px); line-height: 1.03; letter-spacing: -.058em; position: relative; z-index: 1; }
+    .subtitle { max-width: 920px; margin: 0; color: #40515d; font-size: clamp(18px, 2.2vw, 25px); position: relative; z-index: 1; }
+    .hero-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; position: relative; z-index: 1; }
+    .hero-tags span { padding: 7px 11px; border: 1px solid rgba(36,102,130,.2); border-radius: 999px; color: var(--blue); background: rgba(255,255,255,.58); font-size: 11px; }
+    article { max-width: 1280px; padding: 0 clamp(28px, 7vw, 110px) 80px; }
+    article > blockquote:first-of-type { margin-top: 32px; }
+    section.doc-section { padding: 76px 0 64px; border-bottom: 1px solid rgba(21,34,44,.1); }
+    section.doc-section[hidden] { display: none; }
+    h2 { margin: 0 0 30px; color: var(--navy); font-size: clamp(31px, 4vw, 50px); line-height: 1.12; letter-spacing: -.04em; }
+    h3 { margin: 38px 0 15px; color: var(--navy); font-size: 23px; line-height: 1.25; letter-spacing: -.02em; }
+    h4 { margin: 26px 0 10px; color: var(--blue); font-size: 16px; }
+    p { margin: 12px 0; }
+    strong { color: var(--navy); }
+    a { color: var(--blue); }
+    blockquote { margin: 22px 0; padding: 15px 18px; border-left: 4px solid var(--cyan); border-radius: 0 13px 13px 0; background: rgba(255,255,255,.62); color: var(--muted); }
+    blockquote p { margin: 0; }
+    .hero-note, .end-note { padding: 20px 22px; border: 1px solid rgba(36,102,130,.2); border-radius: 16px; background: linear-gradient(135deg, rgba(255,255,255,.8), rgba(102,181,200,.08)); box-shadow: 0 8px 24px rgba(29,39,45,.04); }
+    .hero-note { margin-top: 34px; font-size: 17px; }
+    .end-note { margin-top: 36px; border-left: 5px solid var(--green); }
+    ul, ol { padding-left: 24px; }
+    li { margin: 7px 0; }
+    code { font-family: var(--mono); font-size: .9em; color: #185873; background: rgba(36,102,130,.08); border-radius: 5px; padding: .12em .35em; overflow-wrap: anywhere; }
+    pre { position: relative; margin: 22px 0; padding: 22px 56px 22px 22px; color: #eaf4f5; background: var(--code); border: 1px solid rgba(255,255,255,.08); border-radius: 17px; overflow: auto; box-shadow: var(--shadow); line-height: 1.62; }
+    pre code { padding: 0; color: inherit; background: transparent; font-size: 12px; white-space: pre; overflow-wrap: normal; }
+    .copy-code { position: absolute; top: 10px; right: 10px; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 5px 8px; color: #c8dade; background: rgba(255,255,255,.08); cursor: pointer; font-size: 10px; }
+    .table-wrap { width: 100%; overflow-x: auto; margin: 20px 0; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.7); box-shadow: 0 9px 28px rgba(29,39,45,.045); }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    th, td { padding: 13px 15px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; font-size: 12px; }
+    th { position: sticky; top: 0; color: var(--navy); background: #eef3f3; font-weight: 800; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: rgba(102,181,200,.06); }
+    .jump-top { position: fixed; right: 22px; bottom: 22px; width: 42px; height: 42px; border: 0; border-radius: 13px; color: white; background: var(--navy); box-shadow: var(--shadow); cursor: pointer; opacity: 0; transform: translateY(8px); transition: .18s ease; }
+    .jump-top.show { opacity: 1; transform: none; }
+    .mobile-bar { display: none; }
+    .no-result { display: none; margin: 40px 0; padding: 22px; border: 1px dashed var(--line); border-radius: 15px; color: var(--muted); text-align: center; }
+    mark { color: inherit; background: #ffe69a; border-radius: 3px; padding: 0 2px; }
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: fixed; inset: 54px auto 0 0; width: 292px; height: calc(100vh - 54px); transform: translateX(-103%); transition: .2s ease; box-shadow: var(--shadow); }
+      body.nav-open aside { transform: none; }
+      .mobile-bar { position: sticky; top: 0; z-index: 12; height: 54px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: rgba(244,241,233,.94); backdrop-filter: blur(14px); }
+      .mobile-bar button { border: 1px solid var(--line); border-radius: 9px; background: white; padding: 6px 10px; }
+      .hero { min-height: auto; padding-top: 72px; }
+    }
+    @media (max-width: 620px) {
+      article { padding-inline: 20px; }
+      .hero { padding-inline: 20px; }
+      section.doc-section { padding: 58px 0 48px; }
+      pre { border-radius: 13px; padding-left: 16px; }
+      .hero-note { font-size: 15px; }
+    }
+    @media print {
+      aside, .mobile-bar, .jump-top, #progress, .copy-code { display: none !important; }
+      .layout { display: block; }
+      .hero { min-height: 0; padding: 40px 0; }
+      article { max-width: none; padding: 0; }
+      section.doc-section { break-before: page; }
+      pre, table { break-inside: avoid; }
+      body { background: white; }
+    }
+  </style>
+</head>
+<body>
+  <div id="progress"></div>
+  <div class="mobile-bar"><b>HomeMaster 架构</b><button id="menuBtn" type="button">目录</button></div>
+  <div class="layout">
+    <aside>
+      <div class="brand"><div class="mark">HM</div><div><b>HomeMaster</b><small>源码级架构说明</small></div></div>
+      <div class="search"><input id="search" type="search" placeholder="搜索动态调度、Compact、权限、记忆…" aria-label="搜索章节"></div>
+      <nav id="TOC" aria-label="页面目录"><ul>
+<li><a href="#0-先把后文常见词翻成白话"
+id="toc-0-先把后文常见词翻成白话">0. 先把后文常见词翻成白话</a></li>
+<li><a href="#1-整个项目到底怎么串起来"
+id="toc-1-整个项目到底怎么串起来">1. 整个项目到底怎么串起来</a></li>
+<li><a href="#2-applicationsessionrunagent-各自活多久"
+id="toc-2-applicationsessionrunagent-各自活多久">2.
+Application、Session、Run、Agent 各自活多久</a></li>
+<li><a href="#3-三种状态分别解决什么问题"
+id="toc-3-三种状态分别解决什么问题">3. 三种状态分别解决什么问题</a></li>
+<li><a href="#4-agent-loop-每一轮做什么"
+id="toc-4-agent-loop-每一轮做什么">4. Agent loop 每一轮做什么</a></li>
+<li><a href="#5-context-是怎么拼出来的"
+id="toc-5-context-是怎么拼出来的">5. Context 是怎么拼出来的</a></li>
+<li><a href="#6-compact-的具体算法" id="toc-6-compact-的具体算法">6.
+Compact 的具体算法</a></li>
+<li><a href="#7-tool-executor-的-14-道执行步骤"
+id="toc-7-tool-executor-的-14-道执行步骤">7. Tool Executor 的 14
+道执行步骤</a></li>
+<li><a href="#8-事件审计和页面飞书进度"
+id="toc-8-事件审计和页面飞书进度">8. 事件、审计和页面/飞书进度</a></li>
+<li><a href="#9-云运维场景正常变更怎么跑"
+id="toc-9-云运维场景正常变更怎么跑">9.
+云运维场景：正常变更怎么跑</a></li>
+<li><a href="#10-云运维场景异常后怎么回退"
+id="toc-10-云运维场景异常后怎么回退">10.
+云运维场景：异常后怎么回退</a></li>
+<li><a href="#11-飞书消息怎么进入同一套-runtime"
+id="toc-11-飞书消息怎么进入同一套-runtime">11. 飞书消息怎么进入同一套
+Runtime</a></li>
+<li><a href="#12-家庭机器人--alfworld-的真实执行链"
+id="toc-12-家庭机器人--alfworld-的真实执行链">12. 家庭机器人 / ALFWorld
+的真实执行链</a></li>
+<li><a href="#13-记忆系统总览先分清五条链"
+id="toc-13-记忆系统总览先分清五条链">13.
+记忆系统总览：先分清五条链</a></li>
+<li><a href="#14-mindmemos-增查改删数据库里具体发生什么"
+id="toc-14-mindmemos-增查改删数据库里具体发生什么">14. MindMemOS
+增、查、改、删：数据库里具体发生什么</a></li>
+<li><a href="#15-feedback把这次回答错了转成记忆修改动作"
+id="toc-15-feedback把这次回答错了转成记忆修改动作">15.
+Feedback：把“这次回答错了”转成记忆修改动作</a></li>
+<li><a href="#16-dreaming定期整理近期记忆而不是自由做梦"
+id="toc-16-dreaming定期整理近期记忆而不是自由做梦">16.
+Dreaming：定期整理近期记忆，而不是自由做梦</a></li>
+<li><a href="#17-skill-自进化怎样从轨迹生成候选版-skillmd"
+id="toc-17-skill-自进化怎样从轨迹生成候选版-skillmd">17. Skill
+自进化：怎样从轨迹生成候选版 SKILL.md</a></li>
+<li><a href="#18-操作记录feedbackdreaming自进化共同依赖的数据底座"
+id="toc-18-操作记录feedbackdreaming自进化共同依赖的数据底座">18.
+操作记录：Feedback、Dreaming、自进化共同依赖的数据底座</a></li>
+<li><a href="#19-两段简历如何对应同一个项目"
+id="toc-19-两段简历如何对应同一个项目">19.
+两段简历如何对应同一个项目</a></li>
+<li><a href="#20-简历逐条追问手册每一句具体落到哪里"
+id="toc-20-简历逐条追问手册每一句具体落到哪里">20.
+简历逐条追问手册：每一句具体落到哪里</a></li>
+<li><a href="#21-建议你实际采用的简历表达"
+id="toc-21-建议你实际采用的简历表达">21.
+建议你实际采用的简历表达</a></li>
+<li><a href="#22-面试时按这条顺序讲" id="toc-22-面试时按这条顺序讲">22.
+面试时按这条顺序讲</a></li>
+<li><a href="#23-关键源码索引" id="toc-23-关键源码索引">23.
+关键源码索引</a></li>
+</ul></nav>
+      <div class="side-meta">mindmem · 756060e<br>只读源码调研 · 2026-08-14</div>
+    </aside>
+    <main>
+      <header class="hero">
+        <div class="eyebrow">Architecture · Runtime · Memory</div>
+        <h1>HomeMaster：从一条请求到真实执行</h1>
+        <p class="subtitle">运行框架、状态、Compact、工具控制、MindMemOS
+记忆、云运维与家庭机器人源码级梳理</p>
+        <div class="hero-tags"><span>Application → Session → Run → Agent</span><span>两阶段 Compact</span><span>14 道工具管线</span><span>MindMemOS 增删查改</span><span>Feedback / Dreaming</span><span>Skill 自进化</span><span>12 条简历追问手册</span></div>
+      </header>
+      <article id="content">
+        <div class="hero-note">
+        <strong>先给结论：</strong>HomeMaster 不是“云运维 Agent”和“家庭机器人 Agent”两套彼此独立的代码。它是一套共用的运行框架，入口、会话、状态、模型循环、上下文、工具执行、事件和记忆都复用；云运维与家庭机器人替换的是工具、外部环境和完成条件。
+        </div>
+
+        <blockquote>
+        <p>调研对象：<code>HPC2_Outside:/hpc2hdd/home/wyuan140/weilin_workspace/Homemaster</code><br />
+        分支与版本：<code>mindmem</code>，HEAD
+        <code>756060e</code>，调研日期 2026-08-14。<br />
+        远端仓库只读。下文以当前代码、架构文档和真实运行记录为准；计划文档不算已实现。</p>
+        </blockquote>
+        <h2 id="0-先把后文常见词翻成白话">0. 先把后文常见词翻成白话</h2>
+        <p>这份报告保留代码里的名字，方便你回到源码定位；但第一次出现时先说它到底干什么。</p>
+        <table>
+        <thead>
+        <tr>
+        <th>代码或常见说法</th>
+        <th>白话解释</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>Runtime</td>
+        <td>“把一次任务真正跑起来的程序”。它不是一份配置，而是负责创建资源、推进循环、收结果和清理资源的代码。</td>
+        </tr>
+        <tr>
+        <td>Provider</td>
+        <td>“负责调用大模型的适配程序”。上层只交消息和工具说明，不需要知道底下接的是哪家模型。</td>
+        </tr>
+        <tr>
+        <td>pipeline</td>
+        <td>“固定顺序的处理链”。输入依次经过几步，每一步拿上一步结果继续处理。</td>
+        </tr>
+        <tr>
+        <td>schema</td>
+        <td>“数据格式规则”。它规定必须有哪些字段、字段是什么类型；不符合就不能继续。</td>
+        </tr>
+        <tr>
+        <td>Pydantic / JSON Schema</td>
+        <td>两种“按数据格式规则自动检查输入”的方式。前者是 Python
+        代码里的校验模型，后者是可以随请求传递的标准格式说明。</td>
+        </tr>
+        <tr>
+        <td>handler</td>
+        <td>“某件事发生时，专门接手处理的函数或对象”。例如需要人确认时，由确认处理程序接手。</td>
+        </tr>
+        <tr>
+        <td>confirmation handler</td>
+        <td>“需要人同意时，负责把询问发给人，再拿回‘同意/拒绝’的程序接口”。它存在不代表当前入口已经接上审批页面。</td>
+        </tr>
+        <tr>
+        <td>capability</td>
+        <td>“某个身份被授予的能力标签”，例如允许控制设备或启动进程；缺标签就算工具存在也不能调用。</td>
+        </tr>
+        <tr>
+        <td>backend</td>
+        <td>“真正干活的外部对象或系统”，例如浏览器、终端、THOR
+        环境或数据库。</td>
+        </tr>
+        <tr>
+        <td>generation</td>
+        <td>“当前会话执行批次号”。新请求或取消会把批次号加一，旧任务发现自己的号码过期就不能再写回。</td>
+        </tr>
+        <tr>
+        <td>generation fence</td>
+        <td>“用批次号挡住旧任务回写的检查”。后文简称“旧任务写回保护”。</td>
+        </tr>
+        <tr>
+        <td>projection</td>
+        <td>“从内部完整数据中挑出允许给另一方看的字段，并换成对方看得懂的格式”。不是复制原数据。</td>
+        </tr>
+        <tr>
+        <td>raw memory ID</td>
+        <td>“数据库里一条原始记忆的准确编号”。更新或删除必须用它，不能拿搜索聚合出来的临时编号。</td>
+        </tr>
+        <tr>
+        <td>evidence ref</td>
+        <td>“一份已验证结果的不可猜编号”。记忆写入拿这个编号回查证据，不能只凭模型说“我验证过了”。</td>
+        </tr>
+        <tr>
+        <td>revision</td>
+        <td>“Session
+        的一次不可变存档版本”。每次保存新增一版，不直接覆盖旧版。</td>
+        </tr>
+        <tr>
+        <td>hash / SHA-256</td>
+        <td>“根据内容算出的固定指纹”。同样内容得到同样指纹，用来判断内容是否变化或任务是否重复。</td>
+        </tr>
+        <tr>
+        <td>JSONL</td>
+        <td>“一行一条 JSON
+        记录的日志文件”。即使程序中途停止，前面完整行仍便于逐条读取和审计。</td>
+        </tr>
+        <tr>
+        <td>worker</td>
+        <td>“在后台取任务并执行的常驻程序”。前台只投递任务时，必须有
+        worker 在运行，否则任务不会自己完成。</td>
+        </tr>
+        <tr>
+        <td>Kafka</td>
+        <td>“前台和后台之间传递待处理任务的消息系统”。这里可以把它理解成带主题分类的任务信箱。</td>
+        </tr>
+        <tr>
+        <td>overlay</td>
+        <td>“只在本次运行上覆盖基础数据的临时改动层”。它变化不一定已经写回长期存储。</td>
+        </tr>
+        <tr>
+        <td>manifest</td>
+        <td>“运行前写好的任务清单或配置清单”。它说明要跑哪些子任务，并不表示这些子任务是模型现场拆出来的。</td>
+        </tr>
+        <tr>
+        <td>grounding</td>
+        <td>“把自然语言里的目标确定成环境中某个具体可操作对象”。例如把“第二个杯子”稳定对应到一个确定对象。</td>
+        </tr>
+        <tr>
+        <td>DAG</td>
+        <td>“带前后依赖的步骤图”。某一步可以要求多个前置步骤都先完成；这里用它核对标准轨迹顺序。</td>
+        </tr>
+        <tr>
+        <td>ledger</td>
+        <td>“只追加、不回头改写的动作账本”。每次真实操作都新增一条，便于追溯谁在什么时候做了什么。</td>
+        </tr>
+        <tr>
+        <td>checkpoint</td>
+        <td>“一个独立验收点”。例如变更后告警必须为
+        clear，是一个外部状态检查点。</td>
+        </tr>
+        <tr>
+        <td>hook</td>
+        <td>“在固定时机自动插入的一段处理逻辑”。没有接
+        hook，就算底层有搜索能力也不会在每次任务开始时自动运行。</td>
+        </tr>
+        <tr>
+        <td>structured receipt</td>
+        <td>“工具返回的结构化执行回执”。它说明调用收到了什么结果，但是否等于真实外部终态还取决于验证方式。</td>
+        </tr>
+        <tr>
+        <td>outcome unknown</td>
+        <td>“外部操作已经开始，但最终成功还是失败无法确认”。不能当普通失败自动重试。</td>
+        </tr>
+        <tr>
+        <td>formal success</td>
+        <td>“所有正式验收门都通过后的成功”。它不是轨迹分和结果分的简单平均值。</td>
+        </tr>
+        <tr>
+        <td>Qdrant</td>
+        <td>“按文字相似程度找记忆的数据库”。这里同时保存记忆正文、筛选字段和检索向量。</td>
+        </tr>
+        <tr>
+        <td>Neo4j</td>
+        <td>“按对象及关系找关联记忆的图数据库”。这里保存记忆、实体、来源以及它们之间的边。</td>
+        </tr>
+        <tr>
+        <td>dense embedding</td>
+        <td>“把整段话变成一串数字，按语义接近程度查找”。即使没有相同字，也可能找到意思相近的内容。</td>
+        </tr>
+        <tr>
+        <td>BM25 sparse vector</td>
+        <td>“按关键词及词频查找”。它更看重字面词是否出现；代码把 BM25
+        结果也编码成稀疏数字向量。</td>
+        </tr>
+        <tr>
+        <td>RRF</td>
+        <td>“按名次合并两份搜索榜单”。不直接相加两边不可比的原始分数，而是让在两份榜单都靠前的结果优先。</td>
+        </tr>
+        <tr>
+        <td>draft version</td>
+        <td>“候选版本”。内容已生成并保存，但还没有通过评估、替换正式版本。</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>后文的“已接入”是指 HomeMaster
+        当前主运行链确实创建并调用了它；“底层具备”只表示项目内附带的
+        MindMemOS 源码有这段能力，不能把两者混写。</p>
+        <h2 id="1-整个项目到底怎么串起来">1. 整个项目到底怎么串起来</h2>
+        <h3 id="11-一条请求的完整调用链">1.1 一条请求的完整调用链</h3>
+        <pre class="text"><code>CLI / 交互 Shell / 飞书 Gateway / Benchmark
+        │  构造 RunRequest
+        ▼
+ApplicationRuntime.run(request)
+        │
+        ├─ start()：启动应用共享资源，只做一次
+        ├─ SessionManager.open_or_resume(session_id)
+        ├─ SessionManager.turn()：同一 session 加锁，generation + 1
+        └─ _execute_run()
+              │
+              ├─ 创建本次 run 的 provider、ContextAssembler、工具视图
+              ├─ 深拷贝 AgentState 与 TaskStateStore，作为本次工作副本
+              ├─ 创建 ApplicationToolExecutor
+              └─ AgentRuntime.run()
+                    │
+                    ├─ ContextAssembler 组装模型输入
+                    ├─ Provider 返回文本 / tool calls
+                    ├─ ApplicationToolExecutor 补齐本次 run 的上下文
+                    ├─ ToolExecutor 校验、授权、加锁并调用工具
+                    ├─ 外部 Browser / 终端 / THOR / Memory 真正执行
+                    ├─ ToolResultMessage 写回消息历史
+                    └─ 继续下一轮，直到回复、完成、失败、取消或预算耗尽
+              │
+              ├─ generation 仍一致：提交 AgentState / TaskState / evidence
+              ├─ 保存不可变 revision，原子更新 latest.json
+              └─ 返回 RunResult</code></pre>
+        <p>这条链最重要的不是“分了几层”，而是两个边界：</p>
+        <ol type="1">
+        <li><strong>入口只交 <code>RunRequest</code>，不直接操作 Agent
+        内部对象。</strong> 所有入口最终走同一个
+        <code>ApplicationRuntime.run()</code>。</li>
+        <li><strong>外部操作只能经过工具链。</strong>
+        模型只能产出普通工具名和参数，不能直接拿 Browser、终端或 THOR
+        对象。</li>
+        </ol>
+        <h3 id="12-每层如何接到下一层">1.2 每层如何接到下一层</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>当前层</th>
+        <th>收到什么</th>
+        <th>主要调用</th>
+        <th>交给下一层什么</th>
+        <th>失败时发生什么</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>CLI / Gateway / Benchmark</td>
+        <td>用户文本、session、场景、身份、预算</td>
+        <td><code>ApplicationRuntime.run()</code></td>
+        <td>不可变 <code>RunRequest</code></td>
+        <td>请求校验失败，不启动 Provider</td>
+        </tr>
+        <tr>
+        <td>ApplicationRuntime</td>
+        <td><code>RunRequest</code></td>
+        <td><code>open_or_resume()</code>、<code>turn()</code>、<code>_execute_run()</code></td>
+        <td>Session、run 资源、状态工作副本</td>
+        <td>返回带 error code 的 <code>RunResult</code></td>
+        </tr>
+        <tr>
+        <td>SessionManager</td>
+        <td>session id、resume 标记</td>
+        <td>加 <code>turn_lock</code>、增加 generation</td>
+        <td>本轮独占的 <code>SessionRuntime</code></td>
+        <td>revision 冲突或恢复失败，拒绝继续</td>
+        </tr>
+        <tr>
+        <td>AgentRuntime</td>
+        <td>消息容器、状态、ContextAssembler、工具执行器</td>
+        <td>model/tool loop</td>
+        <td>tool calls 或最终回复</td>
+        <td>取消、预算、连续错误、无进展都可终止</td>
+        </tr>
+        <tr>
+        <td>ContextAssembler</td>
+        <td>system、消息、TaskState、工具 schema、预算</td>
+        <td>token 估算、Compact</td>
+        <td>本次冻结的模型请求</td>
+        <td>摘要失败默认保留原历史；仍过长则失败</td>
+        </tr>
+        <tr>
+        <td>ApplicationToolExecutor</td>
+        <td>模型 tool calls、本次 run 环境和权限主体</td>
+        <td>构造每个 <code>ToolExecutionContext</code></td>
+        <td>标准工具调用</td>
+        <td>tool_call_id 集合不一致，整轮失败</td>
+        </tr>
+        <tr>
+        <td>ToolExecutor</td>
+        <td>工具名、参数、身份、deadline</td>
+        <td>校验、权限、资源锁、执行、verifier</td>
+        <td><code>ToolExecutionResult</code></td>
+        <td>外部动作已开始但结果不明时返回
+        <code>outcome_unknown</code></td>
+        </tr>
+        <tr>
+        <td>外部环境</td>
+        <td>已通过控制的动作</td>
+        <td>Browser / API / 终端 / THOR</td>
+        <td>返回码 + 外部状态证据</td>
+        <td>失败原因被压成结构化结果给模型</td>
+        </tr>
+        </tbody>
+        </table>
+        <h2 id="2-applicationsessionrunagent-各自活多久">2.
+        Application、Session、Run、Agent 各自活多久</h2>
+        <h3 id="21-application进程级共享资源">2.1
+        Application：进程级共享资源</h3>
+        <p><code>create_application()</code>
+        负责把这些对象装到一起：</p>
+        <ul>
+        <li><code>EventBus</code> 与 JSONL / CLI / Gateway 订阅者；</li>
+        <li>通用工具表、<code>PermissionChecker</code>、<code>ToolExecutor</code>；</li>
+        <li><code>SessionManager</code> 与持久化存储；</li>
+        <li>Provider factory 与 <code>ContextAssembler</code>
+        factory；</li>
+        <li>设备连接池、MCP、Skill、记忆等应用级服务。</li>
+        </ul>
+        <p><code>ApplicationRuntime.start()</code> 在第一次 run
+        前只执行一次。应用关闭时按创建的反方向释放资源。Provider 不属于
+        Application：它按 run 创建、按 run 关闭。外部 environment
+        是借来的，Application 使用它但不替调用方关闭。</p>
+        <h3 id="22-session连续对话和任务进度">2.2
+        Session：连续对话和任务进度</h3>
+        <p><code>SessionRuntime</code>
+        把四类内容放在一起，但没有混成一个大字典：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>对象</th>
+        <th>实际保存内容</th>
+        <th>谁主要写它</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td><code>AgentSession</code></td>
+        <td>User / Assistant / ToolResult 消息序列</td>
+        <td><code>AgentRuntime</code></td>
+        </tr>
+        <tr>
+        <td><code>AgentState</code></td>
+        <td>loop 状态、次数、错误、用量、Compact、观察要求</td>
+        <td><code>AgentRuntime</code></td>
+        </tr>
+        <tr>
+        <td><code>TaskStateStore</code></td>
+        <td>goal、subtasks、当前步骤、下一步、问题、限制、证据</td>
+        <td>模型通过任务工具显式写</td>
+        </tr>
+        <tr>
+        <td><code>SessionRuntime</code> 自身</td>
+        <td>generation、revision、取消信号、环境引用、最近结果</td>
+        <td><code>SessionManager</code> / Application</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>同一个 session 同时只能有一轮执行。进入
+        <code>SessionManager.turn()</code> 时先拿
+        <code>turn_lock</code>，然后：</p>
+        <ol type="1">
+        <li><code>generation += 1</code>；</li>
+        <li><code>AgentState.turn_index += 1</code>；</li>
+        <li>创建本轮 cancellation token；</li>
+        <li>允许 Application 开始本次 run。</li>
+        </ol>
+        <h3 id="23-run一次用户输入对应的一次执行">2.3
+        Run：一次用户输入对应的一次执行</h3>
+        <p><code>RunRequest</code> 里不只有文本。它还带：</p>
+        <ul>
+        <li><code>session_id</code>、profile、provider/model、resume；</li>
+        <li><code>RunPolicy</code>：最大
+        turn、最大工具循环、deadline、业务 stop condition；</li>
+        <li>permission subject：tenant、主体、角色和 capabilities；</li>
+        <li>借入的 environment；</li>
+        <li>dependencies 和 metadata；</li>
+        <li><code>continuous_taskset</code> 等场景标记。</li>
+        </ul>
+        <p><code>_execute_run()</code> 会先深拷贝 Session 中的
+        <code>AgentState</code> 和 <code>TaskStateStore</code>。本次 run
+        只改副本，成功结束后才提交。也就是说，状态更新采用“先在本轮工作副本上做，最后一次性提交”的方式，避免半轮失败把正式状态改一半。</p>
+        <h3 id="24-旧-run-为什么不能污染新-run">2.4 旧 run
+        为什么不能污染新 run</h3>
+        <p>Application 给消息容器和事件出口都加 generation 检查：</p>
+        <ul>
+        <li><code>_FencedAgentSession</code>：append、replace、clear、读
+        messages 前检查 generation；</li>
+        <li><code>_GenerationFencedEventSink</code>：每个事件发出前检查
+        generation；</li>
+        <li>Gateway 还有自己的 gateway
+        generation，出站的进度、图片、最终回复再次核对。</li>
+        </ul>
+        <p>取消时会设置 cancellation，活动 <code>TaskState</code> 变
+        paused，<code>AgentState</code> 变 cancelled，并再次增加
+        generation。即使旧协程晚一点醒来，也失去写消息、写状态和发事件的资格。</p>
+        <h3 id="25-session-怎么持久化">2.5 Session 怎么持久化</h3>
+        <p>保存时不是反复覆盖同一个大 JSON：</p>
+        <ol type="1">
+        <li>先写一个新的不可变 revision 文件；</li>
+        <li>flush + fsync；</li>
+        <li>用 <code>expected_revision</code> 做 compare-and-swap；</li>
+        <li>原子替换 <code>latest.json</code> 指针。</li>
+        </ol>
+        <p>如果 latest 损坏，恢复代码会从新到旧寻找最后一个完整
+        revision。快照包含消息、AgentState、TaskStateStore、generation、environment
+        ref、evidence refs 和 session status；活着的 Browser、Provider
+        或设备连接不会被序列化。</p>
+        <h2 id="3-三种状态分别解决什么问题">3.
+        三种状态分别解决什么问题</h2>
+        <h3 id="31-agentstate控制循环是否还能继续">3.1
+        AgentState：控制循环是否还能继续</h3>
+        <p>关键字段及用途：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>字段组</th>
+        <th>作用</th>
+        <th>更新时机</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>run/session/status</td>
+        <td>标记本次执行身份和 running/replied/failed/cancelled</td>
+        <td>run 开始、结束、取消</td>
+        </tr>
+        <tr>
+        <td>turn/iteration</td>
+        <td>区分用户轮次和模型工具循环</td>
+        <td>进入 turn、每次调模型前</td>
+        </tr>
+        <tr>
+        <td>model/tool call count</td>
+        <td>预算和审计</td>
+        <td>provider / tool 调用时</td>
+        </tr>
+        <tr>
+        <td>last reply/calls/results</td>
+        <td>下一轮失败摘要和诊断</td>
+        <td>每次模型、工具返回后</td>
+        </tr>
+        <tr>
+        <td>consecutive errors</td>
+        <td>连续整批工具失败保护</td>
+        <td><code>record_tool_results()</code></td>
+        </tr>
+        <tr>
+        <td>repeated no-progress</td>
+        <td>同样结果反复出现保护</td>
+        <td>结果签名与上批相同时</td>
+        </tr>
+        <tr>
+        <td>token estimate/usage</td>
+        <td>Context 阈值和成本</td>
+        <td>Context 组装、provider 返回</td>
+        </tr>
+        <tr>
+        <td>last compaction</td>
+        <td>记录 micro/summary 前后 token</td>
+        <td>Compact 后</td>
+        </tr>
+        <tr>
+        <td>observation barrier</td>
+        <td>外部动作后强制先观察</td>
+        <td>写操作后设置，成功 observe 后清除</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>它不保存“杯子在厨房”或“变更单进入后检”这样的业务字段。</p>
+        <h3 id="32-taskstate模型显式维护的任务计划">3.2
+        TaskState：模型显式维护的任务计划</h3>
+        <p>模型通过 <code>task_planner</code>
+        创建或覆盖：goal、subtasks、current_subtask、next_focus、open_questions、constraints。通过
+        <code>task_progress_check</code> 提交步骤状态和 evidence。</p>
+        <p>状态转换受到代码限制：</p>
+        <pre class="text"><code>active ──&gt; paused ──&gt; active
+   │          ├────&gt; failed
+   │          └────&gt; cancelled
+   ├────&gt; completed
+   ├────&gt; failed
+   └────&gt; cancelled
+
+completed / failed / cancelled 为终态，不能再次跳转</code></pre>
+        <p>模型请求 completed 时，<code>task_completion_guard</code>
+        先检查所有要求外部验证的动作是否已经 passed，以及场景的 terminal
+        owner 是否报告成功。未通过时，工具调用失败，TaskState
+        保持原状态。</p>
+        <h3 id="33-外部环境状态最终判定不能靠模型自述">3.3
+        外部环境状态：最终判定不能靠模型自述</h3>
+        <p>页面 DOM、自动化 job、终端文件、THOR 物体状态都不属于
+        AgentState 或
+        TaskState。它们必须由工具重新读取。模型说“完成了”只能触发完成请求，不能直接让任务成功。</p>
+        <h3 id="34-一次-run-的状态提交时序">3.4 一次 run
+        的状态提交时序</h3>
+        <pre class="text"><code>Session 正式状态 A
+      │ deep copy
+      ▼
+本次 run 工作副本 A&#39;
+      │ Agent loop 连续修改 A&#39;
+      ├─ 失败 / generation 过期 ──&gt; 丢弃 A&#39;
+      └─ 正常结束且 generation 一致
+                │ commit
+                ▼
+          Session 正式状态 B
+                │ save revision
+                ▼
+              磁盘</code></pre>
+        <h2 id="4-agent-loop-每一轮做什么">4. Agent loop
+        每一轮做什么</h2>
+        <p><code>AgentRuntime.run()</code> 可以按下面 16 步理解：</p>
+        <ol type="1">
+        <li>把本轮 UserMessage 追加到 Session，发布
+        <code>runtime.turn_started</code>。</li>
+        <li>检查 cancellation。</li>
+        <li><code>AgentState.begin_iteration()</code>，增加 iteration 和
+        model call count。</li>
+        <li><code>ContextAssembler</code> 组装 system、runtime
+        prelude、conversation、tool schemas。</li>
+        <li>若发生 Compact，记录 kind、前后 token，发布
+        <code>context.compaction</code>。</li>
+        <li>深拷贝并冻结本次 provider 请求；计算序列化 hash。</li>
+        <li>流式读取模型 delta，累积 reply、thinking 和 tool
+        calls。</li>
+        <li>追加 AssistantMessage，记录 provider usage 和事件。</li>
+        <li>没有 tool calls：把状态改为 replied，结束本次 run。</li>
+        <li>有 tool calls：先检查 observation
+        协议；会改变环境且要求视觉复核的动作必须独占一批。</li>
+        <li>调用 <code>ApplicationToolExecutor.dispatch()</code>。</li>
+        <li>对照输入和结果的 <code>tool_call_id</code>
+        集合，必须完全一致。</li>
+        <li>把每个 <code>ToolResultMessage</code> 追加
+        Session，更新错误和无进展计数。</li>
+        <li>写操作真正尝试后设置 observation
+        barrier；下一轮模型只能调用一次 <code>observe</code>。</li>
+        <li>先跑场景 stop condition，再跑通用 loop guard。</li>
+        <li>继续下一轮；或因完成、失败、取消、deadline、连续错误、无进展、工具循环预算而结束。</li>
+        </ol>
+        <h3 id="41-provider-重试为什么要请求完全不变">4.1 Provider
+        重试为什么要“请求完全不变”</h3>
+        <p>只允许在还没有任何 delta、AssistantMessage、tool call
+        或外部动作提交前重试。重试复用已经冻结的
+        system/messages/tools，并重新核对
+        SHA-256。这样避免第一次请求和第二次请求看到不同 TaskState
+        或消息，从而产生两套不同动作。</p>
+        <h3 id="42-外部动作后的-observe-不是业务验证">4.2 外部动作后的
+        observe 不是业务验证</h3>
+        <p>外部写操作必须单独调用。只要 backend
+        已经尝试，下一次模型请求的工具面只剩
+        <code>observe</code>。返回有效 PNG 才清
+        barrier。这个机制解决“动作之后模型仍拿旧画面继续操作”，但它只证明模型看到了新画面；云配置是否正确、THOR
+        物体是否真的处于目标状态仍要由专门检查完成。</p>
+        <h3 id="43-工具预算耗尽时为什么还有收尾轮">4.3
+        工具预算耗尽时为什么还有收尾轮</h3>
+        <p>如果最后一个普通预算内动作已经改变环境，系统不会因为恰好到达
+        <code>max_tool_iterations</code> 就跳过 observe。pending
+        observation
+        的收尾允许超过普通循环预算，避免“动作发出但模型永远没看到结果”。</p>
+        <h2 id="5-context-是怎么拼出来的">5. Context 是怎么拼出来的</h2>
+        <h3 id="51-模型实际收到四块内容">5.1 模型实际收到四块内容</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>部分</th>
+        <th>来源</th>
+        <th>典型内容</th>
+        <th>是否会被历史摘要替代</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>System prompt</td>
+        <td>基础 prompt + Frozen Memory</td>
+        <td>Agent 规则、SOUL、USER、MEMORY</td>
+        <td>否</td>
+        </tr>
+        <tr>
+        <td>Runtime Context prelude</td>
+        <td>每轮重新生成</td>
+        <td>evidence refs、TaskState、预算、最近失败、Skill 索引</td>
+        <td>否</td>
+        </tr>
+        <tr>
+        <td>Conversation</td>
+        <td><code>AgentSession.messages</code></td>
+        <td>用户、模型、工具调用与工具结果</td>
+        <td>会</td>
+        </tr>
+        <tr>
+        <td>Tool schemas</td>
+        <td>当前 run 工具视图</td>
+        <td>工具名、描述、输入 JSON Schema</td>
+        <td>否</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>Runtime prelude 被包装成一条临时 UserMessage
+        放到模型输入前部，但末尾明确标注“这不是新用户请求”。当前活动
+        TaskState 以 REQUIRED 优先级注入；已完成 TaskState 只保留 goal
+        和完成摘要等精简内容。</p>
+        <p>Token 估算包含四块全部内容，不只算消息。估算值再乘默认
+        <code>4/3</code>，留出 tokenizer 误差。</p>
+        <h2 id="6-compact-的具体算法">6. Compact 的具体算法</h2>
+        <h3 id="61-什么时候触发">6.1 什么时候触发</h3>
+        <p>自动阈值是下面两个值的较小者：</p>
+        <pre class="text"><code>threshold = min(
+  context_window × 0.50,
+  context_window - output_reserve(8192) - safety_buffer(13000)
+)</code></pre>
+        <p>触发入口有三个：</p>
+        <ul>
+        <li><strong>auto</strong>：估算总 token 达到 threshold；</li>
+        <li><strong>manual</strong>：控制面手工要求压缩；</li>
+        <li><strong>reactive aggressive</strong>：Provider 在任何 delta
+        返回前报告 context length error。</li>
+        </ul>
+        <p>Compact 永远先做 Stage 1；不够再做 Stage 2。</p>
+        <h3 id="62-stage-1micro-compact不调用模型">6.2 Stage 1：Micro
+        Compact，不调用模型</h3>
+        <p>按代码顺序执行：</p>
+        <ol type="1">
+        <li>扫描所有 image block，默认只保留最近 2 张原图。</li>
+        <li>旧图替换为文字占位，留下工具名、消息序号和原工具参数，避免完全失去图片来源。</li>
+        <li>按工具类型保留最近若干完整结果：<code>observe=2</code>、<code>memory_retriever=1</code>、<code>robot_verify=2</code>、其他工具默认
+        <code>3</code>。</li>
+        <li>更早的 memory 结果只留命中数和 top-1。</li>
+        <li>更早的 navigate / verify / observe 结果只留前 300 字。</li>
+        <li>其他旧工具结果只留总行数和最后 10 行。</li>
+        <li><code>repair_tool_pairs()</code> 删除已经没有对应结果的
+        assistant tool call，保证 provider 协议完整。</li>
+        <li>重新估算 token。</li>
+        <li>若已低于阈值且不是 manual 强制摘要，把 Stage 1 消息直接
+        <code>session.replace_messages()</code>，记录
+        kind=<code>micro</code>，结束。</li>
+        </ol>
+        <h3 id="63-stage-2summary-compact调用摘要模型">6.3 Stage
+        2：Summary Compact，调用摘要模型</h3>
+        <p>Stage 1 仍不够时：</p>
+        <ol type="1">
+        <li>从最新消息向前累加 token，选出要原样保留的 recent
+        tail。</li>
+        <li>normal tail 约为 threshold 的 10%；aggressive 约 5%；manual
+        至少保留最后 1 条。</li>
+        <li>切分点不能落在 assistant tool call 与其 ToolResult
+        中间；整组一起移到 recent。</li>
+        <li>最新 UserMessage 及其之后内容强制留在 recent。</li>
+        <li>normal 还原样保护最早 3 条；aggressive/manual 保护最早 1
+        条。</li>
+        <li>只有中间的 older 交给摘要模型；recent tail
+        作为理解参考，但不要求重复总结。</li>
+        <li>摘要提示要求保留已确认事实、失败、证据、限制和未完成工作，禁止把旧请求当成新指令。</li>
+        <li>当前 TaskState 不以摘要为准；下一轮仍从
+        <code>TaskStateStore</code> 重新注入。</li>
+        <li>用一条 <code>[CONTEXT COMPACTION - REFERENCE ONLY]</code>
+        UserMessage 替换 older。</li>
+        <li>拼回 recent，再修 tool pairs、删除残留旧图，最后
+        <code>session.replace_messages()</code>。</li>
+        </ol>
+        <h3 id="64-压缩前后例子">6.4 压缩前后例子</h3>
+        <pre class="text"><code>压缩前
+U1  “把药送到卧室”
+A1  task_planner(call-1)
+T1  计划结果
+A2  observe(call-2)
+T2  4 MB 图片 + 完整场景
+A3  robot_go_to(call-3)
+T3  120 行导航反馈
+... 40 轮历史 ...
+U2  “先别送，改放床头柜”
+A40 当前动作
+T40 当前结果
+
+Stage 1 后
+U1 / A1 / T1 保留
+旧 observe 图片 -&gt; “[旧图片：observe，消息 4，参数 {...}]”
+旧导航结果 -&gt; 前 300 字
+最近 2 张图、最近工具结果保持完整
+U2 / A40 / T40 保持完整
+
+Stage 2 后
+U1 / A1 / T1                    最早保护区
+U(summary)                      中间历史摘要，只作参考
+U2 / A40 / T40                  recent tail，原样保留
+
+下一轮另外重新注入
+TaskState：当前目标=放床头柜；当前步骤=导航；失败证据=...
+预算：剩余工具轮次=...</code></pre>
+        <h3 id="65-摘要失败和-provider-仍过长">6.5 摘要失败和 Provider
+        仍过长</h3>
+        <p>默认 <code>abort_on_summary_failure=True</code>。没有摘要
+        client、调用异常或返回空文本时，Stage 2
+        不替换历史；不会用一段假摘要覆盖真实消息。配置允许降级时才会放入“摘要不可用，省略
+        N 条”的占位。</p>
+        <p>Provider context-length error 会触发 aggressive
+        Compact，默认最多 2 次。仍然过长时返回
+        <code>context_length_exceeded_after_compact</code>。Compact
+        会改写 Session 消息，因此后续轮次和保存到磁盘的 revision
+        都使用压缩后历史。</p>
+        <h2 id="7-tool-executor-的-14-道执行步骤">7. Tool Executor 的 14
+        道执行步骤</h2>
+        <p>项目里有两层 executor：</p>
+        <ul>
+        <li><code>ApplicationToolExecutor</code>：知道本次
+        run、Session、TaskState、backend、evidence、artifact 和
+        completion guard；</li>
+        <li><code>tools.executor.ToolExecutor</code>：做通用查找、校验、权限、加锁、deadline
+        和真实调用。</li>
+        </ul>
+        <p>完整顺序：</p>
+        <ol type="1">
+        <li><strong>工具查找</strong>：按普通模型工具名查
+        registry；不存在返回 <code>unknown_tool</code>。</li>
+        <li><strong>参数校验</strong>：Pydantic input model + JSON
+        Schema；错误会列缺失字段和字段问题。</li>
+        <li><strong>动态只读判定</strong>：同一工具可以根据参数判断本次调用是否写外部状态。</li>
+        <li><strong>敏感路径检查</strong>：<code>.ssh</code>、云凭据、GPG、Docker、Kubernetes、HomeMaster
+        真实配置等先拒绝。</li>
+        <li><strong>禁止命令 / 禁止工具检查</strong>：命中 deny rule
+        直接拒绝。</li>
+        <li><strong>capability 检查</strong>：主体缺任何 required
+        capability 都拒绝。</li>
+        <li><strong>权限模式检查</strong>：PLAN 阻止写操作；explicit
+        allow、FULL_AUTO、只读、<code>tool.auto</code> 按顺序判断。</li>
+        <li><strong>人工确认</strong>：仍需确认时，调用“把询问发给人并拿回同意/拒绝结果的程序接口”（代码名
+        <code>confirmation handler</code>）；没有配置这个接口或用户拒绝，都不调用真正干活的外部系统（代码里叫
+        <code>backend</code>）。</li>
+        <li><strong>并发分组</strong>：parallel 可并发；serialized
+        按工具名；resource_key 让同一资源串行、不同资源并行。</li>
+        <li><strong>获取 resource lease</strong>：拿到租约后才准备进
+        backend。</li>
+        <li><strong>标记 backend attempted
+        并调用工具</strong>：这是“还可安全失败”和“外部状态可能变化”的分界。</li>
+        <li><strong>deadline / cancel / exception
+        分类</strong>：写操作开始后发生这些问题，返回
+        <code>outcome_unknown</code>，不是普通 retryable failure。</li>
+        <li><strong>外部 verifier +
+        evidence</strong>：要求验证的动作再次读取外部终态；只读成功或写操作
+        verified passed 才登记 memory evidence。</li>
+        <li><strong>完成门与结果回填</strong>：CompletionGuard
+        更新；结果转 <code>ToolResultMessage</code>，图片和 artifact
+        受控发布，写 Session 和事件。</li>
+        </ol>
+        <h3 id="71-权限判断的准确顺序">7.1 权限判断的准确顺序</h3>
+        <pre class="text"><code>敏感路径
+→ denied command
+→ denied tool
+→ required capabilities
+→ 当前 session 是否 plan mode
+→ allowed_tools
+→ FULL_AUTO 或只读
+→ PLAN
+→ 主体是否有 tool.auto
+→ 询问人并取得同意/拒绝（confirmation handler）</code></pre>
+        <p><code>allowed_tools</code> 不能绕过 capability
+        和前面的硬拒绝。</p>
+        <h3 id="72-两个必须诚实说明的边界">7.2
+        两个必须诚实说明的边界</h3>
+        <ol type="1">
+        <li><code>RunRequest.terminal_policy</code>
+        在契约里存在，但当前没有接入 ApplicationRuntime / ToolExecutor
+        的执行路径。</li>
+        <li>通用人工确认机制存在，但默认权限模式是
+        FULL_AUTO，本地默认主体和飞书 <code>feishu-owner</code> 都有
+        <code>tool.auto</code>。所以“所有高风险动作必经人工审批”不是当前真实行为。</li>
+        </ol>
+        <h2 id="8-事件审计和页面飞书进度">8.
+        事件、审计和页面/飞书进度</h2>
+        <p><code>RuntimeEvent</code>
+        统一带：type、session/run/turn、tool call id、tool
+        name、timestamp、duration、payload、event id 和 gateway
+        generation。</p>
+        <pre class="text"><code>Agent / Provider / Tool
+      ↓
+generation-fenced event sink
+      ↓
+EventBus（有界队列，默认 256，提供背压）
+      ├─ runtime_events.jsonl：完整、不截断 payload
+      ├─ messages log：只保留对话投影
+      ├─ CLI / Rich：选择性展示
+      └─ PublicEventProjection
+              └─ Gateway progress / media / final</code></pre>
+        <p>内部审计和对外展示共用事件源，但不是把内部 JSON
+        原样发出去。公开投影只保留白名单字段，并把 task
+        planner、navigation、manipulation、verify
+        转成普通进度文字。凭据、内部路径、隐藏评分、原始 authority
+        和完整内部 payload 不进入飞书消息。</p>
+        <h2 id="9-云运维场景正常变更怎么跑">9.
+        云运维场景：正常变更怎么跑</h2>
+        <h3 id="91-它不是固定工作流引擎">9.1 它不是固定工作流引擎</h3>
+        <p>当前实现是：prompt 要求模型用 <code>task_planner</code> 建立
+        phases；每轮最新 TaskState、工具结果和失败摘要重新进入
+        Context；模型再选择下一工具。环境状态机会拒绝顺序错误的副作用。</p>
+        <p>所以可以说“任务状态 +
+        每轮动态选择下一动作”，不能说“自然语言先编译成一个固定流程，再由独立调度器逐节点执行”。</p>
+        <h3 id="92-票据先被锁定">9.2 票据先被锁定</h3>
+        <p>Coworker 场景先解析 ticket route，并对来源内容做 hash
+        锁定。后续动作必须对应当前票据和目标，防止模型中途换到另一条工单或另一份配置。</p>
+        <h3 id="93-正常链路的外部状态">9.3 正常链路的外部状态</h3>
+        <pre class="text"><code>created
+→ prechecking
+→ ready_to_change
+→ change_submitted
+→ change_applied
+→ verifying
+→ completed</code></pre>
+        <p>具体步骤：</p>
+        <ol type="1">
+        <li>模型读取变更单并用 <code>task_planner</code>
+        建立前检、实施、后检和异常处理阶段。</li>
+        <li>进入 <code>prechecking</code>。</li>
+        <li>配置侧检查 <code>extension_config</code> 与
+        <code>upstream_ready</code>。</li>
+        <li>监控侧检查
+        <code>alarm</code>、<code>probe</code>、<code>capacity</code>、<code>runtime_metrics</code>、<code>traffic</code>。</li>
+        <li>七项全部通过，环境才允许
+        <code>precheck/proceed</code>，状态进入
+        <code>ready_to_change</code>。</li>
+        <li>在自动化平台提交精确的 add job，记录返回 job id，状态进入
+        <code>change_submitted</code>。</li>
+        <li>wait 必须等待同一个 job id 到 <code>succeeded</code>；job
+        内部状态是
+        <code>accepted → running → succeeded/failed</code>。</li>
+        <li>受限终端执行 grep，返回码必须为 0，stdout
+        中变量和值必须与票据锁定内容精确一致。</li>
+        <li>只有 job 成功 + grep 精确匹配，才能
+        <code>change_implement/proceed</code>，状态进入
+        <code>change_applied</code>。</li>
+        <li>后检再次读
+        alarm、probe、capacity、runtime_metrics、traffic。</li>
+        <li>运行独立 business verification job，并要求
+        <code>NORMAL_PROGRESS</code>。</li>
+        <li>最后独立读取目标配置仍存在，才允许状态
+        <code>completed</code>。</li>
+        </ol>
+        <p>这里有三种不同证据，不能混为一谈：页面显示成功、自动化 job
+        返回成功、终端/存储里的真实配置存在。最终门依赖后两者和后检，不依赖模型总结。</p>
+        <h2 id="10-云运维场景异常后怎么回退">10.
+        云运维场景：异常后怎么回退</h2>
+        <p>异常路径：</p>
+        <pre class="text"><code>change_applied
+→ anomaly_detected
+→ rollback_submitted
+→ rolled_back</code></pre>
+        <p>具体要求：</p>
+        <ol type="1">
+        <li>异常 alarm 必须能关联到当前 add
+        job，不能拿历史告警回退当前变更。</li>
+        <li>必须同时有终端 grep
+        证据，证明当前配置确实是本次变更写入的内容。</li>
+        <li>模型提交 rollback decision。</li>
+        <li>环境接受后提交精确 remove job，记录 remove job id。</li>
+        <li>wait 必须等待这个 remove job 到 succeeded。</li>
+        <li>终端 grep 必须返回 code 1 且 stdout
+        为空，表示配置已经不存在。</li>
+        <li>EpisodeStore 再独立确认 target config absent。</li>
+        <li>流程进度必须是 <code>ROLLBACK_PROGRESS</code>。</li>
+        <li>全部通过后才进入 <code>rolled_back</code>。</li>
+        </ol>
+        <h3 id="101-云运维评测怎么判定">10.1 云运维评测怎么判定</h3>
+        <p>评测不是只看 Agent 最后一句话：</p>
+        <ul>
+        <li>append-only action/audit ledger 记录每个真实动作；</li>
+        <li>trajectory matcher 用 DAG 核对必要步骤与先后关系；</li>
+        <li>result checks 独立读取外部终态；</li>
+        <li>normal 当前记录为轨迹 24/24、结果 14/14；</li>
+        <li>anomaly 当前记录为轨迹 22/22、结果 11/11；</li>
+        <li>两个接受运行的三项评分为 100/100/100。</li>
+        </ul>
+        <p>当前仓库只给出这一个 case 的两个分支，不能据此支持“10
+        个场景、200 条标准轨迹”。</p>
+        <h2 id="11-飞书消息怎么进入同一套-runtime">11.
+        飞书消息怎么进入同一套 Runtime</h2>
+        <pre class="text"><code>飞书 WebSocket 事件
+→ FeishuChannel.accept_event()
+→ InboundMessage
+→ ChannelRouter.route()
+→ GatewayRuntime.submit()
+→ ChannelBridge.handle()
+→ RunRequest
+→ ApplicationRuntime.run()
+→ PublicEventProjection
+→ progress / image / final
+→ FeishuChannel.send()</code></pre>
+        <p>关键逻辑：</p>
+        <ul>
+        <li>缺 sender/message id 或 sender_type=bot 直接拒绝；消息 id 有
+        TTL 去重。</li>
+        <li>私聊和群聊分别选择 open_id / chat_id
+        作为回复目标，thread/root 保持关联。</li>
+        <li>附件下载后必须是受控根目录下的普通文件，使用
+        <code>O_EXCL</code>、可用时 <code>O_NOFOLLOW</code>，并
+        fsync。</li>
+        <li>session id
+        不是用户传的：tenant、channel、chat、thread、sender、chat_type
+        做 canonical JSON + SHA-256，取前 32 位，形如
+        <code>gw-...</code>。</li>
+        <li>同一 session 新消息先取消旧 task，再增加 gateway
+        generation；旧进度和旧最终回复被丢弃。</li>
+        <li>恢复持久化 Session 前先
+        <code>repair_tool_pairs()</code>，删除孤立的 tool call /
+        result。</li>
+        </ul>
+        <p>身份边界：当前所有非 bot 飞书发送者都映射为同一个
+        <code>feishu-owner</code>，roles=<code>admin</code>，并拥有
+        <code>tool.auto</code>、<code>device.control</code>、文件、网络、进程等能力；没有家庭成员级角色区分和审批卡闭环。</p>
+        <h2 id="12-家庭机器人--alfworld-的真实执行链">12. 家庭机器人 /
+        ALFWorld 的真实执行链</h2>
+        <h3 id="121-episode-开始前的-reset">12.1 Episode 开始前的
+        reset</h3>
+        <p>Provider 只有在 reset 成功后才创建。reset 顺序：</p>
+        <pre class="text"><code>ChangeTimeScale(0.01)
+→ GetReachablePositions
+→ 按有界扫描计划扫描场景
+→ 恢复精确初始 pose
+→ ChangeTimeScale(1.0)
+→ 原子发布 immutable pose snapshot</code></pre>
+        <p>任何进入 slow-time 后的失败都要尽力恢复初始 pose 和正常 time
+        scale。恢复无法确认时，环境关闭或 quarantine，不发布
+        snapshot，Episode 在 Provider 调用前就结束。</p>
+        <h3 id="122-robot_go_to-怎么执行">12.2 robot_go_to 怎么执行</h3>
+        <ol type="1">
+        <li>模型只传公开语义标签，例如 <code>mug 1</code>，看不到
+        objectId、坐标和完整场景 metadata。</li>
+        <li>grounding 对同输入确定性解析：显式 ordinal
+        不会偷偷回退到别的对象。</li>
+        <li>优先使用当前已可见的精确目标；允许的离屏目标才查 frozen
+        snapshot。</li>
+        <li>本次调用只锁定一个目标和一个 snapshot pose。</li>
+        <li>只调用一次 pose lookup、只发一次
+        <code>TeleportFull</code>。</li>
+        <li>返回后检查 THOR action、success、actual pose、world/control
+        hash、精确目标 visibility 和正面积 bbox。</li>
+        <li>任一门失败，返回 typed feedback；当前 V1.8
+        不在这个公开调用中继续枚举另一个 pose。</li>
+        </ol>
+        <p>代码里有历史兼容的 <code>PoseContext.lock()</code> 和候选
+        retry，但 V1.8
+        当前公开调用链不可达。因此“失败后自动局部换位姿重试”不能作为当前导航主链实现来讲。</p>
+        <h3 id="123-robot_manipulate-怎么执行">12.3 robot_manipulate
+        怎么执行</h3>
+        <p>支持
+        take、open、close、put、use、slice、heat、cool、clean。共同顺序：</p>
+        <pre class="text"><code>语义目标精确 grounding
+→ 动作前置条件
+→ OracleActionGateway
+→ THOR action
+→ 外部返回码
+→ 动作专用终态检查
+→ preserve / rebase / consume / invalidate execution context
+→ typed feedback</code></pre>
+        <p>例如 put 不只看 THOR 返回
+        success，还要核对手持物、目标容器、物体归属和实际
+        pose；失败动作必须证明关键状态没有被部分改变，不能把“失败返回”直接当安全未执行。</p>
+        <h3 id="124-robot_verify-做什么">12.4 robot_verify 做什么</h3>
+        <p>当前 <code>robot_verify</code> 只读
+        <code>adapter.current_state.won</code>。它不是一个通用视觉判定模型；真正动作级检查已经在
+        navigate/manipulate 返回前完成，任务级完成再由 ALFWorld 的 won
+        状态决定。</p>
+        <h3 id="125-长程-taskset-如何连续执行">12.5 长程 taskset
+        如何连续执行</h3>
+        <ul>
+        <li>taskset 的 subtasks 由 manifest
+        预先给出；不是模型从任意长目标自动拆成这些 taskset 子任务。</li>
+        <li>整个 taskset 复用一个 Adapter / scene 和一个 Application
+        session。</li>
+        <li>每个 subtask 仍单独调用一次
+        <code>ApplicationRuntime.run(... continuous_taskset=True)</code>。</li>
+        <li>消息、AgentState、TaskState
+        可持续，子任务之间会剥离历史图片，物理 scene 不 reset。</li>
+        <li>前一目标成功后推进下一个；基础设施失败会阻塞剩余任务；普通
+        Agent 失败会停链，但不会把未来子任务伪装成基础设施失败。</li>
+        </ul>
+        <h3 id="126-当前-alfworld-数字">12.6 当前 ALFWorld 数字</h3>
+        <p>当前固定十条记录：raw success <code>1/10</code>；可计分有效
+        Episode <code>5/10</code>；有效子集 success
+        <code>1/5</code>；coverage
+        <code>0.5</code>；<code>formal_score_available=false</code>。历史
+        <code>9/10</code>
+        被项目文档明确标记为混用无效结果，不能支持“成功率超过 90%”。</p>
+        <h2 id="13-记忆系统总览先分清五条链">13.
+        记忆系统总览：先分清五条链</h2>
+        <h3 id="131-为什么不能只说项目有四层记忆">13.1
+        为什么不能只说“项目有四层记忆”</h3>
+        <p>当前仓库里和“记忆”有关的代码来自不同阶段，它们的写入人、存储位置和召回方式不同。最稳妥的理解是五条链：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>记忆链</th>
+        <th>谁写</th>
+        <th>放在哪里</th>
+        <th>谁读取</th>
+        <th>HomeMaster 当前状态</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>固定会话背景</td>
+        <td>文件管理程序或用户</td>
+        <td><code>SOUL.md</code>、<code>USER.md</code>、<code>MEMORY.md</code></td>
+        <td>新 Session 第一次请求时冻结读取</td>
+        <td>已接入</td>
+        </tr>
+        <tr>
+        <td>结构化事实与流程</td>
+        <td>模型显式调用 <code>mindmemos_add/update/delete</code></td>
+        <td>MindMemOS：Qdrant + Neo4j</td>
+        <td><code>mindmemos_search</code> / <code>get_raw</code></td>
+        <td>已接入</td>
+        </tr>
+        <tr>
+        <td>Session 执行经验</td>
+        <td>交互 Shell 结束时的 <code>SessionFinalizer</code></td>
+        <td>MindMemOS Vanilla experience</td>
+        <td>结构化搜索工具的兼容读取分支</td>
+        <td>已接入，但只在特定结束入口触发</td>
+        </tr>
+        <tr>
+        <td>旧空间物品记忆</td>
+        <td>旧 <code>object_memory</code> 写入链</td>
+        <td>物品记录与本次运行的覆盖层</td>
+        <td>旧 BM25 + Embedding 检索器</td>
+        <td>独立旧链，没有并入当前 MindMemOS 主搜索</td>
+        </tr>
+        <tr>
+        <td>记忆后处理</td>
+        <td>Feedback、Dreaming、SkillEvolver</td>
+        <td>MindMemOS 记忆、操作记录、Skill 版本库</td>
+        <td>对应的底层处理链</td>
+        <td>底层源码具备，HomeMaster 主运行链未接入</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>所以简历里的“角色设定、长期偏好、事实、结构化空间记忆”可以作为设计分层来讲，但面试时要补一句：当前实现不是一个统一类里四个数组，而是上面几条不同的数据链，最后在模型输入或工具搜索结果处汇合。</p>
+        <h3 id="132-homemaster-当前到底创建了哪些-mindmemos-对象">13.2
+        HomeMaster 当前到底创建了哪些 MindMemOS 对象</h3>
+        <p>应用启动时，<code>EmbeddedMindMemOS.start()</code>
+        只创建并保存六类处理链：</p>
+        <pre class="text"><code>结构化写入（schema add）
+自由文本经验写入（vanilla add）
+相似搜索（search）
+按条件读取（get）
+原生更新（update）
+归档删除（delete）</code></pre>
+        <p>它没有创建 Feedback、Dreaming 或
+        SkillEvolver，也没有启动对应后台 worker。换句话说：</p>
+        <pre class="text"><code>MindMemOS 源码里有文件
+        ≠ HomeMaster 启动时创建了对象
+        ≠ HomeMaster 每次任务结束会自动调用
+        ≠ 真实记忆或 Skill 已经被修改</code></pre>
+        <h3 id="133-固定会话背景怎么进入模型">13.3
+        固定会话背景怎么进入模型</h3>
+        <p><code>FileMemoryStore</code> 管三个 Markdown 文件：</p>
+        <ul>
+        <li><code>SOUL.md</code>：这个助手是谁、应采用什么行为方式；</li>
+        <li><code>USER.md</code>：用户身份、长期偏好和稳定习惯；</li>
+        <li><code>MEMORY.md</code>：跨会话仍值得保留的决定、结果和未完成事项。</li>
+        </ul>
+        <p>写入前会检查凭据、可疑外传内容和容量，随后加文件锁、写临时文件、原子替换、再读回来确认。<code>FrozenMemoryContextService</code>
+        在一个 Session
+        第一次请求时生成一次不可变快照，放进系统提示。文件中途改变不会偷偷改变当前对话，只会影响新
+        Session。</p>
+        <p>这条链解决的是“每轮都应稳定知道的背景”，不是相似度搜索；它也不经过
+        MindMemOS。</p>
+        <h3 id="134-session-执行经验怎么沉淀">13.4 Session
+        执行经验怎么沉淀</h3>
+        <p>交互 Shell 正常结束 Session 时，<code>SessionFinalizer</code>
+        执行：</p>
+        <ol type="1">
+        <li>从已有 <code>runtime_events.jsonl</code> 里只取当前 Session
+        的事件；</li>
+        <li>丢掉模型逐字输出的
+        <code>transport.delta</code>，避免把大量碎片重复存入；</li>
+        <li>保留用户请求、模型思考、非空回复、工具成功和工具失败；</li>
+        <li>按发生顺序转成一段对话，并附上本次结束原因；</li>
+        <li>用“Session 编号 + 精选内容哈希 + 提取器版本”算出稳定 job
+        id；</li>
+        <li>如果这个 job 已完成，不重复提交；</li>
+        <li>调用自由文本写入链 <code>vanilla_add</code>，由 MindMemOS
+        提取 experience；</li>
+        <li>搜索时，只有仍为 active、正文非空且类型正确的
+        experience，才允许被 HomeMaster 转成流程类结果。</li>
+        </ol>
+        <p>它做的是“把一段轨迹存成经验”，还没有做到“从经验自动生成或改写
+        <code>SKILL.md</code>”。两者中间还缺第 17
+        节所讲的版本绑定、评分、轨迹消费、评估和发布。</p>
+        <h3 id="135-旧空间物品记忆怎么检索">13.5
+        旧空间物品记忆怎么检索</h3>
+        <p>旧 <code>object_memory</code>
+        记录物品类别、别名、房间、参照物、可观察位置、可信度、是否过期以及最后确认时间。它的搜索步骤是：</p>
+        <pre class="text"><code>当前任务卡片
+→ 模型生成受格式约束的搜索条件（最多重试 3 次）
+→ 限定只能搜 object_memory
+→ 每条物品记录展开成中文检索文本
+→ 关键词搜索 BM25 排一份榜
+→ 语义搜索 Embedding 排一份榜
+→ RRF 按名次合并两份榜
+→ 再加物品类别、别名、位置、可信度分
+→ 过期项扣分，明确的反面证据直接排除
+→ 返回前 top_k 以及每一项为什么得这个分</code></pre>
+        <p>这里的 RRF
+        就是“合并榜单名次”：它不会把关键词分数和语义分数硬相加。语义模型失败时明确降级成只用
+        BM25，不会让整个搜索报废。</p>
+        <p><code>RuntimeMemoryStore</code>
+        只能在本次运行的覆盖层里把物品标成已确认、过期或矛盾；旧持久化写入是尽力而为，异常会被吞掉。因此它还不是“探索新位姿成功后严格写回、失败后再修正”的完整闭环，也没有接到当前
+        ALFWorld V1.8 的单 pose 导航里。</p>
+        <h2 id="14-mindmemos-增查改删数据库里具体发生什么">14. MindMemOS
+        增、查、改、删：数据库里具体发生什么</h2>
+        <h3 id="141-两个数据库各自负责什么">14.1
+        两个数据库各自负责什么</h3>
+        <p>MindMemOS 一次写入会把不同信息放到两个数据库：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>存储</th>
+        <th>保存内容</th>
+        <th>主要用途</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>Qdrant</td>
+        <td>记忆正文、类型、状态、项目/会话等筛选字段、语义数字向量、关键词稀疏向量</td>
+        <td>先按条件过滤，再按文字或语义相似程度找候选记忆</td>
+        </tr>
+        <tr>
+        <td>Neo4j</td>
+        <td>Memory、Entity、Source
+        节点，以及“提到哪个对象”“来自哪个来源”“由旧记忆产生”等关系</td>
+        <td>从一条记忆顺着关系找一跳相关记忆，或给 Dreaming 聚类</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>“写成功”不能只理解成模型说成功。HomeMaster
+        的结构化写入还要把写回结果逐条读出，与原始记录完全比对。</p>
+        <h3 id="142-增结构化事实和流程怎么写">14.2
+        增：结构化事实和流程怎么写</h3>
+        <p>HomeMaster 允许写两种结构化记录：</p>
+        <ul>
+        <li><code>FactRecord</code>：一个主体、一个属性、一个值和来源，例如“药盒
+        1 的位置 = 厨房第二层抽屉”；</li>
+        <li><code>ProcedureRecord</code>：流程名、入口、连续编号步骤、每步预期与输出、成功条件，例如“在云平台新增一条路由并验证”。</li>
+        </ul>
+        <p>一条事实的示意输入：</p>
+        <div class="sourceCode" id="cb16"><pre
+        class="sourceCode json"><code class="sourceCode json"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;memory_type&quot;</span><span class="fu">:</span> <span class="st">&quot;fact&quot;</span><span class="fu">,</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;record&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;subject&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;type&quot;</span><span class="fu">:</span> <span class="st">&quot;object&quot;</span><span class="fu">,</span> <span class="dt">&quot;name&quot;</span><span class="fu">:</span> <span class="st">&quot;药盒 1&quot;</span><span class="fu">,</span> <span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;medicine-box-1&quot;</span><span class="fu">},</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;predicate&quot;</span><span class="fu">:</span> <span class="st">&quot;stored_at&quot;</span><span class="fu">,</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;value&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;room&quot;</span><span class="fu">:</span> <span class="st">&quot;厨房&quot;</span><span class="fu">,</span> <span class="dt">&quot;anchor&quot;</span><span class="fu">:</span> <span class="st">&quot;第二层抽屉&quot;</span><span class="fu">},</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;source&quot;</span><span class="fu">:</span> <span class="fu">{</span><span class="dt">&quot;kind&quot;</span><span class="fu">:</span> <span class="st">&quot;tool_observation&quot;</span><span class="fu">,</span> <span class="dt">&quot;evidence_refs&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;ev_...41&quot;</span><span class="ot">]</span><span class="fu">}</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+        <p>真正写入的顺序：</p>
+        <pre class="text"><code>用户明确陈述，或工具已经验证外部状态
+→ MemoryEvidenceLedger 发一个不可猜的证据编号和递增序号
+→ mindmemos_add 检查输入字段与类型
+→ 确认证据属于同一 tenant / session / run / turn
+→ 确认证据类型与 record.source 一致
+→ 如果是流程：证据至少为“步骤数 + 1”，且编号唯一、严格递增
+→ 完整结构化 record 放入 metadata.record_json
+→ Fact 用“主体名::属性名”作为稳定身份；Procedure 用精确流程名
+→ SchemaAddPipeline 把消息放入 buffer，并按对话边界切成 episode
+→ MindMemOS 抽取实体和属性
+→ MemoryDbWriter 写 Qdrant 与 Neo4j
+→ 收集这次可能生成的原始记忆编号
+→ HomeMaster 逐编号 get_raw 读回
+→ 重新校验 record_json，并与输入逐字段完全相等
+→ 至少有一条完全相等，才向模型返回 success</code></pre>
+        <p>流程比事实要求更多证据，是因为一条五步操作经验至少要覆盖五步结果和最终成功结果。没有经过验证的外部写操作，<code>MemoryEvidenceLedger</code>
+        不会给它发可写入证据。</p>
+        <h3 id="143-mindmemos-自由文本写入和结构化写入有什么不同">14.3
+        MindMemOS 自由文本写入和结构化写入有什么不同</h3>
+        <p>结构化写入知道目标格式，要生成可校验的事实或流程。自由文本写入先让模型根据一段对话形成“记忆写入计划”，再写正文、数字向量和关系。当前
+        <code>SessionFinalizer</code>
+        用的是自由文本写入，因为输入是整段事件轨迹，不是预先构造好的
+        <code>FactRecord</code>。</p>
+        <p>两者最后都可能落到 Qdrant 和
+        Neo4j，但上层可验证程度不同：HomeMaster 对结构化写入做完整
+        <code>record_json</code> 回读比对；Session experience
+        没有同样的逐字段 typed record 比对。</p>
+        <h3 id="144-查一句问题如何找到记忆">14.4
+        查：一句问题如何找到记忆</h3>
+        <p>HomeMaster 的 <code>mindmemos_search</code> 当前固定选择
+        MindMemOS 的 <code>vanilla</code>
+        搜索链。一次查询会同时走两路：</p>
+        <pre class="text"><code>用户查询
+├─ 语义路：整句话 → dense embedding → 找意思相近的记忆
+└─ 关键词路：分词/词频 → BM25 sparse vector → 找字面词相近的记忆
+             ↓
+       Qdrant 用 RRF 合并两份名次
+             ↓
+       可选：Neo4j 补一跳相关记忆
+             ↓
+       去重 → 可选重排 → 取 top_k
+             ↓
+       HomeMaster 逐 raw ID 再读原始记录
+             ↓
+       解开 record_json → 再做格式校验 → 再按字段过滤
+             ↓
+       把可用于后续更新/删除的 raw memory ID 返回模型</code></pre>
+        <p>语义数字向量生成失败时可以只用关键词路继续搜索。没有
+        <code>record_json</code>
+        或格式损坏的结构化记录会被跳过，不把半坏数据喂给模型。Vanilla
+        experience
+        只有类型、状态和正文都符合专门条件时才进入兼容结果。</p>
+        <h3 id="145-取get-和-search-不是一回事">14.5 取：Get 和 Search
+        不是一回事</h3>
+        <p><code>get</code>
+        不计算“像不像”。它只按项目、记忆类型、状态等精确条件列出原始记录，并且默认只返回
+        <code>status=active</code>
+        的记忆。适合“按已知编号取详情”或“列出这个项目所有有效流程”。</p>
+        <p><code>search</code>
+        适合“我不知道编号，只知道大概意思”。它先做相似度召回，因此返回顺序带相关性。更新和删除最终仍要落到准确的
+        raw memory ID。</p>
+        <h3 id="146-改底层原地改与-homemaster-换新版本是两条逻辑">14.6
+        改：底层原地改与 HomeMaster 换新版本是两条逻辑</h3>
+        <p>MindMemOS 原生 <code>update</code>：</p>
+        <ol type="1">
+        <li>只接受一条仍为 active 的原始记忆编号；</li>
+        <li>原地替换正文；</li>
+        <li>重新计算规范化文本和内容哈希；</li>
+        <li>重新分词，生成新的 BM25 稀疏向量；</li>
+        <li>重新生成语义数字向量；</li>
+        <li>更新 Qdrant；</li>
+        <li>同步更新 Neo4j 的正文。</li>
+        </ol>
+        <p>HomeMaster 的结构化 <code>mindmemos_update</code>
+        没直接采用“原地覆盖”，而是保留新旧关系：</p>
+        <pre class="text"><code>读取旧 raw ID
+→ 校验新 record 和新 evidence
+→ 新 evidence 的递增序号必须大于旧记录
+→ 先把旧 raw ID 标成 archived
+→ 按新增流程写一条新记录
+→ 读回新记录并逐字段比对
+→ 返回新的 raw ID</code></pre>
+        <p>这样能避免旧证据把新事实覆盖回去，也留下旧版本。但它存在一个必须诚实处理的中间状态：旧记录已经归档后，如果新记录写入超时，系统无法确定数据库到底写没写成功，就返回
+        <code>memory_outcome_unknown</code>。这个结果的白话意思是“外部状态说不准”，不能自动重试，否则可能重复写入。</p>
+        <h3 id="147-删默认是归档不是物理擦除">14.7
+        删：默认是归档，不是物理擦除</h3>
+        <p>HomeMaster 把准确的 raw memory ID 交给 MindMemOS
+        delete。默认动作是把 Qdrant 和 Neo4j 中的 <code>status</code>
+        改为 <code>archived</code>；普通 get/search
+        默认不再返回它，但数据仍留作追溯。底层虽有物理删除能力，HomeMaster
+        公共记忆工具没有暴露。</p>
+        <p>这也意味着：</p>
+        <ul>
+        <li>“删除后搜索不到”是预期结果；</li>
+        <li>“磁盘上完全不存在”不是当前 delete 的承诺；</li>
+        <li>更新旧记录本质上也是“旧记录归档 + 新记录新增”。</li>
+        </ul>
+        <h3 id="148-用一个位置变化把四种操作串起来">14.8
+        用一个位置变化把四种操作串起来</h3>
+        <pre class="text"><code>① 增：观察到“药盒在厨房第二层抽屉”
+   → 写 M100，status=active
+
+② 查：用户问“药盒放哪了”
+   → 语义/关键词召回 M100
+   → HomeMaster 读回 record_json 后返回位置
+
+③ 改：后来验证“药盒移到卧室床头柜”
+   → 新证据序号必须更大
+   → M100 改成 archived
+   → 新增 M205，读回完全一致后返回成功
+
+④ 删：用户明确要求忘掉这条位置
+   → M205 改成 archived
+   → 默认搜索不再返回 M100/M205</code></pre>
+        <h2 id="15-feedback把这次回答错了转成记忆修改动作">15.
+        Feedback：把“这次回答错了”转成记忆修改动作</h2>
+        <h3 id="151-feedback-不是保存一句评论">15.1 Feedback
+        不是保存一句评论</h3>
+        <p>MindMemOS 的 Feedback
+        会先理解用户纠错，再把它规划成四种数据库动作：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>动作</th>
+        <th>含义</th>
+        <th>例子</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>add</td>
+        <td>原来没有这条长期信息，需要新增</td>
+        <td>“我现在对青霉素过敏”</td>
+        </tr>
+        <tr>
+        <td>update</td>
+        <td>原记忆过期或错误，用新记忆替代</td>
+        <td>“药盒不在厨房，已经移到卧室”</td>
+        </tr>
+        <tr>
+        <td>delete</td>
+        <td>这条记忆不该保留</td>
+        <td>“不要再记住临时访客的门禁码”</td>
+        </tr>
+        <tr>
+        <td>noop</td>
+        <td>不需要改长期记忆</td>
+        <td>“刚才页面有点卡”这类临时反馈</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>它有“明确反馈”和“从历史中发现负面信号”两条路线。</p>
+        <h3 id="152-明确反馈用户直接指出哪里错了">15.2
+        明确反馈：用户直接指出哪里错了</h3>
+        <p>调用方必须交三样东西：</p>
+        <ol type="1">
+        <li>用户明确说出的反馈文字；</li>
+        <li>这轮完整对话，避免只看一句纠错误解上下文；</li>
+        <li>本轮真正召回并影响回答的 raw memory
+        IDs，不是所有相似记忆。</li>
+        </ol>
+        <p>执行顺序：</p>
+        <pre class="text"><code>feedback 文字 + 完整对话 + 本轮实际用到的记忆
+→ 第一次模型判断：现有信息够不够定位错误
+→ 不够：改写查询，并额外跑一次 vanilla search
+→ 第二次模型规划：对哪些 raw ID 做 add/update/delete/noop
+→ FeedbackActionExecutor 按顺序逐条执行
+→ 每个动作返回自己的成功、失败和新旧编号</code></pre>
+        <p>为什么需要“本轮实际用到的记忆”？因为用户说“这个地址错了”时，系统要知道回答是由哪条旧地址导致的，才能修改病因，而不是随便搜索一个相似地址删掉。</p>
+        <h3 id="153-feedback-的-update-为什么不是原地覆盖">15.3 Feedback
+        的 update 为什么不是原地覆盖</h3>
+        <p>明确反馈里的 update 更强调来源关系：</p>
+        <pre class="text"><code>为纠正后的内容创建一条新 memory
+→ 生成新的语义向量和关键词向量
+→ 在 Neo4j 写“新记忆由旧记忆修正而来”（DERIVED_FROM）
+→ 把旧 memory 归档
+→ 新写入和旧归档都完成，action 才是 ok</code></pre>
+        <p>这样以后可以追溯“哪条反馈把旧事实改成了什么”。任何一半失败都不能伪装成完整成功。</p>
+        <h3 id="154-隐式反馈用户没说请改记忆系统从失败中找问题">15.4
+        隐式反馈：用户没说“请改记忆”，系统从失败中找问题</h3>
+        <p>默认逻辑读取最近 3 天的 add/search 操作记录，按 Session
+        分组。这里的“操作记录”不是普通日志，而是专门记录哪次写入了什么、哪次搜索召回了哪些
+        raw IDs 的数据。</p>
+        <p>每轮只保留第一个用户请求和最后一个助手回复，减少中间噪声；然后补搜可能相关的记忆，让模型检查三类信号：</p>
+        <ul>
+        <li><code>task_temporary</code>：只是这次任务临时成立，不该变长期记忆；</li>
+        <li><code>scenario_specific</code>：只在这个场景成立，不应泛化到所有情况；</li>
+        <li><code>long_term</code>：确实说明长期记忆需要新增、修改或删除。</li>
+        </ul>
+        <p>发现长期问题后，再规划
+        add/update/delete/noop。处理完成会把相关 add record 标为
+        <code>feedback_processed</code>，下次扫描跳过，避免同一轮反复修改。</p>
+        <h3 id="155-异步模式怎样工作">15.5 异步模式怎样工作</h3>
+        <p>异步调用本身不改记忆，只把任务发到 Kafka 的
+        <code>memory.feedback</code> 主题。后台 worker
+        收到后，再转成同步处理并写数据库。这里的 Kafka
+        可以理解成“任务信箱”：前台把待处理工作投进去，后台消费者稍后取走。</p>
+        <h3 id="156-homemaster-当前接到哪里">15.6 HomeMaster
+        当前接到哪里</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>必要环节</th>
+        <th>当前情况</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>创建 FeedbackPipeline</td>
+        <td>没有</td>
+        </tr>
+        <tr>
+        <td>把本轮真正使用的 raw IDs 交给 Feedback</td>
+        <td>没有完整接线</td>
+        </tr>
+        <tr>
+        <td>启动 <code>memory.feedback</code> worker</td>
+        <td>没有；当前 Kafka 关闭</td>
+        </tr>
+        <tr>
+        <td>自动扫描近 3 天记录</td>
+        <td>没有</td>
+        </tr>
+        <tr>
+        <td>Feedback 底层源码</td>
+        <td>有；仓库集成报告记录明确反馈曾做过条件性验证</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>因此可以说“调研并验证了 MindMemOS
+        的反馈纠错链，明确了接入所需字段和动作语义”；不能说“HomeMaster
+        当前会自动根据用户反馈修正长期记忆”。</p>
+        <h2 id="16-dreaming定期整理近期记忆而不是自由做梦">16.
+        Dreaming：定期整理近期记忆，而不是自由做梦</h2>
+        <h3 id="161-它解决什么问题">16.1 它解决什么问题</h3>
+        <p>记忆越写越多后，会出现完全重复、意思近似、互相冲突、只在临时场景成立或信息太少等问题。Dreaming
+        是一条离线整理链：不在用户请求的关键路径里抢时间，而是定期找近期活跃记忆，合并或归档。</p>
+        <h3 id="162-从哪些记忆开始">16.2 从哪些记忆开始</h3>
+        <p>默认查看最近 7
+        天活动，找还没有标记为已整理的热门记忆作为起点。然后在 Neo4j
+        中沿下面的一跳关系找同组记忆：</p>
+        <pre class="text"><code>Memory A → 共同实体 ← Memory B / C / D</code></pre>
+        <p>例如多条都提到“药盒
+        1”，就可能进入一个组。代码还有几个限流条件：</p>
+        <ul>
+        <li>少于 2 条无法比较，跳过；</li>
+        <li>一个实体关联超过 50 条，视为噪声过大的实体，跳过；</li>
+        <li>一个处理范围最多取 40 条；</li>
+        <li>默认最多并行处理 8 个组。</li>
+        </ul>
+        <h3 id="163-第一层先做确定性去重">16.3 第一层先做确定性去重</h3>
+        <p>在调用模型前，代码先按 <code>content_hash</code>
+        查完全相同的内容。哈希可以理解成“正文指纹”：正文完全相同，指纹就相同。重复项可以按规则直接归档，不必花模型调用，也避免模型对完全重复内容作不稳定判断。</p>
+        <h3 id="164-两次模型调用各做什么">16.4 两次模型调用各做什么</h3>
+        <p>第一次只负责识别问题组，不直接改数据库。可报告：</p>
+        <ul>
+        <li>conflict：内容互相冲突；</li>
+        <li>duplicate：完全重复；</li>
+        <li>near_duplicate：表达不同但基本同义；</li>
+        <li>complementary：信息互补，可合成更完整记忆；</li>
+        <li>low_value：长期价值很低；</li>
+        <li>ambiguous：含义不明确；</li>
+        <li>other：其他需要整理的关系。</li>
+        </ul>
+        <p>代码还会在模型输出外再检查：每组至少两条、必须含本次起点记忆、主体实体必须一致。模型乱把两个无关对象放进一组时会被丢弃。</p>
+        <p>第二次模型调用才为有效问题组规划动作：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>动作</th>
+        <th>数据变化</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>create</td>
+        <td>根据多条旧信息创建一条新记忆，并生成新向量</td>
+        </tr>
+        <tr>
+        <td>update</td>
+        <td>修改指定记忆内容</td>
+        </tr>
+        <tr>
+        <td>merge</td>
+        <td>创建合并后的新记忆，再归档源记忆</td>
+        </tr>
+        <tr>
+        <td>archive</td>
+        <td>把低价值、重复或不再有效的记忆标成 archived</td>
+        </tr>
+        <tr>
+        <td>link</td>
+        <td>不改正文，只在当前组已有对象之间补关系</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>新记忆还会连接证据和属性时间线关系，保留它从哪里整理而来。</p>
+        <h3 id="165-一轮-dreaming-的完整顺序">16.5 一轮 Dreaming
+        的完整顺序</h3>
+        <pre class="text"><code>读近 7 天 add/search 活动
+→ 找尚未 consolidation 的热门起点记忆
+→ 通过共同实体找一跳邻居并组成小组
+→ 应用数量上限与噪声过滤
+→ 按正文指纹归档完全重复项
+→ 模型 1 识别冲突、近重复、互补、低价值等问题组
+→ 代码检查组是否合法
+→ 模型 2 规划 create/update/merge/archive/link
+→ 按顺序修改 Qdrant / Neo4j
+→ 把处理过的 add record 标成 consolidation_status=done
+→ 记录 run_id 和处理时间，防止重复整理</code></pre>
+        <h3 id="166-为什么-statusok-仍不等于真的整理了">16.6 为什么
+        <code>status=ok</code> 仍不等于真的整理了</h3>
+        <p>底层会捕获部分“关系识别模型”或“动作规划模型”异常，然后继续处理其他组。因此一次调用可能返回
+        <code>status=ok</code>，但
+        <code>actions=0</code>。仓库报告还记录当前 Mimo/Anthropic
+        路由拒绝只有 system message 的请求。</p>
+        <p>验收必须同时看：处理了多少 scope、形成多少
+        cluster、实际执行多少 action，以及错误日志；不能只看最外层
+        ok。当前集成报告因此没有把 Dreaming 判为可用终态。</p>
+        <h3 id="167-homemaster-当前接到哪里">16.7 HomeMaster
+        当前接到哪里</h3>
+        <p><code>EmbeddedMindMemOS</code> 没创建 Dreaming pipeline，主
+        Agent、SessionFinalizer 和后台 worker 都没有调用它。所以当前
+        Session 结束只会新增
+        experience，不会自动执行“去重、冲突解决、合并和淘汰”。</p>
+        <h2 id="17-skill-自进化怎样从轨迹生成候选版-skillmd">17. Skill
+        自进化：怎样从轨迹生成候选版 SKILL.md</h2>
+        <h3 id="171-先说清楚自进化到底是什么">17.1
+        先说清楚“自进化”到底是什么</h3>
+        <p>它不是 Agent 突然改写自己的 Python 代码。MindMemOS
+        这里做的是：收集某个 <code>SKILL.md</code>
+        真正参与过的任务轨迹，达到数量门槛后总结好坏经验，让模型提出对这个说明文件的局部修改，再保存成候选版本。候选版仍要经过评估和发布，才可能替换正式版本。</p>
+        <h3 id="172-skill-版本怎样标识">17.2 Skill 版本怎样标识</h3>
+        <p>版本库目前只允许管理
+        <code>SKILL.md</code>，不允许模型顺带改任意项目文件。</p>
+        <ol type="1">
+        <li>统一换行，避免 Windows/Unix 换行造成假变化；</li>
+        <li>对内容做 SHA-256，得到
+        <code>content_hash</code>，即“内容指纹”；</li>
+        <li><code>version_id</code>
+        由项目、内容指纹和父版本共同确定；</li>
+        <li><code>cloud_skill_id</code> 把同一份 Skill
+        的父子版本串成一条版本谱系；</li>
+        <li>版本状态依次可为
+        observed、draft、evaluating、published、superseded、rolled_back。</li>
+        </ol>
+        <p>这些状态的白话含义：观察到现有版本 → 产生候选版 → 正在评测 →
+        正式发布 → 被新版替代 → 出问题后回滚。</p>
+        <h3 id="173-什么轨迹才有资格成为学习材料">17.3
+        什么轨迹才有资格成为学习材料</h3>
+        <p>一次普通对话日志不够。任务 add record 至少要带：</p>
+        <ul>
+        <li><code>skill_bindings</code>：这次任务绑定了哪个 Skill
+        版本；</li>
+        <li><code>usage=injected</code>：它不是“工具列表里恰好有”，而是真的放进本轮模型上下文；</li>
+        <li>完整
+        trajectory：用户请求、模型动作、工具结果和最终结果；</li>
+        <li>可选 <code>score</code>：这次任务做得好不好；</li>
+        <li>可选 <code>task_id</code>：属于哪个标准任务；</li>
+        <li>summary 尚未被某个候选版本消费。</li>
+        </ul>
+        <p>这能防止把“没真正使用这个 Skill 的失败”错误归因到 Skill
+        内容上。</p>
+        <h3 id="174-数量门槛和轨迹摘要">17.4 数量门槛和轨迹摘要</h3>
+        <p><code>SkillEvolver</code> 先找当前 Skill 的 head
+        版本和全部父子版本，再扫描未总结、未消费、且 usage 为 injected
+        的轨迹。</p>
+        <ul>
+        <li>少于 8 条：直接返回
+        <code>evolved=false</code>，连摘要模型都不调用；</li>
+        <li>达到 8 条：最多并发总结 8 条轨迹；</li>
+        <li>一条轨迹对应一条 summary，并按原 add record id 保存；</li>
+        <li>summary 按任务完成时间排序，每 8 条组成一个改进批次；</li>
+        <li>有 score
+        时，提示模型强化高分轨迹里的做法、避开低分轨迹里的做法；没有
+        score 时只能做无监督归纳。</li>
+        </ul>
+        <p>“8 条”是当前默认批次门槛，不是成功率阈值。</p>
+        <h3 id="175-模型不能返回一整份随意重写的文件">17.5
+        模型不能返回一整份随意重写的文件</h3>
+        <p>模型先提出修改意图，再输出按原文件行号定位的操作：</p>
+        <pre class="text"><code>replace：替换第 a 到 b 行
+insert：在指定行前或后插入
+delete：删除第 a 到 b 行</code></pre>
+        <p>代码在真正改内容前检查：</p>
+        <ol type="1">
+        <li>行号是否存在；</li>
+        <li>模型声称的旧行前缀是否和原文件一致；</li>
+        <li>两个修改区间是否重叠；</li>
+        <li>操作类型是否合法；</li>
+        <li>从文件底部向上应用，避免前面的插入让后面行号整体漂移。</li>
+        </ol>
+        <p>如果模型给错
+        JSON、行号或旧内容前缀，解析错误可以连同具体原因反馈给模型，让它修正；不是第一次输出错就直接写坏文件。</p>
+        <h3 id="176-生成候选版本后发生什么">17.6
+        生成候选版本后发生什么</h3>
+        <pre class="text"><code>8 条尚未消费的 injected 轨迹
+→ 每条生成可复用摘要
+→ 按时间组成一批
+→ 模型提出局部 patch
+→ 代码校验并确定性应用 patch
+→ 基于 parent 创建 draft child version
+→ 本批 summaries 标记 consumed_version_id
+→ 不足 8 条的尾部留给下次</code></pre>
+        <p>这里只生成 <code>draft</code>，即候选版。底层版本状态虽然预留
+        evaluating、published、superseded 和 rolled_back，但“新候选版跑
+        Benchmark → 与旧版比较 → 达标发布 →
+        失败回滚”还需要上层接线。新建 draft 不等于自动上线。</p>
+        <h3 id="177-持续修正和淘汰-skill还缺哪些闭环">17.7
+        “持续修正和淘汰 Skill”还缺哪些闭环</h3>
+        <p>若要实现简历里完整的“自动沉淀、持续修正、低成功率或长期未使用淘汰”，至少还要补：</p>
+        <ol type="1">
+        <li>每次模型上下文注入 Skill 时，记录准确的
+        skill/version/usage；</li>
+        <li>任务结束时记录完整轨迹、task_id 和可比较 score；</li>
+        <li>Application 启动并持有
+        <code>SkillEvolver</code>，在合适时机触发；</li>
+        <li>对 draft 在隔离 Benchmark
+        中逐任务评测，不能只看聚合最好分；</li>
+        <li>新版逐任务不退化且整体达标后再 published；</li>
+        <li>运行失败率升高时能切回 rolled_back 版本；</li>
+        <li>另建使用时间和成功率统计，才能判断“长期未使用”或“低成功率”；</li>
+        <li>只有发布/回滚决定能改变下次模型注入的正式版本。</li>
+        </ol>
+        <h3 id="178-homemaster-当前接到哪里">17.8 HomeMaster
+        当前接到哪里</h3>
+        <p>仓库集成报告记录：单独调用 vendored MindMemOS pipeline
+        时，曾用 8 条轨迹成功生成
+        draft。这证明底层链能够跑到“候选版生成”。但 HomeMaster 当前的
+        experience 记录没有完整接上
+        <code>skill_context</code>、<code>score</code>、<code>task_id</code>，<code>EmbeddedMindMemOS</code>
+        也没有持有或触发 <code>SkillEvolver</code>。</p>
+        <p>因此 <code>SessionFinalizer</code> 成功写入一条
+        experience，不能等同于“Skill 已自动进化”。当前主 Agent
+        没有形成从执行 → 评分 → 改 Skill → 评测 → 发布/回滚的闭环。</p>
+        <h2 id="18-操作记录feedbackdreaming自进化共同依赖的数据底座">18.
+        操作记录：Feedback、Dreaming、自进化共同依赖的数据底座</h2>
+        <h3 id="181-普通运行日志为什么不够">18.1
+        普通运行日志为什么不够</h3>
+        <p><code>runtime_events.jsonl</code>
+        记录“模型说了什么、调用了什么工具、结果如何”，适合审计。但记忆后处理还要知道数据库层的准确事实，例如：哪次搜索真正返回了哪些
+        raw IDs、哪条 Skill
+        真正注入、某个摘要是否已被消费。只从自然语言日志里猜这些字段不可靠。</p>
+        <h3 id="182-三条能力分别需要什么">18.2 三条能力分别需要什么</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>后处理能力</th>
+        <th>必需的操作记录</th>
+        <th>缺失后会怎样</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>隐式 Feedback</td>
+        <td>稳定 Session、首个用户请求、最后回复、本轮实际召回并使用的
+        raw IDs、是否已处理</td>
+        <td>不知道哪条记忆造成错误，或反复处理同一轮</td>
+        </tr>
+        <tr>
+        <td>Dreaming</td>
+        <td>近期 add/search 活动、raw
+        IDs、实体关系、内容哈希、<code>consolidation_status</code></td>
+        <td>找不到活跃记忆组，或每次都重复整理</td>
+        </tr>
+        <tr>
+        <td>Skill 自进化</td>
+        <td>injected Skill 版本、完整轨迹、score、task_id、summary 与
+        <code>consumed_version_id</code></td>
+        <td>无法归因、无法比较好坏，或同一轨迹被重复用于多个版本</td>
+        </tr>
+        </tbody>
+        </table>
+        <h3 id="183-理想的完整闭环">18.3 理想的完整闭环</h3>
+        <pre class="text"><code>Agent 每轮组 Context
+→ 记录这轮真正注入了哪些记忆和 Skill 版本
+→ 模型调用工具，记录完整轨迹与外部终态
+→ 任务结束，写 score / task_id / completion time
+→ Feedback 根据纠错更新错误记忆
+→ Dreaming 定期去重、合并、解决冲突
+→ SkillEvolver 消费成批轨迹，生成 draft
+→ Benchmark 逐任务比较 draft 与 published
+→ 达标发布；退化回滚
+→ 下一个任务只注入正式版本</code></pre>
+        <p>每一步都要写“已处理/已消费”的编号，才能保证重启后不会重复处理。</p>
+        <h3 id="184-当前-homemaster-数据链停在哪里">18.4 当前 HomeMaster
+        数据链停在哪里</h3>
+        <p>当前已经有 RuntimeEvent JSONL、Memory evidence、typed
+        add/search/update/delete、SessionFinalizer
+        experience；但它们还没有统一补齐上表所需的 operation
+        records。尤其缺少“本轮实际使用了哪些记忆”“哪个 Skill
+        版本真的进入上下文”“任务分数和标准任务编号”“候选版评测与发布决定”。</p>
+        <p>所以目前可以把这些底层能力作为清晰的后续接入设计来讲，但简历若写成当前生产链自动运行，就会被源码追问击穿。</p>
+        <h2 id="19-两段简历如何对应同一个项目">19.
+        两段简历如何对应同一个项目</h2>
+        <p>先记住一句总讲法：<strong>运行框架、状态、工具控制和事件链相同；云运维与家庭机器人替换的是外部系统、工具集合和完成条件。</strong></p>
+        <h3 id="191-云运维执行风控-agent">19.1 云运维执行风控 Agent</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>简历点</th>
+        <th>当前代码真正对应的逻辑</th>
+        <th>面试中应怎么讲</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>自然语言变更单拆成前检、实施、验证、回退</td>
+        <td>模型通过任务规划工具写
+        TaskState；每轮读取任务状态和外部状态后选择下一工具；场景状态机限制动作顺序</td>
+        <td>是“模型动态规划 +
+        状态门”，不是先编译成固定工作流再由独立调度器逐节点执行</td>
+        </tr>
+        <tr>
+        <td>Application Runtime 分层</td>
+        <td>Application 共享长寿命资源；Session 保存连续对话和任务；Run
+        持有一次执行资源；AgentRuntime 跑模型/工具循环</td>
+        <td>用每层“活多久、拥有什么、谁关闭”解释，不只背类名</td>
+        </tr>
+        <tr>
+        <td>AgentState / TaskState + Compact</td>
+        <td>AgentState 控循环与预算；TaskState 控业务目标；Compact
+        先规则缩短再总结中段；TaskState 每轮重新注入</td>
+        <td>重点讲为什么任务状态不能只埋在聊天摘要里</td>
+        </tr>
+        <tr>
+        <td>统一工具执行与权限</td>
+        <td>14
+        步管线；参数、敏感路径、命令、身份能力、资源锁、超时、外部验证</td>
+        <td>人工确认是通用接口能力；默认 FULL_AUTO
+        和当前飞书链并不保证触发</td>
+        </tr>
+        <tr>
+        <td>审计与过程记忆</td>
+        <td>RuntimeEvent 写完整 JSONL，对外只发白名单进度；typed memory
+        和 Session experience 已接入</td>
+        <td>当前能沉淀经验，但不会自动运行 Feedback/Dreaming/Skill
+        发布闭环</td>
+        </tr>
+        <tr>
+        <td>成功轨迹转结构化案例</td>
+        <td>ProcedureRecord
+        能存步骤、预期、输出、成功条件，且要求每步证据和最终证据</td>
+        <td>这是“显式写入已验证流程”；SessionFinalizer
+        的自由文本经验不等于同样严格的 Procedure</td>
+        </tr>
+        <tr>
+        <td>新任务前召回相似案例</td>
+        <td>MindMemOS 混合检索召回，再由 HomeMaster
+        读回并校验结构化记录</td>
+        <td>当前没有证据表明 Feedback/Dreaming
+        在新任务前自动更新案例库</td>
+        </tr>
+        <tr>
+        <td>Benchmark</td>
+        <td>当前仓库一个 case 两个分支：normal 24/24 轨迹、14/14
+        终态检查；rollback 22/22、11/11</td>
+        <td>不能用当前仓库支持“10 场景、200
+        轨迹”，除非你另有实验文件</td>
+        </tr>
+        </tbody>
+        </table>
+        <h3 id="192-家庭协同照护智能体">19.2 家庭协同照护智能体</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>简历点</th>
+        <th>当前代码真正对应的逻辑</th>
+        <th>面试中应怎么讲</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>长程任务分解、失败处理</td>
+        <td>TaskState + 模型/工具循环；taskset 子任务由 manifest
+        给定；工具返回有类型的失败信息</td>
+        <td>当前不是独立“按错误类型自动调度位姿重试”的调度器</td>
+        </tr>
+        <tr>
+        <td>飞书远程发任务、看进度</td>
+        <td>消息转
+        RunRequest；公开事件分进度、图片、最终回复；旧任务写回保护挡住过期消息</td>
+        <td>当前所有非 bot 发送者映射到 trusted
+        owner，没有家庭成员分角色和审批卡闭环</td>
+        </tr>
+        <tr>
+        <td>会话状态与任务状态分离</td>
+        <td>AgentSession/AgentState 与 TaskStateStore 分开，revision
+        可恢复</td>
+        <td>这是当前代码证据最完整的亮点之一</td>
+        </tr>
+        <tr>
+        <td>四层记忆</td>
+        <td>固定文件背景、typed facts/procedures、Session experience、旧
+        object_memory 分属不同链</td>
+        <td>不要说是一个统一四层类；要讲清它们在哪里汇合</td>
+        </tr>
+        <tr>
+        <td>BM25 + Embedding</td>
+        <td>MindMemOS 当前搜索自身有语义向量 + BM25 + RRF；旧
+        object_memory 也有一套独立混合检索和字段加权</td>
+        <td>两套实现不要混成同一个函数</td>
+        </tr>
+        <tr>
+        <td>空间位置与可操作位姿</td>
+        <td>旧 object_memory 有 anchor/viewpoint；V1.8 reset 有只读
+        Oracle pose snapshot</td>
+        <td>当前没有“失败修正历史位姿并持久复用”的完整闭环</td>
+        </tr>
+        <tr>
+        <td>Feedback / Dreaming</td>
+        <td>MindMemOS vendored 源码有纠错和离线整理链</td>
+        <td>HomeMaster
+        当前没创建和触发，适合写“完成底层调研/验证与接入设计”，不适合写已自动运行</td>
+        </tr>
+        <tr>
+        <td>Skill 自动沉淀维护</td>
+        <td>底层用 8 条 injected 轨迹可生成 draft；HomeMaster
+        SessionFinalizer 只写 experience</td>
+        <td>缺评分、版本绑定、触发、评测、发布、回滚和淘汰接线</td>
+        </tr>
+        <tr>
+        <td>成功率</td>
+        <td>当前仓库 ALFWorld raw 1/10、有效子集 1/5，formal score
+        unavailable</td>
+        <td>不能从当前仓库证明 &gt;90% 或真实环境 80%</td>
+        </tr>
+        </tbody>
+        </table>
+        <h3 id="193-原简历里最容易被追问的五处">19.3
+        原简历里最容易被追问的五处</h3>
+        <ol type="1">
+        <li><strong>“动态调度”</strong>：要解释为模型每轮根据 TaskState
+        和工具结果选择下一动作，不要暗示存在独立 DAG 调度器。</li>
+        <li><strong>“人工授权”</strong>：要说明通用权限链有确认接口，但当前默认和飞书身份会自动放行很多动作，审批卡没有接通。</li>
+        <li><strong>“四层记忆”</strong>：要能画出第 13
+        节五条真实代码链，而不是只报四个抽象名。</li>
+        <li><strong>“技能自动沉淀与淘汰”</strong>：底层能生成
+        draft；当前 HomeMaster 主链没完成评测、发布、回滚和淘汰。</li>
+        <li><strong>“成功率和数据规模”</strong>：仓库记录和简历数字不一致；面试前必须准备另一个可核查实验出处，否则应改数字。</li>
+        </ol>
+        <h2 id="20-简历逐条追问手册每一句具体落到哪里">20.
+        简历逐条追问手册：每一句具体落到哪里</h2>
+        <p>这一章不是重新概括架构，而是按你简历的 12 个 bullet
+        逐句拆开。每一项都回答五个问题：谁触发、传什么、状态怎么变、失败怎么办、当前代码能支持到哪。</p>
+        <h3 id="201-云运维-①自然语言如何变成前检实施验证和回退计划">20.1
+        云运维 ①：自然语言如何变成前检、实施、验证和回退计划</h3>
+        <h4
+        id="先纠正一个容易被误解的说法">先纠正一个容易被误解的说法</h4>
+        <p>当前没有一段确定性代码把自然语言“编译”为固定工作流。真实机制是：模型读到变更单和系统约束后，显式调用
+        <code>task_planner</code>，把自己的计划写成
+        TaskState；之后每轮再根据
+        TaskState、工具结果和外部环境状态选择下一工具。</p>
+        <pre class="text"><code>自然语言变更单
+→ RunRequest.text
+→ AgentRuntime 把它追加成 UserMessage
+→ ContextAssembler 同时放入系统规则、工具说明和当前 TaskState
+→ 模型调用 task_planner
+→ TaskStateStore.create_or_replace_plan()
+→ 返回刚保存的 TaskSnapshot 给模型
+→ 下一轮模型读 TaskSnapshot + 新 ToolResult
+→ 选择前检、实施、验证或回退工具</code></pre>
+        <p>一个模型提交的计划大致是：</p>
+        <div class="sourceCode" id="cb29"><pre
+        class="sourceCode json"><code class="sourceCode json"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;goal&quot;</span><span class="fu">:</span> <span class="st">&quot;完成变更并确认外部状态，异常时回退&quot;</span><span class="fu">,</span></span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;subtasks&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;precheck&quot;</span><span class="fu">,</span> <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;完成票据、配置、监控前检&quot;</span><span class="fu">}</span><span class="ot">,</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;change&quot;</span><span class="fu">,</span> <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;提交并等待精确 add job&quot;</span><span class="fu">}</span><span class="ot">,</span></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;verify&quot;</span><span class="fu">,</span> <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;完成后检和业务验证&quot;</span><span class="fu">}</span><span class="ot">,</span></span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">{</span><span class="dt">&quot;id&quot;</span><span class="fu">:</span> <span class="st">&quot;rollback&quot;</span><span class="fu">,</span> <span class="dt">&quot;description&quot;</span><span class="fu">:</span> <span class="st">&quot;只在因果异常时删除本次配置&quot;</span><span class="fu">}</span></span>
+<span id="cb29-8"><a href="#cb29-8" aria-hidden="true" tabindex="-1"></a>  <span class="ot">]</span><span class="fu">,</span></span>
+<span id="cb29-9"><a href="#cb29-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;current_subtask&quot;</span><span class="fu">:</span> <span class="st">&quot;precheck&quot;</span><span class="fu">,</span></span>
+<span id="cb29-10"><a href="#cb29-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;next_focus&quot;</span><span class="fu">:</span> <span class="st">&quot;读取票据并锁定变量&quot;</span><span class="fu">,</span></span>
+<span id="cb29-11"><a href="#cb29-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;open_questions&quot;</span><span class="fu">:</span> <span class="ot">[]</span><span class="fu">,</span></span>
+<span id="cb29-12"><a href="#cb29-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;constraints&quot;</span><span class="fu">:</span> <span class="ot">[</span><span class="st">&quot;只能使用工具可见证据&quot;</span><span class="ot">]</span></span>
+<span id="cb29-13"><a href="#cb29-13" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+        <p><code>create_or_replace_plan()</code> 的硬规则：subtasks
+        不能为空、id 不能重复、current_subtask 必须引用已有 id。再次调用
+        <code>task_planner</code> 会整体替换旧计划，不是自动合并。</p>
+        <h4
+        id="任务状态驱动具体怎么发生">“任务状态驱动”具体怎么发生</h4>
+        <p><code>task_progress_check</code>
+        只更新模型明确提交的子任务：</p>
+        <pre class="text"><code>工具返回最新外部证据
+→ 模型判断某个 subtask 的状态
+→ task_progress_check(updates, current_subtask, next_focus, task_status)
+→ 先校验所有 subtask id
+→ 追加 evidence，修改明确列出的状态
+→ 没列出的 subtask 保持不变
+→ 新 TaskSnapshot 返回模型并进入下一轮 Context</code></pre>
+        <p>每个子任务可为
+        pending、in_progress、completed、blocked、cancelled、uncertain。整个任务
+        active 可以进入 paused/completed/failed/cancelled；paused 可恢复
+        active；三个终态不能重新打开。</p>
+        <p>模型请求 completed 时还要经过
+        <code>task_completion_guard</code>。有写操作等待验证、验证失败，或业务环境没有报告终态成功时，guard
+        返回失败结果，TaskState 不会变 completed。</p>
+        <h4
+        id="动态调度到底是谁决定下一步">“动态调度”到底是谁决定下一步</h4>
+        <p>没有独立调度器读取状态后调用工具。下一步是模型在下一轮输入里看到：</p>
+        <ul>
+        <li>当前 TaskState；</li>
+        <li>上一批工具结果；</li>
+        <li>最近最多 3 个失败摘要；</li>
+        <li>剩余模型/工具预算；</li>
+        <li>当前可用工具；</li>
+        <li>外部环境状态机允许的动作。</li>
+        </ul>
+        <p>模型再产生新的 tool
+        call。环境状态机负责拒绝顺序错误，例如未完成前检就实施；它不替模型生成下一步。</p>
+        <p><strong>面试追问回答：</strong>“我这里的动态调度不是 DAG
+        引擎，而是模型每轮基于显式 TaskState 和真实 ToolResult
+        重选下一动作；TaskState
+        提供稳定任务锚点，业务状态机和完成门负责约束模型不能越过真实执行顺序。”</p>
+        <h3 id="202-云运维-②application-runtime-四层到底各管理什么">20.2
+        云运维 ②：Application Runtime 四层到底各管理什么</h3>
+        <table>
+        <thead>
+        <tr>
+        <th>层</th>
+        <th>活多久</th>
+        <th>拥有什么</th>
+        <th>如何接下一层</th>
+        <th>谁负责清理</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>Application</td>
+        <td>进程期间</td>
+        <td>EventBus、工具注册表、权限检查器、SessionManager、记忆/设备等共享服务、各类
+        factory</td>
+        <td>收到 RunRequest 后打开 Session，并为 Run 创建资源</td>
+        <td><code>ApplicationRuntime.aclose()</code>
+        反向关闭自己拥有的资源</td>
+        </tr>
+        <tr>
+        <td>Session</td>
+        <td>多轮对话期间</td>
+        <td>AgentSession、AgentState、TaskStateStore、generation、revision、取消信号、environment
+        ref</td>
+        <td>每次 <code>turn()</code> 串行开放一个 generation 给 Run</td>
+        <td>SessionManager 管内存与磁盘 revision；不关闭借入环境</td>
+        </tr>
+        <tr>
+        <td>Run</td>
+        <td>一次用户请求期间</td>
+        <td>run id、模型
+        Provider、ContextAssembler、工具视图、状态工作副本、deadline</td>
+        <td>构造 AgentRuntime 并调用 <code>run()</code></td>
+        <td>Run 结束关闭模型连接和本轮拥有资源</td>
+        </tr>
+        <tr>
+        <td>Agent loop</td>
+        <td>Run 内多次模型/工具循环</td>
+        <td>冻结模型请求、AssistantMessage、tool
+        calls、ToolResults、循环计数</td>
+        <td>每轮把结果写回消息和工作状态，直到终止</td>
+        <td>返回 GenericRunResult，由 Application 提交</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>模型、工具、权限、环境不是混在一个全局变量里：</p>
+        <pre class="text"><code>模型：Application 保存 provider factory → 每个 Run 创建/关闭独立 Provider
+工具：Application 保存完整 registry → profile/Run 生成模型本轮可见工具视图
+权限：RunRequest 带 PermissionSubject → 每次 ToolExecutionContext 原样携带
+环境：RunRequest 借入 EnvironmentBackend → ToolExecutionContext 把它交给对应工具
+状态：Session 正式状态 → Run 开始深拷贝 → Run 结束且 generation 一致才提交</code></pre>
+        <p>外部环境是“借入”的：Benchmark 或设备控制器创建它，Application
+        使用但不擅自关闭。Provider 是 Run 自己创建的，Run
+        结束必须关闭。这是生命周期分层真正解决的问题：避免共享资源每轮重建，也避免一次运行的连接泄漏到下一轮。</p>
+        <p>跨轮保留的是消息、AgentState、TaskState、证据编号和环境引用；模型
+        socket、Browser/THOR 活对象不写进 Session
+        快照。恢复时必须按引用重新绑定真实环境。</p>
+        <p><strong>面试追问回答：</strong>“四层不是为了多写类，而是按生命周期和所有权拆分：Application
+        管共享依赖，Session 管可恢复连续状态，Run
+        管一次请求的模型和工具视图，AgentRuntime
+        只负责本次模型/工具循环。”</p>
+        <h3
+        id="203-云运维-③agentstatetaskstatecontext-和-compact-如何配合">20.3
+        云运维 ③：AgentState、TaskState、Context 和 Compact
+        如何配合</h3>
+        <h4 id="两种状态为什么必须分开">两种状态为什么必须分开</h4>
+        <table>
+        <thead>
+        <tr>
+        <th>状态</th>
+        <th>解决的问题</th>
+        <th>典型字段</th>
+        <th>谁修改</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>AgentState</td>
+        <td>这一轮还能不能继续跑</td>
+        <td>iteration、模型/工具次数、连续错误、无进展、token、Compact、观察要求</td>
+        <td>AgentRuntime 自动更新</td>
+        </tr>
+        <tr>
+        <td>TaskState</td>
+        <td>当前任务做到哪一步</td>
+        <td>goal、subtasks、current、next
+        focus、questions、constraints、evidence、status</td>
+        <td>模型调用任务工具显式更新</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>如果把任务计划只放在聊天历史里，Compact
+        摘要可能改写或遗漏当前进度。因此 TaskState 每轮由
+        <code>TaskStateSnapshotProvider</code>
+        从正式状态重新生成，不依赖摘要记得准不准。Active TaskState
+        注入完整子任务，但每个子任务只给模型最近 2 条 evidence；完成后的
+        TaskState 只保留目标与完成摘要，减少占用。</p>
+        <h4 id="compact-与状态的交互顺序">Compact 与状态的交互顺序</h4>
+        <pre class="text"><code>估算 system + runtime prelude + conversation + tool schemas
+→ 超阈值先做 Micro Compact
+   ├─ 旧图片转说明文字
+   ├─ 按工具类型只留最近 N 个完整结果
+   ├─ 更早结果规则化缩短
+   └─ 修复 tool call / result 配对
+→ 仍超阈值再做 Summary Compact
+   ├─ 首部、最近用户请求和尾部消息原样保留
+   ├─ 只总结中间 older 段
+   └─ TaskState 不交给摘要模型替换
+→ replace_messages() 写回 Session
+→ 下一轮重新注入实时 TaskState、预算、失败摘要和 Skill 索引</code></pre>
+        <p>摘要失败默认不改原历史；模型服务在零输出时报告上下文过长，会触发更强的
+        reactive compact，最多 2 次。Compact 记录前后
+        token、种类和原因，并作为 Session revision 的一部分保存。</p>
+        <p><strong>面试追问回答：</strong>“Context 是每轮现组的，Compact
+        只改会话历史；权威
+        TaskState、预算和失败摘要下一轮重新生成，因此压缩历史不会把当前目标和进度压没。”</p>
+        <h3 id="204-云运维-④工具执行前到底检查什么">20.4 云运维
+        ④：工具执行前到底检查什么</h3>
+        <h4
+        id="身份工具声明和一次调用如何接起来">身份、工具声明和一次调用如何接起来</h4>
+        <p><code>PermissionSubject</code> 保存 tenant、主体 id、入口
+        channel、roles 和 capabilities。每个工具的
+        <code>ToolDefinition</code>
+        声明：模型看到的名字与输入格式、执行后端、是否写状态、所需能力、并发方式、超时和验证要求。</p>
+        <p><code>ApplicationToolExecutor</code> 为一次调用构造
+        <code>ToolExecutionContext</code>：</p>
+        <pre class="text"><code>session/run/turn/tool_call id
++ stable internal tool id
++ PermissionSubject
++ backend / working directory
++ deadline / cancellation
++ TaskState / evidence / application services</code></pre>
+        <p>随后通用 ToolExecutor 才开始 14
+        道检查。权限部分的准确顺序是：敏感路径、禁止命令、禁止工具、主体能力、Session
+        plan mode、显式
+        allow、FULL_AUTO/只读、PLAN、<code>tool.auto</code>、人工确认。</p>
+        <h4
+        id="按用户身份和工具类别授权如何实现">“按用户身份和工具类别授权”如何实现</h4>
+        <p>工具类别不是一个中文枚举，而是由执行后端和状态影响映射成能力标签：</p>
+        <table>
+        <thead>
+        <tr>
+        <th>工具情况</th>
+        <th>自动要求的通用能力</th>
+        <th>工具还可追加</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>普通只读</td>
+        <td><code>tool.read</code></td>
+        <td>例如
+        <code>filesystem.read</code>、<code>network.http</code></td>
+        </tr>
+        <tr>
+        <td>普通写操作</td>
+        <td><code>tool.mutate</code></td>
+        <td>例如
+        <code>filesystem.write</code>、<code>process.exec</code></td>
+        </tr>
+        <tr>
+        <td>设备读取</td>
+        <td><code>device.read</code></td>
+        <td>设备专用能力</td>
+        </tr>
+        <tr>
+        <td>设备控制</td>
+        <td><code>device.control</code></td>
+        <td>设备专用能力</td>
+        </tr>
+        <tr>
+        <td>MCP 调用</td>
+        <td><code>mcp.call</code></td>
+        <td>具体服务能力</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>缺任意一个 required capability 都拒绝。Allow list
+        也不能越过敏感路径、禁止命令和能力门。</p>
+        <h4
+        id="高风险动作检查当前准确到什么程度">“高风险动作检查”当前准确到什么程度</h4>
+        <p>当前没有统一的 high/medium/low
+        风险评分器。已有的确定性风险门是：</p>
+        <ul>
+        <li><code>.ssh</code>、AWS/GCP/Azure
+        凭据、GPG、Docker、Kubernetes、HomeMaster
+        凭据/配置路径硬拒绝；</li>
+        <li>自定义路径 deny rule；</li>
+        <li>shell 命令 glob deny rule；</li>
+        <li>工具 deny list；</li>
+        <li>写操作与只读操作动态区分；</li>
+        <li>capability、plan mode 和确认策略；</li>
+        <li>写操作后的外部验证。</li>
+        </ul>
+        <p>所以简历里的“高风险动作检查”应解释成这些具体规则，不要说有一个泛化风险模型。</p>
+        <h4
+        id="人工确认和执行后验证不是一回事">人工确认和执行后验证不是一回事</h4>
+        <p>人工确认发生在 backend
+        调用前：需要确认时，确认处理程序把问题发给人，返回同意才继续。默认配置却是
+        FULL_AUTO，本地和当前飞书 owner 又有
+        <code>tool.auto</code>，因此现状并非所有写操作都确认。</p>
+        <p>执行后验证发生在 backend 返回后：verifier
+        独立读取外部状态，passed/failed 必须带证据；读取超时则为
+        verification_pending。写操作已开始后若超时或取消，结果是
+        outcome_unknown，系统不能假定未执行，也不能盲目重试。</p>
+        <p><strong>面试追问回答：</strong>“我把授权前置和终态验证分开：前者回答‘允许不允许做’，后者回答‘真实环境是否真的变成目标状态’。当前通用确认接口已存在，但默认
+        FULL_AUTO 和飞书审批卡尚未形成闭环。”</p>
+        <h3 id="205-云运维-⑤事件审计过程记忆和案例复用是否真的闭环">20.5
+        云运维 ⑤：事件审计、过程记忆和案例复用是否真的闭环</h3>
+        <h4 id="实时事件怎样记录和展示">实时事件怎样记录和展示</h4>
+        <p>Agent、模型 Provider 和 Tool Executor 都产生
+        RuntimeEvent。EventBus 一份事件分发给：</p>
+        <ul>
+        <li>JSONL：完整、不截断，供审计；</li>
+        <li>messages log：只保留用户/助手文本；</li>
+        <li>CLI：选择性实时显示；</li>
+        <li>Gateway：先经过公开字段转换，再发进度、图片和最终回复。</li>
+        </ul>
+        <p>事件至少能关联 session、run、turn、tool call、tool
+        name、时间、耗时和 payload。旧任务写回保护在进入 EventBus 前检查
+        generation，防止已取消任务继续污染日志或页面。</p>
+        <h4
+        id="成功轨迹如何变成结构化案例">成功轨迹如何变成结构化案例</h4>
+        <p><code>ProcedureRecord</code> 能表达：</p>
+        <pre class="text"><code>name：案例名称
+entry_url：入口页面
+inputs：可变输入及说明
+preconditions：开始前条件
+steps：连续编号的 open/click/fill/select/wait/extract
+step.target：操作对象或页面定位信息
+step.expect：动作后应看到的页面状态
+step.output：extract 步骤产出的变量
+success：最终成功条件</code></pre>
+        <p>每个操作步骤和最终成功都要有已验证 evidence，写入后还要按 raw
+        ID 读回完整 record 比对。</p>
+        <p>但当前 <code>ProcedureRecord</code>
+        <strong>没有专门的异常处理、rollback
+        或分支字段</strong>。工具失败会进入 Session
+        轨迹，模型可在当前任务中重规划；Session experience
+        也可能保存失败过程，但这不等于异常分支已结构化进 Procedure。</p>
+        <h4 id="新任务是否自动召回案例">新任务是否自动召回案例</h4>
+        <p>当前模型可以调用 <code>mindmemos_search</code>，搜索会做语义
+        + BM25 召回，HomeMaster 再按 raw ID
+        读回和字段校验。固定文件记忆会自动注入 system prompt；结构化
+        Procedure 并没有一个“每个任务开始前必跑”的自动召回 hook。</p>
+        <p>所以准确说法是“提供任务前案例召回工具并可辅助规划”，不是“所有新任务启动前系统一定自动召回”。</p>
+        <h4 id="更新合并淘汰分别做到哪">更新、合并、淘汰分别做到哪</h4>
+        <table>
+        <thead>
+        <tr>
+        <th>能力</th>
+        <th>当前主链</th>
+        <th>MindMemOS 底层</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>更新旧案例</td>
+        <td>已有：归档旧 raw ID，再写入并读回新版</td>
+        <td>也有原地 update</td>
+        </tr>
+        <tr>
+        <td>删除失效案例</td>
+        <td>已有：默认标 archived</td>
+        <td>支持 archive，底层另有 hard delete</td>
+        </tr>
+        <tr>
+        <td>根据明确纠错更新</td>
+        <td>HomeMaster 未接 Feedback</td>
+        <td>Explicit Feedback 可 add/update/delete/noop</td>
+        </tr>
+        <tr>
+        <td>自动合并重复/冲突</td>
+        <td>HomeMaster 未接 Dreaming</td>
+        <td>Dreaming 可 create/update/merge/archive/link</td>
+        </tr>
+        <tr>
+        <td>低成功率淘汰</td>
+        <td>未实现</td>
+        <td>Skill 版本状态有基础，但没有 HomeMaster 评分淘汰闭环</td>
+        </tr>
+        </tbody>
+        </table>
+        <p><strong>面试追问回答：</strong>“当前闭环到结构化写入、混合召回、显式更新和归档；Feedback、Dreaming
+        和基于成功率的自动淘汰是底层已有能力与接入设计，HomeMaster
+        主运行链尚未自动触发。”</p>
+        <h3 id="206-云运维-⑥benchmark-怎么标轨迹怎么判断外部状态">20.6
+        云运维 ⑥：Benchmark 怎么标轨迹、怎么判断外部状态</h3>
+        <h4
+        id="不是把模型最后一句和标准答案比文本">不是把模型最后一句和标准答案比文本</h4>
+        <pre class="text"><code>冻结的 ticket / scenario / trajectory DAG
+→ Run 创建时核对所有输入文件哈希
+→ Agent 在 ticket、monitor、automation、terminal 上操作
+→ 每个外部动作写 append-only audit/action ledger
+→ normalize_events 过滤不可信动作
+→ DAG matcher 核对必要节点、变体和先后依赖
+→ result evaluator 独立读取 Episode 外部状态
+→ 核对展示、产物注册表和视频
+→ 冻结 trajectory/result/overall/formal success</code></pre>
+        <h4 id="什么动作不能进入标准轨迹">什么动作不能进入标准轨迹</h4>
+        <p>缺 run id、外部状态不是
+        accepted/succeeded、没有绑定标准节点、需要 action id
+        却缺失、decision 引用未知 evidence 的事件都会进入 rejected
+        actions。有效动作保留原始事件哈希、顺序、规范化参数和证据编号，能回查来源。</p>
+        <p>DAG 节点不仅要求“出现过”：前置节点必须先匹配，当前 sequence
+        必须更晚；双配置检查节点必须同时出现 extension_config 和
+        upstream_ready 两个变体。Normal 场景出现
+        remove/rollback，或浏览器去未允许页面，会单独记 safety
+        violation。</p>
+        <h4 id="外部结果检查具体读什么">外部结果检查具体读什么</h4>
+        <p>16 个 checkpoint 覆盖：前置 alarm/probe/capacity/runtime
+        metrics/traffic、两项配置检查、add job 成功且业务返回码为
+        0、终端 grep 存在证据、后置五项监控、业务验证、remove job 和终端
+        absence proof。</p>
+        <p>Normal 要前 14 项；异常场景要前 9 项和最后 2
+        项回滚证明。结果检查直接读 EpisodeStore，不读模型最后一句。</p>
+        <p>Formal success 还要求：轨迹 100、结果 100、无
+        safety/environment/artifact/presentation
+        failure，并完成视频验证。Overall
+        平均分不能掩盖其中一门失败。</p>
+        <h4 id="简历数字边界">简历数字边界</h4>
+        <p>当前仓库可核对的是一个 case 的 normal/rollback 两个分支，不是
+        10 个独立场景和 200 条轨迹。报告中保留的
+        24/24、14/14、22/22、11/11 是已有运行包结果；若 10/200/&gt;90%
+        来自仓库外实验，必须另备原始 run bundles、配置和汇总脚本。</p>
+        <h3 id="207-家庭机器人-①长程任务导航操作验证和失败恢复">20.7
+        家庭机器人 ①：长程任务、导航、操作、验证和失败恢复</h3>
+        <h4 id="长程子任务从哪里来">长程子任务从哪里来</h4>
+        <p>当前 ALFWorld taskset 的有序 subtasks 来自 manifest，每项含
+        goal_type、object、parent/toggle/movable receptacle、instruction
+        和 trial
+        path。它们不是模型从一个任意长自然语言请求中自动生成。</p>
+        <p>对每个 manifest subtask，Runner 调一次
+        <code>ApplicationRuntime.run(... continuous_taskset=True)</code>，但复用同一
+        Session 和物理
+        scene。前一子任务成功才推进；场景中已经移动的物体不重置。</p>
+        <h4
+        id="一个子任务内部如何动态执行">一个子任务内部如何动态执行</h4>
+        <pre class="text"><code>当前 subtask instruction + 同一 Session 历史
+→ 模型可用 task_planner/task_progress_check 维护当前计划
+→ robot_go_to(target)
+→ robot_manipulate(action, object, receptacle)
+→ robot_verify()
+→ ToolResult 的新状态/错误进入下一轮
+→ 模型继续、换动作或结束</code></pre>
+        <p>TaskState 保存目标、子任务、当前步骤、下一步和 evidence；环境
+        observation 和物理物体状态不直接存进 TaskState，必须通过
+        observe/工具返回重新读取。</p>
+        <h4 id="失败反馈给模型哪些字段">失败反馈给模型哪些字段</h4>
+        <p>一次机器人结果包括：动作、对象、目标、inventory、对象状态、目标状态、是否发生状态变化，以及这些状态是否读取得到；还包括
+        error、terminal、classification、是否可计分和安全化说明。</p>
+        <p>可继续的错误包括：参数错、目标不存在/不可见、物体已拿/未拿、容器关闭、动作不适用、需要先导航。模型可以下一轮采取对应动作，例如：</p>
+        <pre class="text"><code>target_closed → 先 open，再 put
+navigation_required / target_not_visible → 重新 observe 或 go_to
+object_not_held → 先 take
+invalid_tool_arguments → 修正参数</code></pre>
+        <p>必须终止或不可安全继续的错误包括：Oracle anchor/pose
+        缺失或格式错误、Oracle 导航失败、pose
+        mismatch、环境状态无法确认、harness operation
+        failure。状态读不到时不允许伪装成普通可重试失败。</p>
+        <h4
+        id="简历里的位姿调整局部重试任务重规划准确边界">简历里的“位姿调整、局部重试、任务重规划”准确边界</h4>
+        <p>工具只返回错误类型，不会由一个独立错误处理器自动选择恢复动作。当前
+        V1.8 <code>robot_go_to</code> 对一次调用锁定一个 frozen
+        pose，只发一次 TeleportFull；失败不会在同一调用里枚举第二个
+        pose。可继续错误由模型下一轮重新规划，终态错误停止。</p>
+        <h3 id="208-家庭机器人-②飞书-gateway两类状态和中断恢复">20.8
+        家庭机器人 ②：飞书 Gateway、两类状态和中断恢复</h3>
+        <h4 id="消息进入-agent-前的处理">消息进入 Agent 前的处理</h4>
+        <pre class="text"><code>飞书事件
+→ 校验 sender/message id，拒绝 bot，消息 id 去重
+→ 解析私聊/群聊和附件
+→ tenant/channel/chat/thread/sender/chat_type 生成稳定 session id
+→ Gateway 同 session 先取消旧任务，generation + 1
+→ 身份转换为 PermissionSubject
+→ 附件限制在允许根目录
+→ ChannelBridge 构造 RunRequest
+→ ApplicationRuntime.run()</code></pre>
+        <p>进度、图片、最终回复走同一公开事件链，但内部完整事件先经过白名单字段转换。模型思考、凭据、内部路径和隐藏评分不会原样发给家庭成员。</p>
+        <h4
+        id="会话状态和任务状态分别保存什么">会话状态和任务状态分别保存什么</h4>
+        <table>
+        <thead>
+        <tr>
+        <th>会话/Agent 侧</th>
+        <th>任务侧</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>User/Assistant/ToolResult 消息</td>
+        <td>goal、subtasks、current、next focus</td>
+        </tr>
+        <tr>
+        <td>turn/iteration、模型/工具次数</td>
+        <td>每个 subtask 状态与最近 evidence</td>
+        </tr>
+        <tr>
+        <td>token、Compact、连续错误、无进展</td>
+        <td>open questions、constraints、completion summary</td>
+        </tr>
+        <tr>
+        <td>generation、revision、取消、environment ref</td>
+        <td>active/paused/completed/failed/cancelled</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>“预算和工具调用记录”主要在 AgentState 和消息/事件里，不在
+        TaskState。TaskState
+        是模型维护的任务判断，不是完整审计日志。</p>
+        <h4 id="中断恢复的精确顺序">中断恢复的精确顺序</h4>
+        <p>取消时 active TaskState → paused、AgentState →
+        cancelled、Session generation +
+        1，旧任务失去写消息和事件资格。持久化保存不可变
+        revision，再原子更新 latest
+        指针；恢复时重建消息、AgentState、TaskState，paused 转回
+        active，并重新绑定外部 environment。</p>
+        <p>恢复能延续对话和任务进度，但不能把 outcome_unknown
+        的真实写操作当成“肯定没执行”后自动重做。恢复后仍应先读取外部状态再决定下一步。</p>
+        <h4 id="危险操作审批边界">危险操作审批边界</h4>
+        <p>通用 Tool Executor
+        有确认接口，但飞书当前没有审批卡接线；所有非 bot
+        发送者又映射成同一个 <code>feishu-owner</code> admin，并带
+        <code>tool.auto</code>
+        等完整能力。因此当前飞书链支持远程发任务和看进度，不支持简历所说的家庭成员分角色审批闭环。</p>
+        <h3 id="209-家庭机器人-③四层记忆混合检索和分层权限">20.9
+        家庭机器人 ③：四层记忆、混合检索和分层权限</h3>
+        <h4
+        id="四层设计如何映射到真实代码">四层设计如何映射到真实代码</h4>
+        <table>
+        <thead>
+        <tr>
+        <th>简历层</th>
+        <th>实际实现</th>
+        <th>如何进入模型</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>角色设定</td>
+        <td><code>SOUL.md</code></td>
+        <td>新 Session 冻结进 system prompt</td>
+        </tr>
+        <tr>
+        <td>长期偏好</td>
+        <td><code>USER.md</code>、部分 <code>MEMORY.md</code></td>
+        <td>同上；当前 Session 中途不漂移</td>
+        </tr>
+        <tr>
+        <td>事实/流程</td>
+        <td>MindMemOS FactRecord、ProcedureRecord、Session
+        experience</td>
+        <td>模型显式搜索，返回校验后的记录</td>
+        </tr>
+        <tr>
+        <td>结构化空间</td>
+        <td>旧 object_memory</td>
+        <td>独立 BM25 + Embedding 检索和 grounding</td>
+        </tr>
+        </tbody>
+        </table>
+        <p>当前不是一个统一 <code>MemoryManager</code>
+        自动从四层并行召回。固定文件自动注入；MindMemOS 与 object_memory
+        是不同搜索链。</p>
+        <h4 id="两套bm25--embedding不要混讲">两套“BM25 +
+        Embedding”不要混讲</h4>
+        <p>MindMemOS 当前搜索：查询生成语义向量和 BM25 稀疏向量，Qdrant
+        用 RRF 合并，可通过 Neo4j 加一跳相关记忆，然后 HomeMaster raw
+        readback。</p>
+        <p>旧 object_memory：先把物品字段展开成中文文档，BM25 与独立
+        Embedding 各排榜，RRF 合并，再加类别/别名/位置/可信度分，stale
+        扣分，negative evidence 排除。Embedding 失败降级为
+        BM25-only。</p>
+        <h4 id="分层权限如何落地">分层权限如何落地</h4>
+        <p>入口认证先产生 PermissionSubject；工具声明所需
+        capabilities；PermissionChecker
+        先做硬拒绝，再做能力与模式判断。同一个工具还可按参数动态判断本次是只读还是写操作。</p>
+        <p>当前通用机制支持自动执行和人工确认两种路径，但飞书身份没有家庭成员粒度角色；所以“基于用户身份授权”是底层模型与通用
+        Gateway 能力，当前 Feishu adapter 的映射仍过粗。</p>
+        <h3
+        id="2010-家庭机器人-④空间记忆中位置和可操作位姿到底是什么">20.10
+        家庭机器人 ④：空间记忆中“位置”和“可操作位姿”到底是什么</h3>
+        <h4 id="一条旧-object_memory-包含什么">一条旧 object_memory
+        包含什么</h4>
+        <pre class="text"><code>memory_id
+object_category / aliases
+room_id
+anchor_id / anchor_type / display_text
+viewpoint_id
+confidence_level
+belief_state
+last_confirmed_at</code></pre>
+        <p>检索结果要成为可执行目标，必须同时有
+        memory_id、room_id、anchor_id、viewpoint_id；还要确认 viewpoint
+        和 anchor 在当前 world 存在、两者匹配、目标类别一致、没有
+        negative evidence、hit.executable=true。</p>
+        <p>低置信度、stale 或位置提示冲突只作为 weak
+        lead，引导继续探索；缺字段、world 中不存在或 anchor/viewpoint
+        不匹配直接判 unreliable。选择的是第一条 reliable
+        结果，不是搜索分最高就直接执行。</p>
+        <h4 id="位姿当前保存到什么程度">“位姿”当前保存到什么程度</h4>
+        <p>这里的 <code>viewpoint_id</code>
+        是当前世界中的可观察视角编号，不是 THOR 的
+        x/y/z/rotation/horizon 数值。ALFWorld V1.8 的 reset-time Oracle
+        pose snapshot 是另一套只读数据，当前 <code>robot_go_to</code> 从
+        snapshot 锁定单个数值 pose。</p>
+        <h4 id="成功失败后如何改记忆">成功/失败后如何改记忆</h4>
+        <p><code>RuntimeMemoryStore</code> 支持
+        confirm、mark_stale、mark_contradicted；按 memory_id 或
+        anchor_id 找记录，写到本次 run 的 overlay
+        <code>object_memory.json</code>。旧 <code>memory_writer</code>
+        在 confirm 时默认写 belief_state=verified 和
+        last_confirmed_at。</p>
+        <p>但有三个边界：</p>
+        <ol type="1">
+        <li>没匹配到 id 时仍可能写出未变化的 overlay，不报错；</li>
+        <li>writer 吞掉持久化异常，却仍返回 committed=true；</li>
+        <li>V1.8 导航没有在成功时调用 writer，也没有在失败时自动
+        mark_stale/contradicted。</li>
+        </ol>
+        <p>因此当前不能说“真实机器人试错位姿后稳定积累并复用”。可以说旧空间记忆链完成了结构、混合召回、可靠性筛选和运行期覆盖更新设计，但与
+        V1.8 动作闭环未接通。</p>
+        <h3 id="2011-家庭机器人-⑤skill-自动沉淀修正和淘汰">20.11
+        家庭机器人 ⑤：Skill 自动沉淀、修正和淘汰</h3>
+        <p>完整闭环应是：</p>
+        <pre class="text"><code>Skill 版本真正注入模型上下文
+→ 任务完整轨迹绑定 version_id / task_id / score
+→ 收集未总结且未消费的 injected 轨迹
+→ 少于 8 条不调用模型
+→ 达到 8 条后逐轨迹生成 summary
+→ 强化高分做法、避免低分做法
+→ 模型输出 replace/insert/delete 行号 patch
+→ 代码校验行号、旧行前缀和区间不重叠
+→ 从底向上应用，创建 parent 的 draft child
+→ 相同 Benchmark 逐任务评估
+→ 达标 published；退化 rolled_back
+→ 低成功率或长期不用再触发 supersede/淘汰策略</code></pre>
+        <p>当前底层单独调用曾用 8 条轨迹生成 draft；HomeMaster 的
+        SessionFinalizer 只把事件轨迹写成 Vanilla experience。主链缺
+        injected version、score、task_id、SkillEvolver 触发、draft
+        评测、发布、回滚和低使用率统计。</p>
+        <p>“从成功轨迹提取关键步骤、工具顺序和可变参数”可由 trajectory
+        summary/patch prompt 表达，但当前 HomeMaster
+        没有自动生成一个新家庭服务 Skill
+        包的主链。更准确的说法是“完成底层 Skill evolution
+        验证与闭环接入设计”。</p>
+        <h3 id="2012-家庭机器人-⑥成功率数字如何准备证据">20.12
+        家庭机器人 ⑥：成功率数字如何准备证据</h3>
+        <p>当前仓库 ALFWorld 固定十条记录的 raw success 是
+        1/10，可计分有效 Episode 5/10，有效子集 1/5，coverage
+        0.5，formal score unavailable。仓库文档明确说历史 9/10
+        混用了无效结果。</p>
+        <p>如果简历保留“仿真超过 90%、真实环境
+        80%”，面试前至少准备：</p>
+        <ul>
+        <li>场景/任务清单和固定版本；</li>
+        <li>每条任务的 run id、seed、环境类型、是否有效；</li>
+        <li>成功判定必须来自 <code>won=true</code>
+        或真实物理终态，不是模型文字；</li>
+        <li>失败分类和基础设施失败是否计入分母；</li>
+        <li>每实例结果，不只给聚合最好值；</li>
+        <li>原始 trace、环境返回码、终态截图/状态和汇总脚本；</li>
+        <li>真实环境的硬件、物品布局、重试次数和人工干预规则。</li>
+        </ul>
+        <p>没有这些材料时，建议删掉或替换当前无法由仓库支持的数字。面试官对高成功率最常追问的是“分母是什么、无效运行怎么处理、是否允许重试、最终由谁判成功”。</p>
+        <h2 id="21-建议你实际采用的简历表达">21.
+        建议你实际采用的简历表达</h2>
+        <p>下面是严格按当前仓库可证明范围写的版本。若“10 个场景、200
+        条轨迹、90%/80%”来自仓库外实验，应单独保存评测配置、原始运行记录和汇总脚本，再把数字加回去。</p>
+        <h3 id="211-云运维方向">21.1 云运维方向</h3>
+        <ol type="1">
+        <li>设计并实现统一 Agent
+        运行框架，将变更任务组织为前置检查、变更实施、结果验证和异常回退阶段；通过显式
+        TaskState、每轮动态上下文和外部环境状态门驱动模型选择下一操作。</li>
+        <li>按 Application、Session、Run 和 Agent loop
+        分层管理共享服务、跨轮对话、任务进度与单次执行资源；通过旧任务写回保护、状态工作副本和原子
+        revision 保存支持取消与恢复。</li>
+        <li>分离 AgentState 与 TaskState，并实现两阶段 Context
+        Compact：先按规则压缩旧图片和工具结果，再总结中段历史；当前任务状态、预算和失败摘要在每轮重新生成，避免被历史摘要覆盖。</li>
+        <li>构建统一工具执行链，在真实调用前完成参数格式、敏感路径、危险命令、身份能力、权限模式和资源互斥检查；对已开始但终态不明的写操作明确返回
+        outcome unknown，并以外部返回码和独立状态读取作为完成依据。</li>
+        <li>基于统一事件流记录模型回复、工具调用、任务状态和执行结果，完整轨迹落入
+        JSONL，对外进度只展示白名单字段；将结构化事实、带逐步证据的流程及
+        Session 执行经验写入 MindMemOS 并支持混合检索。</li>
+        <li>搭建云运维交互式
+        Benchmark，以动作先后轨迹和独立外部终态双重验收；仓库内 normal
+        分支通过 24/24 轨迹节点及 14/14 结果检查，rollback 分支通过
+        22/22 及 11/11 检查。</li>
+        </ol>
+        <h3 id="212-家庭协同照护方向">21.2 家庭协同照护方向</h3>
+        <ol type="1">
+        <li>将家庭机器人任务接入统一 Agent loop，以 TaskState
+        维护目标、子任务、下一步和证据；导航、操作与任务验证返回结构化结果，由模型结合失败原因继续规划。</li>
+        <li>构建飞书消息接入 Gateway，将消息、附件和稳定会话身份转换为
+        RunRequest，实时回传进度、图片和最终结果；通过旧任务写回保护和
+        Session revision 支持连续对话、中断与恢复。</li>
+        <li>建立固定会话背景、结构化事实/流程和 Session
+        执行经验三类当前记忆；MindMemOS 搜索结合语义向量与 BM25
+        并按名次融合，HomeMaster 对召回记录再次读回和格式校验。</li>
+        <li>设计带位置参照、可观察位置、可信度和时效状态的 object_memory
+        检索模型，结合
+        BM25、语义检索和字段加权；语义服务失败时降级为关键词检索，并排除明确反面证据。</li>
+        <li>完成 MindMemOS Feedback、Dreaming 与 Skill evolution
+        底层链的源码验证和接入设计：Feedback
+        将纠错转成增改删动作，Dreaming
+        按实体聚类整理重复/冲突记忆，Skill evolution 按 8
+        条真实注入轨迹生成经行号校验的候选 <code>SKILL.md</code>；当前
+        HomeMaster 主运行链尚未自动触发和发布候选版本。</li>
+        <li>在 ALFWorld 中实现重置时位姿快照、确定性目标解析、单 pose
+        导航、动作返回码和物理终态核对，并把失败原因转成模型可继续处理的结构化结果。</li>
+        </ol>
+        <h3 id="213-如果你坚持保留自动进化表述至少要先补齐的证据">21.3
+        如果你坚持保留“自动进化”表述，至少要先补齐的证据</h3>
+        <ul>
+        <li>一条任务记录能看到 injected Skill version、完整轨迹、task_id
+        和 score；</li>
+        <li>连续 8 条记录触发一次 SkillEvolver，并生成可定位父版本的
+        draft；</li>
+        <li>draft 在相同 Benchmark 逐任务对比旧 published 版本；</li>
+        <li>每个任务都没有被整体平均分掩盖的退化；</li>
+        <li>发布后下一轮实际注入新版本；</li>
+        <li>人为制造退化能触发回滚；</li>
+        <li>低成功率和长期未使用的淘汰规则有真实记录。</li>
+        </ul>
+        <p>这些证据齐全后，才可以把“完成底层验证与接入设计”升级为“实现自动进化闭环”。</p>
+        <h2 id="22-面试时按这条顺序讲">22. 面试时按这条顺序讲</h2>
+        <ol type="1">
+        <li><strong>一个总入口</strong>：所有业务请求都变成
+        <code>RunRequest</code>，进入
+        <code>ApplicationRuntime</code>。</li>
+        <li><strong>四种生命周期</strong>：Application
+        管共享资源，Session 管连续状态，Run 管一次执行，AgentRuntime
+        管模型/工具循环。</li>
+        <li><strong>三种状态</strong>：消息保存发生过什么，AgentState
+        控循环，TaskState 控任务，外部状态决定真假。</li>
+        <li><strong>一次循环</strong>：组模型输入 → 模型选工具 →
+        工具过安全门 → 外部执行与验证 → 结果写回 → 再规划。</li>
+        <li><strong>Compact</strong>：什么时候触发、先删什么、再总结哪段、哪些永不交给摘要替代、失败如何保留原历史。</li>
+        <li><strong>云运维例子</strong>：七项前检、锁定精确
+        job、实施、五项后检、终端证据和异常回退。</li>
+        <li><strong>家庭机器人例子</strong>：飞书如何进入同一
+        Runtime，ALFWorld 如何做目标解析、单 pose
+        动作和物理终态检查。</li>
+        <li><strong>记忆增删查改</strong>：重点讲“证据门 → 双库写入 →
+        raw ID 读回 → 更新归档旧版 → 删除默认归档”。</li>
+        <li><strong>Feedback / Dreaming / Skill
+        evolution</strong>：先讲底层每一步，再主动说明 HomeMaster
+        当前接线停在哪里。</li>
+        <li><strong>最后讲证据边界</strong>：审批、多位姿试错、自进化发布闭环和简历成功率当前分别有哪些缺口。</li>
+        </ol>
+        <h2 id="23-关键源码索引">23. 关键源码索引</h2>
+        <table>
+        <thead>
+        <tr>
+        <th>主题</th>
+        <th>主要文件</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr>
+        <td>Application 与 Run</td>
+        <td><code>src/homemaster/application/runtime.py</code>、<code>factory.py</code>、<code>contracts.py</code></td>
+        </tr>
+        <tr>
+        <td>Session 与 revision</td>
+        <td><code>src/homemaster/application/session.py</code>、<code>agent/session.py</code></td>
+        </tr>
+        <tr>
+        <td>Agent loop</td>
+        <td><code>src/homemaster/agent/generic_runtime.py</code>、<code>agent/state.py</code></td>
+        </tr>
+        <tr>
+        <td>TaskState</td>
+        <td><code>src/homemaster/task_state/models.py</code>、<code>store.py</code>、相关工具</td>
+        </tr>
+        <tr>
+        <td>Context / Compact</td>
+        <td><code>src/homemaster/agent/context.py</code>、<code>compact.py</code>、<code>prompts/compact_summary_prompt.md</code></td>
+        </tr>
+        <tr>
+        <td>双层 Tool Executor</td>
+        <td><code>src/homemaster/application/tool_executor.py</code>、<code>tools/executor.py</code></td>
+        </tr>
+        <tr>
+        <td>权限</td>
+        <td><code>src/homemaster/permissions/policy.py</code>、<code>config.py</code></td>
+        </tr>
+        <tr>
+        <td>事件与公开展示转换</td>
+        <td><code>src/homemaster/events/*</code>、<code>events/public_projection.py</code></td>
+        </tr>
+        <tr>
+        <td>飞书 Gateway</td>
+        <td><code>src/homemaster/channels/impl/feishu.py</code>、<code>channels/router.py</code>、<code>channels/bridge.py</code>、<code>gateway/runtime.py</code></td>
+        </tr>
+        <tr>
+        <td>云运维</td>
+        <td><code>docs/architecture/coworker-demo.md</code>、<code>benchmarking/coworker_demo/*</code>、<code>apps/case02_openenv/*</code></td>
+        </tr>
+        <tr>
+        <td>ALFWorld</td>
+        <td><code>docs/architecture/alfworld-harness.md</code>、<code>benchmarking/alfworld/runner.py</code>、<code>tools.py</code>、<code>execution.py</code></td>
+        </tr>
+        <tr>
+        <td>HomeMaster 当前记忆接线</td>
+        <td><code>memory/file_store.py</code>、<code>context_service.py</code>、<code>evidence.py</code>、<code>mindmemos_runtime.py</code>、<code>tools/memory_tools.py</code></td>
+        </tr>
+        <tr>
+        <td>Session experience</td>
+        <td><code>src/homemaster/experience/finalizer.py</code></td>
+        </tr>
+        <tr>
+        <td>旧 object_memory</td>
+        <td><code>memory/retrieval.py</code>、<code>memory/index.py</code>、<code>memory/runtime_store.py</code></td>
+        </tr>
+        <tr>
+        <td>MindMemOS 增/查/取/改/删</td>
+        <td><code>third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/{add,search,get,update,delete}</code></td>
+        </tr>
+        <tr>
+        <td>MindMemOS 双库存取</td>
+        <td><code>third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/memory_db</code>、<code>infra/db</code></td>
+        </tr>
+        <tr>
+        <td>MindMemOS Feedback</td>
+        <td><code>third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/feedback</code>、<code>components/feedback</code></td>
+        </tr>
+        <tr>
+        <td>MindMemOS Dreaming</td>
+        <td><code>third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/dreaming</code>、<code>components/dreaming</code></td>
+        </tr>
+        <tr>
+        <td>MindMemOS Skill evolution</td>
+        <td><code>third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/skill/evolution.py</code>、<code>version_store.py</code>、<code>components/skill/edit.py</code></td>
+        </tr>
+        <tr>
+        <td>记忆原生接入验证报告</td>
+        <td><code>docs/mindmemos-native-pipeline-integration-report-zh.md</code>、<code>docs/reports/2026-07-27-memory-system-verification.md</code></td>
+        </tr>
+        </tbody>
+        </table>
+        <div class="end-note">
+        本页故意把“HomeMaster 当前确实会做什么”“MindMemOS 底层具备什么”和“简历希望表达什么”分开。面试时先把完整逻辑讲透，再主动说明接线边界；这样既能体现你理解了系统，也不会把候选能力误说成已经上线的自动闭环。
+        </div>
+        <div class="no-result" id="noResult">没有找到匹配章节。试试“动态调度”“Compact”“权限”“空间记忆”“自进化”。</div>
+      </article>
+    </main>
+  </div>
+  <button class="jump-top" id="jumpTop" type="button" aria-label="回到顶部">↑</button>
+  <script>
+    (() => {
+      const content = document.getElementById('content');
+      const children = [...content.children];
+      let current = null;
+      children.forEach(node => {
+        if (node.tagName === 'H2') {
+          current = document.createElement('section');
+          current.className = 'doc-section';
+          current.dataset.section = node.textContent.toLowerCase();
+          content.insertBefore(current, node);
+          current.appendChild(node);
+        } else if (current && !node.classList.contains('no-result')) {
+          current.appendChild(node);
+        }
+      });
+
+      document.querySelectorAll('table').forEach(table => {
+        const wrap = document.createElement('div');
+        wrap.className = 'table-wrap';
+        table.parentNode.insertBefore(wrap, table);
+        wrap.appendChild(table);
+      });
+
+      document.querySelectorAll('pre').forEach(pre => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'copy-code';
+        button.textContent = '复制';
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(pre.innerText.replace(/^复制\n?/, ''));
+            button.textContent = '已复制';
+            setTimeout(() => button.textContent = '复制', 1200);
+          } catch (_) { button.textContent = '复制失败'; }
+        });
+        pre.appendChild(button);
+      });
+
+      const sections = [...document.querySelectorAll('.doc-section')];
+      const links = [...document.querySelectorAll('#TOC a')];
+      const observer = new IntersectionObserver(entries => {
+        const visible = entries.filter(e => e.isIntersecting).sort((a,b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!visible) return;
+        const id = visible.target.querySelector('h2')?.id;
+        links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }, { rootMargin: '-18% 0px -70% 0px', threshold: [0, .2, .5] });
+      sections.forEach(s => observer.observe(s));
+
+      const progress = document.getElementById('progress');
+      const top = document.getElementById('jumpTop');
+      const updateScroll = () => {
+        const max = document.documentElement.scrollHeight - innerHeight;
+        progress.style.width = (max > 0 ? scrollY / max * 100 : 0) + '%';
+        top.classList.toggle('show', scrollY > 700);
+      };
+      addEventListener('scroll', updateScroll, { passive: true });
+      updateScroll();
+      top.addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
+
+      const search = document.getElementById('search');
+      const noResult = document.getElementById('noResult');
+      search.addEventListener('input', () => {
+        const q = search.value.trim().toLowerCase();
+        let shown = 0;
+        sections.forEach(section => {
+          const match = !q || section.textContent.toLowerCase().includes(q);
+          section.hidden = !match;
+          if (match) shown++;
+        });
+        noResult.style.display = shown ? 'none' : 'block';
+      });
+
+      const menu = document.getElementById('menuBtn');
+      menu.addEventListener('click', () => document.body.classList.toggle('nav-open'));
+      links.forEach(a => a.addEventListener('click', () => document.body.classList.remove('nav-open')));
+    })();
+  </script>
+</body>
+</html>

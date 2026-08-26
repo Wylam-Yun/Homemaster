@@ -1,5 +1,23 @@
 # Third-Party Notices
 
+## OpenCLI
+
+HomeMaster vendors unmodified browser algorithms, tests, fixtures, and their production JavaScript
+dependency closure from `@jackwener/opencli` 1.8.7, commit
+`87b60a36590c3e2a466c37266c3348d73d7f68fe`. HomeMaster-owned adapter and generated files are kept
+outside the upstream source mirror. Detailed provenance, hashes, modifications, and the complete
+Apache License 2.0 text are distributed under
+`homemaster/browser/vendor/opencli_1_8_7/`.
+
+Copyright 2025 Jack Wener and OpenCLI contributors
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
+compliance with the License. You may obtain a copy of the License at
+`https://www.apache.org/licenses/LICENSE-2.0`. Unless required by applicable law or agreed to in
+writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific
+language governing permissions and limitations under the License.
+
 ## OpenHarness
 
 HomeMaster contains OpenHarness-derived Skills, bundled Skill Markdown, default tools and supporting services,
