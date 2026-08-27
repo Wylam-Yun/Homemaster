@@ -256,13 +256,21 @@ Web Console 与 CLI/Gateway 共享同一个 composition root，而不是在 Reac
 `homemaster serve` 组合 `local_robot` Registry；`homemaster serve --alfworld` 组合 `alfworld`
 Registry，异步创建现有 `AlfworldGatewayBinding`，再用 `AlfworldGatewayApplication` 给每个 Web
 `RunRequest` 固化 `profile="alfworld"`、environment 和 dependencies。Web 的
-`web-local-operator` 不含 `tool.auto`，因此同一 `ToolExecutor -> PermissionChecker` 在 backend 前把
-mutating tool call 交给 `WebConfirmationHandler`；React 只渲染/解决 opaque approval ID。
+`web-local-operator` 不含 `tool.auto`，但 Web composition 固定 `PermissionMode.FULL_AUTO`，因此同一
+`ToolExecutor -> PermissionChecker` 会自动放行未被 denied tools/path rules 拒绝的 mutating call；React
+仍可渲染/解决 opaque approval ID，以兼容显式 confirmation handler 或未来策略切换。
 
 ALFWorld worker、Unity 和可选 Xvfb 均绑定 application resource scope。Web app 暴露一个幂等 close owner，
 FastAPI lifespan 与 Uvicorn 启动失败兜底共用它。事件 WebSocket 同时等待 outbound queue 和客户端
 disconnect，避免安静断开的浏览器永久卡住 shutdown；关闭先封住新的 ALFWorld session claim，再清 pending
 approval/run/event hub，最后逆序关闭 worker 和 display。固定 episode 仍只允许首个 Web session owner。
+
+Web Console 的 `POST /api/sessions/{session_id}/messages` 接收任意用户文本，包括变更单原文，并创建同一
+`RunRequest`；业务步骤、计划锁定、浏览器工具和外部终态核验仍由 `change-ticket-executor` Skill 与 Runtime
+负责。Web composition 固定 `PermissionMode.FULL_AUTO`，因此网页变更单不等待审批；React 录制视图只改变
+展示：`record=1` 展开 thinking/工具参数，`session_id` 明确绑定事件流，不能
+跨 session 猜测历史。`run_web_server` 在组合 application 前对 loopback listener 做一次端口预检；受限环境
+无法创建探测 socket 时退回 Uvicorn 的最终 bind。
 
 ```text
 Feishu SDK WebSocket subprocess

@@ -12,7 +12,18 @@ import { initialConversationState, reduceWebEvent } from './state/conversation'
 
 const api = new HomeMasterApi()
 
+type DisplayOptions = { recording: boolean; requestedSessionId: string | null }
+
+function readDisplayOptions(): DisplayOptions {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    recording: params.get('record') === '1',
+    requestedSessionId: params.get('session_id'),
+  }
+}
+
 export function App() {
+  const displayOptions = useMemo(readDisplayOptions, [])
   const [view, setView] = useState<'conversation' | 'memories'>('conversation')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -87,11 +98,19 @@ export function App() {
 
   useEffect(() => {
     void refreshSessions().then(existing => {
+      if (displayOptions.requestedSessionId !== null) {
+        if (existing.some(session => session.session_id === displayOptions.requestedSessionId)) {
+          void selectSession(displayOptions.requestedSessionId)
+        } else {
+          setNotice(`指定会话不存在：${displayOptions.requestedSessionId}`)
+        }
+        return
+      }
       if (existing[0] !== undefined) void selectSession(existing[0].session_id)
       else void newSession()
     }).catch(error => { setNotice(error instanceof Error ? error.message : 'Service unavailable.') })
     return () => { connectionRef.current?.stop() }
-  }, [newSession, refreshSessions, selectSession])
+  }, [displayOptions.requestedSessionId, newSession, refreshSessions, selectSession])
 
   useEffect(() => { void refreshMemories() }, [refreshMemories])
 
@@ -134,9 +153,9 @@ export function App() {
   }
 
   return (
-    <div className="shell">
+    <div className="shell" data-recording={displayOptions.recording || undefined}>
       <aside className="sidebar" data-open={sidebarOpen || undefined}>
-        <div className="brand"><span className="brand-mark">HM</span><div><strong>HomeMaster</strong><small>Local agent console</small></div></div>
+        <div className="brand"><span className="brand-mark">HM</span><div><strong>Console</strong><small>Local agent console</small></div></div>
         <div className="sidebar-views" aria-label="主导航">
           <button type="button" aria-label="对话" data-active={view === 'conversation' || undefined} onClick={() => { setView('conversation'); setSidebarOpen(false) }}><span>◉</span>对话</button>
           <button type="button" aria-label="记忆管理" data-active={view === 'memories' || undefined} onClick={() => { setView('memories'); setSidebarOpen(false) }}><span>◇</span>记忆管理</button>
@@ -161,23 +180,23 @@ export function App() {
           />
         ) : <>
           <section className="conversation" aria-live="polite">
-          {history.map((message, index) => <HistoryRow key={`${index}:${message.role}`} message={message} />)}
+          {history.map((message, index) => <HistoryRow key={`${index}:${message.role}`} message={message} defaultExpanded={displayOptions.recording} />)}
           {turns.map(turn => <article className="turn" key={turn.requestId}>
             {submitted[turn.requestId] && <div className="user-row"><div>{submitted[turn.requestId]}</div></div>}
             <div className="assistant-row">
-              <ReasoningRow text={turn.thinking} running={turn.status === 'running'} />
-              {Object.values(turn.tools).map(tool => <ToolCallCard key={tool.toolCallId} tool={tool} sessionId={turn.sessionId} />)}
+              <ReasoningRow text={turn.thinking} running={turn.status === 'running'} defaultExpanded={displayOptions.recording} />
+              {Object.values(turn.tools).map(tool => <ToolCallCard key={tool.toolCallId} tool={tool} sessionId={turn.sessionId} defaultOpen={displayOptions.recording} />)}
               {turn.answer && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{turn.answer}</ReactMarkdown></div>}
               {turn.status === 'failed' && <div className="run-error">{turn.error?.message ?? 'Run failed.'}</div>}
               {turn.status === 'cancelled' && <div className="run-cancelled">Run cancelled. Partial output was kept.</div>}
             </div>
           </article>)}
-          {history.length === 0 && turns.length === 0 && <div className="empty"><span>✦</span><h1>What should we work on?</h1><p>HomeMaster can reason, use local tools, and ask before dangerous operations.</p></div>}
+          {history.length === 0 && turns.length === 0 && <div className="empty"><span>✦</span><h1>What should we work on?</h1><p>Can reason, use local tools, and ask before dangerous operations.</p></div>}
           <div ref={endRef} />
           </section>
           {notice && <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={() => { setNotice(null) }}>关闭</button></div>}
           <form className="composer" onSubmit={event => { void send(event) }}>
-          <textarea value={draft} onChange={event => { setDraft(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={connectionState === 'connected' ? 'Message HomeMaster…' : 'Waiting for connection…'} disabled={connectionState !== 'connected'} rows={1} />
+          <textarea value={draft} onChange={event => { setDraft(event.target.value) }} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit() } }} placeholder={connectionState === 'connected' ? 'Message…' : 'Waiting for connection…'} disabled={connectionState !== 'connected'} rows={1} />
           {active !== undefined ? <button className="stop" type="button" onClick={() => { if (sessionId) void api.cancel(sessionId) }} aria-label="Stop run">■</button> : <button className="send" type="submit" disabled={!canSend || draft.trim().length === 0} aria-label="Send message">↑</button>}
           <small>Enter to send · Shift+Enter for a new line</small>
           </form>
@@ -188,7 +207,7 @@ export function App() {
   )
 }
 
-function HistoryRow({ message }: { message: HistoryMessage }) {
+function HistoryRow({ message, defaultExpanded = false }: { message: HistoryMessage; defaultExpanded?: boolean }) {
   if (message.role === 'user') return <div className="user-row"><div>{message.text}</div></div>
-  return <div className="assistant-row">{message.thinking && <ReasoningRow text={message.thinking} running={false} />}{message.text && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown></div>}</div>
+  return <div className="assistant-row">{message.thinking && <ReasoningRow text={message.thinking} running={false} defaultExpanded={defaultExpanded} />}{message.text && <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown></div>}</div>
 }

@@ -7,7 +7,15 @@ function artifactUrl(artifact: ArtifactRef, sessionId: string): string {
   return `/api/artifacts/${encodeURIComponent(artifact.artifact_handle)}?session_id=${encodeURIComponent(sessionId)}&run_id=${encodeURIComponent(artifact.run_id)}`
 }
 
-export function ToolCallCard({ tool, sessionId }: { tool: ToolCallState; sessionId?: string }) {
+export function ToolCallCard({
+  tool,
+  sessionId,
+  defaultOpen = false,
+}: {
+  tool: ToolCallState
+  sessionId?: string
+  defaultOpen?: boolean
+}) {
   return (
     <article className={styles.card} data-state={tool.status}>
       <header>
@@ -15,7 +23,7 @@ export function ToolCallCard({ tool, sessionId }: { tool: ToolCallState; session
         <strong>{tool.name}</strong>
         <span className={styles.status}>{tool.status}</span>
       </header>
-      <details>
+      <details open={defaultOpen}>
         <summary>Arguments</summary>
         <pre>{JSON.stringify(tool.arguments, null, 2)}</pre>
       </details>

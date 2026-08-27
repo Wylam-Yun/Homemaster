@@ -10,8 +10,16 @@ import styles from './ReasoningRow.module.css'
 const firstLine = (text: string): string => text.split('\n', 1)[0]
 const latestLine = (text: string): string => text.trimEnd().split('\n').at(-1) ?? ''
 
-export function ReasoningRow({ text, running }: { text: string; running: boolean }) {
-  const [expanded, setExpanded] = useState(false)
+export function ReasoningRow({
+  text,
+  running,
+  defaultExpanded = false,
+}: {
+  text: string
+  running: boolean
+  defaultExpanded?: boolean
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   if (text.length === 0) return null
   const summary = running ? latestLine(text) : firstLine(text)
   return (

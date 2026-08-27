@@ -68,7 +68,7 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory }:
         <div>
           <p className={styles.eyebrow}>长期记忆</p>
           <h1 id="memory-page-title">记忆管理</h1>
-          <p>按来源会话查看 HomeMaster 已保存的记忆。本页面目前仅供查看。</p>
+          <p>按来源会话查看已保存的记忆。本页面目前仅供查看。</p>
         </div>
         <button type="button" className={styles.refresh} onClick={() => { void onRefresh() }} disabled={loading}>
           {loading ? '加载中…' : '刷新'}

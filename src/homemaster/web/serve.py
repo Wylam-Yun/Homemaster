@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import ipaddress
+import socket
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +38,41 @@ def validate_bind_host(host: str) -> str:
     return host
 
 
+def validate_port_available(host: str, port: int) -> int:
+    """Fail before runtime construction when the requested listener is occupied."""
+
+    if not 1 <= port <= 65535:
+        raise ValueError("Web Console port must be between 1 and 65535")
+    addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not addresses:
+        raise ValueError(f"Web Console address {host!r} could not be resolved")
+    last_error: OSError | None = None
+    seen: set[tuple[int, object]] = set()
+    for family, socktype, proto, _canonname, sockaddr in addresses:
+        key = (family, sockaddr)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            probe = socket.socket(family, socktype, proto)
+        except PermissionError:
+            # Some sandboxes deny socket creation even for localhost. Uvicorn remains
+            # the final bind authority in that environment.
+            return port
+        with probe:
+            try:
+                probe.bind(sockaddr)
+            except OSError as exc:
+                if exc.errno == errno.EADDRINUSE:
+                    raise ValueError(
+                        f"Web Console port {port} on {host} is already in use; choose another port"
+                    ) from exc
+                last_error = exc
+    if last_error is not None:
+        raise ValueError(f"Web Console cannot bind {host}:{port}: {last_error}") from last_error
+    return port
+
+
 def create_home_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose one long-lived runtime with capabilities selected by configuration."""
 
@@ -45,7 +82,7 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
         progress=False,
         quiet=True,
         console_show_replies=False,
-        permission_mode=PermissionMode.DEFAULT,
+        permission_mode=PermissionMode.FULL_AUTO,
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
@@ -73,6 +110,7 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         quiet=True,
         console_show_replies=False,
         tool_environment="browser",
+        permission_mode=PermissionMode.FULL_AUTO,
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
@@ -99,7 +137,7 @@ async def create_alfworld_web_app() -> FastAPI:
         quiet=True,
         console_show_replies=False,
         tool_environment="alfworld",
-        permission_mode=PermissionMode.DEFAULT,
+        permission_mode=PermissionMode.FULL_AUTO,
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
@@ -162,6 +200,7 @@ def run_web_server(
     """Validate the local bind before constructing any runtime resources."""
 
     validated_host = validate_bind_host(host)
+    validate_port_available(validated_host, port)
     asyncio.run(
         _serve_web_server(
             host=validated_host,
@@ -178,4 +217,5 @@ __all__ = [
     "create_home_web_app",
     "run_web_server",
     "validate_bind_host",
+    "validate_port_available",
 ]

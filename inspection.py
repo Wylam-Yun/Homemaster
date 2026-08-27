@@ -30,7 +30,6 @@ INTERACTIVE_SELECTOR = ",".join(
         "[role=tab]",
         "[role=option]",
         "[data-browser-action]",
-        ".ant-picker-time-panel-cell",
     )
 )
 
@@ -38,14 +37,12 @@ _ELEMENT_STATE_JS = r"""
 (el) => {
   const tag = el.tagName.toLowerCase();
   const type = (el.getAttribute('type') || '').toLowerCase();
-  const className = typeof el.className === 'string' ? el.className : '';
   const implicitRole = tag === 'button' ? 'button'
     : tag === 'a' && el.hasAttribute('href') ? 'link'
     : tag === 'select' ? 'combobox'
     : tag === 'textarea' ? 'textbox'
     : tag === 'input' && ['checkbox', 'radio'].includes(type) ? type
-    : tag === 'input' ? 'textbox'
-    : className.split(/\s+/).includes('ant-picker-time-panel-cell') ? 'option' : '';
+    : tag === 'input' ? 'textbox' : '';
   const role = el.getAttribute('role') || implicitRole;
   const labels = el.labels
     ? Array.from(el.labels).map(x => x.innerText || x.textContent || '')
@@ -197,7 +194,7 @@ def _selector_for_filters(filters: Mapping[str, object]) -> str:
     if role in _CELL_ROLES:
         return '[role="cell"],[role="gridcell"]'
     if role == "option":
-        return '[role="option"],.ant-picker-time-panel-cell'
+        return '[role="option"]'
     role_selectors = {
         "button": 'button,[role="button"]',
         "link": 'a[href],[role="link"]',

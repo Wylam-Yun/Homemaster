@@ -37,6 +37,10 @@ ssh -N -L 8765:127.0.0.1:8765 hkust4
 
 然后打开 `http://127.0.0.1:8765`。不要把未认证端口绑定到 `0.0.0.0`。
 
+启动前会先探测目标端口；若已被占用，服务会在构造模型/浏览器运行时前报错并退出。双窗口录制时不要再
+启动第二个相同端口的 Homemaster；已有服务可直接复用，或为第二个服务选择明确的空闲端口（例如 `8891`）
+并同步修改录制 URL。远端访问继续使用 SSH tunnel，不要改为公网绑定。
+
 当前版本没有认证，只允许 `127.0.0.0/8`、`::1` 或 `localhost`。`0.0.0.0`、LAN 地址和其他 hostname
 会在模型、工具和 Runtime 构造前直接失败。不要用端口转发把它公开到不可信网络；需要远程访问时应先在
 可信 reverse proxy 增加认证和 TLS。
@@ -50,8 +54,35 @@ ssh -N -L 8765:127.0.0.1:8765 hkust4
   对应工具卡片内，点击图片可放大；关闭按钮、`Esc` 或点击遮罩可退出，`Open original` 保留原图入口。
   图片加载失败和非图片 artifact 继续显示授权链接；所有读取仍校验 tenant/session/run 分区和 opaque handle。
 - Stop 请求 Runtime 取消当前 session run。
-- 危险操作显示一次性审批框。Reject 不调用工具 backend；重复、过期或已消费的 approval ID 会失败。
+- Web Console 使用 `full_auto` 自动执行允许的变更操作；denied tools、敏感路径和命令规则仍会拒绝执行。
 - WebSocket 最后一个订阅者断开、run 取消、超时或服务关闭时，pending approval fail closed。
+
+### 从网页执行变更单
+
+在对话框直接输入变更单原文并发送即可。Web Console 将文本提交到同一个 `ApplicationRuntime`，模型按
+`change-ticket-executor` Skill 读取变更单、锁定计划、调用浏览器工具，并在需要时通过页面审批框继续执行；
+它不会绕过 CLI/Runtime 另起一套执行器。Web Console 入口固定使用 `full_auto`，因此变更单会自动执行，网页
+仍会实时显示工具名、未脱敏参数和结果：
+
+```bash
+scripts/homemaster serve --host 127.0.0.1 --port 8890 --browser \
+  --config config/homemaster.browser.yaml
+```
+
+任务文本应包含目标、步骤、前置条件、成功检查和回滚条件；技能会把这些内容作为唯一业务步骤来源，并在
+工具返回后独立核对外部终态。
+
+### 双窗口录制
+
+先在主窗口创建或选择一个 session，再把同一个 ID 放到 Web Console 录制窗口 URL。`record=1` 会默认展开
+Thinking 和工具 Arguments，方便领导查看实时模型输出：
+
+```text
+http://127.0.0.1:8890/?record=1&session_id=<session-id>
+```
+
+两个窗口必须使用同一个 `session_id`；主窗口提交任务后，录制窗口通过 `/api/events` 实时收到同一 run 的
+thinking、回答、工具参数、审批和终态事件。录制窗口不会自动挑选其他历史会话，ID 不存在时会明确提示。
 
 MVP 重连采用“重新获取 history，再继续 live events”；断线窗口里的动画 delta 不回放，最终 thinking/answer
 snapshot 负责校准。

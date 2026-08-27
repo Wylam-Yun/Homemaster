@@ -225,9 +225,12 @@ scripts/homemaster serve --host 127.0.0.1 --port 8765
 scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
 ```
 
-浏览器必须先建立当前 session 的 WebSocket，composer 才允许发送。危险工具在网页弹出一次性审批，
-Reject、断线、超时或进程关闭都 fail closed。ALFWorld 模式继续使用同一个 `ApplicationRuntime`、
-`ToolExecutor -> PermissionChecker` 和 Web 审批协议，不是另一套前端执行器。完整开发、构建与使用说明见
+浏览器必须先建立当前 session 的 WebSocket，composer 才允许发送。变更单可以直接粘贴到网页输入框，仍由
+同一个 `ApplicationRuntime` 和 `change-ticket-executor` Skill 执行；Web Console 固定使用 `full_auto`，危险
+工具自动执行但仍受 denied tools/path rules 约束。录制第二窗口时使用
+`/?record=1&session_id=<session-id>`，thinking 和工具参数会保持展开并实时更新。服务启动会先探测 loopback
+端口，冲突时在运行时构造前报错。ALFWorld 模式继续使用同一个 `ToolExecutor -> PermissionChecker`
+和 Web 审批协议，不是另一套前端执行器。完整开发、构建与使用说明见
 [Web Console 用户指南](docs/web-console-user-guide.md)。
 
 | 命令 | 说明 |

@@ -317,11 +317,7 @@ class PlaywrightBrowserSession:
                 "textarea",
                 "contenteditable",
             }:
-                raise BrowserSessionError(
-                    "unsupported_control",
-                    "target is not editable",
-                    hint="This control cannot accept a direct value assignment. Use browser_select for options, browser_click for toggles, or pick an editable target via browser_inspect.",
-                )
+                raise BrowserSessionError("unsupported_control", "target is not editable")
             await element.handle.fill(desired_value, timeout=self.policy.action_timeout_ms)
             actual_state = await current_state(element)
             initial_actual = str(actual_state.get("value") or "")
@@ -895,7 +891,6 @@ class PlaywrightBrowserSession:
                         "target_not_found",
                         "CSS selector matched no visible element",
                         details={"css": css, "matches_n": 0},
-                        hint="The selector matched nothing visible. Check the selector syntax, drop the visibility assumption, or use a semantic find (role/name/text) - or run browser_inspect to see what is actually on the page.",
                     )
                 if len(candidates) > 1 and query.get("nth") is None:
                     raise BrowserSessionError(
@@ -906,7 +901,6 @@ class PlaywrightBrowserSession:
                             "matches_n": len(candidates),
                             "candidates": candidates[:10],
                         },
-                        hint="Several visible elements matched. Add nth (0-based) or use a more specific CSS selector, then retry.",
                     )
                 index = int(query.get("nth", 0))
                 if index < 0 or index >= len(candidates):
@@ -914,7 +908,6 @@ class PlaywrightBrowserSession:
                         "target_not_found",
                         "CSS candidate index is out of range",
                         details={"css": css, "nth": index, "matches_n": len(candidates)},
-                        hint="The requested nth index is outside the visible match count. Use an index from 0 through matches_n - 1, or narrow the selector.",
                     )
                 return {
                     "matches_n": len(candidates),
@@ -1114,11 +1107,7 @@ class PlaywrightBrowserSession:
                 target, writable=True, require_editable=True
             )
             if not bool(state.get("editable")):
-                raise BrowserSessionError(
-                    "unsupported_control",
-                    "target is not editable",
-                    hint="This control cannot accept a direct value assignment. Use browser_select for options, browser_click for toggles, or pick an editable target via browser_inspect.",
-                )
+                raise BrowserSessionError("unsupported_control", "target is not editable")
             await element.handle.click(timeout=self.policy.action_timeout_ms)
             if mode == "replace":
                 await self._page.keyboard.press("ControlOrMeta+A")
@@ -1292,11 +1281,7 @@ class PlaywrightBrowserSession:
         async def operation() -> Mapping[str, object]:
             element, _, level = await self._resolve_target(target, writable=True)
             if element.control_type != "file" and element.tag != "input":
-                raise BrowserSessionError(
-                    "unsupported_control",
-                    "target is not a file input",
-                    hint="Upload requires a file input target. Use browser_find with a css selector for input[type=file], or inspect compound output to locate one.",
-                )
+                raise BrowserSessionError("unsupported_control", "target is not a file input")
             paths: list[str] = []
             for ref in artifact_refs:
                 path = self._approved_artifact_path(ref)
@@ -2046,23 +2031,15 @@ class PlaywrightBrowserSession:
         try:
             element = self._snapshots.resolve(snapshot_id, element_id, generation=self.generation)
         except TargetResolutionError as exc:
-            raise BrowserSessionError(exc.code, str(exc), details=exc.details) from exc
+            raise BrowserSessionError(exc.code, str(exc)) from exc
         connected = bool(await element.handle.evaluate("el => el.isConnected"))
         if not connected:
-            raise BrowserSessionError(
-                "stale_ref",
-                "target element is detached",
-                hint="The element was removed from the page after inspection. Re-run browser_inspect to get a fresh snapshot.",
-            )
+            raise BrowserSessionError("stale_ref", "target element is detached")
         await element.handle.scroll_into_view_if_needed(timeout=self.policy.action_timeout_ms)
         state = await current_state(element)
         current_fingerprint = fingerprint_from_state(state, frame_id=element.frame_id)
         if current_fingerprint != element.fingerprint:
-            raise BrowserSessionError(
-                "stale_ref",
-                "target identity changed after inspection",
-                hint="The page re-rendered and this ref no longer identifies the same element. Re-run browser_inspect and pick a fresh target.",
-            )
+            raise BrowserSessionError("stale_ref", "target identity changed after inspection")
         state = await self._prepare_actionable(
             element, require_editable=require_editable
         )
@@ -2210,29 +2187,13 @@ class PlaywrightBrowserSession:
         await element.handle.scroll_into_view_if_needed(timeout=self.policy.action_timeout_ms)
         state = await current_state(element)
         if not bool(state.get("visible")):
-            raise BrowserSessionError(
-                "target_not_visible",
-                "target is not visible",
-                hint="The control exists but is hidden. It may appear after scrolling, opening a dropdown, or expanding a section; use browser_scroll or open the owning control first.",
-            )
+            raise BrowserSessionError("target_not_visible", "target is not visible")
         if not bool(state.get("enabled")):
-            raise BrowserSessionError(
-                "target_disabled",
-                "target is disabled",
-                hint="The control is disabled by the page. Pick an enabled control, or complete the prerequisite step (form validation, prior field) that enables it.",
-            )
+            raise BrowserSessionError("target_disabled", "target is disabled")
         if require_editable and bool(state.get("readonly")):
-            raise BrowserSessionError(
-                "target_readonly",
-                "target is readonly",
-                hint="This control rejects direct text entry. Select from its dropdown options instead of filling, or pick an editable target; use browser_inspect to find one.",
-            )
+            raise BrowserSessionError("target_readonly", "target is readonly")
         if bool(state.get("obscured")):
-            raise BrowserSessionError(
-                "target_obscured",
-                "target is obscured",
-                hint="Another element covers this control. Close the overlaying popover, dialog, or dropdown first, or use browser_press Escape and retry.",
-            )
+            raise BrowserSessionError("target_obscured", "target is obscured")
         return state
 
     async def _reidentify(
@@ -2368,11 +2329,7 @@ class PlaywrightBrowserSession:
         if kind == "element_state":
             target = condition.get("target")
             if not isinstance(target, (Mapping, str)):
-                raise BrowserSessionError(
-                    "invalid_condition",
-                    "element_state requires target",
-                    hint="Pass the condition object itself, not nested inside another condition key, and include its target field (e.g. {\"kind\": \"element_state\", \"target\": {...}, \"state\": \"visible\"}).",
-                )
+                raise BrowserSessionError("invalid_condition", "element_state requires target")
             try:
                 element, state, _ = await self._resolve_target(target, writable=False)
             except BrowserSessionError as exc:
@@ -2417,7 +2374,7 @@ class PlaywrightBrowserSession:
                     snapshot_id, element_id, generation=self.generation
                 )
             except TargetResolutionError as exc:
-                raise BrowserSessionError(exc.code, str(exc), details=exc.details) from exc
+                raise BrowserSessionError(exc.code, str(exc)) from exc
             try:
                 connected = bool(await element.handle.evaluate("el => el.isConnected"))
                 state = await current_state(element) if connected else {}
@@ -2439,16 +2396,7 @@ class PlaywrightBrowserSession:
             if kind == "element_text":
                 actual = str(state.get("text", ""))
                 return value in actual, {"text": actual}, stable_hash, stable_since
-        raise BrowserSessionError(
-            "invalid_condition",
-            f"unsupported wait condition: {kind!r}",
-            hint=(
-                "Pass one flat condition object with a supported kind: text_present, text_absent, "
-                "selector_present, selector_absent, time, xhr, response, dom_stable, url, "
-                "element_state, popup, dialog, or download. If you wrapped the condition inside "
-                "a 'condition' key, unwrap it - the schema takes the condition directly."
-            ),
-        )
+        raise BrowserSessionError("invalid_condition", f"unsupported wait condition: {kind}")
 
     async def _dom_hash(self) -> str:
         content = await self._page.content()
@@ -2812,11 +2760,6 @@ class PlaywrightBrowserSession:
                     "browser operation exceeded its infrastructure timeout",
                     backend_attempted=True,
                     outcome_unknown=mutating,
-                    hint=(
-                        "The page was too slow or too large for this one operation. For reads, "
-                        "retry with a narrower scope, fewer elements, or browser_screenshot "
-                        "instead. For writes, the session is now fenced: do not retry the write."
-                    ),
                 ) from exc
             except BrowserSessionError as exc:
                 self._write_event(
@@ -2866,7 +2809,6 @@ class PlaywrightBrowserSession:
             raise BrowserSessionError(
                 "session_fenced",
                 "browser session was fenced after an uncertain operation",
-                hint="A previous write had an unknown outcome, so this session refuses further browser actions. Report the fenced session and the last attempted action; do not retry writes through a new session.",
             )
         if self._page is not None and self._page.url != "about:blank":
             try:

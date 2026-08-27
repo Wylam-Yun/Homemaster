@@ -50,14 +50,17 @@ describe('App memory navigation', () => {
     window.HTMLElement.prototype.scrollIntoView = vi.fn()
   })
 
-  afterEach(() => { vi.clearAllMocks() })
+  afterEach(() => {
+    window.history.replaceState({}, '', '/')
+    vi.clearAllMocks()
+  })
 
   it('keeps conversation usable when memory loading fails', async () => {
     mocks.rejectMemories = true
     render(<App />)
 
     expect(await screen.findByRole('button', { name: '对话' })).toBeVisible()
-    expect(await screen.findByPlaceholderText('Message HomeMaster…')).toBeEnabled()
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
   })
 
   it('switches to memory view and collapses history without changing the session', async () => {
@@ -72,5 +75,15 @@ describe('App memory navigation', () => {
     expect(await screen.findByRole('heading', { name: '记忆管理' })).toBeVisible()
     expect(mocks.stop).not.toHaveBeenCalled()
     await waitFor(() => { expect(screen.getByText('来源会话')).toBeVisible() })
+  })
+
+  it('attaches a recording view to the requested session', async () => {
+    window.history.replaceState({}, '', '/?record=1&session_id=session-01')
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '打开会话 session-01' })).toBeVisible()
+    expect(document.querySelector('.shell')).toHaveAttribute('data-recording', 'true')
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+    window.history.replaceState({}, '', '/')
   })
 })

@@ -191,10 +191,14 @@ class BrowserSessionError(RuntimeError):
         details: Mapping[str, object] | None = None,
         backend_attempted: bool = False,
         outcome_unknown: bool = False,
+        hint: str = "",
     ) -> None:
         super().__init__(message)
         self.code = code
-        self.details = dict(details or {})
+        merged = dict(details or {})
+        if hint:
+            merged.setdefault("hint", hint)
+        self.details = merged
         self.backend_attempted = backend_attempted
         self.outcome_unknown = outcome_unknown
 

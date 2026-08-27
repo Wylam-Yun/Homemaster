@@ -39,3 +39,6 @@ web/*.tsbuildinfo
 ._*
 # Local run artifacts
 var/
+
+# Desktop screen recordings (large binaries, kept on disk only)
+*.mkv

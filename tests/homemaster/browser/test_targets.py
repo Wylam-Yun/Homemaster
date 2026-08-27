@@ -112,6 +112,7 @@ def test_semantic_resolver_exact_contains_regex_and_ambiguity() -> None:
         )
     assert ambiguous.value.code == "target_ambiguous"
     assert len(ambiguous.value.details["candidates"]) == 2
+    assert "hint" in ambiguous.value.details
 
     regex = resolve_semantic(
         elements,
@@ -126,6 +127,37 @@ def test_semantic_resolver_exact_contains_regex_and_ambiguity() -> None:
             writable=True,
         )
     assert rejected.value.code == "invalid_match"
+
+
+def test_semantic_resolver_miss_returns_opencli_style_recovery_data() -> None:
+    elements = [
+        _element("Apply", element_id="e1"),
+        _element("Cancel", element_id="e2"),
+    ]
+
+    with pytest.raises(TargetResolutionError) as missing:
+        resolve_semantic(
+            elements,
+            Target(role="button", name="Submit"),
+            writable=True,
+        )
+
+    error = missing.value
+    assert error.code == "target_not_found"
+    assert error.details["requested"]["name"] == "Submit"
+    assert error.details["candidates"] == ()
+    assert "browser_inspect" in error.details["hint"]
+
+    with pytest.raises(TargetResolutionError) as same_role:
+        resolve_semantic(
+            elements,
+            Target(role="textbox", name="Missing"),
+            writable=True,
+        )
+    assert [item["name"] for item in same_role.value.details["candidates"]] == [
+        "Apply",
+        "Cancel",
+    ]
 
 
 def test_semantic_resolver_treats_cell_and_gridcell_as_compatible_roles() -> None:

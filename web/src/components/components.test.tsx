@@ -42,9 +42,20 @@ describe('ReasoningRow', () => {
       element?.tagName === 'PRE' && element.textContent === 'first\nlatest'
     ))).toBeVisible()
   })
+
+  it('can stay expanded for a recording view', () => {
+    render(<ReasoningRow text="full reasoning" running defaultExpanded />)
+    expect(screen.getByRole('button', { name: /thinking/i })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText((_, element) => element?.tagName === 'PRE' && element.textContent === 'full reasoning')).toBeVisible()
+  })
 })
 
 describe('ToolCallCard', () => {
+  it('can keep arguments open for a recording view', () => {
+    render(<ToolCallCard tool={imageTool()} defaultOpen />)
+    expect(screen.getByText('Arguments').closest('details')).toHaveAttribute('open')
+  })
+
   it('renders one independently keyed tool instance and artifact metadata', () => {
     render(<ToolCallCard tool={{
       toolCallId: 'call-01',

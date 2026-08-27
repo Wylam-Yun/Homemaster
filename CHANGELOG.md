@@ -4,6 +4,12 @@
 
 ### Work In Progress
 
+- Checkpointed the workspace after landing deterministic Web Console recording mode and OpenCLI-style
+  miss recovery: this snapshot also preserves the root-level working copies (inspection.py,
+  playwright_session.py, opencli_adapter.py, test_playwright_session.py,
+  docs/session-handoff.md.orig) as-is for recovery. The Ops Monitor run-32 desktop recording stays
+  on disk only (gitignored) and is intentionally not part of the repository. It does not claim
+  release readiness.
 - Archived the current in-progress workspace as a non-accepted checkpoint spanning configuration
   and legacy-code cleanup, browser composition and semantic-control work, Coworker domain-run
   routing, Ops Monitor run 29 diagnostics, and story/report artifacts. This snapshot intentionally
@@ -13,6 +19,17 @@
   complete. This entry records state for recovery and review; it does not claim release readiness.
 
 ### Fixed
+
+- Added deterministic Web Console recording mode: `?session_id=...&record=1` attaches to the requested
+  session and keeps thinking/tool arguments expanded for a second recording window. Web Console messages
+  continue through the shared Runtime and change-ticket executor; all Web entrypoints now use `full_auto` as
+  requested. Web server startup now probes the selected loopback port before constructing runtime resources and
+  reports an actionable conflict.
+
+- Added OpenCLI-style miss recovery to browser target errors. Semantic and CSS misses,
+  ambiguous targets, stale references, actionability failures, and infrastructure timeouts now
+  include actionable `hint` guidance; semantic misses also return up to five same-role or
+  text-overlapping candidates so the model can correct its target without blind retries.
 
 - Disabled forced model observation for browser mutations during V3.1 validation. Browser actions now
   rely on structured receipts and independent DOM/business postconditions without an automatic

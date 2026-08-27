@@ -16,11 +16,18 @@ _CELL_ROLES = frozenset({"cell", "gridcell"})
 
 class TargetResolutionError(ValueError):
     def __init__(
-        self, code: str, message: str, *, details: dict[str, object] | None = None
+        self,
+        code: str,
+        message: str,
+        *,
+        details: dict[str, object] | None = None,
+        hint: str = "",
     ) -> None:
         super().__init__(message)
         self.code = code
         self.details = details or {}
+        if hint:
+            self.details = {**self.details, "hint": hint}
 
 
 @dataclass(frozen=True)
@@ -93,7 +100,14 @@ class SnapshotStore:
     def get(self, snapshot_id: str) -> BrowserSnapshot:
         snapshot = self._snapshots.get(snapshot_id)
         if snapshot is None:
-            raise TargetResolutionError("stale_ref", "snapshot is no longer retained")
+            raise TargetResolutionError(
+                "stale_ref",
+                "snapshot is no longer retained",
+                hint=(
+                    "The snapshot may have been evicted after many re-renders. Re-run "
+                    "browser_inspect to get a fresh snapshot."
+                ),
+            )
         return snapshot
 
     def resolve(
@@ -108,12 +122,20 @@ class SnapshotStore:
                     "snapshot_generation": snapshot.generation,
                     "current_generation": generation,
                 },
+                hint=(
+                    "The page has navigated since this snapshot. Re-run browser_inspect to "
+                    "refresh."
+                ),
             )
         matches = [element for element in snapshot.elements if element.element_id == element_id]
         if len(matches) != 1:
             raise TargetResolutionError(
                 "target_not_found" if not matches else "target_ambiguous",
                 "target reference is not unique",
+                hint=(
+                    "The element may have been removed. Re-run browser_inspect to get a fresh "
+                    "snapshot."
+                ),
             )
         return matches[0]
 
@@ -122,7 +144,11 @@ class SnapshotStore:
             for element in snapshot.elements:
                 if element.target_ref == target_ref or element.element_id == target_ref:
                     return snapshot, element
-        raise TargetResolutionError("stale_ref", "target_ref is not retained")
+        raise TargetResolutionError(
+            "stale_ref",
+            "target_ref is not retained",
+            hint="The page has changed since the last snapshot. Re-run browser_inspect to refresh.",
+        )
 
     def invalidate(self) -> None:
         """Drop only the current pointer; retained refs remain recoverable."""
@@ -137,16 +163,36 @@ def resolve_semantic(
     writable: bool,
 ) -> Resolution:
     if target.match not in {"exact", "contains", "regex"}:
-        raise TargetResolutionError("invalid_match", "match must be exact, contains, or regex")
+        raise TargetResolutionError(
+            "invalid_match",
+            "match must be exact, contains, or regex",
+            hint=(
+                "Use match='exact' for one accessible name, 'contains' for a substring, "
+                "or 'regex' for read-only searches."
+            ),
+        )
     if target.match == "regex" and writable:
-        raise TargetResolutionError("invalid_match", "regex matching is read-only")
+        raise TargetResolutionError(
+            "invalid_match",
+            "regex matching is read-only",
+            hint=(
+                "Use exact or contains matching for browser writes; reserve regex for "
+                "read-only discovery."
+            ),
+        )
     selected = [element for element in elements if _matches(element, target)]
     candidates = tuple(_candidate(element) for element in selected[:10])
     if not selected:
+        near_misses = tuple(_candidate(element) for element in _near_misses(elements, target))
         raise TargetResolutionError(
             "target_not_found",
             "no target matched the requested semantic target",
-            details={"requested": target.to_public_dict(), "candidates": []},
+            details={"requested": target.to_public_dict(), "candidates": near_misses},
+            hint=(
+                "No element matched. Inspect the nearest candidates (same role, or overlapping "
+                "name/text), then retry with the exact accessible name shown, relax the role, or "
+                "call browser_inspect for a fresh page view. cell and gridcell are interchangeable."
+            ),
         )
     if target.nth is not None:
         if target.nth < 0 or target.nth >= len(selected):
@@ -154,6 +200,11 @@ def resolve_semantic(
                 "target_not_found",
                 "requested nth candidate is out of range",
                 details={"matches_n": len(selected), "nth": target.nth, "candidates": candidates},
+                hint=(
+                    f"Requested nth={target.nth} but only {len(selected)} element(s) matched. "
+                    "Use nth between 0 and the match count minus one, or drop nth and add a "
+                    "stronger role/name so a single element matches."
+                ),
             )
         return Resolution(
             selected[target.nth], "exact" if target.match == "exact" else target.match, candidates
@@ -163,6 +214,11 @@ def resolve_semantic(
             "target_ambiguous",
             "target matched multiple elements; specify a stronger target or nth",
             details={"matches_n": len(selected), "candidates": candidates},
+            hint=(
+                "Several elements matched equally. Pick one listed candidate via nth (0-based), "
+                "or make the target more specific by combining role with the full accessible "
+                "name shown in the candidates list."
+            ),
         )
     return Resolution(selected[0], "exact" if target.match == "exact" else target.match, candidates)
 
@@ -216,6 +272,44 @@ def _candidate(element: BrowserElement) -> dict[str, object]:
         "enabled": element.enabled,
         "visible": element.visible,
     }
+
+
+_NEAR_MISS_LIMIT = 5
+
+
+def _near_misses(
+    elements: Sequence[BrowserElement], target: Target
+) -> list[BrowserElement]:
+    """Same-role first, then overlapping name/text - mirrors OpenCLI find.js candidates."""
+
+    same_role = [
+        element
+        for element in elements
+        if element.role == target.role
+        or (target.role in _CELL_ROLES and element.role in _CELL_ROLES)
+    ]
+    query_terms = [
+        value
+        for value in (target.name, target.label, target.text)
+        if value
+    ]
+    overlapping = []
+    if query_terms:
+        for element in elements:
+            haystack = " ".join(
+                part for part in (element.name, element.label, element.text) if part
+            )
+            if haystack and any(
+                semantic_text_matches(haystack, str(term), "contains") for term in query_terms
+            ):
+                overlapping.append(element)
+    ordered: list[BrowserElement] = []
+    seen: set[int] = set()
+    for element in same_role + overlapping:
+        if id(element) not in seen:
+            seen.add(id(element))
+            ordered.append(element)
+    return ordered[:_NEAR_MISS_LIMIT]
 
 
 def _with_target_ref(element: BrowserElement, snapshot_id: str) -> BrowserElement:

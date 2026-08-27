@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -27,7 +28,21 @@ def test_validate_bind_host_rejects_non_loopback(host: str) -> None:
         serve.validate_bind_host(host)
 
 
-def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> None:
+def test_validate_port_available_rejects_an_existing_listener() -> None:
+    try:
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    except PermissionError:
+        pytest.skip("socket creation is denied by the test sandbox")
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    try:
+        with pytest.raises(ValueError, match="already in use"):
+            serve.validate_port_available("127.0.0.1", listener.getsockname()[1])
+    finally:
+        listener.close()
+
+
+def test_create_home_web_app_uses_full_auto_permission_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
     session_manager = object()
     mindmemos = object()
@@ -49,7 +64,7 @@ def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> Non
     result = serve.create_home_web_app()
 
     assert result is expected_app
-    assert captured["permission_mode"] is PermissionMode.DEFAULT
+    assert captured["permission_mode"] is PermissionMode.FULL_AUTO
     assert captured["console_show_replies"] is False
     assert captured["progress"] is False
     assert captured["quiet"] is True
@@ -63,7 +78,7 @@ def test_create_home_web_app_uses_confirming_permission_mode(monkeypatch) -> Non
     assert expected_app.state.home_bundle is bundle
 
 
-def test_create_browser_web_app_preserves_configured_permission_mode(
+def test_create_browser_web_app_uses_full_auto_permission_mode(
     monkeypatch, tmp_path: Path
 ) -> None:
     captured: dict[str, object] = {}
@@ -91,7 +106,7 @@ def test_create_browser_web_app_preserves_configured_permission_mode(
     assert result is expected_app
     assert captured["config"] is config
     assert captured["tool_environment"] == "browser"
-    assert "permission_mode" not in captured
+    assert captured["permission_mode"] is PermissionMode.FULL_AUTO
     assert captured["web_application"] is application
     assert captured["web_memory_management_service"] is None
     assert expected_app.state.home_bundle is bundle
@@ -253,7 +268,7 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
 
     assert result is expected_app
     assert captured["tool_environment"] == "alfworld"
-    assert captured["permission_mode"] is PermissionMode.DEFAULT
+    assert captured["permission_mode"] is PermissionMode.FULL_AUTO
     assert captured["binding_config"] is config.alfworld_gateway
     assert captured["run_dir"] is bundle.run_dir
     assert captured["resource_scope"] is base_application.resource_scope
