@@ -73,7 +73,7 @@ SKIP_FILES = frozenset(
         # Historical coworker records archived from repo root on 2026-08-27.
         "docs/reports/2026-08-27-coworker-demo-findings.md",
         "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
-        "progress.md",
+        "docs/reports/2026-08-27-progress-archive.md",
         "src/homemaster/application/factory.py",
         "src/homemaster/permissions/policy.py",
         "src/homemaster/memory/mindmemos_runtime.py",

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- Established the living-document boundary: `docs/session-handoff.md` is now the only live
+  state/handoff document. Archived the append-only root `progress.md` to
+  `docs/reports/2026-08-27-progress-archive.md` with a note pointing at the live document; its
+  recent Run 33 content was already mirrored in the handoff. Updated the handoff with the
+  cleanup record and marked the cleanup-guard expected-set drift as resolved (only the frozen
+  upstream-port count assertion remains open).
+- Added `plan/README.md` indexing the plan archive: per-version focus table, the historical-
+  evidence preservation policy, and pointers to the live documents, so scanning `plan/` no
+  longer requires re-deriving which version is current.
+
 ### Removed
 
 - Removed the stale root-level checkpoint copies `inspection.py`, `opencli_adapter.py`,

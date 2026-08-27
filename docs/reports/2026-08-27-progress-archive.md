@@ -1,5 +1,10 @@
 # Current HomeMaster Progress
 
+> [!NOTE]
+> Archived from repo root `progress.md` on 2026-08-27. This is an append-only historical log in
+> mixed chronological order -- it is no longer maintained. The single live state/handoff document
+> is `docs/session-handoff.md`; per-delivery history is in `CHANGELOG.md`.
+
 ## 2026-08-25 Task TODO tool contract clarification
 
 - Status: `COMPLETED`. `task_planner` now explicitly creates or completely replaces the

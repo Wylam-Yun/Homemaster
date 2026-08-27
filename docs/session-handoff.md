@@ -1,5 +1,27 @@
 # Session Handoff
 
+## Workspace Cleanup And Living-Document Boundary (2026-08-27)
+
+- Removed the stale root-level checkpoint copies (`inspection.py`, `opencli_adapter.py`,
+  `playwright_session.py`, `test_playwright_session.py`, `file_read_example.py`,
+  `permission-test.txt`, `docs/session-handoff.md.orig`). `src/homemaster/browser/` and
+  `tests/homemaster/browser/` are the only authoritative sources; a line-by-line diff confirmed
+  the root copies carried only pre-fix variants. Commit `10c268f`.
+- Deleted the untracked Coworker/Case02 disk remnants (`apps/case02_openenv/` with its `.venv`,
+  `__pycache__` shells, empty `browser_demo/`/`observations/` dirs, `build/`, `.cache/`).
+  `var/` run evidence and desktop recordings are untouched, as the retirement plan requires.
+- Living-document boundary is now: `docs/session-handoff.md` is the **only** live state/handoff
+  document. `progress.md`, `task_plan.md`, and `findings.md` were archived under
+  `docs/reports/2026-08-27-*.md` with archival notes; the Run 33 content they carried is already
+  mirrored in this file.
+- `plan/README.md` now indexes the plan archive: per-version focus table, preservation policy,
+  and pointers to the live documents.
+- The cleanup-guard expected-set drift noted in the retirement section below is resolved: the
+  guard now skips vendored OpenCLI code (`src/homemaster/browser/vendor/`) and archived `story/`
+  reports per the `third_party/` precedent, and the violation set is back to the acknowledged
+  five. Of the two pre-existing assertions mentioned there, only the frozen upstream-port count
+  (14 vs 15) remains open.
+
 ## Coworker Subsystem Retirement (2026-08-27)
 
 - Owner decision: retire the complete active Coworker/Case02 subsystem. HomeMaster now has one supported browser

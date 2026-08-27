@@ -13,7 +13,7 @@ from scripts.guard_no_legacy_terms import _has_blocked_text, _should_skip_path
     [
         ".homemaster/skills/example/SKILL.md",
         "docs/reports/2026-08-27-coworker-demo-findings.md",
-        "progress.md",
+        "docs/reports/2026-08-27-progress-archive.md",
         "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
         "plan/change-coworker-demo-design.md",
         "docs/superpowers/plans/2026-07-17-coworker-executive-demo.md",
