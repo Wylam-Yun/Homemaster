@@ -12,9 +12,9 @@ from scripts.guard_no_legacy_terms import _has_blocked_text, _should_skip_path
     "path",
     [
         ".homemaster/skills/example/SKILL.md",
-        "findings.md",
+        "docs/reports/2026-08-27-coworker-demo-findings.md",
         "progress.md",
-        "task_plan.md",
+        "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
         "plan/change-coworker-demo-design.md",
         "docs/superpowers/plans/2026-07-17-coworker-executive-demo.md",
         "docs/superpowers/specs/2026-07-17-coworker-executive-demo-design.md",

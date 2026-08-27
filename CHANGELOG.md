@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Removed
+
+- Removed the stale root-level checkpoint copies `inspection.py`, `opencli_adapter.py`,
+  `playwright_session.py`, and `test_playwright_session.py` plus the leftovers
+  `file_read_example.py`, `permission-test.txt`, and `docs/session-handoff.md.orig`. The
+  authoritative sources are `src/homemaster/browser/` and `tests/homemaster/browser/`; a
+  line-by-line diff confirmed the root copies carried no unique content (only pre-fix variants).
+  This supersedes the earlier checkpoint entry that preserved them for recovery.
+- Archived the retired Coworker working documents from the repo root into
+  `docs/reports/2026-08-27-coworker-delivery-task-plan.md` and
+  `docs/reports/2026-08-27-coworker-demo-findings.md` with archival notes, so history stays
+  preserved without posing as active state.
+- Deleted the untracked Coworker/Case02 remnants on disk (`apps/case02_openenv/` including its
+  `.venv`, the `__pycache__`-only shells of `tests/coworker_demo/`, `tests/case02_openenv/`, and
+  `src/homemaster/benchmarking/coworker_demo/`, the empty `browser_demo/` and `observations/`
+  directories, `build/`, and `.cache/`), completing the on-disk half of the Coworker retirement.
+  `var/` run evidence and desktop recordings stay untouched as intended.
+
+### Fixed
+
+- Aligned `scripts/guard_no_legacy_terms.py` with the archived document paths and stopped scanning
+  vendored OpenCLI code (`src/homemaster/browser/vendor/`) and archived `story/` reports, matching
+  the existing `third_party/` precedent. The guard had been reporting 25 unclassified violations
+  from the vendored OpenCLI commit (87b4a86) that the pinned test set never absorbed; the
+  violation set is back to the acknowledged five.
+
 ### Work In Progress
 
 - Checkpointed the workspace after landing deterministic Web Console recording mode and OpenCLI-style

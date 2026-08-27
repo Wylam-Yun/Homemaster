@@ -1,5 +1,10 @@
 # Real-Time LLM Observable Coworker Delivery
 
+> [!NOTE]
+> Archived from repo root `task_plan.md` on 2026-08-27 when the Coworker subsystem was retired
+> (see `plan/2026-08-27-retire-coworker-subsystem.md`). Historical record only -- the supported
+> browser workflow is the V3.1 Browser Gateway. Live state lives in `docs/session-handoff.md`.
+
 ## Goal
 
 Deliver two continuous videos executed by real Mimo `mimo-v2.5`: `normal` and

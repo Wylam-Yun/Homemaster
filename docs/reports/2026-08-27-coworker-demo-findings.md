@@ -1,5 +1,10 @@
 # Current Coworker Demo Findings
 
+> [!NOTE]
+> Archived from repo root `findings.md` on 2026-08-27 when the Coworker subsystem was retired
+> (see `plan/2026-08-27-retire-coworker-subsystem.md`). Historical record only. Live state lives
+> in `docs/session-handoff.md`.
+
 ## 2026-07-20 Recording Stop Root Cause
 
 - Failed real normal attempt: `var/coworker-demo/coworker-20260720-022516-8c773877/`.
