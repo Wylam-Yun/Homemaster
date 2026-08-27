@@ -118,3 +118,35 @@ dynamic discovery paths, or when the user explicitly removes that product scope.
 
 Complete Phase A by mapping package/CLI/dynamic-loader/config consumers and
 recording the first evidence-backed candidate table. Do not delete code yet.
+
+# 2026-08-26 V3.1 Run 33 End-to-End Restart
+
+## Goal
+
+Restart HomeMaster with the fixed browser implementation, create a fresh Web session and Run,
+execute the change-ticket workflow against the live Ant Design Pro fixture, and accept it only
+after per-target external-state, artifact, evidence, and return-code gates pass.
+
+## Phases
+
+| Phase | Status | Exit criterion |
+|---|---|---|
+| 1. Preflight and restart | complete | Real Mock JSON and fixture contents match the known initial state; old Run is terminal; fixed HomeMaster owns port 8884 with isolated control/runtime roots. |
+| 2. Fresh session and Run | complete | A newly created session accepts the exact Run 33 instruction and returns a new request/run identity. |
+| 3. Runtime monitoring | in_progress | Provider, tool, and browser events reach an unambiguous terminal event; raw evidence is retained on any failure. |
+| 4. External black-box acceptance | pending | Fixture, asset UI, evidence records, and external command return codes pass independently per target. |
+| 5. Handoff and report | pending | Handoff records exact IDs, paths, results, and any root-cause disposition. |
+
+## Errors Encountered
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| SPA fallback returned HTML with HTTP 200 for guessed Mock API paths. | 1 | Rejected the status-only gate, located the real service paths, and validated parsed JSON content. |
+| `/health` returned HTTP 404. | 1 | Confirmed the service has no health route and used the real `GET /api/sessions` contract, which returned HTTP 200. |
+| Initial `scp` of planning files was blocked by the local sandbox. | 1 | No remote write occurred; after permissions changed, verified all three complete local copies before editing. |
+
+## Current Next Action
+
+Monitor session `session-383d7656955a`, request
+`v31-run33-d4807260-6e0e-4ecf-bd27-a0eaf46cd7b1`, and run `run-eba69a7f4e6a`
+without resubmission until an unambiguous terminal event is persisted.

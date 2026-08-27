@@ -164,6 +164,12 @@
   要求模型保持 fact/procedure 类型。语义近似不得触发跨 identity 合并；连续写入两个相近但不同 identity 的
   真环境用例，分别断言准确 ID 和原始 record，单个成功样本不能证明类型门可靠。
 
+- 所有公开 `target_ref` producer 必须先把准确元素注册到 authoritative `SnapshotStore`，再返回包含
+  session/snapshot identity 的完整 ref；禁止用裸 `element_id` 作为跨工具调用身份。回归必须先保留含同名
+  element ID 的旧页面 snapshot，再导航、find、用返回 ref 执行动作并独立读取真实 DOM 终态。
+- 浏览器领域包装对象进入 Playwright/OpenCLI adapter 前必须显式传递真实 `.handle`；不得因为两者都表示
+  DOM 元素就混用类型。每个支持 scope 的 DOM/AX/hybrid 组合都要从真实语义解析执行到 adapter 输出，不能用
+  无 scope 或只测另一 view 的用例代替。
 - 浏览器 actionability 的 obscured 判断必须在目标滚入 viewport 后基于刷新状态执行；inspect
   时的首屏外坐标不能直接作为动作拒绝依据。回归必须用真实首屏外控件完成一次点击或回填并读取
   DOM 终态，不能只断言 inspect 返回目标。

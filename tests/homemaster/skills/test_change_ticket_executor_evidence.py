@@ -69,13 +69,15 @@ def test_browser_wait_is_bounded_and_does_not_claim_prior_success() -> None:
     assert "A timeout never proves that a previous write succeeded" in skill
 
 
-def test_write_actions_receive_automatic_browser_screenshot_without_duplication() -> None:
+def test_write_actions_do_not_require_screenshots_for_routine_confirmation() -> None:
     skill = _skill()
 
-    assert "runtime captures `browser_screenshot` after write tools" in skill
-    assert "attaches a validated PNG to their result" in skill
-    assert "Do not immediately duplicate that automatic image" in skill
+    assert "Browser writes do not force an observe or screenshot round trip" in skill
+    assert "This Skill imposes no mandatory screenshot checkpoints" in skill
+    assert "Do not take routine confirmation screenshots" in skill
+    assert "ticket explicitly requires image evidence" in skill
     assert "Screenshots do not grant action references" in skill
+    assert "runtime captures `browser_screenshot` after write tools" not in skill
     assert "`observe`" not in skill
 
 

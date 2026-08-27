@@ -65,11 +65,12 @@ If a required control or terminal state cannot be reached through the available 
 tools, stop and report the missing evidence. Never fall back to a terminal command, raw JavaScript,
 CDP, coordinates, or a second browser session to bypass the browser tool contract.
 
-The runtime captures `browser_screenshot` after write tools that require model observation and
-attaches a validated PNG to their result. Call it manually only when visual layout, images, charts,
-canvas, or obstruction matter. Screenshots do not grant action references and are not independent
-business evidence by themselves. Do not immediately duplicate that automatic image with a manual
-`browser_screenshot` call.
+Browser writes do not force an observe or screenshot round trip. Rely on the structured action
+receipt and independently read the DOM or business terminal state. This Skill imposes no mandatory
+screenshot checkpoints. Call `browser_screenshot` only when the ticket explicitly requires image
+evidence, or when layout, images, charts, canvas, or visual obstruction cannot be established through
+semantic reads. Screenshots do not grant action references and are not independent business evidence
+by themselves. Do not take routine confirmation screenshots after writes, waits, or scrolling.
 
 After each important mutation, read the real terminal state with a semantically independent tool.
 Validate every instance separately. Record TODO progress only after model-visible evidence supports

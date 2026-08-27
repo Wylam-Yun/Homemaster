@@ -42,6 +42,52 @@ semantic field 才参与匹配。只读 inspect 结果不得把缺失字段序�
 - `src/homemaster/browser/playwright_session.py`
 - `/tmp/homemaster/v31-run32-20260826-074500/`
 
+## 2026-08-26 - browser_find 返回裸 element_id 导致动作误命中旧 snapshot
+
+### 症状与根因
+
+正式 Web Run 中，模型按要求先调用 `browser_find`，拿到 `target_ref=e1` 后立即点击，却连续返回
+`stale_ref`，错误里的 snapshot generation 比当前页面小一代。页面并没有在 find 与 click 之间再次
+导航；根因是 semantic `find()` 直接序列化临时 `BrowserElement`，未先写入 `SnapshotStore`，于是
+`to_public_dict()` 用裸 `element_id` 充当 ref。解析 `e1` 时会在 retained snapshots 中误命中旧页面
+同名元素，形成看似合理但身份错误的引用。
+
+### 修法与教训
+
+semantic find 成功后先把精确候选注册到 `SnapshotStore`，再从 store 生成带 session/snapshot identity
+的完整 `target_ref` 并返回；CSS find 仍保持只读。真实 Chromium 回归先创建旧 snapshot、再次导航、
+调用 find，再用其返回 ref 填写控件并独立读回值。任何公开 ref producer 都必须先建立 authoritative
+retention owner；裸序号只在一个局部快照内有意义，不能作为跨调用身份。
+
+### Ref
+
+- `src/homemaster/browser/playwright_session.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-e2e-runtime/cli-35bf78b1e0a5/`
+
+## 2026-08-26 - scoped AX inspect 把领域包装对象传入 Playwright handle 接口
+
+### 症状与根因
+
+正式 Web Run 中两次 `browser_inspect(view=ax, scope=...)` 都返回
+`AttributeError: 'BrowserElement' object has no attribute 'evaluate'`。scope resolver 返回的是
+HomeMaster `BrowserElement`，其中真正的 Playwright handle 位于 `.handle`；inspect 却把包装对象本身
+传给 `OpenCLIPageAdapter.ax_snapshot()`，adapter 按 handle contract 调用 `.evaluate()` 后立即失败。
+无 scope 的 AX 测试和 DOM scope 测试均不会经过这条组合边界，因此此前全绿没有覆盖真实路径。
+
+### 修法与教训
+
+scoped AX 边界只传 `scope_element.handle`，并增加真实 Chromium 回归，从语义 scope 解析一路执行到
+AX 文本终态，准确断言 scope 根控件存在。领域对象与第三方 handle 即使都代表“同一个元素”也不是
+同一接口类型；adapter 边界必须显式解包，并逐种 view/scope 组合做跨层测试。
+
+### Ref
+
+- `src/homemaster/browser/playwright_session.py`
+- `src/homemaster/browser/opencli_adapter.py`
+- `tests/homemaster/browser/test_playwright_session.py`
+- `/tmp/homemaster/v31-e2e-runtime/cli-35bf78b1e0a5/`
+
 ## 2026-08-26 - AntD 日期格可见但没有 cell 语义角色
 
 ### 症状与根因

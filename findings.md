@@ -621,3 +621,14 @@
   compatibility surface and is retained under proven-dead-only policy.
 - `skills/spec.py` is likewise an explicit compatibility alias and is retained
   unless public compatibility is intentionally broken.
+
+## 2026-08-26 V3.1 Run 33 Restart Findings
+
+- Ant Design Pro is still served by the existing Mock-enabled process; the real API content gate found exactly two expected alarms, 14 trend points, and asset `fixture-node-01` in `running` state at version `0.9.0` in `fixture-region-01`.
+- The fixture file independently matches its three-line initial state. The previous Run 32 already has `run.completed` and remains preserved.
+- Fixed HomeMaster PID `3003492` started at 2026-08-26 14:52:54 +0800 with `DISPLAY=:123`, config `/tmp/homemaster-v31-run33-20260826-145254-SH0rSa-control/config.yaml`, and an isolated runtime root under `/tmp/homemaster-v31-run33-20260826-145254-wpWh21-runtime`.
+- PID `3003492` exclusively owns `127.0.0.1:8884`. `/health` is not implemented and returns 404; the real `GET /api/sessions` API returns HTTP 200 with valid JSON, proving the Web contract is ready.
+- Another pre-existing HomeMaster process remains on port 8003 and is outside this Run 33 boundary.
+- The exact Spec 9.4.2 prompt was compared byte-for-byte against the one-shot client constant (`PROMPT_EXACT=PASS`, 1516 characters). It explicitly makes screenshots optional.
+- Run 33 identities are session `session-383d7656955a`, request `v31-run33-d4807260-6e0e-4ecf-bd27-a0eaf46cd7b1`, and run `run-eba69a7f4e6a`. Session creation returned 201, message submission returned 202/accepted, and the first two lifecycle frames are `request.accepted` then `run.started`.
+- Recording was intentionally disabled at the user's direction before the session was created. The short pre-run FFmpeg probe was stopped and its video/log/PID files were removed.

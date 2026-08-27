@@ -161,6 +161,54 @@ async def test_real_controls_readback_stale_refs_and_artifacts(
 
 
 @pytest.mark.asyncio
+async def test_find_returns_a_retained_ref_actionable_after_navigation(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="find-retained-ref",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/controls.html")
+        old_snapshot = await session.inspect({"name": "TenantId"})
+        assert old_snapshot.generation == 1
+
+        await session.navigate(f"{control_origin}/controls.html")
+        found = await session.find({"role": "textbox", "name": "TenantId"})
+        target_ref = str(found["target"]["target_ref"])
+
+        assert target_ref.startswith("s-find-retained-ref-")
+        receipt = await session.fill({"target_ref": target_ref}, "tenant-from-find")
+        assert receipt["actual"] == "tenant-from-find"
+        assert receipt["verified"] is True
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
+async def test_scoped_ax_inspect_uses_the_resolved_playwright_handle(
+    tmp_path: Path, control_origin: str
+) -> None:
+    session = PlaywrightBrowserSession(
+        session_id="scoped-ax-handle",
+        policy=BrowserPolicy(allowed_origins=(control_origin,)),
+        video_dir=tmp_path / "video",
+    )
+    await session.start()
+    try:
+        await session.navigate(f"{control_origin}/controls.html")
+        snapshot = await session.inspect(
+            {"view": "ax", "scope": {"role": "textbox", "name": "TenantId"}}
+        )
+
+        assert 'textbox "TenantId"' in snapshot.text
+    finally:
+        await session.aclose()
+
+
+@pytest.mark.asyncio
 async def test_navigate_waits_for_spa_hydration_before_reporting_dom_stable(
     tmp_path: Path, control_origin: str
 ) -> None:

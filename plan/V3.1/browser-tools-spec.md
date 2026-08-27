@@ -714,7 +714,7 @@ typed 工具确实无法覆盖   -> policy 授权后 browser_eval
 
 ### Phase D：工具完成后立即迁移 Skill/Prompt/Runtime
 
-Phase C 最后一个工具实现完成后，下一步必须立即执行 10.1–10.2：迁移 `change-ticket-executor` Skill、browser gateway prompt、自动 observation barrier、上下文投影、Profile/registry/config budget 和最终 provider schema；将 browser profile 的 `observe` 单一切换为 `browser_screenshot`，机器人 profile 仍可保留其不同能力的 `observe`；保留 `browser_backfill` 的新协议。Phase B/C 与 Phase D 之间禁止运行或引用任何模型选工具、Web、端到端、陌生网页或 Run 32 结果，因为旧 Skill/Prompt 下的结果不代表 V3.1。公开激活只能在工具实现与本阶段消费者迁移同时就绪后发生。
+Phase C 最后一个工具实现完成后，下一步必须立即执行 10.1–10.2：迁移 `change-ticket-executor` Skill、browser gateway prompt、移除 browser 强制 observation barrier、上下文投影、Profile/registry/config budget 和最终 provider schema；browser profile 只暴露按需显式调用的 `browser_screenshot`，机器人 profile 仍可保留其不同能力的 `observe`；保留 `browser_backfill` 的新协议。Phase B/C 与 Phase D 之间禁止运行或引用任何模型选工具、Web、端到端、陌生网页或 Run 32 结果，因为旧 Skill/Prompt 下的结果不代表 V3.1。公开激活只能在工具实现与本阶段消费者迁移同时就绪后发生。
 
 ### Phase E：测试、文档和发布门
 
@@ -804,16 +804,11 @@ cd /home/haodong2/weilin/red_bird/Homemaster
 3. 已知唯一语义目标时可以直接使用动作工具；目标未知、多匹配或页面变化后身份不确定时，先单独调用 browser_inspect 或 browser_find，使用其返回的准确 target_ref。不得猜测、拼接或跨 tab/frame 混用 ref；stale、ambiguous 或 not found 时按结构化结果重新发现目标。
 4. 浏览器写入或交互工具必须独占一次模型回复。task_progress_check 必须单独调用，等待返回后才能继续执行写操作。
 5. 精确设置可编辑文本、日期和时间使用 browser_fill；需要真实输入事件时使用 browser_type；select/combobox 使用 browser_select；checkbox/radio/switch 使用 browser_check 或 browser_uncheck；按钮、链接、tab、option 等普通非编辑目标使用 browser_click。
-6. 在以下关键节点单独调用 browser_screenshot 并根据视觉结果确认后再继续：
-   - 时间选择器完成开始时间和结束时间设置后；
-   - 正式执行变更脚本前；
-   - 脚本执行完成并出现执行回显后；
-   - 变更后资产查询及取证完成后。
-7. 浏览器写操作后 HomeMaster 会自动附加图像 observation；不要为了重复确认而连续调用 browser_screenshot。
-8. browser_backfill 只用于把当前页面的新截图粘贴到明确的图片回填控件；普通视觉检查使用 browser_screenshot，已有文件上传使用 browser_upload。
-9. terminal 只能执行变更单 operate_verified 原文明确指定的非浏览器终态验证命令，除此之外禁止调用 terminal。
-10. 缺少语义控件、任何前置检查失败、外部返回码非成功或任何终态验证失败时，立即停止并明确报告失败位置，不得假定成功。
-11. 最终必须同时确认：
+6. browser_screenshot 不是本任务的强制步骤。默认依靠结构化动作回执和独立 DOM/业务终态；只有变更单原文明确要求图片证据，或布局、图表、Canvas、图片、视觉遮挡无法通过语义读取判断时才调用。不得为普通写后确认、等待或滚动重复截图。
+7. browser_backfill 只用于把当前页面的新截图粘贴到明确的图片回填控件；普通视觉检查按需使用 browser_screenshot，已有文件上传使用 browser_upload。
+8. terminal 只能执行变更单 operate_verified 原文明确指定的非浏览器终态验证命令，除此之外禁止调用 terminal。
+9. 缺少语义控件、任何前置检查失败、外部返回码非成功或任何终态验证失败时，立即停止并明确报告失败位置，不得假定成功。
+10. 最终必须同时确认：
     - 三个 involved SOP 步骤均已完成；
     - 外部执行返回码成功；
     - agent_version 已真实变为 1.0.0；
@@ -838,7 +833,7 @@ Web 页面和 WebSocket 在 terminal lifecycle 前保持连接；审批模式若
 7. 独立于模型/工具 receipt 回读 fixture 文件，准确断言 `agent_version=1.0.0`、`monitoring_enabled=true`、`node=fixture-node-01`。
 8. 变更后资产页面准确显示 `fixture-node-01 / running / 1.0.0 / fixture-region-01`；每个字段分别断言，不能以整页存在任意 `running` 或 `1.0.0` 作为 PASS。
 9. 变更后证据真实创建并关联到准确 SOP step/字段；前后证据分别存在且身份不同。
-10. 四个指定关键节点各有模型实际消费的 `browser_screenshot`；自动 write observation 与显式截图按来源 tool-call ID 区分，不要求复刻 Run 32 的 28 张图片总数。
+10. 不以截图数量或关键节点显式截图作为验收条件；若存在截图，只能作为视觉辅助证据，不能替代结构化回执、DOM 读回或业务终态。
 11. Runtime terminal event、CLI/Web run status 和真实业务终态一致为成功；完整 stderr 无 traceback、迟到异常或浏览器 backend failure。
 12. 视频/trace/JSONL/terminal receipt/provider request-response 全部属于本次唯一 run root，哈希和 manifest 可独立验证；不要求视频时长、evidence ID 或工具调用次数与 Run 32 相同。
 13. 验收证据发布后执行 cleanup：关闭 HomeMaster/Chrome/recorder/AntD owned process，确认端口和 display 无残留，并把 fixture 恢复为 `0.9.0` 后独立读回。cleanup 后的恢复不能覆盖或伪造此前已验收的 `1.0.0` 终态证据。
@@ -890,7 +885,7 @@ Skill 正文必须明确：
 2. 目标未知、多匹配、frame/tab 不明或身份漂移时使用 `browser_inspect`/`browser_find`；复制完整 `target_ref`，不猜测、不拼接，并按 `exact/stable/reidentified/stale_ref` 处理。
 3. `browser_inspect` 用于整页结构，`browser_find` 用于目标发现，`browser_read` 用于准确属性/终态读回，`browser_extract` 用于长正文，`browser_screenshot` 用于视觉判断；不得把五者写成同义工具。
 4. `fill/type/select/click/check/upload/backfill/download/dialog` 的选择规则与 5.3–5.5 完全一致；特别保留 backfill，但只用于当前页面截图的 clipboard image 回填。
-5. 每个 browser 写/交互仍独占一个模型回复；动作后自动图像 observation 是 runtime evidence，不授权下一动作。需要额外视觉判断时显式调用 `browser_screenshot`。
+5. 每个 browser 写/交互仍独占一个模型回复；browser 动作不强制 observe 或截图。默认依靠结构化回执和独立 DOM/业务终态，只有票据明确要求图片证据或语义工具无法判断视觉状态时才显式调用 `browser_screenshot`。
 6. dialog/download/popup/XHR 等事件型工作先 arm listener/capture 再 trigger；timeout 不证明前一动作成功。
 7. terminal、raw JavaScript、CDP、坐标、后台接口或第二浏览器会话不能作为 change-ticket 网页操作 fallback；本 Skill 默认不使用 `browser_eval`。
 8. TODO 状态只在模型可见外部终态证据后更新；结构化 EvidenceDrawer 和 image backfill 的业务权威性按 ticket/UI 实际要求区分，不能强制二者互相替代。
@@ -904,7 +899,7 @@ Skill 不是唯一指令来源；下面消费者必须同步审计和更新：
 | `src/homemaster/prompts/browser_gateway.md` | 删除 fresh `snapshot_id/element_id` 配对和每次写前 inspect；加入 semantic target/stable ref、读取工具分工和 `browser_screenshot` |
 | `src/homemaster/prompts/agent_system_prompt.md` | 机器人 `observe` 规则只在 robot/对应工具存在时适用；browser profile 不得收到“必须调用 observe”的冲突指令 |
 | `src/homemaster/agent/context_projection.py` | 删除旧 immediately-preceding-inspect 拒绝协议，改为统一 resolver 的 structured error/result 投影 |
-| `src/homemaster/agent/generic_runtime.py`、`state.py`、`model_observation.py` | 自动 post-write image 使用 profile/ToolDefinition 指定的 observation tool，不把公开名称硬编码成 `observe`；browser 使用 `browser_screenshot`，robot 可继续使用 `observe` |
+| `src/homemaster/agent/generic_runtime.py`、`state.py`、`model_observation.py` | browser 动作移除强制 post-write image；按需显式 `browser_screenshot` 不硬编码为 `observe`，robot 仍可按自身协议保留强制 `observe` |
 | `src/homemaster/browser/tools.py`、Profile/registry/config tool budget | 最终只注册 V3.1 名称和 schema；browser profile 无同义 `observe`，budget/required observation 与新工具一致 |
 | compact/public projection/trajectory | 模型可见工具名同步；内部 “observation/observer” 事件和录制术语若不代表公开工具，无需机械重命名 |
 

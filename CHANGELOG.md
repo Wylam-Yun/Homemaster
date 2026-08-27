@@ -26,6 +26,19 @@
   requested. Web server startup now probes the selected loopback port before constructing runtime resources and
   reports an actionable conflict.
 
+- Fixed semantic `browser_find` returning an unretained short element ID that could resolve to an
+  older snapshot and produce false `stale_ref` failures after navigation. Successful semantic finds
+  now register their exact candidates in the run-owned SnapshotStore before returning namespaced refs.
+  Also fixed scoped AX inspection passing a `BrowserElement` wrapper instead of its Playwright handle
+  to the OpenCLI adapter. Two real Chromium regressions reproduce the original failures and verify an
+  action through the find ref plus scoped AX terminal output.
+
+- Removed the stale Run 32 instruction that required four explicit screenshot checkpoints and
+  incorrectly claimed browser writes automatically attach screenshots. The change-ticket Skill,
+  V3.1 acceptance prompt, tests, and user guide now consistently make screenshots optional visual
+  evidence while requiring structured receipts and independent DOM or business terminal-state
+  verification for routine browser work.
+
 - Added OpenCLI-style miss recovery to browser target errors. Semantic and CSS misses,
   ambiguous targets, stale references, actionability failures, and infrastructure timeouts now
   include actionable `hint` guidance; semantic misses also return up to five same-role or

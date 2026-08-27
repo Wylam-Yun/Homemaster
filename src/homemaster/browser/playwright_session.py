@@ -230,7 +230,7 @@ class PlaywrightBrowserSession:
                 if filters.get("frame_ref") is None:
                     ax_text = await adapter.ax_snapshot(
                         interactive_only=bool(filters.get("interactive_only", False)),
-                        root=scope_element,
+                        root=scope_element.handle if scope_element is not None else None,
                     )
             if view == "dom":
                 text = dom_text
@@ -971,10 +971,22 @@ class PlaywrightBrowserSession:
                     "nth candidate is out of range",
                     details={"matches_n": len(selected), "nth": index, "candidates": candidates},
                 )
+            snapshot = self._snapshots.replace(
+                generation=self.generation,
+                url=self._page.url,
+                title=await self._page.title(),
+                elements=selected,
+                total_matches=len(selected),
+                truncated=total > len(elements),
+                frames=frames,
+                view="find",
+                created_at_ms=int(time.time() * 1000),
+            )
+            retained = snapshot.elements
             return {
-                "matches_n": len(selected),
-                "entries": candidates,
-                "target": selected[index].to_public_dict(),
+                "matches_n": len(retained),
+                "entries": [element.to_public_dict() for element in retained],
+                "target": retained[index].to_public_dict(),
                 "frames": frames,
             }
 
