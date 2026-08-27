@@ -200,22 +200,6 @@ def test_composed_registry_preserves_execution_safety_capabilities() -> None:
     assert "device.read" in registry.get("observe").required_capabilities
 
 
-def test_universal_builder_rejects_unapproved_cross_source_name_collision(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from homemaster.adapters import profiles
-
-    duplicate = profiles._home_tools(
-        world_path=None,
-        memory_path=None,
-        runtime_memory_root=None,
-    )[0]
-    monkeypatch.setattr(profiles, "_coworker_tools", lambda: (duplicate,))
-
-    with pytest.raises(ValueError, match="unapproved duplicate tool name 'terminal'"):
-        profiles.build_tool_registry(environment="coworker")
-
-
 def test_application_composition_api_has_no_profile_catalog_or_request_filter_layer() -> None:
     import inspect
 

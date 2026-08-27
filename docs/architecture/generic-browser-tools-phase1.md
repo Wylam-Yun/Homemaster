@@ -4,7 +4,7 @@
 
 V3.1 is the active browser protocol for `homemaster --gateway --browser` and `homemaster serve
 --browser`. It targets previously unseen, conventional DOM/ARIA pages without site, route, ticket, or
-framework-specific branches. Browser mode remains isolated from the Coworker and ALFWorld owners.
+framework-specific branches. Browser mode remains isolated from the ALFWorld owner.
 
 ## Ownership And Data Flow
 

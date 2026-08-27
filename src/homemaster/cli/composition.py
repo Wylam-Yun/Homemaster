@@ -137,7 +137,7 @@ def create_home_application(
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
     feishu_group_operations: FeishuGroupOperations | None = None,
-    tool_environment: Literal["local_robot", "alfworld", "coworker", "browser"] | None = (
+    tool_environment: Literal["local_robot", "alfworld", "browser"] | None = (
         "local_robot"
     ),
     runtime_root: Path | None = None,
@@ -247,11 +247,11 @@ def create_home_application(
 
 def _resolve_tool_environment(
     config: HomeMasterConfig,
-    requested: Literal["local_robot", "alfworld", "coworker", "browser"] | None,
-) -> Literal["local_robot", "alfworld", "coworker", "browser"] | None:
+    requested: Literal["local_robot", "alfworld", "browser"] | None,
+) -> Literal["local_robot", "alfworld", "browser"] | None:
     """Enable configured Browser capability before an input channel is attached."""
 
-    if requested not in {"alfworld", "coworker"} and config.browser_gateway.start_url is not None:
+    if requested != "alfworld" and config.browser_gateway.start_url is not None:
         return "browser"
     return requested
 

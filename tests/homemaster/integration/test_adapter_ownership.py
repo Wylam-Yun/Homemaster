@@ -10,12 +10,10 @@ ENTRY_PATHS = (
     "src/homemaster/agent/turn.py",
     "src/homemaster/cli/interactive_shell.py",
     "src/homemaster/benchmarking/alfworld/runner.py",
-    "src/homemaster/benchmarking/coworker_demo/turn.py",
 )
 FORBIDDEN_IMPORTS = {
     "homemaster.agent.generic_runtime",
     "homemaster.benchmarking.alfworld.registry",
-    "homemaster.benchmarking.coworker_demo.registry",
     "homemaster.domain.tool_registry",
     "homemaster.providers.llm_client",
     "homemaster.tools.dispatcher",
@@ -28,7 +26,6 @@ FORBIDDEN_CONSTRUCTORS = {
     "ToolDispatcher",
     "ToolRegistry",
     "build_alfworld_tool_registry",
-    "build_coworker_tool_registry",
     "build_home_tool_registry",
 }
 
@@ -37,7 +34,6 @@ REMOVED_DEAD_PATHS = (
     "src/homemaster/benchmarking/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/browser_demo/trajectory.py",
     "src/homemaster/benchmarking/browser_demo/__init__.py",
-    "src/homemaster/benchmarking/coworker_demo/registry.py",
     "src/homemaster/channels/impl/telegram.py",
     "src/homemaster/domain/grounding.py",
     "src/homemaster/domain/contracts.py",
@@ -56,7 +52,7 @@ REMOVED_DEAD_PATHS = (
 )
 
 
-def test_all_four_entries_have_no_legacy_model_runtime_assembly() -> None:
+def test_all_entries_have_no_legacy_model_runtime_assembly() -> None:
     for relative in ENTRY_PATHS:
         tree = _tree(relative)
         imported_modules = {
@@ -88,7 +84,6 @@ def test_profiles_use_only_the_universal_registry_builder() -> None:
     }
     assert not {
         "build_alfworld_tool_registry",
-        "build_coworker_tool_registry",
         "build_home_tool_registry",
     } & (imported | called)
 
@@ -117,7 +112,6 @@ def test_removed_execution_modules_are_absent_from_production() -> None:
         "homemaster.benchmarking.alfworld.runtime_contract",
         "homemaster.benchmarking.browser_demo.trajectory",
         "homemaster.benchmarking.browser_demo",
-        "homemaster.benchmarking.coworker_demo.registry",
         "homemaster.channels.impl.telegram",
         "homemaster.domain.grounding",
         "homemaster.domain.contracts",

@@ -18,7 +18,7 @@ Provider 只负责 yield delta；通用运行时负责在 provider 完成前发�
 公开 completion 或 delta 不产生第二个 Gateway 终态。推理、部分工具 JSON、provider
 元数据、密钥、主机路径和资源 URI 均不进入七事件 UI 协议。
 
-CLI、Interactive、ALFWorld 和 Coworker 通过同一个 `ApplicationRuntime` 执行。application 持有
+CLI、Interactive、ALFWorld 和 Browser Gateway 通过同一个 `ApplicationRuntime` 执行。application 持有
 ordinary-name `ToolRegistry`、无 session 状态的 `ToolExecutor`、EventBus、SessionManager、
 config/plan/Cron/task/team/child 服务、device connection pool、physical-device lease manager 和可选
 MCP manager；每个 run 冻结 provider request、generation 和 borrowed environment binding，不冻结工具子集。
@@ -43,7 +43,7 @@ cleanup。`/new` 的 finalization 在后台 FIFO 中运行，不安装 handler�
 
 `observe` 是普通的 canonical tool，隐藏 stable id 为 `homemaster.observe.v1`。它从借用 backend 的 `ScreenshotSource` 取得当前 PNG，验证图片后
 以 `ResultProjection.IMAGE_ONLY` 交给 provider；模型消息恰好只有一个 image block。截图不进入 action
-执行链的授权、freshness、completion 或 provider-binding 状态，因此不会影响 Coworker DOM 或 ALFWorld
+执行链的授权、freshness、completion 或 provider-binding 状态，因此不会影响 ALFWorld
 动作是否可执行。
 
 环境 adapter 继续拥有领域 schema、executor、verifier 和 scorer。通用 runtime 不导入 benchmark
@@ -138,7 +138,8 @@ common tools + one explicit environment tool set + optional MCP dynamic tools
   -> typed result / JSONL audit / session snapshot
 ```
 
-普通 Gateway 使用 common-only，本地机器人、ALFWorld、Coworker 分别组合自己的环境工具；一次
+普通 Gateway 使用 common-only，本地机器人和 ALFWorld 分别组合自己的环境工具；Browser Gateway
+在 run-owned session 创建后注入 V3.1 工具。一次
 composition 不混合多个环境实现。文件路径由 composition 时锁定的 working directory
 统一解析；写入的 lease 覆盖 executor 和独立 readback verifier。默认 child worker argv 显式包含父应用
 config path，避免子进程退回仓库默认 provider。Cron scheduler 由 `homemaster cron start/status/stop`
@@ -188,8 +189,7 @@ key/lease -> backend。审批展示、policy 判断、resource-key resolver 使�
 ChannelBridge 结束当前 run 且不发送重复 terminal。下一条 inbound 自动设置 `resume=True`，恢复同一
 session 后把用户答案追加到完整历史。停止判据解析实际序列化 envelope，而不是 executor 的中间 dict。
 
-ALFWorld 和 Coworker 不再创建环境 ToolView；composition 直接生成 common + 当前环境的 Registry，
-并绑定对应 Backend。
+ALFWorld 不再创建环境 ToolView；composition 直接生成 common + 当前环境的 Registry，并绑定对应 Backend。
 
 ### Frozen memory feedback context
 

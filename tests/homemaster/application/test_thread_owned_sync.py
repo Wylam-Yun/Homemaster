@@ -118,7 +118,7 @@ async def test_thread_owned_facade_binds_and_screenshots_on_owner_thread() -> No
     adapter = ThreadOwnedSyncBackendAdapter(name="observation")
 
     class Backend:
-        backend_id = "coworker:test"
+        backend_id = "screenshot:test"
         generation = 0
         state_sequence = 0
 

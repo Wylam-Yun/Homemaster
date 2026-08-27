@@ -412,6 +412,13 @@ patch 符号已在安装环境核对；安全 live harness 的两次发送和两
 
 ### Browser Gateway
 
+安装独立 Browser extra，并为当前 Playwright 版本安装 Chromium：
+
+```bash
+uv sync --extra dev --extra browser
+.venv/bin/playwright install chromium
+```
+
 在同一份 ignored 配置中增加允许的 Ant Design Pro Mock UI 入口：
 
 ```yaml

@@ -16,8 +16,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.v19_release._common import (
-    read_json_object,
-    require_sha256,
     sha256_bytes,
     sha256_file,
     write_canonical_json,
@@ -36,7 +34,6 @@ def capture_identity(
     alfworld_root: Path | None,
     alfworld_config: Path | None,
     alfworld_trials: Path | None,
-    coworker_manifest: Path | None,
     conda_explicit: bytes | None = None,
     expected_conda_env: str | None = None,
 ) -> dict[str, Any]:
@@ -45,8 +42,6 @@ def capture_identity(
         raise ValueError("site must be hpc2 or hkust4")
     if not provider or not model:
         raise ValueError("provider and model identity are required")
-    if coworker_manifest is None:
-        raise ValueError("Coworker dataset manifest identity is required")
     if alfworld_check:
         missing = [
             name
@@ -119,9 +114,6 @@ def capture_identity(
         "imports": imports,
         "locks": {
             "root_uv_lock_sha256": _optional_hash(repo_root / "uv.lock"),
-            "coworker_uv_lock_sha256": _optional_hash(
-                repo_root / "apps/case02_openenv/uv.lock"
-            ),
         },
         "alfworld": {
             "checked": alfworld_check,
@@ -134,7 +126,6 @@ def capture_identity(
                 sha256_bytes(conda_explicit) if conda_explicit is not None else None
             ),
         },
-        "coworker": _coworker_identity(coworker_manifest),
     }
     if required_conda_env is not None:
         required = payload["alfworld"]
@@ -213,37 +204,6 @@ def _optional_hash(path: Path | None) -> str | None:
     return sha256_file(resolved)
 
 
-def _coworker_identity(path: Path | None) -> dict[str, Any]:
-    if path is None:
-        return {"dataset_manifest_sha256": None, "declared_file_sha256": {}}
-    manifest_path = path.resolve(strict=True)
-    manifest = read_json_object(manifest_path, label="Coworker dataset manifest")
-    contract = manifest.get("contract")
-    if not isinstance(contract, dict):
-        raise ValueError("Coworker dataset manifest contract must be an object")
-    declared = contract.get("file_sha256")
-    if not isinstance(declared, dict) or not declared:
-        raise ValueError("Coworker dataset manifest must declare file_sha256")
-    bundle_root = manifest_path.parent
-    verified: dict[str, str] = {}
-    for relative, expected in sorted(declared.items()):
-        if not isinstance(relative, str) or not relative or "\\" in relative:
-            raise ValueError("Coworker dataset manifest contains an unsafe path")
-        candidate = (bundle_root / relative).resolve(strict=True)
-        try:
-            candidate.relative_to(bundle_root)
-        except ValueError as exc:
-            raise ValueError("Coworker dataset manifest path escapes bundle root") from exc
-        digest = require_sha256(expected, label=f"Coworker declared hash for {relative}")
-        if not candidate.is_file() or sha256_file(candidate) != digest:
-            raise ValueError(f"Coworker dataset hash mismatch: {relative}")
-        verified[relative] = digest
-    return {
-        "dataset_manifest_sha256": sha256_file(manifest_path),
-        "declared_file_sha256": verified,
-    }
-
-
 def _conda_explicit_bytes() -> bytes:
     try:
         return subprocess.run(
@@ -279,7 +239,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
     parser.add_argument("--site", choices=("hpc2", "hkust4"))
-    parser.add_argument("--profile", choices=("alfworld", "coworker"))
+    parser.add_argument("--profile", choices=("alfworld",))
     parser.add_argument("--expected-conda-env")
     parser.add_argument("--provider")
     parser.add_argument("--model")
@@ -287,7 +247,6 @@ def main() -> int:
     parser.add_argument("--alfworld-root", type=Path)
     parser.add_argument("--alfworld-config", type=Path)
     parser.add_argument("--alfworld-trials", type=Path)
-    parser.add_argument("--coworker-manifest", type=Path)
     args = parser.parse_args()
     try:
         repo_root = args.repo_root.resolve(strict=True)
@@ -307,9 +266,6 @@ def main() -> int:
         alfworld_trials = args.alfworld_trials
         if alfworld_trials is None and alfworld_check:
             alfworld_trials = repo_root / "config/alfworld_v19_release_trials.json"
-        coworker_manifest = args.coworker_manifest or (
-            repo_root / "data/coworker_demo/case_02/dataset_manifest.json"
-        )
         payload = capture_identity(
             repo_root=repo_root,
             site=args.site or _detected_site(),
@@ -319,7 +275,6 @@ def main() -> int:
             alfworld_root=alfworld_root,
             alfworld_config=alfworld_config,
             alfworld_trials=alfworld_trials,
-            coworker_manifest=coworker_manifest,
             expected_conda_env=args.expected_conda_env,
         )
     except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as exc:

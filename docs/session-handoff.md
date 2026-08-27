@@ -1,5 +1,26 @@
 # Session Handoff
 
+## Coworker Subsystem Retirement (2026-08-27)
+
+- Owner decision: retire the complete active Coworker/Case02 subsystem. HomeMaster now has one supported browser
+  architecture: Browser Gateway/Web Console with the V3.1 browser registry. Runs 27-32 belong to that architecture
+  and never depended on Coworker.
+- Removed the Coworker runtime/profile/router, Case02 application and datasets, scripts, configuration, optional
+  dependency, package data, active documentation, and dedicated tests. Historical changelog entries, incident
+  records, acceptance reports, plans/specifications, and frozen V1.9 baseline evidence remain immutable history.
+- Playwright was previously owned only by the retired `coworker` extra even though V3.1 Browser uses it. Packaging
+  now exposes `browser = ["playwright>=1.45,<2.0"]`; the lock file binds Playwright to that extra.
+- Completed validation: modified Python files compile; focused Ruff passes; full collection succeeds with 1,470
+  tests; the focused suite has 133 passes. Two unrelated pre-existing assertions remain outside this retirement:
+  the frozen upstream-port manifest contains 14 ports while its test expects 15, and the cleanup guard's expected
+  set omits existing vendored OpenCLI/story violations.
+- Final release gates pass: 93 focused tests passed with the stale port-count assertion deselected; focused Ruff and
+  `git diff --check` pass. A clean wheel exposes only the `browser` Playwright extra and contains no Coworker/Case02
+  paths. Its `[browser]` variant installed successfully into an empty Python 3.11 environment outside the checkout;
+  installed code imported Playwright 1.62.0, returned CLI help successfully, exposed the exact 27 safe Browser tools,
+  excluded `observe` and unauthorized `browser_eval`, rejected the retired Coworker environment, and closed the
+  run-owned session. No commit has been made.
+
 ## Web Console Recording / Change Tickets (2026-08-26)
 
 - Web Console accepts change-ticket text directly at `POST /api/sessions/{session_id}/messages`; it uses the

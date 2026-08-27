@@ -192,6 +192,13 @@
 
 ### Changed
 
+- Retired the standalone Coworker/Case02 benchmark, including its fixed-route `data-bid` browser tools,
+  child runtime, environment app, dataset, release scripts, optional dependency, active documentation, and
+  dedicated tests. V3.1 Browser Gateway/Web Console is now the single supported browser execution architecture.
+  Historical Coworker changelog entries, design records, acceptance report, pitfalls, and frozen V1.9 baseline
+  remain immutable. Playwright moved from the retired `coworker` extra to a Browser-owned `browser` extra so fresh
+  installs retain the complete V3.1 runtime dependency closure.
+
 - Allowed frozen Provider requests to retry after transports deterministically omit historical images. Retry safety
   continues to require an incomplete response, no visible non-reasoning delta or committed assistant/tool/external
   action, and an identical serialized request hash; normal historical-image omission no longer disables retries for

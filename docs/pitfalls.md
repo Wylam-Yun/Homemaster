@@ -1,5 +1,26 @@
 # Engineering Pitfalls
 
+## 2026-08-27 - V3.1 Playwright 依赖仍由已退役 Coworker extra 持有
+
+### 症状与根因
+
+退役 Coworker 子系统时，`pyproject.toml` 中唯一的 Playwright 声明仍位于 `coworker` optional extra，
+而正式 V3.1 Browser Gateway 已经直接 import 并运行 Playwright。现有 `.venv` 曾安装 Coworker 依赖，
+所以源码测试和 import 会继续通过；删除 extra 后的新 wheel/空环境却不会安装 Playwright，Browser Gateway
+会在创建真实 session 时失败。根因是 V3.1 迁移了运行时 owner，却没有同步迁移依赖 owner。
+
+### 修法与教训
+
+删除 `coworker` extra 前先新增由 Browser Gateway 拥有的 `browser` extra，将 Playwright 迁入并更新 lock、
+安装文档和 wheel metadata 门。删除任何 profile/extra 时都要从剩余公开入口反向审计依赖闭包，并在空环境
+只安装目标 extra 后 import、构造和运行入口；已有 venv 的 ambient package 不能证明发布依赖完整。
+
+### Ref
+
+- `pyproject.toml`
+- `docs/browser-gateway-user-guide.md`
+- `plan/2026-08-27-retire-coworker-subsystem.md`
+
 ## 2026-08-26 - Read-only semantic projection emitted an empty role constraint
 
 ### 症状与根因

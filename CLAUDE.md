@@ -203,6 +203,9 @@
 - 非 PyPI 依赖必须通过标准 PEP 508 direct reference 写入项目依赖和构建后的 wheel `Requires-Dist`；不得只依赖
   `[tool.uv.sources]` 等源码仓库私有映射。每次变更都从源码外只拿 wheel 建立空 venv，先检查 wheel 元数据包含
   准确 URL，再让安装器真实解析全部依赖并 import 目标包；源码环境的 `uv sync` 成功不能替代发布包安装门。
+- 删除 profile、benchmark 或 optional extra 前，先从仍受支持的每个运行入口反向审计其完整依赖所有权；共享
+  依赖必须迁移到实际 owner 的 core/extra 声明后再删除旧 extra。用空 venv 只安装目标 extra，核对 wheel
+  `Provides-Extra`/`Requires-Dist`，并从源码外 import 和构造真实入口；旧 venv 中残留包不能作为依赖证据。
 - 运行必需的离线模型/词表工件不得依赖 `/tmp`、用户级默认 cache 或首次联网下载。把锁定工件作为
   package data 分发，显式 materialize 到可配置的持久项目/部署目录，并让所有调用链使用同一个 cache path。
   每次变更必须在空 cache、断网条件下分别验证源码和已安装 wheel 的真实加载与外部功能终态。
@@ -373,23 +376,6 @@
   `mcp.manage` 或 `process.spawn`。
 - data-only Plugin Skill 发现只能解析 manifest 与受 containment 保护的 `SKILL.md`，不得调用 executable
   plugin loader 或导入 Python/tools/hooks/MCP；project plugin 默认关闭，builtin 覆盖仍需精确授权。
-
-## Coworker 外部编排纪律
-
-- Coworker 必须显式区分 generic application `run_id` 与 Case02 environment domain `run_id`。所有发往
-  `EnvironmentClient` 的 state/reserve/browser/terminal/decision/runtime-event 调用只可使用依赖中绑定的
-  `coworker_domain_run_id`；回归 fixture 必须令两者不同，并逐项断言每次环境调用使用 domain ID。
-- 构建 Coworker 候选环境时必须安装 `coworker` optional extra；service Python 与 runner Python 分别
-  核对。Service preflight PASS 后，仍要用实际 runner Python import Playwright、启动
-  `sync_playwright()` 并核对配置的 Chrome executable，禁止用另一个 venv 的可用性替代。
-- 成功的 `task_planner` / `task_progress_check` 必须安全投影出合法 plan；无法投影时记录 presentation failure，禁止发布无 plan 的 succeeded 事件。独立 verifier 必须逐个成功 Planner 结果检查 plan 存在，不能只验证已有 plan 的归属。
-- 真实 provider 验收必须按 iteration 逐实例核对：连续非负编号、每轮 request/response 各一次、集合一致、request 先于成功 response、工具选择不早于成功 response。至少一个 request/response 只能证明 provider 曾被调用，不能证明完整轨迹由真实模型执行。
-- 修改 run 生命周期 helper、attempt manifest 或 CLI 异常传播后，必须用与真实入口完全相同的参数跑一次顶层 shell smoke，并断言 run root 实际创建、失败/成功路径都打印该路径；helper 单测不能替代入口验收，形参与落盘字段不得同名冲突。
-- 正式成功只能在必需 artifact 全部登记后计算，并逐项验证存在、`complete=true` 和当前字节哈希；manifest 未列出的必需项也必须失败，禁止把 `artifact_failure` 写成常量或只遍历已有条目。
-- 每个 action 消费、runtime/task/skill 写入和外部调用都必须先检查共享终态；decision 引用只能指向当前 run 已持久化的先前 evidence，伪造、跨 run 或终态后引用必须在写审计前拒绝。
-- 配置中的 venv Python 必须保留 venv symlink 路径；只转成绝对路径，不得用 `Path.resolve()` 解引用到基础解释器。启动子服务后必须从该进程验证依赖 import 和 health，不能用父进程 import 成功代替。
-- DAG 必需的 planner、progress、SOP decision 和 exact-job wait 必须在外部后继动作或审计写入前由环境端验证。模型叙述、TaskState 内部完成、最终业务状态或事后再次调用不能替代正确顺序，也不得合成或倒填轨迹节点。
-- `browser_wait` 必须绑定当前 run 最新提交返回的准确 job ID；终端执行前要求 add/remove wait，normal progress 前要求五项 postcheck 与 business wait，rollback progress 前要求 remove wait 和 absence grep。
 
 ## 外部录制终态纪律
 

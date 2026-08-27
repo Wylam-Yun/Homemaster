@@ -257,6 +257,8 @@ JSON Lines 且最后一行固定 `type=result`。Rich/状态信息只写 stderr�
 
 ```bash
 uv sync --extra dev --extra gateway
+# 使用 --browser 时再安装浏览器运行时依赖
+uv sync --extra browser
 
 # 普通飞书通道：通用工具 + 远程交互
 uv run homemaster --gateway --config config/homemaster.yaml
@@ -398,13 +400,6 @@ scripts/homemaster benchmark-alfworld \
 见 [ALFWorld 用户指南](docs/alfworld-user-guide.md) 与
 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
 
-### Change Coworker Demo
-
-`homemaster shell` 识别锁定的 `case_02` 变更单路径后，在独立 child run 中自主完成真实网页操作、
-自动化 job、tmux/Bash 验证、SOP 决策、DAG 评分与 H.264 录屏；coworker 的工具、skill 与证据不进入
-默认 home registry。需要 `coworker` extra 与独立的 `apps/case02_openenv` venv，
-完整步骤见 [Change Coworker 用户指南](docs/coworker-demo-user-guide.md)。
-
 ### 记忆召回基准
 
 ```bash
@@ -461,8 +456,6 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
 | [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md) | 实现不变量与数据流 |
 | [Browser Gateway 用户指南](docs/browser-gateway-user-guide.md) | 配置、演示输入与终态判据 |
 | [通用浏览器架构](docs/architecture/generic-browser-tools-phase1.md) | V3.1 owner、target、policy、vendor 与证据不变量 |
-| [Change Coworker 用户指南](docs/coworker-demo-user-guide.md) | preflight、运行、评分与产物 |
-| [Change Coworker 架构](docs/architecture/coworker-demo.md) | 边界与证据流 |
 | [Application Runtime 架构](docs/architecture/application-runtime.md) | Runtime owner 与数据流 |
 | [pitfalls](docs/pitfalls.md) | 历史踩坑记录 |
 
@@ -475,5 +468,5 @@ uv run pytest -m live_api    # 真实外部 API 用例
 uv run ruff check .          # lint（line-length 100）
 ```
 
-测试标记：`live_api` / `live_alfworld` / `live_mcp` / `live_coworker` / `stress`，
-分别对应真实外部 API、ALFWorld 环境、MCP server、Coworker 浏览器环境和扩展并发/泄漏测试。
+测试标记：`live_api` / `live_alfworld` / `live_mcp` / `stress`，
+分别对应真实外部 API、ALFWorld 环境、MCP server 和扩展并发/泄漏测试。

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import get_args
 
 import pytest
 
-from homemaster.adapters.coworker_entry import build_coworker_stream_projector
 from homemaster.events.bus import EventBus, EventBusClosedError
 from homemaster.events.public_projection import PublicEventProjection
 from homemaster.events.runtime_events import RuntimeEvent
@@ -322,42 +320,6 @@ async def test_public_stream_requires_explicit_trust_boundary() -> None:
     with pytest.raises(RuntimeError, match="explicit projector"):
         await anext(stream)
     await bus.aclose()
-
-
-def test_coworker_projector_preserves_free_text_and_structurally_summarizes_tools() -> None:
-    secret = "configured-provider-secret"
-    project = build_coworker_stream_projector()
-
-    assert project(
-        _event("assistant.reply", payload={"reply": f"token={secret}"})
-    ) == AssistantTextDelta(text=f"token={secret}")
-    assert project(
-        _event(
-            "assistant.reply",
-            payload={"reply": "https://example.invalid/file?X-Amz-Signature=deadbeef"},
-        )
-    ) == AssistantTextDelta(text="https://example.invalid/file?X-Amz-Signature=deadbeef")
-
-    terminal = project(
-        _event(
-            "tool.call_completed",
-            name="terminal_execute",
-            tool_call_id="call-terminal",
-            payload={
-                "result": f"stdout={secret}",
-                "data": {"exit_code": 0, "stdout": secret, "stderr": ""},
-            },
-        )
-    )
-    assert isinstance(terminal, ToolExecutionCompleted)
-    assert terminal.output == ""
-    assert secret not in json.dumps(terminal.metadata)
-
-    failure = project(
-        _event("runtime.turn_failed", payload={"error": f"provider rejected {secret}"})
-    )
-    assert isinstance(failure, ErrorEvent)
-    assert secret not in failure.message
 
 
 def test_gateway_projection_drops_internal_telemetry_and_raw_tool_events() -> None:

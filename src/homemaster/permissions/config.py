@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 _LEGACY_TOOL_PREFIXES = frozenset(
-    {"openharness", "home", "core", "alfworld", "coworker", "legacy"}
+    {"openharness", "home", "core", "alfworld", "legacy"}
 )
 
 

@@ -137,7 +137,6 @@ def test_environment_identity_fails_closed_for_hkust4_alfworld_without_conda(
             alfworld_root=REPO_ROOT,
             alfworld_config=REPO_ROOT / "config/alfworld_v18_regression_trials.json",
             alfworld_trials=REPO_ROOT / "config/alfworld_v19_release_trials.json",
-            coworker_manifest=REPO_ROOT / "data/coworker_demo/case_02/dataset_manifest.json",
             conda_explicit=b"explicit",
         )
 
@@ -245,7 +244,6 @@ def test_environment_identity_records_required_hkust4_alfworld_evidence(
         alfworld_root=root,
         alfworld_config=REPO_ROOT / "config/alfworld_v18_regression_trials.json",
         alfworld_trials=REPO_ROOT / "config/alfworld_v19_release_trials.json",
-        coworker_manifest=REPO_ROOT / "data/coworker_demo/case_02/dataset_manifest.json",
         conda_explicit=b"@EXPLICIT\npackage\n",
     )
     assert identity["alfworld"]["environment_name"] == "hm_alfworld"
@@ -254,7 +252,6 @@ def test_environment_identity_records_required_hkust4_alfworld_evidence(
         == hashlib.sha256(b"@EXPLICIT\npackage\n").hexdigest()
     )
     assert set(identity["imports"]) == {"homemaster", "alfworld", "ai2thor"}
-    assert identity["coworker"]["declared_file_sha256"]
     assert identity["python"]["executable"] == str(conda_prefix / "bin/python")
 
 
@@ -272,7 +269,6 @@ def test_environment_identity_requires_all_alfworld_hash_inputs(
             alfworld_root=None,
             alfworld_config=None,
             alfworld_trials=None,
-            coworker_manifest=REPO_ROOT / "data/coworker_demo/case_02/dataset_manifest.json",
             conda_explicit=b"explicit",
         )
 
@@ -303,7 +299,6 @@ def test_environment_identity_rejects_homemaster_outside_candidate(
             alfworld_root=None,
             alfworld_config=None,
             alfworld_trials=None,
-            coworker_manifest=REPO_ROOT / "data/coworker_demo/case_02/dataset_manifest.json",
         )
 
 

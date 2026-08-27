@@ -31,7 +31,7 @@ from scripts.v19_release._common import (
     write_canonical_json,
 )
 
-NONLIVE_EXPRESSION = "not live_api and not live_alfworld and not live_mcp and not live_coworker"
+NONLIVE_EXPRESSION = "not live_api and not live_alfworld and not live_mcp"
 HOMEMASTER_BASELINE_COMMIT = "5b150a9671bb087b32ed57971a39fa472e8ff1e1"
 OPENHARNESS_BASELINE_COMMIT = "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
 BASELINE_FILES = {
@@ -53,20 +53,6 @@ ALFWORLD_CONTRACT_PATHS = (
     "src/homemaster/benchmarking/alfworld/tracing.py",
     "src/homemaster/benchmarking/alfworld/trial_selection.py",
     "src/homemaster/benchmarking/alfworld/types.py",
-)
-COWORKER_CONTRACT_PATHS = (
-    "apps/case02_openenv/src/case02_openenv/artifacts.py",
-    "apps/case02_openenv/src/case02_openenv/episode_store.py",
-    "apps/case02_openenv/src/case02_openenv/evaluation/scoring.py",
-    "apps/case02_openenv/src/case02_openenv/evaluation/trajectory.py",
-    "apps/case02_openenv/src/case02_openenv/presentation_models.py",
-    "data/coworker_demo/case_02/agent_trajectory_ground_truth.yaml",
-    "data/coworker_demo/case_02/dataset_manifest.json",
-    "data/coworker_demo/case_02/test_set/item_change_ticket.json",
-    "scripts/coworker_demo/verify_dataset_bundle.py",
-    "scripts/coworker_demo/verify_run_bundle.py",
-    "src/homemaster/benchmarking/coworker_demo/presentation.py",
-    "src/homemaster/benchmarking/coworker_demo/types.py",
 )
 _SECRET_ENV_KEY_PARTS = (
     "access_key",
@@ -151,15 +137,7 @@ def capture_baseline(
     )
     write_canonical_json(
         output_dir / "dependency-lock-hashes.json",
-        {
-            "schema_version": "homemaster-v1.9-baseline-locks-v1",
-            "locks": {
-                "uv.lock": sha256_file(repo_root / "uv.lock"),
-                "apps/case02_openenv/uv.lock": sha256_file(
-                    repo_root / "apps/case02_openenv/uv.lock"
-                ),
-            },
-        },
+        _frozen_baseline_artifact("dependency-lock-hashes.json"),
     )
     write_canonical_json(output_dir / "tool-surfaces.json", _tool_surfaces())
     write_canonical_json(
@@ -171,7 +149,7 @@ def capture_baseline(
     )
     write_canonical_json(
         output_dir / "coworker-contract-hashes.json",
-        _contract_hashes(repo_root, "coworker", COWORKER_CONTRACT_PATHS),
+        _frozen_baseline_artifact("coworker-contract-hashes.json"),
     )
 
     collect = _run_pytest(repo_root, "--collect-only", "-q")
@@ -218,6 +196,11 @@ def _tool_surfaces() -> dict[str, Any]:
     """Return the immutable V1.9 artifact, not the current V2 tool surface."""
 
     path = Path(__file__).resolve().parents[2] / "plan/V1.9/baseline/tool-surfaces.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _frozen_baseline_artifact(name: str) -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[2] / "plan/V1.9/baseline" / name
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -352,7 +335,6 @@ def _verify_locked_sources(*, repo_root: Path, openharness_root: Path) -> None:
         "--exclude-standard",
         "--",
         "src/homemaster",
-        "apps/case02_openenv/src",
     )
     if untracked:
         raise RuntimeError("production roots contain untracked source")
@@ -364,7 +346,6 @@ def _verify_locked_sources(*, repo_root: Path, openharness_root: Path) -> None:
         "--exclude-standard",
         "--",
         "src/homemaster",
-        "apps/case02_openenv/src",
     )
     unexpected_ignored = [
         path
@@ -383,7 +364,6 @@ def _verify_locked_sources(*, repo_root: Path, openharness_root: Path) -> None:
             HOMEMASTER_BASELINE_COMMIT,
             "--",
             "src/homemaster",
-            "apps/case02_openenv/src",
         ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

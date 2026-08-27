@@ -196,6 +196,4 @@ def test_contract_module_has_no_benchmark_dependency() -> None:
     import homemaster.tools.contracts as contracts
 
     source_names = set(contracts.__dict__)
-    assert not any(
-        name.startswith("Alfworld") or name.startswith("Coworker") for name in source_names
-    )
+    assert not any(name.startswith("Alfworld") for name in source_names)

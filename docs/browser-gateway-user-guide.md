@@ -4,7 +4,7 @@
 
 `homemaster --gateway --browser` 和 `homemaster serve --browser` 为每个 run 创建独立、origin
 受限的 Playwright 会话，并注册 V3.1 通用浏览器工具。它适合遵循 DOM/ARIA 语义的后台系统、
-表单、表格、菜单、弹窗和常见复合控件；不加载 ALFWorld 或 Coworker 浏览器 owner，也不接管
+表单、表格、菜单、弹窗和常见复合控件；不加载 ALFWorld 环境 owner，也不接管
 用户已有 Chrome profile。
 
 ## 配置与启动
@@ -26,8 +26,15 @@ browser_gateway:
 
 `start_url` 必须属于 `allowed_origins`。HomeMaster 不启动或关闭目标站点。
 
+先安装 Browser optional extra，再安装当前 Playwright 版本锁定的 Chromium：
+
+```bash
+uv sync --extra dev --extra browser
+.venv/bin/playwright install chromium
+```
+
 `headless: false` 的录制/Web 回归需要完整 Chromium，不是只有 `chromium_headless_shell`。
-运行前用当前项目环境执行 `.venv/bin/playwright install chromium`，并以相同 headful 配置实际启动、
+运行前必须以相同 headful 配置实际启动、
 打开 `start_url`、读取一个准确 DOM 控件；仅能 import Playwright 或 headless 测试通过不算预检成功。
 
 飞书入口：

@@ -2,24 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
-from homemaster.agent.normalized import RunContext
 from homemaster.benchmarking.alfworld.tools import (
     make_alfworld_robot_go_to,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_verify,
 )
-from homemaster.benchmarking.coworker_demo.browser_tools import browser_tool_specs
-from homemaster.benchmarking.coworker_demo.correlation import (
-    correlated_action_id,
-    coworker_domain_run_id,
-)
-from homemaster.benchmarking.coworker_demo.decision_tools import make_sop_decide
-from homemaster.benchmarking.coworker_demo.environment_client import EnvironmentClient
-from homemaster.benchmarking.coworker_demo.terminal_tools import make_terminal_execute
 from homemaster.domain.tools import (
     make_load_skill,
     make_memory_retriever,
@@ -57,34 +48,13 @@ from homemaster.tools.service_tools import build_service_tools
 from homemaster.tools.web_tools import build_web_tools
 
 _INTENTIONAL_COLLISIONS = {
-    "load_skill": ("home", frozenset({"home", "coworker"})),
     "robot_go_to": ("alfworld", frozenset({"home", "alfworld"})),
-    "observe": ("home", frozenset({"home", "alfworld", "coworker"})),
+    "observe": ("home", frozenset({"home", "alfworld"})),
     "robot_manipulate": ("alfworld", frozenset({"home", "alfworld"})),
     "robot_verify": ("alfworld", frozenset({"home", "alfworld"})),
-    "task_planner": ("home", frozenset({"home", "alfworld", "coworker"})),
-    "task_progress_check": ("home", frozenset({"home", "alfworld", "coworker"})),
+    "task_planner": ("home", frozenset({"home", "alfworld"})),
+    "task_progress_check": ("home", frozenset({"home", "alfworld"})),
 }
-
-
-@dataclass
-class CoworkerScreenshotBackend:
-    """Thread-owned bridge from the screenshot tool to Playwright."""
-
-    driver: Any
-    domain_run_id: str
-    generation: int = 0
-
-    @property
-    def backend_id(self) -> str:
-        return f"coworker:{self.domain_run_id}"
-
-    def screenshot(self) -> bytes:
-        return self.driver.screenshot()
-
-    def bind_application_run(self, run_id: str, generation: int) -> None:
-        del run_id
-        self.generation = generation
 
 
 class _ReceiptVerifier:
@@ -145,7 +115,7 @@ def build_universal_tool_registry(
 
 def build_tool_registry(
     *,
-    environment: Literal["local_robot", "alfworld", "coworker", "browser"] | None,
+    environment: Literal["local_robot", "alfworld", "browser"] | None,
     world_path: Path | None = None,
     memory_path: Path | None = None,
     runtime_memory_root: Path | None = None,
@@ -174,8 +144,6 @@ def build_tool_registry(
             memory_path=memory_path,
             runtime_memory_root=runtime_memory_root,
         )
-    elif environment == "coworker":
-        sources["coworker"] = _coworker_tools()
     elif environment == "browser":
         pass
     elif environment is not None:
@@ -325,31 +293,6 @@ def _alfworld_tools(
     return tuple(tools)
 
 
-def _coworker_tools() -> tuple[RegisteredTool, ...]:
-    specs = (
-        _coworker_task_tool(make_task_planner_tool(), planner=True),
-        _coworker_task_tool(make_task_progress_check_tool(), planner=False),
-        _coworker_load_skill(make_load_skill()),
-        *browser_tool_specs(),
-        make_terminal_execute(),
-        make_sop_decide(),
-    )
-    tools = [
-        _adapted_tool(
-            spec,
-            alias=spec.name,
-            environment="coworker",
-            policy=_policy_for(spec.name, environment="coworker"),
-            state_effects=("browser.advance",)
-            if spec.name in {"browser_navigate", "browser_click", "browser_fill", "browser_select"}
-            else (),
-        )
-        for spec in specs
-    ]
-    tools.append(_screenshot_tool())
-    return tuple(tools)
-
-
 def _screenshot_tool() -> RegisteredTool:
     return RegisteredTool(
         definition=ToolDefinition(
@@ -409,7 +352,7 @@ def _adapted_tool(
 
 
 def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
-    if name == "task_progress_check" and environment in {"alfworld", "coworker"}:
+    if name == "task_progress_check" and environment == "alfworld":
         return VerificationPolicy(
             execution_proof=ExecutionProof.NONE,
             terminal_rule=TerminalRule.EXTERNAL_TERMINAL_OWNER,
@@ -417,81 +360,13 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
     receipt_tools = {
         "robot_manipulate",
         "robot_go_to",
-        "browser_navigate",
-        "browser_click",
-        "browser_fill",
-        "browser_select",
-        "browser_wait",
-        "sop_decide",
     }
     if name in receipt_tools:
         return VerificationPolicy(execution_proof=ExecutionProof.STRUCTURED_RECEIPT)
     if name == "robot_verify":
         return VerificationPolicy(execution_proof=ExecutionProof.EXTERNAL_STATE)
     return VerificationPolicy(execution_proof=ExecutionProof.NONE)
-
-
-def _coworker_load_skill(spec: Any) -> Any:
-    original = spec.executor
-    schema = {
-        "type": "object",
-        "properties": {
-            "name": {
-                "type": "string",
-                "enum": ["change_execution", "evidence_discipline"],
-                "description": "Name of one available Coworker Skill to load.",
-            }
-        },
-        "required": ["name"],
-        "additionalProperties": False,
-    }
-
-    def executor(*, arguments: dict[str, Any], run_context: RunContext):
-        if original is None:
-            raise RuntimeError(f"{spec.name} has no executor")
-        run_context.deps["coworker_budget"].before_external(run_context.deps["coworker_outcome"])
-        return original(arguments=arguments, run_context=run_context)
-
-    return spec.model_copy(update={"input_schema": schema, "executor": executor})
-
-
-def _coworker_task_tool(spec: Any, *, planner: bool) -> Any:
-    original = spec.executor
-
-    def executor(*, arguments: dict[str, Any], run_context: RunContext):
-        if original is None:
-            raise RuntimeError(f"{spec.name} has no executor")
-        run_context.deps["coworker_budget"].before_external(run_context.deps["coworker_outcome"])
-        result = original(arguments=arguments, run_context=run_context)
-        client: EnvironmentClient = run_context.deps["coworker_environment"]
-        domain_run_id = coworker_domain_run_id(run_context)
-        state = client.state(domain_run_id)
-        if planner:
-            node_id = "PLAN_CREATED"
-        elif state["phase"] == "ready_to_change":
-            node_id = "PRE_PROGRESS"
-        elif state["phase"] == "change_applied":
-            node_id = "NORMAL_PROGRESS" if state.get("business_verified") else "IMPLEMENT_PROGRESS"
-        elif state["phase"] == "rollback_submitted":
-            node_id = "ROLLBACK_PROGRESS"
-        else:
-            node_id = None
-        mirrored = client.runtime_event(
-            domain_run_id,
-            action_id=correlated_action_id(run_context),
-            tool_name=spec.name,
-            arguments=arguments,
-            node_id=node_id,
-        )
-        if isinstance(result.data, dict):
-            result.data["coworker_evidence_refs"] = [mirrored["event"]["event_id"]]
-        return result
-
-    return spec.model_copy(update={"executor": executor})
-
-
 __all__ = [
-    "CoworkerScreenshotBackend",
     "build_tool_registry",
     "build_universal_tool_registry",
 ]

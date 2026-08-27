@@ -165,10 +165,10 @@ def test_playwright_session_implements_every_public_protocol_method(tmp_path: Pa
             assert callable(getattr(session, name[0], None))
 
 
-def test_browser_core_has_no_coworker_imports() -> None:
+def test_browser_core_has_no_benchmark_imports() -> None:
     root = Path(__file__).parents[3] / "src" / "homemaster" / "browser"
     source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
-    assert "benchmarking.coworker_demo" not in source
+    assert "homemaster.benchmarking" not in source
 
 
 def test_browser_registered_tools_lock_v31_surface_and_eval_gate() -> None:
