@@ -37,6 +37,8 @@ Standalone plans:
 
 - `2026-08-27-retire-coworker-subsystem.md` -- complete retirement of the Coworker/Case02
   subsystem; the supported browser architecture is the V3.1 Browser Gateway.
+- `2026-08-27-retire-v19-alfworld-release-certification.md` -- retirement of the V1.8 ten-trial
+  inventory and V1.9 fixed release-certification layer; current ALFWorld runtime remains supported.
 - `alfworld-mindmem-integration-plan.md`, `alfworld-mindmemos-portable-benchmark-plan.md`,
   `locomo-full-pipeline-pilot-plan.md`, `native-mindmemos-search-types-implementation-plan.md`,
   `portable-memory-runtime-implementation-plan.md`, `unified-session-finalization-plan.md`,

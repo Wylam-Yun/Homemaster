@@ -26,6 +26,9 @@ from scripts.v19_release.validate_upstream_port_manifest import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPENHARNESS_ROOT = REPO_ROOT.parent / "OpenHarness"
+ALFWORLD_SMOKE_MANIFEST = (
+    REPO_ROOT / "tests/fixtures/alfworld/gateway_smoke_trials.json"
+)
 
 
 def test_upstream_port_manifest_is_valid_with_current_ports() -> None:
@@ -135,8 +138,8 @@ def test_environment_identity_fails_closed_for_hkust4_alfworld_without_conda(
             model="mimo-v2.5",
             alfworld_check=True,
             alfworld_root=REPO_ROOT,
-            alfworld_config=REPO_ROOT / "config/alfworld_v18_regression_trials.json",
-            alfworld_trials=REPO_ROOT / "config/alfworld_v19_release_trials.json",
+            alfworld_config=ALFWORLD_SMOKE_MANIFEST,
+            alfworld_trials=ALFWORLD_SMOKE_MANIFEST,
             conda_explicit=b"explicit",
         )
 
@@ -242,8 +245,8 @@ def test_environment_identity_records_required_hkust4_alfworld_evidence(
         model="mimo-v2.5",
         alfworld_check=True,
         alfworld_root=root,
-        alfworld_config=REPO_ROOT / "config/alfworld_v18_regression_trials.json",
-        alfworld_trials=REPO_ROOT / "config/alfworld_v19_release_trials.json",
+        alfworld_config=ALFWORLD_SMOKE_MANIFEST,
+        alfworld_trials=ALFWORLD_SMOKE_MANIFEST,
         conda_explicit=b"@EXPLICIT\npackage\n",
     )
     assert identity["alfworld"]["environment_name"] == "hm_alfworld"

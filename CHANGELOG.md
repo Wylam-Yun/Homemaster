@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Decoupled the current ALFWorld Gateway live smoke from the retired V1.8 regression inventory.
+  The live test now owns one exact SaltShaker-to-Drawer trial fixture, and environment identity
+  capture requires callers to provide the trial manifest instead of silently selecting a
+  versioned release artifact.
 - Established the living-document boundary: `docs/session-handoff.md` is now the only live
   state/handoff document. Archived the append-only root `progress.md` to
   `docs/reports/2026-08-27-progress-archive.md` with a note pointing at the live document; its
@@ -16,6 +20,10 @@
 
 ### Removed
 
+- Retired the V1.8 ten-trial ALFWorld regression inventory and the dependent V1.9 four-trial
+  release-certification layer: both committed manifests, the deterministic selector, fixed-profile
+  release/M0 runners and verifiers, and their dedicated tests. The configurable ALFWorld benchmark,
+  Gateway, taskset runner, manifest contract, and historical plans/reports remain.
 - Removed the stale root-level checkpoint copies `inspection.py`, `opencli_adapter.py`,
   `playwright_session.py`, and `test_playwright_session.py` plus the leftovers
   `file_read_example.py`, `permission-test.txt`, and `docs/session-handoff.md.orig`. The

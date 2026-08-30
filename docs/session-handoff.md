@@ -2,6 +2,14 @@
 
 ## Workspace Cleanup And Living-Document Boundary (2026-08-27)
 
+- Retired the V1.8 ten-trial manifest and its dependent V1.9 four-trial ALFWorld release/M0
+  certification layer. Current ALFWorld benchmark, Gateway, taskset, and generic manifest
+  validation remain supported. The Gateway live test now owns a one-entry SaltShaker smoke
+  fixture under `tests/fixtures/alfworld/`; the real cached dataset passed byte, scene, goal, and
+  identity validation. Full collection finds 1,426 tests; the affected gate passes 207 tests with
+  the live case and three already-recorded assertions explicitly deselected. Cleanup guard, Ruff,
+  compileall, diff-check, and active-reference audit pass. Historical V1.8/V1.9 plans and reports
+  remain immutable.
 - Removed the stale root-level checkpoint copies (`inspection.py`, `opencli_adapter.py`,
   `playwright_session.py`, `test_playwright_session.py`, `file_read_example.py`,
   `permission-test.txt`, `docs/session-handoff.md.orig`). `src/homemaster/browser/` and

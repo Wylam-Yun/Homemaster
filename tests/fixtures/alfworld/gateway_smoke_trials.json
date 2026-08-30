@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "expected_logical_scene": "FloorPlan10",
+      "goal_fingerprint": "68254289d1f6ba529b73ca54037568c7d248b8dad29450f7d317b8e74affdedd",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"SaltShaker\",\"parent_target\":\"Drawer\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+      "identity_status": "gateway_smoke",
+      "trial_id": "valid_unseen/pick_and_place_simple-SaltShaker-None-Drawer-10/trial_T20190909_021728_339782/traj_data.json",
+      "trial_sha256": "a7988670d07e28e0b15ddc5036d7d01f48f8cf3fd4ad2ca0f5de9929fb5f797c"
+    }
+  ],
+  "schema_version": "alfworld-trial-selection-v1"
+}

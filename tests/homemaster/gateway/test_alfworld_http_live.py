@@ -43,7 +43,7 @@ async def test_isolated_http_environment_real_action_image_and_cleanup(
         asset_root / "data" / "json_2.1.1",
         asset_root / "configs" / "base_config.yaml",
         python_executable,
-        repo / "config" / "alfworld_v18_regression_trials.json",
+        repo / "tests" / "fixtures" / "alfworld" / "gateway_smoke_trials.json",
     )
     if not all(path.exists() for path in required):
         pytest.skip("configured live ALFWorld environment is unavailable")
@@ -59,8 +59,10 @@ async def test_isolated_http_environment_real_action_image_and_cleanup(
                 data_root=asset_root / "data",
                 config_path=asset_root / "configs" / "base_config.yaml",
                 python_executable=python_executable,
-                trial_manifest=repo / "config" / "alfworld_v18_regression_trials.json",
-                trial_index=3,
+                trial_manifest=(
+                    repo / "tests" / "fixtures" / "alfworld" / "gateway_smoke_trials.json"
+                ),
+                trial_index=0,
                 display=display,
                 manage_xvfb=True,
                 allow_offscreen_object_navigation=False,

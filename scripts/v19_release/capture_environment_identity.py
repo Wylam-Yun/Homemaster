@@ -264,8 +264,6 @@ def main() -> int:
         if alfworld_config is None and os.environ.get("HOMEMASTER_ALFWORLD_CONFIG"):
             alfworld_config = Path(os.environ["HOMEMASTER_ALFWORLD_CONFIG"])
         alfworld_trials = args.alfworld_trials
-        if alfworld_trials is None and alfworld_check:
-            alfworld_trials = repo_root / "config/alfworld_v19_release_trials.json"
         payload = capture_identity(
             repo_root=repo_root,
             site=args.site or _detected_site(),

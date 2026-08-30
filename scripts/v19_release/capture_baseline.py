@@ -45,7 +45,6 @@ BASELINE_FILES = {
     "coworker-contract-hashes.json",
 }
 ALFWORLD_CONTRACT_PATHS = (
-    "config/alfworld_v18_regression_trials.json",
     "src/homemaster/benchmarking/alfworld/execution.py",
     "src/homemaster/benchmarking/alfworld/gateway.py",
     "src/homemaster/benchmarking/alfworld/object_view.py",
