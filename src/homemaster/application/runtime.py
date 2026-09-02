@@ -625,7 +625,7 @@ class ApplicationRuntime:
                 search(
                     query,
                     context,
-                    top_k=3,
+                    top_k=5,
                     search_pipeline="vanilla",
                     rerank=False,
                     filters=None,
@@ -647,7 +647,7 @@ class ApplicationRuntime:
             )
             return True, None, ()
 
-        memories = list(getattr(result, "memories", ()))[:3]
+        memories = list(getattr(result, "memories", ()))[:5]
         await _emit_automatic_recall_event(
             event_sink,
             session_id=runtime.session.session_id,

@@ -30,7 +30,7 @@ legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and
 new Session / first user turn after completed Compact
   -> SessionRuntime.require_recall generation-fenced latch
   -> ApplicationRuntime builds deterministic query
-  -> EmbeddedMindMemOS.search(top_k=3, vanilla, rerank=false, filters=None)
+  -> EmbeddedMindMemOS.search(top_k=5, vanilla, rerank=false, filters=None)
   -> run-scoped ContextAssembler memory prelude
   -> first Provider request; no tool messages or persistent history mutation
 

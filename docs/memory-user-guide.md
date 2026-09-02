@@ -6,7 +6,7 @@ Runtime 只在两个时机自动召回：新 Session 的第一条消息，以及
 下一条用户消息。新 Session 直接用原始用户文本搜索；Compact 后的 Query 由 Compact Summary、
 TaskState 和当前用户消息确定性组成。
 
-自动搜索固定为 `top_k=3`、`search_pipeline=vanilla`、`rerank=false`、`filters=None`，
+自动搜索固定为 `top_k=5`、`search_pipeline=vanilla`、`rerank=false`、`filters=None`，
 因此不会只搜索 `fact` 或 `procedure/experience`。结果只在当前 run 的首个 Provider 请求中
 作为 `<memory-context>` 出现，不会写入 Session 历史。搜索结果为空、服务不可用或普通错误时，
 本轮模型请求仍继续。自动召回不替代 Agent 主动的 `mindmemos_search`；后者仍可指定

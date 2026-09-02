@@ -1250,7 +1250,7 @@ class AgentRuntime:
         if guards is None:
             return None
         max_errors = getattr(guards, "max_consecutive_tool_errors", 5)
-        if agent_state.consecutive_tool_errors >= max_errors:
+        if max_errors > 0 and agent_state.consecutive_tool_errors >= max_errors:
             await emit("runtime.guard_triggered", payload={"guard": "max_consecutive_tool_errors"})
             return "max_consecutive_tool_errors"
         max_no_progress = getattr(guards, "max_no_progress_iterations", 20)

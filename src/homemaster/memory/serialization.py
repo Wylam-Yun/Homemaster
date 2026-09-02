@@ -45,6 +45,7 @@ def serialize_record(record: MemoryRecord, *, provenance_seq: int) -> Serialized
         sort_keys=True,
         separators=(",", ":"),
     )
+    extra_meta: dict[str, str | int] = {}
     if isinstance(record, FactRecord):
         identity = record.subject.id or normalize_text(record.subject.name)
         identity_kind = "id" if record.subject.id else "name"
@@ -58,29 +59,34 @@ def serialize_record(record: MemoryRecord, *, provenance_seq: int) -> Serialized
         }
         if record.subject.id:
             indexes["subject_id"] = record.subject.id
+        extra_meta = {"schema_version": record.schema_version, "source": record.source}
     else:
-        entry_url = normalize_url(record.entry_url)
-        material = f"procedure\0{entry_url}\0{normalize_text(record.name)}"
+        identity = record.sop_id or record.name
+        material = f"procedure\0{normalize_text(identity)}\0{normalize_text(record.name)}"
         step_summary = "；".join(
             f"{step.order}.{step.action}:"
-            + json.dumps(_outbound_target(step.target), ensure_ascii=False, sort_keys=True)
+            + json.dumps(
+                _outbound_target(step.target.model_dump(mode="json")),
+                ensure_ascii=False,
+                sort_keys=True,
+            )
             for step in record.steps
         )
-        safe_url = urlsplit(entry_url)._replace(query="", fragment="").geturl()
-        text = f"流程 {record.name}，入口 {safe_url}，步骤 {step_summary}"
+        text = f"流程 {record.name}，入口 {record.entry.page_name}，步骤 {step_summary}"
         indexes = {
             "procedure_name_normalized": normalize_text(record.name),
-            "entry_url_normalized": entry_url,
+            "entry_page_normalized": normalize_text(record.entry.page_name),
         }
+        if record.sop_id:
+            indexes["sop_id_normalized"] = normalize_text(record.sop_id)
     dedupe_key = hashlib.sha256(material.encode("utf-8")).hexdigest()
     metadata: dict[str, str | int] = {
-        "schema_version": record.schema_version,
         "memory_type": record.memory_type,
         "dedupe_key": dedupe_key,
-        "source": record.source,
         "record_json": record_json,
         "provenance_seq": provenance_seq,
         **indexes,
+        **extra_meta,
     }
     return SerializedMemory(text, record_json, dedupe_key, metadata)
 

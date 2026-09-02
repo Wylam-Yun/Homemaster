@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Checkpointed the procedure success-path exploration: expanded `ProcedureRecord` into a
+  semantic, host-independent SOP schema; added a trace-to-procedure compiler scaffold; raised
+  automatic MindMemOS recall from three to five records; and made a zero
+  `max_consecutive_tool_errors` setting disable that guard. The compiler remains an unwired
+  experimental module on the feature branch and does not claim production readiness.
 - Decoupled the current ALFWorld Gateway live smoke from the retired V1.8 regression inventory.
   The live test now owns one exact SaltShaker-to-Drawer trial fixture, and environment identity
   capture requires callers to provide the trial manifest instead of silently selecting a

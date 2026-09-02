@@ -1124,7 +1124,7 @@ async def test_automatic_recall_precedes_first_provider_request(tmp_path) -> Non
     assert context.account_id == "tenant-a"
     assert context.session_id == "automatic-recall"
     assert kwargs == {
-        "top_k": 3,
+        "top_k": 5,
         "search_pipeline": "vanilla",
         "rerank": False,
         "filters": None,
@@ -1441,7 +1441,7 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     assert len(transport.calls) == 2
     assert len(store.search_calls) == 2
     assert store.search_calls[0][1]["filters"] is None
-    assert store.search_calls[0][1]["top_k"] == 3
+    assert store.search_calls[0][1]["top_k"] == 5
     assert store.search_calls[1][1]["filters"] == {"mem_type": "fact"}
     tool_results = [
         message

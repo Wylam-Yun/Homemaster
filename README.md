@@ -302,7 +302,7 @@ HomeMaster 记忆分两层：
   等 mutation 仍在工具调用内完成终态确认。当前轮 evidence 由 Runtime 内部绑定，不要求模型回传 evidence ID。
 
 新 Session 的第一条用户消息（以及 Compact 完成后的下一条真实消息）会在首次 Provider 请求前
-自动执行一次 MindMemOS 召回（`top_k=3`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；
+自动执行一次 MindMemOS 召回（`top_k=5`），命中结果作为仅当前 run 可见的 `<memory-context>` 注入；
 Agent 仍可用 `mindmemos_search` 主动补充搜索，并用 `mindmemos_history` 按准确 ID 查看 active/archived
 版本链。`mindmemos_search` 直接使用 MindMemOS 原生的 `profile`、`fact`、`experience`、`episodic`、
 `tool_trace`、`skill_candidate`、`file_knowledge` 类型；不指定 `memory_type` 时搜索全部类型。用户给出纠正但
