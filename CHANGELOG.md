@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
+  centers on reproducible online/offline setup with mandatory memory and optional browser assets,
+  while ALFWorld moves to its own benchmark-owned package behind HomeMaster's single generic
+  CLI/Web/Gateway application interface. The specs separate the two phases and define per-host and
+  per-episode black-box acceptance gates before implementation begins.
 - Checkpointed the procedure success-path exploration: expanded `ProcedureRecord` into a
   semantic, host-independent SOP schema; added a trace-to-procedure compiler scaffold; raised
   automatic MindMemOS recall from three to five records; and made a zero
