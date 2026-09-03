@@ -6,11 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal
 
-from homemaster.benchmarking.alfworld.tools import (
-    make_alfworld_robot_go_to,
-    make_alfworld_robot_manipulate,
-    make_alfworld_robot_verify,
-)
 from homemaster.domain.tools import (
     make_load_skill,
     make_memory_retriever,
@@ -261,6 +256,12 @@ def _alfworld_tools(
     memory_path: Path | None,
     runtime_memory_root: Path | None,
 ) -> tuple[RegisteredTool, ...]:
+    from homemaster.benchmarking.alfworld.tools import (
+        make_alfworld_robot_go_to,
+        make_alfworld_robot_manipulate,
+        make_alfworld_robot_verify,
+    )
+
     if memory_mode not in {"disabled", "readonly", "full"}:
         raise ValueError(f"unsupported memory_mode: {memory_mode}")
     specs = []
