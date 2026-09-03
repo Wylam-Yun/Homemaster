@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Reconciled the hkust4 V3.2 snapshot onto the latest mainline, retaining locked Java/Neo4j
+  runtime assets and historical document references while adding the phase-one execution plan.
+
 - Completed the V3.2 setup boundary hardening: provider diagnostics now expose only
   `api_keys_configured` and `api_key_count`, setup preserves browser capability across reruns,
   runtime bundle builds honor `HOMEMASTER_UV`, and README/pitfalls document the reproducible
