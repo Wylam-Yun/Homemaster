@@ -19,6 +19,8 @@
   atomically without copying runtime data or logs.
 - Added the locked Adoptium JDK 21 asset and setup download path, with SHA256 and archive-layout
   validation matching the Neo4j flow.
+- Runtime bundle builds now include the locked Java and Neo4j archives under `assets/` and verify
+  each checksum before generating the bundle manifest.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
