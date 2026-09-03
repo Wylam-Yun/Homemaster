@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -414,7 +416,12 @@ async def compile_success_path(
         if not isinstance(payload, dict):
             errors[phase] = f"non-object JSON: {type(payload)}"
             continue
-        dump = Path(f"/tmp/homemaster-explore-30c9-{phase}.invalid.json")
+        debug_root = Path(os.environ.get("HOMEMASTER_DEBUG_ROOT", tempfile.gettempdir()))
+        debug_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(debug_root, 0o700)
+        dump_dir = Path(tempfile.mkdtemp(prefix="homemaster-explore-", dir=debug_root))
+        os.chmod(dump_dir, 0o700)
+        dump = dump_dir / f"{phase}.invalid.json"
         try:
             record = ProcedureRecord.model_validate(payload)
         except Exception as first_error:

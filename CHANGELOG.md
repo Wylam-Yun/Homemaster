@@ -4,6 +4,15 @@
 
 ### Changed
 
+- Completed the V3.2 setup boundary hardening: provider diagnostics now expose only
+  `api_keys_configured` and `api_key_count`, setup preserves browser capability across reruns,
+  runtime bundle builds honor `HOMEMASTER_UV`, and README/pitfalls document the reproducible
+  setup and stale-build audit requirements.
+- Doctor now resolves compatibility runtime symlinks before evaluating whether Python runs from
+  the project-managed `.venv`.
+- Relaxed the setup tool requirement from one exact uv release to the compatible `>=0.11,<0.13`
+  range; Python dependencies remain pinned by `uv.lock`.
+
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
   while ALFWorld moves to its own benchmark-owned package behind HomeMaster's single generic
@@ -979,3 +988,14 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
   Neo4j、LLM、Embedding 与 operation recorder。
 - `mindmemos_search` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
   记录 fail closed，使自动沉淀经验能在新进程中被真实 LLM 召回。
+# Unreleased
+
+- V3.2 阶段一将 Neo4j 部署边界收窄为 HomeMaster 管理的本地 loopback 服务，拒绝 external/远程 URI，并让
+  doctor 对 provider secret 做统一脱敏、拒绝禁用记忆配置、移除旧 Mac/bm25s 检查；失败诊断改用受限唯一目录。
+- 收紧 wheel 的 OpenCLI 资源清单，移除完整 `node_modules`；构建审计仍单独报告待处理的 ALFWorld Python 模块。
+- 增加构建期过滤钩子，确保通用 wheel 不携带 ALFWorld Python 模块；ALFWorld 代码仍保留在源码树供后续阶段迁移。
+- 将 ALFWorld 工具 import 延迟到显式 benchmark 环境，保证通用 wheel 在缺少 ALFWorld 依赖时仍可导入普通工具注册表。
+- 新增 `scripts/setup.sh` 与 `scripts/build_runtime_bundle.sh`，提供受校验的 managed_local 配置生成、运行时绑定和
+  离线源码/wheel bundle 入口；缺失锁定资产时显式失败。
+- 修复 setup 在已有 `.venv` 时的幂等重跑，复用现有虚拟环境而不覆盖配置或数据。
+- 修复已有合法 `.runtime/memory` 绑定在 setup 重跑时被误判为冲突，改为校验并复用目标目录。

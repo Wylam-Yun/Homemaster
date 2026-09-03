@@ -23,8 +23,7 @@ ALFWorld benchmark 实现迁到 `/home/haodong2/weilin/red_bird/alfworld`。两�
 2. 必须先通过仓库清理与环境复现验收，之后才能开始 ALFWorld 外迁。
 3. 记忆系统是 HomeMaster 核心能力，不支持无记忆产品模式。
 4. 浏览器是可选能力；通用 Agent 安装不强制下载 Playwright Chromium。
-5. 默认记忆部署是 HomeMaster 管理的本地 Neo4j；已有 Neo4j 的部署可以使用 external
-   模式，但不能关闭记忆。
+5. 记忆部署固定为 HomeMaster 管理的本地 Neo4j；不提供 external 远程模式，也不能关闭记忆。
 6. HomeMaster 保留唯一的 CLI、Web 和飞书 Gateway 入口。
 7. ALFWorld 仓库依赖 HomeMaster 的稳定接口；HomeMaster 不依赖、不导入、不判断
    ALFWorld。

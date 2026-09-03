@@ -89,7 +89,7 @@ Neo4j
 2. `external` 供已有 Neo4j 服务的环境使用。setup 不复制本地 JDK/Neo4j，但必须验证
    Bolt 连接、认证、目标数据库和一次真实读写。
 
-两种部署只改变资源 owner，不改变记忆协议、数据模型或 Agent 行为。
+本阶段固定使用 `managed_local`；不提供 external 远程部署分支。记忆协议、数据模型和 Agent 行为不因部署位置变化。
 
 ### 3.3 浏览器是可选能力
 
@@ -196,7 +196,7 @@ JDK 和 Chromium 资产，不能复用 Linux x86_64 bundle。
   数据目录。
 - 同一 data 目录同一时刻只能由一个 Neo4j 进程拥有。
 - setup 和运行入口必须显式传递 `JAVA_HOME`，不读取系统默认 Java。
-- 服务协议不能假定所有消费者与 Neo4j 位于同一进程；external URI 继续支持远程地址。
+- 服务协议不能假定所有消费者与 Neo4j 位于同一进程，但 Neo4j URI 必须是本机 loopback 地址。
 
 ## 7. 低风险清理清单
 
@@ -303,7 +303,7 @@ JDK 和 Chromium 资产，不能复用 Linux x86_64 bundle。
 交付时同步更新：
 
 - README：最短在线/离线复现命令，以及“setup 后填写 `config/homemaster.yaml`”说明。
-- 环境用户指南：系统限制、managed/external Neo4j、浏览器附加安装和故障排查。
+- 环境用户指南：系统限制、managed_local Neo4j、浏览器附加安装和故障排查。
 - 架构文档：必选记忆栈、资源 owner、路径解析和启动数据流。
 - CHANGELOG：逐提交记录清理原因、影响和兼容性。
 - `docs/pitfalls.md`：记录系统 Java 11 被 Neo4j 误选等非显而易见问题。

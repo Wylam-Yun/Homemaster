@@ -118,7 +118,10 @@ def _bind(path: Path, target: Path, *, create_directory: bool = False) -> None:
 def _ensure_memory(path: Path, memory_home: Path | None) -> None:
     if memory_home is None:
         if path.is_symlink():
-            raise RuntimeSetupError(f"memory binding already points elsewhere: {path}")
+            target = path.resolve(strict=True)
+            if not target.is_dir():
+                raise RuntimeSetupError(f"memory binding target is not a directory: {target}")
+            return
         path.mkdir(parents=True, exist_ok=True)
         if not path.is_dir():
             raise RuntimeSetupError(f"memory root is not a directory: {path}")

@@ -68,6 +68,7 @@ class ManagedNeo4jRuntime:
             self._prune_stale_leases()
             ready = await self._is_ready()
             if not ready:
+                await self._initialize_new_database()
                 owner_token = uuid4().hex
                 self._write_owner(state="starting", owner_token=owner_token)
                 command_task = asyncio.create_task(self._run_command("start"))
@@ -147,6 +148,24 @@ class ManagedNeo4jRuntime:
         self._clients_root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self._runtime_root, 0o700)
         os.chmod(self._clients_root, 0o700)
+        config = self._runtime_root / "neo4j.conf"
+        if not config.exists():
+            assert self._neo4j.home is not None
+            source = self._neo4j.home / "conf" / "neo4j.conf"
+            content = source.read_text(encoding="utf-8") if source.is_file() else ""
+            lines = [line for line in content.splitlines() if not line.startswith("server.directories.")]
+            lines.extend(
+                [
+                    f"server.directories.data={self._runtime_root / 'data'}",
+                    f"server.directories.logs={self._runtime_root / 'logs'}",
+                    f"server.directories.run={self._runtime_root / 'run'}",
+                    "server.directories.import=import",
+                ]
+            )
+            temporary = config.with_suffix(".tmp")
+            temporary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, config)
 
     @asynccontextmanager
     async def _locked(self) -> AsyncIterator[None]:
@@ -295,12 +314,45 @@ class ManagedNeo4jRuntime:
             message = " | ".join(detail[-6:]) if detail else f"exit code {completed.returncode}"
             raise ManagedNeo4jError(f"Neo4j {action} command failed: {message}")
 
+    async def _initialize_new_database(self) -> None:
+        if self._command_runner is not None:
+            return
+        data_root = self._runtime_root / "data"
+        if (data_root / "databases" / self._neo4j.database).exists():
+            return
+        assert self._neo4j.home is not None
+        env = self._command_environment()
+        data_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        try:
+            completed = await asyncio.to_thread(
+                subprocess.run,
+                [str(self._neo4j.home / "bin" / "neo4j-admin"), "dbms", "set-initial-password", "--from-stdin"],
+                cwd=self._neo4j.home,
+                env=env,
+                input=self._neo4j.password.get_secret_value() + "\n",
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ManagedNeo4jError(f"Neo4j initial password command failed: {type(exc).__name__}") from exc
+        if completed.returncode != 0:
+            detail = [
+                line.strip()
+                for line in (completed.stderr or completed.stdout).splitlines()
+                if line.strip() and set(line.strip()) != {"-"}
+            ][-1:]
+            raise ManagedNeo4jError(
+                "Neo4j initial password command failed: " + (detail[0] if detail else "unknown error")
+            )
+
     def _command_environment(self) -> dict[str, str]:
         assert self._neo4j.home is not None
         assert self._neo4j.java_home is not None
         env = dict(os.environ)
         env["JAVA_HOME"] = str(self._neo4j.java_home)
         env["NEO4J_HOME"] = str(self._neo4j.home)
+        env["NEO4J_CONF"] = str(self._runtime_root)
         env["PATH"] = os.pathsep.join(
             [str(self._neo4j.java_home / "bin"), env.get("PATH", "")]
         )

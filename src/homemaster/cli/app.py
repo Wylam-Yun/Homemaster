@@ -8,11 +8,6 @@ from typing import Annotated
 
 import typer
 
-from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
-from homemaster.cli.benchmark_alfworld import (
-    handle_benchmark_alfworld,
-    handle_benchmark_alfworld_taskset,
-)
 from homemaster.cli.benchmark_locomo import handle_benchmark_locomo
 from homemaster.cli.child_worker import run_child_worker
 from homemaster.cli.confirmation import CliPermissionMode
@@ -489,6 +484,9 @@ def benchmark_alfworld_command(
 ) -> None:
     """Run HomeMaster on ALFWorld benchmark episodes."""
     try:
+        from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
+        from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld
+
         summary = handle_benchmark_alfworld(
             alfworld_root=alfworld_root,
             alfworld_config=alfworld_config,
@@ -650,6 +648,8 @@ def benchmark_alfworld_taskset_command(
 ) -> None:
     """Run HomeMaster on long-horizon ALFWorld tasksets (one persistent scene per taskset)."""
     try:
+        from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld_taskset
+
         summary = handle_benchmark_alfworld_taskset(
             taskset_config=taskset_config,
             alfworld_root=alfworld_root,

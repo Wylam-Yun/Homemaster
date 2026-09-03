@@ -38,8 +38,8 @@ def capture_identity(
     expected_conda_env: str | None = None,
 ) -> dict[str, Any]:
     repo_root = repo_root.resolve(strict=True)
-    if site not in {"hpc2", "hkust4"}:
-        raise ValueError("site must be hpc2 or hkust4")
+    if not site or not site.strip():
+        raise ValueError("site label must not be blank")
     if not provider or not model:
         raise ValueError("provider and model identity are required")
     if alfworld_check:
@@ -230,15 +230,11 @@ def _default_provider_identity(repo_root: Path) -> tuple[str, str]:
     return provider.name, provider.model
 
 
-def _detected_site() -> str:
-    return "hkust4" if "hkust4" in platform.node().casefold() else "hpc2"
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--site", choices=("hpc2", "hkust4"))
+    parser.add_argument("--site", required=True, help="caller-provided environment label")
     parser.add_argument("--profile", choices=("alfworld",))
     parser.add_argument("--expected-conda-env")
     parser.add_argument("--provider")
@@ -266,7 +262,7 @@ def main() -> int:
         alfworld_trials = args.alfworld_trials
         payload = capture_identity(
             repo_root=repo_root,
-            site=args.site or _detected_site(),
+            site=args.site,
             provider=provider,
             model=model,
             alfworld_check=alfworld_check,
