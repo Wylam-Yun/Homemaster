@@ -8,6 +8,8 @@
   `api_keys_configured` and `api_key_count`, setup preserves browser capability across reruns,
   runtime bundle builds honor `HOMEMASTER_UV`, and README/pitfalls document the reproducible
   setup and stale-build audit requirements.
+- Doctor now resolves compatibility runtime symlinks before evaluating whether Python runs from
+  the project-managed `.venv`.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,

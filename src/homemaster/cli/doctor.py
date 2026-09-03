@@ -77,7 +77,8 @@ def render_doctor_text(report: DoctorReport) -> str:
 
 def _python_environment_check() -> DoctorCheck:
     executable = Path(sys.executable)
-    status: DoctorStatus = "PASS" if ".venv" in executable.parts else "WARN"
+    resolved = executable.resolve()
+    status: DoctorStatus = "PASS" if ".venv" in resolved.parts else "WARN"
     return DoctorCheck(
         name="python_environment",
         status=status,
