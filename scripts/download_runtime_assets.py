@@ -63,11 +63,55 @@ def ensure_neo4j(repo_root: Path, destination: Path, *, offline_bundle: Path | N
     return destination
 
 
+def ensure_java(repo_root: Path, destination: Path, *, offline_bundle: Path | None = None) -> Path:
+    if (destination / "bin" / "java").is_file():
+        return destination
+    lock = json.loads((repo_root / "config" / "runtime-assets.lock.json").read_text(encoding="utf-8"))
+    asset = lock["java"]
+    archive = (offline_bundle / "assets" / Path(asset["url"]).name) if offline_bundle else None
+    if archive is None or not archive.is_file():
+        if offline_bundle:
+            raise RuntimeError(f"offline Java asset is missing: {archive}")
+        archive = Path(tempfile.mkstemp(prefix="homemaster-java-", suffix=".tar.gz")[1])
+        try:
+            subprocess.run(["curl", "--fail", "--location", "--retry", "3", "--output", str(archive), asset["url"]], check=True)
+        except Exception:
+            archive.unlink(missing_ok=True)
+            raise
+    try:
+        actual = _sha256(archive)
+        if actual != asset["sha256"]:
+            raise RuntimeError(f"Java SHA256 mismatch: expected {asset['sha256']}, got {actual}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
+            root = Path(temp)
+            with tarfile.open(archive, "r:gz") as package:
+                members = package.getmembers()
+                for member in members:
+                    target = (root / member.name).resolve()
+                    if root.resolve() not in target.parents:
+                        raise RuntimeError(f"unsafe Java archive member: {member.name}")
+                package.extractall(root)
+            candidates = [p for p in root.iterdir() if p.is_dir() and (p / "bin" / "java").is_file()]
+            if len(candidates) != 1:
+                raise RuntimeError("Java archive has unexpected layout")
+            if destination.exists():
+                raise RuntimeError(f"runtime destination already exists but is incomplete: {destination}")
+            os.replace(candidates[0], destination)
+    finally:
+        if not offline_bundle:
+            archive.unlink(missing_ok=True)
+    return destination
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, required=True)
     parser.add_argument("--destination", type=Path, required=True)
+    parser.add_argument("--java-destination", type=Path)
     parser.add_argument("--offline-bundle", type=Path)
     args = parser.parse_args()
+    if args.java_destination:
+        ensure_java(args.repo_root.resolve(), args.java_destination.resolve(), offline_bundle=args.offline_bundle)
     ensure_neo4j(args.repo_root.resolve(), args.destination.resolve(), offline_bundle=args.offline_bundle)

@@ -53,7 +53,11 @@ if ((with_browser)); then sync_args+=(--extra browser); fi
 neo4j_home="${HOMEMASTER_NEO4J_HOME:-$repo_root/.runtime/neo4j}"
 java_home="${HOMEMASTER_JAVA_HOME:-$repo_root/.runtime/java}"
 if [[ ! -x "$neo4j_home/bin/neo4j" || ! -x "$neo4j_home/bin/neo4j-admin" ]]; then
-  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home")
+  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
+  [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
+  "$repo_root/.venv/bin/python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
+elif [[ ! -x "$java_home/bin/java" ]]; then
+  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
   [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
   "$repo_root/.venv/bin/python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
 fi

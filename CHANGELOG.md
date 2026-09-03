@@ -17,6 +17,8 @@
 - Added fail-closed Neo4j asset preparation: setup downloads the locked Release tar only when
   the local runtime is absent, verifies SHA256, rejects unsafe archive paths, and publishes it
   atomically without copying runtime data or logs.
+- Added the locked Adoptium JDK 21 asset and setup download path, with SHA256 and archive-layout
+  validation matching the Neo4j flow.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
