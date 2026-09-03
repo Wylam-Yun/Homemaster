@@ -984,3 +984,4 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
 - V3.2 阶段一将 Neo4j 部署边界收窄为 HomeMaster 管理的本地 loopback 服务，拒绝 external/远程 URI，并让
   doctor 对 provider secret 做统一脱敏、拒绝禁用记忆配置、移除旧 Mac/bm25s 检查；失败诊断改用受限唯一目录。
 - 收紧 wheel 的 OpenCLI 资源清单，移除完整 `node_modules`；构建审计仍单独报告待处理的 ALFWorld Python 模块。
+- 增加构建期过滤钩子，确保通用 wheel 不携带 ALFWorld Python 模块；ALFWorld 代码仍保留在源码树供后续阶段迁移。

@@ -62,7 +62,7 @@ homemaster = "homemaster.cli.app:app"
 
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.setuptools.packages.find]
 where = ["src", "third_party/MindMemOS/src/mindmemos"]
