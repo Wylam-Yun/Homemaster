@@ -35,7 +35,7 @@ if [[ -n "$offline_bundle" ]]; then
   export UV_NO_INDEX=1 UV_FIND_LINKS="$offline_bundle/wheelhouse"
 fi
 
-"$uv_bin" venv --python 3.11 "$repo_root/.venv"
+"$uv_bin" venv --allow-existing --python 3.11 "$repo_root/.venv"
 sync_args=(sync --frozen)
 if ((with_browser)); then sync_args+=(--extra browser); fi
 "$uv_bin" "${sync_args[@]}" --project "$repo_root"
