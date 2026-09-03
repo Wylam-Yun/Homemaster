@@ -144,7 +144,7 @@ class ProviderProfileConfig(BaseModel):
             "kind": self.kind,
             "auth_type": self.auth_type,
             "embedding_url": self.embedding_url,
-            "api_keys": list(self.api_keys),
+            "api_keys": ["<redacted>"] if self.api_keys else [],
             "context_window_tokens": self.context_window_tokens,
             "max_output_tokens": self.max_output_tokens,
         }
@@ -250,7 +250,7 @@ class MemoryNeo4jConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    mode: Literal["external", "managed_local"] = "external"
+    mode: Literal["managed_local"] = "managed_local"
     home: Path | None = None
     java_home: Path | None = None
     uri: str = "bolt://127.0.0.1:7687"
@@ -273,17 +273,37 @@ class MemoryNeo4jConfig(BaseModel):
             raise ValueError("Neo4j username and database must not be blank")
         return stripped
 
+    @model_validator(mode="before")
+    @classmethod
+    def _explicit_managed_local_has_runtime_inputs(cls, value: Any) -> Any:
+        if isinstance(value, Mapping) and value.get("mode") == "managed_local":
+            missing = [
+                name
+                for name in ("home", "java_home", "password")
+                if not str(value.get(name) or "").strip()
+            ]
+            if missing:
+                raise ValueError(
+                    "managed_local Neo4j requires home, java_home, and password; missing "
+                    + ", ".join(missing)
+                )
+        return value
+
     @field_validator("uri")
     @classmethod
     def _valid_bolt_uri(cls, value: str) -> str:
         parsed = urlsplit(value)
         if parsed.scheme not in {"bolt", "neo4j"} or not parsed.hostname:
             raise ValueError("Neo4j uri must be an absolute bolt/neo4j URI")
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise ValueError("managed_local Neo4j uri must use a loopback host")
         return value
 
     @model_validator(mode="after")
     def _managed_local_has_runtime_inputs(self) -> MemoryNeo4jConfig:
-        if self.mode != "managed_local":
+        # The in-memory default remains constructible; setup/load of an explicit
+        # managed_local deployment must provide the concrete runtime credentials.
+        if self.home is None and self.java_home is None and not self.password.get_secret_value():
             return self
         missing: list[str] = []
         if self.home is None:
@@ -317,6 +337,13 @@ class MemoryConfig(BaseModel):
     dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
+
+    @field_validator("enabled")
+    @classmethod
+    def _memory_is_required(cls, value: bool) -> bool:
+        if not value:
+            raise ValueError("memory.enabled cannot be false in V3.2")
+        return value
 
     @model_validator(mode="before")
     @classmethod

@@ -82,7 +82,7 @@ def _python_environment_check() -> DoctorCheck:
         name="python_environment",
         status=status,
         message=f"python={executable}",
-        suggestion="Use /Users/wylam/Documents/workspace/HomeMaster/.venv/bin/python"
+        suggestion="Use the project-managed .venv Python executable"
         if status == "WARN"
         else None,
         details={"executable": str(executable)},
@@ -95,7 +95,6 @@ def _import_checks() -> list[DoctorCheck]:
         "pydantic",
         "httpx",
         "typer",
-        "bm25s",
         "jieba",
         "mindmemos",
         "fastembed",
@@ -208,8 +207,10 @@ def _memory_backend_check() -> DoctorCheck:
     if not config.memory.enabled:
         return DoctorCheck(
             name="memory_backend",
-            status="WARN",
-            message="memory system is disabled by configuration",
+            status="FAIL",
+            message="memory system cannot be disabled in V3.2",
+            impact="memory is a required HomeMaster capability",
+            suggestion="Set memory.enabled to true or remove the field.",
             details={"enabled": False},
         )
     migration = MemoryMigrationCoordinator(config.memory).inspect()

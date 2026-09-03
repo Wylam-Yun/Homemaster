@@ -65,6 +65,13 @@ def test_memory_runtime_paths_are_relative_to_config_file(
     assert config.memory.migration_spec.files_source == runtime_root / "memory" / "files"
 
 
+def test_memory_cannot_be_disabled_in_v32(tmp_path: Path) -> None:
+    path = tmp_path / "homemaster.yaml"
+    path.write_text("memory:\n  enabled: false\n", encoding="utf-8")
+    with pytest.raises(Exception, match="memory.enabled cannot be false"):
+        load_config(path)
+
+
 def test_absolute_memory_runtime_paths_remain_unchanged(tmp_path: Path) -> None:
     absolute = tmp_path / "absolute"
     path = tmp_path / "homemaster.yaml"

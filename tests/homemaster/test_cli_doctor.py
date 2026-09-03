@@ -71,8 +71,9 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert memory["details"]["java_home"].endswith("java-home")
     assert payload["config_source"] == "config/homemaster.yaml"
     encoded = json.dumps(payload, ensure_ascii=False)
-    assert "doctor-chat-secret" in encoded
-    assert "doctor-embedding-secret" in encoded
+    assert "doctor-chat-secret" not in encoded
+    assert "doctor-embedding-secret" not in encoded
+    assert encoded.count("<redacted>") == 2
     assert "doctor-neo4j-secret" not in encoded
 
 
@@ -103,8 +104,8 @@ def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> No
     payload = json.loads(result.stdout)
     assert payload["checks"]
     encoded = json.dumps(payload, ensure_ascii=False)
-    assert "doctor-chat-secret" in encoded
-    assert "doctor-embedding-secret" in encoded
+    assert "doctor-chat-secret" not in encoded
+    assert "doctor-embedding-secret" not in encoded
     assert "doctor-neo4j-secret" not in encoded
 
 

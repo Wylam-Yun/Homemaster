@@ -379,8 +379,7 @@ def _finish_home_application(
         file_memory_store = FileMemoryStore(resolved.memory)
         frozen_memory_context = FrozenMemoryContextService(file_memory_store)
         memory_evidence_ledger = MemoryEvidenceLedger(resolved.memory.evidence_db_path)
-        if resolved.memory.neo4j.mode == "managed_local":
-            managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
+        managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
         mindmemos = EmbeddedMindMemOS(resolved)
         memory_add_queue = MemoryAddQueue(
             mindmemos,
@@ -414,14 +413,13 @@ def _finish_home_application(
                 lifetime=ResourceLifetime.APPLICATION,
             )
         )
-        if managed_neo4j is not None:
-            scope.bind(
-                ResourceBinding.owned(
-                    "managed-neo4j",
-                    managed_neo4j,
-                    lifetime=ResourceLifetime.APPLICATION,
-                )
+        scope.bind(
+            ResourceBinding.owned(
+                "managed-neo4j",
+                managed_neo4j,
+                lifetime=ResourceLifetime.APPLICATION,
             )
+        )
         scope.bind(
             ResourceBinding.owned(
                 "embedded-mindmemos",
@@ -452,10 +450,9 @@ def _finish_home_application(
             memory_migration.ensure_ready(auto_migrate=True)
             file_memory_store.start()
             memory_evidence_ledger.start()
-            if managed_neo4j is not None:
-                await managed_neo4j.start()
+            await managed_neo4j.start()
             await mindmemos.start()
-            if managed_neo4j is not None and not mindmemos.available:
+            if not mindmemos.available:
                 cause = mindmemos.unavailable_cause or "unknown startup failure"
                 raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
             await memory_add_queue.start()
@@ -582,7 +579,7 @@ def _finish_home_application(
                     "memory_enrichment_queue": memory_enrichment_queue,
                     "dreaming_coordinator": dreaming_coordinator,
                     "memory_migration": memory_migration,
-                    **({"managed_neo4j": managed_neo4j} if managed_neo4j is not None else {}),
+                    "managed_neo4j": managed_neo4j,
                     "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
                     / "memory_operations.jsonl",
                 }

@@ -104,8 +104,8 @@ ALFWorld benchmark 会切换到专用环境并从 `.runtime/alfworld` 使用本�
 但为避免误停外部替换服务，不会自动取得它的 stop 所有权。安装目录、Java 21 和认证信息来自上述私有 YAML；
 密码使用 `SecretStr`，不会进入 doctor 输出或对象 repr。`config/homemaster.yaml` 必须保持 mode 0600 且不提交 Git。
 
-`neo4j.mode: external` 保留原行为：HomeMaster 只连接 `uri`，既不启动也不停止外部 Neo4j。托管模式只支持同一
-节点共享；不要让不同节点用同一组 Neo4j 数据目录。Neo4j 的 `server.directories.data` 应指向该节点专属的
+V3.2 固定使用 `neo4j.mode: managed_local`：HomeMaster 只管理同一节点上的私有 Neo4j，不支持 external 远程
+模式。不要让不同节点用同一组 Neo4j 数据目录。Neo4j 的 `server.directories.data` 应指向该节点专属的
 持久目录，尤其不能与另一节点上仍在运行的 Neo4j 共用 `store_lock`。图数据仍按 Neo4j 的备份流程单独备份。
 
 全新 Neo4j 数据目录在第一次启动前，还要把 YAML 中的同一个密码写入 Neo4j（已启动过的数据库应使用正常的

@@ -81,7 +81,7 @@ memory:
   # across all HomeMaster instances on the same node. Keep the real password
   # only in the gitignored config/homemaster.yaml (chmod 600).
   neo4j:
-    mode: external
+    mode: managed_local
     home: ../.runtime/neo4j
     java_home: ../.runtime/java
     uri: bolt://127.0.0.1:7687

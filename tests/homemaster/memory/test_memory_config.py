@@ -107,10 +107,9 @@ def test_enabled_memory_requires_named_embedding_provider_with_embedding_kind() 
         HomeMasterConfig(providers={"items": [_embedding_provider(kind="chat")]})
 
 
-def test_disabled_memory_does_not_require_embedding_provider() -> None:
-    config = HomeMasterConfig(memory={"enabled": False})
-
-    assert config.memory.enabled is False
+def test_disabled_memory_is_rejected_in_v32() -> None:
+    with pytest.raises(ValidationError, match="memory.enabled cannot be false"):
+        HomeMasterConfig(memory={"enabled": False})
 
 
 def test_memory_config_captures_legacy_file_path_only_as_migration_input(tmp_path: Path) -> None:
