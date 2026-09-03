@@ -50,6 +50,14 @@ sync_args=(sync --frozen)
 if ((with_browser)); then sync_args+=(--extra browser); fi
 "$uv_bin" "${sync_args[@]}" --project "$repo_root"
 
+neo4j_home="${HOMEMASTER_NEO4J_HOME:-$repo_root/.runtime/neo4j}"
+java_home="${HOMEMASTER_JAVA_HOME:-$repo_root/.runtime/java}"
+if [[ ! -x "$neo4j_home/bin/neo4j" || ! -x "$neo4j_home/bin/neo4j-admin" ]]; then
+  asset_args=(--repo-root "$repo_root" --destination "$neo4j_home")
+  [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
+  "$repo_root/.venv/bin/python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
+fi
+
 config="$repo_root/config/homemaster.yaml"
 template="$repo_root/config/homemaster.example.yaml"
 mkdir -p "$(dirname "$config")"
@@ -74,8 +82,6 @@ else
   [[ "$(stat -c '%a' "$config")" == 600 ]] || { echo "private config must be mode 0600: $config" >&2; exit 2; }
 fi
 
-neo4j_home="${HOMEMASTER_NEO4J_HOME:-$repo_root/.runtime/neo4j}"
-java_home="${HOMEMASTER_JAVA_HOME:-$repo_root/.runtime/java}"
 python_path="$repo_root/.venv/bin/python"
 [[ -x "$neo4j_home/bin/neo4j" ]] || { echo "Neo4j executable is missing: $neo4j_home/bin/neo4j" >&2; exit 2; }
 [[ -x "$java_home/bin/java" ]] || { echo "Java executable is missing: $java_home/bin/java" >&2; exit 2; }

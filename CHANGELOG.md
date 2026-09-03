@@ -14,6 +14,9 @@
   range; Python dependencies remain pinned by `uv.lock`.
 - Published the clean Neo4j 2026.05.0 tar runtime as a GitHub Release asset and added
   `config/runtime-assets.lock.json` with its immutable URL and SHA256.
+- Added fail-closed Neo4j asset preparation: setup downloads the locked Release tar only when
+  the local runtime is absent, verifies SHA256, rejects unsafe archive paths, and publishes it
+  atomically without copying runtime data or logs.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
