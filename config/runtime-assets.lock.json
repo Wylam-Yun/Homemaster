@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "platform": "linux-x86_64",
+  "python": {
+    "version_range": ">=3.11,<3.12",
+    "provider": "uv-managed"
+  },
+  "uv": {
+    "version_range": ">=0.11,<0.13"
+  },
+  "java": {
+    "version": "21",
+    "provider": "runtime-managed",
+    "source": "adoptium"
+  },
+  "neo4j": {
+    "version": "2026.05.0",
+    "edition": "community",
+    "package": "tar",
+    "url": "https://github.com/Wylam-Yun/Homemaster/releases/download/v3.2-runtime-assets-20260903/neo4j-community-2026.05.0-unix.tar.gz",
+    "sha256": "f89c85951c5d59f4db029f0ef8a5574bcc30a4d56adf55f671a7ae56fe3eea2b"
+  }
+}

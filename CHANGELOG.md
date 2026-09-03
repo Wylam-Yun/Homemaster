@@ -12,6 +12,8 @@
   the project-managed `.venv`.
 - Relaxed the setup tool requirement from one exact uv release to the compatible `>=0.11,<0.13`
   range; Python dependencies remain pinned by `uv.lock`.
+- Published the clean Neo4j 2026.05.0 tar runtime as a GitHub Release asset and added
+  `config/runtime-assets.lock.json` with its immutable URL and SHA256.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,

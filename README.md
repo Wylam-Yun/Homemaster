@@ -121,6 +121,8 @@ V3.2 的可复现安装入口会创建项目虚拟环境、绑定本地 memory/N
 运行时 bundle 由 `./scripts/build_runtime_bundle.sh --output PATH` 生成。Neo4j 仅支持
 `managed_local`，连接地址必须是 loopback；真实密码由 setup 写入 gitignored 的配置文件。
 setup 要求 uv 处于兼容范围 `>=0.11,<0.13`；uv 本身不随项目 bundle 下载，实际版本会记录在环境诊断中。
+Neo4j 运行资产通过 [V3.2 runtime-assets Release](https://github.com/Wylam-Yun/Homemaster/releases/tag/v3.2-runtime-assets-20260903)
+分发，版本和 SHA256 记录在 `config/runtime-assets.lock.json`，不会提交到 Git。
 
 ### 1. 安装
 
