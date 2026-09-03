@@ -73,7 +73,8 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     encoded = json.dumps(payload, ensure_ascii=False)
     assert "doctor-chat-secret" not in encoded
     assert "doctor-embedding-secret" not in encoded
-    assert encoded.count("<redacted>") == 2
+    assert '"api_keys_configured": true' in encoded
+    assert '"api_key_count": 1' in encoded
     assert "doctor-neo4j-secret" not in encoded
 
 

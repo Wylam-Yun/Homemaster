@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Completed the V3.2 setup boundary hardening: provider diagnostics now expose only
+  `api_keys_configured` and `api_key_count`, setup preserves browser capability across reruns,
+  runtime bundle builds honor `HOMEMASTER_UV`, and README/pitfalls document the reproducible
+  setup and stale-build audit requirements.
+
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
   while ALFWorld moves to its own benchmark-owned package behind HomeMaster's single generic

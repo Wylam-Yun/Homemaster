@@ -21,6 +21,11 @@ case "$(uname -s):$(uname -m)" in
   *) echo "HomeMaster setup requires Linux x86_64" >&2; exit 2 ;;
 esac
 
+state_file="$repo_root/.runtime/setup-state.json"
+if (( ! with_browser )) && [[ -f "$state_file" ]] && grep -q '"browser"[[:space:]]*:[[:space:]]*true' "$state_file"; then
+  with_browser=1
+fi
+
 uv_bin="${HOMEMASTER_UV:-}"
 if [[ -z "$uv_bin" ]]; then uv_bin="$(command -v uv || true)"; fi
 if [[ -z "$uv_bin" || ! -x "$uv_bin" ]]; then
@@ -77,6 +82,9 @@ python_path="$repo_root/.venv/bin/python"
 if ((with_browser)); then
   "$python_path" -m playwright install chromium
 fi
+
+mkdir -p "$(dirname "$state_file")"
+printf '{"browser":%s}\n' "$([[ $with_browser -eq 1 ]] && echo true || echo false)" > "$state_file"
 
 export HOMEMASTER_CONFIG_PATH="$config"
 exec "$repo_root/scripts/homemaster" doctor --json

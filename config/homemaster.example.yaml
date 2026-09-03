@@ -86,7 +86,7 @@ memory:
     java_home: ../.runtime/java
     uri: bolt://127.0.0.1:7687
     username: neo4j
-    password: ""
+    password: "<set-during-setup>"
     database: neo4j
     start_timeout_seconds: 60
     stop_timeout_seconds: 30

@@ -16,8 +16,10 @@ done
 mkdir -p "$output/wheelhouse"
 rm -f "$output"/source.tar.gz "$output"/homemaster-*.whl "$output"/SHA256SUMS
 
+uv_bin="${HOMEMASTER_UV:-$(command -v uv || true)}"
+[[ -x "$uv_bin" ]] || { echo "uv executable is required (set HOMEMASTER_UV)" >&2; exit 2; }
 git -C "$repo_root" archive --format=tar.gz --prefix=Homemaster/ HEAD > "$output/source.tar.gz"
-uv build --wheel --out-dir "$output/wheelhouse" --project "$repo_root" >/dev/null
+"$uv_bin" build --wheel --out-dir "$output/wheelhouse" --project "$repo_root" >/dev/null
 cp "$repo_root/uv.lock" "$output/uv.lock"
 cp "$repo_root/config/homemaster.example.yaml" "$output/homemaster.example.yaml"
 printf 'browser=%s\n' "$with_browser" > "$output/bundle-metadata.txt"

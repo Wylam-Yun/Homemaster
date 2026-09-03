@@ -110,6 +110,17 @@ flowchart LR
 
 ## 快速开始
 
+V3.2 的可复现安装入口会创建项目虚拟环境、绑定本地 memory/Neo4j 运行时并输出 doctor JSON：
+
+```bash
+./scripts/setup.sh
+./scripts/setup.sh --with-browser
+./scripts/setup.sh --offline /path/to/runtime-bundle
+```
+
+运行时 bundle 由 `./scripts/build_runtime_bundle.sh --output PATH` 生成。Neo4j 仅支持
+`managed_local`，连接地址必须是 loopback；真实密码由 setup 写入 gitignored 的配置文件。
+
 ### 1. 安装
 
 需要 Python 3.11+，推荐使用 [uv](https://docs.astral.sh/uv/)：

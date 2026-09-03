@@ -144,7 +144,8 @@ class ProviderProfileConfig(BaseModel):
             "kind": self.kind,
             "auth_type": self.auth_type,
             "embedding_url": self.embedding_url,
-            "api_keys": ["<redacted>"] if self.api_keys else [],
+            "api_keys_configured": bool(self.api_keys),
+            "api_key_count": len(self.api_keys),
             "context_window_tokens": self.context_window_tokens,
             "max_output_tokens": self.max_output_tokens,
         }

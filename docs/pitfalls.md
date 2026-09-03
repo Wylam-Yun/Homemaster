@@ -1,5 +1,40 @@
 # Engineering Pitfalls
 
+## 2026-09-03 - V3.2 package audits can be invalidated by stale build metadata
+
+### 症状与根因
+
+删除可选 ALFWorld 或 bundled `node_modules` 后，wheel 仍可能从旧的 `build/` 与
+`homemaster.egg-info/SOURCES.txt` 重新打包这些路径。只检查源码树会得到假阳性。
+
+### 修法与教训
+
+每次发布 wheel 前清理构建产物，并在解压后的 wheel 上按路径黑盒扫描；将该扫描作为回归门，不能只依赖
+`pyproject.toml` 的 package-data 声明。
+
+### Ref
+
+- `setup.py`
+- `scripts/build_runtime_bundle.sh`
+- `tests/homemaster/skills/test_installed_package.py`
+
+## 2026-09-03 - Existing runtime bindings are not setup failures
+
+### 症状与根因
+
+幂等 setup 将已存在的 `.runtime/memory` symlink 当成冲突并拒绝运行，导致同一主机无法重跑 setup。
+根因是只检查路径存在，没有验证链接目标和运行时身份是否一致。
+
+### 修法与教训
+
+先解析并验证既有绑定目标，目标正确时复用；只有目标不匹配或类型错误才失败。setup 需要重复执行并保持
+外部服务状态不变。
+
+### Ref
+
+- `scripts/setup_memory_runtime.py`
+- `scripts/setup.sh`
+
 ## 2026-08-27 - V3.1 Playwright 依赖仍由已退役 Coworker extra 持有
 
 ### 症状与根因
