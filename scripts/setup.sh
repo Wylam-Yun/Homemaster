@@ -29,7 +29,12 @@ fi
 uv_bin="${HOMEMASTER_UV:-}"
 if [[ -z "$uv_bin" ]]; then uv_bin="$(command -v uv || true)"; fi
 if [[ -z "$uv_bin" || ! -x "$uv_bin" ]]; then
-  echo "uv executable is required (expected uv 0.12.9); install it or set HOMEMASTER_UV" >&2
+  echo "uv executable is required (supported range: >=0.11,<0.13); install it or set HOMEMASTER_UV" >&2
+  exit 2
+fi
+uv_version="$($uv_bin --version 2>/dev/null | awk '{print $2}')"
+if [[ ! "$uv_version" =~ ^0\.(11|12)(\.|$) ]]; then
+  echo "unsupported uv version: ${uv_version:-unknown} (supported range: >=0.11,<0.13)" >&2
   exit 2
 fi
 

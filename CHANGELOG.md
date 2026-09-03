@@ -10,6 +10,8 @@
   setup and stale-build audit requirements.
 - Doctor now resolves compatibility runtime symlinks before evaluating whether Python runs from
   the project-managed `.venv`.
+- Relaxed the setup tool requirement from one exact uv release to the compatible `>=0.11,<0.13`
+  range; Python dependencies remain pinned by `uv.lock`.
 
 - Specified the V3.2 delivery boundary in three reviewable documents: repository cleanup now
   centers on reproducible online/offline setup with mandatory memory and optional browser assets,
