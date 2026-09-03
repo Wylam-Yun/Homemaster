@@ -986,3 +986,5 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
 - 收紧 wheel 的 OpenCLI 资源清单，移除完整 `node_modules`；构建审计仍单独报告待处理的 ALFWorld Python 模块。
 - 增加构建期过滤钩子，确保通用 wheel 不携带 ALFWorld Python 模块；ALFWorld 代码仍保留在源码树供后续阶段迁移。
 - 将 ALFWorld 工具 import 延迟到显式 benchmark 环境，保证通用 wheel 在缺少 ALFWorld 依赖时仍可导入普通工具注册表。
+- 新增 `scripts/setup.sh` 与 `scripts/build_runtime_bundle.sh`，提供受校验的 managed_local 配置生成、运行时绑定和
+  离线源码/wheel bundle 入口；缺失锁定资产时显式失败。
