@@ -470,6 +470,7 @@ usage、thinking 与原始 tool 生命周期只留内部 JSONL。
 | [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md) | 实现不变量与数据流 |
 | [Browser Gateway 用户指南](docs/browser-gateway-user-guide.md) | 配置、演示输入与终态判据 |
 | [通用浏览器架构](docs/architecture/generic-browser-tools-phase1.md) | V3.1 owner、target、policy、vendor 与证据不变量 |
+| [浏览器操作架构交接](docs/architecture/browser-operation-handoff.md) | 8 层浏览器主链路（含记忆层）、层间关系、操作时序与排障 |
 | [Application Runtime 架构](docs/architecture/application-runtime.md) | Runtime owner 与数据流 |
 | [pitfalls](docs/pitfalls.md) | 历史踩坑记录 |
 

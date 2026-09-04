@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Added a browser-focused architecture handoff that records the eight-layer Web Console to Chromium
+  execution chain, including the memory/context bridge, event return path, target-ref/readback invariants,
+  and verified companion diagram.
+
 - Reconciled the hkust4 V3.2 snapshot onto the latest mainline, retaining locked Java/Neo4j
   runtime assets and historical document references while adding the phase-one execution plan.
 
