@@ -896,7 +896,9 @@ class EmbeddedMindMemOS:
                         kind="Memory", project_id=context.project_id, node_id=memory_id
                     ),
                     target=GraphNodeRef(
-                        kind="Memory", project_id=context.project_id, node_id=lineage_source_memory_id
+                        kind="Memory",
+                        project_id=context.project_id,
+                        node_id=lineage_source_memory_id,
                     ),
                     rel_type="DERIVED_FROM",
                     project_id=context.project_id,
@@ -1010,8 +1012,12 @@ class EmbeddedMindMemOS:
                     memory_id=memory_id,
                     source_memory_id=lineage_source_memory_id,
                 )
-                if lineage_rows != [{"derived_id": memory_id, "source_id": lineage_source_memory_id}]:
-                    raise RuntimeError("derived memory lineage terminal state could not be verified")
+                if lineage_rows != [
+                    {"derived_id": memory_id, "source_id": lineage_source_memory_id}
+                ]:
+                    raise RuntimeError(
+                        "derived memory lineage terminal state could not be verified"
+                    )
         except Exception as exc:
             await suppress_recording_errors(
                 self._recorder.mark_add_failed(context, add_record_id, str(exc)),

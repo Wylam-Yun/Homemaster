@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Cleared the full-source Ruff gate in the Neo4j startup and MindMemOS lineage paths without
+  changing their runtime behavior.
 - Ensured pre-model ALFWorld terminal paths start the owned runtime before trajectory admission, so
   setup-terminal records reach the queue and complete real external readback instead of remaining
   file-only artifacts.
