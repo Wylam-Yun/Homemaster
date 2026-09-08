@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Ensured pre-model ALFWorld terminal paths start the owned runtime before trajectory admission, so
+  setup-terminal records reach the queue and complete real external readback instead of remaining
+  file-only artifacts.
 - Completed the remaining V3.3 terminal-path guarantees: setup, selection, goal-advance, and
   not-run taskset outcomes now use the application-owned trajectory writer when memory services
   are running; repeated compilation admissions reuse the durable receipt for the same immutable

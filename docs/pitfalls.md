@@ -1,5 +1,24 @@
 # Engineering Pitfalls
 
+## 2026-09-08 - Pre-model terminal paths must start the memory runtime
+
+### 症状与根因
+
+ALFWorld reset/setup 在模型调用前失败时，runner 仍会生成 `trajectory_memory.json`，但 application-owned
+queue 尚未启动，导致文件证据存在而 Qdrant/Neo4j 没有对应 trajectory memory。只检查 artifact 会得到假阳性。
+
+### 修法与教训
+
+终止路径也必须先启动 application-owned runtime，再提交 trajectory writer；启动后逐项检查
+`queued -> stored -> readback_verified` 和外部 raw/lineage 终态。测试 fake 没有真实安装时才允许保留 file-only
+路径，不能把这种测试隔离状态当作生产成功。
+
+### Ref
+
+- `src/homemaster/adapters/alfworld_entry.py`
+- `src/homemaster/benchmarking/alfworld/runner.py`
+- `/tmp/hm-v33-episode-blackbox2/valid/v33-episode-blackbox2/episode-0001/runtime/runtime_events.jsonl`
+
 ## 2026-09-08 - Neo4j 2026 initial-password CLI changed its input contract
 
 ### 症状与根因

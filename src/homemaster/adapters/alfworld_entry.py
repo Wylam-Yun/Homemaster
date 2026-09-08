@@ -59,6 +59,12 @@ class AlfworldApplicationEntry:
             raise RuntimeError("ALFWorld application entry is closed")
         return self._runner.run(self.application.run(request))
 
+    def start(self) -> None:
+        """Start owned memory/runtime services before a pre-model terminal path."""
+        if self._closed:
+            raise RuntimeError("ALFWorld application entry is closed")
+        self._runner.run(self.application.start())
+
     def begin_session(self, session_id: str, *, exit_reason: str = "alfworld_episode_end") -> None:
         if session_id in self._sessions:
             raise RuntimeError(f"ALFWorld session is already open: {session_id}")

@@ -157,6 +157,7 @@ class AlfworldBenchmarkRunner:
                     transport_factory=self._transport_factory,
                     event_sink=runtime_sink,
                 )
+                _start_trajectory_runtime(entry)
                 entry.begin_session(episode_run_id, exit_reason="alfworld_episode_setup_failure")
                 try:
                     return _setup_terminal_episode_result(
@@ -593,6 +594,24 @@ def _started_trajectory_writer(entry: Any) -> Any | None:
     return writer
 
 
+def _start_trajectory_runtime(entry: Any) -> None:
+    """Start memory services when the entry has a real managed-local install."""
+    start = getattr(entry, "start", None)
+    if not callable(start):
+        return
+    bundle = getattr(entry, "bundle", None)
+    config = getattr(bundle, "config", None)
+    memory = getattr(config, "memory", None)
+    neo4j = getattr(memory, "neo4j", None)
+    if (
+        getattr(memory, "enabled", False)
+        and getattr(neo4j, "mode", None) == "managed_local"
+        and (getattr(neo4j, "home", None) is None or getattr(neo4j, "java_home", None) is None)
+    ):
+        return
+    start()
+
+
 def _terminal_tool_payload(
     tool_results: list[ToolResultMessage],
 ) -> Mapping[str, Any] | None:
@@ -745,6 +764,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 event_sink=runtime_sink,
             )
             session_id = f"{self.run_id}-{taskset.id}"
+            _start_trajectory_runtime(entry)
             entry.begin_session(session_id, exit_reason="alfworld_taskset_selection_failure")
             try:
                 return _taskset_selection_terminal_result(
@@ -787,6 +807,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 event_sink=runtime_sink,
             )
             application_session_id = f"{self.run_id}-{taskset.id}"
+            _start_trajectory_runtime(entry)
             entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
             trajectory_writer = _started_trajectory_writer(entry)
             first_subtask_dir = taskset_dir / "subtask-01"
