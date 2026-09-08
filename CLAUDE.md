@@ -390,6 +390,8 @@
 
 ## ALFWorld 外部执行纪律
 
+- 依赖锁定的 Java/Neo4j CLI 时，必须在目标发行版真机核对命令参数和返回码；不能把旧版 CLI 的帮助文本或
+  `--from-stdin` 等历史参数带入新发行版。初始化成功后还要验证 Neo4j readiness 和真实数据库 readback。
 - 跨机器部署 Java/Neo4j 时只铺设经过 hash 校验的干净发行包，不能复制正在使用的 installation directory。
   启动前逐项扫描 `neo4j.conf` 的 data/logs/run 路径和安装目录内的 PID/锁/数据状态，并在目标机执行
   `neo4j-admin server validate-config --verbose` 核对退出码；源码测试、import 成功或 binary version 相同

@@ -326,10 +326,14 @@ class ManagedNeo4jRuntime:
         try:
             completed = await asyncio.to_thread(
                 subprocess.run,
-                [str(self._neo4j.home / "bin" / "neo4j-admin"), "dbms", "set-initial-password", "--from-stdin"],
+                [
+                    str(self._neo4j.home / "bin" / "neo4j-admin"),
+                    "dbms",
+                    "set-initial-password",
+                    self._neo4j.password.get_secret_value(),
+                ],
                 cwd=self._neo4j.home,
                 env=env,
-                input=self._neo4j.password.get_secret_value() + "\n",
                 capture_output=True,
                 text=True,
                 check=False,

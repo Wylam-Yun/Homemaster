@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Completed the remaining V3.3 terminal-path guarantees: setup, selection, goal-advance, and
+  not-run taskset outcomes now use the application-owned trajectory writer when memory services
+  are running; repeated compilation admissions reuse the durable receipt for the same immutable
+  source memory and compiler version. Web composition remains compatible with reduced test bundles.
 - Implemented V3.3 ALFWorld trajectory memory: every episode/taskset subtask now emits an independently hashed
   outcome record; verified successful paths can produce durable derived experiences with `DERIVED_FROM` lineage,
   while failure/unknown paths remain non-executable diagnostics. Added Web memory projection and compile-job UI/API.

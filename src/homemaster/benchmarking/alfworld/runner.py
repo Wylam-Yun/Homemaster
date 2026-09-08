@@ -148,11 +148,27 @@ class AlfworldBenchmarkRunner:
         )
         if isinstance(reset_result, AlfworldResetResult):
             if not reset_result.ready:
-                return _setup_terminal_episode_result(
-                    reset_result=reset_result,
-                    episode_run_id=episode_run_id,
-                    trace=trace,
+                runtime_sink = JsonlEventSink(episode_dir / "runtime")
+                entry = AlfworldApplicationEntry(
+                    config=load_config(self.config.provider_config),
+                    memory_mode=self.config.memory_mode,
+                    runtime_root=episode_dir / "application",
+                    session_root=episode_dir / "sessions",
+                    transport_factory=self._transport_factory,
+                    event_sink=runtime_sink,
                 )
+                entry.begin_session(episode_run_id, exit_reason="alfworld_episode_setup_failure")
+                try:
+                    return _setup_terminal_episode_result(
+                        reset_result=reset_result,
+                        episode_run_id=episode_run_id,
+                        trace=trace,
+                        writer=_started_trajectory_writer(entry),
+                    )
+                finally:
+                    entry.end_session(episode_run_id)
+                    entry.close()
+                    runtime_sink.close()
             assert reset_result.state is not None
             state = reset_result.state
         else:
@@ -478,6 +494,7 @@ def _setup_terminal_episode_result(
     reset_result: AlfworldResetResult,
     episode_run_id: str,
     trace: AlfworldTraceWriter,
+    writer: Any | None = None,
 ) -> AlfworldEpisodeResult:
     trace.write_event(
         {
@@ -532,8 +549,7 @@ def _setup_terminal_episode_result(
     summary["source_trace_sha256"] = source_trace_sha256
     trace.write_summary(summary)
     trace.write_trajectory(summary)
-    trace.write_trajectory_memory(
-        AlfworldTrajectoryRecord(
+    record = AlfworldTrajectoryRecord(
             trajectory_id=trajectory_id,
             source_session_id=episode_run_id,
             run_id=episode_run_id,
@@ -552,8 +568,10 @@ def _setup_terminal_episode_result(
                 invalid_action_count=0,
                 goal_condition_success_rate=0.0,
             ),
-        ).model_dump(mode="json")
-    )
+        )
+    trace.write_trajectory_memory(record.model_dump(mode="json"))
+    if writer is not None:
+        writer.enqueue(record)
     return episode_result
 
 
@@ -563,6 +581,16 @@ def _episode_failure_reason(error_code: str | None, done: bool) -> str:
     if done:
         return "done_without_won"
     return "not_won"
+
+
+def _started_trajectory_writer(entry: Any) -> Any | None:
+    writer = getattr(getattr(entry, "bundle", None), "trajectory_writer", None)
+    if writer is None:
+        return None
+    queue = getattr(writer, "_queue", None)
+    if queue is not None and getattr(queue, "started", True) is not True:
+        return None
+    return writer
 
 
 def _terminal_tool_payload(
@@ -707,11 +735,29 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         try:
             trial_inputs = self._taskset_trial_inputs(taskset)
         except (OSError, ValueError) as exc:
-            return _taskset_selection_terminal_result(
-                taskset=taskset,
-                taskset_dir=taskset_dir,
-                detail=str(exc),
+            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
+            entry = AlfworldApplicationEntry(
+                config=load_config(self.config.provider_config),
+                memory_mode=self.config.memory_mode,
+                runtime_root=taskset_dir / "application",
+                session_root=taskset_dir / "sessions",
+                transport_factory=self._transport_factory,
+                event_sink=runtime_sink,
             )
+            session_id = f"{self.run_id}-{taskset.id}"
+            entry.begin_session(session_id, exit_reason="alfworld_taskset_selection_failure")
+            try:
+                return _taskset_selection_terminal_result(
+                    taskset=taskset,
+                    taskset_dir=taskset_dir,
+                    detail=str(exc),
+                    taskset_run_id=self.run_id,
+                    writer=_started_trajectory_writer(entry),
+                )
+            finally:
+                entry.end_session(session_id)
+                entry.close()
+                runtime_sink.close()
 
         first_selection, _ = trial_inputs[0]
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
@@ -728,6 +774,21 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         runtime_sink: JsonlEventSink | None = None
 
         try:
+            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
+            translator = create_translator(self.config.env_type)
+            provider_profile = self._resolve_provider_profile()
+            config = load_config(self.config.provider_config)
+            entry = AlfworldApplicationEntry(
+                config=config,
+                memory_mode=self.config.memory_mode,
+                runtime_root=taskset_dir / "application",
+                session_root=taskset_dir / "sessions",
+                transport_factory=self._transport_factory,
+                event_sink=runtime_sink,
+            )
+            application_session_id = f"{self.run_id}-{taskset.id}"
+            entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
+            trajectory_writer = _started_trajectory_writer(entry)
             first_subtask_dir = taskset_dir / "subtask-01"
             first_trace = AlfworldTraceWriter(first_subtask_dir)
             adapter.set_frame_dir(first_subtask_dir / "frames")
@@ -761,6 +822,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                         row=row,
                         trace=AlfworldTraceWriter(taskset_dir / f"subtask-{row.index + 1:02d}"),
                         taskset_run_id=self.run_id,
+                        writer=trajectory_writer,
                     )
                 root_terminal = _taskset_root_terminal(
                     phase="reset_setup",
@@ -786,21 +848,6 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
             benchmark_control_action_count = 0
             root_terminal: TasksetRootTerminal | None = None
             subtask_results: list[SubtaskResult] = []
-            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
-            translator = create_translator(self.config.env_type)
-            provider_profile = self._resolve_provider_profile()
-            config = load_config(self.config.provider_config)
-            entry = AlfworldApplicationEntry(
-                config=config,
-                memory_mode=self.config.memory_mode,
-                runtime_root=taskset_dir / "application",
-                session_root=taskset_dir / "sessions",
-                transport_factory=self._transport_factory,
-                event_sink=runtime_sink,
-            )
-            application_session_id = f"{self.run_id}-{taskset.id}"
-            entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
-
             for idx, subtask in enumerate(taskset.subtasks):
                 selection, traj_data = trial_inputs[idx]
                 subtask_dir = taskset_dir / f"subtask-{idx + 1:02d}"
@@ -862,6 +909,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                                     taskset_dir / f"subtask-{pending_idx + 1:02d}"
                                 ),
                                 taskset_run_id=self.run_id,
+                                writer=trajectory_writer,
                             )
                             subtask_results.append(pending_result)
                         root_terminal = _taskset_root_terminal(
@@ -995,7 +1043,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     row=completed_result,
                     trace=trace,
                     taskset_run_id=self.run_id,
-                    writer=getattr(getattr(entry, "bundle", None), "trajectory_writer", None),
+                    writer=trajectory_writer,
                     final_state=final_state,
                     task=subtask.instruction,
                     subtask_run_id=subtask_run_id,
@@ -1020,6 +1068,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                                 taskset_dir / f"subtask-{pending_idx + 1:02d}"
                             ),
                             taskset_run_id=self.run_id,
+                            writer=trajectory_writer,
                         )
                         subtask_results.append(pending_result)
                     root_terminal = _taskset_root_terminal(
@@ -1254,6 +1303,8 @@ def _taskset_selection_terminal_result(
     taskset: Taskset,
     taskset_dir: Path,
     detail: str,
+    taskset_run_id: str,
+    writer: Any | None = None,
 ) -> TasksetResult:
     trace = AlfworldTraceWriter(taskset_dir / "subtask-01")
     trace.write_event(
@@ -1275,6 +1326,14 @@ def _taskset_selection_terminal_result(
         )
         for index, subtask in enumerate(taskset.subtasks)
     ]
+    for row in rows:
+        _write_taskset_trajectory_memory(
+            taskset=taskset,
+            row=row,
+            trace=AlfworldTraceWriter(taskset_dir / f"subtask-{row.index + 1:02d}"),
+            taskset_run_id=taskset_run_id,
+            writer=writer,
+        )
     control_record = AlfworldControlTerminalRecord(
         phase="reset_setup",
         trigger_code="expected_manifest_mismatch",

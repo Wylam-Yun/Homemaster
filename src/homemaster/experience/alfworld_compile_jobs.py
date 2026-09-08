@@ -37,6 +37,9 @@ class AlfworldCompileJobService:
         memory_id = memory_id.strip()
         if not memory_id:
             raise ValueError("memory_id must not be empty")
+        existing = self._find_existing(memory_id)
+        if existing is not None:
+            return {"job_id": str(existing["job_id"]), "status": str(existing["status"])}
         job_id = str(uuid4())
         job = {
             "schema_version": 1,
@@ -59,6 +62,27 @@ class AlfworldCompileJobService:
             work=work,
         )
         return {"job_id": job_id, "status": "queued"}
+
+    def _find_existing(self, memory_id: str) -> dict[str, Any] | None:
+        """Reuse a receipt for this immutable source/compiler pair."""
+        if not self._jobs_root.is_dir():
+            return None
+        matches: list[dict[str, Any]] = []
+        for path in self._jobs_root.glob("*.json"):
+            try:
+                candidate = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if (
+                candidate.get("memory_id") == memory_id
+                and candidate.get("compiler_version") == COMPILER_VERSION
+                and isinstance(candidate.get("job_id"), str)
+                and isinstance(candidate.get("status"), str)
+            ):
+                matches.append(candidate)
+        if not matches:
+            return None
+        return max(matches, key=lambda item: str(item.get("job_id", "")))
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         path = self._path(job_id.strip())

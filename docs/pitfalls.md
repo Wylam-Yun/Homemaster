@@ -1,5 +1,22 @@
 # Engineering Pitfalls
 
+## 2026-09-08 - Neo4j 2026 initial-password CLI changed its input contract
+
+### 症状与根因
+
+真实 MindMemOS 启动在 managed-local Neo4j 初始化阶段失败，错误末尾只显示 `--verbose` 帮助行，容易误判为
+Neo4j 安装路径或 Java 版本错误。实际锁定的 Neo4j 2026.05.0 已不接受旧版 `--from-stdin`，要求密码作为位置参数。
+
+### 修法与教训
+
+先在目标安装上执行 `neo4j-admin ... --help` 核对真实 CLI contract，再修正调用为位置参数；同时保留
+`JAVA_HOME`/`PATH` 的显式绑定。外部命令返回码和真实服务启动/readiness 必须单独验收，不能只看路径存在。
+
+### Ref
+
+- `src/homemaster/memory/managed_neo4j.py`
+- `tests/homemaster/memory/test_managed_neo4j_runtime.py`
+
 ## 2026-09-08 - ALFWorld runner tests isolated MindMemOS but still started real Neo4j
 
 ### 症状与根因

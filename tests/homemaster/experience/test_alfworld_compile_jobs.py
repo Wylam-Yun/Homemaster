@@ -115,3 +115,17 @@ async def test_compile_job_hash_tamper_fails_without_derived_write(tmp_path):
     assert receipt["status"] == "failed"
     assert receipt["error_code"] == "ValueError"
     assert calls == []
+
+
+def test_compile_job_admission_is_idempotent_for_same_source_and_compiler(tmp_path):
+    service = AlfworldCompileJobService(
+        SimpleNamespace(),
+        Queue(),
+        jobs_root=tmp_path / "jobs",
+        event_sink=SimpleNamespace(emit=lambda event: None),
+    )
+
+    first = service.enqueue("source-memory")
+    second = service.enqueue("source-memory", session_id="different-session")
+
+    assert second == first
