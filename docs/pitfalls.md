@@ -1,5 +1,25 @@
 # Engineering Pitfalls
 
+## 2026-09-08 - ALFWorld runner tests isolated MindMemOS but still started real Neo4j
+
+### 症状与根因
+
+ALFWorld runner 测试只 monkeypatch `EmbeddedMindMemOS`，但完整 application composition 仍创建并启动
+`ManagedNeo4jRuntime`。默认测试配置没有 `neo4j.home` 和 `java_home`，因此业务循环开始前就在安装校验
+处失败；修复后又暴露出 fake MindMemOS 缺少 session finalizer 的 `add_vanilla`/反馈接口。
+
+### 修法与教训
+
+测试夹具必须隔离 application-owned 外部资源闭包，而不是只替换其中一个 backend；runner 测试使用 no-op
+Neo4j runtime，并让 MindMemOS fake 覆盖真实 session 收尾的最小契约。生产 Neo4j 路径校验保持严格，
+集成测试另行使用真实安装和黑盒终态验证。
+
+### Ref
+
+- `tests/homemaster/benchmarking/test_alfworld_runner.py`
+- `src/homemaster/cli/composition.py`
+- `src/homemaster/memory/managed_neo4j.py`
+
 ## 2026-09-03 - V3.2 package audits can be invalidated by stale build metadata
 
 ### 症状与根因

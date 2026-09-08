@@ -48,7 +48,9 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
             "data_root": tmp_path / "memory",
             "embedding_dimensions": 4096,
             "neo4j": {
-                "uri": "bolt://neo4j.internal:7687",
+                "home": tmp_path / "neo4j",
+                "java_home": tmp_path / "java",
+                "uri": "bolt://127.0.0.1:7687",
                 "username": "homemaster",
                 "password": "neo4j-test-password",
                 "database": "memory",
@@ -74,7 +76,7 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     assert embedding.dimensions == 4096
     assert mapped.embed_model_router.dimensions_supported_models == ["Qwen/Qwen3-Embedding-8B"]
     assert mapped.database.qdrant.vector_size == 4096
-    assert mapped.database.neo4j.uri == "bolt://neo4j.internal:7687"
+    assert mapped.database.neo4j.uri == "bolt://127.0.0.1:7687"
     assert mapped.database.neo4j.username == "homemaster"
     assert mapped.database.neo4j.password == "neo4j-test-password"
     assert mapped.database.neo4j.database == "memory"

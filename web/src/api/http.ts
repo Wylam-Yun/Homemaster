@@ -28,6 +28,17 @@ export type ManagedMemory = {
   record: Record<string, unknown> | null
   structure_status: 'plain' | 'valid' | 'invalid'
   has_history: boolean
+  domain?: string | null
+  outcome?: 'success' | 'failure' | 'unknown' | null
+  classification?: string | null
+  goal_type?: string | null
+  episode_id?: string | null
+  taskset_id?: string | null
+  subtask_index?: number | null
+  is_executable?: boolean | null
+  source_trajectory_id?: string | null
+  derived_memory_id?: string | null
+  compile_status?: string | null
 }
 
 export type MemoryGroup = {
@@ -40,6 +51,7 @@ export type MemoryGroup = {
 
 export type MemorySnapshot = { stats: MemoryStats; groups: MemoryGroup[] }
 export type MemoryHistory = { memory_id: string; versions: ManagedMemory[] }
+export type CompileJob = { job_id: string; status: string; memory_id?: string; derived_memory_id?: string; error?: string }
 
 export class HttpError extends Error {
   constructor(
@@ -75,6 +87,14 @@ export class HomeMasterApi {
 
   memoryHistory(memoryId: string): Promise<MemoryHistory> {
     return this.request(`/api/memories/${encodeURIComponent(memoryId)}/history`)
+  }
+
+  compileMemory(memoryId: string): Promise<CompileJob> {
+    return this.request(`/api/memories/${encodeURIComponent(memoryId)}/compile`, { method: 'POST' })
+  }
+
+  compileStatus(jobId: string): Promise<CompileJob> {
+    return this.request(`/api/memory-compilations/${encodeURIComponent(jobId)}`)
   }
 
   sendMessage(sessionId: string, requestId: string, text: string): Promise<{ accepted: boolean }> {

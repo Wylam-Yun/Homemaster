@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Implemented V3.3 ALFWorld trajectory memory: every episode/taskset subtask now emits an independently hashed
+  outcome record; verified successful paths can produce durable derived experiences with `DERIVED_FROM` lineage,
+  while failure/unknown paths remain non-executable diagnostics. Added Web memory projection and compile-job UI/API.
+
 - Reconciled the hkust4 V3.2 snapshot onto the latest mainline, retaining locked Java/Neo4j
   runtime assets and historical document references while adding the phase-one execution plan.
 

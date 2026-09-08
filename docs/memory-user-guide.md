@@ -2,6 +2,10 @@
 
 ## 自动经验召回
 
+ALFWorld 轨迹与派生经验在记忆管理页面中显示为独立类型，并标注成功/失败/未知、classification、goal 或
+subtask identity、可执行状态和编译状态。Web 的编译按钮只提交服务端 job；最终状态必须通过 job receipt 和
+记忆 lineage readback 判断。失败与 unknown 轨迹不会获得执行权限。
+
 Runtime 只在两个时机自动召回：新 Session 的第一条消息，以及 Compact 真正产生压缩结果后的
 下一条用户消息。新 Session 直接用原始用户文本搜索；Compact 后的 Query 由 Compact Summary、
 TaskState 和当前用户消息确定性组成。

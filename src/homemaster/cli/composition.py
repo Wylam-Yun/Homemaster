@@ -22,6 +22,7 @@ from homemaster.application import (
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
+from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryWriter
 from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feishu_group_tools
 from homemaster.cli.live_output import RichStreamEventSink
 from homemaster.cli.rich_renderer import RichOutputRenderer
@@ -34,6 +35,7 @@ from homemaster.events.sinks import (
 )
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
 from homemaster.experience import (
+    AlfworldCompileJobService,
     DreamingCoordinator,
     DreamingStateStore,
     SessionFinalizationController,
@@ -79,6 +81,8 @@ class HomeApplicationBundle:
     tool_services: HomeToolServices | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
+    trajectory_writer: AlfworldTrajectoryWriter | None = None
+    alfworld_compile_jobs: AlfworldCompileJobService | None = None
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
     session_finalization: SessionFinalizationController | None = None
@@ -371,6 +375,8 @@ def _finish_home_application(
     managed_neo4j: ManagedNeo4jRuntime | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
+    trajectory_writer: AlfworldTrajectoryWriter | None = None
+    alfworld_compile_jobs: AlfworldCompileJobService | None = None
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
@@ -384,6 +390,16 @@ def _finish_home_application(
         memory_add_queue = MemoryAddQueue(
             mindmemos,
             audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
+        )
+        trajectory_writer = AlfworldTrajectoryWriter(
+            mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
+        )
+        alfworld_compile_jobs = AlfworldCompileJobService(
+            mindmemos,
+            memory_add_queue,
+            jobs_root=resolved.memory.data_root / "alfworld-compilations",
+            event_sink=bus,
+            tenant_id=memory_tenant_id,
         )
         memory_enrichment_queue = MemoryEnrichmentQueue(
             mindmemos,
@@ -576,6 +592,8 @@ def _finish_home_application(
                     "memory_evidence_ledger": memory_evidence_ledger,
                     "mindmemos": mindmemos,
                     "memory_add_queue": memory_add_queue,
+                    "trajectory_writer": trajectory_writer,
+                    "alfworld_compile_jobs": alfworld_compile_jobs,
                     "memory_enrichment_queue": memory_enrichment_queue,
                     "dreaming_coordinator": dreaming_coordinator,
                     "memory_migration": memory_migration,
@@ -610,6 +628,8 @@ def _finish_home_application(
         tool_services=tool_services,
         mindmemos=mindmemos,
         memory_add_queue=memory_add_queue,
+        trajectory_writer=trajectory_writer,
+        alfworld_compile_jobs=alfworld_compile_jobs,
         memory_enrichment_queue=memory_enrichment_queue,
         dreaming_coordinator=dreaming_coordinator,
         session_finalization=session_finalization,

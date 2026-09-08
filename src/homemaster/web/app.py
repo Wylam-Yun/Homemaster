@@ -39,9 +39,7 @@ _WEB_PERMISSION_SUBJECT = PermissionSubject(
     roles=_DEFAULT_SUBJECT.roles,
     tenant_id=_DEFAULT_SUBJECT.tenant_id,
     capabilities=tuple(
-        capability
-        for capability in _DEFAULT_SUBJECT.capabilities
-        if capability != "tool.auto"
+        capability for capability in _DEFAULT_SUBJECT.capabilities if capability != "tool.auto"
     ),
 )
 
@@ -51,6 +49,7 @@ def create_web_app(
     application: Any,
     confirmation_handler: WebConfirmationHandler,
     memory_management_service: MemoryManagementService | None = None,
+    alfworld_compile_jobs: Any | None = None,
 ) -> FastAPI:
     """Build a Web adapter around one long-lived ApplicationRuntime."""
 
@@ -90,6 +89,7 @@ def create_web_app(
     app.state.run_registry = run_registry
     app.state.event_hub = hub
     app.state.memory_management_service = memory_management_service
+    app.state.alfworld_compile_jobs = alfworld_compile_jobs
     app.state.aclose = close_resources
 
     @app.exception_handler(RequestValidationError)
@@ -159,9 +159,7 @@ def create_web_app(
                 retryable=True,
             )
         try:
-            snapshot = await service.snapshot(
-                tenant_id=_WEB_PERMISSION_SUBJECT.tenant_id
-            )
+            snapshot = await service.snapshot(tenant_id=_WEB_PERMISSION_SUBJECT.tenant_id)
         except Exception:
             logger.exception("web_memory_snapshot_failed")
             return _error(
@@ -171,6 +169,45 @@ def create_web_app(
                 retryable=True,
             )
         return MemorySnapshotResponse.from_domain(snapshot).model_dump(mode="json")
+
+    @app.post("/api/memories/{memory_id}/compile", status_code=202)
+    async def compile_memory(memory_id: str) -> object:
+        service = app.state.alfworld_compile_jobs
+        if service is None:
+            return _error(
+                503, "memory_unavailable", "Memory compiler is unavailable.", retryable=True
+            )
+        try:
+            return service.enqueue(memory_id, session_id="web-memory-management")
+        except ValueError:
+            return _error(400, "invalid_memory_id", "The memory ID is invalid.", retryable=False)
+        except Exception:
+            logger.exception("web_memory_compile_admission_failed", extra={"memory_id": memory_id})
+            return _error(
+                503,
+                "compile_admission_failed",
+                "The compile job could not be accepted.",
+                retryable=True,
+            )
+
+    @app.get("/api/memory-compilations/{job_id}")
+    async def compile_status(job_id: str) -> object:
+        service = app.state.alfworld_compile_jobs
+        if service is None:
+            return _error(
+                503, "memory_unavailable", "Memory compiler is unavailable.", retryable=True
+            )
+        try:
+            job = service.get(job_id)
+        except ValueError:
+            return _error(
+                404, "compile_job_not_found", "The compile job does not exist.", retryable=False
+            )
+        if job is None:
+            return _error(
+                404, "compile_job_not_found", "The compile job does not exist.", retryable=False
+            )
+        return job
 
     @app.get("/api/memories/{memory_id}/history")
     async def memory_history(memory_id: str) -> object:
@@ -202,9 +239,7 @@ def create_web_app(
                 "Memory data could not be read.",
                 retryable=True,
             )
-        return MemoryHistoryResponse.from_domain(memory_id, versions).model_dump(
-            mode="json"
-        )
+        return MemoryHistoryResponse.from_domain(memory_id, versions).model_dump(mode="json")
 
     @app.post("/api/sessions/{session_id}/messages", status_code=202)
     async def send_message(session_id: str, body: SendMessageRequest) -> object:

@@ -39,8 +39,12 @@ class AlfworldApplicationEntry:
             runtime_root=runtime_root,
             session_root=session_root,
         )
-        if self.bundle.mindmemos is None or self.bundle.memory_add_queue is None:
-            raise RuntimeError("ALFWorld benchmark requires embedded MindMemOS")
+        if (
+            self.bundle.mindmemos is None
+            or self.bundle.memory_add_queue is None
+            or self.bundle.trajectory_writer is None
+        ):
+            raise RuntimeError("ALFWorld benchmark requires embedded MindMemOS trajectory writer")
         self.application = self.bundle.application
         if transport_factory is not None:
             self.application.provider_factory = lambda _request, _run_id: transport_factory()

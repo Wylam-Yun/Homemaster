@@ -360,7 +360,36 @@ def _patch_empty_mindmemos(monkeypatch: Any) -> None:
         async def search(self, **_kwargs: object) -> list[object]:
             return []
 
+        async def add_vanilla(self, *_args: object, **_kwargs: object) -> object:
+            return SimpleNamespace(
+                add_record_id="alfworld-test-add",
+                result=SimpleNamespace(status="ok", memories=[]),
+            )
+
+        async def feedback_implicit(self, _context: object) -> object:
+            return SimpleNamespace(status="ok", message=None, actions=[])
+
+        async def add_trajectory_memory(self, record: object, *, context: object) -> object:
+            del context
+            return {
+                "memory_id": "trajectory-" + str(record.trajectory_id),
+                "readback_verified": True,
+            }
+
+    class NoopManagedNeo4jRuntime:
+        started = False
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def close(self) -> None:
+            self.started = False
+
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", EmptyMindMemOS)
+    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", NoopManagedNeo4jRuntime)
 
 
 def _attach_fake_screenshot(
@@ -515,8 +544,8 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert summary.success_rate == 1.0
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
-    assert transport.call_count == 7
-    assert counts["screenshot"] == 4
+    assert transport.call_count == 6
+    assert counts["screenshot"] == 6
     assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
     assert any(
         block.type == "image" for message in transport.seen_messages[1] for block in message.content
@@ -925,7 +954,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path, monkeypatch: Any
     assert summary.episodes[0].steps == 2
     assert summary.episodes[0].failure_reason == "benchmark_env_step_limit"
     assert fake_env.step_count == 2
-    assert transport.call_count == 5
+    assert transport.call_count == 4
 
 
 def test_runner_stops_on_terminal_outcome_before_next_llm_call(tmp_path: Path) -> None:

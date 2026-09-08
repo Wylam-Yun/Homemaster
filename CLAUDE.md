@@ -153,6 +153,9 @@
 
 ## 测试工作区纪律
 
+- application composition 测试必须隔离完整的 application-owned 外部资源闭包；只 mock MindMemOS 或单个
+  backend 不能阻止同一 composition 启动真实 Neo4j/其他外部服务。fake 必须覆盖真实生命周期和测试路径实际
+  调用的最小接口；生产资源校验不得为迁就单测而放宽。
 - 设计/实施规范点名的验收测试文件必须逐个进入最终命令，并记录实际 collected 文件/用例集合；禁止用相邻
   测试、手写子集或汇总通过数推断未收集文件也通过。扩大测试集合暴露遗漏后，先迁移或修复遗漏测试，再重跑
   package-data 和真实外部终态门。

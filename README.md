@@ -44,7 +44,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
 - **分层记忆系统** — `SOUL.md` / `USER.md` / `MEMORY.md` 三层本地文件记忆 + embedded MindMemOS
   结构化检索（本地 Qdrant + Neo4j）；支持自动召回、用户反馈纠正、会话结束隐式反馈，以及每 8 条有效
   新增记忆触发的可恢复 dreaming。具有明确结束点的入口共用异步 Session Finalizer；切换 session 不等待，
-  正常关闭时统一 drain。
+  正常关闭时统一 drain；ALFWorld episode/taskset subtask 另保存带结果和 source hash 的 trajectory memory，
+  成功轨迹可从 Web 管理页提交为带 lineage 的派生经验。
 - **飞书 Gateway** — 私聊、免 @ 群消息、thread 回复、图片/音视频/文件收发、建群/改名，以及权限策略
   真正返回 `requires_confirmation=True` 时的同消息卡片审批；
   可叠加 ALFWorld 具身环境或隔离的 Playwright 浏览器会话。

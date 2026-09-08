@@ -1,5 +1,132 @@
 # Session Handoff
 
+## Household Embodied Permission Design Discussion (2026-09-08)
+
+### Current Direction
+
+- The next permission design focuses on the robot's physical scope, not on expanding
+  user roles. The main questions are which areas the robot may enter, which object
+  categories it may touch or operate, and which actions it may perform.
+- The authorization decision must be deterministic and rule-based. The model may
+  propose an action or a rule update, but it must not decide by itself to bypass
+  `ASK`, broaden a rule, or persist an allow rule.
+- Object-category permission is the default long-lived granularity. Exact-object
+  permission is reserved for a later user-defined scene mechanism.
+
+### User Decision Contract
+
+When the policy engine requires a decision, the user sees exactly three choices:
+
+1. `同意执行这一次`
+2. `以后无需审批`
+3. `拒绝执行`
+
+Semantics:
+
+- `同意执行这一次`: authorize the current physical request only; persistent rules
+  are unchanged.
+- `以后无需审批`: persist an allow rule for the normalized area, object category,
+  and action scope.
+- `拒绝执行`: reject the current request; do not create a permanent deny rule yet.
+
+The UI should describe the physical intent rather than expose tool names such as
+`robot_navigate` or `robot_manipulate`.
+
+### Deterministic Flow
+
+```text
+Agent proposes action
+    -> normalize area/object category/action
+    -> Home policy rule engine
+    -> ALLOW / ASK / DENY
+    -> user decision when ASK
+    -> one-time authorization or persistent rule update
+    -> existing PermissionChecker
+    -> device lease
+    -> robot backend
+```
+
+The rule engine decides whether to ask. Existing confirmation in `ToolExecutor`
+already occurs before device lease acquisition and backend invocation, so it is the
+natural enforcement point.
+
+Conceptual request:
+
+```text
+PhysicalActionRequest
+- household_id
+- robot_id
+- area_id(s)
+- object_category
+- action
+- current task/request identity
+```
+
+Conceptual persistent rule:
+
+```text
+AllowRule
+- household_id
+- robot_id
+- area scope
+- object category
+- action
+- enabled / revoked state
+```
+
+The exact schema is not approved yet. The design still needs to decide whether a
+long-lived rule is bound to one robot or all robots in the household, and whether
+one-time approval covers one tool call or the current continuous task intent.
+
+### Invariants
+
+- Natural-language room/object names are not authorization targets until resolved to
+  authoritative area/object identities.
+- An approval must never imply access to other areas, object categories, or actions.
+- A persistent rule is written only after the user selects `以后无需审批`.
+- A missing or denied rule must prevent device lease acquisition and real backend
+  invocation.
+- `tool.auto` and generic `device.control` cannot bypass the home resource policy.
+- User-defined object scenes are a future composition layer over these same rules,
+  not a second authorization system.
+
+### Current Code Mapping
+
+- `src/homemaster/permissions/policy.py` currently checks global capabilities,
+  paths, commands, tools, and permission mode; it has no area/object/action rules.
+- `src/homemaster/tools/executor.py` is already the pre-lease/pre-backend gate.
+- `src/homemaster/domain/tools.py` currently exposes natural-language fields such as
+  `room_hint`, `target_room`, and `target_object`.
+- `src/homemaster/benchmarking/alfworld/tools.py` has more precise grounding and
+  exact target metadata; that is a reference for resource identity, not an
+  authorization decision.
+- `src/homemaster/devices/` supplies device identity, leases, fencing, emergency
+  stop, state observation, and audit below the policy layer.
+
+### Open Decisions For Next Session
+
+1. When no rule matches, is the deterministic default `ASK` for every physical
+   action, or are some areas/actions initially `DENY`?
+2. Is entering an ordinary public area itself protected, or only protected areas?
+3. Does `以后无需审批` bind to the current robot or all household robots?
+4. Does one-time approval cover one action or the current continuous task intent?
+5. Can users revoke/edit persistent allow rules in the first version?
+
+### Next Step
+
+Continue top-down from the first decision above: define the default result for an
+unmatched physical action. Do not implement before these policy semantics are
+approved and written into a design specification.
+
+## V3.3 ALFWorld Trajectory Memory (2026-09-08)
+
+- Current branch is `robot`; V3.3 trajectory source records, deterministic compiler, durable compile jobs, Web API,
+  taskset per-subtask artifact wiring, and browser projection/UI are implemented in the dirty worktree.
+- Verified gates: focused Python suite `56 passed`; changed-file Ruff, compileall, and `git diff --check` pass.
+- Frontend source is present, but remote default Node is `v10.19.0`; current TypeScript/Vite dependencies require a
+  newer Node runtime, so `tsc`, Vitest, and Vite build remain unverified until a project-compatible Node is available.
+- Real Neo4j/Qdrant/ALFWorld external black-box validation remains pending.
+
 ## Workspace Cleanup And Living-Document Boundary (2026-08-27)
 
 - Retired the V1.8 ten-trial manifest and its dependent V1.9 four-trial ALFWorld release/M0

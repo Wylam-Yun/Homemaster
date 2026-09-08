@@ -11,13 +11,15 @@ type Props = {
   error: string | null
   onRefresh: () => void | Promise<void>
   loadHistory: (memoryId: string) => Promise<MemoryHistory>
+  compileMemory?: (memoryId: string) => Promise<{ job_id: string; status: string }>
+  compileStatus?: (jobId: string) => Promise<{ status: string; error?: string }>
 }
 
 type StatusTab = 'active' | 'archived'
 
 const groupKey = (sessionId: string | null) => sessionId ?? '__unassigned__'
 
-export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory }: Props) {
+export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, compileMemory, compileStatus }: Props) {
   const [tab, setTab] = useState<StatusTab>('active')
   const [query, setQuery] = useState('')
   const [memoryType, setMemoryType] = useState('all')
@@ -165,7 +167,7 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory }:
       </div>
 
       {selected !== null && (
-        <MemoryDetailDialog memory={selected} loadHistory={loadHistory} onClose={() => { setSelected(null) }} />
+        <MemoryDetailDialog memory={selected} loadHistory={loadHistory} compileMemory={compileMemory} compileStatus={compileStatus} onClose={() => { setSelected(null) }} />
       )}
     </section>
   )

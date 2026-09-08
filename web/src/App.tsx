@@ -177,6 +177,8 @@ export function App() {
             error={memoryError}
             onRefresh={refreshMemories}
             loadHistory={memoryId => api.memoryHistory(memoryId)}
+            compileMemory={memoryId => api.compileMemory(memoryId)}
+            compileStatus={jobId => api.compileStatus(jobId)}
           />
         ) : <>
           <section className="conversation" aria-live="polite">

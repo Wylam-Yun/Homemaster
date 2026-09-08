@@ -12,6 +12,11 @@ THOR 运行必须提供有序 `TrialSelectionManifest`。每条记录绑定相�
 
 ## Episode 生命周期
 
+V3.3 在每个普通 episode 和 taskset subtask 结束时额外写入独立的
+`trajectory_memory.json`。记录固定 `success/failure/unknown`、classification、goal identity、
+episode/taskset/subtask identity、最终环境状态和 source trace SHA-256；taskset 汇总不会替代任何
+subtask 记录。只有环境终态 `won=true` 的成功记录允许进入后续 procedure compiler。
+
 ```text
 load and verify complete trial manifest
   -> build one pinned Adapter for this Episode

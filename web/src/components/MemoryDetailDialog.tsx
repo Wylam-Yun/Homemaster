@@ -8,11 +8,15 @@ type Props = {
   memory: ManagedMemory
   loadHistory: (memoryId: string) => Promise<MemoryHistory>
   onClose: () => void
+  compileMemory?: (memoryId: string) => Promise<{ job_id: string; status: string }>
+  compileStatus?: (jobId: string) => Promise<{ status: string; error?: string }>
 }
 
-export function MemoryDetailDialog({ memory, loadHistory, onClose }: Props) {
+export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compileStatus, onClose }: Props) {
   const [history, setHistory] = useState<ManagedMemory[] | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [compileState, setCompileState] = useState<string | null>(memory.compile_status ?? null)
+  const [compileError, setCompileError] = useState<string | null>(null)
 
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
@@ -36,6 +40,30 @@ export function MemoryDetailDialog({ memory, loadHistory, onClose }: Props) {
     return () => { current = false }
   }, [loadHistory, memory])
 
+  const canCompile = memory.domain === 'alfworld' && memory.source_trajectory_id === undefined && memory.memory_type === 'trajectory'
+  const startCompile = async () => {
+    if (!compileMemory) return
+    setCompileError(null)
+    setCompileState('queued')
+    try {
+      const job = await compileMemory(memory.memory_id)
+      setCompileState(job.status)
+      if (compileStatus) {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          if (job.status === 'succeeded' || job.status === 'failed') break
+          await new Promise(resolve => window.setTimeout(resolve, 250))
+          const status = await compileStatus(job.job_id)
+          setCompileState(status.status)
+          if (status.status === 'failed') { setCompileError(status.error ?? '编译失败'); break }
+          if (status.status === 'succeeded') break
+        }
+      }
+    } catch (error) {
+      setCompileState('failed')
+      setCompileError(error instanceof Error ? error.message : '编译任务提交失败')
+    }
+  }
+
   return (
     <div className={styles.backdrop} onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
       <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="memory-detail-title">
@@ -47,7 +75,12 @@ export function MemoryDetailDialog({ memory, loadHistory, onClose }: Props) {
           <div className={styles.statusLine}>
             <span data-status={memory.status}>{memory.status === 'active' ? '生效中' : '已归档'}</span>
             <span>{memory.memory_type_label}</span>
+            {memory.outcome !== null && memory.outcome !== undefined && <span>{outcomeLabel(memory.outcome)}</span>}
+            {memory.is_executable === true && <span>可执行</span>}
           </div>
+          {memory.domain === 'alfworld' && <p>任务：{memory.goal_type ?? '未知'} · {memory.taskset_id ? `${memory.taskset_id} / 子任务 ${Number(memory.subtask_index ?? 0) + 1}` : (memory.episode_id ?? '未知 episode')}</p>}
+          {canCompile && compileMemory && <button type="button" onClick={() => { void startCompile() }} disabled={compileState === 'queued' || compileState === 'running'}>编译为经验</button>}
+          {compileState !== null && <p>编译状态：{compileState}{compileError !== null ? `，${compileError}` : ''}</p>}
           <p className={styles.memoryContent}>{memory.content}</p>
           <dl className={styles.metadata}>
             <Meta label="记忆 ID" value={memory.memory_id} />
@@ -103,4 +136,8 @@ function reasonLabel(reason: string): string {
     direct_structured_update: '结构化更新替换',
   }
   return labels[reason] ?? reason
+}
+
+function outcomeLabel(outcome: string): string {
+  return ({ success: '成功', failure: '失败', unknown: '未知' } as Record<string, string>)[outcome] ?? outcome
 }

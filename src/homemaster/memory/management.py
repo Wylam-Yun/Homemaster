@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from homemaster.agent.messages import UserMessage
+from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.experience.alfworld_compiler import AlfworldDerivedExperience
 from homemaster.memory.automatic_recall import build_mindmemos_request_context
 from homemaster.memory.models import MEMORY_RECORD_ADAPTER
 
@@ -22,6 +24,8 @@ StructureStatus = Literal["plain", "valid", "invalid"]
 _MEMORY_TYPE_LABELS = {
     "fact": "事实",
     "procedure": "操作流程",
+    "trajectory": "ALFWorld 轨迹",
+    "alfworld_experience": "ALFWorld 派生经验",
 }
 
 
@@ -52,6 +56,17 @@ class ManagedMemory:
     record: dict[str, object] | None
     structure_status: StructureStatus
     has_history: bool
+    domain: str | None = None
+    outcome: str | None = None
+    classification: str | None = None
+    goal_type: str | None = None
+    episode_id: str | None = None
+    taskset_id: str | None = None
+    subtask_index: int | None = None
+    is_executable: bool | None = None
+    source_trajectory_id: str | None = None
+    derived_memory_id: str | None = None
+    compile_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -169,6 +184,7 @@ def _project_memory(raw: Any) -> ManagedMemory:
     parent_ids = tuple(str(value) for value in (getattr(raw, "parent_ids", None) or ()))
     root_ids = tuple(str(value) for value in (getattr(raw, "root_id", None) or ()))
     status_changed_at = getattr(raw, "status_changed_at", None)
+    fields = _alfworld_projection(metadata, safe_record)
     return ManagedMemory(
         memory_id=memory_id,
         content=str(getattr(raw, "content", "") or ""),
@@ -183,7 +199,43 @@ def _project_memory(raw: Any) -> ManagedMemory:
         record=safe_record,
         structure_status=structure_status,
         has_history=bool(parent_ids) or any(root_id != memory_id for root_id in root_ids),
+        **fields,
     )
+
+
+def _alfworld_projection(
+    metadata: Any, record: dict[str, object] | None
+) -> dict[str, object | None]:
+    if not isinstance(metadata, Mapping):
+        return {}
+    kind = metadata.get("homemaster_memory_type")
+    if kind not in {"trajectory", "alfworld_experience"}:
+        return {}
+    payload: dict[str, Any] = {
+        "domain": "alfworld",
+        "outcome": metadata.get("outcome"),
+        "classification": metadata.get("classification"),
+        "goal_type": metadata.get("goal_type"),
+        "episode_id": metadata.get("episode_id"),
+        "taskset_id": metadata.get("taskset_id"),
+        "subtask_index": metadata.get("subtask_index"),
+        "is_executable": metadata.get("is_executable"),
+        "source_trajectory_id": metadata.get("source_trajectory_id"),
+        "compile_status": "succeeded" if kind == "alfworld_experience" else "available",
+    }
+    if kind == "trajectory" and isinstance(record, dict):
+        payload.update(
+            {
+                "goal_type": record.get("goal_type"),
+                "episode_id": record.get("episode_id"),
+                "taskset_id": record.get("taskset_id"),
+                "subtask_index": record.get("subtask_index"),
+                "outcome": record.get("outcome"),
+                "classification": record.get("classification"),
+                "is_executable": False,
+            }
+        )
+    return payload
 
 
 def _safe_record(metadata: Any) -> tuple[dict[str, object] | None, StructureStatus]:
@@ -193,7 +245,13 @@ def _safe_record(metadata: Any) -> tuple[dict[str, object] | None, StructureStat
     if not isinstance(raw_json, str):
         return None, "invalid"
     try:
-        record = MEMORY_RECORD_ADAPTER.validate_json(raw_json)
+        kind = metadata.get("homemaster_memory_type") if isinstance(metadata, Mapping) else None
+        if kind == "trajectory":
+            record = AlfworldTrajectoryRecord.model_validate_json(raw_json)
+        elif kind == "alfworld_experience":
+            record = AlfworldDerivedExperience.model_validate_json(raw_json)
+        else:
+            record = MEMORY_RECORD_ADAPTER.validate_json(raw_json)
     except ValueError:
         return None, "invalid"
     return record.model_dump(mode="json", exclude_none=True), "valid"

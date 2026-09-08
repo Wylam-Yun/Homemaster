@@ -761,6 +761,10 @@ class EmbeddedMindMemOS:
         provenance_seq: int,
         evidence_kind: str,
         context: Any,
+        metadata_extra: Mapping[str, Any] | None = None,
+        source_type: str = "message",
+        source_metadata: Mapping[str, Any] | None = None,
+        lineage_source_memory_id: str | None = None,
     ) -> dict[str, object]:
         """Persist exact caller-authored content without extraction or entity modeling."""
 
@@ -814,7 +818,7 @@ class EmbeddedMindMemOS:
         )
         source_ref = generate_source_id(
             SourceRef(
-                source_type="message",
+                source_type=source_type,
                 message_id=(
                     f"homemaster-direct-flat-{context.request_id}-evidence-{provenance_seq}"
                 ),
@@ -824,6 +828,7 @@ class EmbeddedMindMemOS:
                     "producer": "homemaster_explicit_add",
                     "provenance_seq": provenance_seq,
                     "evidence_kind": evidence_kind,
+                    **dict(source_metadata or {}),
                 },
             ),
             context,
@@ -848,6 +853,7 @@ class EmbeddedMindMemOS:
             "extractor": "homemaster_direct_flat_v1",
             "vector_pending": True,
             "entity_enrichment_pending": True,
+            **dict(metadata_extra or {}),
         }
         memory = MemoryWrite(
             memory_id=memory_id,
@@ -878,10 +884,25 @@ class EmbeddedMindMemOS:
             rel_type="EXTRACTED_FROM",
             project_id=context.project_id,
             metadata={
-                "source_type": "message",
+                "source_type": source_type,
                 "producer": "homemaster_explicit_add",
             },
         )
+        relationships = [relationship]
+        if lineage_source_memory_id:
+            relationships.append(
+                GraphRelationship(
+                    source=GraphNodeRef(
+                        kind="Memory", project_id=context.project_id, node_id=memory_id
+                    ),
+                    target=GraphNodeRef(
+                        kind="Memory", project_id=context.project_id, node_id=lineage_source_memory_id
+                    ),
+                    rel_type="DERIVED_FROM",
+                    project_id=context.project_id,
+                    metadata={"producer": "homemaster_alfworld_compiler"},
+                )
+            )
         plan = MemoryDbWritePlan(
             memories=[memory],
             sources=[source],
@@ -892,7 +913,7 @@ class EmbeddedMindMemOS:
                     bm25_values=list(sparse.values),
                 )
             ],
-            relationships=[relationship],
+            relationships=relationships,
         )
         payload = AddPipelineInput(
             messages=[TextMessage(text=content)],
@@ -977,6 +998,20 @@ class EmbeddedMindMemOS:
             )
             if graph_rows != [{"memory_id": memory_id, "source_id": source.source_id}]:
                 raise RuntimeError("direct flat Add graph terminal state could not be verified")
+            if lineage_source_memory_id:
+                lineage_rows = await self._neo4j.run_read(
+                    """
+                    MATCH (derived:Memory {project_id: $project_id, memory_id: $memory_id})
+                          -[:DERIVED_FROM]->
+                          (source:Memory {project_id: $project_id, memory_id: $source_memory_id})
+                    RETURN derived.memory_id AS derived_id, source.memory_id AS source_id
+                    """,
+                    project_id=context.project_id,
+                    memory_id=memory_id,
+                    source_memory_id=lineage_source_memory_id,
+                )
+                if lineage_rows != [{"derived_id": memory_id, "source_id": lineage_source_memory_id}]:
+                    raise RuntimeError("derived memory lineage terminal state could not be verified")
         except Exception as exc:
             await suppress_recording_errors(
                 self._recorder.mark_add_failed(context, add_record_id, str(exc)),
@@ -995,6 +1030,88 @@ class EmbeddedMindMemOS:
             "match_sources": [],
             "verified_terminal_state": True,
         }
+
+    async def add_derived_experience(
+        self,
+        content: str,
+        *,
+        source_memory_id: str,
+        metadata: Mapping[str, Any],
+        context: Any,
+    ) -> dict[str, object]:
+        """Persist derived experience content with a verified source lineage edge."""
+
+        return await self.add_flat(
+            content,
+            "procedure",
+            provenance_seq=0,
+            evidence_kind="environment_observation",
+            context=context,
+            metadata_extra={
+                "homemaster_memory_type": "alfworld_experience",
+                **dict(metadata),
+            },
+            source_type="alfworld_experience",
+            source_metadata={"source_memory_id": source_memory_id},
+            lineage_source_memory_id=source_memory_id,
+        )
+
+    async def add_trajectory_memory(
+        self,
+        record: Any,
+        *,
+        context: Any,
+    ) -> dict[str, object]:
+        """Persist one validated ALFWorld trajectory as an immutable source memory."""
+
+        from homemaster.benchmarking.alfworld.trajectory_memory import (
+            AlfworldTrajectoryRecord,
+        )
+
+        if not isinstance(record, AlfworldTrajectoryRecord):
+            raise TypeError("record must be an AlfworldTrajectoryRecord")
+        content = json.dumps(
+            record.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        result = await self.add_flat(
+            content,
+            "fact",
+            provenance_seq=record.final_environment_state.step_index or 0,
+            evidence_kind="environment_observation",
+            context=context,
+            metadata_extra={
+                "homemaster_memory_type": "trajectory",
+                "record_kind": record.record_kind,
+                "trajectory_id": record.trajectory_id,
+                "outcome": record.outcome,
+                "classification": record.classification,
+                "failure_reason": record.failure_reason,
+                "source_trace_sha256": record.source_trace_sha256,
+                "source_trace_path": record.source_trace_path,
+                "record_json": content,
+            },
+            source_type="alfworld_trajectory",
+            source_metadata={
+                "trajectory_id": record.trajectory_id,
+                "source_trace_sha256": record.source_trace_sha256,
+                "episode_id": record.episode_id,
+            },
+        )
+        raw = await self.get_raw(str(result["memory_id"]), context)
+        metadata = dict(getattr(raw, "metadata", {}) or {}) if raw is not None else {}
+        if (
+            raw is None
+            or getattr(raw, "status", None) != "active"
+            or metadata.get("homemaster_memory_type") != "trajectory"
+            or metadata.get("trajectory_id") != record.trajectory_id
+            or metadata.get("source_trace_sha256") != record.source_trace_sha256
+            or metadata.get("record_json") != content
+        ):
+            raise RuntimeError("trajectory memory metadata terminal state could not be verified")
+        return {**result, "trajectory_id": record.trajectory_id, "readback_verified": True}
 
     async def enrich_flat_memory(
         self,
