@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Documented the V3.4 exact-object/action and destination-area permission design in the user-selected plan/V3.4 directory, replacing the earlier category-based proposal with the confirmed semantics and specifying persistence, approval UI/API, execution gates, and external acceptance criteria; runtime behavior is unchanged.
+
 - Cleared the full-source Ruff gate in the Neo4j startup and MindMemOS lineage paths without
   changing their runtime behavior.
 - Ensured pre-model ALFWorld terminal paths start the owned runtime before trajectory admission, so
