@@ -71,6 +71,30 @@ class MemoryAddQueue:
     def started(self) -> bool:
         return self._worker is not None and not self._closed
 
+    def _admission_open(self) -> bool:
+        """External admission plus worker re-entrancy during shutdown drain.
+
+        aclose() seals the queue and then joins the worker. Chained memory work
+        (for example trajectory persistence submitting its compile job) runs
+        inside the worker while a join is outstanding; Queue.join accounts the
+        nested item, so rejecting it would strand real work. The worker task
+        itself may therefore enqueue while sealed. Anything else is rejected
+        once sealed, and everything is rejected once closed.
+        """
+
+        if self._closed:
+            return False
+        if not self._sealed:
+            return True
+        if self._worker is None:
+            return False
+        try:
+            import asyncio as _asyncio
+
+            return _asyncio.current_task() is self._worker
+        except RuntimeError:
+            return False
+
     async def start(self) -> None:
         if self._closed or self._sealed:
             raise MemoryAddQueueClosed("memory Add queue is closed")
@@ -87,7 +111,7 @@ class MemoryAddQueue:
         context: Any,
         run_id: str | None = None,
     ) -> MemoryAddReceipt:
-        if self._sealed or self._closed:
+        if not self._admission_open():
             raise MemoryAddQueueClosed("memory Add queue is closing")
         if self._worker is None:
             raise RuntimeError("memory Add queue is not started")
@@ -111,7 +135,7 @@ class MemoryAddQueue:
         session_id: str,
         work: Callable[[], Awaitable[None]],
     ) -> MemoryWorkReceipt:
-        if self._sealed or self._closed:
+        if not self._admission_open():
             raise MemoryAddQueueClosed("memory queue is closing")
         if self._worker is None:
             raise RuntimeError("memory queue is not started")
