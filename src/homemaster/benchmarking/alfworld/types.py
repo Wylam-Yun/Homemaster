@@ -339,7 +339,7 @@ class TasksetRunConfig:
     memory_mode: MemoryMode = "disabled"
     max_invalid_actions: int = 100
     max_env_steps: int = 50
-    max_tool_iterations: int = 1000
+    max_tool_iterations: int = 200
     observation_mode: ObservationMode = "visual_eval"
     seed: int = 42
     run_id: str | None = None
@@ -372,7 +372,7 @@ class AlfworldBenchmarkConfig:
     memory_mode: MemoryMode = "disabled"
     max_invalid_actions: int = 100
     max_env_steps: int = 50
-    max_tool_iterations: int = 1000
+    max_tool_iterations: int = 200
     provider_config: Path | None = None
     provider_name: str | None = None
     run_id: str | None = None
@@ -915,19 +915,17 @@ def _validate_ready_control_result(
     if goal_generation is None or goal_trial_fingerprint is None:
         raise ValueError("ready reset requires goal identity")
     if backend_kind == "thor":
-        if any(
-            value is None
-            for value in (
-                scene_generation,
-                scene_reset_fingerprint,
-                snapshot_sha256,
-                snapshot_ref,
-            )
-        ):
-            raise ValueError("ready THOR reset requires complete snapshot identity")
+        if any(value is None for value in (scene_generation, scene_reset_fingerprint)):
+            raise ValueError("ready THOR reset requires scene identity")
+        if snapshot_sha256 is None or snapshot_ref is None:
+            if snapshot_sha256 is not None or snapshot_ref is not None:
+                raise ValueError("ready direct THOR reset cannot contain partial snapshot identity")
+            if recovery_status != "not_needed" or cleanup_status != "not_applicable":
+                raise ValueError("ready direct THOR reset requires no reset transaction")
+            return
         _validate_sha256("snapshot_sha256", snapshot_sha256)
-        if recovery_status != "restored" or cleanup_status != "not_needed":
-            raise ValueError("ready THOR reset requires restored recovery and no cleanup")
+        if recovery_status not in {"restored", "not_needed"} or cleanup_status != "not_needed":
+            raise ValueError("ready THOR reset requires usable recovery and no cleanup")
     else:
         if any(
             value is not None

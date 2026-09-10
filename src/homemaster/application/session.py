@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -78,6 +79,16 @@ class SessionSnapshot:
     generation: int
     environment_ref: str | None
     payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    """Browser-safe description of one session for the conversation list."""
+
+    session_id: str
+    title: str
+    message_count: int
+    updated_at: str | None
 
 
 @dataclass
@@ -374,6 +385,58 @@ class SessionFileBackend:
         return self.root / session_id
 
 
+_SUMMARY_TITLE_LIMIT = 60
+
+
+def _message_text(message: Any) -> str:
+    """Extract readable text from a domain message or a persisted message dict."""
+
+    content = getattr(message, "content", None)
+    if isinstance(content, (list, tuple)):
+        joined = "\n".join(
+            str(getattr(block, "text", "") or "") for block in content
+        )
+        if joined.strip():
+            return joined
+    if isinstance(message, dict):
+        blocks = message.get("content", [])
+        if isinstance(blocks, list):
+            joined = "\n".join(
+                str(block.get("text", "") or "")
+                for block in blocks
+                if isinstance(block, dict)
+            )
+            if joined.strip():
+                return joined
+    return str(getattr(message, "text", "") or "")
+
+
+def _summary_title(session_id: str, messages: tuple[Any, ...]) -> str:
+    """Use the first user message as the list title, mirroring memory group titles."""
+
+    for message in messages:
+        if isinstance(message, dict):
+            role = message.get("role")
+        else:
+            role = getattr(message, "role", None)
+        if role != "user":
+            continue
+        text = " ".join(_message_text(message).split())
+        if text:
+            if len(text) > _SUMMARY_TITLE_LIMIT:
+                return text[:_SUMMARY_TITLE_LIMIT] + "…"
+            return text
+    return f"会话 {session_id[:8]}"
+
+
+def _iso_timestamp(value: Any) -> str | None:
+    try:
+        moment = datetime.fromtimestamp(float(value), tz=UTC)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return moment.isoformat()
+
+
 class SessionManager:
     """Own session state while keeping active resources out of snapshots."""
 
@@ -405,6 +468,55 @@ class SessionManager:
         if self._backend is None:
             return tuple(runtime.session.session_id for runtime in self.sessions)
         return self._backend.list_session_ids()
+
+    def session_summaries(self) -> tuple[SessionSummary, ...]:
+        """Describe known sessions newest-first without activating persisted runtimes."""
+
+        summaries: list[SessionSummary] = []
+        seen: set[str] = set()
+        for session_id in self.list_session_ids():
+            try:
+                messages = self.read_session_messages(session_id)
+            except KeyError:
+                continue
+            summaries.append(
+                SessionSummary(
+                    session_id=session_id,
+                    title=_summary_title(session_id, messages),
+                    message_count=len(messages),
+                    updated_at=self._session_updated_at(session_id),
+                )
+            )
+            seen.add(session_id)
+        for runtime in self.sessions:
+            session_id = runtime.session.session_id
+            if session_id in seen:
+                continue
+            messages = runtime.session.messages
+            summaries.append(
+                SessionSummary(
+                    session_id=session_id,
+                    title=_summary_title(session_id, tuple(messages)),
+                    message_count=len(messages),
+                    updated_at=self._session_updated_at(session_id),
+                )
+            )
+        return tuple(summaries)
+
+    def _session_updated_at(self, session_id: str) -> str | None:
+        if self._backend is not None:
+            try:
+                snapshot = self._backend.load(session_id)
+            except (FileNotFoundError, KeyError, OSError, TypeError, ValueError):
+                pass
+            else:
+                stamped = _iso_timestamp(snapshot.payload.get("saved_at"))
+                if stamped is not None:
+                    return stamped
+        runtime = self._sessions.get(session_id)
+        if runtime is not None:
+            return _iso_timestamp(getattr(runtime.session, "_created_at", None))
+        return None
 
     async def open_or_resume(
         self,
@@ -689,4 +801,5 @@ __all__ = [
     "SessionManager",
     "SessionRuntime",
     "SessionSnapshot",
+    "SessionSummary",
 ]

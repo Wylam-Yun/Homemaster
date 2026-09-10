@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ManagedMemory, MemoryHistory, MemorySnapshot } from '../api/http'
@@ -107,7 +107,8 @@ describe('MemoryPage', () => {
     expect(await screen.findByRole('dialog', { name: '记忆详情' })).toBeVisible()
     expect(screen.getByText('版本历史')).toBeVisible()
     await waitFor(() => { expect(loadHistory).toHaveBeenCalledWith('memory-active') })
-    expect(screen.queryByRole('button', { name: /新增|编辑|删除|恢复|归档/ })).not.toBeInTheDocument()
+    const dialog = screen.getByRole('dialog', { name: '记忆详情' })
+    expect(within(dialog).queryByRole('button', { name: /新增|编辑|删除|恢复|归档/ })).not.toBeInTheDocument()
   })
 
   it('shows a retryable Chinese error without hiding the page heading', () => {
@@ -126,5 +127,30 @@ describe('MemoryPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('记忆服务暂不可用')
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
     expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('renders domain, outcome, and executable badges on memory cards', () => {
+    const badged = {
+      ...activeMemory,
+      memory_id: 'memory-badged',
+      content: 'badged memory body',
+      domain: 'alfworld',
+      outcome: 'success' as const,
+      is_executable: true,
+    }
+    render(
+      <MemoryPage
+        snapshot={{ ...snapshot, groups: [{ ...snapshot.groups[0], memories: [badged] }] }}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        loadHistory={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('badged memory body')).toBeVisible()
+    expect(screen.getByText('ALFWorld')).toBeVisible()
+    expect(screen.getByText('成功')).toBeVisible()
+    expect(screen.getByText('可执行')).toBeVisible()
   })
 })

@@ -256,7 +256,7 @@ def _judge_ground(
 
 
 def _semantic_judge_candidates(candidates: list[GroundingCandidate]) -> list[GroundingCandidate]:
-    trusted_sources = {"subtask", "subtask_toggle", "built_in_tool"}
+    trusted_sources = {"subtask", "subtask_toggle", "built_in_tool", "gt"}
     return [candidate for candidate in candidates if candidate.source in trusted_sources]
 
 

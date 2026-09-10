@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-10 — ALFWorld visual adapter 修复
+
+- 修复 `heat/cool/clean` 的确定性导航目标，改进 THOR 宏动作的状态与原生 predicate 校验，并保留失败轨迹证据。
+- 完成 ALFWorld visual adapter/runner 回归覆盖；定向测试通过 `59 passed`。
+- 真实 visual 黑盒因远端已有 Qdrant 实例占用共享存储而未完成，未将该环境阻塞误报为功能成功。
+
+## 2026-09-10 — 当前工作区同步
+
+- 同步当前工作区：更新权限设计、ALFWorld 与记忆相关实现和测试，整理计划及审查文档；保存当前开发进展，便于后续继续实施。按用户要求提交全部现有修改，本次提交前未额外运行检查或测试，运行验证范围以各任务已有记录为准。
+
 ## Unreleased
 
 ### Changed
@@ -7,6 +17,25 @@
 - Added a browser-focused architecture handoff that records the eight-layer Web Console to Chromium
   execution chain, including the memory/context bridge, event return path, target-ref/readback invariants,
   and verified companion diagram.
+
+- Added the V3.4 implementation plan with ordered tasks for the existing permission checker, durable item approvals, per-call execution gates, Web UI, simulator-independent adapter contracts, and separate external/hardware acceptance; planning only, with no runtime changes.
+
+- Clarified the V3.4 real-robot-first permission boundary: keep simulator details inside device adapters, reuse the existing checker and execution path, and require simulator-independent contract checks plus separate physical-device acceptance; design only, with no runtime changes.
+
+- Documented the V3.4 exact-object/action and destination-area permission design in the user-selected plan/V3.4 directory, replacing the earlier category-based proposal with the confirmed semantics and specifying persistence, approval UI/API, execution gates, and external acceptance criteria; runtime behavior is unchanged.
+
+- Cleared the full-source Ruff gate in the Neo4j startup and MindMemOS lineage paths without
+  changing their runtime behavior.
+- Ensured pre-model ALFWorld terminal paths start the owned runtime before trajectory admission, so
+  setup-terminal records reach the queue and complete real external readback instead of remaining
+  file-only artifacts.
+- Completed the remaining V3.3 terminal-path guarantees: setup, selection, goal-advance, and
+  not-run taskset outcomes now use the application-owned trajectory writer when memory services
+  are running; repeated compilation admissions reuse the durable receipt for the same immutable
+  source memory and compiler version. Web composition remains compatible with reduced test bundles.
+- Implemented V3.3 ALFWorld trajectory memory: every episode/taskset subtask now emits an independently hashed
+  outcome record; verified successful paths can produce durable derived experiences with `DERIVED_FROM` lineage,
+  while failure/unknown paths remain non-executable diagnostics. Added Web memory projection and compile-job UI/API.
 
 - Reconciled the hkust4 V3.2 snapshot onto the latest mainline, retaining locked Java/Neo4j
   runtime assets and historical document references while adding the phase-one execution plan.

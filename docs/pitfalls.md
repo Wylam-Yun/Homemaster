@@ -1,4 +1,77 @@
+## 2026-09-09 - Strict visual reset and mandatory manifest blocked real ALFWorld execution
+
+### 症状与根因
+
+真实 `AlfredThorEnv` 已能启动，但严格 V1.8 scan/restore 的 hash 门在 `scan_restore_mismatch` 处把可执行 trial 判成 setup failure；同时 runner 把 trial manifest 当成 visual 运行硬前置，模型局部失败又不消耗环境步，导致一条数据可能一直运行。
+
+### 修法与教训
+
+视觉 benchmark 默认从已校验的 `traj_data.json` 确定性选择 trial，manifest 只用于可复现 pin；正常评测使用直接 THOR 场景索引和外部返回/终态校验，V1.8 reset 不再作为启动门；环境步上限之外必须有有限工具预算，且成功/失败都统一写完整 trajectory memory。
+
+### Ref
+
+- `src/homemaster/benchmarking/alfworld/runner.py`
+- `src/homemaster/benchmarking/alfworld/env_adapter.py`
+- `src/homemaster/benchmarking/alfworld/trajectory_memory.py`
+- `/tmp/homemaster-plan-20260909/trace/valid/3f38d4d7d078/episode-0001/trajectory_memory.json`
+
 # Engineering Pitfalls
+
+## 2026-09-08 - Pre-model terminal paths must start the memory runtime
+
+### 症状与根因
+
+ALFWorld reset/setup 在模型调用前失败时，runner 仍会生成 `trajectory_memory.json`，但 application-owned
+queue 尚未启动，导致文件证据存在而 Qdrant/Neo4j 没有对应 trajectory memory。只检查 artifact 会得到假阳性。
+
+### 修法与教训
+
+终止路径也必须先启动 application-owned runtime，再提交 trajectory writer；启动后逐项检查
+`queued -> stored -> readback_verified` 和外部 raw/lineage 终态。测试 fake 没有真实安装时才允许保留 file-only
+路径，不能把这种测试隔离状态当作生产成功。
+
+### Ref
+
+- `src/homemaster/adapters/alfworld_entry.py`
+- `src/homemaster/benchmarking/alfworld/runner.py`
+- `/tmp/hm-v33-episode-blackbox2/valid/v33-episode-blackbox2/episode-0001/runtime/runtime_events.jsonl`
+
+## 2026-09-08 - Neo4j 2026 initial-password CLI changed its input contract
+
+### 症状与根因
+
+真实 MindMemOS 启动在 managed-local Neo4j 初始化阶段失败，错误末尾只显示 `--verbose` 帮助行，容易误判为
+Neo4j 安装路径或 Java 版本错误。实际锁定的 Neo4j 2026.05.0 已不接受旧版 `--from-stdin`，要求密码作为位置参数。
+
+### 修法与教训
+
+先在目标安装上执行 `neo4j-admin ... --help` 核对真实 CLI contract，再修正调用为位置参数；同时保留
+`JAVA_HOME`/`PATH` 的显式绑定。外部命令返回码和真实服务启动/readiness 必须单独验收，不能只看路径存在。
+
+### Ref
+
+- `src/homemaster/memory/managed_neo4j.py`
+- `tests/homemaster/memory/test_managed_neo4j_runtime.py`
+
+## 2026-09-08 - ALFWorld runner tests isolated MindMemOS but still started real Neo4j
+
+### 症状与根因
+
+ALFWorld runner 测试只 monkeypatch `EmbeddedMindMemOS`，但完整 application composition 仍创建并启动
+`ManagedNeo4jRuntime`。默认测试配置没有 `neo4j.home` 和 `java_home`，因此业务循环开始前就在安装校验
+处失败；修复后又暴露出 fake MindMemOS 缺少 session finalizer 的 `add_vanilla`/反馈接口。
+
+### 修法与教训
+
+测试夹具必须隔离 application-owned 外部资源闭包，而不是只替换其中一个 backend；runner 测试使用 no-op
+Neo4j runtime，并让 MindMemOS fake 覆盖真实 session 收尾的最小契约。生产 Neo4j 路径校验保持严格，
+集成测试另行使用真实安装和黑盒终态验证。
+
+### Ref
+
+- `tests/homemaster/benchmarking/test_alfworld_runner.py`
+- `src/homemaster/cli/composition.py`
+- `src/homemaster/memory/managed_neo4j.py`
 
 ## 2026-09-03 - V3.2 package audits can be invalidated by stale build metadata
 

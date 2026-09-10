@@ -162,9 +162,7 @@ def main_callback(
         if browser and dry_run:
             raise typer.BadParameter("--browser cannot be combined with --dry-run")
         if permission_mode is not None and (print_prompt is not None or dry_run):
-            raise typer.BadParameter(
-                "--permission-mode is only valid for the interactive shell"
-            )
+            raise typer.BadParameter("--permission-mode is only valid for the interactive shell")
         if config_path is not None and print_prompt is None:
             raise typer.BadParameter("--config requires --gateway or --print")
         if run_label is not None and (print_prompt is None or dry_run):
@@ -450,7 +448,7 @@ def benchmark_alfworld_command(
     max_tool_iterations: Annotated[
         int,
         typer.Option("--max-tool-iterations", help="Maximum HomeMaster tool iterations."),
-    ] = 1000,
+    ] = 200,
     provider_config: Annotated[
         Path | None,
         typer.Option("--api-config", help="Optional provider config JSON override."),
@@ -478,7 +476,7 @@ def benchmark_alfworld_command(
         Path | None,
         typer.Option(
             "--trial-manifest",
-            help="Required ordered trial-selection manifest for AlfredThorEnv runs.",
+            help="Optional ordered trial-selection manifest for reproducible AlfredThorEnv runs.",
         ),
     ] = None,
 ) -> None:
@@ -614,10 +612,7 @@ def benchmark_locomo_command(
         typer.echo(f"source_turns: {summary['source_turn_count']}")
         typer.echo(f"source_sessions: {summary['source_session_count']}")
         typer.echo(f"qa_probes: {summary['qa_probe_count']}")
-        typer.echo(
-            "feature_counts: "
-            + json.dumps(summary["feature_counts"], ensure_ascii=False)
-        )
+        typer.echo("feature_counts: " + json.dumps(summary["feature_counts"], ensure_ascii=False))
         summary_path = trace_root.expanduser().resolve() / str(summary["run_id"]) / "summary.json"
         typer.echo(f"summary: {summary_path}")
     except Exception as exc:

@@ -2,6 +2,10 @@
 
 ## 适用范围
 
+V3.3 会为每个 episode 和 taskset subtask 保存一条独立的 `trajectory_memory.json`。它包含最终环境结果和
+source trace hash；失败或无法判定的记录仍可用于诊断，但不会被编译成可执行流程。taskset 的总结果不能替代
+单个 subtask 的结果。
+
 HomeMaster V1.8 的 `AlfredThorEnv` benchmark 用真实 THOR scene state 评测模型的公开语义决策。Harness 在模型动作前验证 trial 和 reset transaction，在动作后验证准确外部终态；Harness 失败不会伪装成模型失败。
 
 模型可用工具：
@@ -99,7 +103,7 @@ uv run python scripts/setup_memory_runtime.py setup \
 provider 配置或环境变量中，不写入命令、trace 或 manifest。`memory.data_root`、`memory.neo4j.home` 和
 `memory.neo4j.java_home` 可写成相对路径，并统一相对 `homemaster.yaml` 所在目录解析，不能依赖启动 cwd。
 
-`AlfredThorEnv` 必须提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
+`AlfredThorEnv` 可直接从真实数据确定性选择 trial；需要严格复现时再提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
 
 ```bash
 xvfb-run -a -s '-screen 0 1280x1024x24' \

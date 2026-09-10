@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from homemaster.agent.messages import UserMessage
 from homemaster.application import RunRequest, SessionManager
 from homemaster.artifacts import ToolOutputStore
 from homemaster.events.bus import EventBus
@@ -131,13 +132,23 @@ class _FakeMemoryManagementService:
             ),
         )
 
-    async def history(
-        self, memory_id: str, *, tenant_id: str
-    ) -> tuple[ManagedMemory, ...]:
+    async def history(self, memory_id: str, *, tenant_id: str) -> tuple[ManagedMemory, ...]:
         self.history_calls.append((memory_id, tenant_id))
         if memory_id == "missing":
             raise MemoryNotFoundError(memory_id)
         return (_managed_memory(memory_id),)
+
+
+class _FakeCompileJobs:
+    def __init__(self) -> None:
+        self.enqueued: list[tuple[str, str]] = []
+
+    def enqueue(self, memory_id: str, *, session_id: str) -> dict[str, str]:
+        self.enqueued.append((memory_id, session_id))
+        return {"job_id": "job-01", "status": "queued"}
+
+    def get(self, job_id: str) -> dict[str, str] | None:
+        return {"job_id": job_id, "status": "succeeded"} if job_id == "job-01" else None
 
 
 class _FailingApplication:
@@ -197,9 +208,7 @@ async def test_prestart_adapter_failure_is_stable_public_terminal_event() -> Non
 async def test_disconnect_denies_approvals_only_after_last_subscriber_leaves() -> None:
     denied: list[tuple[str, str]] = []
     handler = SimpleNamespace(
-        deny_session=lambda session_id, *, outcome: _record_denial(
-            denied, session_id, outcome
-        )
+        deny_session=lambda session_id, *, outcome: _record_denial(denied, session_id, outcome)
     )
     subscribed_hub = SimpleNamespace(has_subscriber=lambda session_id: _true())
     empty_hub = SimpleNamespace(has_subscriber=lambda session_id: _false())
@@ -341,11 +350,24 @@ def test_session_cancel_approval_and_validation_endpoints_use_stable_json() -> N
 
         listed = client.get("/api/sessions")
         assert listed.status_code == 200
-        assert listed.json() == {"sessions": [{"session_id": session_id}]}
+        (entry,) = listed.json()["sessions"]
+        assert entry["session_id"] == session_id
+        assert entry["title"] == f"会话 {session_id[:8]}"
+        assert entry["message_count"] == 0
+        assert isinstance(entry["updated_at"], str)
+
+        runtime = application.session_manager.get(session_id)
+        runtime.session.append(UserMessage.from_text("帮我查一下机票\n第二行"))
+        relisted = client.get("/api/sessions").json()["sessions"]
+        assert relisted[0]["title"] == "帮我查一下机票 第二行"
+        assert relisted[0]["message_count"] == 1
 
         history = client.get(f"/api/sessions/{session_id}/history")
         assert history.status_code == 200
-        assert history.json() == {"session_id": session_id, "messages": []}
+        assert history.json() == {
+            "session_id": session_id,
+            "messages": [{"role": "user", "text": "帮我查一下机票\n第二行"}],
+        }
 
         cancelled = client.post(f"/api/sessions/{session_id}/cancel")
         assert cancelled.status_code == 200
@@ -467,3 +489,23 @@ def test_memory_routes_return_stable_unavailable_and_not_found_errors() -> None:
             "message": "The memory does not exist.",
             "retryable": False,
         }
+
+
+def test_alfworld_compile_routes_only_admit_and_read_server_owned_jobs() -> None:
+    jobs = _FakeCompileJobs()
+    app = create_web_app(
+        application=_FakeApplication(),
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        alfworld_compile_jobs=jobs,
+    )
+    with TestClient(app) as client:
+        accepted = client.post("/api/memories/source-01/compile")
+        status = client.get("/api/memory-compilations/job-01")
+        missing = client.get("/api/memory-compilations/missing")
+
+    assert accepted.status_code == 202
+    assert accepted.json() == {"job_id": "job-01", "status": "queued"}
+    assert jobs.enqueued == [("source-01", "web-memory-management")]
+    assert status.status_code == 200
+    assert status.json()["status"] == "succeeded"
+    assert missing.status_code == 404

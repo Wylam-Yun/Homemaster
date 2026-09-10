@@ -12,6 +12,15 @@ THOR 运行必须提供有序 `TrialSelectionManifest`。每条记录绑定相�
 
 ## Episode 生命周期
 
+V3.3 在每个普通 episode 和 taskset subtask 结束时额外写入独立的
+`trajectory_memory.json`。记录固定 `success/failure/unknown`、classification、goal identity、
+episode/taskset/subtask identity、最终环境状态和 source trace SHA-256；taskset 汇总不会替代任何
+subtask 记录。只有环境终态 `won=true` 的成功记录允许进入后续 procedure compiler。
+
+即使 reset、trial selection 或 goal advance 在模型运行前终止，相关 episode/subtask 也会生成
+独立的 trajectory memory；只要 application-owned memory queue 已启动，就会通过同一个 trajectory
+writer 入库。未启动队列的测试/离线构造只保留文件 artifact，不伪造已入库状态。
+
 ```text
 load and verify complete trial manifest
   -> build one pinned Adapter for this Episode

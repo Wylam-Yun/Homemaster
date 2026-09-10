@@ -153,7 +153,9 @@ class ManagedNeo4jRuntime:
             assert self._neo4j.home is not None
             source = self._neo4j.home / "conf" / "neo4j.conf"
             content = source.read_text(encoding="utf-8") if source.is_file() else ""
-            lines = [line for line in content.splitlines() if not line.startswith("server.directories.")]
+            lines = [
+                line for line in content.splitlines() if not line.startswith("server.directories.")
+            ]
             lines.extend(
                 [
                     f"server.directories.data={self._runtime_root / 'data'}",
@@ -326,16 +328,22 @@ class ManagedNeo4jRuntime:
         try:
             completed = await asyncio.to_thread(
                 subprocess.run,
-                [str(self._neo4j.home / "bin" / "neo4j-admin"), "dbms", "set-initial-password", "--from-stdin"],
+                [
+                    str(self._neo4j.home / "bin" / "neo4j-admin"),
+                    "dbms",
+                    "set-initial-password",
+                    self._neo4j.password.get_secret_value(),
+                ],
                 cwd=self._neo4j.home,
                 env=env,
-                input=self._neo4j.password.get_secret_value() + "\n",
                 capture_output=True,
                 text=True,
                 check=False,
             )
         except (OSError, subprocess.SubprocessError) as exc:
-            raise ManagedNeo4jError(f"Neo4j initial password command failed: {type(exc).__name__}") from exc
+            raise ManagedNeo4jError(
+                f"Neo4j initial password command failed: {type(exc).__name__}"
+            ) from exc
         if completed.returncode != 0:
             detail = [
                 line.strip()
@@ -343,7 +351,8 @@ class ManagedNeo4jRuntime:
                 if line.strip() and set(line.strip()) != {"-"}
             ][-1:]
             raise ManagedNeo4jError(
-                "Neo4j initial password command failed: " + (detail[0] if detail else "unknown error")
+                "Neo4j initial password command failed: "
+                + (detail[0] if detail else "unknown error")
             )
 
     def _command_environment(self) -> dict[str, str]:

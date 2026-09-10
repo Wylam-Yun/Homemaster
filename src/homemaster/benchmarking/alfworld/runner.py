@@ -17,6 +17,7 @@ from homemaster.benchmarking.alfworld.env_adapter import (
     build_alfworld_batch_env,
     build_alfworld_batch_env_with_first_trial,
 )
+from homemaster.benchmarking.alfworld.grounding import GroundingCandidate, canonical_command_name
 from homemaster.benchmarking.alfworld.prompt import build_episode_prompt, extract_task_text
 from homemaster.benchmarking.alfworld.tracing import (
     AlfworldToolDispatchObserver,
@@ -24,12 +25,20 @@ from homemaster.benchmarking.alfworld.tracing import (
     split_trace_bucket,
     write_readable_trajectories,
 )
+from homemaster.benchmarking.alfworld.trajectory_memory import (
+    AlfworldFinalEnvironmentState,
+    AlfworldTrajectoryRecord,
+    AlfworldTrajectoryStep,
+    determine_outcome,
+    extract_failure_guidance,
+)
 from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.trial_selection import (
     TrialSelectionEntry,
     build_trial_selection_entry,
     load_trial_selection_manifest,
     load_verified_trial_data,
+    trial_logical_scene,
 )
 from homemaster.benchmarking.alfworld.types import (
     AGENT_SCORE_CLASSIFICATIONS,
@@ -61,7 +70,7 @@ AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 
 # The bounded scan is part of the V1.8 THOR contract. Pose comparison and world
 # hashing normalize the view-only differences produced by the pinned THOR build.
-_ENABLE_V18_RESET_TRANSACTION = True
+_ENABLE_V18_RESET_TRANSACTION = False
 
 
 class _AlfworldTerminalOwner:
@@ -143,11 +152,28 @@ class AlfworldBenchmarkRunner:
         )
         if isinstance(reset_result, AlfworldResetResult):
             if not reset_result.ready:
-                return _setup_terminal_episode_result(
-                    reset_result=reset_result,
-                    episode_run_id=episode_run_id,
-                    trace=trace,
+                runtime_sink = JsonlEventSink(episode_dir / "runtime")
+                entry = AlfworldApplicationEntry(
+                    config=load_config(self.config.provider_config),
+                    memory_mode=self.config.memory_mode,
+                    runtime_root=episode_dir / "application",
+                    session_root=episode_dir / "sessions",
+                    transport_factory=self._transport_factory,
+                    event_sink=runtime_sink,
                 )
+                _start_trajectory_runtime(entry)
+                entry.begin_session(episode_run_id, exit_reason="alfworld_episode_setup_failure")
+                try:
+                    return _setup_terminal_episode_result(
+                        reset_result=reset_result,
+                        episode_run_id=episode_run_id,
+                        trace=trace,
+                        writer=_started_trajectory_writer(entry),
+                    )
+                finally:
+                    entry.end_session(episode_run_id)
+                    entry.close()
+                    runtime_sink.close()
             assert reset_result.state is not None
             state = reset_result.state
         else:
@@ -183,6 +209,27 @@ class AlfworldBenchmarkRunner:
             event_sink=runtime_sink,
         )
         entry.begin_session(episode_run_id, exit_reason="alfworld_episode_end")
+        goal_candidates: list[GroundingCandidate] = []
+        if selection is not None:
+            try:
+                goal = json.loads(selection.goal_identity)
+            except (TypeError, json.JSONDecodeError):
+                goal = {}
+            params = goal.get("pddl_params", {}) if isinstance(goal, dict) else {}
+            for field, kind in (
+                ("object_target", "object"),
+                ("parent_target", "receptacle"),
+                ("toggle_target", "toggle"),
+                ("mrecep_target", "object"),
+            ):
+                value = params.get(field) if isinstance(params, dict) else None
+                if isinstance(value, str) and value:
+                    goal_candidates.extend(
+                        (
+                            GroundingCandidate(canonical_command_name(value), kind, "gt"),
+                            GroundingCandidate(value, kind, "gt"),
+                        )
+                    )
         try:
             result = entry.run(
                 RunRequest(
@@ -204,6 +251,7 @@ class AlfworldBenchmarkRunner:
                         "alfworld_semantic_judge_config": (
                             self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                         ),
+                        "alfworld_goal_candidates": tuple(goal_candidates),
                         "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                         "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
                             episode_dir / "provider_attempts.jsonl"
@@ -213,75 +261,138 @@ class AlfworldBenchmarkRunner:
             )
             session = entry.application.session_manager.get(episode_run_id).session
             trace.write_session_messages(session)
+
+            final_state = adapter.current_state
+            success = final_state.won
+            failure_reason = None
+            if not success:
+                failure_reason = _episode_failure_reason(result.error_code, final_state.done)
+            classification = _episode_classification(
+                success=success,
+                failure_reason=failure_reason,
+                outcome=outcome,
+            )
+            score_eligible = classification in {"agent_success", "agent_model_failure"}
+            episode_result = AlfworldEpisodeResult(
+                episode_id=final_state.episode_id,
+                success=success,
+                failure_reason=failure_reason,
+                steps=final_state.step_index,
+                invalid_actions=final_state.invalid_action_count,
+                goal_condition_success_rate=final_state.goal_condition_success_rate,
+                runtime_status=result.status,
+                run_id=episode_run_id,
+                trace_path=trace.trace_path,
+                classification=classification,
+                score_eligible=score_eligible,
+                agent_tool_call_count=outcome.agent_tool_call_count,
+                backend_action_count=outcome.backend_action_count,
+                setup_backend_action_count=(
+                    reset_result.setup_backend_action_count
+                    if isinstance(reset_result, AlfworldResetResult)
+                    else 0
+                ),
+                model_backend_action_count=outcome.backend_action_count,
+                total_backend_action_count=(
+                    outcome.backend_action_count
+                    + (
+                        reset_result.setup_backend_action_count
+                        if isinstance(reset_result, AlfworldResetResult)
+                        else 0
+                    )
+                ),
+                total_external_request_count=(
+                    outcome.backend_action_count
+                    + (
+                        reset_result.setup_backend_action_count
+                        if isinstance(reset_result, AlfworldResetResult)
+                        else 0
+                    )
+                ),
+                terminal_tool_call_id=outcome.terminal_tool_call_id,
+                terminal_evidence_ref=outcome.terminal_evidence_ref,
+            )
+            outcome_value, outcome_reason = determine_outcome(
+                {"won": final_state.won, "failure_reason": failure_reason},
+                infrastructure_failure=classification
+                in {
+                    "harness_grounding_failure",
+                    "harness_navigation_failure",
+                    "harness_operation_failure",
+                    "execution_state_uncertain",
+                    "unclassified_execution_failure",
+                    "provider_failure",
+                    "runtime_failure",
+                    "artifact_failure",
+                    "cancelled",
+                },
+            )
+            episode_summary = {
+                "episode_id": episode_result.episode_id,
+                "failure_reason": episode_result.failure_reason,
+                "goal_condition_success_rate": episode_result.goal_condition_success_rate,
+                "invalid_actions": episode_result.invalid_actions,
+                "run_id": episode_result.run_id,
+                "runtime_status": episode_result.runtime_status,
+                "steps": episode_result.steps,
+                "success": episode_result.success,
+                "outcome": outcome_value,
+                "classification": episode_result.classification,
+                "score_eligible": episode_result.score_eligible,
+            }
+            trace.write_episode_finished(episode_summary)
+            source_trace_sha256 = trace.source_trace_sha256()
+            trace_steps: list[AlfworldTrajectoryStep] = []
+            for step_index, line in enumerate(
+                trace.trace_path.read_text(encoding="utf-8").splitlines()
+            ):
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and payload.get("action") is not None:
+                    trace_steps.append(AlfworldTrajectoryStep(index=step_index, payload=payload))
+            steps = tuple(trace_steps)
+            failure_summary, failure_advice = extract_failure_guidance(steps)
+            trajectory_record = AlfworldTrajectoryRecord(
+                trajectory_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"alfworld:{episode_run_id}")),
+                source_session_id=episode_run_id,
+                run_id=episode_run_id,
+                episode_id=final_state.episode_id,
+                task=final_state.task,
+                goal_type=(
+                    selection.goal_identity
+                    if selection is not None
+                    else final_state.episode_id.split("/", 1)[0]
+                ),
+                outcome=outcome_value,
+                classification=classification,
+                failure_reason=outcome_reason,
+                source_trace_path=str(trace.trace_path),
+                source_trace_sha256=source_trace_sha256,
+                steps=steps,
+                failure_summary=failure_summary,
+                failure_advice=failure_advice,
+                final_environment_state=AlfworldFinalEnvironmentState(
+                    won=final_state.won,
+                    done=final_state.done,
+                    step_index=final_state.step_index,
+                    invalid_action_count=final_state.invalid_action_count,
+                    goal_condition_success_rate=final_state.goal_condition_success_rate,
+                    inventory=((final_state.inventory,) if final_state.inventory else None),
+                ),
+            )
+            episode_summary["source_trace_sha256"] = source_trace_sha256
+            episode_summary["trajectory_id"] = trajectory_record.trajectory_id
+            trace.write_summary(episode_summary)
+            trace.write_trajectory(episode_summary)
+            trace.write_trajectory_memory(trajectory_record.model_dump(mode="json"))
+            entry.bundle.trajectory_writer.enqueue(trajectory_record)
         finally:
             entry.end_session(episode_run_id)
             entry.close()
             runtime_sink.close()
 
-        final_state = adapter.current_state
-        success = final_state.won
-        failure_reason = None
-        if not success:
-            failure_reason = _episode_failure_reason(result.error_code, final_state.done)
-        classification = _episode_classification(
-            success=success,
-            failure_reason=failure_reason,
-            outcome=outcome,
-        )
-        score_eligible = classification in {"agent_success", "agent_model_failure"}
-        episode_result = AlfworldEpisodeResult(
-            episode_id=final_state.episode_id,
-            success=success,
-            failure_reason=failure_reason,
-            steps=final_state.step_index,
-            invalid_actions=final_state.invalid_action_count,
-            goal_condition_success_rate=final_state.goal_condition_success_rate,
-            runtime_status=result.status,
-            run_id=episode_run_id,
-            trace_path=trace.trace_path,
-            classification=classification,
-            score_eligible=score_eligible,
-            agent_tool_call_count=outcome.agent_tool_call_count,
-            backend_action_count=outcome.backend_action_count,
-            setup_backend_action_count=(
-                reset_result.setup_backend_action_count
-                if isinstance(reset_result, AlfworldResetResult)
-                else 0
-            ),
-            model_backend_action_count=outcome.backend_action_count,
-            total_backend_action_count=(
-                outcome.backend_action_count
-                + (
-                    reset_result.setup_backend_action_count
-                    if isinstance(reset_result, AlfworldResetResult)
-                    else 0
-                )
-            ),
-            total_external_request_count=(
-                outcome.backend_action_count
-                + (
-                    reset_result.setup_backend_action_count
-                    if isinstance(reset_result, AlfworldResetResult)
-                    else 0
-                )
-            ),
-            terminal_tool_call_id=outcome.terminal_tool_call_id,
-            terminal_evidence_ref=outcome.terminal_evidence_ref,
-        )
-        episode_summary = {
-            "episode_id": episode_result.episode_id,
-            "failure_reason": episode_result.failure_reason,
-            "goal_condition_success_rate": episode_result.goal_condition_success_rate,
-            "invalid_actions": episode_result.invalid_actions,
-            "run_id": episode_result.run_id,
-            "runtime_status": episode_result.runtime_status,
-            "steps": episode_result.steps,
-            "success": episode_result.success,
-            "classification": episode_result.classification,
-            "score_eligible": episode_result.score_eligible,
-        }
-        trace.write_summary(episode_summary)
-        trace.write_trajectory(episode_summary)
         return episode_result
 
     def _summary_config(self) -> dict[str, object]:
@@ -306,16 +417,39 @@ class AlfworldBenchmarkRunner:
     def _trial_selections(self) -> tuple[TrialSelectionEntry, ...] | None:
         if self.config.env_type != "AlfredThorEnv":
             return None
-        if self.config.trial_manifest is None:
-            raise ValueError("visual THOR runs require --trial-manifest")
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
-        manifest = load_trial_selection_manifest(
-            self.config.trial_manifest,
-            trial_root=trial_root,
+        if self.config.trial_manifest is not None:
+            manifest = load_trial_selection_manifest(
+                self.config.trial_manifest,
+                trial_root=trial_root,
+            )
+            if len(manifest.entries) != self.config.episodes:
+                raise ValueError(
+                    "trial-selection entry count must equal the requested episode count"
+                )
+            return manifest.entries
+
+        candidates = sorted(
+            path
+            for path in (trial_root / self.config.split).rglob("traj_data.json")
+            if path.is_file()
         )
-        if len(manifest.entries) != self.config.episodes:
-            raise ValueError("trial-selection entry count must equal the requested episode count")
-        return manifest.entries
+        if len(candidates) < self.config.episodes:
+            raise ValueError(
+                f"not enough ALFWorld visual trials under {trial_root / self.config.split}"
+            )
+        selections: list[TrialSelectionEntry] = []
+        for trial_path in candidates[: self.config.episodes]:
+            trial_data = json.loads(trial_path.read_text(encoding="utf-8"))
+            selections.append(
+                build_trial_selection_entry(
+                    trial_path,
+                    trial_root=trial_root,
+                    expected_logical_scene=trial_logical_scene(trial_data),
+                    identity_status="auto_selected",
+                )
+            )
+        return tuple(selections)
 
     def _build_pinned_adapter(self, selection: TrialSelectionEntry) -> AlfworldEnvAdapter:
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
@@ -425,6 +559,7 @@ def _setup_terminal_episode_result(
     reset_result: AlfworldResetResult,
     episode_run_id: str,
     trace: AlfworldTraceWriter,
+    writer: Any | None = None,
 ) -> AlfworldEpisodeResult:
     trace.write_event(
         {
@@ -471,8 +606,37 @@ def _setup_terminal_episode_result(
         "score_eligible": False,
         "setup_backend_action_count": reset_result.setup_backend_action_count,
     }
+    trace.write_episode_finished(summary)
+    source_trace_sha256 = trace.source_trace_sha256()
+    trajectory_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"alfworld:{episode_run_id}"))
+    summary["outcome"] = "unknown"
+    summary["trajectory_id"] = trajectory_id
+    summary["source_trace_sha256"] = source_trace_sha256
     trace.write_summary(summary)
     trace.write_trajectory(summary)
+    record = AlfworldTrajectoryRecord(
+        trajectory_id=trajectory_id,
+        source_session_id=episode_run_id,
+        run_id=episode_run_id,
+        episode_id=episode_result.episode_id,
+        task="setup did not produce a readable task",
+        goal_type="unknown",
+        outcome="unknown",
+        classification=episode_result.classification,
+        failure_reason=episode_result.failure_reason or "runtime_failure",
+        source_trace_path=str(trace.trace_path),
+        source_trace_sha256=source_trace_sha256,
+        final_environment_state=AlfworldFinalEnvironmentState(
+            won=None,
+            done=None,
+            step_index=0,
+            invalid_action_count=0,
+            goal_condition_success_rate=0.0,
+        ),
+    )
+    trace.write_trajectory_memory(record.model_dump(mode="json"))
+    if writer is not None:
+        writer.enqueue(record)
     return episode_result
 
 
@@ -482,6 +646,34 @@ def _episode_failure_reason(error_code: str | None, done: bool) -> str:
     if done:
         return "done_without_won"
     return "not_won"
+
+
+def _started_trajectory_writer(entry: Any) -> Any | None:
+    writer = getattr(getattr(entry, "bundle", None), "trajectory_writer", None)
+    if writer is None:
+        return None
+    queue = getattr(writer, "_queue", None)
+    if queue is not None and getattr(queue, "started", True) is not True:
+        return None
+    return writer
+
+
+def _start_trajectory_runtime(entry: Any) -> None:
+    """Start memory services when the entry has a real managed-local install."""
+    start = getattr(entry, "start", None)
+    if not callable(start):
+        return
+    bundle = getattr(entry, "bundle", None)
+    config = getattr(bundle, "config", None)
+    memory = getattr(config, "memory", None)
+    neo4j = getattr(memory, "neo4j", None)
+    if (
+        getattr(memory, "enabled", False)
+        and getattr(neo4j, "mode", None) == "managed_local"
+        and (getattr(neo4j, "home", None) is None or getattr(neo4j, "java_home", None) is None)
+    ):
+        return
+    start()
 
 
 def _terminal_tool_payload(
@@ -626,11 +818,30 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         try:
             trial_inputs = self._taskset_trial_inputs(taskset)
         except (OSError, ValueError) as exc:
-            return _taskset_selection_terminal_result(
-                taskset=taskset,
-                taskset_dir=taskset_dir,
-                detail=str(exc),
+            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
+            entry = AlfworldApplicationEntry(
+                config=load_config(self.config.provider_config),
+                memory_mode=self.config.memory_mode,
+                runtime_root=taskset_dir / "application",
+                session_root=taskset_dir / "sessions",
+                transport_factory=self._transport_factory,
+                event_sink=runtime_sink,
             )
+            session_id = f"{self.run_id}-{taskset.id}"
+            _start_trajectory_runtime(entry)
+            entry.begin_session(session_id, exit_reason="alfworld_taskset_selection_failure")
+            try:
+                return _taskset_selection_terminal_result(
+                    taskset=taskset,
+                    taskset_dir=taskset_dir,
+                    detail=str(exc),
+                    taskset_run_id=self.run_id,
+                    writer=_started_trajectory_writer(entry),
+                )
+            finally:
+                entry.end_session(session_id)
+                entry.close()
+                runtime_sink.close()
 
         first_selection, _ = trial_inputs[0]
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
@@ -647,6 +858,22 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         runtime_sink: JsonlEventSink | None = None
 
         try:
+            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
+            translator = create_translator(self.config.env_type)
+            provider_profile = self._resolve_provider_profile()
+            config = load_config(self.config.provider_config)
+            entry = AlfworldApplicationEntry(
+                config=config,
+                memory_mode=self.config.memory_mode,
+                runtime_root=taskset_dir / "application",
+                session_root=taskset_dir / "sessions",
+                transport_factory=self._transport_factory,
+                event_sink=runtime_sink,
+            )
+            application_session_id = f"{self.run_id}-{taskset.id}"
+            _start_trajectory_runtime(entry)
+            entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
+            trajectory_writer = _started_trajectory_writer(entry)
             first_subtask_dir = taskset_dir / "subtask-01"
             first_trace = AlfworldTraceWriter(first_subtask_dir)
             adapter.set_frame_dir(first_subtask_dir / "frames")
@@ -674,6 +901,14 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                     )
                     for index, subtask in enumerate(taskset.subtasks)
                 ]
+                for row in rows:
+                    _write_taskset_trajectory_memory(
+                        taskset=taskset,
+                        row=row,
+                        trace=AlfworldTraceWriter(taskset_dir / f"subtask-{row.index + 1:02d}"),
+                        taskset_run_id=self.run_id,
+                        writer=trajectory_writer,
+                    )
                 root_terminal = _taskset_root_terminal(
                     phase="reset_setup",
                     classification=classification,
@@ -698,21 +933,6 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
             benchmark_control_action_count = 0
             root_terminal: TasksetRootTerminal | None = None
             subtask_results: list[SubtaskResult] = []
-            runtime_sink = JsonlEventSink(taskset_dir / "runtime")
-            translator = create_translator(self.config.env_type)
-            provider_profile = self._resolve_provider_profile()
-            config = load_config(self.config.provider_config)
-            entry = AlfworldApplicationEntry(
-                config=config,
-                memory_mode=self.config.memory_mode,
-                runtime_root=taskset_dir / "application",
-                session_root=taskset_dir / "sessions",
-                transport_factory=self._transport_factory,
-                event_sink=runtime_sink,
-            )
-            application_session_id = f"{self.run_id}-{taskset.id}"
-            entry.begin_session(application_session_id, exit_reason="alfworld_taskset_end")
-
             for idx, subtask in enumerate(taskset.subtasks):
                 selection, traj_data = trial_inputs[idx]
                 subtask_dir = taskset_dir / f"subtask-{idx + 1:02d}"
@@ -756,19 +976,27 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                             taskset.subtasks[idx:],
                             start=idx,
                         ):
-                            subtask_results.append(
-                                _not_run_subtask_result(
-                                    subtask=pending,
-                                    index=pending_idx,
-                                    taskset_dir=taskset_dir,
-                                    reason=(
-                                        "goal_advance_failure"
-                                        if pending_idx == idx
-                                        else "prior_infrastructure_failure"
-                                    ),
-                                    blocked_by_classification=classification,
-                                )
+                            pending_result = _not_run_subtask_result(
+                                subtask=pending,
+                                index=pending_idx,
+                                taskset_dir=taskset_dir,
+                                reason=(
+                                    "goal_advance_failure"
+                                    if pending_idx == idx
+                                    else "prior_infrastructure_failure"
+                                ),
+                                blocked_by_classification=classification,
                             )
+                            _write_taskset_trajectory_memory(
+                                taskset=taskset,
+                                row=pending_result,
+                                trace=AlfworldTraceWriter(
+                                    taskset_dir / f"subtask-{pending_idx + 1:02d}"
+                                ),
+                                taskset_run_id=self.run_id,
+                                writer=trajectory_writer,
+                            )
+                            subtask_results.append(pending_result)
                         root_terminal = _taskset_root_terminal(
                             phase="goal_advance",
                             classification=classification,
@@ -834,9 +1062,11 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                                 self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                             ),
                             "external_terminal_owner": _AlfworldTerminalOwner(adapter),
-                            "provider_attempt_sink_factory": lambda path=(
-                                subtask_dir / "provider_attempts.jsonl"
-                            ): JsonlProviderAttemptSink(path),
+                            "provider_attempt_sink_factory": (
+                                lambda subtask_dir=subtask_dir: JsonlProviderAttemptSink(
+                                    subtask_dir / "provider_attempts.jsonl"
+                                )
+                            ),
                         },
                     )
                 )
@@ -855,44 +1085,77 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                 )
                 score_eligible = classification in AGENT_SCORE_CLASSIFICATIONS
                 failure_reason = runtime_failure_reason if score_eligible else classification
-                subtask_results.append(
-                    SubtaskResult(
-                        index=idx,
-                        goal_type=subtask.goal_type,
-                        object=subtask.object,
-                        target=subtask.toggle or subtask.parent or "",
-                        instruction=subtask.instruction,
-                        success=success,
-                        failure_reason=failure_reason,
-                        steps=final_state.step_index,
-                        invalid_actions=final_state.invalid_action_count,
-                        goal_condition_success_rate=(adapter.current_goal_condition_success_rate()),
-                        runtime_status=result.status,
-                        trace_path=trace.trace_path,
-                        classification=classification,
-                        score_eligible=score_eligible,
-                        agent_tool_call_count=outcome.agent_tool_call_count,
-                        backend_action_count=outcome.backend_action_count,
-                        terminal_tool_call_id=outcome.terminal_tool_call_id,
-                        terminal_evidence_ref=outcome.terminal_evidence_ref,
-                    )
+                completed_result = SubtaskResult(
+                    index=idx,
+                    goal_type=subtask.goal_type,
+                    object=subtask.object,
+                    target=subtask.toggle or subtask.parent or "",
+                    instruction=subtask.instruction,
+                    success=success,
+                    failure_reason=failure_reason,
+                    steps=final_state.step_index,
+                    invalid_actions=final_state.invalid_action_count,
+                    goal_condition_success_rate=(adapter.current_goal_condition_success_rate()),
+                    runtime_status=result.status,
+                    trace_path=trace.trace_path,
+                    classification=classification,
+                    score_eligible=score_eligible,
+                    agent_tool_call_count=outcome.agent_tool_call_count,
+                    backend_action_count=outcome.backend_action_count,
+                    terminal_tool_call_id=outcome.terminal_tool_call_id,
+                    terminal_evidence_ref=outcome.terminal_evidence_ref,
                 )
-                trace.write_summary(subtask_results[-1].to_dict())
+                subtask_results.append(completed_result)
+                trace.write_episode_finished(
+                    {
+                        "episode_id": f"{subtask_run_id}/subtask-{idx + 1:02d}",
+                        "taskset_id": taskset.id,
+                        "subtask_index": idx,
+                        "success": success,
+                        "outcome": "success" if success else "failure",
+                        "classification": classification,
+                        "failure_reason": failure_reason,
+                        "steps": final_state.step_index,
+                        "invalid_actions": final_state.invalid_action_count,
+                        "goal_condition_success_rate": (
+                            adapter.current_goal_condition_success_rate()
+                        ),
+                    }
+                )
+                trace.write_summary(completed_result.to_dict())
+                _write_taskset_trajectory_memory(
+                    taskset=taskset,
+                    row=completed_result,
+                    trace=trace,
+                    taskset_run_id=self.run_id,
+                    writer=trajectory_writer,
+                    final_state=final_state,
+                    task=subtask.instruction,
+                    subtask_run_id=subtask_run_id,
+                )
 
                 if not score_eligible:
                     for pending_idx, pending in enumerate(
                         taskset.subtasks[idx + 1 :],
                         start=idx + 1,
                     ):
-                        subtask_results.append(
-                            _not_run_subtask_result(
-                                subtask=pending,
-                                index=pending_idx,
-                                taskset_dir=taskset_dir,
-                                reason="prior_infrastructure_failure",
-                                blocked_by_classification=classification,
-                            )
+                        pending_result = _not_run_subtask_result(
+                            subtask=pending,
+                            index=pending_idx,
+                            taskset_dir=taskset_dir,
+                            reason="prior_infrastructure_failure",
+                            blocked_by_classification=classification,
                         )
+                        _write_taskset_trajectory_memory(
+                            taskset=taskset,
+                            row=pending_result,
+                            trace=AlfworldTraceWriter(
+                                taskset_dir / f"subtask-{pending_idx + 1:02d}"
+                            ),
+                            taskset_run_id=self.run_id,
+                            writer=trajectory_writer,
+                        )
+                        subtask_results.append(pending_result)
                     root_terminal = _taskset_root_terminal(
                         phase="subtask_execution",
                         classification=classification,
@@ -1031,11 +1294,102 @@ def _not_run_subtask_result(
     return result
 
 
+def _write_taskset_trajectory_memory(
+    *,
+    taskset: Taskset,
+    row: SubtaskResult,
+    trace: AlfworldTraceWriter,
+    taskset_run_id: str,
+    writer: Any | None = None,
+    final_state: AlfworldEnvState | None = None,
+    task: str | None = None,
+    subtask_run_id: str | None = None,
+) -> None:
+    """Persist one independent taskset-subtask trajectory."""
+
+    if not trace.trace_path.is_file():
+        trace.write_event(
+            {
+                "event": "subtask_not_run",
+                "taskset_id": taskset.id,
+                "subtask_index": row.index,
+                "reason": row.not_run_reason or row.failure_reason or "not_run",
+                "classification": row.blocked_by_classification or row.classification,
+            }
+        )
+    source_trace_sha256 = trace.source_trace_sha256()
+    trajectory_id = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"alfworld:{taskset_run_id}:{taskset.id}:subtask:{row.index}",
+        )
+    )
+    if final_state is not None:
+        won = final_state.won
+        done = final_state.done
+        step_index = final_state.step_index
+        invalid_actions = final_state.invalid_action_count
+        goal_rate = final_state.goal_condition_success_rate
+        inventory = (final_state.inventory,) if final_state.inventory else None
+    else:
+        won = None
+        done = None
+        step_index = row.steps
+        invalid_actions = row.invalid_actions
+        goal_rate = row.goal_condition_success_rate
+        inventory = None
+    outcome, failure_reason = determine_outcome(
+        {
+            "won": won,
+            "failure_reason": row.failure_reason or row.not_run_reason or "not_run",
+        },
+        infrastructure_failure=final_state is None,
+    )
+    record = AlfworldTrajectoryRecord(
+        trajectory_id=trajectory_id,
+        source_session_id=subtask_run_id or f"{taskset_run_id}-{taskset.id}",
+        run_id=taskset_run_id,
+        episode_id=f"{taskset.id}/subtask-{row.index + 1:02d}",
+        taskset_id=taskset.id,
+        subtask_index=row.index,
+        task=task or row.instruction,
+        goal_type=row.goal_type,
+        outcome=outcome,
+        classification=row.classification or row.blocked_by_classification or "runtime_failure",
+        failure_reason=failure_reason,
+        source_trace_path=str(trace.trace_path),
+        source_trace_sha256=source_trace_sha256,
+        final_environment_state=AlfworldFinalEnvironmentState(
+            won=won,
+            done=done,
+            step_index=step_index,
+            invalid_action_count=invalid_actions,
+            goal_condition_success_rate=goal_rate,
+            inventory=inventory,
+        ),
+    )
+    trace.write_trajectory_memory(record.model_dump(mode="json"))
+    summary = json.loads(trace.summary_path.read_text(encoding="utf-8"))
+    summary.update(
+        {
+            "trajectory_id": trajectory_id,
+            "outcome": outcome,
+            "source_trace_sha256": source_trace_sha256,
+        }
+    )
+    trace.write_summary(summary)
+    trace.write_trajectory(summary)
+    if writer is not None:
+        writer.enqueue(record)
+
+
 def _taskset_selection_terminal_result(
     *,
     taskset: Taskset,
     taskset_dir: Path,
     detail: str,
+    taskset_run_id: str,
+    writer: Any | None = None,
 ) -> TasksetResult:
     trace = AlfworldTraceWriter(taskset_dir / "subtask-01")
     trace.write_event(
@@ -1057,6 +1411,14 @@ def _taskset_selection_terminal_result(
         )
         for index, subtask in enumerate(taskset.subtasks)
     ]
+    for row in rows:
+        _write_taskset_trajectory_memory(
+            taskset=taskset,
+            row=row,
+            trace=AlfworldTraceWriter(taskset_dir / f"subtask-{row.index + 1:02d}"),
+            taskset_run_id=taskset_run_id,
+            writer=writer,
+        )
     control_record = AlfworldControlTerminalRecord(
         phase="reset_setup",
         trigger_code="expected_manifest_mismatch",

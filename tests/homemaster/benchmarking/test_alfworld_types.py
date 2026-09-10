@@ -24,7 +24,7 @@ def test_config_defaults_keep_memory_disabled_and_invalid_limit_100(tmp_path: Pa
     assert config.memory_mode == "disabled"
     assert config.max_invalid_actions == 100
     assert config.max_env_steps == 50
-    assert config.max_tool_iterations == 1000
+    assert config.max_tool_iterations == 200
     assert config.provider_name is None
     assert config.observation_mode == "visual_eval"
 

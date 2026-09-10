@@ -27,6 +27,7 @@ if [[ "$command_name" == "benchmark-alfworld" || "$command_name" == "benchmark-a
     printf 'ALFWorld root is not initialized: %s\nRun setup with --alfworld-python and --alfworld-root once on this server.\n' "$repo_root/.runtime/alfworld" >&2
     exit 2
   fi
+  export ALFWORLD_DATA="$repo_root/.runtime/alfworld/data"
   formal_site="$($formal_python -c 'import site; print(site.getsitepackages()[0])')"
   if ! mindmemos_source="$($formal_python -c 'from pathlib import Path; import mindmemos; print(Path(mindmemos.__file__).resolve().parent.parent)')"; then
     printf 'Formal HomeMaster runtime cannot resolve MindMemOS. Run uv sync in the project environment.\n' >&2

@@ -153,6 +153,9 @@
 
 ## 测试工作区纪律
 
+- application composition 测试必须隔离完整的 application-owned 外部资源闭包；只 mock MindMemOS 或单个
+  backend 不能阻止同一 composition 启动真实 Neo4j/其他外部服务。fake 必须覆盖真实生命周期和测试路径实际
+  调用的最小接口；生产资源校验不得为迁就单测而放宽。
 - 设计/实施规范点名的验收测试文件必须逐个进入最终命令，并记录实际 collected 文件/用例集合；禁止用相邻
   测试、手写子集或汇总通过数推断未收集文件也通过。扩大测试集合暴露遗漏后，先迁移或修复遗漏测试，再重跑
   package-data 和真实外部终态门。
@@ -387,6 +390,8 @@
 
 ## ALFWorld 外部执行纪律
 
+- 依赖锁定的 Java/Neo4j CLI 时，必须在目标发行版真机核对命令参数和返回码；不能把旧版 CLI 的帮助文本或
+  `--from-stdin` 等历史参数带入新发行版。初始化成功后还要验证 Neo4j readiness 和真实数据库 readback。
 - 跨机器部署 Java/Neo4j 时只铺设经过 hash 校验的干净发行包，不能复制正在使用的 installation directory。
   启动前逐项扫描 `neo4j.conf` 的 data/logs/run 路径和安装目录内的 PID/锁/数据状态，并在目标机执行
   `neo4j-admin server validate-config --verbose` 核对退出码；源码测试、import 成功或 binary version 相同

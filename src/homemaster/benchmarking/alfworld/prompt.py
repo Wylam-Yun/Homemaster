@@ -60,11 +60,11 @@ def build_episode_prompt(
             "Use the explicit observe tool and available actions to complete the task.",
             (
                 "Action results provide receipts and minimal execution status; "
-                "they do not observe the world."
+                "they do not observe the world. Observe only when you need a fresh visual check."
             ),
             (
                 "Call observe after actions when you need a fresh model-visible "
-                "environment observation."
+                "environment observation; it is not mandatory after every action."
             ),
             (
                 "Inspect the latest explicit observation and success/error signal "
@@ -147,16 +147,16 @@ def _format_tool_choice_guidance() -> str:
     return "\n".join(
         [
             (
-                "- Use robot_go_to for any target you need to approach: movable objects, "
-                "receptacles, furniture, appliances, containers, and switch/toggle objects."
+                "- Use high-level robot actions; the benchmark resolves canonical targets "
+                "and performs required navigation."
             ),
             (
-                "- Do not guess many source locations or ALFWorld navigation names. If you "
-                "need an object, place, tool, or container, call robot_go_to with that target."
+                "- Do not guess aliases, source locations, or ALFWorld navigation names. "
+                "Use the task target phrase."
             ),
             (
-                "- Reuse robot_go_to's returned target label, object label, and source "
-                "receptacle in later manipulation calls when they are provided."
+                "- A failed target must be revised once from the latest receipt; do not "
+                "loop through guessed aliases."
             ),
         ]
     )
@@ -171,10 +171,7 @@ def _format_task_semantics(
     normalized_task = " ".join(task_text.lower().split())
     is_look_at_light = (
         goal_type == "look_at_obj_in_light"
-        or any(
-            segment.startswith("look_at_obj_in_light-")
-            for segment in episode_id.split("/")
-        )
+        or any(segment.startswith("look_at_obj_in_light-") for segment in episode_id.split("/"))
         or (
             ("look at " in normalized_task or "examine " in normalized_task)
             and "lamp" in normalized_task

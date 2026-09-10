@@ -795,6 +795,12 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
     ) -> list[DreamingActionReceipt]:
         now = datetime.now(UTC)
         mem_by_id = {m.memory_id: m for m in cluster_memories}
+        validation_errors = self._validate_action_references(actions, mem_by_id)
+        if validation_errors:
+            return [
+                DreamingActionReceipt(action="validation", status="error", error=error)
+                for error in validation_errors
+            ]
         created_by_source_set: dict[tuple[str, ...], str] = {}
         receipts: list[DreamingActionReceipt] = []
 
@@ -943,6 +949,30 @@ class DefaultDreamingPipeline(MemoryDbPipelineMixin):
         if link_relationships:
             await self._apply_write_plan(context, MemoryDbWritePlan(relationships=link_relationships))
         return receipts
+
+    @staticmethod
+    def _validate_action_references(actions, mem_by_id: dict[str, Any]) -> list[str]:
+        """Reject model-generated or out-of-scope memory references before writes."""
+        errors: list[str] = []
+        known_ids = set(mem_by_id)
+        for update in actions.updates:
+            if update.memory_id not in known_ids:
+                errors.append(f"update references unknown memory: {update.memory_id}")
+        for merge in actions.merges:
+            for memory_id in merge.source_memory_ids:
+                if memory_id not in known_ids:
+                    errors.append(f"merge references unknown memory: {memory_id}")
+        for archive in actions.archives:
+            if archive.memory_id not in known_ids:
+                errors.append(f"archive references unknown memory: {archive.memory_id}")
+            if archive.replacement_memory_id is not None and archive.replacement_memory_id not in known_ids:
+                errors.append(f"archive replacement references unknown memory: {archive.replacement_memory_id}")
+        for link in actions.links:
+            if link.source_kind == "Memory" and link.source_id not in known_ids:
+                errors.append(f"link references unknown source memory: {link.source_id}")
+            if link.target_kind == "Memory" and link.target_id not in known_ids:
+                errors.append(f"link references unknown target memory: {link.target_id}")
+        return errors
 
     # -- marking helpers ------------------------------------------------------
 

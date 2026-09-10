@@ -26,6 +26,16 @@ legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and
 
 ## Memory Flow
 
+ALFWorld trajectory
+  -> dedicated trajectory writer -> `homemaster_memory_type=trajectory`
+  -> independent source-trace hash/readback
+  -> optional durable compile job
+  -> `homemaster_memory_type=alfworld_experience` + `DERIVED_FROM`
+
+Trajectory and derived experience rows are projected to Web with outcome, classification, goal/subtask identity,
+executability and compile state. Internal trace paths, poses, object IDs, evidence refs and database credentials are
+never part of the public projection.
+
 ```text
 new Session / first user turn after completed Compact
   -> SessionRuntime.require_recall generation-fenced latch

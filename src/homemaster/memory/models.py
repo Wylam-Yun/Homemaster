@@ -19,6 +19,18 @@ ProcedureAction = Literal[
     "wait",
     "read",
     "terminal",
+    "observe",
+    "navigate",
+    "take",
+    "open",
+    "close",
+    "put",
+    "use",
+    "slice",
+    "heat",
+    "cool",
+    "clean",
+    "verify",
 ]
 _SNAKE_CASE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _SLOT_NAME = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")

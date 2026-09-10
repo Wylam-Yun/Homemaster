@@ -55,6 +55,17 @@ class ManagedMemoryResponse(BaseModel):
     record: dict[str, object] | None
     structure_status: Literal["plain", "valid", "invalid"]
     has_history: bool
+    domain: str | None = None
+    outcome: str | None = None
+    classification: str | None = None
+    goal_type: str | None = None
+    episode_id: str | None = None
+    taskset_id: str | None = None
+    subtask_index: int | None = None
+    is_executable: bool | None = None
+    source_trajectory_id: str | None = None
+    derived_memory_id: str | None = None
+    compile_status: str | None = None
 
 
 class MemoryStatsResponse(BaseModel):

@@ -10,10 +10,9 @@ from homemaster.application import ApplicationSession
 from homemaster.config import HomeMasterConfig
 
 
-def _config(tmp_path: Path, *, memory_enabled: bool = True) -> HomeMasterConfig:
+def _config(tmp_path: Path) -> HomeMasterConfig:
     return HomeMasterConfig.model_validate(
         {
-            "memory": {"enabled": memory_enabled},
             "runtime": {"runtime_root": tmp_path / "configured-runs"},
             "observability": {"session_dir": str(tmp_path / "configured-sessions")},
         }
@@ -30,6 +29,7 @@ def test_alfworld_entry_uses_full_home_composition_with_isolated_roots(
         application=application,
         mindmemos=object(),
         memory_add_queue=object(),
+        trajectory_writer=object(),
     )
 
     def fake_create_home_application(**kwargs: object) -> object:
@@ -75,7 +75,7 @@ def test_alfworld_entry_fails_closed_without_mindmemos(
 
     with pytest.raises(RuntimeError, match="requires embedded MindMemOS"):
         alfworld_entry.AlfworldApplicationEntry(
-            config=_config(tmp_path, memory_enabled=False),
+            config=_config(tmp_path),
             memory_mode="disabled",
             runtime_root=tmp_path / "application",
             session_root=tmp_path / "sessions",
@@ -126,6 +126,7 @@ def test_alfworld_entry_closes_open_session_before_application_resources(
             application=application,
             mindmemos=object(),
             memory_add_queue=object(),
+        trajectory_writer=object(),
         ),
     )
     entry = alfworld_entry.AlfworldApplicationEntry(

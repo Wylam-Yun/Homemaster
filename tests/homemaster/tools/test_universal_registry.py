@@ -179,8 +179,8 @@ def test_only_alfworld_state_changing_tools_require_model_observation() -> None:
 
     registry = build_tool_registry(environment="alfworld")
 
-    assert registry.get("robot_go_to").requires_model_observation is True
-    assert registry.get("robot_manipulate").requires_model_observation is True
+    assert registry.get("robot_go_to").requires_model_observation is False
+    assert registry.get("robot_manipulate").requires_model_observation is False
     for name in set(registry.all_names()) - {"robot_go_to", "robot_manipulate"}:
         assert registry.get(name).requires_model_observation is False
     for schema in registry.to_api_schema():

@@ -95,6 +95,7 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
         application=bundle.application,
         confirmation_handler=confirmation_handler,
         memory_management_service=memory_management_service,
+        alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
     )
     app.state.home_bundle = bundle
     return app
@@ -123,6 +124,7 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         application=bundle.application,
         confirmation_handler=confirmation_handler,
         memory_management_service=memory_management_service,
+        alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
     )
     app.state.home_bundle = bundle
     return app
@@ -158,6 +160,7 @@ async def create_alfworld_web_app() -> FastAPI:
             application=application,
             confirmation_handler=confirmation_handler,
             memory_management_service=memory_management_service,
+            alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
         )
     except BaseException:
         await confirmation_handler.aclose()

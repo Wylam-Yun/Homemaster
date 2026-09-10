@@ -1,7 +1,8 @@
 # plan/ -- Implementation Plan Archive
 
-This directory is the **historical archive of formal implementation plans**. Nothing here is
-active design truth. For the current state of the repository, read in this order:
+This directory normally contains the **historical archive of formal implementation plans**.
+Exception: the user designated [V3.4](V3.4/README.md) as the active permission design review
+location; it remains a draft until reviewed. Other archived versions are not active design truth. For the current state of the repository, read in this order:
 
 1. `docs/session-handoff.md` -- the single live handoff/state document.
 2. `CHANGELOG.md` -- what each delivery actually changed, in order.

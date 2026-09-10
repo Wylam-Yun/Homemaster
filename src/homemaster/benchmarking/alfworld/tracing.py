@@ -103,6 +103,7 @@ class AlfworldTraceWriter:
         self.model_trace_path = self.episode_dir / "model_trace.jsonl"
         self.summary_path = self.episode_dir / "summary.json"
         self.trajectory_path = self.episode_dir / "trajectory.md"
+        self.trajectory_memory_path = self.episode_dir / "trajectory_memory.json"
 
     def write_event(self, event: dict[str, Any]) -> str:
         encoded = json.dumps(
@@ -160,6 +161,20 @@ class AlfworldTraceWriter:
     def write_summary(self, summary: dict[str, Any]) -> None:
         self.summary_path.write_text(
             json.dumps(_copy_trace_value(summary), ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def write_episode_finished(self, payload: Mapping[str, Any]) -> str:
+        """Persist the authoritative terminal event before session close."""
+
+        return self.write_event({"event": "alfworld.episode_finished", **dict(payload)})
+
+    def source_trace_sha256(self) -> str:
+        return hashlib.sha256(self.trace_path.read_bytes()).hexdigest()
+
+    def write_trajectory_memory(self, payload: Mapping[str, Any]) -> None:
+        self.trajectory_memory_path.write_text(
+            json.dumps(_copy_trace_value(payload), ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
 
