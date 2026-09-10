@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from homemaster.permissions.resources import PhysicalDeviceAdapter
+
 if TYPE_CHECKING:
     from homemaster.extensions.hook_runner import HookRunner
     from homemaster.tools.contracts import ToolExecutionResult
@@ -99,6 +101,8 @@ class BaseTool(ABC):
     concurrency_policy: Literal["parallel", "serialized", "resource_key"] = "parallel"
     resource_key: str | None = None
     resource_key_resolver: Callable[[Mapping[str, Any], ToolExecutionContext], str] | None = None
+    physical: bool = False
+    physical_adapter: PhysicalDeviceAdapter | None = None
 
     @abstractmethod
     async def execute(
@@ -135,6 +139,16 @@ class BaseTool(ABC):
             raise ValueError("required_capabilities must be unique")
         if any(not value or not isinstance(value, str) for value in self.required_capabilities):
             raise ValueError("required_capabilities must contain non-empty strings")
+        if self.physical and self.physical_adapter is None:
+            raise ValueError(
+                f"physical tool {self.name!r} declares no physical_adapter; "
+                "refusing to register it as an ordinary tool"
+            )
+        if self.physical_adapter is not None and not self.physical:
+            raise ValueError(
+                f"tool {self.name!r} carries a physical_adapter without "
+                "declaring physical=True"
+            )
 
 
 ToolFunction = Callable[
@@ -162,7 +176,19 @@ class FunctionTool(BaseTool):
         resource_key: str | None = None,
         resource_key_resolver: Callable[[Mapping[str, Any], ToolExecutionContext], str]
         | None = None,
+        physical: bool = False,
+        physical_adapter: PhysicalDeviceAdapter | None = None,
     ) -> None:
+        if physical and physical_adapter is None:
+            raise ValueError(
+                f"physical tool {name!r} declares no physical_adapter; "
+                "refusing to construct it as an ordinary tool"
+            )
+        if physical_adapter is not None and not physical:
+            raise ValueError(
+                f"tool {name!r} carries a physical_adapter without "
+                "declaring physical=True"
+            )
         self.name = name
         self.stable_id = f"homemaster.{name}.v1"
         self.description = description
@@ -176,12 +202,19 @@ class FunctionTool(BaseTool):
         self.concurrency_policy = concurrency_policy
         self.resource_key = resource_key
         self.resource_key_resolver = resource_key_resolver
+        self.physical = physical
+        self.physical_adapter = physical_adapter
 
     async def execute(
         self,
         arguments: BaseModel,
         context: ToolExecutionContext,
     ) -> ToolResult:
+        if self.physical and self.physical_adapter is None:
+            raise RuntimeError(
+                f"physical tool {self.name!r} has no physical_adapter; "
+                "refusing execution"
+            )
         raw = arguments.model_dump(mode="python")
         value = self._execute(raw, context)
         if inspect.isawaitable(value):

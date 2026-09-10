@@ -82,6 +82,7 @@ homemaster = [
   "prompts/*.md",
   "prompts/*.txt",
   "memory/*.json",
+  "permissions/*.yaml",
   "skills/builtin/*/SKILL.md",
   "skills/builtin/*/**/*",
   "skills/bundled/content/*.md",

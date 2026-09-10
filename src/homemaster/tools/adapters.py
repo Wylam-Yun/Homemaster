@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+from homemaster.permissions.resources import PhysicalDeviceAdapter
 from homemaster.tools.base import FunctionTool, ToolExecutionContext, normalize_tool_result
 from homemaster.tools.contracts import (
     ToolExecutionError,
@@ -18,9 +19,30 @@ from homemaster.tools.contracts import (
 )
 
 
-def from_registered_tool(registered: Any) -> FunctionTool:
-    """Adapt one current canonical registration without exposing its namespaced ID."""
+def from_registered_tool(
+    registered: Any,
+    *,
+    physical: bool = False,
+    physical_adapter: PhysicalDeviceAdapter | None = None,
+) -> FunctionTool:
+    """Adapt one current canonical registration without exposing its namespaced ID.
 
+    Physical tools are declared explicitly by the registration side via
+    ``physical=True`` together with the adapter instance; names and LLM
+    arguments are never sniffed. A physical registration without an
+    adapter is refused instead of being silently adapted as ordinary.
+    """
+
+    if physical and physical_adapter is None:
+        raise ValueError(
+            "physical tool registration declares no physical_adapter; "
+            "refusing to adapt it as an ordinary tool"
+        )
+    if physical_adapter is not None and not physical:
+        raise ValueError(
+            "physical_adapter without physical=True; "
+            "declare the registration as physical explicitly"
+        )
     definition = registered.definition
 
     async def execute(arguments: dict[str, Any], context: ToolExecutionContext) -> Any:
@@ -78,6 +100,8 @@ def from_registered_tool(registered: Any) -> FunctionTool:
         concurrency_policy=definition.concurrency_policy.value,
         resource_key=definition.resource_key,
         resource_key_resolver=registered.resource_key_resolver,
+        physical=physical,
+        physical_adapter=physical_adapter,
     )
 
 

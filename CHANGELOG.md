@@ -18,6 +18,15 @@
 
 ### Changed
 
+- Added the V3.4 generic permission contract: frozen exact-resource DTOs (resource key,
+  requirement, prepared request/step, item decision, submission, resolution, execution
+  observation) with directory, closure and UTC validation, five named errors, the minimal
+  device-adapter Protocol, and the packaged actions.yaml directory. BaseTool/FunctionTool
+  and from_registered_tool now carry an explicit physical declaration with an adapter
+  instance, and refuse physical registrations without one instead of running them as
+  ordinary tools. Approval behavior is unchanged: no checker, store, protocol or UI
+  changes yet, so no approval is granted by this change.
+
 - Added a browser-focused architecture handoff that records the eight-layer Web Console to Chromium
   execution chain, including the memory/context bridge, event return path, target-ref/readback invariants,
   and verified companion diagram.

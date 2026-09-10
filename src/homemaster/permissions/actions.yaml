@@ -1,0 +1,23 @@
+# User-semantic physical actions for the V3.4 permission gate.
+#
+# Only canonical names may appear in permission keys. Backend alias
+# spellings map deterministically to one canonical action. Broad calls
+# (use/toggle/manipulate) are intentionally absent: the device adapter
+# must resolve them against the real device state before requesting
+# permission.
+version: 1
+actions:
+  - pick_up
+  - place
+  - open
+  - close
+  - clean
+  - heat
+  - cool
+  - slice
+  - turn_on
+  - turn_off
+  - enter
+aliases:
+  take: pick_up
+  put: place
