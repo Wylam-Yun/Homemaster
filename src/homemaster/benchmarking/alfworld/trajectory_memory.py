@@ -184,12 +184,29 @@ class AlfworldTrajectoryWriter:
     """Admit ALFWorld trajectory records to the application-owned memory queue."""
 
     def __init__(
-        self, mindmemos: Any, queue: Any, *, event_sink: Any, tenant_id: str = "local"
+        self,
+        mindmemos: Any,
+        queue: Any,
+        *,
+        event_sink: Any,
+        tenant_id: str = "local",
+        compile_service: Any | None = None,
     ) -> None:
         self._mindmemos = mindmemos
         self._queue = queue
         self._event_sink = event_sink
         self._tenant_id = tenant_id
+        self._compile_service = compile_service
+
+    def bind_auto_compile(self, compile_service: Any | None) -> None:
+        """Chain trajectory persistence to derived-experience compilation.
+
+        The frontend compile button stays as a manual re-run entry; this binding
+        makes every stored trajectory also submit one idempotent compile job.
+        Failures here never fail the trajectory job itself.
+        """
+
+        self._compile_service = compile_service
 
     def enqueue(self, record: AlfworldTrajectoryRecord) -> Any:
         if not isinstance(record, AlfworldTrajectoryRecord):
@@ -227,12 +244,50 @@ class AlfworldTrajectoryWriter:
                     "readback_status": "verified",
                 },
             )
+            await self._auto_compile_after_stored(record, result.get("memory_id"))
 
         return self._queue.enqueue_work(
             job_type="alfworld_trajectory_memory",
             session_id=record.source_session_id,
             work=work,
         )
+
+    async def _auto_compile_after_stored(
+        self, record: AlfworldTrajectoryRecord, memory_id: Any | None
+    ) -> None:
+        """Submit one idempotent compile job; never fail the trajectory job."""
+
+        service = getattr(self, "_compile_service", None)
+        enqueue = getattr(service, "enqueue", None)
+        if service is None or not callable(enqueue):
+            return
+        if not isinstance(memory_id, str) or not memory_id:
+            return
+        try:
+            receipt = enqueue(memory_id, session_id=record.source_session_id)
+            await self._aemit(
+                "memory.trajectory.auto_compile.queued",
+                record,
+                {
+                    "status": "queued",
+                    "memory_id": memory_id,
+                    "job_id": receipt.get("job_id") if isinstance(receipt, dict) else None,
+                    "compile_status": receipt.get("status") if isinstance(receipt, dict) else None,
+                    "external_return_status": "accepted",
+                },
+            )
+        except Exception as exc:
+            await self._aemit(
+                "memory.trajectory.auto_compile.failed",
+                record,
+                {
+                    "status": "failed",
+                    "memory_id": memory_id,
+                    "error_code": type(exc).__name__,
+                    "error": str(exc),
+                    "external_return_status": "degraded",
+                },
+            )
 
     def _event(
         self, event_type: str, record: AlfworldTrajectoryRecord, payload: dict[str, Any]

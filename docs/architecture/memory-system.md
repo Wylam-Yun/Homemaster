@@ -29,7 +29,7 @@ legacy field; `memory.mem0` is rejected. `doctor` uses read-only `inspect()` and
 ALFWorld trajectory
   -> dedicated trajectory writer -> `homemaster_memory_type=trajectory`
   -> independent source-trace hash/readback
-  -> optional durable compile job
+  -> automatic durable compile job chained after stored
   -> `homemaster_memory_type=alfworld_experience` + `DERIVED_FROM`
 
 Trajectory and derived experience rows are projected to Web with outcome, classification, goal/subtask identity,

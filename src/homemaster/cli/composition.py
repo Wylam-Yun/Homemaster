@@ -401,6 +401,7 @@ def _finish_home_application(
             event_sink=bus,
             tenant_id=memory_tenant_id,
         )
+        trajectory_writer.bind_auto_compile(alfworld_compile_jobs)
         memory_enrichment_queue = MemoryEnrichmentQueue(
             mindmemos,
             audit_path=resolved.memory.data_root / "mindmemos" / "enrichment_jobs.jsonl",
