@@ -2,6 +2,7 @@
 
 ## V3.4 Household Permission Design — Awaiting Review
 
+- User clarification (2026-09-10, real hardware): permissions must remain independent of ALFWorld. Design sections 3.1–3.3 specify adapter-owned native details, the minimal shared contract, complexity limits and simulator-independent acceptance. Hardware integration is not yet verified.
 - User-designated design location: `plan/V3.4/permission-system-design.md`; start with `plan/V3.4/README.md`.
 - Product semantics are confirmed: single robot; stable exact object ID × concrete action; stable destination-area ID × enter; destination only, no transit-area checks.
 - Once means the current exact action occurrence, with bounded verified-failure retries; success/termination consumes it. Enter-once permits staying until departure, then re-entry needs approval.
