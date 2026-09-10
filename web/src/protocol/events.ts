@@ -8,6 +8,18 @@ export type ArtifactRef = {
 
 export type Usage = Record<string, number>
 
+export type ApprovalItem = {
+  item_id: string
+  display_name: string
+  location: string
+  action_label: string
+}
+
+export type ApprovalResolvedItem = {
+  item_id: string
+  choice?: string
+}
+
 type Envelope<T extends string, P> = {
   type: T
   session_id: string
@@ -34,18 +46,27 @@ export type WebEvent =
     }>
   | Envelope<'approval.requested', {
       approval_id: string
-      tool_call_id: string
-      name: string
-      arguments: Record<string, unknown>
-      cwd: string
-      reason: string
+      protocol_version: number
+      request_id: string
+      revision: number
+      intent_summary: string
+      items: ApprovalItem[]
+      expires_at: string
+      request_status: string
     }>
   | Envelope<'approval.resolved', {
       approval_id: string
-      tool_call_id: string
-      name: string
-      approved: boolean
-      outcome: string
+      protocol_version?: number
+      request_id?: string
+      revision?: number
+      request_status: string
+      approved?: boolean | null
+      outcome?: string | null
+      items: ApprovalResolvedItem[]
+    }>
+  | Envelope<'permission.grants_changed', {
+      request_id: string
+      grant_ids: string[]
     }>
   | Envelope<'usage.updated', Usage>
   | Envelope<'context.compacted', {
@@ -58,7 +79,8 @@ const EVENT_TYPES = new Set<WebEvent['type']>([
   'request.accepted', 'run.started', 'run.completed', 'run.failed', 'run.cancelled',
   'thinking.delta', 'thinking.snapshot', 'answer.delta', 'answer.snapshot',
   'tool.started', 'tool.completed', 'tool.failed',
-  'approval.requested', 'approval.resolved', 'usage.updated', 'context.compacted',
+  'approval.requested', 'approval.resolved', 'permission.grants_changed',
+  'usage.updated', 'context.compacted',
 ])
 
 export function isWebEvent(value: unknown): value is WebEvent {

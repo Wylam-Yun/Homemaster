@@ -18,6 +18,17 @@
 
 ### Changed
 
+- Replaced the browser approval dialog with per-item decision cards matching protocol 2: no
+  preselected choice, submit enabled only after every item is decided, one
+  allow-once/allow-always/reject choice per item sent with protocol_version, a locked
+  submission_id and the request revision; changing a choice locks a new submission id while
+  network retries reuse the same one. The card shows only display names, locations and action
+  labels, never internal ids, revisions, directories or tool payloads; Close/Escape cancels
+  through the cancel endpoint, and a partially rejected call reports this call as not executed
+  without rolling back finished steps. Approval state now tracks the structured request and
+  permission.grants_changed passes through without touching the turn; the API client adds
+  submit/cancel/read approval plus grants list/revoke (the grants page follows in Task 7).
+
 - Migrated approvals to the structured protocol 2: the browser submits
   per-item allow-once/allow-always/reject choices, the server commits them
   in one store transaction and then wakes the waiting call, which re-reads

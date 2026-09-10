@@ -1,5 +1,20 @@
 # Session Handoff
 
+## V3.4 Task6 done — per-item approval cards — 2026-09-10
+
+- Worktree: `/data1/haodong2/weilin/red_bird/Homemaster-v34-permissions`, branch `v34-permissions`.
+- Scope: `web/src/protocol/events.ts`, `state/conversation.ts`, `api/http.ts`,
+  `components/ApprovalDialog.tsx` + css, `App.tsx`, plus the four matching test files.
+- Behavior: cards render one radio group per item (本次允许/始终允许/拒绝), submit disabled until
+  all decided, structured body `{protocol_version: 2, submission_id, request_revision, decisions}`
+  keeps exact item ids while visible DOM text carries none; Close/Escape hits the cancel endpoint;
+  blocked submissions set the "本次调用未执行" notice without claiming zero execution.
+- Evidence: `npm --prefix web test` 36 passed; `npm run typecheck` clean; `npm run build` clean
+  (static_dist output reverted, not committed — same as Task 5); backend
+  `pytest tests/homemaster/web tests/homemaster/permissions` 140 passed.
+- Next: Task 7 grants page (PermissionsPage + revoke flow; client methods already present),
+  then Task 8 ALFWorld adapter. Task 0-5 plan checkboxes still need backfill against commits.
+
 ## V3.4 Task0 in progress — isolated worktree ready — 2026-09-10
 
 - Worktree: `/data1/haodong2/weilin/red_bird/Homemaster-v34-permissions`, branch `v34-permissions`, HEAD `2f6b4581` (plan baseline `e4c7940f` has drifted by 2 commits; main tree clean, no foreign changes merged).

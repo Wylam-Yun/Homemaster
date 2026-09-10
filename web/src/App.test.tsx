@@ -1,21 +1,44 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   rejectMemories: false,
   stop: vi.fn(),
+  emitters: [] as Array<{ onEvent: (event: unknown) => void }>,
+  apis: [] as Array<{
+    submitApproval: (...args: Array<unknown>) => Promise<unknown>
+    cancelApproval: (...args: Array<unknown>) => Promise<unknown>
+  }>,
 }))
 
 vi.mock('./api/http', () => ({
   HttpError: class HttpError extends Error {},
   HomeMasterApi: class HomeMasterApi {
+    constructor() {
+      mocks.apis.push(this as unknown as {
+        submitApproval: (...args: Array<unknown>) => Promise<unknown>
+        cancelApproval: (...args: Array<unknown>) => Promise<unknown>
+      })
+    }
+
     listSessions = vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-01', title: 'first request title', message_count: 2, updated_at: '2026-09-10T03:00:00+00:00' }] })
     history = vi.fn().mockResolvedValue({ session_id: 'session-01', messages: [] })
     createSession = vi.fn().mockResolvedValue({ session_id: 'session-new' })
     sendMessage = vi.fn().mockResolvedValue({ accepted: true })
     cancel = vi.fn().mockResolvedValue({ cancelled: true })
-    resolveApproval = vi.fn().mockResolvedValue({ approved: true })
+    submitApproval = vi.fn().mockResolvedValue({
+      approval_id: 'approval-01',
+      request_id: 'request-01',
+      request_status: 'ready',
+      execution_started: true,
+      persisted_grant_ids: [],
+      items: [],
+    })
+    cancelApproval = vi.fn().mockResolvedValue({ approval_id: 'approval-01', request_status: 'cancelled' })
+    readApproval = vi.fn().mockResolvedValue(null)
+    listGrants = vi.fn().mockResolvedValue({ grants: [], next_cursor: null })
+    revokeGrant = vi.fn().mockResolvedValue(null)
     memoryHistory = vi.fn().mockResolvedValue({ memory_id: 'memory-01', versions: [] })
     memories = vi.fn().mockImplementation(() => {
       if (mocks.rejectMemories) return Promise.reject(new Error('memory unavailable'))
@@ -32,8 +55,15 @@ vi.mock('./api/connection', () => ({
     constructor(
       _sessionId: string,
       _url: undefined,
-      private readonly callbacks: { onStateChange: (state: string) => void },
-    ) {}
+      private readonly callbacks: {
+        onEvent: (event: unknown) => void
+        onStateChange: (state: string) => void
+        onReject: () => void
+      },
+    ) {
+      mocks.emitters.push({ onEvent: callbacks.onEvent })
+    }
+
     start() { this.callbacks.onStateChange('connected') }
     stop() { mocks.stop() }
   },
@@ -46,6 +76,7 @@ describe('App memory navigation', () => {
   beforeEach(() => {
     mocks.rejectMemories = false
     mocks.stop.mockClear()
+    mocks.emitters.length = 0
     localStorage.clear()
     window.HTMLElement.prototype.scrollIntoView = vi.fn()
   })
@@ -96,5 +127,74 @@ describe('App memory navigation', () => {
     expect(screen.getByText('没有匹配的会话')).toBeVisible()
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索会话' }), { target: { value: 'first request' } })
     expect(screen.getByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+  })
+
+  it('decides every approval item and submits the structured protocol body', async () => {
+    render(<App />)
+    expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
+
+    const emitter = mocks.emitters[mocks.emitters.length - 1]!
+    await act(async () => {
+      emitter.onEvent({
+        type: 'approval.requested',
+        session_id: 'session-01',
+        run_id: 'run-01',
+        request_id: 'request-01',
+        payload: {
+          approval_id: 'approval-01',
+          protocol_version: 2,
+          request_id: 'request-01',
+          revision: 3,
+          intent_summary: '去卧室拿杯子',
+          items: [
+            { item_id: 'item-cup-a', display_name: '白色杯子', location: '卧室床头柜', action_label: '拿取' },
+            { item_id: 'item-enter-b', display_name: '卧室', location: '卧室', action_label: '进入' },
+          ],
+          expires_at: '2026-09-10T02:00:00Z',
+          request_status: 'awaiting_approval',
+        },
+      })
+    })
+
+    expect(await screen.findByRole('dialog')).toBeVisible()
+    expect(screen.getByText('白色杯子 · 拿取')).toBeVisible()
+    const bodyText = document.body.textContent ?? ''
+    expect(bodyText).not.toContain('item-cup-a')
+    expect(bodyText).not.toContain('item-enter-b')
+    expect(bodyText).not.toContain('approval-01')
+
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
+    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+
+    const api = mocks.apis[mocks.apis.length - 1]!
+    await waitFor(() => { expect(api.submitApproval).toHaveBeenCalledTimes(1) })
+    expect(api.submitApproval).toHaveBeenCalledWith('approval-01', {
+      protocol_version: 2,
+      submission_id: expect.any(String),
+      request_revision: 3,
+      decisions: [
+        { item_id: 'item-cup-a', choice: 'allow_always' },
+        { item_id: 'item-enter-b', choice: 'allow_once' },
+      ],
+    })
+
+    await act(async () => {
+      emitter.onEvent({
+        type: 'approval.resolved',
+        session_id: 'session-01',
+        run_id: 'run-01',
+        request_id: 'request-01',
+        payload: {
+          approval_id: 'approval-01',
+          request_status: 'ready',
+          approved: true,
+          outcome: null,
+          items: [],
+        },
+      })
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 })

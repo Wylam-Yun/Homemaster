@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ArtifactRef } from '../protocol/events'
+import type { ApprovalState } from '../state/conversation'
 import { ApprovalDialog } from './ApprovalDialog'
 import { ReasoningRow } from './ReasoningRow'
 import { ToolCallCard } from './ToolCallCard'
@@ -134,20 +135,93 @@ describe('ToolCallCard', () => {
   })
 })
 
-describe('ApprovalDialog', () => {
-  it('focuses the reject-safe action and handles Escape as rejection', () => {
-    const reject = vi.fn()
-    render(<ApprovalDialog approval={{
-      approvalId: 'approval-01',
-      toolCallId: 'call-01',
-      name: 'write_file',
-      arguments: { path: 'important.txt' },
-      cwd: '/workspace',
-      reason: 'confirmation required',
-    }} busy={false} onApprove={vi.fn()} onReject={reject} />)
+const cardApproval: ApprovalState = {
+  approvalId: 'approval-01',
+  requestId: 'request-01',
+  revision: 3,
+  intentSummary: '去卧室拿杯子',
+  items: [
+    { item_id: 'item-cup-a', display_name: '白色杯子', location: '卧室床头柜', action_label: '拿取' },
+    { item_id: 'item-enter-b', display_name: '卧室', location: '卧室', action_label: '进入' },
+  ],
+  expiresAt: '2026-09-10T02:00:00Z',
+  requestStatus: 'awaiting_approval',
+}
 
-    expect(screen.getByRole('button', { name: 'Reject' })).toHaveFocus()
+describe('ApprovalDialog', () => {
+  it('starts with no preselected choice and keeps submit disabled until every item is decided', () => {
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+
+    expect(screen.getByText('白色杯子 · 拿取')).toBeVisible()
+    expect(screen.getByText('卧室 · 进入')).toBeVisible()
+    const radios = screen.getAllByRole('radio')
+    expect(radios).toHaveLength(6)
+    expect(radios.every(radio => !(radio as HTMLInputElement).checked)).toBe(true)
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[0]!)
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
+  })
+
+  it('submits one always plus one once choice with the exact item ids', () => {
+    const submit = vi.fn()
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0]![0]).toEqual({
+      'item-cup-a': 'allow_always',
+      'item-enter-b': 'allow_once',
+    })
+    expect(typeof submit.mock.calls[0]![1]).toBe('string')
+  })
+
+  it('locks a new submission id after the user changes a choice', () => {
+    const submit = vi.fn()
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+    const firstId = submit.mock.calls[0]![1] as string
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+    const secondId = submit.mock.calls[1]![1] as string
+
+    expect(submit.mock.calls[1]![0]).toEqual({
+      'item-cup-a': 'allow_always',
+      'item-enter-b': 'reject',
+    })
+    expect(secondId).not.toBe(firstId)
+  })
+
+  it('treats Escape and the close button as cancellation without submitting', () => {
+    const submit = vi.fn()
+    const close = vi.fn()
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={close} />)
+
+    expect(screen.getByRole('button', { name: '关闭' })).toHaveFocus()
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(reject).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(typeof close.mock.calls[0]![0]).toBe('string')
+    expect(submit).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(close).toHaveBeenCalledTimes(2)
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('never renders internal ids, revisions, directories or tool payloads', () => {
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+
+    const text = document.body.textContent ?? ''
+    expect(text).not.toContain('item-cup-a')
+    expect(text).not.toContain('item-enter-b')
+    expect(text).not.toContain('approval-01')
+    expect(text).not.toContain('request-01')
   })
 })

@@ -1,4 +1,4 @@
-import type { ArtifactRef, Usage, WebEvent } from '../protocol/events'
+import type { ApprovalItem, ArtifactRef, Usage, WebEvent } from '../protocol/events'
 
 export type TurnStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
@@ -13,11 +13,12 @@ export type ToolCallState = {
 
 export type ApprovalState = {
   approvalId: string
-  toolCallId: string
-  name: string
-  arguments: Record<string, unknown>
-  cwd: string
-  reason: string
+  requestId: string
+  revision: number
+  intentSummary: string
+  items: ApprovalItem[]
+  expiresAt: string
+  requestStatus: string
 }
 
 export type TurnState = {
@@ -136,17 +137,26 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
     case 'approval.requested':
       turn = { ...current, approval: {
         approvalId: event.payload.approval_id,
-        toolCallId: event.payload.tool_call_id,
-        name: event.payload.name,
-        arguments: event.payload.arguments,
-        cwd: event.payload.cwd,
-        reason: event.payload.reason,
+        requestId: event.payload.request_id,
+        revision: event.payload.revision,
+        intentSummary: event.payload.intent_summary,
+        items: event.payload.items.map(item => ({
+          item_id: item.item_id,
+          display_name: item.display_name,
+          location: item.location,
+          action_label: item.action_label,
+        })),
+        expiresAt: event.payload.expires_at,
+        requestStatus: event.payload.request_status,
       } }
       break
     case 'approval.resolved':
       turn = current.approval?.approvalId === event.payload.approval_id
         ? { ...current, approval: null }
         : current
+      break
+    case 'permission.grants_changed':
+      turn = current
       break
     case 'usage.updated':
       turn = { ...current, usage: event.payload }

@@ -3,7 +3,8 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type HistoryMessage, type MemorySnapshot, type SessionSummary } from './api/http'
+import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type SessionSummary } from './api/http'
+import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
 import { MemoryPage } from './components/MemoryPage'
 import { ReasoningRow } from './components/ReasoningRow'
@@ -55,6 +56,7 @@ export function App() {
   const [submitted, setSubmitted] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
   const [approvalBusy, setApprovalBusy] = useState(false)
+  const [approvalError, setApprovalError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [historyCollapsed, setHistoryCollapsed] = useState(
     () => localStorage.getItem('homemaster:web:history-collapsed') === 'true',
@@ -173,13 +175,47 @@ export function App() {
     }
   }
 
-  const resolveApproval = async (outcome: 'approve' | 'reject'): Promise<void> => {
+  const submitApproval = async (decisions: ApprovalDecisions, submissionId: string): Promise<void> => {
     const approval = approvalTurn?.approval
     if (approval === null || approval === undefined) return
     setApprovalBusy(true)
-    try { await api.resolveApproval(approval.approvalId, outcome) }
-    catch (error) { setNotice(error instanceof Error ? error.message : 'Approval failed.') }
-    finally { setApprovalBusy(false) }
+    setApprovalError(null)
+    try {
+      const resolution = await api.submitApproval(approval.approvalId, {
+        protocol_version: 2,
+        submission_id: submissionId,
+        request_revision: approval.revision,
+        decisions: approval.items.map(item => ({
+          item_id: item.item_id,
+          choice: decisions[item.item_id] as ItemChoice,
+        })),
+      })
+      if (resolution.request_status === 'blocked') {
+        setNotice('本次调用未执行：部分申请被拒绝，已完成的步骤不受影响。')
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Approval failed.'
+      setApprovalError(message)
+      setNotice(message)
+    } finally {
+      setApprovalBusy(false)
+    }
+  }
+
+  const cancelApproval = async (submissionId: string): Promise<void> => {
+    const approval = approvalTurn?.approval
+    if (approval === null || approval === undefined) return
+    setApprovalBusy(true)
+    try {
+      await api.cancelApproval(approval.approvalId, {
+        submission_id: submissionId,
+        request_revision: approval.revision,
+      })
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Approval failed.')
+    } finally {
+      setApprovalBusy(false)
+    }
   }
 
   const toggleHistory = () => {
@@ -272,7 +308,7 @@ export function App() {
           </form>
         </>}
       </main>
-      {approvalTurn?.approval && <ApprovalDialog approval={approvalTurn.approval} busy={approvalBusy} onApprove={() => { void resolveApproval('approve') }} onReject={() => { void resolveApproval('reject') }} />}
+      {approvalTurn?.approval && <ApprovalDialog approval={approvalTurn.approval} busy={approvalBusy} error={approvalError} onSubmit={(decisions, submissionId) => { void submitApproval(decisions, submissionId) }} onClose={(submissionId) => { void cancelApproval(submissionId) }} />}
     </div>
   )
 }

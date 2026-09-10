@@ -10,3 +10,13 @@
 .dialog footer { display: flex; justify-content: flex-end; gap: .6rem; padding: .9rem 1.1rem; border-top: 1px solid var(--border); }
 .dialog button { min-width: 5.5rem; border: 1px solid var(--border-strong); border-radius: .55rem; padding: .55rem .9rem; color: var(--text); background: transparent; cursor: pointer; }
 .dialog .approve { border-color: var(--accent); color: #07120e; background: var(--accent); }
+.dialog .hint { font-size: .78rem; color: var(--muted); }
+.items { list-style: none; margin: 0; padding: .9rem 1.1rem 0; display: grid; gap: .7rem; max-height: 22rem; overflow: auto; }
+.item { border: 1px solid var(--border); border-radius: .6rem; padding: .7rem .8rem; }
+.item fieldset { border: 0; margin: 0; padding: 0; }
+.item legend { font-weight: 600; padding: 0; }
+.location { margin: .25rem 0 .5rem; color: var(--muted); font-size: .82rem; }
+.choices { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
+.choice { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+.choice input { accent-color: var(--accent); }
+.dialog .error { margin: .7rem 1.1rem 0; color: #ff9d9d; font-size: .85rem; }

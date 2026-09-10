@@ -411,9 +411,9 @@ cli/confirmation.py、gateway/confirmation.py、gateway/runtime.py；
 state/conversation.ts、protocol/events.ts、api/http.ts、App.tsx；
 对应 App.test.tsx、components/components.test.tsx、state/conversation.test.ts、api/http.test.ts。
 
-- [ ] 先写用户行为测试：初始没有默认允许选项；全部选择后才能提交；
+- [x] 先写用户行为测试：初始没有默认允许选项；全部选择后才能提交；
   一项 always 一项 once 发送准确两个 item；拒绝一项显示本次调用未执行。
-- [ ] TypeScript DTO 严格对应后端，不使用顶层单 outcome。关键选择状态：
+- [x] TypeScript DTO 严格对应后端，不使用顶层单 outcome。关键选择状态：
 
 ```typescript
 type Choice = 'allow_once' | 'allow_always' | 'reject'
@@ -430,22 +430,22 @@ const payload = {
 }
 ```
 
-- [ ] submissionId 在一次提交尝试首次决定时锁定；网络重试复用同 ID。
+- [x] submissionId 在一次提交尝试首次决定时锁定；网络重试复用同 ID。
   用户改选择后生成新 submission，但 resolved/expired 请求不能重新提交。
-- [ ] 卡片显示 display_name/location/action_label；不渲染 ID、revision、cwd、tool name 或 JSON。
+- [x] 卡片显示 display_name/location/action_label；不渲染 ID、revision、cwd、tool name 或 JSON。
   图片失败保留可辨认名称位置，不回退成资源编号。
-- [ ] Close/Escape 调用取消接口；提交中禁重复提交。
+- [x] Close/Escape 调用取消接口；提交中禁重复提交。
   pending 队列按服务器创建时间显示；刷新和断线重连 GET 对账，不把旧卡恢复成待批准。
-- [ ] “已批准”与“执行完成”分别渲染；前一导航成功、后一拿取被拒时不说整个任务零执行。
-- [ ] 运行（Task 0 已绑定 Node）：
+- [x] “已批准”与“执行完成”分别渲染；前一导航成功、后一拿取被拒时不说整个任务零执行。
+- [x] 运行（Task 0 已绑定 Node）：
 
 ```bash
 PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web test -- src/components/components.test.tsx src/App.test.tsx src/state/conversation.test.ts src/api/http.test.ts
 PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web run typecheck
 ```
 
-- [ ] 用户可见 DOM 文本断言不出现 fixture ID；请求 body 仍包含准确 ID，不能删机器关联字段。
-- [ ] CHANGELOG/commit：记录逐项卡片与按当前调用提示。
+- [x] 用户可见 DOM 文本断言不出现 fixture ID；请求 body 仍包含准确 ID，不能删机器关联字段。
+- [x] CHANGELOG/commit：记录逐项卡片与按当前调用提示。
 
 ## Task 7：长期权限页与撤销闭环
 

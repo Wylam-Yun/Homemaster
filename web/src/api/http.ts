@@ -12,6 +12,86 @@ export type HistoryMessage = {
   name?: string
 }
 
+export type ItemChoice = 'allow_once' | 'allow_always' | 'reject'
+
+export type ApprovalDecision = {
+  item_id: string
+  choice: ItemChoice
+}
+
+export type ApprovalSubmission = {
+  protocol_version: 2
+  submission_id: string
+  request_revision: number
+  decisions: ApprovalDecision[]
+}
+
+export type ApprovalResolutionItem = {
+  item_id: string
+  choice: string
+}
+
+export type ApprovalResolution = {
+  approval_id: string
+  request_id: string
+  request_status: string
+  execution_started: boolean
+  persisted_grant_ids: string[]
+  items: ApprovalResolutionItem[]
+}
+
+export type ApprovalCancel = {
+  submission_id: string
+  request_revision: number
+}
+
+export type StoredApprovalItem = {
+  item_id: string
+  display_name: string
+  location: string
+  action_label: string
+  resource_kind: string
+  resource_id: string
+  action: string
+  decision: string | null
+  matched_grant_id: string | null
+  step_ids: string[]
+}
+
+export type StoredApproval = {
+  approval_id: string
+  request_id: string
+  environment_id: string
+  revision: number
+  intent_summary: string
+  request_status: string
+  created_at: string
+  deadline_at: string
+  resolved_at: string | null
+  items: StoredApprovalItem[]
+}
+
+export type Grant = {
+  grant_id: string
+  environment_id: string
+  resource_kind: string
+  resource_id: string
+  action: string
+  created_at: string
+  created_by: string
+  source_request_id: string
+  source_item_id: string
+  revoked_at: string | null
+  revoked_by: string | null
+  revision: number
+  status: 'active' | 'revoked'
+}
+
+export type GrantRevocation = {
+  submission_id: string
+  expected_revision: number
+}
+
 export type MemoryStats = {
   active_count: number
   archived_count: number
@@ -113,10 +193,45 @@ export class HomeMasterApi {
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' })
   }
 
-  resolveApproval(approvalId: string, outcome: 'approve' | 'reject'): Promise<{ approved: boolean }> {
+  submitApproval(approvalId: string, submission: ApprovalSubmission): Promise<ApprovalResolution> {
     return this.request(`/api/approvals/${encodeURIComponent(approvalId)}`, {
       method: 'POST',
-      body: JSON.stringify({ outcome }),
+      body: JSON.stringify(submission),
+    })
+  }
+
+  readApproval(approvalId: string): Promise<StoredApproval> {
+    return this.request(`/api/approvals/${encodeURIComponent(approvalId)}`)
+  }
+
+  cancelApproval(approvalId: string, cancel: ApprovalCancel): Promise<{ approval_id: string; request_status: string }> {
+    return this.request(`/api/approvals/${encodeURIComponent(approvalId)}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify(cancel),
+    })
+  }
+
+  listGrants(params: {
+    resource_kind?: 'object' | 'area'
+    status?: string
+    environment_id?: string
+    cursor?: string | null
+    limit?: number
+  } = {}): Promise<{ grants: Grant[]; next_cursor: string | null }> {
+    const query = new URLSearchParams()
+    if (params.resource_kind !== undefined) query.set('resource_kind', params.resource_kind)
+    if (params.status !== undefined) query.set('status', params.status)
+    if (params.environment_id !== undefined) query.set('environment_id', params.environment_id)
+    if (params.cursor !== undefined && params.cursor !== null) query.set('cursor', params.cursor)
+    if (params.limit !== undefined) query.set('limit', String(params.limit))
+    const suffix = query.size > 0 ? `?${query.toString()}` : ''
+    return this.request(`/api/permissions/grants${suffix}`)
+  }
+
+  revokeGrant(grantId: string, revocation: GrantRevocation): Promise<Grant> {
+    return this.request(`/api/permissions/grants/${encodeURIComponent(grantId)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify(revocation),
     })
   }
 
