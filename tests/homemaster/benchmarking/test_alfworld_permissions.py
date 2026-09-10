@@ -10,7 +10,7 @@ it observed; no result here is presented as a THOR result.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 

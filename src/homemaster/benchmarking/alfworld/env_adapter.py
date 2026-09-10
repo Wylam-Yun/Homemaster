@@ -375,7 +375,8 @@ class AlfworldEnvAdapter:
             result = AlfworldResetResult(
                 backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
                 ready=False, state=None, scene_generation=None, goal_generation=None,
-                scene_reset_fingerprint=None, goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                scene_reset_fingerprint=None,
+                goal_trial_fingerprint=selection_entry.goal_fingerprint,
                 snapshot_sha256=None, snapshot_ref=None, setup_trigger="setup_unexpected",
                 setup_failure="setup_unexpected", classification="runtime_failure",
                 score_eligible=False, setup_backend_action_count=0, recovery_status="not_needed",

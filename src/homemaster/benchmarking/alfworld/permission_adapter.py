@@ -36,7 +36,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from homemaster.permissions.models import (
@@ -433,7 +433,7 @@ class AlfworldPermissionAdapter:
                 args=locked_args,
             ),
         )
-        created = datetime.now(timezone.utc)
+        created = datetime.now(UTC)
         metadata = getattr(context, "metadata", None)
         if not isinstance(metadata, Mapping):
             metadata = {}
@@ -647,7 +647,7 @@ def _call_hash(payload: Mapping[str, Any]) -> str:
 
 
 def _iso(moment: datetime) -> str:
-    return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return moment.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _locked_args(
