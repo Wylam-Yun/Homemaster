@@ -12,6 +12,10 @@ def __getattr__(name: str):
         from homemaster.permissions.policy import PermissionChecker
 
         return PermissionChecker
+    if name == "PhysicalDecision":
+        from homemaster.permissions.policy import PhysicalDecision
+
+        return PhysicalDecision
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -20,4 +24,5 @@ __all__ = [
     "PathRuleConfig",
     "PermissionMode",
     "PermissionSettingsConfig",
+    "PhysicalDecision",
 ]

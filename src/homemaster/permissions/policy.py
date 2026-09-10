@@ -8,10 +8,15 @@ typed tenant principals and device/MCP capabilities.
 from __future__ import annotations
 
 import fnmatch
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from homemaster.permissions.config import PermissionMode, PermissionSettingsConfig
+from homemaster.permissions.models import PreparedPhysicalRequest
+from homemaster.permissions.store import PermissionStore
 from homemaster.tools.base import ToolExecutionContext as UniversalToolExecutionContext
 from homemaster.tools.contracts import ExecutionBackend, ToolDefinition
 from homemaster.tools.executor import PermissionDecision as UniversalPermissionDecision
@@ -43,12 +48,22 @@ _PATH_ARGUMENTS = (
 
 
 class PermissionChecker:
-    """OpenHarness-style permission checks keyed by ordinary tool name."""
+    """OpenHarness-style ordinary tool checks plus exact household evaluation."""
 
-    def __init__(self, settings: PermissionSettingsConfig) -> None:
+    def __init__(
+        self,
+        settings: PermissionSettingsConfig,
+        *,
+        store: PermissionStore | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         if not isinstance(settings, PermissionSettingsConfig):
             raise TypeError("settings must be PermissionSettingsConfig")
         self._settings = settings
+        self._store = store
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._denied_run_id: str | None = None
+        self._denied_scopes: set[tuple[str, frozenset]] = set()
 
     def evaluate_tool(
         self,
@@ -114,13 +129,89 @@ class PermissionChecker:
             return UniversalPermissionDecision(True, reason="permission policy allowed")
         if self._settings.mode is PermissionMode.PLAN:
             return UniversalPermissionDecision(False, reason="plan mode blocks mutating tools")
-        if "tool.auto" in capabilities:
-            return UniversalPermissionDecision(True, reason="principal may auto-run tools")
         return UniversalPermissionDecision(
-            False,
-            requires_confirmation=True,
-            reason="mutating tools require explicit confirmation in default mode",
+            True,
+            reason="ordinary tools need no interaction approval;"
+            " household resources gate separately",
         )
+
+    def evaluate_physical(
+        self,
+        *,
+        request: PreparedPhysicalRequest,
+        context: UniversalToolExecutionContext,
+    ) -> PhysicalDecision:
+        """Judge one prepared call against exact grants and current credentials.
+
+        Ordinary tool modes, capabilities and allowlists never satisfy this:
+        only an exact grant or a live once-credential for the same request
+        allows an item.
+        """
+        if self._store is None:
+            raise RuntimeError(
+                "physical evaluation needs a PermissionStore; refusing to allow"
+            )
+        scope = frozenset(item.key for item in request.requirements)
+        run_id = str(context.metadata.get("run_id", ""))
+        session_id = str(context.metadata.get("session_id", ""))
+        if run_id != self._denied_run_id:
+            self._denied_run_id = run_id
+            self._denied_scopes.clear()
+        if (session_id, scope) in self._denied_scopes:
+            return PhysicalDecision(
+                False,
+                (),
+                "the same scope was already rejected in this run; not asking again",
+            )
+        try:
+            stored = self._store.get_request(request.approval_id)
+        except KeyError:
+            return PhysicalDecision(False, (), "unknown approval; re-prepare the call")
+        if stored.request_id != request.request_id or stored.revision != request.revision:
+            return PhysicalDecision(False, (), "request changed after prepare; re-prepare")
+        if stored.status not in ("prepared", "awaiting_approval", "ready", "running"):
+            return PhysicalDecision(False, (), f"request is {stored.status}")
+        try:
+            expired = self._clock() > _parse_deadline(stored.deadline_at)
+        except ValueError:
+            return PhysicalDecision(False, (), "request deadline is unreadable")
+        if expired:
+            return PhysicalDecision(False, (), "request passed its deadline")
+        once_live = stored.status in ("ready", "running")
+        decisions = {item.item_id: item.decision for item in stored.items}
+        grants = self._store.matching_grants([item.key for item in request.requirements])
+        missing = tuple(
+            item.item_id
+            for item in request.requirements
+            if not (
+                (once_live and decisions.get(item.item_id) in ("allow_once", "allow_always"))
+                or item.key in grants
+            )
+        )
+        if missing:
+            return PhysicalDecision(False, missing, "missing household permission")
+        return PhysicalDecision(True, (), "household permission holds")
+
+    def note_rejected(
+        self,
+        *,
+        request: PreparedPhysicalRequest,
+        context: UniversalToolExecutionContext,
+    ) -> None:
+        """Suppress re-asking the same rejected scope within the same run.
+
+        The key comes from runtime-trusted run identity plus the exact
+        scope, never from model-supplied intent ids. A new user input
+        starts a new run and clears the suppression; nothing is stored
+        permanently.
+        """
+        run_id = str(context.metadata.get("run_id", ""))
+        session_id = str(context.metadata.get("session_id", ""))
+        if run_id != self._denied_run_id:
+            self._denied_run_id = run_id
+            self._denied_scopes.clear()
+        scope = frozenset(item.key for item in request.requirements)
+        self._denied_scopes.add((session_id, scope))
 
     def _path_denial(
         self,
@@ -148,6 +239,24 @@ class PermissionChecker:
         return ""
 
 
+def _parse_deadline(value: str) -> datetime:
+    text = value.strip()
+    candidate = f"{text[:-1]}+00:00" if text.endswith(("Z", "z")) else text
+    parsed = datetime.fromisoformat(candidate)
+    if parsed.tzinfo is None:
+        raise ValueError("deadline must carry a timezone")
+    return parsed.astimezone(UTC)
+
+
+@dataclass(frozen=True)
+class PhysicalDecision:
+    """One exact-resource verdict: allow, or deny with the missing item ids."""
+
+    allowed: bool
+    missing_item_ids: tuple[str, ...] = ()
+    reason: str = ""
+
+
 def required_capability(definition: ToolDefinition) -> str:
     if definition.execution_backend is ExecutionBackend.MCP:
         return "mcp.call"
@@ -167,5 +276,6 @@ __all__ = [
     "PermissionChecker",
     "PermissionMode",
     "PermissionSettingsConfig",
+    "PhysicalDecision",
     "required_capability",
 ]

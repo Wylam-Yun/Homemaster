@@ -18,6 +18,15 @@
 
 ### Changed
 
+- Extended the existing PermissionChecker with exact household evaluation: one
+  prepared call is judged item by item against live once-credentials and exact
+  active grants, with terminal/expired/changed requests denied and same-run
+  repeat asks for a rejected scope suppressed (never from model intent ids,
+  never permanent). The generic mutating-tool confirmation is removed, so
+  ordinary tools pass after the unchanged hard denials; plan mode still blocks.
+  Historical tool approvals are not migrated into item grants. Execution wiring
+  still follows in Task 4, so no physical tool asks yet.
+
 - Added the V3.4 durable permission store: one SQLite database with six tables, a
   partial unique index for exact active grants, and single-transaction submit
   (per-item decisions, long-term grants, request status, submission receipt and

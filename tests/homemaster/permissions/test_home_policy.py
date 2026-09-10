@@ -73,7 +73,7 @@ def test_plan_default_and_full_auto_modes_remain_distinct(tmp_path: Path) -> Non
     )
 
     assert plan.allowed is False and plan.requires_confirmation is False
-    assert default.allowed is False and default.requires_confirmation is True
+    assert default.allowed is True and default.requires_confirmation is False
     assert automatic.allowed is True
 
 

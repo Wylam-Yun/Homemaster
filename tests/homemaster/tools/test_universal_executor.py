@@ -12,7 +12,7 @@ from homemaster.permissions import PermissionChecker
 from homemaster.permissions.config import PermissionMode, PermissionSettingsConfig
 from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
 from homemaster.tools.contracts import PermissionSubject
-from homemaster.tools.executor import ToolExecutor
+from homemaster.tools.executor import PermissionDecision, ToolExecutor
 
 
 def _registry(*, read_only: bool = False) -> ToolRegistry:
@@ -187,10 +187,28 @@ async def test_confirmation_gates_external_mutation_before_resource_acquisition(
     tmp_path: Path,
     approved: bool,
 ) -> None:
+    # The real policy no longer emits generic confirmations for ordinary
+    # tools (household resources gate separately); this keeps the executor
+    # mechanism invariant with a stub checker that still asks.
     terminal = tmp_path / "approved-mutation.txt"
     backend_calls = 0
     acquisitions = 0
     confirmed_arguments = []
+
+    class GatingChecker:
+        def evaluate_tool(
+            self,
+            *,
+            tool_name,
+            is_read_only,
+            required_capabilities,
+            arguments,
+            context,
+        ):
+            del tool_name, is_read_only, required_capabilities, arguments, context
+            return PermissionDecision(
+                False, requires_confirmation=True, reason="test gate"
+            )
 
     async def mutate(arguments, context):
         nonlocal backend_calls
@@ -231,7 +249,7 @@ async def test_confirmation_gates_external_mutation_before_resource_acquisition(
     )
     executor = ToolExecutor(
         registry,
-        permission_checker=PermissionChecker(PermissionSettingsConfig(mode=PermissionMode.DEFAULT)),
+        permission_checker=GatingChecker(),
         confirmation_handler=ConfirmationHandler(),
         resource_manager=ResourceManager(),
     )
@@ -270,6 +288,7 @@ async def test_confirmation_gates_external_mutation_before_resource_acquisition(
     [
         (PermissionMode.DEFAULT, True, ()),
         (PermissionMode.DEFAULT, False, ("echo",)),
+        (PermissionMode.DEFAULT, False, ()),
         (PermissionMode.PLAN, False, ()),
     ],
 )

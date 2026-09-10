@@ -33,6 +33,21 @@ class PermissionChecker(Protocol):
         context: ToolExecutionContext,
     ) -> PermissionDecision: ...
 
+    def evaluate_physical(
+        self,
+        *,
+        request: Any,
+        context: ToolExecutionContext,
+    ) -> Any:
+        """Judge one prepared physical call.
+
+        The concrete verdict type is
+        ``homemaster.permissions.policy.PhysicalDecision``; ``Any`` here
+        only avoids a runtime import cycle between the tool and permission
+        layers.
+        """
+        ...
+
 
 class AllowAllPermissionChecker:
     def evaluate_tool(
@@ -46,6 +61,18 @@ class AllowAllPermissionChecker:
     ) -> PermissionDecision:
         del tool_name, is_read_only, required_capabilities, arguments, context
         return PermissionDecision(True, reason="allowed")
+
+    def evaluate_physical(
+        self,
+        *,
+        request: Any,
+        context: ToolExecutionContext,
+    ) -> Any:
+        del request, context
+        raise RuntimeError(
+            "physical calls need a real household PermissionChecker with a"
+            " PermissionStore; refusing to allow"
+        )
 
 
 class ResourceManager(Protocol):

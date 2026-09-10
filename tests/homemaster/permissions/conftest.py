@@ -65,11 +65,12 @@ def make_item(
     location: str,
     label: str,
     step_id: str,
+    env: str = "home",
 ) -> Requirement:
     return Requirement(
         item_id=item_id,
         key=ResourceKey(
-            environment_id="home",
+            environment_id=env,
             resource_kind=kind,  # type: ignore[arg-type]
             resource_id=resource_id,
             action=action,
