@@ -93,6 +93,8 @@ class WebEventProjection:
             return self._project_approval_requested(event, request_id, payload)
         if event.type == "permission.confirmation_completed":
             return self._project_approval_resolved(event, request_id, payload)
+        if event.type == "permission.grant_changed":
+            return self._project_grant_changed(event, request_id, payload)
         if event.type == "usage.update":
             usage = {
                 key: value
@@ -183,12 +185,7 @@ class WebEventProjection:
         payload: dict[str, object],
     ) -> tuple[WebEvent, ...]:
         approval_id = payload.get("approval_id")
-        if (
-            not isinstance(approval_id, str)
-            or not approval_id
-            or not event.tool_call_id
-            or not event.name
-        ):
+        if not isinstance(approval_id, str) or not approval_id:
             return ()
         return (
             self._web_event(
@@ -197,11 +194,13 @@ class WebEventProjection:
                 "approval.requested",
                 {
                     "approval_id": approval_id,
-                    "tool_call_id": event.tool_call_id,
-                    "name": event.name,
-                    "arguments": _copy_mapping(payload.get("arguments")),
-                    "cwd": str(payload.get("cwd") or ""),
-                    "reason": str(payload.get("reason") or ""),
+                    "protocol_version": payload.get("protocol_version"),
+                    "request_id": payload.get("request_id"),
+                    "revision": payload.get("revision"),
+                    "intent_summary": payload.get("intent_summary"),
+                    "items": _copy_items(payload.get("items")),
+                    "expires_at": payload.get("expires_at"),
+                    "request_status": payload.get("request_status"),
                 },
             ),
         )
@@ -213,15 +212,10 @@ class WebEventProjection:
         payload: dict[str, object],
     ) -> tuple[WebEvent, ...]:
         approval_id = payload.get("approval_id")
-        approved = payload.get("approved")
-        outcome = payload.get("outcome")
-        if (
-            not isinstance(approval_id, str)
-            or not approval_id
-            or not isinstance(approved, bool)
-            or not isinstance(outcome, str)
-            or not event.tool_call_id
-            or not event.name
+        if not isinstance(approval_id, str) or not approval_id:
+            return ()
+        if not isinstance(payload.get("request_status"), str) and not isinstance(
+            payload.get("outcome"), str
         ):
             return ()
         return (
@@ -231,10 +225,35 @@ class WebEventProjection:
                 "approval.resolved",
                 {
                     "approval_id": approval_id,
-                    "tool_call_id": event.tool_call_id,
-                    "name": event.name,
-                    "approved": approved,
-                    "outcome": outcome,
+                    "protocol_version": payload.get("protocol_version"),
+                    "request_id": payload.get("request_id"),
+                    "revision": payload.get("revision"),
+                    "request_status": payload.get("request_status"),
+                    "approved": payload.get("approved"),
+                    "outcome": payload.get("outcome"),
+                    "items": _copy_items(payload.get("items")),
+                },
+            ),
+        )
+
+    def _project_grant_changed(
+        self,
+        event: RuntimeEvent,
+        request_id: str,
+        payload: dict[str, object],
+    ) -> tuple[WebEvent, ...]:
+        request_id_value = payload.get("request_id")
+        if not isinstance(request_id_value, str) or not request_id_value:
+            return ()
+        grants = payload.get("grant_ids")
+        return (
+            self._web_event(
+                event,
+                request_id,
+                "permission.grants_changed",
+                {
+                    "request_id": request_id_value,
+                    "grant_ids": list(grants) if isinstance(grants, list) else [],
                 },
             ),
         )
@@ -259,6 +278,12 @@ def _copy_mapping(value: object) -> dict[str, object]:
     if not isinstance(value, Mapping):
         return {}
     return {str(key): _copy_json(item) for key, item in value.items()}
+
+
+def _copy_items(value: object) -> list[object]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [_copy_json(item) for item in value]
 
 
 def _copy_json(value: object) -> object:

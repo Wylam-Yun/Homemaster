@@ -208,7 +208,7 @@ async def test_prestart_adapter_failure_is_stable_public_terminal_event() -> Non
 async def test_disconnect_denies_approvals_only_after_last_subscriber_leaves() -> None:
     denied: list[tuple[str, str]] = []
     handler = SimpleNamespace(
-        deny_session=lambda session_id, *, outcome: _record_denial(denied, session_id, outcome)
+        deny_session=lambda session_id: _record_denial(denied, session_id, "disconnected")
     )
     subscribed_hub = SimpleNamespace(has_subscriber=lambda session_id: _true())
     empty_hub = SimpleNamespace(has_subscriber=lambda session_id: _false())
@@ -377,8 +377,8 @@ def test_session_cancel_approval_and_validation_endpoints_use_stable_json() -> N
             "/api/approvals/approval-missing",
             json={"outcome": "approve"},
         )
-        assert missing_approval.status_code == 404
-        assert missing_approval.json()["code"] == "approval_not_found"
+        assert missing_approval.status_code == 422
+        assert missing_approval.json()["code"] == "approval_protocol_outdated"
 
         invalid = client.post(
             f"/api/sessions/{session_id}/messages",

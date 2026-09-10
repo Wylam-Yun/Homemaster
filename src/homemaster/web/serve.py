@@ -86,6 +86,10 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
+    _executor = getattr(bundle.application, 'tool_executor', None)
+    _store = getattr(_executor, 'permission_store', None)
+    if _store is not None:
+        confirmation_handler.bind_store(_store)
     memory_management_service = (
         MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
         if bundle.mindmemos is not None
@@ -115,6 +119,10 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
+    _executor = getattr(bundle.application, 'tool_executor', None)
+    _store = getattr(_executor, 'permission_store', None)
+    if _store is not None:
+        confirmation_handler.bind_store(_store)
     memory_management_service = (
         MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
         if bundle.mindmemos is not None
@@ -143,6 +151,10 @@ async def create_alfworld_web_app() -> FastAPI:
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
+    _executor = getattr(bundle.application, 'tool_executor', None)
+    _store = getattr(_executor, 'permission_store', None)
+    if _store is not None:
+        confirmation_handler.bind_store(_store)
     memory_management_service = (
         MemoryManagementService(bundle.mindmemos, bundle.application.session_manager)
         if bundle.mindmemos is not None

@@ -29,7 +29,7 @@ async def serve_gateway(
         raise ValueError("gateway and gateway.feishu must both be enabled")
     api_service = FeishuApiService.from_config(config.gateway.feishu)
     group_operations = FeishuGroupOperations(api_service)
-    confirmation_handler = FeishuGatewayConfirmationHandler(timeout_s=300)
+    confirmation_handler = FeishuGatewayConfirmationHandler()
     bundle = create_home_application(
         config=config,
         progress=False,

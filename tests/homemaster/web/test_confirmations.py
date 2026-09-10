@@ -1,169 +1,278 @@
+"""Structured web confirmation tests against a real store."""
+
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from perm_harness import EventSink, FakeClock, make_context, make_request, wait_pending
 
-from homemaster.tools import ToolExecutionContext
-from homemaster.tools.contracts import PermissionSubject
-from homemaster.web.confirmations import (
-    ApprovalOutcome,
-    UnknownApprovalError,
-    WebConfirmationHandler,
+from homemaster.permissions.models import (
+    ApprovalCancelled,
+    ApprovalSubmission,
+    ItemDecision,
 )
+from homemaster.permissions.store import PermissionStore
+from homemaster.web.confirmations import WebConfirmationHandler
 
 
-class _EventSink:
-    def __init__(self) -> None:
-        self.events = []
-
-    async def aemit(self, event) -> None:
-        self.events.append(event)
+def _open(tmp_path: Path, clock: FakeClock) -> PermissionStore:
+    return PermissionStore.open(tmp_path / "confirm.sqlite3", clock=clock)
 
 
-def _context(
-    tmp_path: Path,
-    sink: _EventSink,
-    *,
-    session_id: str = "session-01",
-) -> ToolExecutionContext:
-    return ToolExecutionContext(
-        tmp_path,
-        metadata={
-            "session_id": session_id,
-            "run_id": "run-01",
-            "turn_index": 2,
-            "tool_call_id": "call-01",
-            "permission_subject": PermissionSubject(
-                "web-operator",
-                "web",
-                tenant_id="local",
-                capabilities=(),
+def _submission(request, choices: dict[str, str], submission_id: str = "sub-1"):
+    return ApprovalSubmission(
+        submission_id=submission_id,
+        request_revision=request.revision,
+        decisions=tuple(
+            ItemDecision(item_id=item_id, choice=choice)  # type: ignore[arg-type]
+            for item_id, choice in choices.items()
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_confirm_resolve_ready_with_events(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    sink = EventSink()
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        request = make_request(clock, "web-ok")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        item_id = request.requirements[0].item_id
+        task = asyncio.create_task(
+            handler.confirm(request, [item_id], make_context(tmp_path, sink))
+        )
+        await wait_pending(handler)
+        resolution = await handler.resolve(
+            request.approval_id,
+            _submission(request, {item_id: "allow_always"}, "sub-web-ok"),
+            "web-operator",
+        )
+        assert resolution.request_status == "ready"
+        assert await task == resolution
+        assert handler.pending_count == 0
+        requested = [e for e in sink.events
+                     if e.type == "permission.confirmation_requested"]
+        completed = [e for e in sink.events
+                     if e.type == "permission.confirmation_completed"]
+        changed = [e for e in sink.events if e.type == "permission.grant_changed"]
+        assert len(requested) == 1
+        assert requested[0].payload["protocol_version"] == 2
+        assert requested[0].payload["items"][0]["item_id"] == item_id
+        assert "arguments" not in requested[0].payload
+        assert len(completed) == 1
+        assert completed[0].payload["request_status"] == "ready"
+        assert completed[0].payload["approved"] is True
+        assert len(changed) == 1
+        assert changed[0].payload["grant_ids"] == list(resolution.persisted_grant_ids)
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_reject_all_blocks_without_grant_event(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    sink = EventSink()
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        request = make_request(clock, "web-no", combo=True)
+        store.create_request(request)
+        task = asyncio.create_task(
+            handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, sink),
+            )
+        )
+        await wait_pending(handler)
+        resolution = await handler.resolve(
+            request.approval_id,
+            _submission(
+                request,
+                {item.item_id: "reject" for item in request.requirements},
+                "sub-web-no",
             ),
-            "run_context": SimpleNamespace(event_sink=sink),
-        },
-    )
-
-
-async def _wait_for_pending(handler: WebConfirmationHandler) -> None:
-    for _ in range(100):
-        if handler.pending_count:
-            return
-        await asyncio.sleep(0)
-    raise AssertionError("approval was not registered")
+            "web-operator",
+        )
+        assert resolution.request_status == "blocked"
+        assert await task == resolution
+        assert [e.type for e in sink.events].count("permission.grant_changed") == 0
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
-async def test_web_confirmation_waits_for_one_approved_resolution(tmp_path: Path) -> None:
-    sink = _EventSink()
-    handler = WebConfirmationHandler(timeout_s=1)
-    task = asyncio.create_task(
-        handler.confirm(
-            SimpleNamespace(name="write_file"),
-            {"path": "permission-test.txt", "content": "approved"},
-            _context(tmp_path, sink),
-            SimpleNamespace(reason="confirmation required"),
-        )
-    )
-    await _wait_for_pending(handler)
-
-    requested = sink.events[0]
-    approval_id = requested.payload["approval_id"]
-    assert requested.type == "permission.confirmation_requested"
-    assert requested.session_id == "session-01"
-    assert requested.run_id == "run-01"
-    assert requested.tool_call_id == "call-01"
-    assert requested.payload == {
-        "approval_id": approval_id,
-        "arguments": {"path": "permission-test.txt", "content": "approved"},
-        "cwd": str(tmp_path.resolve()),
-        "reason": "confirmation required",
-        "subject_id": "web-operator",
-    }
-
-    assert await handler.resolve(approval_id, ApprovalOutcome.APPROVE) is True
-    assert await task is True
-    assert handler.pending_count == 0
-    with pytest.raises(UnknownApprovalError):
-        await handler.resolve(approval_id, ApprovalOutcome.REJECT)
-
-    completed = sink.events[1]
-    assert completed.type == "permission.confirmation_completed"
-    assert completed.payload == {
-        "approval_id": approval_id,
-        "approved": True,
-        "outcome": "approved",
-        "subject_id": "web-operator",
-    }
+async def test_timeout_cancels_request(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    sink = EventSink()
+    handler = WebConfirmationHandler(store=store, timeout_s=0.05)
+    try:
+        request = make_request(clock, "web-timeout")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        with pytest.raises(ApprovalCancelled):
+            await handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, sink),
+            )
+        assert handler.pending_count == 0
+        assert store.get_request(request.approval_id).status == "cancelled"
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
-async def test_web_confirmation_timeout_and_close_deny_without_leaks(tmp_path: Path) -> None:
-    timeout_sink = _EventSink()
-    timeout_handler = WebConfirmationHandler(timeout_s=0.01)
-    timed_out = await timeout_handler.confirm(
-        SimpleNamespace(name="write_file"),
-        {},
-        _context(tmp_path, timeout_sink),
-        SimpleNamespace(reason="confirmation required"),
-    )
-
-    assert timed_out is False
-    assert timeout_handler.pending_count == 0
-    assert timeout_sink.events[-1].payload["outcome"] == "expired"
-
-    close_sink = _EventSink()
-    close_handler = WebConfirmationHandler(timeout_s=None)
-    pending = asyncio.create_task(
-        close_handler.confirm(
-            SimpleNamespace(name="write_file"),
-            {},
-            _context(tmp_path, close_sink),
-            SimpleNamespace(reason="confirmation required"),
-        )
-    )
-    await _wait_for_pending(close_handler)
-    await close_handler.aclose()
-
-    assert await pending is False
-    assert close_handler.pending_count == 0
-    assert close_sink.events[-1].payload["outcome"] == "closed"
+async def test_deny_session_cancels_only_matching_session(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    sink = EventSink()
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        first = make_request(clock, "web-d1")
+        second = make_request(clock, "web-d2")
+        for request in (first, second):
+            store.create_request(request)
+            store.mark_awaiting_approval(request.request_id)
+        tasks = [
+            asyncio.create_task(
+                handler.confirm(
+                    request,
+                    [item.item_id for item in request.requirements],
+                    make_context(tmp_path, sink, session_id=session),
+                )
+            )
+            for request, session in ((first, "gone"), (second, "stays"))
+        ]
+        await wait_pending(handler, 2)
+        assert await handler.deny_session("gone") == 1
+        with pytest.raises(ApprovalCancelled):
+            await tasks[0]
+        assert handler.pending_count == 1
+        assert store.get_request(first.approval_id).status == "cancelled"
+        assert store.get_request(second.approval_id).status == "awaiting_approval"
+        for task in tasks[1:]:
+            task.cancel()
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio
-async def test_disconnect_denies_only_matching_session_approvals(tmp_path: Path) -> None:
-    handler = WebConfirmationHandler(timeout_s=None)
-    first_sink = _EventSink()
-    second_sink = _EventSink()
-    first = asyncio.create_task(
-        handler.confirm(
-            SimpleNamespace(name="write_file"),
-            {},
-            _context(tmp_path, first_sink, session_id="session-01"),
-            SimpleNamespace(reason="confirmation required"),
+async def test_aclose_cancels_and_blocks_new_confirms(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        request = make_request(clock, "web-close")
+        store.create_request(request)
+        task = asyncio.create_task(
+            handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, EventSink()),
+            )
         )
-    )
-    second = asyncio.create_task(
-        handler.confirm(
-            SimpleNamespace(name="write_file"),
-            {},
-            _context(tmp_path, second_sink, session_id="session-02"),
-            SimpleNamespace(reason="confirmation required"),
+        await wait_pending(handler)
+        await handler.aclose()
+        with pytest.raises(ApprovalCancelled):
+            await task
+        with pytest.raises(ApprovalCancelled):
+            await handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, EventSink()),
+            )
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_resolve_unknown_approval_raises_key_error(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        request = make_request(clock, "web-unknown")
+        with pytest.raises(KeyError):
+            await handler.resolve(
+                "approval-nope",
+                _submission(request, {"item-x": "reject"}, "sub-nope"),
+                "web-operator",
+            )
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_cancel_approval_pending_and_resolved(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    try:
+        request = make_request(clock, "web-cancel")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        task = asyncio.create_task(
+            handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, EventSink()),
+            )
         )
-    )
-    for _ in range(100):
-        if handler.pending_count == 2:
-            break
-        await asyncio.sleep(0)
-    assert handler.pending_count == 2
+        await wait_pending(handler)
+        status = await handler.cancel_approval(
+            request.approval_id, "cancel-1", request.revision
+        )
+        assert status == "cancelled"
+        with pytest.raises(ApprovalCancelled):
+            await task
+        ready = make_request(clock, "web-cancel-2")
+        store.create_request(ready)
+        item_id = ready.requirements[0].item_id
+        await handler.resolve(
+            ready.approval_id,
+            _submission(ready, {item_id: "allow_once"}, "sub-ready"),
+            "web-operator",
+        )
+        assert await handler.cancel_approval(
+            ready.approval_id, "cancel-2", ready.revision
+        ) == "ready"
+    finally:
+        store.close()
 
-    assert await handler.deny_session("session-01", outcome="disconnected") == 1
-    assert await first is False
-    assert second.done() is False
-    assert handler.pending_count == 1
-    assert first_sink.events[-1].payload["outcome"] == "disconnected"
 
-    await handler.aclose()
-    assert await second is False
+def test_bind_store_rules(tmp_path: Path) -> None:
+    clock = FakeClock()
+    first = PermissionStore.open(tmp_path / "a.sqlite3", clock=clock)
+    second = PermissionStore.open(tmp_path / "b.sqlite3", clock=clock)
+    try:
+        handler = WebConfirmationHandler()
+        with pytest.raises(RuntimeError):
+            handler._require_store()
+        with pytest.raises(TypeError):
+            handler.bind_store(None)  # type: ignore[arg-type]
+        handler.bind_store(first)
+        assert handler.store is first
+        handler.bind_store(first)
+        with pytest.raises(ValueError):
+            handler.bind_store(second)
+    finally:
+        first.close()
+        second.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_without_store_raises(tmp_path: Path) -> None:
+    handler = WebConfirmationHandler()
+    with pytest.raises(RuntimeError):
+        await handler.confirm(
+            make_request(FakeClock(), "web-nostore"),
+            ["item-x"],
+            make_context(tmp_path, EventSink()),
+        )

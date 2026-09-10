@@ -48,6 +48,10 @@ class PermissionStorageUnavailable(Exception):
     """Durable permission state could not be read or committed (HTTP 503)."""
 
 
+class ApprovalCancelled(Exception):
+    """No decision will arrive for a pending approval; the call must not run."""
+
+
 class FrozenDTO(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -288,6 +292,7 @@ class ExecutionObservation(FrozenDTO):
 
 
 __all__ = [
+    "ApprovalCancelled",
     "ApprovalConflict",
     "ApprovalExpired",
     "ApprovalResolution",

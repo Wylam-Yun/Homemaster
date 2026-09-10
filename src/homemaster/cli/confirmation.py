@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import threading
+import uuid
 from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
@@ -15,6 +15,12 @@ import typer
 from homemaster.events.logger import get_logger
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.permissions import PermissionMode
+from homemaster.permissions.models import (
+    ApprovalCancelled,
+    ApprovalResolution,
+    ApprovalSubmission,
+    ItemDecision,
+)
 
 
 class CliPermissionMode(StrEnum):
@@ -29,70 +35,134 @@ class CliPermissionMode(StrEnum):
         return PermissionMode(self.value)
 
 
+_CHOICES = ("allow_once", "allow_always", "reject")
+
+
 class CliConfirmationHandler:
-    """Serialize local approval prompts and fail closed on non-affirmative input."""
+    """Decide one structured approval item by item; fail closed on bad input."""
 
     def __init__(
         self,
         *,
+        store: Any | None = None,
         input_fn: Callable[[str], str] = input,
         output_fn: Callable[[str], Any] = typer.echo,
     ) -> None:
+        self._store = store
         self._input = input_fn
         self._output = output_fn
         self._lock = asyncio.Lock()
 
+    def bind_store(self, store: Any) -> None:
+        if store is None:
+            raise TypeError("store must not be None")
+        if self._store is not None and self._store is not store:
+            raise ValueError("CliConfirmationHandler is already bound to a store")
+        self._store = store
+
     async def confirm(
         self,
-        tool: Any,
-        arguments: dict[str, Any],
+        request: Any,
+        missing_item_ids: Any,
         context: Any,
-        decision: Any,
-    ) -> bool:
+    ) -> ApprovalResolution:
+        """Read 1/2/3 per missing item, then submit once for the whole card."""
+        if self._store is None:
+            raise RuntimeError("CliConfirmationHandler has no PermissionStore")
+        wanted = set(missing_item_ids)
+        items = [item for item in request.requirements if item.item_id in wanted]
         async with self._lock:
             await _emit_confirmation_event(
                 context,
                 event_type="permission.confirmation_requested",
-                tool_name=str(tool.name),
+                tool_name="household",
                 payload={
-                    "arguments": arguments,
-                    "cwd": str(context.cwd),
-                    "reason": str(decision.reason),
+                    "protocol_version": 2,
+                    "approval_id": request.approval_id,
+                    "request_id": request.request_id,
+                    "intent_summary": request.intent_summary,
+                    "item_ids": [item.item_id for item in items],
                     "subject_id": _subject_id(context),
                 },
             )
-            self._output(
-                "\n".join(
-                    (
-                        "Approval required",
-                        f"Tool: {tool.name}",
-                        f"Working directory: {context.cwd}",
-                        "Arguments:",
-                        json.dumps(arguments, ensure_ascii=False, indent=2, sort_keys=True),
-                    )
-                )
-            )
-            approved = False
-            outcome = "denied"
             try:
-                response = await _read_input(self._input, "Execute? [y/N]: ")
-                approved = response.strip().casefold() in {"y", "yes"}
-                outcome = "approved" if approved else "denied"
-            except EOFError:
-                outcome = "eof"
-            except (Exception, KeyboardInterrupt) as exc:
-                outcome = f"input_error:{type(exc).__name__}"
+                decided: list[ItemDecision] = []
+                for item in items:
+                    decided.append(
+                        ItemDecision(
+                            item_id=item.item_id,
+                            choice=await self._read_choice(item),
+                        )
+                    )
+                decisions = tuple(decided)
+            except (EOFError, KeyboardInterrupt) as exc:
+                await self._cancel(request, context, "input ended")
+                raise ApprovalCancelled("local input ended") from exc
+            except Exception as exc:
+                await self._cancel(request, context, "input failed")
+                raise ApprovalCancelled(f"local input failed: {exc}") from exc
+            resolution = self._store.submit(
+                request.approval_id,
+                ApprovalSubmission(
+                    submission_id=f"sub-cli-{uuid.uuid4().hex[:16]}",
+                    request_revision=request.revision,
+                    decisions=decisions,
+                ),
+                _subject_id(context),
+            )
             await _emit_confirmation_event(
                 context,
                 event_type="permission.confirmation_completed",
-                tool_name=str(tool.name),
+                tool_name="household",
                 payload={
-                    "approved": approved,
-                    "outcome": outcome,
+                    "protocol_version": 2,
+                    "approval_id": request.approval_id,
+                    "request_id": resolution.request_id,
+                    "request_status": resolution.request_status,
                     "subject_id": _subject_id(context),
                 },
             )
-            return approved
+            return resolution
+
+    async def _read_choice(self, item: Any) -> str:
+        self._output(
+            "\n".join(
+                (
+                    "Approval required",
+                    f"{item.action_label}: {item.display_name} ({item.location})",
+                    "1=allow once, 2=allow always, 3=reject",
+                )
+            )
+        )
+        while True:
+            answer = await _read_input(self._input, "Choice [1/2/3]: ")
+            normalized = answer.strip()
+            if normalized == "1":
+                return "allow_once"
+            if normalized == "2":
+                return "allow_always"
+            if normalized == "3":
+                return "reject"
+            self._output(f"Unknown choice {answer!r}; answer 1, 2 or 3.")
+
+    async def _cancel(self, request: Any, context: Any, reason: str) -> None:
+        try:
+            self._store.cancel(request.request_id, reason)
+        except Exception as exc:
+            get_logger().warning(f"cli approval cancel failed: {type(exc).__name__}")
+        await _emit_confirmation_event(
+            context,
+            event_type="permission.confirmation_completed",
+            tool_name="household",
+            payload={
+                "protocol_version": 2,
+                "approval_id": request.approval_id,
+                "request_id": request.request_id,
+                "outcome": "cancelled",
+                "request_status": "cancelled",
+                "subject_id": _subject_id(context),
+            },
+        )
 
 
 async def _emit_confirmation_event(
@@ -125,14 +195,7 @@ async def _emit_confirmation_event(
             await value
     except Exception as exc:
         get_logger().warning(
-            json.dumps(
-                {
-                    "event": "permission.confirmation_audit_failed",
-                    "event_type": event_type,
-                    "exception_type": type(exc).__name__,
-                },
-                sort_keys=True,
-            )
+            f"permission confirmation audit failed: {type(exc).__name__}"
         )
 
 

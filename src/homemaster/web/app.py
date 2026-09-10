@@ -12,20 +12,30 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from pydantic import ValidationError
 
 from homemaster.application import RunRequest
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
 from homemaster.memory.management import MemoryManagementService, MemoryNotFoundError
+from homemaster.permissions.models import (
+    ApprovalConflict,
+    ApprovalExpired,
+    ApprovalSubmission,
+    ItemDecision,
+    PermissionStorageUnavailable,
+)
 from homemaster.tools.contracts import PermissionSubject
-from homemaster.web.confirmations import UnknownApprovalError, WebConfirmationHandler
+from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.event_hub import WebEventHub
 from homemaster.web.event_projection import WebEventProjection
 from homemaster.web.run_registry import SessionBusyError, WebRunRegistry
 from homemaster.web.schemas import (
-    ApprovalDecisionRequest,
+    ApprovalSubmissionRequest,
+    CancelApprovalRequest,
     CreateSessionRequest,
     MemoryHistoryResponse,
     MemorySnapshotResponse,
+    RevokeGrantRequest,
     SendMessageRequest,
     WebEvent,
 )
@@ -50,6 +60,7 @@ def create_web_app(
     confirmation_handler: WebConfirmationHandler,
     memory_management_service: MemoryManagementService | None = None,
     alfworld_compile_jobs: Any | None = None,
+    permission_store: Any | None = None,
 ) -> FastAPI:
     """Build a Web adapter around one long-lived ApplicationRuntime."""
 
@@ -91,6 +102,11 @@ def create_web_app(
     app.state.memory_management_service = memory_management_service
     app.state.alfworld_compile_jobs = alfworld_compile_jobs
     app.state.aclose = close_resources
+
+    def _web_store() -> Any | None:
+        if permission_store is not None:
+            return permission_store
+        return confirmation_handler.store
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: object, exc: RequestValidationError) -> JSONResponse:
@@ -332,17 +348,246 @@ def create_web_app(
         }
 
     @app.post("/api/approvals/{approval_id}")
-    async def resolve_approval(approval_id: str, body: ApprovalDecisionRequest) -> object:
+    async def resolve_approval(approval_id: str, body: dict) -> object:
         try:
-            approved = await confirmation_handler.resolve(approval_id, body.outcome)
-        except UnknownApprovalError:
+            submission_request = ApprovalSubmissionRequest.model_validate(body)
+        except ValidationError:
+            if isinstance(body, dict) and "outcome" in body:
+                return _error(
+                    422,
+                    "approval_protocol_outdated",
+                    "This console speaks approval protocol 2 with per-item"
+                    " decisions; refresh the page and decide again.",
+                    retryable=False,
+                )
+            return _error(
+                422,
+                "invalid_request",
+                "An approval submission must carry protocol_version,"
+                " submission_id, request_revision and decisions.",
+                retryable=False,
+            )
+        try:
+            submission = ApprovalSubmission(
+                protocol_version=submission_request.protocol_version,
+                submission_id=submission_request.submission_id,
+                request_revision=submission_request.request_revision,
+                decisions=tuple(
+                    ItemDecision(item_id=item.item_id, choice=item.choice)
+                    for item in submission_request.decisions
+                ),
+            )
+        except ValidationError:
+            return _error(
+                422,
+                "invalid_request",
+                "Each decision needs an item_id and one of allow_once,"
+                " allow_always or reject.",
+                retryable=False,
+            )
+        store = _web_store()
+        if store is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        try:
+            resolution = await confirmation_handler.resolve(
+                approval_id, submission, _WEB_PERMISSION_SUBJECT.subject_id
+            )
+        except KeyError:
             return _error(
                 404,
                 "approval_not_found",
                 "The approval is unknown, expired, or already resolved.",
                 retryable=False,
             )
-        return {"approval_id": approval_id, "approved": approved}
+        except ApprovalConflict:
+            return _error(
+                409,
+                "approval_conflict",
+                "The approval changed; reload it and decide again.",
+                retryable=False,
+            )
+        except ApprovalExpired:
+            return _error(
+                410,
+                "approval_expired",
+                "The approval passed its deadline without a decision.",
+                retryable=False,
+            )
+        except ValueError:
+            return _error(
+                422,
+                "invalid_request",
+                "The submission must decide exactly the pending items once each.",
+                retryable=False,
+            )
+        except PermissionStorageUnavailable:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The decision could not be saved; nothing was executed.",
+                retryable=True,
+            )
+        return _resolution_to_dict(resolution)
+
+    @app.get("/api/approvals/{approval_id}")
+    async def read_approval(approval_id: str) -> object:
+        store = _web_store()
+        if store is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        try:
+            stored = store.get_request(approval_id)
+        except KeyError:
+            return _error(
+                404,
+                "approval_not_found",
+                "The approval is unknown, expired, or already resolved.",
+                retryable=False,
+            )
+        return _approval_to_dict(stored)
+
+    @app.post("/api/approvals/{approval_id}/cancel")
+    async def cancel_approval(approval_id: str, body: CancelApprovalRequest) -> object:
+        if _web_store() is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        try:
+            status = await confirmation_handler.cancel_approval(
+                approval_id, body.submission_id, body.request_revision
+            )
+        except KeyError:
+            return _error(
+                404,
+                "approval_not_found",
+                "The approval is unknown, expired, or already resolved.",
+                retryable=False,
+            )
+        except ApprovalConflict:
+            return _error(
+                409,
+                "approval_conflict",
+                "The approval changed; reload it and decide again.",
+                retryable=False,
+            )
+        except PermissionStorageUnavailable:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The cancellation could not be saved.",
+                retryable=True,
+            )
+        return {"approval_id": approval_id, "request_status": status}
+
+    @app.get("/api/permissions/grants")
+    async def list_grants(
+        resource_kind: str | None = None,
+        status: str = "active",
+        environment_id: str | None = None,
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> object:
+        store = _web_store()
+        if store is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        if resource_kind is not None and resource_kind not in ("object", "area"):
+            return _error(
+                422,
+                "invalid_request",
+                "resource_kind must be object or area.",
+                retryable=False,
+            )
+        try:
+            if environment_id:
+                grants, next_cursor = store.list_grants(
+                    environment_id,
+                    resource_kind=resource_kind,
+                    status=status,
+                    cursor=cursor,
+                    limit=limit,
+                )
+            else:
+                grants, next_cursor = store.list_all_grants(
+                    resource_kind=resource_kind,
+                    status=status,
+                    cursor=cursor,
+                    limit=limit,
+                )
+        except KeyError:
+            return _error(
+                404,
+                "grant_cursor_not_found",
+                "The page cursor is unknown.",
+                retryable=False,
+            )
+        except ValueError:
+            return _error(
+                422,
+                "invalid_request",
+                "status must be active or revoked and limit within 1..200.",
+                retryable=False,
+            )
+        return {
+            "grants": [_grant_to_dict(grant) for grant in grants],
+            "next_cursor": next_cursor,
+        }
+
+    @app.post("/api/permissions/grants/{grant_id}/revoke")
+    async def revoke_grant(grant_id: str, body: RevokeGrantRequest) -> object:
+        store = _web_store()
+        if store is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        try:
+            grant = store.revoke(
+                grant_id,
+                body.submission_id,
+                body.expected_revision,
+                _WEB_PERMISSION_SUBJECT.subject_id,
+            )
+        except KeyError:
+            return _error(
+                404,
+                "grant_not_found",
+                "The grant is unknown.",
+                retryable=False,
+            )
+        except ApprovalConflict:
+            return _error(
+                409,
+                "grant_conflict",
+                "The grant changed; reload the list and revoke again.",
+                retryable=False,
+            )
+        except PermissionStorageUnavailable:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The revocation could not be saved.",
+                retryable=True,
+            )
+        return _grant_to_dict(grant)
 
     @app.get("/api/artifacts/{artifact_handle}")
     async def download_artifact(
@@ -467,7 +712,7 @@ async def _deny_approvals_without_subscriber(
     """Fail closed only when the last browser for this session has disconnected."""
 
     if not await hub.has_subscriber(session_id):
-        await confirmation_handler.deny_session(session_id, outcome="disconnected")
+        await confirmation_handler.deny_session(session_id)
 
 
 def _session_ids(manager: Any) -> set[str]:
@@ -502,6 +747,67 @@ def _history_message(message: Any) -> dict[str, object]:
     if isinstance(name, str) and name:
         projected["name"] = name
     return projected
+
+
+def _resolution_to_dict(resolution: Any) -> dict[str, Any]:
+    return {
+        "approval_id": resolution.approval_id,
+        "request_id": resolution.request_id,
+        "request_status": resolution.request_status,
+        "execution_started": resolution.execution_started,
+        "persisted_grant_ids": list(resolution.persisted_grant_ids),
+        "items": [
+            {"item_id": item.item_id, "choice": item.choice}
+            for item in resolution.items
+        ],
+    }
+
+
+def _approval_to_dict(stored: Any) -> dict[str, Any]:
+    return {
+        "approval_id": stored.approval_id,
+        "request_id": stored.request_id,
+        "environment_id": stored.environment_id,
+        "revision": stored.revision,
+        "intent_summary": stored.intent_summary,
+        "request_status": stored.status,
+        "created_at": stored.created_at,
+        "deadline_at": stored.deadline_at,
+        "resolved_at": stored.resolved_at,
+        "items": [
+            {
+                "item_id": item.item_id,
+                "display_name": item.display_name,
+                "location": item.location,
+                "action_label": item.action_label,
+                "resource_kind": item.key.resource_kind,
+                "resource_id": item.key.resource_id,
+                "action": item.key.action,
+                "decision": item.decision,
+                "matched_grant_id": item.matched_grant_id,
+                "step_ids": list(item.step_ids),
+            }
+            for item in stored.items
+        ],
+    }
+
+
+def _grant_to_dict(grant: Any) -> dict[str, Any]:
+    return {
+        "grant_id": grant.grant_id,
+        "environment_id": grant.environment_id,
+        "resource_kind": grant.resource_kind,
+        "resource_id": grant.resource_id,
+        "action": grant.action,
+        "created_at": grant.created_at,
+        "created_by": grant.created_by,
+        "source_request_id": grant.source_request_id,
+        "source_item_id": grant.source_item_id,
+        "revoked_at": grant.revoked_at,
+        "revoked_by": grant.revoked_by,
+        "revision": grant.revision,
+        "status": "active" if grant.revoked_at is None else "revoked",
+    }
 
 
 def _error(status_code: int, code: str, message: str, *, retryable: bool) -> JSONResponse:

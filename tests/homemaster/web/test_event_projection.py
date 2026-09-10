@@ -221,10 +221,21 @@ def test_projection_maps_structured_events_with_explicit_field_allowlists() -> N
             _event(
                 "permission.confirmation_requested",
                 payload={
+                    "protocol_version": 2,
                     "approval_id": "approval-01",
-                    "arguments": {"path": "permission-test.txt"},
-                    "cwd": "/workspace",
-                    "reason": "confirmation_required",
+                    "request_id": "request-01",
+                    "revision": 1,
+                    "intent_summary": "go get the cup",
+                    "items": [
+                        {
+                            "item_id": "item-01",
+                            "display_name": "white cup",
+                            "location": "bedroom",
+                            "action_label": "pick up",
+                        }
+                    ],
+                    "expires_at": "2026-09-10T02:00:00Z",
+                    "request_status": "awaiting_approval",
                     "subject_id": "must-not-cross",
                 },
                 tool_call_id="call-03",
@@ -233,20 +244,33 @@ def test_projection_maps_structured_events_with_explicit_field_allowlists() -> N
             "approval.requested",
             {
                 "approval_id": "approval-01",
-                "tool_call_id": "call-03",
-                "name": "write_file",
-                "arguments": {"path": "permission-test.txt"},
-                "cwd": "/workspace",
-                "reason": "confirmation_required",
+                "protocol_version": 2,
+                "request_id": "request-01",
+                "revision": 1,
+                "intent_summary": "go get the cup",
+                "items": [
+                    {
+                        "item_id": "item-01",
+                        "display_name": "white cup",
+                        "location": "bedroom",
+                        "action_label": "pick up",
+                    }
+                ],
+                "expires_at": "2026-09-10T02:00:00Z",
+                "request_status": "awaiting_approval",
             },
         ),
         (
             _event(
                 "permission.confirmation_completed",
                 payload={
+                    "protocol_version": 2,
                     "approval_id": "approval-01",
+                    "request_id": "request-01",
+                    "revision": 1,
+                    "request_status": "ready",
                     "approved": True,
-                    "outcome": "approved",
+                    "items": [{"item_id": "item-01", "choice": "allow_once"}],
                     "subject_id": "must-not-cross",
                 },
                 tool_call_id="call-03",
@@ -255,11 +279,46 @@ def test_projection_maps_structured_events_with_explicit_field_allowlists() -> N
             "approval.resolved",
             {
                 "approval_id": "approval-01",
-                "tool_call_id": "call-03",
-                "name": "write_file",
+                "protocol_version": 2,
+                "request_id": "request-01",
+                "revision": 1,
+                "request_status": "ready",
                 "approved": True,
-                "outcome": "approved",
+                "outcome": None,
+                "items": [{"item_id": "item-01", "choice": "allow_once"}],
             },
+        ),
+        (
+            _event(
+                "permission.confirmation_completed",
+                payload={
+                    "protocol_version": 2,
+                    "approval_id": "approval-01",
+                    "request_id": "request-01",
+                    "outcome": "cancelled",
+                    "request_status": "cancelled",
+                    "subject_id": "must-not-cross",
+                },
+            ),
+            "approval.resolved",
+            {
+                "approval_id": "approval-01",
+                "protocol_version": 2,
+                "request_id": "request-01",
+                "revision": None,
+                "request_status": "cancelled",
+                "approved": None,
+                "outcome": "cancelled",
+                "items": [],
+            },
+        ),
+        (
+            _event(
+                "permission.grant_changed",
+                payload={"request_id": "request-01", "grant_ids": ["grant-1"]},
+            ),
+            "permission.grants_changed",
+            {"request_id": "request-01", "grant_ids": ["grant-1"]},
         ),
         (
             _event(

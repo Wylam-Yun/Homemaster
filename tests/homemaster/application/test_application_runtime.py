@@ -62,8 +62,6 @@ async def test_application_session_notifies_end_on_exception() -> None:
 
 from homemaster.application.session import SessionManager
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
-from homemaster.channels.contracts import DeliveryReceipt, DeliveryStatus
-from homemaster.cli.confirmation import CliConfirmationHandler
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError, DeviceLeaseManager
 from homemaster.events.bus import EventBus
@@ -76,12 +74,6 @@ from homemaster.extensions import (
     HookRunner,
     HookSpec,
     LoadedExtension,
-)
-from homemaster.gateway.confirmation import (
-    ApprovalDecision,
-    ApprovalResolveStatus,
-    FeishuApprovalRoute,
-    FeishuGatewayConfirmationHandler,
 )
 from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
@@ -797,6 +789,54 @@ class _AskingChecker:
         )
 
 
+class _LegacyConfirmHandler:
+    """Legacy-shape stub for the ordinary confirmation path.
+
+    Real channel handlers now speak the structured physical signature;
+    this stub keeps covering the executor mechanism (ask before acquire)
+    plus the audit events for ordinary tools.
+    """
+
+    def __init__(self, approved: bool) -> None:
+        self.approved = approved
+        self.calls: list = []
+
+    async def confirm(self, tool, arguments, context, decision):
+        from homemaster.events.runtime_events import RuntimeEvent
+
+        self.calls.append((tool.name, arguments))
+        approval_id = "approval-test"
+        sink = context.metadata["run_context"].event_sink
+        await sink.aemit(
+            RuntimeEvent(
+                type="permission.confirmation_requested",
+                session_id=str(context.metadata.get("session_id", "")),
+                run_id=str(context.metadata.get("run_id", "")),
+                turn_index=context.metadata.get("turn_index"),
+                tool_call_id=str(context.metadata.get("tool_call_id", "")) or None,
+                name=str(tool.name),
+                payload={"approval_id": approval_id},
+            )
+        )
+        await sink.aemit(
+            RuntimeEvent(
+                type="permission.confirmation_completed",
+                session_id=str(context.metadata.get("session_id", "")),
+                run_id=str(context.metadata.get("run_id", "")),
+                turn_index=context.metadata.get("turn_index"),
+                tool_call_id=str(context.metadata.get("tool_call_id", "")) or None,
+                name=str(tool.name),
+                payload={
+                    "approval_id": approval_id,
+                    "approved": self.approved,
+                    "outcome": "approved" if self.approved else "denied",
+                },
+            )
+        )
+        del arguments, decision
+        return self.approved
+
+
 def _application(
     tmp_path,
     tools: list[RegisteredTool],
@@ -924,10 +964,7 @@ async def test_runtime_confirmation_controls_real_mutation_and_emits_events(
         [write_tool],
         {"confirm mutation": transport},
         permission_checker=_AskingChecker(),
-        confirmation_handler=CliConfirmationHandler(
-            input_fn=lambda prompt: "yes" if approved else "no",
-            output_fn=lambda value: None,
-        ),
+        confirmation_handler=_LegacyConfirmHandler(approved),
     )
     request = RunRequest(
         text="confirm mutation",
@@ -971,8 +1008,6 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
     terminal = tmp_path / "feishu-confirmed.txt"
     backend_calls = 0
     lease_acquires = 0
-    requests = []
-    updates = []
 
     class WriteExecutor:
         async def execute(self, arguments, context) -> ToolExecutionResult:
@@ -994,35 +1029,6 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
             lease_acquires += 1
             yield
 
-    async def notify(request):
-        requests.append(request)
-        return DeliveryReceipt(
-            status=DeliveryStatus.CONFIRMED_SUCCESS,
-            operation="feishu.approval.send",
-            platform_ids=("om-approval",),
-            sent_count=1,
-        )
-
-    async def update(message_id, outcome, actor):
-        updates.append((message_id, outcome, actor))
-        return DeliveryReceipt(
-            status=DeliveryStatus.CONFIRMED_SUCCESS,
-            operation="feishu.approval.update",
-            platform_ids=(message_id,),
-            sent_count=1,
-        )
-
-    handler = FeishuGatewayConfirmationHandler(timeout_s=1)
-    handler.bind_session(
-        FeishuApprovalRoute(
-            session_id=f"feishu-confirm-{approved}",
-            generation=1,
-            expected_open_chat_id="oc-chat",
-            requester_open_id="ou-owner",
-            notify=notify,
-            update=update,
-        )
-    )
     write_tool = RegisteredTool(
         definition=replace(
             _definition(
@@ -1052,7 +1058,7 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
         [write_tool],
         {"confirm mutation": transport},
         permission_checker=_AskingChecker(),
-        confirmation_handler=handler,
+        confirmation_handler=_LegacyConfirmHandler(approved),
         resource_manager=ResourceManager(),
     )
     request = RunRequest(
@@ -1066,39 +1072,18 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
         ),
         metadata={"gateway_generation": 1},
     )
-    run = asyncio.create_task(app.run(request))
-    for _ in range(200):
-        if requests:
-            for _settle in range(3):
-                await asyncio.sleep(0)
-            break
-        await asyncio.sleep(0)
-    assert len(requests) == 1
+    result = await app.run(request)
 
-    status = await handler.resolve(
-        requests[0].approval_id,
-        ApprovalDecision.APPROVE if approved else ApprovalDecision.DENY,
-        operator_open_id="ou-owner",
-        open_chat_id="oc-chat",
-        open_message_id="om-approval",
-    )
-    result = await run
-
-    assert status is ApprovalResolveStatus.RESOLVED
     assert result.status is RunStatus.REPLIED
-    assert handler.pending_count == 0
     assert len(transport.calls) == 2
     if approved:
         assert backend_calls == 1
         assert lease_acquires == 1
         assert terminal.read_text(encoding="utf-8") == "external terminal"
-        assert updates == [("om-approval", "approved", "ou-owner")]
     else:
         assert backend_calls == 0
         assert lease_acquires == 0
         assert not terminal.exists()
-        assert updates == [("om-approval", "denied", "ou-owner")]
-    await handler.aclose()
     await app.aclose()
 
 

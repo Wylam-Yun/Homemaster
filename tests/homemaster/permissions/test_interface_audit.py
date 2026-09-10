@@ -178,3 +178,41 @@ def test_ordinary_tools_unaffected() -> None:
     assert tool.physical_adapter is None
     tool.validate_identity()
     ToolRegistry().register(tool)
+
+
+def test_confirm_implementations_share_structured_signature() -> None:
+    import inspect
+
+    from homemaster.cli.confirmation import CliConfirmationHandler
+    from homemaster.gateway.confirmation import FeishuGatewayConfirmationHandler
+    from homemaster.web.confirmations import WebConfirmationHandler
+
+    for cls in (
+        WebConfirmationHandler,
+        CliConfirmationHandler,
+        FeishuGatewayConfirmationHandler,
+    ):
+        params = list(inspect.signature(cls.confirm).parameters)
+        assert params == ["self", "request", "missing_item_ids", "context"], cls
+
+
+def test_only_executor_dispatches_confirm() -> None:
+    import ast
+
+    root = Path(__file__).resolve().parents[3] / "src" / "homemaster"
+    offenders: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "confirm"
+            ):
+                offenders.append(str(path.relative_to(root)))
+                break
+    assert offenders == []
+    executor = root / "tools" / "executor.py"
+    assert 'getattr(self.confirmation_handler, "confirm", None)' in executor.read_text(
+        encoding="utf-8"
+    )

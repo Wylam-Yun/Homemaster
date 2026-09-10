@@ -454,7 +454,7 @@ def test_gateway_assembly_reuses_supplied_application_runtime(tmp_path) -> None:
 
 def test_gateway_assembly_wires_one_confirmation_handler_to_runtime_and_channel(tmp_path) -> None:
     application = _FakeApplication()
-    handler = FeishuGatewayConfirmationHandler(timeout_s=1)
+    handler = FeishuGatewayConfirmationHandler()
     config = GatewayConfig(
         bus_capacity=8,
         per_tenant_capacity=6,

@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from homemaster.agent.messages import ToolCall
 from homemaster.permissions.models import (
+    ApprovalCancelled,
     ApprovalConflict,
     ApprovalExpired,
     ApprovalResolution,
@@ -336,19 +337,10 @@ class ToolExecutor:
             )
         except RuntimeError as exc:
             return _physical_result(str(exc), "permission_configuration_error")
-        covered = store.matching_grants([item.key for item in prepared.requirements])
-        grant_covered = frozenset(
-            item.item_id for item in prepared.requirements if item.key in covered
-        )
         if verdict.allowed and not verdict.missing_item_ids:
-            resolution = self._submit_for_execution(
-                store,
-                prepared,
-                {item.item_id: "allow_once" for item in prepared.requirements},
-                context,
-            )
-            if isinstance(resolution, ToolResult):
-                return resolution
+            choices: dict[str, str] | ApprovalResolution = {
+                item.item_id: "allow_once" for item in prepared.requirements
+            }
         elif verdict.missing_item_ids:
             try:
                 store.mark_awaiting_approval(prepared.request_id)
@@ -356,9 +348,15 @@ class ToolExecutor:
                 return _physical_result(
                     f"approval conflict: {exc}", "approval_conflict"
                 )
-            approved = await self._confirm_physical(
-                tool, normalized_arguments, context, verdict
-            )
+            try:
+                approved = await self._confirm_physical(
+                    prepared, verdict.missing_item_ids, context
+                )
+            except ApprovalCancelled:
+                return _physical_result(
+                    "the approval was cancelled before a decision",
+                    "permission_denied",
+                )
             if approved is None:
                 store.cancel(prepared.request_id, "no approval channel available")
                 return _physical_result(
@@ -366,29 +364,20 @@ class ToolExecutor:
                     "approval_channel_unavailable",
                 )
             if isinstance(approved, ApprovalResolution):
-                resolution = approved
+                choices = approved
+            elif approved:
+                choices = {
+                    item.item_id: "allow_once" for item in prepared.requirements
+                }
             else:
                 choices = {
                     item.item_id: (
-                        "allow_once"
-                        if approved or item.item_id not in verdict.missing_item_ids
-                        else "reject"
+                        "reject"
+                        if item.item_id in verdict.missing_item_ids
+                        else "allow_once"
                     )
                     for item in prepared.requirements
                 }
-                resolution = self._submit_for_execution(
-                    store, prepared, choices, context
-                )
-                if isinstance(resolution, ToolResult):
-                    return resolution
-            if resolution.request_status == "blocked":
-                note = getattr(self.permission_checker, "note_rejected", None)
-                if callable(note):
-                    note(request=prepared, context=context)
-                return _physical_result(
-                    "household approval was not granted; this call did not run",
-                    "permission_denied",
-                )
         else:
             return _physical_result(
                 verdict.reason or "household approval was not granted",
@@ -419,6 +408,29 @@ class ToolExecutor:
             await self._release_adapter(adapter, prepared.request_id)
             return _physical_result(
                 "target changed during approval", "target_changed"
+            )
+        # The credential opens only after the bindings revalidate, against a
+        # fresh grant snapshot, so a target move or a revocation during the
+        # approval wait cannot slip into execution.
+        covered = store.matching_grants([item.key for item in prepared.requirements])
+        grant_covered = frozenset(
+            item.item_id for item in prepared.requirements if item.key in covered
+        )
+        if isinstance(choices, ApprovalResolution):
+            resolution = choices
+        else:
+            resolution = self._submit_for_execution(
+                store, prepared, choices, context
+            )
+            if isinstance(resolution, ToolResult):
+                return resolution
+        if resolution.request_status == "blocked":
+            note = getattr(self.permission_checker, "note_rejected", None)
+            if callable(note):
+                note(request=prepared, context=context)
+            return _physical_result(
+                "household approval was not granted; this call did not run",
+                "permission_denied",
             )
         keys_by_item = {item.item_id: item.key for item in prepared.requirements}
         resource_key, resource_error = self._resource_key(
@@ -545,16 +557,15 @@ class ToolExecutor:
 
     async def _confirm_physical(
         self,
-        tool: BaseTool,
-        normalized_arguments: dict[str, Any],
+        prepared: Any,
+        missing_item_ids: Any,
         context: ToolExecutionContext,
-        verdict: Any,
     ) -> bool | ApprovalResolution | None:
         """Ask the approval channel; None means no channel can present."""
         confirm = getattr(self.confirmation_handler, "confirm", None)
         if not callable(confirm):
             return None
-        value = confirm(tool, normalized_arguments, context, verdict)
+        value = confirm(prepared, missing_item_ids, context)
         if inspect.isawaitable(value):
             value = await value
         if isinstance(value, ApprovalResolution):

@@ -215,8 +215,8 @@ class _Handler:
         self.calls: list = []
         self.hook: Any = None
 
-    async def confirm(self, tool: Any, arguments: Any, context: Any, decision: Any):
-        self.calls.append((tool.name, decision))
+    async def confirm(self, request: Any, missing_item_ids: Any, context: Any):
+        self.calls.append((request.approval_id, tuple(missing_item_ids)))
         if self.hook is not None:
             self.hook()
         return self.answer
@@ -487,3 +487,50 @@ async def _await_call(executor: ToolExecutor, context: Any, call: dict) -> ToolR
     return await executor.execute(
         ToolCall(id="1", name="home_act", arguments=call), context
     )
+
+
+class _StructuredRejectHandler:
+    def __init__(self, store: PermissionStore) -> None:
+        self.store = store
+        self.calls = 0
+        self.last: Any = None
+
+    async def confirm(self, request: Any, missing_item_ids: Any, context: Any):
+        from homemaster.permissions.models import ApprovalSubmission, ItemDecision
+
+        self.calls += 1
+        self.last = self.store.submit(
+            request.approval_id,
+            ApprovalSubmission(
+                submission_id="sub-structured-reject",
+                request_revision=request.revision,
+                decisions=tuple(
+                    ItemDecision(item_id=item_id, choice="reject")
+                    for item_id in missing_item_ids
+                ),
+            ),
+            "tester",
+        )
+        return self.last
+
+
+@pytest.mark.asyncio
+async def test_structured_blocked_resolution_denies_without_bool(tmp_path: Path) -> None:
+    world, clock = FakeWorld(), FakeClock()
+    _, executor, context, store = _harness(tmp_path, world, clock, None)
+    handler = _StructuredRejectHandler(store)
+    executor.confirmation_handler = handler
+    try:
+        result = await _await_call(executor, context, {"op": "manipulate",
+                                                       "action": "pick_up",
+                                                       "object": "cup-b"})
+        assert result.metadata["status"] == "permission_denied"
+        assert world.held is None
+        assert world.backend_calls == []
+        assert handler.calls == 1
+        # The trap: a rejected resolution is still a truthy object, so the
+        # executor must read request_status instead of bool().
+        assert bool(handler.last) is True
+        assert handler.last.request_status == "blocked"
+    finally:
+        store.close()

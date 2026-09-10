@@ -18,6 +18,18 @@
 
 ### Changed
 
+- Migrated approvals to the structured protocol 2: the browser submits
+  per-item allow-once/allow-always/reject choices, the server commits them
+  in one store transaction and then wakes the waiting call, which re-reads
+  the committed decision instead of trusting a boolean. New endpoints read
+  one approval, list and revoke long-term grants, and cancel a pending card
+  without recording unsubmitted choices; resolved requests keep their
+  outcome. The old single-outcome shape is rejected as outdated, and a
+  rejected resolution object stays truthy on purpose so only request_status
+  decides. CLI decides item by item with 1/2/3; Feishu issues no cards and
+  deterministically reports the channel unavailable, so physical calls never
+  start there. No dual-protocol mode remains.
+
 - Wired the current-call execution gate for physical tools: validate, hard
   check, one read-only prepare, durable request, exact evaluation, per-item
   confirmation of the missing items, read-only binding revalidation, then

@@ -9,8 +9,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from homemaster.web.confirmations import ApprovalOutcome
-
 
 class CreateSessionRequest(BaseModel):
     """Optional explicit persisted session to resume."""
@@ -29,12 +27,34 @@ class SendMessageRequest(BaseModel):
     text: str = Field(min_length=1)
 
 
-class ApprovalDecisionRequest(BaseModel):
-    """One typed resolution for a pending server-owned approval."""
-
+class ItemChoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    outcome: ApprovalOutcome
+    item_id: str = Field(min_length=1)
+    choice: Literal["allow_once", "allow_always", "reject"]
+
+
+class ApprovalSubmissionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_version: Literal[2]
+    submission_id: str = Field(min_length=1)
+    request_revision: int = Field(ge=1)
+    decisions: list[ItemChoiceRequest] = Field(min_length=1)
+
+
+class RevokeGrantRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    submission_id: str = Field(min_length=1)
+    expected_revision: int = Field(ge=1)
+
+
+class CancelApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    submission_id: str = Field(min_length=1)
+    request_revision: int = Field(ge=1)
 
 
 class ManagedMemoryResponse(BaseModel):
@@ -142,13 +162,16 @@ def _copy_json(value: object) -> object:
 
 
 __all__ = [
-    "ApprovalDecisionRequest",
+    "ApprovalSubmissionRequest",
+    "CancelApprovalRequest",
     "CreateSessionRequest",
+    "ItemChoiceRequest",
     "ManagedMemoryResponse",
     "MemoryGroupResponse",
     "MemoryHistoryResponse",
     "MemorySnapshotResponse",
     "MemoryStatsResponse",
+    "RevokeGrantRequest",
     "SendMessageRequest",
     "WebEvent",
 ]

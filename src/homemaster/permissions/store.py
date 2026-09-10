@@ -1001,6 +1001,47 @@ class PermissionStore:
         next_cursor = grants[-1].grant_id if len(rows) > limit else None
         return grants, next_cursor
 
+    def list_all_grants(
+        self,
+        *,
+        resource_kind: str | None = None,
+        status: str = "active",
+        cursor: str | None = None,
+        limit: int = 50,
+    ) -> tuple[tuple[GrantRecord, ...], str | None]:
+        """List grants across environments for the single-operator console.
+
+        Prefer :meth:`list_grants` with an explicit environment whenever the
+        caller knows it; this unfiltered view exists because the browser
+        console is not told internal environment ids.
+        """
+        if status not in ("active", "revoked"):
+            raise ValueError("grant status must be active or revoked")
+        if not 1 <= limit <= 200:
+            raise ValueError("limit must be within 1..200")
+        predicate = "revoked_at IS NULL" if status == "active" else "revoked_at IS NOT NULL"
+        sql = f"SELECT * FROM permission_grants WHERE {predicate}"
+        params: list[Any] = []
+        if resource_kind is not None:
+            sql += " AND resource_kind = ?"
+            params.append(resource_kind)
+        if cursor is not None:
+            anchor = self._execute(
+                "SELECT created_at FROM permission_grants WHERE grant_id = ?",
+                (cursor,),
+            ).fetchone()
+            if anchor is None:
+                raise KeyError(f"unknown grant cursor: {cursor}")
+            sql += " AND (created_at, grant_id) > (?, ?)"
+            params.extend([anchor["created_at"], cursor])
+        sql += " ORDER BY created_at, grant_id LIMIT ?"
+        params.append(limit + 1)
+        with self._lock:
+            rows = self._execute(sql, tuple(params)).fetchall()
+        grants = tuple(self._grant_from_row(row) for row in rows[:limit])
+        next_cursor = grants[-1].grant_id if len(rows) > limit else None
+        return grants, next_cursor
+
     def revoke(
         self, grant_id: str, submission_id: str, expected_revision: int, actor: str
     ) -> GrantRecord:
@@ -1067,6 +1108,13 @@ class PermissionStore:
         return json.loads(row["payload_json"]).get("submission_id") == submission_id
 
     def cancel(self, request_id: str, reason: str) -> str:
+        """Cancel a still-undecided request; decided ones keep their outcome.
+
+        Only ``prepared``/``awaiting_approval`` requests transition to
+        ``cancelled``. Anything already decided (ready, running, blocked,
+        terminal, ...) is returned unchanged: cancelling never rolls back a
+        committed decision or grant, and never kills an in-flight execution.
+        """
         _nonempty(reason, "cancel reason")
         with self._lock:
             try:
@@ -1077,7 +1125,7 @@ class PermissionStore:
                     ).fetchone()
                     if row is None:
                         raise KeyError(f"unknown request id: {request_id}")
-                    if row["status"] in _TERMINAL_STATUSES:
+                    if row["status"] not in ("prepared", "awaiting_approval"):
                         return row["status"]
                     self._execute(
                         "UPDATE permission_requests SET status = ?, resolved_at = ?"
