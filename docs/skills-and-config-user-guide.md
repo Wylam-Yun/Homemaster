@@ -307,7 +307,7 @@ permissions:
     - "rm -rf *"
 ```
 
-`plan` 拒绝写操作，`default` 要求写操作具有 `tool.auto` 或经过确认，`full_auto` 不额外要求确认。
+`plan` 拒绝写操作，`default` 要求写操作具有 `tool.auto` 或经过确认，`full_auto` 不额外要求确认。家庭资源权限不受这三个 mode 影响：物品动作与目的地区域在任何 mode 下都先批后动。
 这三个 mode 只约束已有 capability，绝不会授予 capability。默认本地 `RunRequest` 为兼容既有 CLI/
 benchmark 拥有完整本地能力；远程入口必须由 Bearer credential 映射到配置中的 tenant、principal、
 roles 和 capabilities，不能从请求 metadata 或 prompt 读取这些字段。
@@ -315,9 +315,9 @@ roles 和 capabilities，不能从请求 metadata 或 prompt 读取这些字段�
 交互式 CLI 把本地审批公开为 `full_auto|confirm|plan` 三个易读选项。默认仍为 `full_auto`，便于自动化测试；
 只有显式运行 `homemaster --permission-mode confirm` 或
 `homemaster shell --permission-mode confirm` 才把内部策略映射为 `default` 并移除本地 principal 的
-`tool.auto`。此时 mutating tool 会在终端显示工具名、工作目录和校验后的参数，只有输入 `y` 或 `yes`
-才执行；空输入、其他输入、EOF、Ctrl+C 或输入错误均拒绝。只读工具和 `allowed_tools` 不询问，`plan`
-直接拒绝写操作也不询问。审批拒绝发生在 resource lease 和 backend 调用之前。
+`tool.auto`。家庭资源权限走逐项确认：每项按 `1`=本次允许、`2`=始终允许、`3`=拒绝回答；非法输入重问
+当前项，EOF/取消终止本次申请。普通工具的通用二次确认已随 V3.4 移除（原有非交互硬拒绝保留）。
+审批拒绝发生在 resource lease 和 backend 调用之前。
 
 `--permission-mode` 仅属于交互式入口，不能与 `-p/--print`、`--dry-run`、`--gateway` 或其他子命令组合。
 非交互入口和配置文件的既有权限行为不变。
@@ -390,11 +390,9 @@ uv run homemaster --gateway --config config/homemaster.yaml
 
 ### 飞书工具确认卡片
 
-只有 canonical `PermissionChecker` 对一个已通过 schema 校验的工具调用返回
-`requires_confirmation=True` 时，Gateway 才发送审批卡片。例如策略要求确认 `write_file` 时，原请求者会在
-原 chat/thread 看到工具名、校验后的参数、工作目录和确认原因；点击“批准”后同一个 tool call 继续执行，点击
-“拒绝”则在取得 resource lease 或调用 backend 之前结束。按钮只携带 opaque `approval_id` 和动作，不携带
-session、用户、chat 或 message 等可伪造授权字段。
+V3.4 不再发送交互式飞书卡片：家庭资源权限调用在飞书通道内只做归属校验，随后确定性返回
+“审批通道不可用”，物理调用不会启动；请到网页或 CLI 完成逐项审批。普通工具的通用二次确认已移除，
+旧 `write_file` 卡片流程不再适用；下述归属绑定与 fail-closed 约束保留给通道归属校验本身。
 
 确认严格绑定请求 session、Gateway generation、请求者 `open_id`、源 `open_chat_id` 和审批卡片
 `open_message_id`。只接受原卡片的一次回调；未知、重复、错误用户/chat/message 和发送期间的提前回调都不

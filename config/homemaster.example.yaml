@@ -165,6 +165,8 @@ permissions:
   # Durable V3.4 item/area approval database. Historical tool approvals are
   # never migrated into item grants. Relative paths resolve below the
   # session directory; absolute paths are used as-is.
+  # Household item/area approvals always gate first, regardless of the
+  # mode above; the mode only affects ordinary tools.
   # store_path: "permissions.sqlite3"
 
 # Optional Feishu/Lark WebSocket Gateway requires installing the `gateway` extra.

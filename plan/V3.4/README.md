@@ -1,6 +1,6 @@
 # V3.4 家庭资源权限设计
 
-状态：已获准编写实施计划，计划已生成；尚未开始实现。
+状态：实施完成（Task 0–10，分支 `v34-permissions`）；验收见 [acceptance-report](./acceptance-report.md)，真机未验收。
 
 请先阅读 [单件物品与目的地区域权限设计](./permission-system-design.md)。
 
@@ -18,4 +18,4 @@
 ## 实施计划
 
 [权限系统实施计划](./permission-system-implementation-plan.md)：11 个顺序任务、文件落点、测试命令、独立终态验收与真机门。
-从 Task 0 开始执行；当前任务复选框均未勾选，计划中的测试尚未运行。
+Task 0–10 复选框已按执行记录勾选；回归命令与证据见 Task 9 与验收报告。

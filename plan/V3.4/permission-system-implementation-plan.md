@@ -185,9 +185,9 @@ Store 实例绑定现有可信 tenant 分区和 environment；即使两个家庭
 **Files:** 新建 plan/V3.4/backend-readiness.md；更新 docs/session-handoff.md。
 这是调查记录，不写业务代码、不操作真实机器人。
 
-- [ ] 读取 CLAUDE.md、相关 pitfalls（Web permission composition、线程取消和外部未知结果），记录本轮 HEAD/status。
-- [ ] 创建隔离工作区；若其他未提交 backend 改动是必需前提，明确纳入来源后再合并，不能默默引用原目录。
-- [ ] 运行下列调查命令，记录原始输出与退出码：
+- [x] 读取 CLAUDE.md、相关 pitfalls（Web permission composition、线程取消和外部未知结果），记录本轮 HEAD/status。
+- [x] 创建隔离工作区；若其他未提交 backend 改动是必需前提，明确纳入来源后再合并，不能默默引用原目录。
+- [x] 运行下列调查命令，记录原始输出与退出码：
 
 ```bash
 git status --short
@@ -200,16 +200,16 @@ rg -n 'robot_|observe' src/homemaster/domain/tools.py
 node --version
 ```
 
-- [ ] 检查 web/package-lock.json 中 vite/vitest/jsdom/typescript 的 engines；选择全部满足的 Node，
+- [x] 检查 web/package-lock.json 中 vite/vitest/jsdom/typescript 的 engines；选择全部满足的 Node，
   放在项目忽略目录 .runtime/v34/node，绑定 .runtime/v34/node/bin。不得安装到系统全局。
   使用现有缓存优先；需要下载时实施当天从官方发行源核对版本和 SHA256，再记录确切版本/路径。
-- [ ] 用锁定 Node 运行 npm ci，不改 package-lock；Python 使用项目 uv 管理，不裸 pip 升级。
+- [x] 用锁定 Node 运行 npm ci，不改 package-lock；Python 使用项目 uv 管理，不裸 pip 升级。
   已核实 pyproject.toml 定义 optional-dependencies.dev；隔离工作区没有 venv 时运行
   `uv sync --frozen --extra dev`。使用当前项目绑定的 uv 路径，不安装全局包。
-- [ ] backend-readiness.md 按后端逐项记录：
+- [x] backend-readiness.md 按后端逐项记录：
   稳定物品 ID、区域 ID/当前位置、只读 prepare、宏动作集合、执行返回码、外部观察、重启身份。
   每项填“已验证 + 证据路径”或“未验证 + 缺什么”；真机驱动不明不能写 ready。
-- [ ] 门：通用核心开发不依赖 ALFWorld readiness；Task 8 的具体 backend 接线依赖自己的身份和动作门。
+- [x] 门：通用核心开发不依赖 ALFWorld readiness；Task 8 的具体 backend 接线依赖自己的身份和动作门。
   缺真机不阻塞核心开发，但阻止宣称真机上线完成。
 
 ## Task 1：建立最小通用模型与声明式物理入口
@@ -217,8 +217,8 @@ node --version
 **Files:** 新建 models.py、resources.py、actions.yaml、test_resource_contract.py、test_interface_audit.py；
 修改 tools/base.py、tools/adapters.py、pyproject.toml（仅动作目录打包必要项）。
 
-- [ ] 按 1.1 写失败测试，先证明资源键不同不会相等、无效动作/混合环境被拒绝。
-- [ ] 加入以下具体回归：
+- [x] 按 1.1 写失败测试，先证明资源键不同不会相等、无效动作/混合环境被拒绝。
+- [x] 加入以下具体回归：
 
 ```python
 def test_exact_resource_identity():
@@ -232,36 +232,36 @@ def test_exact_resource_identity():
     assert a != a.model_copy(update={"environment_id": "other-home"})
 ```
 
-- [ ] 在 models.py 定义 TargetUnresolved、TargetChanged、ApprovalConflict、ApprovalExpired、PermissionStorageUnavailable
+- [x] 在 models.py 定义 TargetUnresolved、TargetChanged、ApprovalConflict、ApprovalExpired、PermissionStorageUnavailable
   五种具名异常，分别对应目标澄清、绑定失效、409、410、503；异常不得当作普通成功结果吞掉。
-- [ ] 定义资源适配器四方法契约；BaseTool 增加默认为 None 的 physical_adapter 字段。
+- [x] 定义资源适配器四方法契约；BaseTool 增加默认为 None 的 physical_adapter 字段。
   FunctionTool 构造与 from_registered_tool 包装必须显式透传同一实例；
   注册的物理工具缺 adapter 时拒绝注册/执行，不能当普通工具放行。
   物理工具以注册侧显式 metadata 声明，不用名字前缀或 LLM 参数猜。
-- [ ] 动作目录准确配置 pick_up/take、place/put、open、close、clean、heat、cool、slice、turn_on、turn_off、enter。
+- [x] 动作目录准确配置 pick_up/take、place/put、open、close、clean、heat、cool、slice、turn_on、turn_off、enter。
   use/toggle 不直接映射，adapter 必须按实际状态解析为准确动作。
-- [ ] 添加 AST 依赖审计：permissions 包禁止 import benchmarking、alfworld、THOR；
+- [x] 添加 AST 依赖审计：permissions 包禁止 import benchmarking、alfworld、THOR；
   同时检查通用模型无 scene/episode/native simulator 字段。
-- [ ] 用以下命令观察失败后补齐实现，再运行到 PASS：
+- [x] 用以下命令观察失败后补齐实现，再运行到 PASS：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/permissions/test_resource_contract.py tests/homemaster/permissions/test_interface_audit.py -q
 ```
 
-- [ ] 打包动作目录后从项目外 cwd import/load，证明 wheel 内资源存在；记录准确加载结果。
-- [ ] CHANGELOG/commit：说明新增通用契约和物理入口声明，不宣称审批已生效。
+- [x] 打包动作目录后从项目外 cwd import/load，证明 wheel 内资源存在；记录准确加载结果。
+- [x] CHANGELOG/commit：说明新增通用契约和物理入口声明，不宣称审批已生效。
 
 ## Task 2：实现一个 SQLite PermissionStore
 
 **Files:** 新建 store.py、tests/homemaster/permissions/conftest.py、test_store.py；
 修改 permissions/config.py、config/homemaster.example.yaml、.gitignore。
 
-- [ ] conftest 建立 request 工厂：固定 environment=home、两个不同杯子、一间卧室，
+- [x] conftest 建立 request 工厂：固定 environment=home、两个不同杯子、一间卧室，
   每次独立 request_id，默认一个 pick_up 步骤；组合用例额外加 enter 步骤和 item。
   时间由测试显式注入 clock，不使用 sleep 等过期。
-- [ ] 先写真实 SQLite 测试：提交 once 后 grant=0，always 后 grant=1，reject 后 grant=0；
+- [x] 先写真实 SQLite 测试：提交 once 后 grant=0，always 后 grant=1，reject 后 grant=0；
   组合 always+reject 返回 blocked 且 grant=1；同提交重试不重复，冲突 409 语义。
-- [ ] 事务实现固定如下，不拆成先写 grant 再写决定：
+- [x] 事务实现固定如下，不拆成先写 grant 再写决定：
 
 ```sql
 BEGIN IMMEDIATE;
@@ -270,7 +270,7 @@ BEGIN IMMEDIATE;
 COMMIT;
 ```
 
-- [ ] 创建设计第 8 节六张表与 schema_version=1；有效 grant 的唯一约束：
+- [x] 创建设计第 8 节六张表与 schema_version=1；有效 grant 的唯一约束：
 
 ```sql
 CREATE UNIQUE INDEX active_permission_scope
@@ -278,59 +278,59 @@ ON permission_grants(environment_id, resource_kind, resource_id, action)
 WHERE revoked_at IS NULL;
 ```
 
-- [ ] create_request 的通用快照不包含 native handle；环境目录查找不复制成新的授权真理源。
-- [ ] SQLite 路径增加 permissions.store_path（配置路径，不是新增审批 mode）。
+- [x] create_request 的通用快照不包含 native handle；环境目录查找不复制成新的授权真理源。
+- [x] SQLite 路径增加 permissions.store_path（配置路径，不是新增审批 mode）。
   默认从 `Path(config.observability.session_dir).expanduser().parent / 'permissions.sqlite3'` 派生，
   再应用既有 tenant 分区；显式 store_path 优先。example 只放占位/相对目录，不写真实个人路径。
-- [ ] 实现 1.2 所有 Store 方法；claim/finish、恢复、撤销采用设计状态机。
+- [x] 实现 1.2 所有 Store 方法；claim/finish、恢复、撤销采用设计状态机。
   持久事件同事务写，JSONL 用已有事件设施镜像，不建新后台审计服务。
-- [ ] 在插入第二个 item 后注入异常，重新开连接 raw SELECT 所有表，断言没有半笔提交。
+- [x] 在插入第二个 item 后注入异常，重新开连接 raw SELECT 所有表，断言没有半笔提交。
   开两个连接交错提交/撤销，逐条核对有效 grant、submission 和状态。
-- [ ] 运行：
+- [x] 运行：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/permissions/test_store.py -q
 ```
 
-- [ ] 外部门：子进程退出后另一个 Python 进程直接 sqlite3.connect 查询有效规则和 PRAGMA integrity_check；
+- [x] 外部门：子进程退出后另一个 Python 进程直接 sqlite3.connect 查询有效规则和 PRAGMA integrity_check；
   必须返回 ok 且每个预期 key/行数准确，不通过 Store 自读冒充独立验证。
-- [ ] CHANGELOG/commit：记录持久化、原子决定与恢复语义。
+- [x] CHANGELOG/commit：记录持久化、原子决定与恢复语义。
 
 ## Task 3：扩展现有 PermissionChecker，移除通用工具弹窗
 
 **Files:** 修改 permissions/policy.py、permissions/__init__.py、tools/executor.py 中 checker Protocol；
 新建 test_physical_policy.py；修改现有 test_home_policy.py。
 
-- [ ] 先参数化 FULL_AUTO/DEFAULT、tool.auto、allowed_tools、read-only 标记的绕过用例：
+- [x] 先参数化 FULL_AUTO/DEFAULT、tool.auto、allowed_tools、read-only 标记的绕过用例：
   注册物理动作缺资源授权时所有变体都 ASK。
-- [ ] 保留原 evaluate_tool 的非交互硬拒绝；取消“mutating tools require confirmation”的通用弹窗。
+- [x] 保留原 evaluate_tool 的非交互硬拒绝；取消“mutating tools require confirmation”的通用弹窗。
   PLAN 仍可阻止副作用；其余普通工具通过原有非交互检查后不申请物品规则。
-- [ ] 在同一 PermissionChecker 新增 evaluate_physical：
+- [x] 在同一 PermissionChecker 新增 evaluate_physical：
   拒绝已取消/过期/目标失效请求；逐 item 匹配当前 once 或准确有效 grant；
   缺项返回它们的 item_id，不把一个 item 的允许扩散到其他项。
-- [ ] 对 A/pick_up 的允许分别验证 B/pick_up、A/clean、其他环境 A/pick_up 均 ASK；
+- [x] 对 A/pick_up 的允许分别验证 B/pick_up、A/clean、其他环境 A/pick_up 均 ASK；
   A 改名/换房间仍命中物品授权，area 缺项仍保留。
-- [ ] 对同一被拒用户意图增加当前运行的重复申请抑制：
+- [x] 对同一被拒用户意图增加当前运行的重复申请抑制：
   从 runtime 可信 user-turn identity + 准确 scope 构造键，不信模型传来的 intent_id。
   新的用户输入才允许再次申请；这不是永久 deny 表。
-- [ ] 更新 AllowAllPermissionChecker：普通测试仍可显式使用；
+- [x] 更新 AllowAllPermissionChecker：普通测试仍可显式使用；
   物理入口没有真实家庭 checker 时返回配置错误，不得自动允许。
-- [ ] 运行旧/新策略测试，预期旧“普通写工具弹批准”的断言按新语义迁移：
+- [x] 运行旧/新策略测试，预期旧“普通写工具弹批准”的断言按新语义迁移：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/permissions/test_home_policy.py tests/homemaster/permissions/test_physical_policy.py -q
 ```
 
-- [ ] CHANGELOG/commit：明确审批仅物品动作和目的地区域，旧工具授权不迁移成长期规则。
+- [x] CHANGELOG/commit：明确审批仅物品动作和目的地区域，旧工具授权不迁移成长期规则。
 
 ## Task 4：当前调用执行门、绑定、重试与资源生命周期
 
 **Files:** 修改 tools/executor.py、application/factory.py、application/runtime.py、tools/adapters.py；
 新建 test_execution_gate.py；修改 test_universal_executor.py、application/test_factory.py。
 
-- [ ] 先写一个调用内部 enter+pick_up 的失败用例：审批 pending 或任一拒绝时两步均未启动。
+- [x] 先写一个调用内部 enter+pick_up 的失败用例：审批 pending 或任一拒绝时两步均未启动。
   另写两个独立调用：导航允许并完成，拿取拒绝，位置仍在卧室但杯子没变。
-- [ ] 执行接线遵循以下单一路径；已有 deadline/lease/cancellation 逻辑直接复用：
+- [x] 执行接线遵循以下单一路径；已有 deadline/lease/cancellation 逻辑直接复用：
 
 ```text
 validate tool args
@@ -344,31 +344,31 @@ validate tool args
 → adapter.release
 ```
 
-- [ ] adapter 接入是工具真实执行路由；不得先 adapter.execute 再重复 tool.execute。
+- [x] adapter 接入是工具真实执行路由；不得先 adapter.execute 再重复 tool.execute。
   普通工具沿用原执行路径。物理包装必须仍返回现有 canonical ToolResult，不丢 backend_attempted。
-- [ ] 同一 current call 只 prepare 一次；审批等待后先只读确认绑定未变。
+- [x] 同一 current call 只 prepare 一次；审批等待后先只读确认绑定未变。
   目标/落点改变返回 target_changed，不重选杯子继续执行。
-- [ ] 对单机器人开始动作与撤销，在同一应用 owner 上使用短启动互斥和 Step 状态 claim：
+- [x] 对单机器人开始动作与撤销，在同一应用 owner 上使用短启动互斥和 Step 状态 claim：
   锁内验证/claim 并把同一执行任务登记给 owner，然后释放锁；不能持锁等待整个机械动作结束。
   撤销先获得顺序时步骤拒绝，执行先获得顺序时标记已在进行，仍阻止后续步骤。
-- [ ] 执行中取消不等于设备停止：保留 tracked task，按已有线程 owner 收回晚到结果；
+- [x] 执行中取消不等于设备停止：保留 tracked task，按已有线程 owner 收回晚到结果；
   出现超时但 backend 可能执行则 unknown，禁止未经 observe 重试。
-- [ ] 有限 retry 仅在当前步骤 no_effect_failure、目标不变且预算允许时进行，
+- [x] 有限 retry 仅在当前步骤 no_effect_failure、目标不变且预算允许时进行，
   总尝试默认 3，与现有更严格预算取小值；成功立刻消费 once。
   claim_step 仅允许 ready 或已确认 no_effect_failure 的同一步重试；attempt_count 达上限拒绝，
   running/succeeded/unknown 不可再次 claim。
-- [ ] 进入权限以当前位置与目标区域判断是否真的跨入；停留不新增 enter，
+- [x] 进入权限以当前位置与目标区域判断是否真的跨入；停留不新增 enter，
   离开后再回需要新请求。路径经过区域不生成 requirement。
-- [ ] factory 注入 application-owned Store；start/recover 一次，close 一次；
+- [x] factory 注入 application-owned Store；start/recover 一次，close 一次；
   runtime 所有重建 executor 透传同一个 checker/Store/handler，不依赖默认构造。
-- [ ] 运行：
+- [x] 运行：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/permissions/test_execution_gate.py tests/homemaster/tools/test_universal_executor.py tests/homemaster/application/test_factory.py -q
 ```
 
-- [ ] 外部门：由 Task 9 的独立设备进程读取位置/物品状态，确认阻止的是实际副作用。
-- [ ] CHANGELOG/commit：记录当前调用执行门，不写成整个任务预批。
+- [x] 外部门：由 Task 9 的独立设备进程读取位置/物品状态，确认阻止的是实际副作用。
+- [x] CHANGELOG/commit：记录当前调用执行门，不写成整个任务预批。
 
 ## Task 5：结构化审批服务、Web API 和其他入口迁移
 
@@ -376,34 +376,34 @@ validate tool args
 cli/confirmation.py、gateway/confirmation.py、gateway/runtime.py；
 对应既有测试；新建 web/test_permissions.py。
 
-- [ ] 先写旧 bool 陷阱测试：非空 reject 的 ApprovalResolution 不能被 bool 当成批准。
-- [ ] 所有 handler 改用 1.2 confirm 签名；Web resolve 只调用 Store.submit，commit 后唤醒；
+- [x] 先写旧 bool 陷阱测试：非空 reject 的 ApprovalResolution 不能被 bool 当成批准。
+- [x] 所有 handler 改用 1.2 confirm 签名；Web resolve 只调用 Store.submit，commit 后唤醒；
   Future 只传递提交完成信号，executor 从持久状态核对决定。
-- [ ] Web 实现设计第 9 节三个新增接口和迁移后的提交接口：
+- [x] Web 实现设计第 9 节三个新增接口和迁移后的提交接口：
   GET approval、GET grants、POST revoke；请求模型 extra=forbid。
   POST /api/approvals/{id} 只收 protocol_version=2、submission_id、revision、decisions。
-- [ ] 实现准确状态码和测试：200 blocked（业务拒绝）、422 缺项/重复项/旧单 outcome、
+- [x] 实现准确状态码和测试：200 blocked（业务拒绝）、422 缺项/重复项/旧单 outcome、
   404 不存在、409 冲突、410 过期、503 落盘失败；越权沿用已有身份校验。
-- [ ] 关闭卡片必须有显式取消协议：POST /api/approvals/{id}/cancel，
+- [x] 关闭卡片必须有显式取消协议：POST /api/approvals/{id}/cancel，
   body 为 submission_id/request_revision；原子取消 pending，不写未提交选择。
   已 resolved 的请求返回既有终态，不回滚已提交 grant；此接口是设计“关闭取消”的具体落点。
-- [ ] approval.requested/resolved 保持事件名、版本 2 明细；新增 permission.grant_changed。
+- [x] approval.requested/resolved 保持事件名、版本 2 明细；新增 permission.grant_changed。
   raw backend 参数不用于卡片展示；事件数量与内容和权威结果一致。
-- [ ] CLI 按每项读 1=once、2=always、3=reject；非法输入重问当前项，EOF/取消终止；
+- [x] CLI 按每项读 1=once、2=always、3=reject；非法输入重问当前项，EOF/取消终止；
   全项明确后一次提交，不边读边落长期 grant。
-- [ ] 本版 Feishu 同步结构化接口，但暂不扩建三选项卡片：
+- [x] 本版 Feishu 同步结构化接口，但暂不扩建三选项卡片：
   无完整交互实现时确定返回 approval_channel_unavailable，物理动作不启动。
   保留既有连接归属校验，不把旧“同意”扩成所有项目的长期允许。
   这使用设计允许的明确不支持分支，用户指南必须写明；Web/CLI 完整交付。
-- [ ] 单独审计全部 confirm 实现和调用方，不能只修改 Web。
-- [ ] 运行：
+- [x] 单独审计全部 confirm 实现和调用方，不能只修改 Web。
+- [x] 运行：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/web/test_permissions.py tests/homemaster/web/test_confirmations.py tests/homemaster/web/test_event_projection.py tests/homemaster/test_cli_confirmation.py tests/homemaster/gateway/test_confirmation.py tests/homemaster/permissions/test_interface_audit.py -q
 ```
 
-- [ ] 外部门：真实 HTTP 提交后直接读 SQLite；重复提交不新增执行；断开 WebSocket 后 pending 取消。
-- [ ] CHANGELOG/commit：记录协议破坏性变化、CLI 行为及 Feishu 明确边界。
+- [x] 外部门：真实 HTTP 提交后直接读 SQLite；重复提交不新增执行；断开 WebSocket 后 pending 取消。
+- [x] CHANGELOG/commit：记录协议破坏性变化、CLI 行为及 Feishu 明确边界。
 
 ## Task 6：前端逐项申请卡与请求状态
 
@@ -583,18 +583,18 @@ git diff --check
 docs/skills-and-config-user-guide.md、config/homemaster.example.yaml、
 CHANGELOG.md、docs/session-handoff.md、plan/V3.4/README.md。
 
-- [ ] 用户指南用“去卧室拿杯子”真实例子讲清导航先审批、拿取后审批；
+- [x] 用户指南用“去卧室拿杯子”真实例子讲清导航先审批、拿取后审批；
   三选项、同件不同动作、目的地-only、永久保存与撤销、失败/重试提示。
-- [ ] 架构文档写准确最终接口和实际数据流；不复制已被实现替换的提案。
+- [x] 架构文档写准确最终接口和实际数据流；不复制已被实现替换的提案。
   单列真机接入：prepare/execute/observe/release、稳定身份、未知结果处理；
   不要求实现 ALFWorld scene/episode 或读取 benchmark 元数据。
-- [ ] 旧 confirm/full_auto 文案统一更新：不能跳过家庭资源权限；
+- [x] 旧 confirm/full_auto 文案统一更新：不能跳过家庭资源权限；
   普通工具不再额外弹批准。CLI 完整支持；Feishu 本版未支持逐项交互时明确告知。
-- [ ] README 只列真实完成能力，真机独立验收结果从 acceptance-report 引用。
-- [ ] 若发现严重假阳性或多次错误修复，按仓库规则补 pitfalls 与 CLAUDE 正向规则；无新坑不编造记录。
-- [ ] 对设计 D01—D16 和下表逐项核对；无缺口后写最终交接：
+- [x] README 只列真实完成能力，真机独立验收结果从 acceptance-report 引用。
+- [x] 若发现严重假阳性或多次错误修复，按仓库规则补 pitfalls 与 CLAUDE 正向规则；无新坑不编造记录。
+- [x] 对设计 D01—D16 和下表逐项核对；无缺口后写最终交接：
   当前 commit、测试命令/退出码、外部证据、已完成、真机缺失条件、下一步。
-- [ ] CHANGELOG 文本与最终 commit message 内容一致；不提交机密、数据库、截图原始隐私数据或他人修改。
+- [x] CHANGELOG 文本与最终 commit message 内容一致；不提交机密、数据库、截图原始隐私数据或他人修改。
 
 ## 附录 A：设计覆盖矩阵
 

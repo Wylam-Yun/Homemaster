@@ -1,5 +1,34 @@
 # Session Handoff
 
+## V3.4 Task10 done — docs, migration notes, final handoff — 2026-09-10
+
+- Scope: new `docs/permissions-user-guide.md`, `docs/architecture/permissions.md`;
+  updated `README.md`, `docs/architecture/application-runtime.md`,
+  `docs/web-console-user-guide.md`, `docs/skills-and-config-user-guide.md`,
+  `config/homemaster.example.yaml`, `plan/V3.4/README.md`; +2 `docs/pitfalls.md`
+  (empty-requirements silent skip; fake mutate-then-read order). No CLAUDE.md change:
+  existing external-validation discipline already covers these; lessons are
+  instance-level, recorded in pitfalls with reason.
+- Stale-copy migration: ordinary tools no longer pop generic confirmations (V3.4
+  removed); `full_auto` never skips household approvals; CLI decides per item
+  (1/2/3); Feishu issues no cards and reports channel unavailable.
+- D01-D16 vs implementation: D01/D02 exact keys+store index+checker+blackbox;
+  D03 directory+adapter closure+registration audit; D04 once/retry/unknown;
+  D05/D13 move/place+spot lock; D06/D09 destination-only (ALFWorld areas unsupported);
+  D07/D08 current-call itemized gate+protocol+cards; D10 single-robot owner;
+  D11 internal ids + DOM assertions; D12 persistence+revocation+restart;
+  D14 instructions never imply grants (exact-match only); D15 single checker +
+  constructor/handler audit; D16 decoupled core (AST audit + subprocess device).
+  Atomicity/reconnect/migration covered. No gaps; only THOR-real and hardware pending.
+- Final verification (this commit): pytest set 230 passed; web 44 passed; build ok;
+  ruff + diff-check clean; verifier process-001 exit 0 (16+15+9+17 checks).
+- External evidence: `.runtime/v34/acceptance/process-001/` (manifest schema 1,
+  4 shots, DB readbacks, server logs). No secrets/DB/screenshots committed.
+- 真机缺失条件：真实驱动、地图／物品档案、物品 ID 与当前区域接口；上线前按用户
+  现场操作范围跑 Task-1 契约＋适用场景，逐条核对物品／位置终态与设备返回码。
+- Next: 真机接入（Task-1 契约实现＋独立验收列）、THOR 真后端核对（稳定 ID／跨
+  scene／内部导航／未知回执）、产品部署补 WS 传输库依赖（验收时 out-of-tree 补充）。
+
 ## V3.4 Task9 done — external blackbox + verifier, process PASS — 2026-09-10
 
 - Scope: `tests/fixtures/permissions/device_process.py` + `cdp_driver.py`,

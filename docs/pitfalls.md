@@ -1,3 +1,40 @@
+## 2026-09-10 - Empty-requirements prepared calls silently skip execution
+
+### 症状与根因
+
+给独立导航的 adapter 返回空 requirements（以为“无需审批直接执行”），executor 经
+`_execute_direct` 直接返回 "no physical effects required"：机器人一步没动却显示成功。
+`_execute_direct` 只跑 `prepared.steps`，而校验器禁止无 requirements 的 step 携带非空
+`required_item_ids`——空 requirements 必然意味着零 steps，即纯 no-op。
+模型注释里的“直接执行”仅适用于“已在原地、无需动作”的场景。
+
+### 修法与教训
+
+需要真实副作用的调用必须声明至少一项 requirement（或走 legacy 路径并明确记录）；
+新增调用路径前先读空输入在该路径的行为；单测覆盖“准备→执行→外部终态变化”整条链，
+不只断言准备结果。
+
+### Ref
+
+- `src/homemaster/tools/executor.py`（`_execute_direct`）
+- Task 8 决策记录（独立导航沿用旧路径）
+
+## 2026-09-10 - Mutate-then-read ordering inside test fakes
+
+### 症状与根因
+
+revoke 测试的 mock 先 splice 删除 grant 再 find 查找，抛出 `unknown grant`；
+被测组件本身正常。用事件序列日志定位根因，未改组件。
+
+### 修法与教训
+
+fake 的读写顺序必须镜像真实后端（真实 revoke 先读后改）；失败先怀疑 fake 再怀疑
+被测代码；关键时序给调用加序列日志而不是猜。
+
+### Ref
+
+- `web/src/components/PermissionsPage.test.tsx`（`makeApi`）
+
 ## 2026-09-09 - Strict visual reset and mandatory manifest blocked real ALFWorld execution
 
 ### 症状与根因

@@ -59,6 +59,8 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   tool/resource 调用全部落 JSONL audit。
 - **安全模型** — typed capability 权限、generation-aware 设备租约、带双重回执的急停（emergency stop）、
   按字节 pin 的可信扩展（CL-21）。
+- **家庭资源权限（V3.4）** — 物品×动作与目的地区域逐项审批、SQLite 持久长授、按动作撤销；Web 逐项卡片＋权限页，
+  CLI 逐项问答；飞书通道不可用；真机未验收（见 `plan/V3.4/acceptance-report.md`）。
 - **可观测性** — 每次 run 落 `runtime_events.jsonl` 结构化事件轨迹，租约/断连/急停/设备审计独立成链。
 
 ## 架构
@@ -221,7 +223,7 @@ uv run homemaster run --utterance "去厨房找水杯，然后拿给我" --progr
 # 交互式 shell
 uv run homemaster shell
 
-# 手动测试权限审批：只有交互式写操作会询问
+# 手动测试家庭资源审批：逐项按 1/2/3 回答
 uv run homemaster shell --permission-mode confirm
 ```
 
@@ -241,8 +243,8 @@ scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
 ```
 
 浏览器必须先建立当前 session 的 WebSocket，composer 才允许发送。变更单可以直接粘贴到网页输入框，仍由
-同一个 `ApplicationRuntime` 和 `change-ticket-executor` Skill 执行；Web Console 固定使用 `full_auto`，危险
-工具自动执行但仍受 denied tools/path rules 约束。录制第二窗口时使用
+同一个 `ApplicationRuntime` 和 `change-ticket-executor` Skill 执行；Web Console 固定使用 `full_auto`，普通
+工具自动执行（仍受 denied tools/path rules 约束），家庭物品动作与目的地区域永远先批后动。录制第二窗口时使用
 `/?record=1&session_id=<session-id>`，thinking 和工具参数会保持展开并实时更新。服务启动会先探测 loopback
 端口，冲突时在运行时构造前报错。ALFWorld 模式继续使用同一个 `ToolExecutor -> PermissionChecker`
 和 Web 审批协议，不是另一套前端执行器。完整开发、构建与使用说明见
@@ -287,9 +289,8 @@ uv run homemaster --gateway --browser --config config/homemaster.yaml
 
 - Gateway 把所有非 bot sender 映射为固定 `feishu-owner` principal；`app_id/app_secret` 只从
   mode 0600、gitignored 的真实 YAML 读取。进程退出或重启后需手动重新启动，仓库不提供守护/自启服务。
-- 当上游权限策略返回 `requires_confirmation=True` 时，Gateway 会把校验后的工具名、参数、工作目录和原因
-  发成飞书卡片，只接受原请求者在原会话对原卡片的一次批准/拒绝。拒绝、超时、session 替换、重启和关闭
-  都 fail closed；回调不生成入站消息或新的模型轮次。当前内置 `feishu-owner` 仍拥有 `tool.auto`，因此正式
+- V3.4 不再发送飞书审批卡片：家庭资源权限调用在飞书通道内确定性返回审批通道不可用，
+  物理调用不会启动。拒绝、超时、session 替换、重启和关闭都 fail closed。当前内置 `feishu-owner` 仍拥有 `tool.auto`，因此正式
   Gateway 配置会绕过这道门。真实发送、patch 与同卡 readback 已取得业务 `code=0`，且逐卡确认按钮消失；
   callback 身份闭环和批准后 backend exactly-once 的 live 主链仍标记为 `UNVERIFIED`。
 - Browser 模式下飞书正文可直接包含变更单 URL；通用 `change-ticket-executor` Skill 从票据自然语言

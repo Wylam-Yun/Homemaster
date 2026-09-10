@@ -25,9 +25,9 @@ scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
 
 该模式要求 ignored `config/homemaster.yaml` 的 `alfworld_gateway` 已配置 `asset_root`、`data_root`、
 `config_path`、`python_executable` 和 `trial_manifest`。第一个执行任务的 Web session 独占 episode；其他
-session 会收到 `alfworld_session_busy`，重启服务才会创建全新 episode。每个会改变环境的
-`robot_go_to` / `robot_manipulate` 都经过现有审批框，Approve 恢复同一个被阻塞的 tool call，Reject 在
-backend 前失败关闭。
+session 会收到 `alfworld_session_busy`，重启服务才会创建全新 episode。会改变环境的 `robot_manipulate` 经过 V3.4 结构化审批：逐项决定经同一协议提交后唤醒等待调用；
+旧单 outcome 形状已被拒绝。独立导航（`robot_go_to`）沿用旧路径：ALFWorld 无权威区域模型，
+区域用例不声称通过。
 
 从本机访问远端服务器时，保持服务绑定 loopback，并另开本机终端建立 tunnel：
 
@@ -54,8 +54,17 @@ ssh -N -L 8765:127.0.0.1:8765 hkust4
   对应工具卡片内，点击图片可放大；关闭按钮、`Esc` 或点击遮罩可退出，`Open original` 保留原图入口。
   图片加载失败和非图片 artifact 继续显示授权链接；所有读取仍校验 tenant/session/run 分区和 opaque handle。
 - Stop 请求 Runtime 取消当前 session run。
-- Web Console 使用 `full_auto` 自动执行允许的变更操作；denied tools、敏感路径和命令规则仍会拒绝执行。
+- Web Console 使用 `full_auto` 自动执行允许的普通变更操作；denied tools、敏感路径和命令规则仍会拒绝执行。家庭资源权限不受 mode 影响：物品动作与目的地区域永远先批后动，见“家庭资源权限”。
 - WebSocket 最后一个订阅者断开、run 取消、超时或服务关闭时，pending approval fail closed。
+
+### 家庭资源权限
+
+完整说明见[家庭资源权限用户指南](./permissions-user-guide.md)：
+
+- 导航先审批目的地区域，操作再审批具体物品动作；三选项为本次允许／始终允许／拒绝。
+- 卡片只显示名称、位置和动作，不显示内部编号；关闭或 `Esc` 等于取消本次申请。
+- 左栏“权限”页按动作查看长期授权并单独撤销；区域权限只检查目的地。
+- 飞书通道不支持逐项交互，相关调用报告审批通道不可用。
 
 ### 从网页执行变更单
 

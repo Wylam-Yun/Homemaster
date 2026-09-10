@@ -177,9 +177,10 @@ Home 的命令与搜索工具共用同一执行边界：`terminal` 接收模型�
 
 交互式 CLI 的权限覆盖只在 composition boundary 注入：公开的 `confirm` 映射为现有
 `PermissionMode.DEFAULT`，并从该 shell 唯一复用的 `PermissionSubject` 移除 `tool.auto`。默认
-`full_auto`、one-shot、dry-run 和 benchmark 不注入 confirmation handler，保持既有自动执行路径；交互 CLI
+`full_auto`、one-shot、dry-run 和 benchmark 不注入普通工具 confirmation handler；家庭资源权限走独立
+物理门，在任何 mode 下先批后动；交互 CLI
 注入串行 stdin handler，飞书 Gateway 注入 application/channel/runtime 共用的 Future handler。工具执行顺序
-固定为：schema validation -> normalized arguments -> permission decision -> optional confirmation -> resource
+固定为：schema validation -> normalized arguments -> permission decision -> 家庭逐项确认（仅物理工具） -> resource
 key/lease -> backend。审批展示、policy 判断、resource-key resolver 使用同一份校验后参数；拒绝不会取得资源
 或尝试 backend。CLI 并发确认由 handler-owned `asyncio.Lock` 串行化；飞书确认按 opaque approval ID 独立
 挂起。requested/completed 事件写入 application EventBus/JSONL trace，审计写入失败不改变 fail-closed 结果。
@@ -256,8 +257,8 @@ Web Console 与 CLI/Gateway 共享同一个 composition root，而不是在 Reac
 `homemaster serve` 组合 `local_robot` Registry；`homemaster serve --alfworld` 组合 `alfworld`
 Registry，异步创建现有 `AlfworldGatewayBinding`，再用 `AlfworldGatewayApplication` 给每个 Web
 `RunRequest` 固化 `profile="alfworld"`、environment 和 dependencies。Web 的
-`web-local-operator` 不含 `tool.auto`，但 Web composition 固定 `PermissionMode.FULL_AUTO`，因此同一
-`ToolExecutor -> PermissionChecker` 会自动放行未被 denied tools/path rules 拒绝的 mutating call；React
+`web-local-operator` 不含 `tool.auto`，但 Web composition 固定 `PermissionMode.FULL_AUTO`；普通
+mutating call 仍按 denied/path 规则放行，家庭物品动作与目的地区域则必须经过逐项审批；React
 仍可渲染/解决 opaque approval ID，以兼容显式 confirmation handler 或未来策略切换。
 
 ALFWorld worker、Unity 和可选 Xvfb 均绑定 application resource scope。Web app 暴露一个幂等 close owner，
@@ -267,7 +268,7 @@ approval/run/event hub，最后逆序关闭 worker 和 display。固定 episode 
 
 Web Console 的 `POST /api/sessions/{session_id}/messages` 接收任意用户文本，包括变更单原文，并创建同一
 `RunRequest`；业务步骤、计划锁定、浏览器工具和外部终态核验仍由 `change-ticket-executor` Skill 与 Runtime
-负责。Web composition 固定 `PermissionMode.FULL_AUTO`，因此网页变更单不等待审批；React 录制视图只改变
+负责。Web composition 固定 `PermissionMode.FULL_AUTO`，因此网页变更单的普通工具不等待审批，但家庭资源权限仍逐项等待；React 录制视图只改变
 展示：`record=1` 展开 thinking/工具参数，`session_id` 明确绑定事件流，不能
 跨 session 猜测历史。`run_web_server` 在组合 application 前对 loopback listener 做一次端口预检；受限环境
 无法创建探测 socket 时退回 Uvicorn 的最终 bind。

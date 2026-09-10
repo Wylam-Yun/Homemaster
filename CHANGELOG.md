@@ -18,6 +18,14 @@
 
 ### Changed
 
+- Completed V3.4 household permission docs and handoff: new user guide (bedroom-cup
+  walkthrough, three choices, destination-only, revocation, per-channel behavior) and
+  architecture record (invariants, data flow, final interfaces, hardware onboarding);
+  stale confirm/full_auto copy updated across console/skill/runtime/README/config guides;
+  two pitfalls recorded (empty-requirements silent skip, fake mutate-then-read order).
+  Design D01-D16 verified against implementation; THOR real backend and robot hardware
+  remain not-run and are never claimed.
+
 - Added independent external blackbox acceptance: a stdlib-only device subprocess
   (area, two cups, op counts) behind the Task-1 contract with 16 per-target pytest cases,
   all asserting on direct device reads; a file-store HTTP service harness with raw-sqlite
