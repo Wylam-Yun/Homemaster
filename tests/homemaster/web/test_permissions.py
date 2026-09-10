@@ -523,3 +523,33 @@ async def _spawn_confirm(handler, request, missing, tmp_path, sink, session_id="
     return asyncio.create_task(
         handler.confirm(request, missing, make_context(tmp_path, sink, session_id))
     )
+
+
+@pytest.mark.asyncio
+async def test_grants_carry_display_snapshot(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    client, _, _ = build_app(store)
+    try:
+        request = make_request(clock, "http-display", combo=True)
+        store.create_request(request)
+        choices = {item.item_id: "allow_always" for item in request.requirements}
+        response = await client.post(
+            f"/api/approvals/{request.approval_id}",
+            json=submission_body(request, choices),
+        )
+        assert response.status_code == 200
+        listed = await client.get(
+            "/api/permissions/grants", params={"status": "active"}
+        )
+        assert listed.status_code == 200
+        by_action = {grant["action"]: grant for grant in listed.json()["grants"]}
+        assert by_action["enter"]["display_name"] == "卧室"
+        assert by_action["enter"]["location"] == "卧室"
+        assert by_action["enter"]["action_label"] == "进入"
+        assert by_action["pick_up"]["display_name"] == "蓝色杯子"
+        assert by_action["pick_up"]["location"] == "卧室书桌"
+        assert by_action["pick_up"]["action_label"] == "拿取"
+    finally:
+        await client.aclose()
+        store.close()

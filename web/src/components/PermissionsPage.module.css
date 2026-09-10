@@ -1,0 +1,25 @@
+.page { display: grid; gap: 1rem; padding: 1.25rem; max-width: 48rem; }
+.headingRow { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.eyebrow { margin: 0; color: var(--muted-2); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+.page h1 { margin: .2rem 0; font-size: 1.3rem; }
+.page p { margin: .3rem 0 0; color: var(--muted); }
+.refresh { border: 1px solid var(--border-strong); border-radius: .55rem; padding: .5rem .9rem; color: var(--text); background: transparent; cursor: pointer; white-space: nowrap; }
+.refresh:disabled { opacity: .6; cursor: default; }
+.error { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid #7a2e2e; border-radius: .6rem; padding: .7rem .9rem; background: rgb(122 46 46 / 18%); }
+.error strong { display: block; }
+.error span { color: var(--muted); font-size: .85rem; }
+.error button { border: 1px solid var(--border-strong); border-radius: .5rem; padding: .45rem .8rem; background: transparent; color: var(--text); cursor: pointer; }
+.tabs { display: flex; gap: .5rem; }
+.tabs button { border: 1px solid var(--border); border-radius: .55rem; padding: .5rem 1rem; background: transparent; color: var(--text); cursor: pointer; }
+.tabs button[aria-selected="true"] { border-color: var(--accent); }
+.groupTitle { margin: 1rem 0 .4rem; font-size: 1rem; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid var(--border); border-radius: .6rem; padding: .65rem .8rem; }
+.item strong { display: block; }
+.place { display: block; color: var(--muted); font-size: .85rem; }
+.meta { display: block; color: var(--muted-2); font-size: .78rem; }
+.item button { border: 1px solid var(--border-strong); border-radius: .5rem; padding: .45rem .8rem; background: transparent; color: var(--text); cursor: pointer; white-space: nowrap; }
+.item button:disabled { opacity: .6; cursor: default; }
+.empty { border: 1px dashed var(--border-strong); border-radius: .6rem; padding: 1rem; color: var(--muted); }
+.page details { border-top: 1px solid var(--border); padding-top: .8rem; }
+.page summary { cursor: pointer; color: var(--muted); }

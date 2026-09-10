@@ -1,5 +1,18 @@
 # Session Handoff
 
+## V3.4 Task7 done — grants page and revocation loop — 2026-09-10
+
+- Scope: `src/homemaster/permissions/store.py` (grant_display), `src/homemaster/web/app.py`
+  (display fields on grant payloads), new `web/src/components/PermissionsPage.{tsx,css,test}`,
+  `App.tsx` permissions view + grant-change refresh signal.
+- Evidence: `npm --prefix web test` 44 passed; typecheck/build clean (static_dist reverted,
+  uncommitted); backend `pytest tests/homemaster/web tests/homemaster/permissions` 141 passed.
+- Debugging note: a revoke test failed with "unknown grant" from the test's own mock (it
+  spliced the grant out before looking it up); root-caused via event-sequence logging, no
+  component change needed. Lesson: order of mutate-then-read inside fakes must mirror the
+  real store.
+- Next: Task 8 ALFWorld adapter.
+
 ## V3.4 Task6 done — per-item approval cards — 2026-09-10
 
 - Worktree: `/data1/haodong2/weilin/red_bird/Homemaster-v34-permissions`, branch `v34-permissions`.

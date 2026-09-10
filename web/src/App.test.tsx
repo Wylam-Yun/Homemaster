@@ -129,6 +129,16 @@ describe('App memory navigation', () => {
     expect(screen.getByRole('button', { name: '打开会话 first request title' })).toBeVisible()
   })
 
+  it('opens the permissions view and reads the grant list from the backend', async () => {
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '权限' }))
+    expect(await screen.findByRole('heading', { name: '权限管理' })).toBeVisible()
+    expect(await screen.findByText(/暂无长期权限/)).toBeVisible()
+    expect(screen.getByText(/区域权限只检查目的地，不限制途经区域/)).toBeVisible()
+  })
+
   it('decides every approval item and submits the structured protocol body', async () => {
     render(<App />)
     expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()

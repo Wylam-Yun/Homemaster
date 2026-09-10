@@ -85,6 +85,9 @@ export type Grant = {
   revoked_by: string | null
   revision: number
   status: 'active' | 'revoked'
+  display_name: string | null
+  location: string | null
+  action_label: string | null
 }
 
 export type GrantRevocation = {

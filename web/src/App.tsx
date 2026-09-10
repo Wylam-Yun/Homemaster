@@ -7,6 +7,7 @@ import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type Me
 import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
 import { MemoryPage } from './components/MemoryPage'
+import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
 import { ToolCallCard } from './components/ToolCallCard'
 import { initialConversationState, reduceWebEvent } from './state/conversation'
@@ -45,7 +46,7 @@ function formatRelativeTime(value: string | null): string {
 
 export function App() {
   const displayOptions = useMemo(readDisplayOptions, [])
-  const [view, setView] = useState<'conversation' | 'memories'>('conversation')
+  const [view, setView] = useState<'conversation' | 'memories' | 'permissions'>('conversation')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
   const [sessionQuery, setSessionQuery] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -57,6 +58,7 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [approvalBusy, setApprovalBusy] = useState(false)
   const [approvalError, setApprovalError] = useState<string | null>(null)
+  const [grantsSignal, setGrantsSignal] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [historyCollapsed, setHistoryCollapsed] = useState(
     () => localStorage.getItem('homemaster:web:history-collapsed') === 'true',
@@ -98,7 +100,10 @@ export function App() {
       setNotice(error instanceof Error ? error.message : 'Could not load session history.')
     }
     const connection = new EventConnection(nextId, undefined, {
-      onEvent: event => { dispatch(event) },
+      onEvent: event => {
+        if (event.type === 'permission.grants_changed') setGrantsSignal(value => value + 1)
+        dispatch(event)
+      },
       onStateChange: setConnectionState,
       onReject: () => {
         setNotice('该会话在服务端已不存在，已为你新建会话。')
@@ -233,6 +238,7 @@ export function App() {
         <div className="sidebar-views" aria-label="主导航">
           <button type="button" aria-label="对话" data-active={view === 'conversation' || undefined} onClick={() => { setView('conversation'); setSidebarOpen(false) }}><span>◉</span>对话</button>
           <button type="button" aria-label="记忆管理" data-active={view === 'memories' || undefined} onClick={() => { setView('memories'); setSidebarOpen(false) }}><span>◇</span>记忆管理</button>
+          <button type="button" aria-label="权限" data-active={view === 'permissions' || undefined} onClick={() => { setView('permissions'); setSidebarOpen(false) }}><span>▣</span>权限</button>
         </div>
         <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); void newSession() }}>＋ 新建会话</button>
         <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
@@ -273,8 +279,10 @@ export function App() {
         <div className="local-note"><span>●</span> Loopback only</div>
       </aside>
       <main className="workspace">
-        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{view === 'memories' ? '记忆管理' : '对话'}</strong><small>{view === 'memories' ? '只读查看' : (sessionId ?? '正在启动…')}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
-        {view === 'memories' ? (
+        <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{view === 'memories' ? '记忆管理' : view === 'permissions' ? '权限管理' : '对话'}</strong><small>{view === 'memories' ? '只读查看' : view === 'permissions' ? '长期授权可撤销' : (sessionId ?? '正在启动…')}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
+        {view === 'permissions' ? (
+          <PermissionsPage api={api} refreshSignal={grantsSignal} />
+        ) : view === 'memories' ? (
           <MemoryPage
             snapshot={memorySnapshot}
             loading={memoryLoading}

@@ -545,7 +545,10 @@ def create_web_app(
                 retryable=False,
             )
         return {
-            "grants": [_grant_to_dict(grant) for grant in grants],
+            "grants": [
+                _grant_to_dict(grant, store.grant_display(grant.source_item_id))
+                for grant in grants
+            ],
             "next_cursor": next_cursor,
         }
 
@@ -587,7 +590,7 @@ def create_web_app(
                 "The revocation could not be saved.",
                 retryable=True,
             )
-        return _grant_to_dict(grant)
+        return _grant_to_dict(grant, store.grant_display(grant.source_item_id))
 
     @app.get("/api/artifacts/{artifact_handle}")
     async def download_artifact(
@@ -792,7 +795,9 @@ def _approval_to_dict(stored: Any) -> dict[str, Any]:
     }
 
 
-def _grant_to_dict(grant: Any) -> dict[str, Any]:
+def _grant_to_dict(
+    grant: Any, display: tuple[str, str, str] | None = None
+) -> dict[str, Any]:
     return {
         "grant_id": grant.grant_id,
         "environment_id": grant.environment_id,
@@ -807,6 +812,9 @@ def _grant_to_dict(grant: Any) -> dict[str, Any]:
         "revoked_by": grant.revoked_by,
         "revision": grant.revision,
         "status": "active" if grant.revoked_at is None else "revoked",
+        "display_name": display[0] if display is not None else None,
+        "location": display[1] if display is not None else None,
+        "action_label": display[2] if display is not None else None,
     }
 
 

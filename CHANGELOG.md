@@ -18,6 +18,14 @@
 
 ### Changed
 
+- Added the long-term permissions page: object/area tabs group active grants by action with
+  per-action revocation, a lazy revoked section, server-cursor paging, and an explicit
+  destination-only note; revocation locks one submission id at first click, retries reuse it,
+  and the list is re-read from the backend after every revoke. Grant list and revoke responses
+  now carry the stored display snapshot (name/location/action label) joined from the source
+  request item so the console never invents names for internal ids. A grant change event
+  refreshes the page and every session reads from the backend on open.
+
 - Replaced the browser approval dialog with per-item decision cards matching protocol 2: no
   preselected choice, submit enabled only after every item is decided, one
   allow-once/allow-always/reject choice per item sent with protocol_version, a locked

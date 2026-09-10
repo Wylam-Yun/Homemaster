@@ -452,11 +452,11 @@ PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web run typecheck
 **Files:** 新建 PermissionsPage.tsx、PermissionsPage.module.css、PermissionsPage.test.tsx；
 修改 App.tsx、api/http.ts、相关测试。
 
-- [ ] 先写页面行为测试：两个页签，杯子按动作展示；撤销 pick_up 不影响 place；
+- [x] 先写页面行为测试：两个页签，杯子按动作展示；撤销 pick_up 不影响 place；
   重名显示位置，不显示编号；无记录显示准确空态。
-- [ ] API 获取分页 grant 列表；选择撤销后 POST revoke，成功再读回列表。
+- [x] API 获取分页 grant 列表；选择撤销后 POST revoke，成功再读回列表。
   不采用只改本地数组就宣称撤销完成的实现。
-- [ ] 组件关键加载/撤销约束：
+- [x] 组件关键加载/撤销约束：
 
 ```typescript
 type RevokeOperation = {
@@ -481,17 +481,17 @@ Grant 定义在 api/http.ts，字段来自设计 API；reloadGrants 为当前页
 保留当前查询参数和服务端分页游标规则。网络重试复用已生成的 submission_id，不重新随机生成。
 prepareRevoke 仅在用户首次点击撤销时调用并保存结果；重试只调用 submitRevoke(同一 operation)。
 
-- [ ] 页面明确说明“区域权限只检查目的地，不限制途经区域”。
+- [x] 页面明确说明“区域权限只检查目的地，不限制途经区域”。
   permission.grant_changed 到达刷新当前数据；新浏览器会话仍从后端读。
-- [ ] 运行：
+- [x] 运行：
 
 ```bash
 PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web test -- src/components/PermissionsPage.test.tsx
 PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web run build
 ```
 
-- [ ] 外部门留给 Task 9：真实浏览器撤销、刷新、重新动作申请，三个终态逐个核对。
-- [ ] CHANGELOG/commit：记录长期权限查看与逐动作撤销。
+- [x] 外部门留给 Task 9：真实浏览器撤销、刷新、重新动作申请，三个终态逐个核对。
+- [x] CHANGELOG/commit：记录长期权限查看与逐动作撤销。
 
 ## Task 8：ALFWorld 只作为适配器接入
 

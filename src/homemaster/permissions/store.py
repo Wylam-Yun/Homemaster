@@ -1096,6 +1096,22 @@ class PermissionStore:
             assert row is not None
             return self._grant_from_row(row)
 
+    def grant_display(self, source_item_id: str) -> tuple[str, str, str] | None:
+        """Return the stored display snapshot for one grant's source item.
+
+        Grants reference their originating request item; the snapshot keeps the
+        browser console free from inventing names for internal resource ids.
+        Missing rows degrade to None fields instead of failing the listing.
+        """
+        row = self._execute(
+            "SELECT display_name, location, action_label"
+            " FROM permission_request_items WHERE item_id = ?",
+            (source_item_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return (row["display_name"], row["location"], row["action_label"])
+
     def _revoked_by(self, grant_id: str, submission_id: str) -> bool:
         row = self._execute(
             "SELECT payload_json FROM permission_events WHERE grant_id = ?"
