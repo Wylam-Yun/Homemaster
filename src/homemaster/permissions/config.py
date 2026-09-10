@@ -42,6 +42,7 @@ class PermissionSettingsConfig(BaseModel):
     path_rules: tuple[PathRuleConfig, ...] = ()
     denied_commands: tuple[str, ...] = ()
     allowed_terminal_commands: tuple[str, ...] = ()
+    store_path: str | None = None
 
     @field_validator("allowed_terminal_commands")
     @classmethod

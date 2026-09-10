@@ -162,6 +162,10 @@ permissions:
   #     allow: false
   denied_commands:
     - "rm -rf *"
+  # Durable V3.4 item/area approval database. Historical tool approvals are
+  # never migrated into item grants. Relative paths resolve below the
+  # session directory; absolute paths are used as-is.
+  # store_path: "permissions.sqlite3"
 
 # Optional Feishu/Lark WebSocket Gateway requires installing the `gateway` extra.
 # Put real credentials only in the ignored mode-0600 config/homemaster.yaml.

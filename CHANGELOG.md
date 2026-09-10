@@ -18,6 +18,15 @@
 
 ### Changed
 
+- Added the V3.4 durable permission store: one SQLite database with six tables, a
+  partial unique index for exact active grants, and single-transaction submit
+  (per-item decisions, long-term grants, request status, submission receipt and
+  audit events commit atomically; the JSONL mirror never reverses a commit).
+  The store tracks step claim/finish with a bounded retry budget, idempotent
+  revocation guarded by revision, cancellation, and restart recovery, and resolves
+  its path from permissions.store_path with a tenant-partitioned default. No
+  checker, protocol or UI changes yet, so stored grants are inert until Task 3/4.
+
 - Added the V3.4 generic permission contract: frozen exact-resource DTOs (resource key,
   requirement, prepared request/step, item decision, submission, resolution, execution
   observation) with directory, closure and UTC validation, five named errors, the minimal

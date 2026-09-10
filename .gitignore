@@ -23,6 +23,11 @@ config/homemaster.json
 tmp/
 data/runs/
 trace.jsonl
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+permissions.events.jsonl
 plan/V1.2/test_results/
 plan/V1.2/baselines/migration_artifacts/
 var/homemaster/
