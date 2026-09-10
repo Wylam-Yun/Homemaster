@@ -169,6 +169,21 @@ def _exec_manipulate(
 ) -> ToolResultMessage:
     grounded, grounding_results = _ground_manipulate_arguments(run_context, arguments)
     if _env_type(run_context) == "AlfredThorEnv":
+        navigation_target = _navigation_target_for_action(grounded)
+        if navigation_target:
+            navigation = _adapter(run_context).go_to_target(
+                navigation_target,
+                tool_name="robot_manipulate",
+                tool_args=_with_grounding_metadata(grounded, grounding_results),
+            )
+            navigation_refs = _write_trace(run_context, navigation)
+            if not navigation.success:
+                return _result_from_step(
+                    navigation,
+                    run_context,
+                    evidence_refs=navigation_refs,
+                )
+    if _env_type(run_context) == "AlfredThorEnv":
         step_result = _adapter(run_context).manipulate_with_thor(
             action=str(grounded.get("action", "")),
             tool_name="robot_manipulate",
@@ -203,6 +218,17 @@ def _exec_manipulate(
     )
     evidence_refs = _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
+
+
+def _navigation_target_for_action(arguments: dict[str, Any]) -> str | None:
+    action = str(arguments.get("action") or "").strip().lower()
+    if action == "take" or action == "use":
+        value = arguments.get("object")
+    elif action in {"open", "close", "put"}:
+        value = arguments.get("target_receptacle") or arguments.get("object")
+    else:
+        value = arguments.get("object") or arguments.get("target_receptacle")
+    return str(value).strip() if isinstance(value, str) and value.strip() else None
 
 
 def _exec_verify(
@@ -298,7 +324,10 @@ def _ground_target(
     candidates = build_grounding_candidates(
         state=_adapter(run_context).current_state,
         subtask=_current_subtask(run_context),
-        extra_labels=_extra_virtual_target_candidates(run_context),
+        extra_labels=(
+            _extra_virtual_target_candidates(run_context)
+            + list(run_context.deps.get("alfworld_goal_candidates", ()))
+        ),
     )
     return ground_text(
         value,

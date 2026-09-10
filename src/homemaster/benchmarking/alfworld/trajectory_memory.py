@@ -75,6 +75,8 @@ class AlfworldTrajectoryRecord(BaseModel):
     source_trace_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     final_environment_state: AlfworldFinalEnvironmentState
     steps: tuple[AlfworldTrajectoryStep, ...] = ()
+    failure_summary: tuple[str, ...] = ()
+    failure_advice: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def _validate_outcome(self) -> AlfworldTrajectoryRecord:
@@ -124,6 +126,31 @@ def canonical_trajectory_payload(record: AlfworldTrajectoryRecord) -> bytes:
 
 def trajectory_sha256(record: AlfworldTrajectoryRecord) -> str:
     return hashlib.sha256(canonical_trajectory_payload(record)).hexdigest()
+
+
+def extract_failure_guidance(
+    steps: tuple[AlfworldTrajectoryStep, ...],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    summary: list[str] = []
+    advice: list[str] = []
+    errors = {str(step.payload.get("error")) for step in steps if step.payload.get("error")}
+    if "target_not_found" in errors:
+        summary.append("unsupported_target_or_alias")
+        advice.append(
+            "Use a scene-verified canonical target label instead of repeatedly guessing aliases."
+        )
+    if "navigation_required" in errors:
+        summary.append("missing_navigation_precondition")
+        advice.append("Navigate to the verified target before pickup or manipulation.")
+    if "harness_operation_failure" in errors or any(
+        "rejected" in str(step.payload.get("debug_feedback", "")).lower() for step in steps
+    ):
+        summary.append("external_action_rejected")
+        advice.append(
+            "Treat an externally rejected action with no state change as failure and "
+            "recover before retrying."
+        )
+    return tuple(dict.fromkeys(summary)), tuple(dict.fromkeys(advice))
 
 
 def provider_projection(record: AlfworldTrajectoryRecord) -> dict[str, Any]:
@@ -245,7 +272,6 @@ class AlfworldTrajectoryWriter:
         emit = getattr(self._event_sink, "emit", None)
         if callable(emit):
             emit(event)
-
 
 
 __all__ = [

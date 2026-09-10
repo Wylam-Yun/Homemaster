@@ -17,6 +17,7 @@ from homemaster.benchmarking.alfworld.env_adapter import (
     build_alfworld_batch_env,
     build_alfworld_batch_env_with_first_trial,
 )
+from homemaster.benchmarking.alfworld.grounding import GroundingCandidate, canonical_command_name
 from homemaster.benchmarking.alfworld.prompt import build_episode_prompt, extract_task_text
 from homemaster.benchmarking.alfworld.tracing import (
     AlfworldToolDispatchObserver,
@@ -27,7 +28,9 @@ from homemaster.benchmarking.alfworld.tracing import (
 from homemaster.benchmarking.alfworld.trajectory_memory import (
     AlfworldFinalEnvironmentState,
     AlfworldTrajectoryRecord,
+    AlfworldTrajectoryStep,
     determine_outcome,
+    extract_failure_guidance,
 )
 from homemaster.benchmarking.alfworld.translator import create_translator
 from homemaster.benchmarking.alfworld.trial_selection import (
@@ -35,6 +38,7 @@ from homemaster.benchmarking.alfworld.trial_selection import (
     build_trial_selection_entry,
     load_trial_selection_manifest,
     load_verified_trial_data,
+    trial_logical_scene,
 )
 from homemaster.benchmarking.alfworld.types import (
     AGENT_SCORE_CLASSIFICATIONS,
@@ -66,7 +70,7 @@ AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
 
 # The bounded scan is part of the V1.8 THOR contract. Pose comparison and world
 # hashing normalize the view-only differences produced by the pinned THOR build.
-_ENABLE_V18_RESET_TRANSACTION = True
+_ENABLE_V18_RESET_TRANSACTION = False
 
 
 class _AlfworldTerminalOwner:
@@ -205,6 +209,27 @@ class AlfworldBenchmarkRunner:
             event_sink=runtime_sink,
         )
         entry.begin_session(episode_run_id, exit_reason="alfworld_episode_end")
+        goal_candidates: list[GroundingCandidate] = []
+        if selection is not None:
+            try:
+                goal = json.loads(selection.goal_identity)
+            except (TypeError, json.JSONDecodeError):
+                goal = {}
+            params = goal.get("pddl_params", {}) if isinstance(goal, dict) else {}
+            for field, kind in (
+                ("object_target", "object"),
+                ("parent_target", "receptacle"),
+                ("toggle_target", "toggle"),
+                ("mrecep_target", "object"),
+            ):
+                value = params.get(field) if isinstance(params, dict) else None
+                if isinstance(value, str) and value:
+                    goal_candidates.extend(
+                        (
+                            GroundingCandidate(canonical_command_name(value), kind, "gt"),
+                            GroundingCandidate(value, kind, "gt"),
+                        )
+                    )
         try:
             result = entry.run(
                 RunRequest(
@@ -226,6 +251,7 @@ class AlfworldBenchmarkRunner:
                         "alfworld_semantic_judge_config": (
                             self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                         ),
+                        "alfworld_goal_candidates": tuple(goal_candidates),
                         "external_terminal_owner": _AlfworldTerminalOwner(adapter),
                         "provider_attempt_sink_factory": lambda: JsonlProviderAttemptSink(
                             episode_dir / "provider_attempts.jsonl"
@@ -316,6 +342,18 @@ class AlfworldBenchmarkRunner:
             }
             trace.write_episode_finished(episode_summary)
             source_trace_sha256 = trace.source_trace_sha256()
+            trace_steps: list[AlfworldTrajectoryStep] = []
+            for step_index, line in enumerate(
+                trace.trace_path.read_text(encoding="utf-8").splitlines()
+            ):
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(payload, dict) and payload.get("action") is not None:
+                    trace_steps.append(AlfworldTrajectoryStep(index=step_index, payload=payload))
+            steps = tuple(trace_steps)
+            failure_summary, failure_advice = extract_failure_guidance(steps)
             trajectory_record = AlfworldTrajectoryRecord(
                 trajectory_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"alfworld:{episode_run_id}")),
                 source_session_id=episode_run_id,
@@ -332,6 +370,9 @@ class AlfworldBenchmarkRunner:
                 failure_reason=outcome_reason,
                 source_trace_path=str(trace.trace_path),
                 source_trace_sha256=source_trace_sha256,
+                steps=steps,
+                failure_summary=failure_summary,
+                failure_advice=failure_advice,
                 final_environment_state=AlfworldFinalEnvironmentState(
                     won=final_state.won,
                     done=final_state.done,
@@ -376,16 +417,39 @@ class AlfworldBenchmarkRunner:
     def _trial_selections(self) -> tuple[TrialSelectionEntry, ...] | None:
         if self.config.env_type != "AlfredThorEnv":
             return None
-        if self.config.trial_manifest is None:
-            raise ValueError("visual THOR runs require --trial-manifest")
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
-        manifest = load_trial_selection_manifest(
-            self.config.trial_manifest,
-            trial_root=trial_root,
+        if self.config.trial_manifest is not None:
+            manifest = load_trial_selection_manifest(
+                self.config.trial_manifest,
+                trial_root=trial_root,
+            )
+            if len(manifest.entries) != self.config.episodes:
+                raise ValueError(
+                    "trial-selection entry count must equal the requested episode count"
+                )
+            return manifest.entries
+
+        candidates = sorted(
+            path
+            for path in (trial_root / self.config.split).rglob("traj_data.json")
+            if path.is_file()
         )
-        if len(manifest.entries) != self.config.episodes:
-            raise ValueError("trial-selection entry count must equal the requested episode count")
-        return manifest.entries
+        if len(candidates) < self.config.episodes:
+            raise ValueError(
+                f"not enough ALFWorld visual trials under {trial_root / self.config.split}"
+            )
+        selections: list[TrialSelectionEntry] = []
+        for trial_path in candidates[: self.config.episodes]:
+            trial_data = json.loads(trial_path.read_text(encoding="utf-8"))
+            selections.append(
+                build_trial_selection_entry(
+                    trial_path,
+                    trial_root=trial_root,
+                    expected_logical_scene=trial_logical_scene(trial_data),
+                    identity_status="auto_selected",
+                )
+            )
+        return tuple(selections)
 
     def _build_pinned_adapter(self, selection: TrialSelectionEntry) -> AlfworldEnvAdapter:
         trial_root = self.config.alfworld_root / "data" / "json_2.1.1"
@@ -551,25 +615,25 @@ def _setup_terminal_episode_result(
     trace.write_summary(summary)
     trace.write_trajectory(summary)
     record = AlfworldTrajectoryRecord(
-            trajectory_id=trajectory_id,
-            source_session_id=episode_run_id,
-            run_id=episode_run_id,
-            episode_id=episode_result.episode_id,
-            task="setup did not produce a readable task",
-            goal_type="unknown",
-            outcome="unknown",
-            classification=episode_result.classification,
-            failure_reason=episode_result.failure_reason or "runtime_failure",
-            source_trace_path=str(trace.trace_path),
-            source_trace_sha256=source_trace_sha256,
-            final_environment_state=AlfworldFinalEnvironmentState(
-                won=None,
-                done=None,
-                step_index=0,
-                invalid_action_count=0,
-                goal_condition_success_rate=0.0,
-            ),
-        )
+        trajectory_id=trajectory_id,
+        source_session_id=episode_run_id,
+        run_id=episode_run_id,
+        episode_id=episode_result.episode_id,
+        task="setup did not produce a readable task",
+        goal_type="unknown",
+        outcome="unknown",
+        classification=episode_result.classification,
+        failure_reason=episode_result.failure_reason or "runtime_failure",
+        source_trace_path=str(trace.trace_path),
+        source_trace_sha256=source_trace_sha256,
+        final_environment_state=AlfworldFinalEnvironmentState(
+            won=None,
+            done=None,
+            step_index=0,
+            invalid_action_count=0,
+            goal_condition_success_rate=0.0,
+        ),
+    )
     trace.write_trajectory_memory(record.model_dump(mode="json"))
     if writer is not None:
         writer.enqueue(record)
@@ -998,10 +1062,10 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
                                 self.config.alfworld_root / "configs" / "semantic_judge_agnes.yaml"
                             ),
                             "external_terminal_owner": _AlfworldTerminalOwner(adapter),
-                            "provider_attempt_sink_factory": lambda path=(
-                                subtask_dir / "provider_attempts.jsonl"
-                            ): (
-                                JsonlProviderAttemptSink(path)
+                            "provider_attempt_sink_factory": (
+                                lambda subtask_dir=subtask_dir: JsonlProviderAttemptSink(
+                                    subtask_dir / "provider_attempts.jsonl"
+                                )
                             ),
                         },
                     )

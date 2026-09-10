@@ -6,7 +6,7 @@ run:
   seed: 42
   max_env_steps: 50
   max_invalid_actions: 100
-  max_tool_iterations: 1000
+  max_tool_iterations: 200
   failure_simulation:
     enabled: false
     grasp_failure_rate: 0.0

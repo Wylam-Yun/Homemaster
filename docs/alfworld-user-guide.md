@@ -103,7 +103,7 @@ uv run python scripts/setup_memory_runtime.py setup \
 provider 配置或环境变量中，不写入命令、trace 或 manifest。`memory.data_root`、`memory.neo4j.home` 和
 `memory.neo4j.java_home` 可写成相对路径，并统一相对 `homemaster.yaml` 所在目录解析，不能依赖启动 cwd。
 
-`AlfredThorEnv` 必须提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
+`AlfredThorEnv` 可直接从真实数据确定性选择 trial；需要严格复现时再提供 `--trial-manifest`，且 entry 数必须与 `--episodes` 完全相等：
 
 ```bash
 xvfb-run -a -s '-screen 0 1280x1024x24' \

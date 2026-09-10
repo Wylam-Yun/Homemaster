@@ -30,7 +30,7 @@ def handle_benchmark_alfworld(
     memory_mode: str = "disabled",
     max_invalid_actions: int = 100,
     max_env_steps: int = 50,
-    max_tool_iterations: int = 1000,
+    max_tool_iterations: int = 200,
     provider_config: Path | None = None,
     provider_name: str | None = None,
     run_id: str | None = None,

@@ -382,10 +382,11 @@ class AlfworldEnvAdapter:
             self._last_reset_result = result
             return result
 
-        if self._require_v18_reset:
+        v18_reset_required = self._require_v18_reset and self._looks_like_thor_backend()
+        if v18_reset_required:
             self._goal_generation = 1
         self._trial_selection = selection_entry
-        if self._require_v18_reset:
+        if v18_reset_required:
             if selection_entry is None:
                 return self._reset_identity_terminal(
                     trigger="reset_identity_unreadable",
@@ -411,14 +412,22 @@ class AlfworldEnvAdapter:
             if selection_entry is not None
             else _portable_state_fingerprint({"episode_id": state.episode_id, "task": state.task})
         )
-        if not self._require_v18_reset or not self._looks_like_thor_backend():
+        if not v18_reset_required:
             result = AlfworldResetResult(
-                backend_kind="textworld",
+                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
                 ready=True,
                 state=state,
-                scene_generation=None,
+                scene_generation=self._scene_generation
+                if self._looks_like_thor_backend()
+                else None,
                 goal_generation=self._goal_generation,
-                scene_reset_fingerprint=None,
+                scene_reset_fingerprint=(
+                    _portable_state_fingerprint(
+                        {"episode_id": state.episode_id, "task": state.task}
+                    )
+                    if self._looks_like_thor_backend()
+                    else None
+                ),
                 goal_trial_fingerprint=goal_fingerprint,
                 snapshot_sha256=None,
                 snapshot_ref=None,
@@ -427,7 +436,9 @@ class AlfworldEnvAdapter:
                 classification=None,
                 score_eligible=True,
                 setup_backend_action_count=0,
-                recovery_status="not_applicable",
+                recovery_status=(
+                    "not_needed" if self._looks_like_thor_backend() else "not_applicable"
+                ),
                 cleanup_status="not_applicable",
                 quarantine_required=False,
                 environment_disposition="ready",
@@ -1270,6 +1281,21 @@ class AlfworldEnvAdapter:
                 locked_candidates_hash=_navigation_candidates_hash(()),
                 candidates_attempted=0,
             )
+        if nav_result.success and nav.actual_pose is not None:
+            enriched_args["navigation_anchor"] = {
+                "object_id": resolved.object_id,
+                "label": resolved.resolved_label,
+                "position": {
+                    "x": float(nav.actual_pose.x),
+                    "y": float(nav.actual_pose.y),
+                    "z": float(nav.actual_pose.z),
+                },
+                "rotation": float(nav.actual_pose.rotation),
+                "horizon": float(nav.actual_pose.horizon),
+                "scene_generation": self._scene_generation,
+                "goal_generation": self._goal_generation,
+                "source_event_sequence": self._event_sequence,
+            }
         self._last_go_to_object_id = resolved.object_id if nav_result.success else None
         trace_events = list(getattr(nav, "trace_events", ()))
         if previous_pose_context is not None:

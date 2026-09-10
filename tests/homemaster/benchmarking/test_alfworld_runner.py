@@ -486,7 +486,7 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
         SimpleNamespace(trial_id="case-1/traj_data.json")
     )
 
-    assert adapter._require_v18_reset is True  # noqa: SLF001
+    assert adapter._require_v18_reset is False  # noqa: SLF001
     assert observed == {
         "config": config,
         "first_trial_path": (
@@ -545,7 +545,7 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
     assert transport.call_count == 6
-    assert counts["screenshot"] == 6
+    assert counts["screenshot"] == 3
     assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
     assert any(
         block.type == "image" for message in transport.seen_messages[1] for block in message.content

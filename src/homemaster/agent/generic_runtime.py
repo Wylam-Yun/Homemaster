@@ -638,7 +638,13 @@ class AgentRuntime:
                 ]
                 rejection_code: str | None = None
                 rejection_message = ""
-                if observation_actions and len(tool_calls) != 1:
+                explicit_observation_batch = any(
+                    call.name in {"observe", "browser_screenshot"} for call in tool_calls
+                )
+                mixed_observation_batch = explicit_observation_batch and any(
+                    call.name not in {"observe", "browser_screenshot"} for call in tool_calls
+                )
+                if (observation_actions and len(tool_calls) != 1) or mixed_observation_batch:
                     rejection_code = "model_observation_batch_rejected"
                     rejection_message = (
                         "A state-changing environment action must be the only call in its batch."

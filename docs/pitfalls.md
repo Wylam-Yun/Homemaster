@@ -1,3 +1,20 @@
+## 2026-09-09 - Strict visual reset and mandatory manifest blocked real ALFWorld execution
+
+### 症状与根因
+
+真实 `AlfredThorEnv` 已能启动，但严格 V1.8 scan/restore 的 hash 门在 `scan_restore_mismatch` 处把可执行 trial 判成 setup failure；同时 runner 把 trial manifest 当成 visual 运行硬前置，模型局部失败又不消耗环境步，导致一条数据可能一直运行。
+
+### 修法与教训
+
+视觉 benchmark 默认从已校验的 `traj_data.json` 确定性选择 trial，manifest 只用于可复现 pin；正常评测使用直接 THOR 场景索引和外部返回/终态校验，V1.8 reset 不再作为启动门；环境步上限之外必须有有限工具预算，且成功/失败都统一写完整 trajectory memory。
+
+### Ref
+
+- `src/homemaster/benchmarking/alfworld/runner.py`
+- `src/homemaster/benchmarking/alfworld/env_adapter.py`
+- `src/homemaster/benchmarking/alfworld/trajectory_memory.py`
+- `/tmp/homemaster-plan-20260909/trace/valid/3f38d4d7d078/episode-0001/trajectory_memory.json`
+
 # Engineering Pitfalls
 
 ## 2026-09-08 - Pre-model terminal paths must start the memory runtime
