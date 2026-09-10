@@ -88,7 +88,7 @@ from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.memory.models import FactRecord
-from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
+from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
@@ -112,7 +112,7 @@ from homemaster.tools.contracts import (
     VerificationRecord,
     VerificationStatus,
 )
-from homemaster.tools.executor import ToolExecutor
+from homemaster.tools.executor import PermissionDecision, ToolExecutor
 from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
 from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
@@ -774,6 +774,29 @@ def _request_text(messages) -> str:
     return "\n".join(block.text for message in messages for block in message.content if block.text)
 
 
+class _AskingChecker:
+    """Stub checker that still asks, for end-to-end confirmation mechanism tests.
+
+    The real policy no longer emits generic confirmations for ordinary
+    tools (household resources gate separately); these tests keep covering
+    the handler → events → gating path through ApplicationRuntime.
+    """
+
+    def evaluate_tool(
+        self,
+        *,
+        tool_name,
+        is_read_only,
+        required_capabilities,
+        arguments,
+        context,
+    ):
+        del tool_name, is_read_only, required_capabilities, arguments, context
+        return PermissionDecision(
+            False, requires_confirmation=True, reason="test gate"
+        )
+
+
 def _application(
     tmp_path,
     tools: list[RegisteredTool],
@@ -784,6 +807,7 @@ def _application(
     artifact_publisher: ArtifactPublisher | None = None,
     application_services: dict[str, object] | None = None,
     permission_settings: PermissionSettingsConfig | None = None,
+    permission_checker: Any | None = None,
     confirmation_handler: Any | None = None,
     resource_manager: Any | None = None,
 ) -> ApplicationRuntime:
@@ -830,9 +854,13 @@ def _application(
     tool_executor = ToolExecutor(
         registry,
         **(
-            {"permission_checker": PermissionChecker(permission_settings)}
-            if permission_settings is not None
-            else {}
+            {"permission_checker": permission_checker}
+            if permission_checker is not None
+            else (
+                {"permission_checker": PermissionChecker(permission_settings)}
+                if permission_settings is not None
+                else {}
+            )
         ),
         confirmation_handler=confirmation_handler,
         **({"resource_manager": resource_manager} if resource_manager is not None else {}),
@@ -895,7 +923,7 @@ async def test_runtime_confirmation_controls_real_mutation_and_emits_events(
         tmp_path,
         [write_tool],
         {"confirm mutation": transport},
-        permission_settings=PermissionSettingsConfig(mode=PermissionMode.DEFAULT),
+        permission_checker=_AskingChecker(),
         confirmation_handler=CliConfirmationHandler(
             input_fn=lambda prompt: "yes" if approved else "no",
             output_fn=lambda value: None,
@@ -1023,7 +1051,7 @@ async def test_runtime_feishu_callback_controls_one_real_mutation(
         tmp_path / "sessions",
         [write_tool],
         {"confirm mutation": transport},
-        permission_settings=PermissionSettingsConfig(mode=PermissionMode.DEFAULT),
+        permission_checker=_AskingChecker(),
         confirmation_handler=handler,
         resource_manager=ResourceManager(),
     )

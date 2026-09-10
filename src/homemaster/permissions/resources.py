@@ -7,6 +7,13 @@ driver commands, and translate them here.
 
 No simulator imports are allowed in this module; the interface audit
 (`tests/homemaster/permissions/test_interface_audit.py`) enforces that.
+
+Area semantics for adapters: an ``enter`` requirement is emitted only
+when the call truly crosses into a different destination area, judged
+from the current position against the target. Staying inside an area
+emits nothing (an empty requirement list runs directly), returning to
+an area after leaving needs a new request, and transit areas crossed on
+the way never become requirements.
 """
 
 from __future__ import annotations

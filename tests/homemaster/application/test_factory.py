@@ -18,6 +18,7 @@ from homemaster.application.session import SessionManager
 from homemaster.config import (
     ContextPolicyConfig,
     HomeMasterConfig,
+    ObservabilityConfig,
     ProviderProfileConfig,
 )
 from homemaster.devices import DeviceConnectionPool, DeviceLeaseError
@@ -27,6 +28,7 @@ from homemaster.permissions import (
     PermissionMode,
     PermissionSettingsConfig,
 )
+from homemaster.permissions.store import PermissionStore, resolve_store_path
 from homemaster.providers.transports.types import TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
@@ -401,3 +403,88 @@ def test_importing_application_factory_does_not_load_benchmark_modules() -> None
     )
 
     assert json.loads(completed.stdout) == []
+
+
+def _tmp_config(tmp_path) -> HomeMasterConfig:
+    return HomeMasterConfig(
+        observability=ObservabilityConfig(session_dir=str(tmp_path / "sessions"))
+    )
+
+
+def test_factory_opens_application_owned_permission_store(tmp_path) -> None:
+    application = create_application(
+        config=_tmp_config(tmp_path),
+        registry=_registry(),
+    )
+    try:
+        store = application.tool_executor.permission_store
+        assert isinstance(store, PermissionStore)
+        assert store.path == resolve_store_path(
+            None,
+            session_dir=str(tmp_path / "sessions"),
+            tenant_id="local",
+        )
+        assert store.path.is_file()
+        assert application.tool_executor.permission_checker._store is store
+        assert application.tool_executor.physical_owner is not None
+    finally:
+        store.close()
+
+
+def test_factory_accepts_injected_permission_store(tmp_path) -> None:
+    injected = PermissionStore.open(tmp_path / "injected.sqlite3")
+    application = create_application(
+        config=_tmp_config(tmp_path),
+        registry=_registry(),
+        permission_store=injected,
+    )
+    try:
+        assert application.tool_executor.permission_store is injected
+        assert application.tool_executor.permission_checker._store is injected
+    finally:
+        injected.close()
+
+
+def test_factory_rejects_store_override_with_custom_executor(tmp_path) -> None:
+    registry = _registry()
+    injected = PermissionStore.open(tmp_path / "rejected.sqlite3")
+    try:
+        with pytest.raises(ValueError, match="cannot override a supplied tool executor"):
+            create_application(
+                config=_tmp_config(tmp_path),
+                registry=registry,
+                tool_executor=ToolExecutor(registry),
+                permission_store=injected,
+            )
+    finally:
+        injected.close()
+
+
+@pytest.mark.asyncio
+async def test_factory_start_recovers_and_close_closes_store_once(tmp_path) -> None:
+    application = create_application(
+        config=_tmp_config(tmp_path),
+        registry=_registry(),
+    )
+    store = application.tool_executor.permission_store
+    recoveries = 0
+    original_recover = store.recover
+
+    def counting_recover() -> dict:
+        nonlocal recoveries
+        recoveries += 1
+        return original_recover()
+
+    store.recover = counting_recover  # type: ignore[method-assign]
+    try:
+        await application.start()
+        await application.start()
+        assert recoveries == 1
+        await application.aclose()
+        await application.aclose()
+    finally:
+        store.recover = original_recover  # type: ignore[method-assign]
+    import sqlite3
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        store.list_grants('home')

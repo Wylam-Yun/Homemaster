@@ -18,6 +18,17 @@
 
 ### Changed
 
+- Wired the current-call execution gate for physical tools: validate, hard
+  check, one read-only prepare, durable request, exact evaluation, per-item
+  confirmation of the missing items, read-only binding revalidation, then
+  claim plus device-lease execution per inner step with observation, bounded
+  retries on confirmed no-effect failures only, and adapter release. Changed
+  targets abort without side effects, revocation stops unstarted steps without
+  downgrading long-term approvals into once-permissions, and timeouts verify
+  before any retry. The application owns one store (recovered once at start,
+  closed once at shutdown) shared by every rebuilt executor. This gates the
+  current call only, never a whole task plan.
+
 - Extended the existing PermissionChecker with exact household evaluation: one
   prepared call is judged item by item against live once-credentials and exact
   active grants, with terminal/expired/changed requests denied and same-run

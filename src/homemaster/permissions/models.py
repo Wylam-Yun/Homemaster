@@ -169,8 +169,11 @@ class PreparedPhysicalRequest(FrozenDTO):
     intent_id: str = Field(min_length=1)
     intent_summary: str = Field(min_length=1)
     revision: int = Field(ge=1)
-    requirements: tuple[Requirement, ...] = Field(min_length=1)
-    steps: tuple[PreparedStep, ...] = Field(min_length=1)
+    # Empty requirements mean the adapter found nothing to approve (for
+    # example navigating to the area the robot already occupies); the
+    # executor then runs the steps directly without touching the store.
+    requirements: tuple[Requirement, ...] = Field(default=())
+    steps: tuple[PreparedStep, ...] = Field(default=())
     target_snapshot_revision: str = Field(min_length=1)
     created_at: str = Field(min_length=1)
     deadline_at: str = Field(min_length=1)
@@ -214,7 +217,7 @@ class PreparedPhysicalRequest(FrozenDTO):
                 f"requirements without a step: {sorted(orphaned)}"
             )
         environments = {item.key.environment_id for item in self.requirements}
-        if environments != {self.environment_id}:
+        if self.requirements and environments != {self.environment_id}:
             raise ValueError(
                 "requirement environments must match the request environment"
             )

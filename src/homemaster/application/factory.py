@@ -28,10 +28,26 @@ from homemaster.devices import (
 from homemaster.events.bus import EventBus
 from homemaster.extensions.hook_runner import HookRunner
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
+from homemaster.permissions.store import PermissionStore, resolve_store_path
 from homemaster.prompts.loader import load_prompt
 from homemaster.providers.llm_client import LLMClient
 from homemaster.tools.base import ToolRegistry
-from homemaster.tools.executor import ToolExecutor
+from homemaster.tools.executor import PhysicalGateOwner, ToolExecutor
+
+
+def _open_permission_store(
+    resolved_config: HomeMasterConfig,
+    effective_permissions: PermissionSettingsConfig,
+) -> PermissionStore:
+    return PermissionStore.open(
+        resolve_store_path(
+            effective_permissions.store_path,
+            session_dir=str(resolved_config.observability.session_dir),
+            # Matches the default PermissionSubject tenant; per-request
+            # environments scope rows further inside the database.
+            tenant_id="local",
+        )
+    )
 
 
 def create_application(
@@ -42,6 +58,7 @@ def create_application(
     tool_executor: ToolExecutor | None = None,
     permission_settings: PermissionSettingsConfig | None = None,
     confirmation_handler: Any | None = None,
+    permission_store: PermissionStore | None = None,
     resource_manager: Any | None = None,
     event_bus: EventBus | None = None,
     session_manager: SessionManager | None = None,
@@ -65,10 +82,13 @@ def create_application(
     ):
         raise TypeError("permission_settings must be PermissionSettingsConfig or None")
     if tool_executor is not None and (
-        permission_settings is not None or confirmation_handler is not None
+        permission_settings is not None
+        or confirmation_handler is not None
+        or permission_store is not None
     ):
         raise ValueError(
-            "permission settings and confirmation handler cannot override a supplied tool executor"
+            "permission settings, confirmation handler and permission store"
+            " cannot override a supplied tool executor"
         )
     effective_permissions = permission_settings or resolved_config.permissions
     configured_tool_names = set(effective_permissions.allowed_tools) | set(
@@ -85,11 +105,18 @@ def create_application(
             )
         )
         resource_manager = ApplicationResourceManager(event_store=device_events)
+    resolved_store = permission_store or _open_permission_store(
+        resolved_config, effective_permissions
+    )
     resolved_tool_executor = tool_executor or ToolExecutor(
         registry,
-        permission_checker=PermissionChecker(effective_permissions),
+        permission_checker=PermissionChecker(
+            effective_permissions, store=resolved_store
+        ),
         confirmation_handler=confirmation_handler,
         resource_manager=resource_manager,
+        permission_store=resolved_store,
+        physical_owner=PhysicalGateOwner(),
     )
     if resolved_tool_executor.registry is not registry:
         raise ValueError("tool executor must use the application ToolRegistry")

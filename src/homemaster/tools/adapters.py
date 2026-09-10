@@ -185,11 +185,26 @@ async def _verify_registered_tool(
     return replace(result, verification=verification)
 
 
-def from_tool_spec(spec: Any) -> FunctionTool:
+def from_tool_spec(
+    spec: Any,
+    *,
+    physical: bool = False,
+    physical_adapter: PhysicalDeviceAdapter | None = None,
+) -> FunctionTool:
     """Adapt a ToolSpec directly to the universal Registry."""
 
     if not callable(spec.executor):
         raise ValueError(f"tool {spec.name!r} has no executor")
+    if physical and physical_adapter is None:
+        raise ValueError(
+            "physical tool spec declares no physical_adapter; "
+            "refusing to adapt it as an ordinary tool"
+        )
+    if physical_adapter is not None and not physical:
+        raise ValueError(
+            "physical_adapter without physical=True; "
+            "declare the spec as physical explicitly"
+        )
 
     async def execute(arguments: dict[str, Any], context: ToolExecutionContext) -> Any:
         run_context = context.metadata.get("run_context")
@@ -220,6 +235,8 @@ def from_tool_spec(spec: Any) -> FunctionTool:
         input_schema=spec.input_schema,
         execute=execute,
         read_only=not any(effect not in {"none", "read", "read_only"} for effect in effects),
+        physical=physical,
+        physical_adapter=physical_adapter,
     )
 
 

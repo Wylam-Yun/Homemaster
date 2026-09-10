@@ -291,6 +291,8 @@ class ApplicationRuntime:
         self._extension_stop_started = False
         self._extensions_closed = False
         self._browser_run_scopes: set[RunResourceScope] = set()
+        self._permission_store_recovered = False
+        self._permission_store_closed = False
 
     def session(self, session_id: str, *, exit_reason: str = "session_end") -> ApplicationSession:
         """Return the explicit semantic session boundary used by entry points."""
@@ -337,6 +339,11 @@ class ApplicationRuntime:
                         exc.add_note(str(cleanup_error))
                         exc.cleanup_error = cleanup_error  # type: ignore[attr-defined]
                 raise
+            store = getattr(self.tool_executor, "permission_store", None)
+            recover = getattr(store, "recover", None)
+            if callable(recover) and not self._permission_store_recovered:
+                recover()
+                self._permission_store_recovered = True
             self._started = True
 
     async def run(self, request: RunRequest) -> RunResult:
@@ -710,6 +717,12 @@ class ApplicationRuntime:
                     permission_checker=self.tool_executor.permission_checker,
                     confirmation_handler=self.tool_executor.confirmation_handler,
                     resource_manager=self.tool_executor.resource_manager,
+                    permission_store=getattr(
+                        self.tool_executor, "permission_store", None
+                    ),
+                    physical_owner=getattr(
+                        self.tool_executor, "physical_owner", None
+                    ),
                 )
                 yield registry, executor
         finally:
@@ -786,6 +799,11 @@ class ApplicationRuntime:
                 except BaseException as exc:
                     browser_cleanup_errors.append(exc)
             await self.resource_scope.aclose()
+            store = getattr(self.tool_executor, "permission_store", None)
+            close = getattr(store, "close", None)
+            if callable(close) and not self._permission_store_closed:
+                self._permission_store_closed = True
+                close()
             if browser_cleanup_errors:
                 raise ResourceCleanupError(tuple(browser_cleanup_errors))
         finally:
