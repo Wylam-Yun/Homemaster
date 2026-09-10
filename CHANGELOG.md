@@ -8,6 +8,8 @@
 
 ### Changed
 
+- Added the V3.4 implementation plan with ordered tasks for the existing permission checker, durable item approvals, per-call execution gates, Web UI, simulator-independent adapter contracts, and separate external/hardware acceptance; planning only, with no runtime changes.
+
 - Clarified the V3.4 real-robot-first permission boundary: keep simulator details inside device adapters, reuse the existing checker and execution path, and require simulator-independent contract checks plus separate physical-device acceptance; design only, with no runtime changes.
 
 - Documented the V3.4 exact-object/action and destination-area permission design in the user-selected plan/V3.4 directory, replacing the earlier category-based proposal with the confirmed semantics and specifying persistence, approval UI/API, execution gates, and external acceptance criteria; runtime behavior is unchanged.
