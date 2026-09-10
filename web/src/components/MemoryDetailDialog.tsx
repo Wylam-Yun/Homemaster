@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 
 import type { ManagedMemory, MemoryHistory } from '../api/http'
 import styles from './MemoryDetailDialog.module.css'
+import {
+  classificationLabel,
+  failureReasonLabel,
+  humanizeGoal,
+  shortEpisode,
+  summarizeMemory,
+  typeLabel,
+} from './memorySummary'
 
 
 type Props = {
@@ -64,6 +72,16 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
     }
   }
 
+  const summary = summarizeMemory(memory)
+  const record = memory.record
+  const classification = memory.classification ?? recordString(record, 'classification')
+  const goalSource = memory.goal_type ?? recordString(record, 'goal_type')
+  const goalText = humanizeGoal(goalSource)
+  const episodeText = shortEpisode(memory.episode_id ?? recordString(record, 'episode_id'))
+  const failureReason = recordString(record, 'failure_reason')
+  const stepIndex = recordStepIndex(record)
+  const showOutcome = memory.outcome === 'success' || memory.outcome === 'failure'
+
   return (
     <div className={styles.backdrop} onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
       <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="memory-detail-title">
@@ -74,14 +92,14 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
         <div className={styles.body}>
           <div className={styles.statusLine}>
             <span data-status={memory.status}>{memory.status === 'active' ? '生效中' : '已归档'}</span>
-            <span>{memory.memory_type_label}</span>
-            {memory.outcome !== null && memory.outcome !== undefined && <span>{outcomeLabel(memory.outcome)}</span>}
+            <span>{typeLabel(memory.memory_type)}</span>
+            {showOutcome && <span>{memory.outcome === 'success' ? '成功' : '失败'}</span>}
             {memory.is_executable === true && <span>可执行</span>}
           </div>
-          {memory.domain === 'alfworld' && <p>任务：{memory.goal_type ?? '未知'} · {memory.taskset_id ? `${memory.taskset_id} / 子任务 ${Number(memory.subtask_index ?? 0) + 1}` : (memory.episode_id ?? '未知 episode')}</p>}
+          <p className={styles.summaryLead}><span aria-hidden="true">{summary.icon} </span>{summary.title}</p>
           {canCompile && compileMemory && <button type="button" className={styles.compileButton} onClick={() => { void startCompile() }} disabled={compileState === 'queued' || compileState === 'running'}>编译为经验</button>}
           {compileState !== null && <p>编译状态：{compileState}{compileError !== null ? `，${compileError}` : ''}</p>}
-          <p className={styles.memoryContent}>{memory.content}</p>
+          {memory.structure_status !== 'valid' && <p className={styles.memoryContent}>{memory.content}</p>}
           <dl className={styles.metadata}>
             <Meta label="记忆 ID" value={memory.memory_id} />
             <Meta label="来源会话" value={memory.session_id ?? '未关联会话'} />
@@ -93,7 +111,26 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
 
           <section className={styles.section}>
             <h3>结构化信息</h3>
-            {memory.structure_status === 'valid' && memory.record !== null && <pre>{JSON.stringify(memory.record, null, 2)}</pre>}
+            {memory.structure_status === 'valid' && memory.record !== null && (
+              <>
+                <dl className={styles.metadata}>
+                  <Meta label="任务" value={goalText ?? '未知'} />
+                  {classification !== null && <Meta label="结果" value={classificationLabel(classification)} />}
+                  {failureReason !== null && classification !== 'agent_success' && (
+                    <Meta label="失败原因" value={failureReasonLabel(failureReason)} />
+                  )}
+                  {episodeText !== null && <Meta label="Episode" value={episodeText} />}
+                  {memory.taskset_id !== null && memory.taskset_id !== undefined && (
+                    <Meta label="任务集" value={subtaskLabel(memory.taskset_id, memory.subtask_index)} />
+                  )}
+                  {stepIndex !== null && <Meta label="环境步数" value={String(stepIndex)} />}
+                </dl>
+                <details className={styles.rawFold}>
+                  <summary>原始 JSON（调试用）</summary>
+                  <pre>{JSON.stringify(memory.record, null, 2)}</pre>
+                </details>
+              </>
+            )}
             {memory.structure_status === 'invalid' && <p className={styles.warning}>结构信息异常，已隐藏损坏的原始数据。</p>}
             {memory.structure_status === 'plain' && <p className={styles.muted}>这条记忆没有结构化信息。</p>}
           </section>
@@ -107,7 +144,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
               <ol className={styles.timeline}>
                 {history.map((version, index) => (
                   <li key={`${version.memory_id}:${index}`}>
-                    <span /><div><strong>{version.status === 'active' ? '生效版本' : '归档版本'}</strong><time>{formatFullDate(version.updated_at ?? version.created_at)}</time><p>{version.content}</p></div>
+                    <span /><div><strong>{version.status === 'active' ? '生效版本' : '归档版本'}</strong><time>{formatFullDate(version.updated_at ?? version.created_at)}</time><p>{summarizeMemory(version).title}</p></div>
                   </li>
                 ))}
               </ol>
@@ -138,6 +175,23 @@ function reasonLabel(reason: string): string {
   return labels[reason] ?? reason
 }
 
-function outcomeLabel(outcome: string): string {
-  return ({ success: '成功', failure: '失败', unknown: '未知' } as Record<string, string>)[outcome] ?? outcome
+function recordString(record: Record<string, unknown> | null, key: string): string | null {
+  if (record === null) return null
+  const value = record[key]
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function recordStepIndex(record: Record<string, unknown> | null): number | null {
+  if (record === null) return null
+  const state = record['final_environment_state']
+  if (typeof state !== 'object' || state === null) return null
+  const stepIndex = (state as Record<string, unknown>)['step_index']
+  return typeof stepIndex === 'number' ? stepIndex : null
+}
+
+function subtaskLabel(tasksetId: string, subtaskIndex: number | null | undefined): string {
+  if (subtaskIndex === null || subtaskIndex === undefined) return tasksetId
+  return `${tasksetId} / 子任务 ${subtaskIndex + 1}`
 }

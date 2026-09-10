@@ -9,6 +9,7 @@ function memory(
   memoryId: string,
   status: 'active' | 'archived',
   content: string,
+  extra: Partial<ManagedMemory> = {},
 ): ManagedMemory {
   return {
     memory_id: memoryId,
@@ -24,6 +25,7 @@ function memory(
     record: null,
     structure_status: 'plain',
     has_history: true,
+    ...extra,
   }
 }
 
@@ -50,7 +52,7 @@ const snapshot: MemorySnapshot = {
 
 
 describe('MemoryPage', () => {
-  it('renders Chinese stats and groups the active tab by session', () => {
+  it('renders insight stats and groups the active tab by type', () => {
     render(
       <MemoryPage
         snapshot={snapshot}
@@ -61,11 +63,11 @@ describe('MemoryPage', () => {
       />,
     )
 
-    expect(screen.getByText('生效中的记忆')).toBeInTheDocument()
-    expect(screen.getByText('已归档的记忆')).toBeInTheDocument()
+    expect(screen.getByText('任务成功')).toBeInTheDocument()
+    expect(screen.getByText('失败·异常')).toBeInTheDocument()
+    expect(screen.getByText('纯文本记忆')).toBeInTheDocument()
     expect(screen.getByText('记忆总数')).toBeInTheDocument()
-    expect(screen.getByText('来源会话')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /first user request/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /事实/ })).toBeInTheDocument()
     expect(screen.getByText('active memory body')).toBeInTheDocument()
     expect(screen.queryByText('archived memory body')).not.toBeInTheDocument()
   })
@@ -82,7 +84,7 @@ describe('MemoryPage', () => {
     )
 
     fireEvent.click(screen.getByRole('tab', { name: /已归档/ }))
-    fireEvent.click(screen.getByRole('button', { name: /first user request/ }))
+    fireEvent.click(screen.getByRole('button', { name: /事实/ }))
     fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'archived memory' } })
 
     expect(screen.getByText('archived memory body')).toBeVisible()
@@ -129,18 +131,18 @@ describe('MemoryPage', () => {
     expect(onRefresh).toHaveBeenCalledOnce()
   })
 
-  it('renders domain, outcome, and executable badges on memory cards', () => {
-    const badged = {
-      ...activeMemory,
-      memory_id: 'memory-badged',
-      content: 'badged memory body',
-      domain: 'alfworld',
-      outcome: 'success' as const,
-      is_executable: true,
-    }
+  it('renders a human summary instead of raw JSON for structured trajectories', () => {
+    const trajectory = memory('memory-traj', 'active', '{"classification":"agent_success",...}', {
+      structure_status: 'valid',
+      classification: 'agent_success',
+      outcome: 'success',
+      goal_type: '{"pddl_params":{"object_target":"Book","parent_target":"SideTable"},"task_type":"pick_and_place_simple"}',
+      episode_id: 'valid_seen/pick_and_place_simple-Book-SideTable-301',
+      record: { classification: 'agent_success' },
+    })
     render(
       <MemoryPage
-        snapshot={{ ...snapshot, groups: [{ ...snapshot.groups[0], memories: [badged] }] }}
+        snapshot={{ ...snapshot, groups: [{ ...snapshot.groups[0], memories: [trajectory] }] }}
         loading={false}
         error={null}
         onRefresh={vi.fn()}
@@ -148,9 +150,8 @@ describe('MemoryPage', () => {
       />,
     )
 
-    expect(screen.getByText('badged memory body')).toBeVisible()
-    expect(screen.getByText('ALFWorld')).toBeVisible()
-    expect(screen.getByText('成功')).toBeVisible()
-    expect(screen.getByText('可执行')).toBeVisible()
+    expect(screen.getByText('把Book放到SideTable')).toBeVisible()
+    expect(screen.queryByText('{"classification":"agent_success",...}')).not.toBeInTheDocument()
+    expect(screen.getByText(/来源 session-/)).toBeVisible()
   })
 })

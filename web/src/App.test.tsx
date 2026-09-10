@@ -74,7 +74,7 @@ describe('App memory navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: '记忆管理' }))
     expect(await screen.findByRole('heading', { name: '记忆管理' })).toBeVisible()
     expect(mocks.stop).not.toHaveBeenCalled()
-    await waitFor(() => { expect(screen.getByText('来源会话')).toBeVisible() })
+    await waitFor(() => { expect(screen.getByText('记忆总数')).toBeVisible() })
   })
 
   it('attaches a recording view to the requested session', async () => {
