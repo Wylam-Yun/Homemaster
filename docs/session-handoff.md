@@ -1,5 +1,12 @@
 # Session Handoff
 
+## V3.4 Task0 in progress — isolated worktree ready — 2026-09-10
+
+- Worktree: `/data1/haodong2/weilin/red_bird/Homemaster-v34-permissions`, branch `v34-permissions`, HEAD `2f6b4581` (plan baseline `e4c7940f` has drifted by 2 commits; main tree clean, no foreign changes merged).
+- Runtime locked: worktree `.venv` via `uv sync --frozen --extra dev` → Python 3.11.13, sqlite 3.50.4; Node bound at `.runtime/v34/node -> /data1/haodong2/.nvm/versions/node/v22.22.1` → node v22.22.1 / npm 10.9.4 (satisfies vite 6.4.3 engines); `npm --prefix web ci` passed, lockfile untouched.
+- Evidence: `plan/V3.4/backend-readiness.md` — domain stubs unusable as physical truth, ALFWorld object-ID/area/prepare all unverified (Task8 gates), real robot not ready. Core Tasks 1-7 + process blackbox may proceed; ALFWorld wiring and hardware acceptance stay separate.
+- Next: Task 1 最小通用模型与声明式物理入口（先失败测试）.
+
 ## Active ALFWorld adaptation repair — 2026-09-10
 
 - Approved scope: option B, independent execution; plan: `docs/superpowers/plans/2026-09-10-alfworld-adapter.md`.
