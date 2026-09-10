@@ -16,7 +16,7 @@ from homemaster.memory.models import (
     SemanticTarget,
 )
 
-COMPILER_VERSION = "alfworld-compiler-v1"
+COMPILER_VERSION = "alfworld-compiler-v2"
 
 
 class AlfworldDiagnostic(BaseModel):
@@ -81,7 +81,10 @@ def compile_alfworld_trajectory(
         )
     if not record.steps:
         raise ValueError("successful trajectory has no compilable steps")
-    steps = tuple(_compile_step(item) for item in record.steps)
+    steps = tuple(
+        _compile_step(item, order=position)
+        for position, item in enumerate(record.steps, start=1)
+    )
     procedure = ProcedureRecord(
         name=f"ALFWorld: {record.goal_type}",
         sop_id=f"alfworld-{record.trajectory_id}",
@@ -101,7 +104,7 @@ def compile_alfworld_trajectory(
     return result
 
 
-def _compile_step(step: Any) -> ProcedureStep:
+def _compile_step(step: Any, *, order: int) -> ProcedureStep:
     payload = dict(step.payload)
     action = _action_name(payload)
     target_value = payload.get("target") or payload.get("object") or payload.get("receptacle")
@@ -118,7 +121,7 @@ def _compile_step(step: Any) -> ProcedureStep:
     else:
         expect = ProcedureExpect(visible_text=f"{action} completed")
     return ProcedureStep(
-        order=step.index + 1,
+        order=order,
         action=action,
         target=target,
         expect=expect,
