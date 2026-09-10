@@ -26,6 +26,14 @@ class GroundingCandidate:
 
 
 @dataclass(frozen=True)
+class AuthoritativeTarget:
+    """One backend object pinned by the scene index, with its kind."""
+
+    reference: Any
+    kind: str | None
+
+
+@dataclass(frozen=True)
 class GroundingResult:
     value: str
     method: str
@@ -89,6 +97,63 @@ def ground_text(
     if judged is not None:
         return judged
     return GroundingResult(value=value.strip(), method="unchanged", matched_label=None)
+
+
+def resolve_authoritative(
+    value: str,
+    *,
+    state: Any,
+    subtask: Any = None,
+    extra_labels: list[GroundingCandidate] | None = None,
+    allowed_kinds: set[str] | None = None,
+    judge_config_path: Path | None = None,
+    scene_index: Any = None,
+) -> AuthoritativeTarget | None:
+    """Ground one label and reconcile it against the authoritative index.
+
+    Returns the authoritative scene object reference only when the grounded
+    label maps to exactly one backend object id; ambiguous, unmatched, or
+    mismatched labels yield None so callers fail closed. Symbolic scene
+    indexes are consumed structurally (duck-typed) to keep this module free
+    of execution imports. Never raises on backend-shaped input.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    resolve = getattr(scene_index, "resolve", None)
+    matching_type = getattr(scene_index, "matching_type", None)
+    if not callable(resolve) or not callable(matching_type):
+        return None
+    try:
+        candidates = build_grounding_candidates(
+            state=state, subtask=subtask, extra_labels=extra_labels
+        )
+        grounded = ground_text(
+            value,
+            candidates=candidates,
+            allowed_kinds=allowed_kinds,
+            judge_config_path=judge_config_path,
+        )
+    except Exception:
+        return None
+    if grounded.method == "unchanged" or not grounded.value:
+        return None
+    try:
+        authoritative = resolve(grounded.value)
+    except Exception:
+        return None
+    if authoritative is None:
+        return None
+    try:
+        same_type = matching_type(grounded.value)
+    except Exception:
+        return None
+    if not same_type:
+        return None
+    if len({getattr(item, "object_id", None) for item in same_type}) != 1:
+        return None
+    if getattr(authoritative, "object_id", None) != getattr(same_type[0], "object_id", None):
+        return None
+    return AuthoritativeTarget(reference=authoritative, kind=grounded.kind)
 
 
 def _subtask_candidates(subtask: Any) -> list[GroundingCandidate]:

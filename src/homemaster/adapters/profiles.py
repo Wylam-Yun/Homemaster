@@ -294,6 +294,36 @@ def _alfworld_tools(
     return tuple(tools)
 
 
+def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
+    """Build the opt-in permission-gated ALFWorld manipulation tool.
+
+    The default benchmark profile keeps the legacy ungated tools; call this
+    explicitly with an AlfworldBackend (usually ThorBackendView around the
+    live AlfworldEnvAdapter) to route robot_manipulate through the V3.4
+    current-call gate. Standalone robot_go_to stays legacy: ALFWorld
+    exposes no authoritative area model to gate it against.
+    """
+    from homemaster.benchmarking.alfworld.permission_adapter import (
+        AlfworldPermissionAdapter,
+    )
+    from homemaster.benchmarking.alfworld.tools import (
+        make_alfworld_robot_manipulate,
+    )
+
+    spec = make_alfworld_robot_manipulate()
+    adapter = AlfworldPermissionAdapter(tool="robot_manipulate", backend=backend)
+    registered = _adapted_tool(
+        spec,
+        alias="robot_manipulate",
+        environment="alfworld",
+        policy=_policy_for("robot_manipulate", environment="alfworld"),
+        state_effects=("backend.advance",),
+    )
+    return from_registered_tool(
+        registered, physical=True, physical_adapter=adapter
+    )
+
+
 def _screenshot_tool() -> RegisteredTool:
     return RegisteredTool(
         definition=ToolDefinition(

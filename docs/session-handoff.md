@@ -1,5 +1,19 @@
 # Session Handoff
 
+## V3.4 Task8 done — ALFWorld adapter — 2026-09-10
+
+- Scope: new `benchmarking/alfworld/permission_adapter.py` (+fake-seam tests),
+  `tools.navigation_target_for_action`, `grounding.resolve_authoritative`,
+  `env_adapter.authoritative_object_index` (read-only), opt-in
+  `profiles.alfworld_physical_manipulate_tool`. Default benchmark path untouched.
+- Key decisions: manipulate-only (adapting go_to with empty requirements would silently
+  skip movement via _execute_direct — verified by reading the executor); `use` maps by
+  readable toggle state, unreadable refuses; execution converts canonical back to backend
+  spellings at prepare time; environment_id is per-episode so grants never cross scenes.
+- Evidence: 15 adapter tests + 7 interface-audit tests pass; related suites
+  (tools/grounding/adapter-semantics/permissions/executor/factory) 138 passed.
+- Next: Task 9 external blackbox + verifier + browser round; Task 10 docs.
+
 ## V3.4 Task7 done — grants page and revocation loop — 2026-09-10
 
 - Scope: `src/homemaster/permissions/store.py` (grant_display), `src/homemaster/web/app.py`

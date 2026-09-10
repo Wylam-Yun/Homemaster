@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
@@ -233,6 +234,18 @@ def _navigation_target_for_action(arguments: dict[str, Any]) -> str | None:
     else:
         value = arguments.get("object") or arguments.get("target_receptacle")
     return str(value).strip() if isinstance(value, str) and value.strip() else None
+
+
+def navigation_target_for_action(arguments: Mapping[str, Any]) -> str | None:
+    """Return the label _exec_manipulate would navigate to first, if any.
+
+    Read-only view of the internal-navigation rule for the permission
+    adapter, so declared effects always match the legacy execution path.
+    No backend contact; unknown shapes yield None.
+    """
+    if not isinstance(arguments, Mapping):
+        return None
+    return _navigation_target_for_action(dict(arguments))
 
 
 def _exec_verify(

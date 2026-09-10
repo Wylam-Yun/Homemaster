@@ -18,6 +18,15 @@
 
 ### Changed
 
+- Added the ALFWorld permission adapter for robot_manipulate: read-only deterministic
+  prepare pins each label to exactly one backend object id through the authoritative scene
+  index (ambiguous or unknown labels refuse), declares the internal navigation inside the
+  same approval closure, maps take/put and use/toggle spellings inside the adapter, and
+  executes only locked bindings with backend action spellings. Standalone robot_go_to stays
+  legacy and area cases stay unsupported for this backend: ALFWorld exposes no authoritative
+  area model and receptacles must not stand in for rooms. Real-THOR verification is pending
+  (no THOR runtime here); mapping logic is verified against a fake backend seam.
+
 - Added the long-term permissions page: object/area tabs group active grants by action with
   per-action revocation, a lazy revoked section, server-cursor paging, and an explicit
   destination-only note; revocation locks one submission id at first click, retries reuse it,

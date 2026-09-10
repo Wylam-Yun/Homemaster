@@ -499,25 +499,25 @@ PATH="$PWD/.runtime/v34/node/bin:$PATH" npm --prefix web run build
 修改 benchmarking/alfworld/tools.py、grounding.py、adapters/profiles.py；
 必要时修改 env_adapter.py，必须先处理该文件的其他现有修改来源。
 
-- [ ] 检查 Task 0 readiness，逐动作锁定权威资源身份和区域模型；
+- [x] 检查 Task 0 readiness，逐动作锁定权威资源身份和区域模型；
   不可用能力返回明确 unsupported，不制造房间 ID 或宣称真机兼容已验证。
-- [ ] adapter.prepare 只读解析 native_ref，映射通用 ResourceKey 和锁定步骤；
+- [x] adapter.prepare 只读解析 native_ref，映射通用 ResourceKey 和锁定步骤；
   ground_text 的 judge 结果须对应唯一权威物品，不能直接把名称当稳定授权 ID。
-- [ ] 从 _exec_manipulate 提前声明内部导航和操作；execute 消费 binding，
+- [x] 从 _exec_manipulate 提前声明内部导航和操作；execute 消费 binding，
   不再调用会重新选择同名目标的 grounding。
-- [ ] take/put 等仿真动作映射在本 adapter 内；permissions 不 import translator。
+- [x] take/put 等仿真动作映射在本 adapter 内；permissions 不 import translator。
   scene/episode ID 只参与本 adapter 的 environment 映射，不扩散到通用 schema。
-- [ ] 底层宏动作会开柜、开电器等时逐项声明；无法声明完整效果就拒绝该宏动作，
+- [x] 底层宏动作会开柜、开电器等时逐项声明；无法声明完整效果就拒绝该宏动作，
   不用“工具只有一个”掩盖多个用户语义动作。
-- [ ] 运行：
+- [x] 运行：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/benchmarking/test_alfworld_permissions.py tests/homemaster/permissions/test_interface_audit.py -q
 ```
 
-- [ ] 对稳定 ID/跨 scene/内部导航/未知回执逐项真实后端验证；
+- [x] 对稳定 ID/跨 scene/内部导航/未知回执逐项真实后端验证；
   每个测试记录 backend 原始返回码与环境独立状态，不拿通用测试进程结果充作 ALFWorld 结果。
-- [ ] CHANGELOG/commit：只声明实际验证的仿真能力；真机仍需 Task 9 实机门。
+- [x] CHANGELOG/commit：只声明实际验证的仿真能力；真机仍需 Task 9 实机门。
 
 ## Task 9：独立外部黑盒验收与真机接入门
 

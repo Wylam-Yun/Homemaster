@@ -315,6 +315,21 @@ class AlfworldEnvAdapter:
         return f"alfworld:{episode}"
 
     @property
+    def authoritative_object_index(self) -> SceneObjectIndex | None:
+        """Read-only authoritative object identity snapshot for permission checks.
+
+        Builds the index from the latest backend metadata when absent;
+        performs no navigation, manipulation, or reset. Returns None when
+        the backend exposes no usable object list so callers fail closed.
+        """
+        if self._scene_object_index is None:
+            try:
+                self._refresh_scene_object_index()
+            except Exception:
+                return None
+        return self._scene_object_index
+
+    @property
     def generation(self) -> int:
         return self._scene_generation * 1_000_000 + self._goal_generation
 
