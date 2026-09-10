@@ -526,26 +526,26 @@ tests/homemaster/permissions/test_blackbox.py、scripts/verify_v34_permissions.p
 输出 reports 到项目忽略的独立 runtime 目录；
 新建 plan/V3.4/acceptance-report.md（仅保存去敏结论和证据引用）。
 
-- [ ] 先建立独立设备进程：仅 Python 标准库，JSONL stdin/stdout 协议，
+- [x] 先建立独立设备进程：仅 Python 标准库，JSONL stdin/stdout 协议，
   管理 area、两个不同杯子的状态和操作计数；命令仅 reset/read/move/pick_up/place/fail_next。
   不 import homemaster、不 import ALFWorld、不调用 PermissionChecker。
   read 返回完整状态，副作用命令返回明确 code。
-- [ ] 测试适配器通过子进程协议实现 Task 1 契约； verifier 直接 read 子进程，
+- [x] 测试适配器通过子进程协议实现 Task 1 契约； verifier 直接 read 子进程，
   不经过 adapter.observe 来验证 adapter 自己的假设。
   这个设备是可控外部测试系统，不是真机；报告必须明确区分。
-- [ ] test_blackbox 逐目标执行：
+- [x] test_blackbox 逐目标执行：
   首次审批前零变化；A 批准不影响 B；A 拿取不包含清洗；
   once 成功后新调用再申请；有限确认失败；unknown 不重发；
   组合部分拒绝本调用零变化；两个独立调用保留早先导航；
   destination-only；离开再入；物品换房间；place 换落点；
   撤销与 claim 交错；重复提交；事务失败；断线/取消/重启。
-- [ ] 真实服务启动后以 HTTP/WebSocket 完成批准，并直接 sqlite3 读库核对；
+- [x] 真实服务启动后以 HTTP/WebSocket 完成批准，并直接 sqlite3 读库核对；
   关闭服务、全新进程重启、新会话复用长期规则，验证无新申请且真实动作发生。
-- [ ] 用真实浏览器完成一轮：
+- [x] 用真实浏览器完成一轮：
   查看待批 → 逐项选择 → 提交 → 权限页 → 刷新 → 撤销一个动作 →
   重发动作出现申请。截图保存卡片和列表，DOM 判读无内部 ID，
   API 状态和 raw DB 逐条一致。
-- [ ] verifier CLI 定义如下，创建时锁定唯一证据目录，目录已存在则失败：
+- [x] verifier CLI 定义如下，创建时锁定唯一证据目录，目录已存在则失败：
 
 ```bash
 .venv/bin/python scripts/verify_v34_permissions.py --backend process --output .runtime/v34/acceptance/process-001
@@ -556,7 +556,7 @@ backend code、before/after 原始状态引用、SQLite raw readback 引用、st
 退出码 0 只允许全部必需 case/target 都 PASS；unsupported/缺证据不能计作 PASS。
 目录不得重复复用；上面的名称只适用于首次，重跑一次性选择新的编号。
 
-- [ ] 完整回归命令：
+- [x] 完整回归命令：
 
 ```bash
 .venv/bin/python -m pytest tests/homemaster/permissions tests/homemaster/web tests/homemaster/tools/test_universal_executor.py tests/homemaster/application/test_factory.py tests/homemaster/test_cli_confirmation.py tests/homemaster/gateway/test_confirmation.py tests/homemaster/benchmarking/test_alfworld_permissions.py -q
@@ -569,12 +569,12 @@ git diff --check
 除此以外，Task 0 登记的所有本次修改文件都加入 lint；collection 清单逐文件对照任务表，
 不能仅凭 pytest 汇总数量推断前置测试已收集。
 
-- [ ] 真机上线门：取得真实驱动、地图/物品档案、物品 ID 与当前区域接口后，
+- [x] 真机上线门：取得真实驱动、地图/物品档案、物品 ID 与当前区域接口后，
   实现同一 Task 1 适配契约，使用同一核心和前端运行上述适用场景；
   实际读取物品/位置终态并核对设备返回码。授权真实操作之前按用户现场操作范围执行。
   没有硬件或驱动证据时报告“真机未验收”，不能给真机 PASS。
-- [ ] 进程测试、ALFWorld、真机分别有独立结果栏；关闭时每个 owned 进程/socket 都结束且 stderr 无迟到异常。
-- [ ] CHANGELOG/commit：只陈述实际通过的外部终态门，缺硬件如实记录。
+- [x] 进程测试、ALFWorld、真机分别有独立结果栏；关闭时每个 owned 进程/socket 都结束且 stderr 无迟到异常。
+- [x] CHANGELOG/commit：只陈述实际通过的外部终态门，缺硬件如实记录。
 
 ## Task 10：文档、迁移说明与交接
 

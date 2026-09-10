@@ -1,5 +1,19 @@
 # Session Handoff
 
+## V3.4 Task9 done — external blackbox + verifier, process PASS — 2026-09-10
+
+- Scope: `tests/fixtures/permissions/device_process.py` + `cdp_driver.py`,
+  `tests/homemaster/permissions/test_blackbox.py` (16 cases), `scripts/v34_approval_server.py`,
+  `scripts/verify_v34_permissions.py`, `plan/V3.4/acceptance-report.md`.
+- Evidence: `.runtime/v34/acceptance/process-001/` (manifest, 4 shots, DB readbacks,
+  server logs). Verifier exit 0: blackbox 16/16, adapter-fake 15/15, service 9/9,
+  browser 17/17. Full Task-9 regression: pytest 230 passed, web 44 passed, build ok,
+  ruff + diff-check clean. Hardware + THOR real backend: not-run (no hardware/drivers).
+- Debugging notes: seed self-poll deadlocked the loop (moved to worker thread);
+  uvicorn had no WS transport (supplemented out-of-tree via PYTHONPATH, documented);
+  held objects must travel on move (device realism fix).
+- Next: Task 10 docs/migration/handoff.
+
 ## V3.4 Task8 done — ALFWorld adapter — 2026-09-10
 
 - Scope: new `benchmarking/alfworld/permission_adapter.py` (+fake-seam tests),

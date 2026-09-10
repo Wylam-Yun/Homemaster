@@ -18,6 +18,15 @@
 
 ### Changed
 
+- Added independent external blackbox acceptance: a stdlib-only device subprocess
+  (area, two cups, op counts) behind the Task-1 contract with 16 per-target pytest cases,
+  all asserting on direct device reads; a file-store HTTP service harness with raw-sqlite
+  readback, duplicate-submit, revoke and kill-restart checks; and a real-browser round
+  (stdlib CDP driver against headless Chrome) covering card, per-item submit, grants page,
+  reload, revoke, re-request and restart persistence with screenshots. One-shot verifier
+  CLI writes a locked manifest under an ignored runtime dir. Process backend PASS;
+  ALFWorld real backend and robot hardware recorded not-run, never PASS.
+
 - Added the ALFWorld permission adapter for robot_manipulate: read-only deterministic
   prepare pins each label to exactly one backend object id through the authoritative scene
   index (ambiguous or unknown labels refuse), declares the internal navigation inside the
