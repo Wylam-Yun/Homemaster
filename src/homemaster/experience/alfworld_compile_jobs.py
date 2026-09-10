@@ -63,6 +63,40 @@ class AlfworldCompileJobService:
         )
         return {"job_id": job_id, "status": "queued"}
 
+    async def aenqueue(
+        self, memory_id: str, *, session_id: str = "web-memory-management"
+    ) -> dict[str, str]:
+        """Async variant safe to call from the owner event loop (queue worker)."""
+
+        cleaned = memory_id.strip()
+        if not cleaned:
+            raise ValueError("memory_id must not be empty")
+        existing = self._find_existing(cleaned)
+        if existing is not None:
+            return {"job_id": str(existing["job_id"]), "status": str(existing["status"])}
+        job_id = str(uuid4())
+        job = {
+            "schema_version": 1,
+            "job_id": job_id,
+            "status": "queued",
+            "memory_id": cleaned,
+            "session_id": session_id,
+            "tenant_id": self._tenant_id,
+            "compiler_version": COMPILER_VERSION,
+        }
+        self._write(job_id, job)
+        await self._aemit("memory.experience.compile.queued", job)
+
+        async def work() -> None:
+            await self._run(job_id)
+
+        self._queue.enqueue_work(
+            job_type="alfworld_compile",
+            session_id=session_id,
+            work=work,
+        )
+        return {"job_id": job_id, "status": "queued"}
+
     def _find_existing(self, memory_id: str) -> dict[str, Any] | None:
         """Reuse a receipt for this immutable source/compiler pair."""
         if not self._jobs_root.is_dir():
@@ -96,7 +130,7 @@ class AlfworldCompileJobService:
             raise RuntimeError("compile job receipt is missing")
         job["status"] = "running"
         self._write(job_id, job)
-        self._emit("memory.experience.compile.started", job)
+        await self._aemit("memory.experience.compile.started", job)
         try:
             context = build_mindmemos_request_context(
                 request_id=f"compile-{job_id}",
@@ -134,11 +168,11 @@ class AlfworldCompileJobService:
                 }
             )
             self._write(job_id, job)
-            self._emit("memory.experience.compile.completed", job)
+            await self._aemit("memory.experience.compile.completed", job)
         except Exception as exc:
             job.update({"status": "failed", "error_code": type(exc).__name__, "error": str(exc)})
             self._write(job_id, job)
-            self._emit("memory.experience.compile.failed", job)
+            await self._aemit("memory.experience.compile.failed", job)
             raise
 
     @staticmethod
@@ -168,29 +202,39 @@ class AlfworldCompileJobService:
         )
         os.replace(temporary, path)
 
+    def _event(self, event_type: str, job: dict[str, Any]) -> Any:
+        return RuntimeEvent(
+            type=event_type,
+            session_id=str(job.get("session_id", "")),
+            run_id=str(job.get("job_id", "")),
+            turn_index=None,
+            payload={
+                "job_id": job.get("job_id"),
+                "memory_id": job.get("memory_id"),
+                "derived_memory_id": job.get("derived_memory_id"),
+                "status": job.get("status"),
+                "outcome": job.get("outcome"),
+                "is_executable": job.get("is_executable"),
+                "compiler_version": job.get("compiler_version"),
+                "source_trace_sha256": job.get("source_trace_sha256"),
+                "readback_status": "verified" if job.get("readback_verified") else None,
+                "error_code": job.get("error_code"),
+            },
+        )
+
     def _emit(self, event_type: str, job: dict[str, Any]) -> None:
         emit = getattr(self._event_sink, "emit", None)
         if callable(emit):
-            emit(
-                RuntimeEvent(
-                    type=event_type,
-                    session_id=str(job.get("session_id", "")),
-                    run_id=str(job.get("job_id", "")),
-                    turn_index=None,
-                    payload={
-                        "job_id": job.get("job_id"),
-                        "memory_id": job.get("memory_id"),
-                        "derived_memory_id": job.get("derived_memory_id"),
-                        "status": job.get("status"),
-                        "outcome": job.get("outcome"),
-                        "is_executable": job.get("is_executable"),
-                        "compiler_version": job.get("compiler_version"),
-                        "source_trace_sha256": job.get("source_trace_sha256"),
-                        "readback_status": "verified" if job.get("readback_verified") else None,
-                        "error_code": job.get("error_code"),
-                    },
-                )
-            )
+            emit(self._event(event_type, job))
+
+    async def _aemit(self, event_type: str, job: dict[str, Any]) -> None:
+        aemit = getattr(self._event_sink, "aemit", None)
+        if callable(aemit):
+            await aemit(self._event(event_type, job))
+            return
+        emit = getattr(self._event_sink, "emit", None)
+        if callable(emit):
+            emit(self._event(event_type, job))
 
 
 def _trace_hash(path: Path) -> str:

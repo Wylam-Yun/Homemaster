@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Mapping
@@ -259,12 +260,19 @@ class AlfworldTrajectoryWriter:
 
         service = getattr(self, "_compile_service", None)
         enqueue = getattr(service, "enqueue", None)
-        if service is None or not callable(enqueue):
+        aenqueue = getattr(service, "aenqueue", None)
+        if service is None or (not callable(enqueue) and not callable(aenqueue)):
             return
         if not isinstance(memory_id, str) or not memory_id:
             return
         try:
-            receipt = enqueue(memory_id, session_id=record.source_session_id)
+            if callable(aenqueue):
+                receipt = await aenqueue(memory_id, session_id=record.source_session_id)
+            else:
+                assert callable(enqueue)
+                receipt = await asyncio.to_thread(
+                    enqueue, memory_id, session_id=record.source_session_id
+                )
             await self._aemit(
                 "memory.trajectory.auto_compile.queued",
                 record,
