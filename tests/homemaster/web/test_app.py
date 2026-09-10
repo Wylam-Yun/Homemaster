@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from homemaster.agent.messages import UserMessage
 from homemaster.application import RunRequest, SessionManager
 from homemaster.artifacts import ToolOutputStore
 from homemaster.events.bus import EventBus
@@ -349,11 +350,24 @@ def test_session_cancel_approval_and_validation_endpoints_use_stable_json() -> N
 
         listed = client.get("/api/sessions")
         assert listed.status_code == 200
-        assert listed.json() == {"sessions": [{"session_id": session_id}]}
+        (entry,) = listed.json()["sessions"]
+        assert entry["session_id"] == session_id
+        assert entry["title"] == f"会话 {session_id[:8]}"
+        assert entry["message_count"] == 0
+        assert isinstance(entry["updated_at"], str)
+
+        runtime = application.session_manager.get(session_id)
+        runtime.session.append(UserMessage.from_text("帮我查一下机票\n第二行"))
+        relisted = client.get("/api/sessions").json()["sessions"]
+        assert relisted[0]["title"] == "帮我查一下机票 第二行"
+        assert relisted[0]["message_count"] == 1
 
         history = client.get(f"/api/sessions/{session_id}/history")
         assert history.status_code == 200
-        assert history.json() == {"session_id": session_id, "messages": []}
+        assert history.json() == {
+            "session_id": session_id,
+            "messages": [{"role": "user", "text": "帮我查一下机票\n第二行"}],
+        }
 
         cancelled = client.post(f"/api/sessions/{session_id}/cancel")
         assert cancelled.status_code == 200

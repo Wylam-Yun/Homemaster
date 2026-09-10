@@ -1,8 +1,18 @@
 # Session Handoff
 
-## V3.4 Household Permission Design — Awaiting Review
+## Active ALFWorld adaptation repair — 2026-09-10
+
+- Approved scope: option B, independent execution; plan: `docs/superpowers/plans/2026-09-10-alfworld-adapter.md`.
+- Baseline HEAD: `e4c7940f`; pre-existing dirty change: unsupported-task guard in env_adapter.py.
+- State: inspected native macro predicates and fixed action sequences; reproduction and fixes pending.
+- Next: establish failing semantic tests, then real THOR per-instance gates.
+- Environment: hkust4 `/home/haodong2/weilin/red_bird/Homemaster`, `.runtime/venv`, `.runtime/alfworld-venv`; original manifest `/tmp/homemaster-stratified-20260909-fixed.json`.
+- No environment blocker observed; V3.4 permission design is unrelated and remains unchanged.
+
+## V3.4 Household Permission — Implementation Plan Written
 
 - User clarification (2026-09-10, real hardware): permissions must remain independent of ALFWorld. Design sections 3.1–3.3 specify adapter-owned native details, the minimal shared contract, complexity limits and simulator-independent acceptance. Hardware integration is not yet verified.
+- User authorized implementation planning. Plan: `plan/V3.4/permission-system-implementation-plan.md`; 11 ordered tasks, no runtime implementation started. Execute inline using executing-plans when implementation is requested. Node v10.19.0 is incompatible; bind project-local runtime first. Independent process, ALFWorld and physical hardware acceptance remain separate.
 - User-designated design location: `plan/V3.4/permission-system-design.md`; start with `plan/V3.4/README.md`.
 - Product semantics are confirmed: single robot; stable exact object ID × concrete action; stable destination-area ID × enter; destination only, no transit-area checks.
 - Once means the current exact action occurrence, with bounded verified-failure retries; success/termination consumes it. Enter-once permits staying until departure, then re-entry needs approval.
@@ -14,7 +24,7 @@
 - User clarification (2026-09-10): check when navigation/manipulation is invoked, before physical execution; do not require a whole-task plan or batch approval of future calls. UI shows names, locations, actions and optional photos, never internal IDs. Stable IDs remain internal for exact binding.
 - Key investigation result: ALFWorld _exec_manipulate may internally navigate before manipulating; its full effects must be covered before first movement. Text grounding labels are not verified durable identities.
 - Engineering prerequisites still unverified: cross-restart object IDs, authoritative destination-area model, macro-action effects, and runtime prepared-flow integration. Retry total of 3 is a proposed technical default, not a user-locked number.
-- Next: user reviews the design, then write a formal implementation plan after verifying the prerequisites. Do not start implementation from this handoff alone.
+- Next: review the implementation plan, then execute Task 0 when implementation is authorized. The plan includes explicit prerequisite verification; no new approval policy or whole-task planner is introduced.
 - Workspace: hkust4 `/home/haodong2/weilin/red_bird/Homemaster`, baseline HEAD `54aafabe` at investigation. Existing ALFWorld changes, plan deletions and qa/ content belong to other work and were not modified by this task.
 
 ## V3.3 ALFWorld Trajectory Memory (2026-09-08)

@@ -22,10 +22,31 @@ function readDisplayOptions(): DisplayOptions {
   }
 }
 
+function sessionTitle(session: SessionSummary): string {
+  const title = session.title.trim()
+  if (title.length > 0) return title
+  return `会话 ${session.session_id.slice(0, 8)}`
+}
+
+function formatRelativeTime(value: string | null): string {
+  if (value === null) return ''
+  const time = new Date(value).valueOf()
+  if (Number.isNaN(time)) return ''
+  const diff = Date.now() - time
+  if (diff < 0) return ''
+  const minute = 60_000
+  if (diff < minute) return '刚刚'
+  if (diff < 60 * minute) return `${Math.floor(diff / minute)} 分钟前`
+  if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))} 小时前`
+  if (diff < 30 * 24 * 60 * minute) return `${Math.floor(diff / (24 * 60 * minute))} 天前`
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(time))
+}
+
 export function App() {
   const displayOptions = useMemo(readDisplayOptions, [])
   const [view, setView] = useState<'conversation' | 'memories'>('conversation')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
+  const [sessionQuery, setSessionQuery] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryMessage[]>([])
   const [state, dispatch] = useReducer(reduceWebEvent, initialConversationState)
@@ -42,6 +63,7 @@ export function App() {
   const [memoryLoading, setMemoryLoading] = useState(false)
   const [memoryError, setMemoryError] = useState<string | null>(null)
   const connectionRef = useRef<EventConnection | null>(null)
+  const newSessionRef = useRef<() => void>(() => {})
   const endRef = useRef<HTMLDivElement>(null)
 
   const refreshSessions = useCallback(async () => {
@@ -76,6 +98,10 @@ export function App() {
     const connection = new EventConnection(nextId, undefined, {
       onEvent: event => { dispatch(event) },
       onStateChange: setConnectionState,
+      onReject: () => {
+        setNotice('该会话在服务端已不存在，已为你新建会话。')
+        newSessionRef.current()
+      },
     })
     connectionRef.current = connection
     connection.start()
@@ -96,6 +122,8 @@ export function App() {
     }
   }, [refreshSessions, selectSession])
 
+  useEffect(() => { newSessionRef.current = () => { void newSession() } }, [newSession])
+
   useEffect(() => {
     void refreshSessions().then(existing => {
       if (displayOptions.requestedSessionId !== null) {
@@ -113,6 +141,16 @@ export function App() {
   }, [displayOptions.requestedSessionId, newSession, refreshSessions, selectSession])
 
   useEffect(() => { void refreshMemories() }, [refreshMemories])
+
+  const normalizedSessionQuery = sessionQuery.trim().toLocaleLowerCase()
+  const visibleSessions = useMemo(() => {
+    if (normalizedSessionQuery.length === 0) return sessions
+    return sessions.filter(session =>
+      [sessionTitle(session), session.session_id].some(value =>
+        value.toLocaleLowerCase().includes(normalizedSessionQuery),
+      ),
+    )
+  }, [normalizedSessionQuery, sessions])
 
   const turns = useMemo(() => Object.values(state.turns).filter(turn => turn.sessionId === sessionId), [sessionId, state.turns])
   const active = turns.find(turn => turn.status === 'pending' || turn.status === 'running')
@@ -162,9 +200,39 @@ export function App() {
         </div>
         <button className="new-chat" type="button" onClick={() => { setSidebarOpen(false); void newSession() }}>＋ 新建会话</button>
         <div className="history-heading"><span>历史会话</span><button type="button" aria-label={historyCollapsed ? '展开历史会话' : '折叠历史会话'} onClick={toggleHistory}>{historyCollapsed ? '＋' : '−'}</button></div>
-        {!historyCollapsed && <nav aria-label="历史会话">
-          {sessions.map(session => <button type="button" aria-label={`打开会话 ${session.session_id}`} key={session.session_id} data-active={session.session_id === sessionId || undefined} onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}><span>会话</span><small>{session.session_id.slice(0, 12)}</small></button>)}
-        </nav>}
+        {!historyCollapsed && <>
+          <label className="session-search">
+            <span aria-hidden="true">⌕</span>
+            <input
+              type="search"
+              value={sessionQuery}
+              onChange={event => { setSessionQuery(event.target.value) }}
+              placeholder="搜索会话…"
+              aria-label="搜索会话"
+            />
+          </label>
+          <nav aria-label="历史会话">
+            {visibleSessions.map(session => {
+              const title = sessionTitle(session)
+              const meta = [formatRelativeTime(session.updated_at), `${session.message_count} 条`]
+                .filter(part => part.length > 0)
+                .join(' · ')
+              return (
+                <button
+                  type="button"
+                  aria-label={`打开会话 ${title}`}
+                  key={session.session_id}
+                  data-active={session.session_id === sessionId || undefined}
+                  onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}
+                >
+                  <span>{title}</span>
+                  <small>{meta.length > 0 ? meta : session.session_id.slice(0, 12)}</small>
+                </button>
+              )
+            })}
+            {visibleSessions.length === 0 && <div className="session-empty">没有匹配的会话</div>}
+          </nav>
+        </>}
         {historyCollapsed && <div className="history-spacer" />}
         <div className="local-note"><span>●</span> Loopback only</div>
       </aside>

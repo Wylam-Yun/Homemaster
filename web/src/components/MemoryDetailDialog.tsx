@@ -40,7 +40,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
     return () => { current = false }
   }, [loadHistory, memory])
 
-  const canCompile = memory.domain === 'alfworld' && memory.source_trajectory_id === undefined && memory.memory_type === 'trajectory'
+  const canCompile = memory.domain === 'alfworld' && memory.source_trajectory_id == null && memory.memory_type === 'trajectory'
   const startCompile = async () => {
     if (!compileMemory) return
     setCompileError(null)
@@ -79,7 +79,7 @@ export function MemoryDetailDialog({ memory, loadHistory, compileMemory, compile
             {memory.is_executable === true && <span>可执行</span>}
           </div>
           {memory.domain === 'alfworld' && <p>任务：{memory.goal_type ?? '未知'} · {memory.taskset_id ? `${memory.taskset_id} / 子任务 ${Number(memory.subtask_index ?? 0) + 1}` : (memory.episode_id ?? '未知 episode')}</p>}
-          {canCompile && compileMemory && <button type="button" onClick={() => { void startCompile() }} disabled={compileState === 'queued' || compileState === 'running'}>编译为经验</button>}
+          {canCompile && compileMemory && <button type="button" className={styles.compileButton} onClick={() => { void startCompile() }} disabled={compileState === 'queued' || compileState === 'running'}>编译为经验</button>}
           {compileState !== null && <p>编译状态：{compileState}{compileError !== null ? `，${compileError}` : ''}</p>}
           <p className={styles.memoryContent}>{memory.content}</p>
           <dl className={styles.metadata}>

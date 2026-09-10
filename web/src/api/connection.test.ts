@@ -89,4 +89,34 @@ describe('EventConnection', () => {
     expect(socket.close).not.toHaveBeenCalled()
     connection.stop()
   })
+
+  it('fails fast without retrying when the server rejects an unknown session', async () => {
+    vi.useFakeTimers()
+    const sockets: FakeSocket[] = []
+    let rejected: number | null = null
+    const states: string[] = []
+    const connection = new EventConnection(
+      'session-01',
+      () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+      {
+        onReject: code => { rejected = code },
+        onStateChange: state => { states.push(state) },
+      },
+      { backoffBaseMs: 10, backoffMaxMs: 10, jitter: () => 1 },
+    )
+
+    connection.start()
+    sockets[0].readyState = 3
+    sockets[0].dispatchEvent(new CloseEvent('close', { code: 4404 }))
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(rejected).toBe(4404)
+    expect(sockets).toHaveLength(1)
+    expect(states).toEqual(['connecting', 'offline'])
+    connection.stop()
+  })
 })

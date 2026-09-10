@@ -226,6 +226,10 @@ def _navigation_target_for_action(arguments: dict[str, Any]) -> str | None:
         value = arguments.get("object")
     elif action in {"open", "close", "put"}:
         value = arguments.get("target_receptacle") or arguments.get("object")
+    elif action in {"heat", "cool", "clean"}:
+        value = arguments.get("tool_receptacle") or arguments.get("target_receptacle")
+        if not value:
+            value = {"heat": "microwave", "cool": "fridge", "clean": "sinkbasin"}[action]
     else:
         value = arguments.get("object") or arguments.get("target_receptacle")
     return str(value).strip() if isinstance(value, str) and value.strip() else None

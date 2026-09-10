@@ -1,4 +1,9 @@
-export type SessionSummary = { session_id: string }
+export type SessionSummary = {
+  session_id: string
+  title: string
+  message_count: number
+  updated_at: string | null
+}
 export type HistoryMessage = {
   role: string
   text: string

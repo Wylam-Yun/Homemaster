@@ -125,8 +125,13 @@ def create_web_app(
     async def list_sessions() -> object:
         return {
             "sessions": [
-                {"session_id": session_id}
-                for session_id in sorted(_session_ids(application.session_manager))
+                {
+                    "session_id": summary.session_id,
+                    "title": summary.title,
+                    "message_count": summary.message_count,
+                    "updated_at": summary.updated_at,
+                }
+                for summary in application.session_manager.session_summaries()
             ]
         }
 
@@ -471,10 +476,21 @@ def _session_ids(manager: Any) -> set[str]:
     return persisted | active
 
 
+def _message_text(message: Any) -> str:
+    """Extract readable text from content blocks (UserMessage has no .text)."""
+
+    content = getattr(message, "content", None)
+    if isinstance(content, (list, tuple)):
+        joined = "\n".join(str(getattr(block, "text", "") or "") for block in content)
+        if joined.strip():
+            return joined
+    return str(getattr(message, "text", "") or "")
+
+
 def _history_message(message: Any) -> dict[str, object]:
     projected: dict[str, object] = {
         "role": str(getattr(message, "role", "unknown")),
-        "text": str(getattr(message, "text", "") or ""),
+        "text": _message_text(message),
     }
     thinking = getattr(message, "reasoning_content", None)
     if isinstance(thinking, str) and thinking:

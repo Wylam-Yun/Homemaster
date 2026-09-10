@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('./api/http', () => ({
   HttpError: class HttpError extends Error {},
   HomeMasterApi: class HomeMasterApi {
-    listSessions = vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-01' }] })
+    listSessions = vi.fn().mockResolvedValue({ sessions: [{ session_id: 'session-01', title: 'first request title', message_count: 2, updated_at: '2026-09-10T03:00:00+00:00' }] })
     history = vi.fn().mockResolvedValue({ session_id: 'session-01', messages: [] })
     createSession = vi.fn().mockResolvedValue({ session_id: 'session-new' })
     sendMessage = vi.fn().mockResolvedValue({ accepted: true })
@@ -66,9 +66,9 @@ describe('App memory navigation', () => {
   it('switches to memory view and collapses history without changing the session', async () => {
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: '打开会话 session-01' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: '折叠历史会话' }))
-    expect(screen.queryByRole('button', { name: '打开会话 session-01' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '打开会话 first request title' })).not.toBeInTheDocument()
     expect(localStorage.getItem('homemaster:web:history-collapsed')).toBe('true')
 
     fireEvent.click(screen.getByRole('button', { name: '记忆管理' }))
@@ -81,9 +81,20 @@ describe('App memory navigation', () => {
     window.history.replaceState({}, '', '/?record=1&session_id=session-01')
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: '打开会话 session-01' })).toBeVisible()
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
     expect(document.querySelector('.shell')).toHaveAttribute('data-recording', 'true')
     expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
     window.history.replaceState({}, '', '/')
+  })
+
+  it('filters the session list through the search box', async () => {
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: '打开会话 first request title' })).toBeVisible()
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索会话' }), { target: { value: 'zzz-no-match' } })
+    expect(screen.queryByRole('button', { name: '打开会话 first request title' })).not.toBeInTheDocument()
+    expect(screen.getByText('没有匹配的会话')).toBeVisible()
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索会话' }), { target: { value: 'first request' } })
+    expect(screen.getByRole('button', { name: '打开会话 first request title' })).toBeVisible()
   })
 })

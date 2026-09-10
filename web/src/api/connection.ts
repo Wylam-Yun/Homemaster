@@ -15,6 +15,7 @@ export type SocketLike = Pick<
 export type ConnectionSinks = {
   onEvent?: (event: WebEvent) => void
   onStateChange?: (state: ConnectionState) => void
+  onReject?: (code: number) => void
 }
 
 export type ConnectionConfig = {
@@ -94,8 +95,15 @@ export class EventConnection {
         console.error('[homemaster-web] dropping malformed event frame:', error)
       }
     }
-    const onClose = (): void => {
+    const onClose = (raw: Event): void => {
       if (!active()) return
+      const code = typeof (raw as CloseEvent).code === 'number' ? (raw as CloseEvent).code : 0
+      if (code === 4404) {
+        // Unknown session: retrying is pointless, fail fast so the UI can recover.
+        this.stop()
+        this.callSink(() => { this.sinks.onReject?.(code) })
+        return
+      }
       this.emitState('reconnecting')
       this.attempt += 1
       const cap = Math.min(

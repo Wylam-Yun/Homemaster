@@ -139,7 +139,7 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, c
               >
                 <span className={styles.chevron} aria-hidden="true">›</span>
                 <span className={styles.groupTitle}><strong>{group.title}</strong><small>{group.session_id ?? '无 session ID'}</small></span>
-                <span className={styles.groupCount}>{group.memories.length} 条</span>
+                <span className={styles.groupCount}>生效 {group.active_count} · 归档 {group.archived_count}</span>
               </button>
               {isOpen && (
                 <div className={styles.memoryList}>
@@ -152,7 +152,18 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, c
                       onClick={() => { setSelected(memory) }}
                     >
                       <span className={styles.cardTop}>
-                        <span className={styles.typeBadge}>{memory.memory_type_label}</span>
+                        <span className={styles.badges}>
+                          <span className={styles.typeBadge}>{memory.memory_type_label}</span>
+                          {memory.domain !== null && memory.domain !== undefined && (
+                            <span className={styles.domainBadge}>{domainLabel(memory.domain)}</span>
+                          )}
+                          {memory.outcome !== null && memory.outcome !== undefined && (
+                            <span className={styles.outcomeBadge} data-outcome={memory.outcome}>
+                              {outcomeLabel(memory.outcome)}
+                            </span>
+                          )}
+                          {memory.is_executable === true && <span className={styles.execBadge}>可执行</span>}
+                        </span>
                         <time>{formatDate(memory.updated_at ?? memory.created_at)}</time>
                       </span>
                       <span className={styles.content}>{memory.content}</span>
@@ -175,6 +186,14 @@ export function MemoryPage({ snapshot, loading, error, onRefresh, loadHistory, c
 
 function Stat({ label, value, tone }: { label: string; value: number | undefined; tone: string }) {
   return <div className={styles.stat} data-tone={tone}><span>{label}</span><strong>{value ?? '—'}</strong></div>
+}
+
+function domainLabel(domain: string): string {
+  return ({ alfworld: 'ALFWorld', daily: '日常', browser: '浏览器' } as Record<string, string>)[domain] ?? domain
+}
+
+function outcomeLabel(outcome: string): string {
+  return ({ success: '成功', failure: '失败', unknown: '未知' } as Record<string, string>)[outcome] ?? outcome
 }
 
 function formatDate(value: string | null): string {

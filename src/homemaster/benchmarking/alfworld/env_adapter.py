@@ -355,6 +355,20 @@ class AlfworldEnvAdapter:
     ) -> AlfworldResetResult:
         if self._lifecycle in {"closed", "quarantined"}:
             raise RuntimeError(f"cannot reset an ALFWorld adapter in {self._lifecycle} state")
+        unsupported_task = _unsupported_task_type(selection_entry)
+        if unsupported_task is not None:
+            result = AlfworldResetResult(
+                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
+                ready=False, state=None, scene_generation=None, goal_generation=None,
+                scene_reset_fingerprint=None, goal_trial_fingerprint=selection_entry.goal_fingerprint,
+                snapshot_sha256=None, snapshot_ref=None, setup_trigger="setup_unexpected",
+                setup_failure="setup_unexpected", classification="runtime_failure",
+                score_eligible=False, setup_backend_action_count=0, recovery_status="not_needed",
+                cleanup_status="not_needed", quarantine_required=False,
+                environment_disposition="not_started", evidence_ref=None,
+            )
+            self._last_reset_result = result
+            return result
         try:
             state = self._reset_state()
         except Exception:
@@ -2841,6 +2855,7 @@ def _execute_heat(thor_env: Any, tool_args: dict[str, Any]) -> _ThorActionResult
         return _failed_thor_action(tool.feedback, {"tool_resolution": tool})
     held_id = str(held.get("objectId", ""))
     actions = [
+        {"action": "ToggleObjectOff", "objectId": tool.object_id, "forceAction": True},
         {"action": "OpenObject", "objectId": tool.object_id, "forceAction": True},
         {
             "action": "PutObject",
@@ -2925,6 +2940,7 @@ def _execute_clean(thor_env: Any, tool_args: dict[str, Any]) -> _ThorActionResul
     faucet_id = str(faucet.get("objectId", ""))
     held_id = str(held.get("objectId", ""))
     actions = [
+        {"action": "ToggleObjectOff", "objectId": faucet_id, "forceAction": True},
         {
             "action": "PutObject",
             "objectId": held_id,
@@ -2946,8 +2962,6 @@ def _execute_clean(thor_env: Any, tool_args: dict[str, Any]) -> _ThorActionResul
             "faucet_object_id": faucet_id,
         },
     )
-    if result.success:
-        _clean_dirty_objects_in_receptacle(thor_env, sink.object_id)
     return result
 
 
@@ -2959,23 +2973,70 @@ def _run_thor_macro(
     resolved: dict[str, Any],
 ) -> _ThorActionResult:
     backend_actions: list[str] = []
+    state_actions = {
+        "OpenObject": ("isOpen", True),
+        "CloseObject": ("isOpen", False),
+        "ToggleObjectOn": ("isToggled", True),
+        "ToggleObjectOff": ("isToggled", False),
+    }
+
+    def failure(message: str) -> _ThorActionResult:
+        return _ThorActionResult(
+            success=False, feedback=message, backend_actions=backend_actions,
+            resolved=_resolved_payload(resolved),
+        )
+
     for action in actions:
+        kind = str(action["action"])
+        object_id = str(action["objectId"])
+        expected = state_actions.get(kind)
+        obj = _object_by_id(thor_env, object_id)
+        if obj is None:
+            return failure(f"{kind}: exact target disappeared.")
+        if expected is not None and obj.get(expected[0]) is expected[1]:
+            continue
         event = _thor_step(thor_env, action)
-        backend_actions.append(str(action.get("action", "")))
+        backend_actions.append(kind)
         if not _event_success(event):
-            return _ThorActionResult(
-                success=False,
-                feedback=(
-                    f"{action.get('action', 'action')} failed: "
-                    f"{_event_error(event) or 'Nothing happens.'}"
-                ),
-                backend_actions=backend_actions,
-                resolved=_resolved_payload(resolved),
+            return failure(f"{kind} failed: {_event_error(event) or 'Nothing happens.'}")
+        obj = _object_by_id(thor_env, object_id)
+        metadata = getattr(thor_env.last_event, "metadata", {})
+        inventory = metadata.get("inventoryObjects")
+        inventory_ids = (
+            {item.get("objectId") for item in inventory}
+            if isinstance(inventory, list) else None
+        )
+        valid = obj is not None
+        if expected is not None:
+            valid = valid and obj.get(expected[0]) is expected[1]
+        elif kind == "PutObject":
+            target_id = str(action["receptacleObjectId"])
+            target = _object_by_id(thor_env, target_id)
+            valid = (
+                valid and inventory_ids == set() and obj.get("isPickedUp") is False
+                and target_id in (obj.get("parentReceptacles") or [])
+                and target is not None
+                and object_id in (target.get("receptacleObjectIds") or [])
             )
+        elif kind == "PickupObject":
+            valid = valid and inventory_ids == {object_id} and obj.get("isPickedUp") is True
+        if not valid:
+            return failure(f"execution_state_uncertain: {kind} receipt contradicts external state.")
+        # Native ALFWorld owns these predicates; the adapter never writes the sets.
+        processed_set = None
+        if kind == "ToggleObjectOn" and obj.get("objectType") == "Microwave":
+            processed_set = "heated_objects"
+        elif kind == "ToggleObjectOn" and obj.get("objectType") == "Faucet":
+            processed_set = "cleaned_objects"
+        elif kind == "CloseObject" and obj.get("objectType") == "Fridge":
+            if resolved.get("held_object_id") in (obj.get("receptacleObjectIds") or []):
+                processed_set = "cooled_objects"
+        if processed_set is not None and resolved.get("held_object_id") not in getattr(
+            thor_env, processed_set, ()
+        ):
+            return failure(f"execution_state_uncertain: native {processed_set} predicate not met.")
     return _ThorActionResult(
-        success=True,
-        feedback=success_feedback,
-        backend_actions=backend_actions,
+        success=True, feedback=success_feedback, backend_actions=backend_actions,
         resolved=_resolved_payload(resolved),
     )
 
@@ -5129,4 +5190,17 @@ def _latest_thor_frame(env: Any) -> Any | None:
             nested = getattr(item, attr, None)
             if nested is not None:
                 pending.append(nested)
+    return None
+
+
+def _unsupported_task_type(selection_entry: TrialSelectionEntry | None) -> str | None:
+    if selection_entry is None:
+        return None
+    try:
+        identity = json.loads(selection_entry.goal_identity)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    task_type = identity.get("task_type") if isinstance(identity, dict) else None
+    if task_type == "pick_and_place_with_movable_recep":
+        return task_type
     return None
