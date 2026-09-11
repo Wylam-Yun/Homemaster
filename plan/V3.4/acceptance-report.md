@@ -1,8 +1,8 @@
 # V3.4 acceptance-report — process backend (process-001)
 
 > 去敏结论 + 证据引用。原始证据在 gitignored 的 `.runtime/v34/acceptance/process-001/`，
-> 以 `manifest.json`（schema 1）为索引。结论：process 后端 **PASS**；
-> ALFWorld 真后端与真机**未验收**，不得宣称可用。
+> 以 `manifest.json`（schema 1）为索引。结论：process 后端 **PASS**；ALFWorld 真后端 **PASS（范围见 §6，真机除外）**；
+> 真机**未验收**，不得宣称可用。
 
 ## 1. 范围与环境
 
@@ -37,7 +37,8 @@
 | HTTP 提交＋sqlite 直读＋重启持久 | PASS | — | 未验收 |
 | 真实浏览器整轮＋截图 | PASS | — | 未验收 |
 | 适配器映射（fake seam） | — | PASS（非真机） | — |
-| 真后端／真机门 | — | 未验收 | 未验收 |
+| 真后端门（THOR） | — | PASS（§8） | — |
+| 真机门 | — | — | 未验收 |
 
 ## 3. 黑盒逐目标结论（16/16，见 `pytest-process_blackbox.log`）
 
@@ -78,14 +79,26 @@
 - 撤销进入后列表消失；重发动作出现新申请卡（截图 `04`），DOM 同样无内部 ID。
 - 重启服务：撤销记录保留、生效为空、悬挂请求标为 `interrupted`（符合 store 恢复语义）。
 
-## 6. 未验收项与上线门
+## 6. 真后端（THOR）验证与未验收项
+
+`scripts/verify_v34_thor.py` 在 hkust4 真实 THOR（ai2thor 2.1.0，`alfworld-venv`，
+`DISPLAY=:99`，trial `pick_and_place_simple-Mug-None-Desk-308`）上通过，
+证据 `.runtime/v34/acceptance/thor-001/`（`manifest.json` result pass，
+`evidence.json` 全量记录）：reset 就绪、权威对象索引可用、生产路径解析
+（`mug` → 唯一 `Mug|-02.05|+01.35|+00.45`，未知标签拒绝）、prepare 绑定真实 ID
+（含内部导航两步）、真实导航（`Reached mug 1 at shelf 5.`）与拿取
+（`Picked up mug.`，`backend_code=thor-ok`）、THOR 元数据独立库存读回一致、
+`observe=succeeded`、导航→操作 ID 交接一致。
+
+关键发现（finding，非失败）：**THOR 坐标式 ID 跨 reset 不稳定**
+（同 trial 重置后 `Mug|-02.05|+01.35|+00.45` 变为不可解析；跨 scene 同标签为
+不同 ID `Mug|+00.90|+00.94|-02.11`）。因此长授不得跨越 reset 边界——当前实现
+天然满足（键精确匹配＋binding 重验，失配即 fail closed 重问），无需改代码；
+`docs/architecture/permissions.md` 真机节的 epoch 条款已覆盖此语义。
 
 - **真机未验收**：无真实驱动、地图／物品档案、物品 ID 与当前区域接口。
   授权真实操作前须按用户现场操作范围执行 Task 1 适配契约＋上述适用场景，
   读取物品／位置终态并核对设备返回码。
-- **ALFWorld 真后端未验收**：hkust4 无 THOR 运行时。Fake-seam 适配器测试通过
-  （见 `pytest-alfworld_adapter_fake_seam.log`），但不得充作仿真结果；
-  需真实 THOR 跑稳定 ID、跨 scene、内部导航、未知回执逐项核对。
 
 ## 7. 证据引用
 

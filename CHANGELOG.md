@@ -18,6 +18,13 @@
 
 ### Changed
 
+- Verified the ALFWorld adapter against real THOR (ai2thor 2.1.0, pinned trial):
+  authoritative index, production grounding/index/object-id reconciliation, prepare
+  bound to the real id with internal navigation, real nav+take with thor-ok receipts,
+  independent inventory readback match, and nav-to-manipulate id handoff. Empirical
+  finding: position-based ids change across resets, so grants never cross a reset
+  boundary (exact-match plus binding revalidation already fail closed; no code change).
+
 - Completed V3.4 household permission docs and handoff: new user guide (bedroom-cup
   walkthrough, three choices, destination-only, revocation, per-channel behavior) and
   architecture record (invariants, data flow, final interfaces, hardware onboarding);

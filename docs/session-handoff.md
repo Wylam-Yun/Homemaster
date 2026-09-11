@@ -1,5 +1,13 @@
 # Session Handoff
 
+## V3.4 THOR real-backend PASS — 2026-09-11
+
+- `scripts/verify_v34_thor.py` 跑通真实 THOR：reset/索引/生产解析/prepare/真实导航
+  拿取/独立库存读回/observe/ID 交接全 PASS（`thor-001/manifest.json` result pass）。
+- 实证：坐标式 ID 跨 reset 不稳定（重摆位即变），跨 scene 同标签不同 ID；
+  长授精确匹配＋binding 重验天然 fail closed，无需改代码，结论已写入验收报告 §6。
+- 剩余未验收：真机（无驱动／地图／物品档案）。Fake-seam 测试保留为回归层。
+
 ## V3.4 Task10 done — docs, migration notes, final handoff — 2026-09-10
 
 - Scope: new `docs/permissions-user-guide.md`, `docs/architecture/permissions.md`;
