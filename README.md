@@ -412,6 +412,46 @@ scripts/homemaster benchmark-alfworld \
   --observation-mode visual_eval
 ```
 
+#### 单 episode 起跑流程（已验证配方）
+
+> 用 `single_mug_manifest.json`（put a mug in desk）三轮验证通过：空库失败轮、
+> 空库成功轮、有库召回轮。`memory_mode` 必须保持 disabled（legacy 守卫，
+> `AlfworldApplicationEntry` 会拒绝其他值）；记忆链由临时配置的 `memory.enabled`
+> 控制，与 benchmark flag 无关。
+
+1. 起跑前检查：无活跃 benchmark 进程、benchmark flock 空闲、Xvfb 在 `:99` 运行、
+   本轮全部路径（trace/memory/临时配置/stdout/stderr/rc/pid）都不存在——fail-closed，
+   run_id 永不复用。
+2. 生成隔离临时配置：复制 `config/homemaster.yaml`，只改 `memory.data_root` 为绝对路径
+   空目录，存 `.runtime/<run-id>.yaml` 且 mode 0600。放 `.runtime/` 是为了让相对路径的
+   Neo4j/Java 继续解析正确；Neo4j 数据目录派生自 `data_root`，因此与共享记忆完全隔离。
+3. 后台启动（子命令必须在前、`DISPLAY=:99` 必须导出、`--memory-mode` 必须省略）：
+
+```bash
+export DISPLAY=:99
+scripts/homemaster benchmark-alfworld \
+  --alfworld-root .runtime/alfworld \
+  --alfworld-config .runtime/alfworld/configs/base_config.yaml \
+  --trace-root .runtime/<run-id>-trace \
+  --env-type AlfredThorEnv --split valid_unseen --episodes 1 \
+  --trial-manifest .runtime/single_mug_manifest.json \
+  --run-id <run-id> --observation-mode visual_eval \
+  --api-config .runtime/<run-id>.yaml \
+  > .runtime/<run-id>.stdout 2> .runtime/<run-id>.stderr; echo $? > .runtime/<run-id>.rc
+```
+
+4. 验收（缺一不可）：`rc=0` 且 stderr 无 traceback；`episode-0001/summary.json` 的
+   `success/outcome`；`trajectory_memory.json` 与入库 trajectory JSON 一致；派生经验
+   `success→executable procedure`、`unknown→diagnostic`。
+5. 有库对照轮：`--api-config` 指向已有成功 procedure 那轮的临时配置即可（trace/run
+   仍用新 ID）；新 episode 首轮自动注入 `<memory-context>`（top_k=5），以
+   `runtime_events.jsonl` 里 `memory.automatic_recall status=ok count=N` 为准，
+   不要只看模型口头是否提到记忆。
+
+已知坑：`--config` 放 launcher 首参数会误用正式 Python（缺 ai2thor）；手拼 PYTHONPATH
+容易指错 MindMemOS 源码根；无 X server 时 THOR 报 `Invalid DISPLAY`（先起 `Xvfb :99`）；
+`--memory-mode full` 会被 entry 直接拒绝。
+
 见 [ALFWorld 用户指南](docs/alfworld-user-guide.md) 与
 [ALFWorld Harness 架构](docs/architecture/alfworld-harness.md)。
 

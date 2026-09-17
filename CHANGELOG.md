@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-17 — V3.6 实施前归档点
+
+- Archive the current HomeMaster checkpoint with the verified single-episode ALFWorld runbook and the V3.5/V3.6 architecture, schema-memory specification, and implementation plan; no V3.6 runtime changes are included.
+
 ## 2026-09-10 — ALFWorld visual adapter 修复
 
 - 修复 `heat/cool/clean` 的确定性导航目标，改进 THOR 宏动作的状态与原生 predicate 校验，并保留失败轨迹证据。
