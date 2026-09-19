@@ -33,7 +33,13 @@ class SchemaExtractionNormalizer(SchemaExtractionNormalizerProtocol):
         raw_memory["entities"] = prepared_entities
         return raw_memory
 
-    def validate(self, raw_memory: dict[str, Any], *, entity_manager: Any = None) -> str | None:
+    def validate(
+        self,
+        raw_memory: dict[str, Any],
+        *,
+        entity_manager: Any = None,
+        fixed_entity_type: str | None = None,
+    ) -> str | None:
         """Validate raw schema extraction output and repair safe schema mismatches."""
 
         if not raw_memory or "entities" not in raw_memory:
@@ -70,6 +76,11 @@ class SchemaExtractionNormalizer(SchemaExtractionNormalizerProtocol):
         fallback_type = sorted(fallback_types)[0] if fallback_types else None
         for entity in raw_memory.get("entities", []):
             entity_type = entity.get("entity_type")
+            if fixed_entity_type is not None and entity_type != fixed_entity_type:
+                return (
+                    f"Fixed extractor {fixed_entity_type} emitted entity type "
+                    f"{entity_type}"
+                )
             if entity_type and entity_type not in valid_types and fallback_type:
                 entity["entity_type"] = fallback_type
 

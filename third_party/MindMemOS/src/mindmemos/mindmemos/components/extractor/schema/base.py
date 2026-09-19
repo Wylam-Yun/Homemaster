@@ -12,13 +12,30 @@ class SchemaEpisodeExtractor(Protocol):
 
     async def extract_episode(self, *, conversation_text: str, dialogue_timestamp: str) -> dict[str, Any]: ...
 
+    async def extract_fixed_episode(
+        self,
+        *,
+        entity_type: str,
+        conversation_text: str,
+        dialogue_timestamp: str,
+        provenance: dict[str, Any],
+        prompt_template: str,
+        entity_manager: Any = None,
+    ) -> dict[str, Any]: ...
+
 
 class SchemaExtractionNormalizerProtocol(Protocol):
     """Protocol for schema extraction result normalization."""
 
     def normalize(self, raw_memory: dict[str, Any], dialogue_timestamp: str) -> dict[str, Any]: ...
 
-    def validate(self, raw_memory: dict[str, Any]) -> str | None: ...
+    def validate(
+        self,
+        raw_memory: dict[str, Any],
+        *,
+        entity_manager: Any = None,
+        fixed_entity_type: str | None = None,
+    ) -> str | None: ...
 
 
 class SchemaMergePolicyProtocol(Protocol):

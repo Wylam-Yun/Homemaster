@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from mindmemos.components.extractor.schema._schema_utils import (
     strip_for_generation,
 )
 from mindmemos.components.extractor.schema.search_field import SchemaSearchFieldExtractor
+from mindmemos.components.extractor.schema.schema_extractor import SchemaAddExtractor
 from mindmemos.typing.memory import MemoryRequestContext
 
 
@@ -209,6 +211,10 @@ def test_parse_json_object_handles_fenced_json() -> None:
         ("person", "task_experience", "experience"),
         ("task_experience", "default_property", "experience"),
         ("task", "task_experience", "experience"),
+        ("object_location", "episode_record", "fact"),
+        ("search_observation", "episode_record", "fact"),
+        ("task_procedure", "episode_record", "experience"),
+        ("episodes", "episode_record", "episodic"),
         ("organization", "service_info", "fact"),
         (None, None, "fact"),
     ],
@@ -221,3 +227,123 @@ def test_schema_memory_type_maps_schema_labels_to_display_types(entity_type, pro
 def test_parse_json_object_raises_for_invalid_json(content: str) -> None:
     with pytest.raises(ValueError):
         parse_json_object(content)
+
+
+class _FixedEntityManager:
+    def get_all_dicts(self):
+        return [
+            {
+                "entity_type": entity_type,
+                "dynamic_property": {"episode_record": {"type": "string"}},
+            }
+            for entity_type in (
+                "object_location",
+                "search_observation",
+                "task_procedure",
+                "episodes",
+            )
+        ]
+
+    def list_types(self):
+        return [item["entity_type"] for item in self.get_all_dicts()]
+
+
+class _FixedLlm:
+    def __init__(self, outputs):
+        self.outputs = list(outputs)
+        self.tasks = []
+
+    async def chat(self, *, task, messages, format_parser):
+        self.tasks.append(task)
+        parsed = self.outputs.pop(0)
+        return SimpleNamespace(parsed=parsed)
+
+
+def _fixed_raw(entity_type: str) -> dict:
+    return {
+        "entities": [
+            {
+                "name": f"candidate-{entity_type}",
+                "entity_type": entity_type,
+                "description": "summary",
+                "properties": [
+                    {
+                        "property_name": "episode_record",
+                        "value": json.dumps(
+                            {"type": entity_type, "summary": "summary"}
+                        ),
+                    }
+                ],
+            }
+        ],
+        "edges": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_fixed_schema_extractor_skips_router_and_reports_empty() -> None:
+    llm = _FixedLlm([{"entities": [], "edges": []}])
+    extractor = SchemaAddExtractor(
+        llm_client=llm,
+        prompt_set=SimpleNamespace(),
+        entity_manager=_FixedEntityManager(),
+        enable_schema_selection=True,
+    )
+
+    result = await extractor.extract_fixed_episode(
+        entity_type="object_location",
+        conversation_text="episode",
+        dialogue_timestamp="2026-09-17 10:00:00",
+        provenance={"source_event_ids": ["evt-1"]},
+        prompt_template="{entity_schema}|{dialogue_timestamp}|{provenance}|{chat_chunk}",
+    )
+
+    assert result["status"] == "not_detected"
+    assert result["candidate_count"] == 0
+    assert llm.tasks == ["memory.add.fixed_episode.object_location"]
+
+
+@pytest.mark.asyncio
+async def test_fixed_schema_extractor_accepts_only_its_own_type() -> None:
+    llm = _FixedLlm([_fixed_raw("search_observation")])
+    extractor = SchemaAddExtractor(
+        llm_client=llm,
+        prompt_set=SimpleNamespace(),
+        entity_manager=_FixedEntityManager(),
+        enable_schema_selection=True,
+    )
+
+    result = await extractor.extract_fixed_episode(
+        entity_type="search_observation",
+        conversation_text="episode",
+        dialogue_timestamp="2026-09-17 10:00:00",
+        provenance={},
+        prompt_template="{entity_schema}{dialogue_timestamp}{provenance}{chat_chunk}",
+    )
+
+    assert result["status"] == "completed"
+    assert result["candidate_count"] == 1
+    assert result["raw_memory"]["entities"][0]["entity_type"] == "search_observation"
+
+
+@pytest.mark.asyncio
+async def test_fixed_schema_extractor_rejects_cross_type_output_after_retries() -> None:
+    wrong = _fixed_raw("task_procedure")
+    llm = _FixedLlm([wrong, wrong, wrong])
+    extractor = SchemaAddExtractor(
+        llm_client=llm,
+        prompt_set=SimpleNamespace(),
+        entity_manager=_FixedEntityManager(),
+        enable_schema_selection=False,
+    )
+
+    with pytest.raises(ValueError, match="object_location emitted entity type task_procedure"):
+        await extractor.extract_fixed_episode(
+            entity_type="object_location",
+            conversation_text="episode",
+            dialogue_timestamp="2026-09-17 10:00:00",
+            provenance={},
+            prompt_template="{entity_schema}{dialogue_timestamp}{provenance}{chat_chunk}",
+        )
+
+    assert len(llm.tasks) == 3

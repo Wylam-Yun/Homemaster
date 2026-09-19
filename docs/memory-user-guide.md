@@ -39,7 +39,23 @@ system prompt 不变；新 session 才看到新快照。结构化检索不授予
 ALFWorld trajectory 的编译入口也是幂等的：同一个不可变 source memory 和当前 compiler version
 重复提交会返回已有 durable job receipt，而不会重复创建编译任务。最终状态仍以 job receipt、Qdrant
 readback 和 Neo4j lineage readback 为准。
-Shell `/new` 不等待旧 session 的 Vanilla Add，可以直接开始下一段对话。
+Shell `/new` 不等待旧 session 的 schema add，可以直接开始下一段对话。
+
+V3.6 在 finalization 时只提交一次完整 episode。系统按 `session_id + run_id + tool_call_id` 配对真实调用与
+结果，把同一份规范化轨迹同时交给 `object_location`、`search_observation` 和 `task_procedure` 三个固定
+extractor；三类不是三选一，也不会把一次 session 拆成三次顶层写入。候选合并后只运行一次 MindMemOS planner
+和一次 mutation writer，最终以 Qdrant active raw memory、Neo4j 关系和 operation receipt 的读回为准。
+
+步骤编号、工具参数和原始返回由代码从轨迹生成，不依赖模型重新抄写。例如模型给出
+`"steps": [{"tool_call_id": "call-1"}]`，代码会取该次调用的真实参数和结果，生成从 1 开始的步骤编号。
+搜索动作也可引用同一调用 ID。未知、冲突或乱序引用不会入库；缺少任务成功证据时，即使某个工具返回成功，
+过程记忆也保持不可执行。已保存的轨迹可以重新执行 finalization，无需重新启动视觉环境。
+
+召回内容保留领域类型、outcome、`is_executable`、`reusable_steps` 和 `failure_lesson`。例如一次“检查客厅桌面
+未找到药品 -> 打开卧室抽屉 -> 找到并拿取”的轨迹，可以同时召回：客厅桌面的 `not_found` 搜索观察、药品在
+卧室抽屉的最近位置，以及包含失败前缀和修正动作的过程经验。只有有外部任务成功证据且每个推荐步骤都能对应
+真实工具结果时，最终成功路径才会标记为可执行；失败步骤仍保留为 lesson，但不会混入 `reusable_steps`。
+失败、部分完成和 unknown 过程不会自动升级成 `ProcedureRecord`，也不会绕过当前任务的权限、对象绑定和现场检查。
 
 正常 application shutdown 会先 seal/drain FIFO，再关闭 embedded MindMemOS 和 Neo4j。只有 FIFO 已启动且
 MindMemOS 确实 available 时才接收 finalization；memory runtime 未启动时 session close 是 no-op，不会把晚到的
@@ -47,6 +63,11 @@ memory traceback 混入主任务结果。进程强杀仍可能丢失尚未执行
 没有 reset/expiry/end 事件，因此不会错误地逐消息 finalize。
 
 ## 配置
+
+轨迹记忆入口现允许最多 **3 MiB（3,145,728 字节）UTF-8 JSON**，超过上限会明确失败，不会静默截断。
+规范化时排除助手回复，去掉已保存在工具步骤中的重复参数；原始 trace、工具返回和证据 ID 保留。
+例如 48 次工具调用的平底锅轨迹从 526,321 字节缩至 501,343 字节。该上限不保证模型上下文足够，
+也不表示已接回自动 episode 切分；超长任务的原生 chunker 接入属于后续阶段。
 
 复制模板并保持真实配置私有：
 
@@ -187,8 +208,8 @@ Neo4j Memory/Source/`EXTRACTED_FROM`。两个数据库逐项回读成功后返�
 Entity ID、entity vector 和 `MENTIONS` 写入。增强失败不会把已经确认存储的 Add 伪装成失败并诱发重复添加。
 `fact` 原生存为 `fact`，`procedure` 原生存为 `experience`。
 
-显式 flat Add 不再进入 Finalizer 的串行 FIFO，因此耗时的旧 Session Finalizer 不会挡住新 Add。Finalizer 的
-Vanilla extractor 与 Add config 都启用 Entity，然后按顺序运行 implicit feedback 和可选 dreaming，确保
+显式 flat Add 不再进入 Finalizer 的串行 FIFO，因此耗时的 Session Finalizer 不会挡住新 Add。Finalizer 的
+三个固定 schema extractor 共用完整 episode，候选合并后进入原生 planner/writer，然后按顺序运行 implicit feedback 和可选 dreaming，确保
 Dreaming 能获得 `Memory-[:MENTIONS]->Entity` scope。`/new` 排入旧 Session Finalizer 后随即创建新 Session。
 正常 one-shot/Gateway/Application 退出会封住新入队并 drain 增强与 Finalizer；当前 run 被 Ctrl+C 取消不会
 取消已经入队的后台工作。进程崩溃、断电或 `kill -9` 仍可能丢失进程内任务。

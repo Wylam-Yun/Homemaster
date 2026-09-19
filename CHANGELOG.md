@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-19 - Compact Schema Input And 3 MiB Admission
+
+- Exclude assistant commentary and duplicate event arguments after deterministic tool pairing. Preserve event IDs,
+  exact tool steps/results, task and terminal evidence; resolve coordinate input evidence from paired arguments.
+- Raise canonical schema input ceiling from 512 KiB to 3 MiB UTF-8 inclusive, with multibyte boundary regressions.
+  Original traces remain intact. This phase does not restore automatic chunking or guarantee provider context capacity.
+
+## 2026-09-19 - Deterministic Schema Evidence Compilation
+
+- Compile procedure numbering, exact tool payloads and reusable indices from trace references instead of LLM copies;
+  accept exact call IDs and supported event-ID aliases while rejecting unknown, conflicting, duplicate or reordered
+  references. Fix the zero-based normalization NameError and keep external-goal executability checks.
+- Align all three extraction prompts with semantic candidate examples rather than storage schemas. Search actions
+  can reference exact tool calls; optional absent outcome evidence remains non-executable. Unsupported causal lessons
+  still fail evidence validation. Replay the saved visual episode without launching a new simulator.
+- Verify 111 tests plus real finalization (exit 0), one active memory per domain and independent Neo4j relationships;
+  retain the failed task's seven observed steps as non-executable experience.
+
+## 2026-09-18 — V3.6 轨迹 Schema Memory
+
+- Replace session vanilla experience writes with one episode-level schema add using fixed object-location, search-observation, and task-procedure extractors; preserve failure lessons separately from externally verified reusable steps.
+
 ## 2026-09-17 — V3.6 实施前归档点
 
 - Archive the current HomeMaster checkpoint with the verified single-episode ALFWorld runbook and the V3.5/V3.6 architecture, schema-memory specification, and implementation plan; no V3.6 runtime changes are included.

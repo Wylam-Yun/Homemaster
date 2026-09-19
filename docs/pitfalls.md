@@ -1,3 +1,71 @@
+## 2026-09-19 - Fixed schema ingress bypassed chunking and rejected a long trajectory
+
+The 144618 pan run produced 526,321 canonical UTF-8 bytes, exceeding the 524,288-byte ingress gate before the native
+pipeline ran. The fixed-schema branch also bypasses EpisodesChunker, so automatic splitting never had a chance to help.
+Do not confuse raw trace file size with canonical input size, or message-count chunking with byte/context budgeting.
+Phase 1 removes assistant commentary and duplicate event arguments after pairing, preserving tool payloads and cited
+event IDs; coordinate validation must also consult paired arguments. The 3 MiB ceiling is explicit admission only.
+Never delete started-event IDs just because arguments are duplicated: existing evidence references include those IDs.
+Ref: `schema_episode.py`, `schema_episode_validation.py`, `mindmemos_runtime.py`; replay `/tmp/hm-phase1-replay.log`.
+
+## 2026-09-19 - LLM storage-field copies blocked all schema memory domains
+
+### Symptom and root cause
+
+The real visual watch-to-safe episode reached finalization, but task steps omitted indices, used `event_ids`,
+and summarized results rather than preserving actual payloads. The zero-based patch also contained unquoted Python
+identifiers. Existing canonical-only tests never exercised either branch. All-domain validation precedes planning,
+so one bad candidate prevented all three domain writes. The prompt mixed semantic-only instructions with the full
+storage schema, inducing schema copies, action labels and nested retries instead of stable candidate references.
+
+### Repair and lesson
+
+Compile exact tool fields and numbering from unambiguous call/event references; resolve search actions the same way.
+Use semantic-only examples and retain external-goal gates. Do not infer execution success from tool success, or
+accept an unsupported string lesson as an evidenced cause. The first repair replay exposed call-ID string shorthand
+and search action labels; its retries were interrupted before rerunning with the consistent contract.
+Canonical unit tests alone were insufficient: reproduce captured candidates and read every domain back from storage.
+
+### Ref
+
+- `src/homemaster/memory/schema_episode_validation.py`
+- `src/homemaster/memory/schema_episode_prompts.json`
+- `tests/homemaster/experience/test_schema_episode.py`
+- Visual source: `alfworld-thor-memory-demo-20260919-122302-0001`
+- Remote replay evidence: `/tmp/hm-schema-replay-20260919/`
+- Acceptance: 111 tests passed; real finalizer completed and exited 0; all three domains independently read back
+  active from memory storage and with Neo4j `MENTIONS` / `HAS_PROPERTY_MEMORY` relationships. The successful replay
+  retained one rejected invalid-reference attempt in its log before recovery; no evidence checks were bypassed.
+
+## 2026-09-18 - Prepared schema receipt must not be finalized after persistence
+
+### 症状与根因
+
+V3.6 的 schema episode receipt 在生成时先写入 `episode_id="pending"`，执行结束后才修改内存对象。prepared receipt 已经持久化时仍可能保留临时 ID，导致 prepared replay、add receipt 和 finalizer job 互相无法可靠关联。单纯检查最终返回对象会得到假阳性。
+
+### 修法与教训
+
+在构造 receipt 时传入已经确定的 `_EpisodeTask.episode_id`，再持久化 prepared payload；保留回归断言，并用 crash-injection 对持久化 payload 和外部 readback 做独立验收。凡是会被写入重放记录的身份字段，禁止事后只改内存对象。
+
+### Ref
+
+- `third_party/MindMemOS/src/mindmemos/mindmemos/pipelines/add/schema/schema_add.py`
+- `third_party/MindMemOS/tests/workers/test_schema_add_episode.py`
+## 2026-09-18 - Stable add-record IDs must satisfy the external vector-store contract
+
+### 症状与根因
+
+真实本地 Qdrant 在写入 schema episode 的 add record 时拒绝了 `schema-episode-<uuid>`：虽然业务上看起来是稳定 ID，但 Qdrant point ID 只接受 UUID-compatible 值。单测使用 fake reader/recorder，没有触发真实存储校验，因此全绿后才在黑盒 gate 暴露。
+
+### 修法与教训
+
+直接使用稳定材料生成的 UUID5 作为 add-record ID，语义信息放在 ingress 和 metadata 中。凡是外部系统有 ID 格式约束，必须用真实客户端写入做黑盒验证，不能只验证本地幂等字符串。
+
+### Ref
+
+- `src/homemaster/memory/mindmemos_runtime.py`
+- `tests/homemaster/memory/test_mindmemos_runtime.py`
+- `tests/homemaster/memory/test_schema_episode_alfworld_integration.py`
 ## 2026-09-10 - Empty-requirements prepared calls silently skip execution
 
 ### 症状与根因

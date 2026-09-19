@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from qdrant_client import models as qmodels
 
@@ -46,7 +46,7 @@ class AddRecordBuffer:
         *,
         force_generation: bool,
         source_add_record_id: str | None = None,
-    ) -> None:
+    ) -> list[str]:
         """Persist incoming add messages as queued buffer records.
 
         Args:
@@ -55,9 +55,54 @@ class AddRecordBuffer:
             force_generation: Whether the final buffered message should force episode generation.
         """
         added_at = datetime.now(UTC)
+        fixed_episode = inp.metadata.get("ingress") == "homemaster_schema_episode_v1"
+        if fixed_episode and source_add_record_id is not None:
+            existing = await self.list_by_source_add_record_id(
+                ctx, source_add_record_id, limit=max(100, len(inp.messages))
+            )
+            existing = [
+                record
+                for record in existing
+                if (record.payload.get("metadata") or {}).get("ingress")
+                == "homemaster_schema_episode_v1"
+            ]
+            if existing:
+                status_order = {
+                    "processing": 0,
+                    "episode_queued": 1,
+                    "buffered": 2,
+                    "failed": 3,
+                    "processed": 4,
+                }
+                canonical = min(
+                    existing,
+                    key=lambda record: (
+                        status_order.get(record.payload.get("buffer_status"), 99),
+                        record.buffer_sequence,
+                        record.add_record_id,
+                    ),
+                )
+                duplicates = [
+                    record.add_record_id
+                    for record in existing
+                    if record.add_record_id != canonical.add_record_id
+                ]
+                if duplicates:
+                    await self._store.delete_many(duplicates)
+                return [canonical.add_record_id]
+
         points: list[SchemaAddBufferPoint] = []
         for index, message in enumerate(inp.messages):
-            schema_buffer_record_id = str(uuid4())
+            schema_buffer_record_id = (
+                str(
+                    uuid5(
+                        NAMESPACE_URL,
+                        f"homemaster-schema-episode-buffer:{source_add_record_id}",
+                    )
+                )
+                if fixed_episode and source_add_record_id is not None and len(inp.messages) == 1
+                else str(uuid4())
+            )
             message_input = inp.model_copy(
                 update={
                     "messages": [message],
@@ -86,6 +131,30 @@ class AddRecordBuffer:
             )
             points.append(point)
         await self._store.append_many(points)
+        return [point.schema_buffer_record_id for point in points]
+
+    async def list_by_source_add_record_id(
+        self,
+        ctx: MemoryRequestContext,
+        source_add_record_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[BufferedAddRecord]:
+        """Load all buffer records belonging to one source add request."""
+
+        qfilter = build_filter(
+            must=[
+                match_value("buffer_key", buffer_key(ctx)),
+                match_value("source_add_record_id", source_add_record_id),
+            ]
+        )
+        records, _ = await self._store.list(
+            ctx.project_id,
+            filters=qfilter,
+            limit=limit,
+            order_by=_buffer_order(),
+        )
+        return [_to_buffered(record) for record in records]
 
     async def list_buffered(self, ctx: MemoryRequestContext, *, limit: int) -> list[BufferedAddRecord]:
         """List buffered records for the request context.

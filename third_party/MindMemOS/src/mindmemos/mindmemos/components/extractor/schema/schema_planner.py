@@ -261,6 +261,7 @@ class SchemaAddPlanner:
                         memory_id=entity_write.entity_id,
                         mem_type=schema_memory_type(entity_write.entity_type),
                         related_memory_ids=[m.memory_id for m in all_prop_memories],
+                        metadata={"schema_entity_type": entity_write.entity_type},
                     )
                 )
 
@@ -1257,6 +1258,7 @@ class SchemaAddPlanner:
                     memory_id=entity_id,
                     mem_type=schema_memory_type(entity_type),
                     related_memory_ids=list(dict.fromkeys(related)),
+                    metadata={"schema_entity_type": entity_type},
                 )
             )
         return events

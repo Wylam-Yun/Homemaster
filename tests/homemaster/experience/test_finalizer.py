@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,18 +21,61 @@ class FakeMindMemOS:
     def __init__(self) -> None:
         self.calls = []
 
-    async def add_vanilla(self, messages, context, *, metadata):
-        self.calls.append((messages, context, metadata))
+    async def add_schema_episode(self, episode, context, *, metadata):
+        self.calls.append((episode, context, metadata))
+        type_result = lambda **values: SimpleNamespace(
+            model_dump=lambda **_kwargs: values,
+            **values,
+        )
         return SimpleNamespace(
             add_record_id="add-record-1",
             result=SimpleNamespace(
                 status="ok",
+                schema_episode=SimpleNamespace(
+                    episode_id="episode-1",
+                    write_status="completed",
+                    types={
+                        "object_location": type_result(
+                            status="completed",
+                            candidate_count=1,
+                            memory_ids=["memory-1"],
+                            memory_count=1,
+                            error=None,
+                            outcome_counts={},
+                            executable_count=0,
+                        ),
+                        "search_observation": type_result(
+                            status="not_detected",
+                            candidate_count=0,
+                            memory_ids=[],
+                            memory_count=0,
+                            error=None,
+                            outcome_counts={},
+                            executable_count=0,
+                        ),
+                        "task_procedure": type_result(
+                            status="not_detected",
+                            candidate_count=0,
+                            memory_ids=[],
+                            memory_count=0,
+                            error=None,
+                            outcome_counts={},
+                            executable_count=0,
+                        ),
+                    },
+                ),
                 memories=[
                     SimpleNamespace(
                         operation="add",
                         memory_id="memory-1",
-                        mem_type="experience",
-                        content="启动服务后再次检查终态。",
+                        mem_type="fact",
+                        content=json.dumps(
+                            {
+                                "type": "object_location",
+                                "summary": "服务状态已观察。",
+                            },
+                            ensure_ascii=False,
+                        ),
                         related_memory_ids=[],
                     )
                 ],
@@ -42,11 +84,28 @@ class FakeMindMemOS:
 
     async def get_raw(self, memory_id, context):
         del context
-        return SimpleNamespace(memory_id=memory_id, status="active")
+        return SimpleNamespace(
+            memory_id=memory_id,
+            status="active",
+            mem_type="fact",
+            content=json.dumps(
+                {"type": "object_location", "summary": "服务状态已观察。"},
+                ensure_ascii=False,
+            ),
+        )
 
     async def feedback_implicit(self, context):
         del context
         return SimpleNamespace(status="ok", message=None, actions=[])
+
+
+def test_finalizer_rejects_memory_implementation_without_schema_episode_contract(tmp_path: Path) -> None:
+    with pytest.raises(TypeError, match="add_schema_episode"):
+        SessionFinalizer(
+            trace_path=tmp_path / "runtime_events.jsonl",
+            data_root=tmp_path / "memory",
+            mindmemos=object(),
+        )
 
 
 def _write_events(path: Path) -> None:
@@ -144,7 +203,7 @@ def _write_semantic_events(path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalizer_renders_selected_dialogue_without_internal_ids(tmp_path: Path) -> None:
+async def test_finalizer_submits_normalized_episode_without_internal_metadata(tmp_path: Path) -> None:
     trace = tmp_path / "runtime_events.jsonl"
     _write_semantic_events(trace)
     mindmemos = FakeMindMemOS()
@@ -155,34 +214,29 @@ async def test_finalizer_renders_selected_dialogue_without_internal_ids(tmp_path
         mindmemos=mindmemos,
     ).finalize("s1", "user_exit")
 
-    messages, _, metadata = mindmemos.calls[0]
-    rendered = "\n".join(message.content for message in messages)
-    assert [message.role for message in messages] == [
-        "user",
-        "assistant",
-        "tool",
-        "assistant",
-        "system",
+    episode, _, metadata = mindmemos.calls[0]
+    serialized = json.dumps(episode, ensure_ascii=False)
+    assert episode["schema_version"] == "homemaster.schema_episode.v1"
+    assert episode["tool_steps"][0]["tool"] == "terminal"
+    assert episode["tool_steps"][0]["arguments"] == {"command": "python parse.py"}
+    assert episode["tool_steps"][0]["result"] == "JSONDecodeError: missing brace"
+    assert episode["tool_steps"][0]["source_event_ids"] == [
+        "SECRET-EVENT-ID",
+        "SECRET-EVENT-ID",
     ]
-    assert messages[0].content == "修复 JSON"
-    assert messages[1].content == "[thinking]\n先验证失败原因"
-    assert "terminal" in messages[2].content
-    assert "python parse.py" in messages[2].content
-    assert "JSONDecodeError: missing brace" in messages[2].content
-    assert messages[3].content == "已经修复"
-    assert messages[4].content == "Session ended: user_exit"
-    assert "SECRET-" not in rendered
-    assert "SECRET-MODEL" not in rendered
-    assert "input_tokens" not in rendered
-    assert metadata["source_type"] == "homemaster_session_experience"
+    assert "SECRET-CALL-ID" in serialized
+    assert "SECRET-MODEL" not in serialized
+    assert "先验证失败原因" not in serialized
+    assert "input_tokens" not in serialized
+    assert metadata["source_type"] == "homemaster_schema_episode"
     assert "input_hash" in metadata
-    assert "trace_hash" not in metadata
-    assert result.rendered_messages == 5
+    assert metadata["domain_schema_version"] == "homemaster.schema_episode.v1"
+    assert result.rendered_messages == 4
     assert not list((tmp_path / "memory" / "experience_jobs").glob("*/task_trace.json"))
 
 
 @pytest.mark.asyncio
-async def test_finalizer_collects_session_and_persists_vanilla_result(tmp_path: Path) -> None:
+async def test_finalizer_collects_session_and_persists_schema_result(tmp_path: Path) -> None:
     trace = tmp_path / "runtime_events.jsonl"
     _write_events(trace)
     mindmemos = FakeMindMemOS()
@@ -199,22 +253,24 @@ async def test_finalizer_collects_session_and_persists_vanilla_result(tmp_path: 
     assert result.collected_events == 2
     assert result.excluded_transport_deltas == 1
     assert result.operations[0].memory_id == "memory-1"
-    assert result.rendered_messages == 3
+    assert result.rendered_messages == 1
     assert not list((tmp_path / "memory" / "experience_jobs").glob("*/task_trace.json"))
     assert len(mindmemos.calls) == 1
-    messages, context, _ = mindmemos.calls[0]
+    episode, context, _ = mindmemos.calls[0]
     assert context.account_id == "Caroline"
     assert context.project_id == "Caroline"
     assert context.user_id == "Caroline"
-    assert [message.timestamp for message in messages[:2]] == [
-        int(datetime(2026, 8, 12, 10, 0, 0, tzinfo=UTC).timestamp() * 1000),
-        int(datetime(2026, 8, 12, 10, 0, 3, tzinfo=UTC).timestamp() * 1000),
+    assert [event["timestamp"] for event in episode["events"]] == [
+        "2026-08-12T10:00:00Z",
     ]
 
     jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
     job = json.loads(jobs[0].read_text(encoding="utf-8"))
-    assert job["schema_version"] == 2
+    assert job["schema_version"] == 3
     assert job["add"]["status"] == "completed"
+    assert job["add"]["algorithm"] == "schema_add_v1"
+    assert job["add"]["types"]["object_location"]["memory_ids"] == ["memory-1"]
+    assert job["add"]["types"]["search_observation"]["status"] == "not_detected"
     assert job["implicit_feedback"]["status"] == "completed"
 
     repeated = await finalizer.finalize("s1", "user_exit")
@@ -228,7 +284,7 @@ async def test_finalizer_failure_does_not_raise(tmp_path: Path) -> None:
     _write_events(trace)
 
     class FailingMindMemOS:
-        async def add_vanilla(self, *args, **kwargs):
+        async def add_schema_episode(self, *args, **kwargs):
             raise RuntimeError("provider unavailable")
 
     result = await SessionFinalizer(

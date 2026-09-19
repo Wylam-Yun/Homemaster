@@ -69,6 +69,9 @@ class MemoryAddEventItem(BaseModel):
     graph_edge_count: int = 0
     """Number of graph edges produced by this memory operation."""
 
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    """Structured producer metadata for downstream receipts."""
+
     @model_validator(mode="after")
     def _fill_memory_type(self) -> "MemoryAddEventItem":
         """Keep the display field aligned with the stored memory type."""
@@ -164,12 +167,35 @@ class AddPipelineInput(BaseModel):
         return utc_datetime_from_millis(self.event_timestamp)
 
 
+class SchemaEpisodeTypeResult(BaseModel):
+    """Per-domain result for one fixed schema episode extraction."""
+
+    status: Literal["completed", "not_detected", "failed", "cancelled"]
+    candidate_count: int = 0
+    memory_ids: list[str] = Field(default_factory=list)
+    memory_count: int = 0
+    error: str | None = None
+    outcome_counts: dict[str, int] = Field(default_factory=dict)
+    executable_count: int = 0
+
+
+class SchemaEpisodeResult(BaseModel):
+    """Aggregate receipt for one fixed schema episode write."""
+
+    episode_id: str
+    types: dict[str, SchemaEpisodeTypeResult]
+    write_status: Literal["completed", "not_detected", "failed"]
+
+
 class AddPipelineSyncResult(BaseModel):
     status: ServiceResultStatus
     """Service completion status."""
 
     memories: list[MemoryAddEventItem] = Field(default_factory=list)
     """Generated memory events."""
+
+    schema_episode: SchemaEpisodeResult | None = None
+    """Optional fixed-schema episode receipt for HomeMaster ingress."""
 
 
 class AddPipelineAsyncResult(BaseModel):

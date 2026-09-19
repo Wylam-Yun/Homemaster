@@ -24,7 +24,8 @@ from ...memory_modeling.schema import Edge, memory_timestamp
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _EPISODIC_SCHEMA_TYPES = frozenset({"episode", "episodes", "episodic"})
 _PROFILE_SCHEMA_TYPES = frozenset({"user", "person"})
-_EXPERIENCE_SCHEMA_KEYS = frozenset({"task_experience"})
+_EXPERIENCE_SCHEMA_KEYS = frozenset({"task_experience", "task_procedure"})
+_FACT_SCHEMA_KEYS = frozenset({"object_location", "search_observation"})
 
 
 def parse_json_object(content: str) -> Any:
@@ -53,6 +54,8 @@ def schema_memory_type(entity_type: str | None, property_name: str | None = None
         return "episodic"
     if normalized_entity_type in _EXPERIENCE_SCHEMA_KEYS or normalized_property_name in _EXPERIENCE_SCHEMA_KEYS:
         return "experience"
+    if normalized_entity_type in _FACT_SCHEMA_KEYS:
+        return "fact"
     if normalized_entity_type in _PROFILE_SCHEMA_TYPES:
         return "profile"
     return "fact"

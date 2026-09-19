@@ -43,6 +43,7 @@ def handle_benchmark_alfworld(
         alfworld_root=alfworld_root,
         alfworld_config=alfworld_config,
         trace_root=trace_root,
+        data_root=alfworld_root / "data",
         env_type=cast(EnvType, env_type),
         split=cast(SplitName, split),
         episodes=episodes,

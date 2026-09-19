@@ -55,6 +55,77 @@ class SchemaAddExtractor(SchemaEpisodeExtractor):
         )
         return self.prepare_raw_memory(raw_memory, dialogue_timestamp)
 
+    async def extract_fixed_episode(
+        self,
+        *,
+        entity_type: str,
+        conversation_text: str,
+        dialogue_timestamp: str,
+        provenance: dict[str, Any],
+        prompt_template: str,
+        entity_manager: Any = None,
+    ) -> dict[str, Any]:
+        """Extract zero or more candidates for exactly one required schema type."""
+
+        em = entity_manager or self.entity_manager
+        schema = [
+            item
+            for item in self.schema_for_generation(entity_manager=em)
+            if item.get("entity_type") == entity_type
+        ]
+        if len(schema) != 1:
+            raise ValueError(f"fixed schema is not configured exactly once: {entity_type}")
+        prompt = (
+            prompt_template.replace("{entity_schema}", json.dumps(schema, ensure_ascii=False))
+            .replace("{dialogue_timestamp}", dialogue_timestamp)
+            .replace("{provenance}", json.dumps(provenance, ensure_ascii=False, sort_keys=True))
+            .replace("{chat_chunk}", conversation_text)
+        )
+        last_error = "unknown validation error"
+        for _ in range(3):
+            try:
+                response = await self.llm_client.chat(
+                    task=f"memory.add.fixed_episode.{entity_type}",
+                    messages=[{"role": "user", "content": prompt}],
+                    format_parser=parse_json_object,
+                )
+                raw_memory = response.parsed
+                if not isinstance(raw_memory, dict):
+                    raise ValueError("fixed extractor output must be a JSON object")
+                if set(raw_memory) - {"entities", "edges"}:
+                    raise ValueError("fixed extractor output has unsupported top-level keys")
+                if not isinstance(raw_memory.get("entities", []), list) or not isinstance(
+                    raw_memory.get("edges", []), list
+                ):
+                    raise ValueError("fixed extractor entities and edges must be lists")
+                raw_memory.setdefault("entities", [])
+                raw_memory.setdefault("edges", [])
+                for index, entity in enumerate(raw_memory["entities"]):
+                    if isinstance(entity, dict):
+                        entity.setdefault("entity_type", entity_type)
+                        entity.setdefault("name", f"{entity_type}:{index + 1}")
+                error = self.normalizer.validate(
+                    raw_memory,
+                    entity_manager=em,
+                    fixed_entity_type=entity_type,
+                )
+                if error:
+                    raise ValueError(error)
+                if not has_unique_entity_names(raw_memory):
+                    raise ValueError("fixed extractor entity names must be unique")
+                prepared = self.prepare_raw_memory(raw_memory, dialogue_timestamp)
+                return {
+                    "status": "completed" if prepared["entities"] else "not_detected",
+                    "candidate_count": len(prepared["entities"]),
+                    "raw_memory": prepared,
+                }
+            except Exception as exc:
+                last_error = str(exc)
+                prompt += f"\nERROR: {last_error}. Return corrected strict JSON."
+        raise ValueError(
+            f"fixed extractor {entity_type} failed validation after 3 attempts: {last_error}"
+        )
+
     async def select_schema(
         self,
         conversation_text: str,
@@ -189,5 +260,15 @@ class SchemaAddExtractor(SchemaEpisodeExtractor):
     def prepare_raw_memory(self, raw_memory: dict[str, Any], dialogue_timestamp: str) -> dict[str, Any]:
         return self.normalizer.normalize(raw_memory, dialogue_timestamp)
 
-    def validate_memory(self, raw_memory: dict[str, Any], *, entity_manager: Any = None) -> str | None:
-        return self.normalizer.validate(raw_memory, entity_manager=entity_manager)
+    def validate_memory(
+        self,
+        raw_memory: dict[str, Any],
+        *,
+        entity_manager: Any = None,
+        fixed_entity_type: str | None = None,
+    ) -> str | None:
+        return self.normalizer.validate(
+            raw_memory,
+            entity_manager=entity_manager,
+            fixed_entity_type=fixed_entity_type,
+        )

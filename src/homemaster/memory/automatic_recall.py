@@ -79,6 +79,16 @@ def build_automatic_recall_context(memories: Sequence[Any]) -> str | None:
             "source_timestamp": getattr(item, "source_timestamp", None),
             "lineage": lineage.model_dump(mode="json") if lineage is not None else None,
         }
+        structured = _schema_episode_record(values["memory"])
+        if structured is not None:
+            values.update(
+                {
+                    "domain_type": structured.get("type"),
+                    "outcome": structured.get("outcome"),
+                    "is_executable": structured.get("is_executable"),
+                    "failure_lesson": structured.get("failure_lesson"),
+                }
+            )
         payload.append({key: value for key, value in values.items() if value is not None})
     serialized = json.dumps(
         payload,
@@ -94,6 +104,22 @@ def build_automatic_recall_context(memories: Sequence[Any]) -> str | None:
         f"{serialized}\n"
         "</memory-context>"
     )
+
+
+def _schema_episode_record(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict) or parsed.get("type") not in {
+        "object_location",
+        "search_observation",
+        "task_procedure",
+    }:
+        return None
+    return parsed
 
 
 def _newest_compaction_summary(messages: Sequence[Message]) -> str:

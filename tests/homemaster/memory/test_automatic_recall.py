@@ -103,3 +103,59 @@ def test_context_preserves_unknown_native_memory_types() -> None:
 
 def test_empty_recall_does_not_create_context() -> None:
     assert build_automatic_recall_context([]) is None
+
+
+def test_context_distinguishes_schema_episode_domain_and_executability() -> None:
+    records = [
+        {
+            "type": "object_location",
+            "summary": "Medicine was found in the bedroom drawer.",
+        },
+        {
+            "type": "search_observation",
+            "summary": "Medicine was not found on the living-room table.",
+            "result": "not_found",
+        },
+        {
+            "type": "task_procedure",
+            "summary": "The attempt failed while the drawer was closed.",
+            "outcome": "failure",
+            "is_executable": False,
+            "failure_lesson": {"lesson": "Open the drawer before retrying."},
+        },
+        {
+            "type": "task_procedure",
+            "summary": "Open the drawer and then pick up the medicine.",
+            "outcome": "success",
+            "is_executable": True,
+            "failure_lesson": None,
+        },
+    ]
+    memories = [
+        SimpleNamespace(
+            id=f"memory-{index}",
+            memory=json.dumps(record),
+            memory_type="experience" if record["type"] == "task_procedure" else "fact",
+            last_update_at="2026-09-17 10:00:00",
+            event_time=None,
+            source_timestamp=None,
+            lineage=None,
+        )
+        for index, record in enumerate(records)
+    ]
+
+    context = build_automatic_recall_context(memories)
+
+    assert context is not None
+    payload = json.loads(context.split("\n\n", 1)[1].rsplit("\n", 1)[0])
+    assert [item["domain_type"] for item in payload] == [
+        "object_location",
+        "search_observation",
+        "task_procedure",
+        "task_procedure",
+    ]
+    assert payload[2]["outcome"] == "failure"
+    assert payload[2]["is_executable"] is False
+    assert payload[2]["failure_lesson"]["lesson"] == "Open the drawer before retrying."
+    assert payload[3]["outcome"] == "success"
+    assert payload[3]["is_executable"] is True

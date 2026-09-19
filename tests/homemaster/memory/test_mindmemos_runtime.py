@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,6 +87,9 @@ def test_build_mindmemos_config_reuses_homemaster_model_endpoints(tmp_path: Path
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     assert {item["entity_type"] for item in schema} == {
         "fact",
+        "object_location",
+        "search_observation",
+        "task_procedure",
         "task_experience",
         "episodes",
     }
@@ -407,6 +411,168 @@ async def test_embedded_mindmemos_add_and_search_record_pipeline_calls(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_add_schema_episode_uses_stable_record_and_reuses_successful_receipt(
+    tmp_path: Path,
+) -> None:
+    from mindmemos.typing import (
+        AddPipelineSyncResult,
+        MemoryRequestContext,
+        SchemaEpisodeResult,
+        SchemaEpisodeTypeResult,
+    )
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(HomeMasterConfig(memory={"data_root": tmp_path / "memory"}))
+    calls: dict[str, Any] = {"record": [], "pipeline": []}
+    stored: dict[str, Any] = {}
+
+    class Recorder:
+        async def record_add_input(self, payload, **kwargs):
+            calls["record"].append((payload, kwargs))
+            return kwargs["add_record_id"]
+
+        async def mark_add_failed(self, *args, **kwargs):
+            calls["failed"] = (args, kwargs)
+
+    class Reader:
+        async def get_add_records_by_ids(self, context, add_record_ids):
+            del context
+            record = stored.get(add_record_ids[0])
+            return [SimpleNamespace(payload=record)] if record else []
+
+    class Pipeline:
+        async def add_sync(self, payload, context, *, add_record_id):
+            calls["pipeline"].append((payload, context, add_record_id))
+            types = {
+                domain: SchemaEpisodeTypeResult(
+                    status="not_detected",
+                    candidate_count=0,
+                )
+                for domain in (
+                    "object_location",
+                    "search_observation",
+                    "task_procedure",
+                )
+            }
+            result = AddPipelineSyncResult(
+                status="ok",
+                schema_episode=SchemaEpisodeResult(
+                    episode_id=payload.metadata["schema_episode_id"],
+                    types=types,
+                    write_status="not_detected",
+                ),
+            )
+            stored[add_record_id] = result.model_dump(mode="python")
+            return result
+
+    runtime._recorder = Recorder()
+    runtime._reader = Reader()
+    runtime._add_pipeline = Pipeline()
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+        session_id="session-1",
+    )
+    episode = {
+        "schema_version": "homemaster.schema_episode.v1",
+        "session_id": "session-1",
+        "events": [],
+        "tool_steps": [],
+        "provenance": {},
+    }
+
+    first = await runtime.add_schema_episode(
+        episode,
+        context,
+        metadata={"input_hash": "sha256:abc", "extractor_version": "v1"},
+    )
+    second = await runtime.add_schema_episode(
+        episode,
+        context,
+        metadata={"input_hash": "sha256:abc", "extractor_version": "v1"},
+    )
+
+    assert first.add_record_id == second.add_record_id
+    assert uuid.UUID(first.add_record_id)
+    assert len(calls["record"]) == 1
+    assert len(calls["pipeline"]) == 1
+    payload = calls["pipeline"][0][0]
+    assert payload.force_generation is True
+    assert payload.metadata["ingress"] == "homemaster_schema_episode_v1"
+    assert payload.metadata["domain_schema_version"] == "homemaster.schema_episode.v1"
+    assert json.loads(payload.messages[0].text) == episode
+    assert second.result.schema_episode.write_status == "not_detected"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("over_limit", [False, True])
+async def test_add_schema_episode_marks_native_failure_and_raises(
+    tmp_path: Path, over_limit
+) -> None:
+    from mindmemos.typing import MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(HomeMasterConfig(memory={"data_root": tmp_path / "memory"}))
+    calls: dict[str, Any] = {}
+
+    class Recorder:
+        async def record_add_input(self, payload, **kwargs):
+            return kwargs["add_record_id"]
+
+        async def mark_add_failed(self, context, add_record_id, error):
+            calls["failed"] = (context, add_record_id, error)
+
+    class Reader:
+        async def get_add_records_by_ids(self, context, add_record_ids):
+            return []
+
+    class Pipeline:
+        async def add_sync(self, *args, **kwargs):
+            raise RuntimeError("fixed extraction failed")
+
+    runtime._recorder = Recorder()
+    runtime._reader = Reader()
+    runtime._add_pipeline = Pipeline()
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+
+    limit = 3 * 1024 * 1024
+    episode = {"schema_version": "homemaster.schema_episode.v1", "content": ""}
+    overhead = len(
+        json.dumps(episode, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    )
+    remaining = limit + int(over_limit) - overhead
+    episode["content"] = "中" * (remaining // 3) + "a" * (remaining % 3)
+    assert len(
+        json.dumps(episode, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ) == limit + int(over_limit)
+    expected = ValueError if over_limit else RuntimeError
+    message = (
+        "schema episode exceeds 3145728 UTF-8 bytes" if over_limit else "fixed extraction failed"
+    )
+    with pytest.raises(expected, match=message):
+        await runtime.add_schema_episode(
+            episode,
+            context,
+            metadata={},
+        )
+
+    if over_limit:
+        assert "failed" not in calls
+    else:
+        assert uuid.UUID(calls["failed"][1])
+        assert calls["failed"][2] == "fixed extraction failed"
+
+
+@pytest.mark.asyncio
 async def test_add_record_requires_exact_raw_terminal_readback() -> None:
     from homemaster.memory.models import FactRecord, Subject
 
@@ -446,9 +612,7 @@ async def test_add_record_requires_exact_raw_terminal_readback() -> None:
                 mem_type="fact",
                 metadata={
                     "request_metadata": {
-                        "record_metadata": [
-                            {"record_json": record.model_dump_json()}
-                        ]
+                        "record_metadata": [{"record_json": record.model_dump_json()}]
                     }
                 },
                 created_at=None,
@@ -515,9 +679,7 @@ async def test_add_flat_builds_memory_source_vector_only_and_reads_back_exact_co
                 created_at=memory.created_at,
                 update_at=memory.update_at,
             )
-            return SimpleNamespace(
-                memory_ids=[memory.memory_id], graph_pending=False, errors=[]
-            )
+            return SimpleNamespace(memory_ids=[memory.memory_id], graph_pending=False, errors=[])
 
     class Recorder:
         async def record_add_input(self, payload, **kwargs):
@@ -731,11 +893,7 @@ async def test_enrich_flat_memory_patches_same_id_and_writes_entities(
     class Neo4j:
         async def run_read(self, query, **params):
             assert "MENTIONS" in query
-            return (
-                [{"entity_id": params["entity_id"]}]
-                if params["entity_id"] in mentions
-                else []
-            )
+            return [{"entity_id": params["entity_id"]}] if params["entity_id"] in mentions else []
 
     class Writer:
         async def write(self, context, plan, *, consistency):
@@ -749,9 +907,7 @@ async def test_enrich_flat_memory_patches_same_id_and_writes_entities(
             for vector in plan.entity_vectors:
                 entity_vectors[vector.entity_id] = list(vector.semantic_vector or [])
             entity_ids.extend(entity.entity_id for entity in plan.entities)
-            mentions.update(
-                relationship.target.node_id for relationship in plan.relationships
-            )
+            mentions.update(relationship.target.node_id for relationship in plan.relationships)
             return SimpleNamespace(graph_pending=False, errors=[])
 
     runtime = module.EmbeddedMindMemOS.__new__(module.EmbeddedMindMemOS)
@@ -979,9 +1135,7 @@ async def test_structured_feedback_derives_content_from_replacement_record(tmp_p
     current = SimpleNamespace(
         metadata={
             "request_metadata": {
-                "record_metadata": [
-                    {"record_json": json.dumps(old_record), "provenance_seq": 10}
-                ]
+                "record_metadata": [{"record_json": json.dumps(old_record), "provenance_seq": 10}]
             }
         }
     )

@@ -24,11 +24,7 @@ class AlfworldApplicationEntry:
         transport_factory: Callable[[], Any] | None,
         event_sink: Any,
     ) -> None:
-        if memory_mode != "disabled":
-            raise ValueError(
-                "legacy ALFWorld memory_mode must remain disabled; embedded MindMemOS is "
-                "controlled by memory.enabled"
-            )
+        del memory_mode  # Embedded MindMemOS is controlled exclusively by memory.enabled.
         self.bundle: HomeApplicationBundle = create_home_application(
             config=config,
             run_label=runtime_root.name,

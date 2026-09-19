@@ -19,6 +19,51 @@
     }
   },
   {
+    "entity_type": "object_location",
+    "entity_description": "One evidence-backed observation that an object was observed, found, or placed relative to a location.",
+    "entity_instruction": "Create only from explicit episode evidence. Keep the complete object_location domain record as JSON in episode_record and do not convert one observation into a permanent location claim.",
+    "search_weight": 1.0,
+    "static_property": {
+      "name": "Stable object and observed location identity"
+    },
+    "dynamic_property": {
+      "episode_record": {
+        "type": "string",
+        "desc": "Canonical JSON object containing type, summary, object, relation, location, observation_kind, optional evidence-backed position, source, observed_at, and confidence."
+      }
+    }
+  },
+  {
+    "entity_type": "search_observation",
+    "entity_description": "One evidence-backed search action and its found, not_found, blocked, or error result.",
+    "entity_instruction": "Create only when a tool result or explicit task feedback establishes the search result. Keep the complete search_observation domain record as JSON in episode_record.",
+    "search_weight": 1.0,
+    "static_property": {
+      "name": "Stable searched object, location, time, and source identity"
+    },
+    "dynamic_property": {
+      "episode_record": {
+        "type": "string",
+        "desc": "Canonical JSON object containing type, summary, object, location, result, search_action, source, and observed_at."
+      }
+    }
+  },
+  {
+    "entity_type": "task_procedure",
+    "entity_description": "One episode-level task trajectory that may describe success, failure, partial completion, or an unknown outcome.",
+    "entity_instruction": "Keep complete observed steps and evidence in one JSON episode_record. Failed attempts may remain as lessons, but only externally verified successful steps may be marked reusable or executable.",
+    "search_weight": 1.0,
+    "static_property": {
+      "name": "Stable task, target, session, and observation identity"
+    },
+    "dynamic_property": {
+      "episode_record": {
+        "type": "string",
+        "desc": "Canonical JSON object containing type, summary, task, target, outcome, is_executable, complete steps, reusable_steps, failure_lesson, outcome_evidence_event_ids, and source."
+      }
+    }
+  },
+  {
     "entity_type": "task_experience",
     "entity_description": "A reusable HomeMaster ProcedureRecord that was verified successfully in the environment.",
     "entity_instruction": "When the input describes a named workflow with an entry URL and ordered steps, ALWAYS create exactly one task_experience entity. Preserve the safe URL, ordered actions, targets, expectations, outputs, and success condition. Never invent input values or credentials.",

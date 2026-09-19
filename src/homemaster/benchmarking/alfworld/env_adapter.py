@@ -211,6 +211,13 @@ def build_alfworld_batch_env(config: AlfworldBenchmarkConfig) -> Any:
             config.alfworld_config,
             data_root=config.data_root,
         )
+        if split_to_train_eval(config.split) != "train":
+            dataset = payload.setdefault("dataset", {})
+            configured_limit = dataset.get("num_eval_games", -1)
+            if not isinstance(configured_limit, int) or configured_limit <= 0:
+                dataset["num_eval_games"] = max(1, config.episodes)
+            else:
+                dataset["num_eval_games"] = min(configured_limit, max(1, config.episodes))
         env_cls = get_environment(config.env_type)
         alfred_env = env_cls(payload, train_eval=split_to_train_eval(config.split))
         env = alfred_env.init_env(batch_size=1)

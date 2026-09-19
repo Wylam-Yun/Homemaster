@@ -194,6 +194,11 @@ def to_add_record_point(
         payload["status"] = result.status
         if isinstance(result, AddPipelineSyncResult):
             payload["memories"] = _model_list_dump(result.memories)
+            payload["schema_episode"] = (
+                result.schema_episode.model_dump(mode="python")
+                if result.schema_episode is not None
+                else None
+            )
     if skill_bindings is not None:
         payload["skill_bindings"] = [binding.model_dump(mode="json") for binding in skill_bindings]
     if score is not None:

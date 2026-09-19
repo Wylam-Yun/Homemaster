@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from ....components.chunker import EpisodeBoundary, EpisodesChunker
@@ -33,8 +34,11 @@ from ....typing import (
     MemoryAddEventItem,
     MemoryDbEntityUpdateCommand,
     MemoryDbMutationPlan,
+    MemoryDbMutationResult,
     MemoryDbWritePlan,
     MemoryRequestContext,
+    SchemaEpisodeResult,
+    SchemaEpisodeTypeResult,
 )
 from ...base import MemoryDbPipelineMixin
 from ...memory_db import (
@@ -66,6 +70,14 @@ class _EpisodeTask:
     start_idx: int = 0
     end_idx: int = 0
     title: str = ""
+
+
+@dataclass(slots=True)
+class _EpisodeExecutionResult:
+    """Episode events plus the optional fixed-schema aggregate receipt."""
+
+    events: list[MemoryAddEventItem]
+    schema_episode: SchemaEpisodeResult | None = None
 
 
 @dataclass(slots=True)
@@ -138,6 +150,11 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         extractor: SchemaAddExtractor | None = None,
         planner: SchemaAddPlanner | None = None,
         consistency: str | None = None,
+        fixed_episode_prompts: dict[str, str] | None = None,
+        fixed_episode_validator: Callable[
+            [str, dict[str, Any], dict[str, Any]], dict[str, Any]
+        ]
+        | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -180,6 +197,8 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         self._explicit_higher_order_top_k = higher_order_top_k
         self._explicit_higher_order_min_evidence_count = higher_order_min_evidence_count
         self._explicit_episode_edge_top_k = episode_edge_top_k
+        self._fixed_episode_prompts = dict(fixed_episode_prompts or {})
+        self._fixed_episode_validator = fixed_episode_validator
 
     def _get_consistency(self) -> str:
         if self._explicit_consistency is not None:
@@ -317,25 +336,52 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
             The generated memory events for this synchronous add request.
         """
 
-        await self.add_buffer.append(
+        buffer_record_ids = await self.add_buffer.append(
             context,
             inp,
             force_generation=inp.force_generation,
             source_add_record_id=add_record_id,
         )
-        events = await self._ensure_drain_and_wait(
-            context,
-            consistency=self._get_consistency(),
-            force=True,
-        )
-        result = AddPipelineSyncResult(status="ok", memories=events)
+        if _is_fixed_schema_episode_input(inp):
+            if len(buffer_record_ids) != 1:
+                raise ValueError("fixed schema episode ingress requires exactly one message")
+            records = await self.add_buffer.get_by_ids(context, buffer_record_ids)
+            if len(records) != 1:
+                raise RuntimeError("fixed schema episode buffer write could not be read back")
+            episode_id = str(inp.metadata.get("schema_episode_id") or context.request_id)
+            await self.add_buffer.mark_processing(context, records)
+            execution = await self._execute_episode_task(
+                _EpisodeTask(episode_id=episode_id, records=records),
+                context=context,
+                consistency=self._get_consistency(),
+                rt=self._resolve_add_runtime(context),
+            )
+            result = AddPipelineSyncResult(
+                status="ok",
+                memories=execution.events,
+                schema_episode=execution.schema_episode,
+            )
+        else:
+            events = await self._ensure_drain_and_wait(
+                context,
+                consistency=self._get_consistency(),
+                force=True,
+            )
+            result = AddPipelineSyncResult(status="ok", memories=events)
         # Sync drains inline and produces the full output in one shot, so overwrite
         # the request-level record directly. The inline path does not thread the
         # trigger id into episodes, so there is no double write.
-        await suppress_recording_errors(
-            self.recorder.mark_add_completed(context, add_record_id, result),
-            operation="add.schema_add.sync",
-        )
+        if _is_fixed_schema_episode_input(inp) and add_record_id is not None:
+            try:
+                await self.recorder.mark_add_completed(context, add_record_id, result)
+            except Exception as exc:
+                await self.recorder.mark_add_failed(context, add_record_id, str(exc))
+                raise
+        else:
+            await suppress_recording_errors(
+                self.recorder.mark_add_completed(context, add_record_id, result),
+                operation="add.schema_add.sync",
+            )
         return result
 
     async def add_async(
@@ -449,13 +495,15 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
             )
             return []
         await self.add_buffer.mark_processing(context, records)
-        return await self._execute_episode_task(
+        return (
+            await self._execute_episode_task(
             _EpisodeTask(episode_id=episode_id, records=records),
             context=context,
             consistency=consistency or self._get_consistency(),
             trigger_record_id=trigger_record_id,
             rt=self._resolve_add_runtime(context),
-        )
+            )
+        ).events
 
     # Internal: drain orchestration
 
@@ -747,10 +795,10 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         """Execute episode generation tasks in the current process."""
         events: list[MemoryAddEventItem] = []
         for task in tasks:
-            task_events = await self._execute_episode_task(
+            task_result = await self._execute_episode_task(
                 task, context=context, consistency=consistency, rt=rt
             )
-            events.extend(task_events)
+            events.extend(task_result.events)
         return events
 
     # Episode execution with retry, failure recording
@@ -763,7 +811,7 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         consistency: str,
         trigger_record_id: str | None = None,
         rt: _SchemaAddRuntime | None = None,
-    ) -> list[MemoryAddEventItem]:
+    ) -> _EpisodeExecutionResult:
         """Trace and execute one episode generation task."""
         if rt is None:
             rt = self._resolve_add_runtime(context)
@@ -799,22 +847,23 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         consistency: str,
         trigger_record_id: str | None = None,
         rt: _SchemaAddRuntime | None = None,
-    ) -> list[MemoryAddEventItem]:
+    ) -> _EpisodeExecutionResult:
         if rt is None:
             rt = self._resolve_add_runtime(context)
         for attempt in range(rt.schema_cfg.drain.episode_generation_max_retries):
             try:
-                episode_events = await self._generate_episode_memory(
+                execution = await self._generate_episode_memory(
                     task.records,
                     context=context,
                     consistency=consistency,
+                    episode_id=task.episode_id,
                     rt=rt,
                 )
                 await self.add_buffer.mark_processed(
                     context,
                     task.records,
                     episode_id=task.episode_id,
-                    events=_events_to_payload(episode_events),
+                    events=_events_to_payload(execution.events),
                 )
                 if rt.schema_cfg.drain.cleanup_processed_buffer:
                     try:
@@ -830,10 +879,12 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
                 # the full output via add_sync, so trigger_record_id is None there).
                 if trigger_record_id is not None:
                     await suppress_recording_errors(
-                        self.recorder.append_add_output(context, trigger_record_id, episode_events),
+                        self.recorder.append_add_output(context, trigger_record_id, execution.events),
                         operation="add.schema_add.episode_chunk",
                     )
-                return episode_events
+                if execution.schema_episode is not None:
+                    execution.schema_episode.episode_id = task.episode_id
+                return execution
             except Exception as exc:
                 if attempt < rt.schema_cfg.drain.episode_generation_max_retries - 1:
                     delay = min(
@@ -867,7 +918,8 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
                         )
                     else:
                         await self._record_episode_failure(task.records, context=context)
-        return []
+                    raise
+        raise RuntimeError("episode generation retry loop exhausted")
 
     async def _record_episode_failure(self, records: list[BufferedAddRecord], *, context: MemoryRequestContext) -> None:
         """Record a failed episode generation attempt for audit history."""
@@ -890,14 +942,32 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         *,
         context: MemoryRequestContext,
         consistency: str,
+        episode_id: str | None = None,
         rt: _SchemaAddRuntime | None = None,
-    ) -> list[MemoryAddEventItem]:
+    ) -> _EpisodeExecutionResult:
         """Generate schema entities, vectors, and write events for one episode."""
         if rt is None:
             rt = self._resolve_add_runtime(context)
         conversation_text = add_record_ops.to_conversation_text(records)
         if not conversation_text.strip():
-            return []
+            return _EpisodeExecutionResult(events=[])
+
+        fixed_episode = _fixed_schema_episode_payload(records)
+        episode_context = add_record_ops.context(records, context)
+        source_add_record_id = _source_add_record_id(records)
+        if fixed_episode is not None and source_add_record_id is not None:
+            prepared_state = await self._load_prepared_schema_episode(
+                episode_context, source_add_record_id
+            )
+            if prepared_state is not None:
+                prepared, plan_status = prepared_state
+                return await self._apply_prepared_schema_episode(
+                    prepared,
+                    context=episode_context,
+                    consistency=consistency,
+                    add_record_id=source_add_record_id,
+                    plan_status=plan_status,
+                )
 
         detected_lang = detect_prompt_language(
             conversation_text,
@@ -905,14 +975,13 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         )
         request_prompts = _request_prompt_set(detected_lang, self._explicit_prompts)
 
-        episode_context = add_record_ops.context(records, context)
         event_at = add_record_ops.records_datetime(records)
         added_at = add_record_ops.records_added_datetime(records)
         dialogue_timestamp = add_record_ops.dialogue_timestamp(event_at)
 
         project_em = rt.project_em
 
-        # Kick off the three independent LLM calls together, but guard them
+        # Kick off independent LLM calls together, but guard them
         # with a TaskGroup. Schema selection is awaited first, so if it (or
         # the synchronous extract/prepare steps that follow) raises, the
         # still-running objectify/description tasks are cancelled instead of
@@ -931,22 +1000,59 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
                         conversation_text, dialogue_timestamp, prompt_set=request_prompts
                     )
                 )
-                schema_selection_task = tg.create_task(
-                    rt.extractor.select_schema(
-                        conversation_text,
-                        rt.extractor.schema_for_generation(entity_manager=project_em),
-                        prompt_set=request_prompts,
+                if fixed_episode is not None:
+                    missing_prompts = [
+                        domain
+                        for domain in _FIXED_SCHEMA_TYPES
+                        if domain not in self._fixed_episode_prompts
+                    ]
+                    if missing_prompts:
+                        raise ValueError(f"missing fixed episode prompts: {missing_prompts}")
+                    extraction_tasks = {
+                        domain: tg.create_task(
+                            rt.extractor.extract_fixed_episode(
+                                entity_type=domain,
+                                conversation_text=conversation_text,
+                                dialogue_timestamp=dialogue_timestamp,
+                                provenance=fixed_episode.get("provenance", {}),
+                                prompt_template=self._fixed_episode_prompts[domain],
+                                entity_manager=project_em,
+                            )
+                        )
+                        for domain in _FIXED_SCHEMA_TYPES
+                    }
+                    fixed_results = {
+                        domain: await extraction_tasks[domain]
+                        for domain in _FIXED_SCHEMA_TYPES
+                    }
+                    raw_memory = {"entities": [], "edges": []}
+                    for domain in _FIXED_SCHEMA_TYPES:
+                        extracted = fixed_results[domain]["raw_memory"]
+                        if self._fixed_episode_validator is not None:
+                            extracted = self._fixed_episode_validator(
+                                domain, extracted, fixed_episode
+                            )
+                        raw_memory["entities"].extend(extracted.get("entities", []))
+                        raw_memory["edges"].extend(extracted.get("edges", []))
+                    selected_schema = [
+                        {"entity_type": domain} for domain in _FIXED_SCHEMA_TYPES
+                    ]
+                else:
+                    schema_selection_task = tg.create_task(
+                        rt.extractor.select_schema(
+                            conversation_text,
+                            rt.extractor.schema_for_generation(entity_manager=project_em),
+                            prompt_set=request_prompts,
+                        )
                     )
-                )
-
-                selected_schema = await schema_selection_task
-                raw_memory = await rt.extractor.extract_memory(
-                    entity_schema=selected_schema,
-                    dialogue_timestamp=dialogue_timestamp,
-                    conversation_text=conversation_text,
-                    prompt_set=request_prompts,
-                    entity_manager=project_em,
-                )
+                    selected_schema = await schema_selection_task
+                    raw_memory = await rt.extractor.extract_memory(
+                        entity_schema=selected_schema,
+                        dialogue_timestamp=dialogue_timestamp,
+                        conversation_text=conversation_text,
+                        prompt_set=request_prompts,
+                        entity_manager=project_em,
+                    )
 
                 _raw_before_prepare = raw_memory.get("entities", [])
                 logger.info(
@@ -955,7 +1061,10 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
                     [e.get("entity_type") for e in _raw_before_prepare],
                 )
 
-                raw_memory = rt.extractor.prepare_raw_memory(raw_memory, dialogue_timestamp)
+                if fixed_episode is None:
+                    raw_memory = rt.extractor.prepare_raw_memory(
+                        raw_memory, dialogue_timestamp
+                    )
 
                 _raw_entities = raw_memory.get("entities", [])
                 _entity_types = [e.get("entity_type") for e in _raw_entities]
@@ -1019,14 +1128,243 @@ class SchemaAddPipeline(MemoryDbPipelineMixin, AddPipeline):
         mutation_plan.entity_updates.extend(_to_entity_update_commands(entity_updates, consistency=consistency))
         mutation_plan.memory_updates.extend(memory_update_commands)
         mutation_plan.memory_deletes.extend(memory_delete_commands)
+        predicted_updates = [
+            MemoryDbMutationResult(memory_id=command.memory_id, changed=True)
+            for command in memory_update_commands
+        ]
+        update_events = rt.planner.memory_update_events(pending_updates, predicted_updates)
+        all_events = events + update_events
+        receipt = (
+            _build_schema_episode_receipt(
+                fixed_results,
+                raw_memory,
+                all_events,
+                episode_id=episode_id,
+            )
+            if fixed_episode is not None
+            else None
+        )
+        if fixed_episode is None or source_add_record_id is None:
+            await self._apply_and_validate_mutation_plan(
+                mutation_plan,
+                context=episode_context,
+                consistency=consistency,
+            )
+            return _EpisodeExecutionResult(events=all_events, schema_episode=receipt)
+
+        prepared = {
+            "version": 1,
+            "mutation_plan": mutation_plan.model_dump(mode="json"),
+            "events": [event.model_dump(mode="json") for event in all_events],
+            "schema_episode": receipt.model_dump(mode="json") if receipt else None,
+        }
+        await self._recorder.store_schema_episode_prepared(
+            episode_context, source_add_record_id, prepared
+        )
+        return await self._apply_prepared_schema_episode(
+            prepared,
+            context=episode_context,
+            consistency=consistency,
+            add_record_id=source_add_record_id,
+        )
+
+    async def _load_prepared_schema_episode(
+        self, context: MemoryRequestContext, add_record_id: str
+    ) -> tuple[dict[str, Any], str | None] | None:
+        payload = await self._recorder.get_add_payload(context, add_record_id)
+        if payload is None:
+            return None
+        prepared = payload.get("schema_episode_prepared")
+        if prepared is None:
+            return None
+        if not isinstance(prepared, dict) or prepared.get("version") != 1:
+            raise ValueError("unsupported prepared schema episode plan")
+        return prepared, payload.get("schema_episode_plan_status")
+
+    async def _apply_prepared_schema_episode(
+        self,
+        prepared: dict[str, Any],
+        *,
+        context: MemoryRequestContext,
+        consistency: str,
+        add_record_id: str,
+        plan_status: str | None = None,
+    ) -> _EpisodeExecutionResult:
+        mutation_plan = MemoryDbMutationPlan.model_validate(prepared["mutation_plan"])
+        events = [
+            MemoryAddEventItem.model_validate(event)
+            for event in prepared.get("events", [])
+        ]
+        receipt_payload = prepared.get("schema_episode")
+        receipt = (
+            SchemaEpisodeResult.model_validate(receipt_payload)
+            if receipt_payload is not None
+            else None
+        )
+        if plan_status == "applied":
+            return _EpisodeExecutionResult(events=events, schema_episode=receipt)
+        if plan_status not in {None, "prepared"}:
+            raise ValueError(f"unsupported prepared schema episode status: {plan_status}")
+        await self._apply_and_validate_mutation_plan(
+            mutation_plan,
+            context=context,
+            consistency=consistency,
+        )
+        await self._recorder.mark_schema_episode_plan_applied(context, add_record_id)
+        return _EpisodeExecutionResult(events=events, schema_episode=receipt)
+
+    async def _apply_and_validate_mutation_plan(
+        self,
+        mutation_plan: MemoryDbMutationPlan,
+        *,
+        context: MemoryRequestContext,
+        consistency: str,
+    ) -> None:
         write_result = await self.db_writer.apply_mutation_plan(
-            episode_context,
+            context,
             mutation_plan,
             consistency=consistency,
         )
-        update_results = write_result.mutations[: len(memory_update_commands)]
-        update_events = rt.planner.memory_update_events(pending_updates, update_results)
-        return events + update_events
+        if write_result.errors or write_result.graph_pending:
+            raise RuntimeError(
+                "schema episode mutation was not fully committed: "
+                + "; ".join(write_result.errors or ["graph write pending"])
+            )
+        planned_memory_ids = {
+            command.memory.memory_id for command in mutation_plan.memory_writes
+        }
+        if not planned_memory_ids.issubset(set(write_result.memory_ids)):
+            missing = sorted(planned_memory_ids - set(write_result.memory_ids))
+            raise RuntimeError(
+                f"schema episode mutation omitted planned memory IDs: {missing}"
+            )
+        expected_mutations = len(mutation_plan.memory_updates) + len(
+            mutation_plan.memory_deletes
+        )
+        if len(write_result.mutations) != expected_mutations:
+            raise RuntimeError(
+                "schema episode mutation returned an incomplete mutation receipt"
+            )
+
+
+_FIXED_SCHEMA_TYPES = (
+    "object_location",
+    "search_observation",
+    "task_procedure",
+)
+
+
+def _is_fixed_schema_episode_input(inp: AddPipelineInput) -> bool:
+    return inp.metadata.get("ingress") == "homemaster_schema_episode_v1"
+
+
+def _fixed_schema_episode_payload(
+    records: list[BufferedAddRecord],
+) -> dict[str, Any] | None:
+    if len(records) != 1:
+        return None
+    metadata = records[0].payload.get("metadata") or {}
+    if metadata.get("ingress") != "homemaster_schema_episode_v1":
+        return None
+    messages = records[0].payload.get("messages") or []
+    message = messages[0] if len(messages) == 1 else None
+    text = message.get("text") if isinstance(message, dict) else None
+    if not isinstance(text, str):
+        raise ValueError("fixed schema episode ingress requires one TextMessage")
+    parsed = json.loads(text)
+    if not isinstance(parsed, dict) or parsed.get("schema_version") != "homemaster.schema_episode.v1":
+        raise ValueError("invalid fixed schema episode payload")
+    return parsed
+
+
+def _source_add_record_id(records: list[BufferedAddRecord]) -> str | None:
+    values = {
+        str(record.payload.get("source_add_record_id"))
+        for record in records
+        if record.payload.get("source_add_record_id")
+    }
+    if not values:
+        return None
+    if len(values) != 1:
+        raise ValueError("schema episode records reference multiple add requests")
+    return next(iter(values))
+
+
+def _build_schema_episode_receipt(
+    fixed_results: dict[str, dict[str, Any]],
+    raw_memory: dict[str, Any],
+    events: list[MemoryAddEventItem],
+    *,
+    episode_id: str | None,
+) -> SchemaEpisodeResult:
+    records_by_type: dict[str, list[dict[str, Any]]] = {
+        domain: [] for domain in _FIXED_SCHEMA_TYPES
+    }
+    for entity in raw_memory.get("entities", []):
+        domain = entity.get("entity_type")
+        if domain not in records_by_type:
+            continue
+        values: list[Any] = [
+            prop.get("value")
+            for prop in entity.get("properties", [])
+            if isinstance(prop, dict) and prop.get("property_name") == "episode_record"
+        ]
+        if not values:
+            dynamic_property = entity.get("dynamic_property")
+            if isinstance(dynamic_property, dict):
+                values.append(dynamic_property.get("episode_record"))
+        for value in values:
+            if isinstance(value, dict):
+                records_by_type[domain].append(value)
+                continue
+            try:
+                parsed = json.loads(value)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, dict):
+                records_by_type[domain].append(parsed)
+    memory_ids: dict[str, list[str]] = {domain: [] for domain in _FIXED_SCHEMA_TYPES}
+    for event in events:
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        domain = metadata.get("schema_entity_type")
+        if domain not in _FIXED_SCHEMA_TYPES:
+            domain = next(
+                (
+                    candidate
+                    for candidate in _FIXED_SCHEMA_TYPES
+                    if f"(Type: {candidate})" in event.content
+                ),
+                None,
+            )
+        if domain is None:
+            continue
+        if event.operation == "update":
+            memory_ids[domain].extend(event.related_memory_ids[::2])
+        else:
+            memory_ids[domain].extend(event.related_memory_ids)
+    type_results: dict[str, SchemaEpisodeTypeResult] = {}
+    for domain in _FIXED_SCHEMA_TYPES:
+        records = records_by_type[domain]
+        outcomes: dict[str, int] = {}
+        for record in records:
+            outcome = record.get("outcome")
+            if isinstance(outcome, str):
+                outcomes[outcome] = outcomes.get(outcome, 0) + 1
+        ids = list(dict.fromkeys(memory_ids[domain]))
+        type_results[domain] = SchemaEpisodeTypeResult(
+            status=fixed_results[domain]["status"],
+            candidate_count=fixed_results[domain]["candidate_count"],
+            memory_ids=ids,
+            memory_count=len(ids),
+            outcome_counts=outcomes,
+            executable_count=sum(record.get("is_executable") is True for record in records),
+        )
+    detected = any(result.candidate_count for result in type_results.values())
+    return SchemaEpisodeResult(
+        episode_id=episode_id or "pending",
+        types=type_results,
+        write_status="completed" if detected else "not_detected",
+    )
 
 
 def _events_to_payload(events: list[MemoryAddEventItem]) -> list[dict[str, Any]]:

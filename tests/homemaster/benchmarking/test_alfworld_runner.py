@@ -360,10 +360,37 @@ def _patch_empty_mindmemos(monkeypatch: Any) -> None:
         async def search(self, **_kwargs: object) -> list[object]:
             return []
 
-        async def add_vanilla(self, *_args: object, **_kwargs: object) -> object:
+        async def add_schema_episode(self, *_args: object, **_kwargs: object) -> object:
+            type_result = lambda **values: SimpleNamespace(
+                model_dump=lambda **_dump_kwargs: values,
+                **values,
+            )
             return SimpleNamespace(
                 add_record_id="alfworld-test-add",
-                result=SimpleNamespace(status="ok", memories=[]),
+                result=SimpleNamespace(
+                    status="ok",
+                    memories=[],
+                    schema_episode=SimpleNamespace(
+                        episode_id="alfworld-test-episode",
+                        write_status="not_detected",
+                        types={
+                            domain: type_result(
+                                status="not_detected",
+                                candidate_count=0,
+                                memory_ids=[],
+                                memory_count=0,
+                                error=None,
+                                outcome_counts={},
+                                executable_count=0,
+                            )
+                            for domain in (
+                                "object_location",
+                                "search_observation",
+                                "task_procedure",
+                            )
+                        },
+                    ),
+                ),
             )
 
         async def feedback_implicit(self, _context: object) -> object:

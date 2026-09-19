@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Awaitable, TypeVar
+from typing import Any, Awaitable, TypeVar
 
 from ...infra.db import DatabaseClients, resolve_database_clients
 from ...logging import get_logger
@@ -117,6 +117,48 @@ class MemoryOperationRecorder:
             ctx.project_id, add_record_id, {"status": "processing", "processing_at": utcnow()}
         )
 
+    async def get_add_payload(
+        self, ctx: MemoryRequestContext, add_record_id: str
+    ) -> dict[str, Any] | None:
+        """Load one project-owned add-record payload for durable replay."""
+
+        records = await self._add_records.get_by_ids(ctx.project_id, [add_record_id])
+        if not records:
+            return None
+        return dict(records[0].payload)
+
+    async def store_schema_episode_prepared(
+        self,
+        ctx: MemoryRequestContext,
+        add_record_id: str,
+        prepared: dict[str, Any],
+    ) -> None:
+        """Persist the exact fixed-episode mutation before external writes begin."""
+
+        await self._add_records.patch(
+            ctx.project_id,
+            add_record_id,
+            {
+                "schema_episode_plan_status": "prepared",
+                "schema_episode_prepared": prepared,
+                "schema_episode_prepared_at": utcnow(),
+            },
+        )
+
+    async def mark_schema_episode_plan_applied(
+        self, ctx: MemoryRequestContext, add_record_id: str
+    ) -> None:
+        """Mark a prepared fixed-episode mutation as externally applied."""
+
+        await self._add_records.patch(
+            ctx.project_id,
+            add_record_id,
+            {
+                "schema_episode_plan_status": "applied",
+                "schema_episode_applied_at": utcnow(),
+            },
+        )
+
     async def mark_add_completed(
         self,
         ctx: MemoryRequestContext,
@@ -134,6 +176,11 @@ class MemoryOperationRecorder:
                 "status": result.status,
                 "task_completed_at": utcnow(),
                 "memories": [memory.model_dump(mode="python") for memory in result.memories],
+                "schema_episode": (
+                    result.schema_episode.model_dump(mode="python")
+                    if result.schema_episode is not None
+                    else None
+                ),
             },
         )
 

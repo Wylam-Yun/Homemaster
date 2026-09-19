@@ -1,5 +1,129 @@
 # Session Handoff
 
+## V3.6 Compact Schema Input / Embedding Follow-up - 2026-09-19
+
+### Current request and scope
+
+- User asked for a handoff under `/home/haodong2/weilin/red_bird/Homemaster/docs` after the V3.6 long-trajectory failure.
+- No THOR rerun or code investigation is being performed in this handoff-only step. Existing services and benchmark
+  processes must remain untouched.
+
+### Implemented phase 1 changes
+
+- The fixed `homemaster_schema_episode_v1` ingress still uses the existing fixed extractors, native planner/writer,
+  receipts and readback path. Automatic `EpisodesChunker` integration is **not** implemented yet.
+- `src/homemaster/experience/schema_episode.py` now pairs tool calls/results first, then removes non-authoritative
+  `assistant.reply` events and duplicate `arguments`/`args` from tool event payloads. Tool event IDs, result payloads,
+  terminal/goal events and exact `tool_steps` remain available to evidence validation.
+- `src/homemaster/memory/schema_episode_validation.py` resolves coordinate evidence from paired tool arguments as well
+  as event payloads, so compaction does not weaken coordinate provenance checks.
+- `src/homemaster/memory/mindmemos_runtime.py` raises the canonical UTF-8 admission limit from 512 KiB to 3 MiB
+  (`3,145,728` bytes). The limit is inclusive; one byte over is rejected. This is only an ingress ceiling, not a
+  guarantee that the provider or embedding model accepts every resulting request.
+- Regression coverage includes compact event/evidence preservation, multibyte 3 MiB boundary behavior, coordinate
+  validation after compaction, finalizer event counts, and the existing schema/runtime gates.
+
+### Real evidence
+
+- Source visual session: `alfworld-thor-memory-demo-20260919-144618-0001`.
+- Original canonical episode: `526,321` bytes, which exceeded the old `524,288`-byte gate.
+- Compacted canonical episode: `501,343` bytes, with `48` paired tool steps.
+- Offline tests passed: `113 passed, 1 warning` before the finalizer expectation update; rerun the full focused suite
+  after synchronization and report its actual result. Do not infer external success from this internal suite.
+- Replay command: `.runtime/venv/bin/python /tmp/hm-phase1-replay.py`.
+- Replay log: `/tmp/hm-phase1-replay.log`; replay output root: `/tmp/hm-phase1-replay-20260919/`.
+- New replay job ID: `6a1936797b5da78928f7d3fc05e22a31a24faf400b18febfdc37fe69083a7ab9`.
+- The replay passed the old size gate, then failed later during embedding. The embedding provider returned HTTP 400,
+  error code `20015`, message `The parameter is invalid. Please check again.` The failure is after schema extraction/
+  planning reached vectorization; it is not evidence that the embedding model is globally unavailable.
+- The prior 144618 benchmark itself completed with valid harness coverage but `agent_model_failure` at the 50-step
+  limit; its earlier finalization failure was the old `schema episode exceeds 524288 UTF-8 bytes` error.
+
+### Next investigation
+
+1. Verify the embedding request boundary using the exact compact replay payload and a minimal known-good short string in
+   the same configured provider. Capture provider/model, input count, byte/token size and HTTP status without printing
+   secrets.
+2. Compare the successful short request with the failed long request to determine whether the 400 is caused by request
+   length, batch size, provider input format, or model endpoint configuration.
+3. Do not raise the limit again or disable embedding until the external request contract is verified. If long input is
+   rejected by the provider, phase 2 must chunk before embedding while preserving complete tool-call pairs.
+4. Re-run `/tmp/hm-phase1-replay.py` only after the embedding boundary is understood. Verify per-domain native receipt,
+   active raw memory readback, and independent Neo4j relationships.
+
+### Important environment facts
+
+- Remote checkout: `hkust4:/home/haodong2/weilin/red_bird/Homemaster`.
+- Main runtime: `.runtime/venv/bin/python`.
+- Private provider/memory config: `/tmp/hm-v36-alfworld4.yaml`; never print or copy its secrets.
+- Memory root: `/tmp/hm-v36-alfworld-memory4`.
+- THOR display: `DISPLAY=:100`; ALFWorld assets under `/data1/haodong2/weilin/red_bird/alfworld`.
+- Preserve long-running service PIDs `79236`, `777839` and worker `777859`.
+- No commit, push, reset or destructive cleanup was requested.
+
+
+## Active compact input phase 1 - 2026-09-19
+
+- User authorized phase 1 compaction plus >=3 MiB ceiling; no automatic chunker integration in this phase.
+- Plan: `plan/V3.6/schema-episode-compact-phase1-plan.md`. Implementation preserves call/result event IDs, pairs
+  exact tools first, removes duplicate arguments and assistant replies, and retains coordinate input evidence via
+  paired arguments. Ceiling: 3,145,728 UTF-8 bytes inclusive.
+- Real pan source session `alfworld-thor-memory-demo-20260919-144618-0001`: 526,321 -> 501,343 canonical bytes,
+  48 paired steps. Old failed job retained. New job `6a1936797b5da78928f7d3fc05e22a31a24faf400b18febfdc37fe69083a7ab9`.
+- Replay `/tmp/hm-phase1-replay.py`, log `/tmp/hm-phase1-replay.log`, evidence `/tmp/hm-phase1-replay-20260919/`.
+  External finalization/readback pending; do not claim PASS before checking. No THOR rerun; existing services untouched.
+
+## Active schema repair - 2026-09-19
+
+- User request: fix failed three-domain memory generation and replay the saved visual episode, not TextWorld.
+- Source session: `alfworld-thor-memory-demo-20260919-122302-0001`; original visual task failed on put and must not
+  be relabeled as a successful task. The two legacy trajectory memories already exist independently.
+- Root cause: model-owned numbering/copied tool payloads and conflicting semantic/storage prompt contracts. Compiler
+  now resolves exact trace references, rejects bad identities/order, and preserves the external-goal execution gate.
+- Original regression: 12 failed / 17 passed. Follow-up string-call and search-reference regressions reproduced before
+  repair. First real replay was interrupted with SIGINT after evidence showed old-contract nested retries; no simulator
+  was restarted. Latest replay log: `/tmp/hm-schema-replay-20260919-v2.log`.
+- Evidence/scripts: `/tmp/hm-schema-replay-20260919/`, `/tmp/hm-schema-replay.py`, `/tmp/hm-schema-offline.py`.
+- Verification COMPLETE: 111 tests passed (one local-Qdrant index warning), Ruff/compileall/diff checks passed. Real
+  replay finalized at 13:21:47 +08:00, exit code 0. All three domains have one active raw memory each; independent
+  Neo4j readback found `MENTIONS` and `HAS_PROPERTY_MEMORY` for every memory. Native job status is completed.
+- The latest replay rejected one mismatched search reference and retried before succeeding. This was not waived;
+  captured final candidates also pass offline validation. Original captured steps pass after excluding the separately
+  unsupported string lesson; the unsupported lesson itself remains rejected.
+- Object location: `f1942076-95de-4f83-9cec-f0903b284a2d` (watch observed on desk).
+- Search observation: `b53fc5fd-0fab-4ab5-89a9-cbcb0add5bac` (watch found on desk).
+- Task procedure: `6a4ef37b-597f-4a9a-b495-e3f391add843` (all 7 trace steps, failure, non-executable).
+- Evidence: `stored-memories.json`, `neo4j-readback.json`, `finalize-result.json`, `candidate-boundaries.jsonl` in the
+  replay evidence directory. Monitoring stopped after completion. Existing services 79236, 777839, 777859 preserved.
+- Config `/tmp/hm-v36-alfworld4.yaml` is private; root `/tmp/hm-v36-alfworld-memory4`; do not print credentials or
+  open its embedded Qdrant concurrently. No commit or push requested.
+
+## V3.6 Trajectory Schema Memory — 2026-09-18
+
+- Requested remote checkout: `hkust4:/home/haodong2/weilin/red_bird/Homemaster`, branch `main`.
+- Pre-implementation archive commit: `1e160272`; it contains no V3.6 runtime changes.
+- Implemented deterministic episode normalization/pairing, three fixed schema extractors, evidence validation, one
+  merged native planner/writer path, stable schema-episode add receipts, finalizer migration, and recall projection.
+- This session fixed the prepared-receipt identity bug: `_EpisodeTask.episode_id` is now passed into receipt creation
+  before the prepared payload is persisted; the regression assertion passes.
+- This session also fixed the real-storage identity bug: `add_schema_episode()` now uses a pure UUID5 add-record ID,
+  which satisfies Qdrant point-ID validation while preserving deterministic idempotency.
+- Current affected contract gate: `53 passed, 1 warning`; fixed extractor/schema tests separately pass `28 passed`.
+- ALFWorld preflight passes with Python 3.11.15, importable `alfworld`, and present
+  `.runtime/alfworld/configs/base_config.yaml`. The real household benefit gate has not yet run and must not be reported
+  as PASS until `HOMEMASTER_RUN_REAL_SCHEMA_EPISODE_ALFWORLD=1` completes.
+- Real Qdrant/Neo4j schema-episode acceptance and installed-wheel prompt-data verification remain to be run after the
+  implementation test suite is green. External completion requires native status `ok`, every returned property memory
+  active with the expected native type, and independent Neo4j relationship readback.
+- The real automatic-recall gate currently fails before startup because the persistent local Qdrant directory is
+  locked by the long-running HomeMaster service PID `79236`; use an isolated data root or stop that service before rerunning.
+- No `tests/homemaster/memory/test_schema_episode_alfworld_integration.py` exists in this checkout, so the ALFWorld gate is
+  currently missing rather than passing. The gate has now been added and passed once against real `valid_seen`
+  `AlfredTWEnv` data: `1 passed in 219.97s`.
+- The full model-driven ALFWorld runner was intentionally not used as the memory gate: the model spent the budget
+  retrying invalid object arguments on one task. The new gate uses real ALFWorld reset data plus a minimal episode and
+  validates real schema add/readback; full benchmark success remains a separate model-quality result.
+
 ## V3.4 THOR real-backend PASS — 2026-09-11
 
 - `scripts/verify_v34_thor.py` 跑通真实 THOR：reset/索引/生产解析/prepare/真实导航

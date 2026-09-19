@@ -86,12 +86,44 @@ successful provider attempt selects mindmemos_feedback
 
 SessionFinalizer
   -> execute as one typed item in the shared memory FIFO
-  -> vanilla add and raw readback
+  -> deterministic trace normalization and tool-call/result pairing
+  -> one `homemaster_schema_episode_v1` ingress
+  -> fixed object_location, search_observation and task_procedure LLM extractors
+  -> merge all candidates before one native SchemaAddPlanner call
+  -> one mutation writer call and Qdrant + Neo4j readback
   -> operation-record implicit feedback and per-action readback
   -> register only confirmed ordinary add IDs in the persistent watermark
   -> threshold/pending batch invokes native dreaming with session_id=None
   -> per-action raw/lineage and add-record consolidation readback
 ```
+
+The three V3.6 extractors are independent and all receive the same canonical episode. They are not a semantic router:
+an extractor may return zero or more candidates, and a valid empty result is `not_detected`. Any malformed or
+cross-type output fails the whole episode before planning. HomeMaster owns ordering, pairing, exact arguments/results,
+event IDs, hashing and evidence validation; the LLM owns evidence-grounded candidate summaries. The shared MindMemOS
+planner, merge logic and writer remain the only persistence path.
+
+Phase 1 input compaction pairs tool calls before removing duplicate argument payloads from events. Call/result event
+identities remain valid; exact arguments live in `tool_steps`, and result events retain payloads for coordinate evidence
+validation. Assistant replies are excluded as non-authoritative commentary; task text and terminal events remain.
+Input-coordinate checks resolve cited calls to their paired arguments. Raw traces are never modified. Canonical UTF-8
+input is admitted up to and including 3 MiB (3,145,728 bytes); larger inputs fail before writing. This is a transport
+safety ceiling, not a provider context guarantee. The fixed ingress still does not invoke EpisodesChunker in this phase.
+
+Semantic extractor prompts expose candidate examples, not the storage schema. Procedure `steps` reference exact
+`tool_call_id` values; the compiler generates one-based indices and copies original arguments, results and statuses.
+Legacy complete event-ID references are also resolved exactly, never by tool-name adjacency. Unknown, conflicting,
+duplicate or reordered references fail validation. `reusable_tool_call_ids` maps to canonical numeric indices only
+after resolution; executability still requires authoritative goal evidence and successful reusable steps. Unnumbered
+legacy numeric reusable proposals are cleared rather than guessed. Search actions may similarly reference a call ID,
+which must belong to the cited evidence. Empty optional outcome evidence means unverified, not success.
+
+`object_location` and `search_observation` map to native `fact`; `task_procedure` maps to native `experience`. Each
+property memory contains one canonical JSON `episode_record` retaining the domain type and provenance. A
+`task_procedure` may have `success`, `failure`, `partial` or `unknown` outcome. Its complete observed steps and optional
+failure lesson remain historical experience, while `is_executable=true` and `reusable_steps` require authoritative
+external goal evidence and exact per-step tool evidence. This episode model does not replace `ProcedureRecord`, which
+continues to mean a verified successful reusable SOP.
 
 HomeMaster `fact` maps to MindMemOS `fact`; HomeMaster `procedure` maps to MindMemOS `experience`. The direct writer keeps
 the submitted content byte-for-byte as the authoritative display text. Preprocessing is index-only and explicitly disables

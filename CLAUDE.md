@@ -1,5 +1,19 @@
 # HomeMaster Agent Rules
 
+## Schema extraction boundary
+
+- When compacting evidence, build exact call/result pairs before removing duplicated fields. Preserve cited event
+  identities and audit every validator that reads the removed payload. Test coordinates from tool inputs as well as
+  results. Treat ingress byte limits and provider context limits as separate acceptance gates.
+
+- Give semantic extractors one unambiguous output contract; never attach a storage-schema example that contradicts
+  it. Compile indices, tool arguments/results and storage metadata from exact trace identities in code.
+- Reproduce malformed outputs captured from real runs before accepting schema fixes. Check missing/zero-based
+  numbering, reference aliases, and repeated tool calls; reject unknown/conflicting references rather than guessing.
+- Verify every expected memory domain by native receipt and active raw plus graph readback. A shared pre-write
+  validator failure blocks the whole batch; do not report three independent extraction failures or use one domain
+  as evidence that all domains were stored.
+
 ## Live run 状态隔离纪律
 
 - 派生验收轨迹必须由 verifier 从 bundle 内的原始事件重新计算，并与派生文件逐项一致；manifest 哈希

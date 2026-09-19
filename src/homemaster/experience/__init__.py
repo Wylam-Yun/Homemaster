@@ -9,6 +9,7 @@ from .alfworld_compiler import (
 from .dreaming_state import DreamingBatch, DreamingCoordinator, DreamingStateStore
 from .finalizer import ExperienceOperation, FinalizeResult, SessionFinalizer, TaskTraceEnvelope
 from .session_finalization import SessionFinalizationController
+from .schema_episode import build_schema_episode, serialize_schema_episode
 
 __all__ = [
     "AlfworldCompileJobService",
@@ -23,4 +24,6 @@ __all__ = [
     "SessionFinalizer",
     "SessionFinalizationController",
     "TaskTraceEnvelope",
+    "build_schema_episode",
+    "serialize_schema_episode",
 ]

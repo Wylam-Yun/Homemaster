@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -13,7 +14,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from homemaster.config import HomeMasterConfig
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
@@ -21,6 +22,8 @@ from homemaster.memory.models import MEMORY_RECORD_ADAPTER, MemoryRecord
 from homemaster.memory.serialization import serialize_record
 
 _ENTITY_MODELING_PATH = Path(__file__).with_name("mindmemos_entity_modeling.json")
+_SCHEMA_EPISODE_PROMPTS_PATH = Path(__file__).with_name("schema_episode_prompts.json")
+_SCHEMA_EPISODE_MAX_BYTES = 3 * 1024 * 1024
 _HOMEMASTER_ENTITY_GENERATION_PROMPT = """
 你负责把一条已经过 HomeMaster 校验的结构化记忆写入 MindMemOS schema。
 
@@ -355,6 +358,21 @@ def build_mindmemos_add_prompts(language: str | None = None) -> Any:
     )
 
 
+def load_schema_episode_prompts() -> dict[str, str]:
+    """Load versioned fixed-schema prompts from package data."""
+
+    payload = json.loads(_SCHEMA_EPISODE_PROMPTS_PATH.read_text(encoding="utf-8"))
+    prompts = {
+        key: value
+        for key, value in payload.items()
+        if key != "schema_version" and isinstance(value, str) and value.strip()
+    }
+    required = {"object_location", "search_observation", "task_procedure"}
+    if set(prompts) != required:
+        raise ValueError("schema episode prompt file must define exactly three domain prompts")
+    return prompts
+
+
 class EmbeddedMindMemOS:
     """Own the process-local resources used by MindMemOS pipelines."""
 
@@ -381,6 +399,7 @@ class EmbeddedMindMemOS:
         self._delete_pipeline: Any | None = None
         self._feedback_pipeline: Any | None = None
         self._dreaming_pipeline: Any | None = None
+        self._schema_episode_locks: dict[str, asyncio.Lock] = {}
         self._unavailable_cause: str | None = None
 
     @property
@@ -530,6 +549,13 @@ class EmbeddedMindMemOS:
                 llm_client=_TypedSchemaLlmClient(llm_client),
                 embed_client=embed_client,
                 prompt_set=build_mindmemos_add_prompts(mapped.algo_config.common.prompt_language),
+                fixed_episode_prompts=load_schema_episode_prompts(),
+                fixed_episode_validator=(
+                    __import__(
+                        "homemaster.memory.schema_episode_validation",
+                        fromlist=["validate_schema_episode_candidates"],
+                    ).validate_schema_episode_candidates
+                ),
             )
             vanilla_add_pipeline = create_pipeline(
                 type="add",
@@ -1355,6 +1381,100 @@ class EmbeddedMindMemOS:
                 operation="homemaster.mindmemos.vanilla_add",
             )
             raise
+
+    async def add_schema_episode(
+        self,
+        episode: dict[str, Any],
+        context: Any,
+        *,
+        metadata: dict[str, Any],
+    ) -> RecordedAddResult:
+        """Persist one canonical HomeMaster episode through fixed schema extractors."""
+
+        from mindmemos.pipelines.memory_db import utcnow
+        from mindmemos.typing import (
+            AddPipelineInput,
+            AddPipelineSyncResult,
+            TextMessage,
+        )
+
+        if self._add_pipeline is None or self._recorder is None or self._reader is None:
+            raise RuntimeError("embedded MindMemOS is not started")
+        canonical = json.dumps(
+            episode,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        encoded = canonical.encode("utf-8")
+        if len(encoded) > _SCHEMA_EPISODE_MAX_BYTES:
+            raise ValueError(
+                f"schema episode exceeds {_SCHEMA_EPISODE_MAX_BYTES} UTF-8 bytes"
+            )
+        required_metadata = {
+            "ingress": "homemaster_schema_episode_v1",
+            "domain_schema_version": episode.get("schema_version"),
+            **dict(metadata),
+        }
+        if required_metadata.get("ingress") != "homemaster_schema_episode_v1":
+            raise ValueError("schema episode ingress metadata cannot be overridden")
+        stable_material = "\0".join(
+            [
+                str(context.account_id),
+                str(context.project_id),
+                str(context.request_id),
+            ]
+        )
+        # Qdrant local/server point IDs must be UUID-compatible. The UUID5
+        # input remains the stable idempotency material; the ingress metadata
+        # carries the semantic schema-episode identity.
+        add_record_id = str(
+            uuid5(NAMESPACE_URL, f"homemaster-schema-episode:{stable_material}")
+        )
+        required_metadata.setdefault("schema_episode_id", add_record_id)
+        payload = AddPipelineInput(
+            messages=[TextMessage(text=canonical)],
+            mode="sync",
+            force_generation=True,
+            metadata=required_metadata,
+        )
+        lock = self._schema_episode_locks.setdefault(add_record_id, asyncio.Lock())
+        async with lock:
+            records = await self._reader.get_add_records_by_ids(context, [add_record_id])
+            if records:
+                stored = records[0].payload
+                if stored.get("status") == "ok" and stored.get("schema_episode"):
+                    result = AddPipelineSyncResult.model_validate(
+                        {
+                            "status": stored["status"],
+                            "memories": stored.get("memories") or [],
+                            "schema_episode": stored["schema_episode"],
+                        }
+                    )
+                    return RecordedAddResult(add_record_id=add_record_id, result=result)
+                await self._recorder.mark_add_processing(context, add_record_id)
+            else:
+                await self._recorder.record_add_input(
+                    payload,
+                    ctx=context,
+                    request_submitted_at=utcnow(),
+                    add_record_id=add_record_id,
+                    status="processing",
+                )
+            try:
+                result = await self._add_pipeline.add_sync(
+                    payload,
+                    context,
+                    add_record_id=add_record_id,
+                )
+            except Exception as exc:
+                await self._recorder.mark_add_failed(context, add_record_id, str(exc))
+                raise
+            if result.status != "ok" or result.schema_episode is None:
+                error = "schema episode add returned no successful aggregate receipt"
+                await self._recorder.mark_add_failed(context, add_record_id, error)
+                raise RuntimeError(error)
+            return RecordedAddResult(add_record_id=add_record_id, result=result)
 
     async def search(
         self,

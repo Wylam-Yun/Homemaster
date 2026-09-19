@@ -84,18 +84,16 @@ def test_alfworld_entry_fails_closed_without_mindmemos(
         )
 
 
-def test_alfworld_entry_rejects_legacy_memory_mode(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(ValueError, match="legacy ALFWorld memory_mode"):
-        alfworld_entry.AlfworldApplicationEntry(
-            config=_config(tmp_path),
-            memory_mode="full",
-            runtime_root=tmp_path / "application",
-            session_root=tmp_path / "sessions",
-            transport_factory=None,
-            event_sink=object(),
-        )
+def test_alfworld_entry_accepts_legacy_memory_mode(tmp_path: Path) -> None:
+    entry = alfworld_entry.AlfworldApplicationEntry(
+        config=_config(tmp_path),
+        memory_mode="full",
+        runtime_root=tmp_path / "application",
+        session_root=tmp_path / "sessions",
+        transport_factory=None,
+        event_sink=object(),
+    )
+    entry.close()
 
 
 def test_alfworld_entry_closes_open_session_before_application_resources(
