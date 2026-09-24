@@ -58,6 +58,9 @@ class AlfworldHttpEnvironment:
         self._state = _decode_state(_required_mapping(ready, "state"))
         self._state_sequence = 1
         self._run_id = "unbound"
+        self._env_type = "AlfredThorEnv"
+        self._scene_generation = 1
+        self._scene_index: Any | None = None
 
     @classmethod
     def start(
@@ -185,6 +188,44 @@ class AlfworldHttpEnvironment:
     @property
     def current_state(self) -> AlfworldEnvState:
         return self._state
+
+    @property
+    def backend_id(self) -> str:
+        return f"alfworld:{self._state.episode_id}"
+
+    @property
+    def env_type(self) -> str:
+        return self._env_type
+
+    @property
+    def generation(self) -> int:
+        return self._scene_generation
+
+    @property
+    def state_sequence(self) -> int:
+        return self._state_sequence
+
+    @property
+    def authoritative_object_index(self) -> Any | None:
+        from homemaster.benchmarking.alfworld.execution import SceneObjectIndex
+
+        response = self._client.get("/v1/scene-index", timeout=self._request_timeout_s)
+        payload = _successful_json(response)
+        objects = payload.get("objects")
+        if not isinstance(objects, list):
+            return None
+        scene_generation = payload.get("scene_generation", self._scene_generation)
+        snapshot_event_sequence = payload.get("snapshot_event_sequence", self._state_sequence)
+        if not isinstance(scene_generation, int) or not isinstance(snapshot_event_sequence, int):
+            return None
+        self._scene_generation = scene_generation
+        self._scene_index = SceneObjectIndex.from_objects(
+            objects=objects,
+            scene_generation=scene_generation,
+            snapshot_event_sequence=snapshot_event_sequence,
+            require_receptacle_metadata=True,
+        )
+        return self._scene_index
 
     @property
     def runtime_identity(self) -> dict[str, Any]:

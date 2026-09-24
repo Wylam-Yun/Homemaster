@@ -136,13 +136,32 @@ def resolve_authoritative(
     except Exception:
         return None
     if grounded.method == "unchanged" or not grounded.value:
-        return None
+        try:
+            same_type = matching_type(value.strip())
+        except Exception:
+            return None
+        if len({getattr(item, "object_id", None) for item in same_type}) != 1:
+            return None
+        authoritative = same_type[0]
+        # Natural labels often survive unchanged; recover kind from the index.
+        kind = grounded.kind
+        if kind is None:
+            kind = "receptacle" if getattr(authoritative, "receptacle", False) else "object"
+        return AuthoritativeTarget(reference=authoritative, kind=kind)
     try:
         authoritative = resolve(grounded.value)
     except Exception:
         return None
     if authoritative is None:
         return None
+    if normalized_key(grounded.value) == normalized_key(
+        getattr(authoritative, "canonical_label", "")
+    ):
+        # Exact pin: recover kind when the grounding model did not provide one.
+        kind = grounded.kind
+        if kind is None:
+            kind = "receptacle" if getattr(authoritative, "receptacle", False) else "object"
+        return AuthoritativeTarget(reference=authoritative, kind=kind)
     try:
         same_type = matching_type(grounded.value)
     except Exception:

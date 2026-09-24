@@ -18,6 +18,7 @@ from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
     create_alfworld_gateway_binding,
 )
+from homemaster.benchmarking.alfworld.permission_adapter import ThorBackendView
 from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web.app import create_web_app
@@ -77,8 +78,10 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose one long-lived runtime with capabilities selected by configuration."""
 
     confirmation_handler = WebConfirmationHandler()
+    config = load_config(config_path=config_path) if config_path is not None else load_config()
+    config = config.model_copy(update={"runtime": config.runtime.model_copy(update={"max_tool_iterations": 100, "max_consecutive_tool_errors": 0})})
     bundle = create_home_application(
-        config=load_config(config_path=config_path) if config_path is not None else None,
+        config=config,
         progress=False,
         quiet=True,
         console_show_replies=False,
@@ -138,16 +141,17 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
     return app
 
 
-async def create_alfworld_web_app() -> FastAPI:
+async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console around the existing fixed-episode ALFWorld adapter."""
 
     confirmation_handler = WebConfirmationHandler()
     bundle = create_home_application(
+        config=load_config(config_path=config_path) if config_path is not None else None,
         progress=False,
         quiet=True,
         console_show_replies=False,
         tool_environment="alfworld",
-        permission_mode=PermissionMode.FULL_AUTO,
+        permission_mode=PermissionMode.DEFAULT,
         confirmation_handler=confirmation_handler,
         publish_artifacts=True,
     )
@@ -166,6 +170,21 @@ async def create_alfworld_web_app() -> FastAPI:
             bundle.config.alfworld_gateway,
             run_dir=bundle.run_dir,
             resource_scope=bundle.application.resource_scope,
+        )
+        from homemaster.adapters.profiles import (
+            alfworld_physical_go_to_tool,
+            alfworld_physical_manipulate_tool,
+        )
+
+        backend = ThorBackendView(
+            binding.adapter,
+            judge_config_path=binding.dependencies.get("alfworld_semantic_judge_config"),
+        )
+        bundle.application.tool_executor.registry.replace(
+            alfworld_physical_go_to_tool(backend=backend)
+        )
+        bundle.application.tool_executor.registry.replace(
+            alfworld_physical_manipulate_tool(backend=backend)
         )
         application = AlfworldGatewayApplication(bundle.application, owner, binding)
         app = create_web_app(
@@ -193,7 +212,7 @@ async def _serve_web_server(
     if environment not in (None, "alfworld", "browser"):
         raise ValueError(f"unsupported Web environment: {environment}")
     if environment == "alfworld":
-        app = await create_alfworld_web_app()
+        app = await create_alfworld_web_app(config_path)
     elif environment == "browser":
         app = create_browser_web_app(config_path)
     else:

@@ -228,10 +228,13 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
     close_base = AsyncMock()
     session_manager = object()
     mindmemos = object()
+    replaced: list[object] = []
+    registry = SimpleNamespace(replace=replaced.append)
     base_application = SimpleNamespace(
         resource_scope=object(),
         session_manager=session_manager,
         aclose=close_base,
+        tool_executor=SimpleNamespace(registry=registry, permission_store=None),
     )
     config = SimpleNamespace(alfworld_gateway=object())
     bundle = SimpleNamespace(
@@ -240,7 +243,7 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
         run_dir=object(),
         mindmemos=mindmemos,
     )
-    binding = object()
+    binding = SimpleNamespace(adapter=object(), dependencies={})
     owner = SimpleNamespace(claim=AsyncMock(return_value=True), seal=AsyncMock())
     expected_app = SimpleNamespace(state=SimpleNamespace())
 
@@ -268,10 +271,13 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
 
     assert result is expected_app
     assert captured["tool_environment"] == "alfworld"
-    assert captured["permission_mode"] is PermissionMode.FULL_AUTO
+    assert captured["permission_mode"] is PermissionMode.DEFAULT
     assert captured["binding_config"] is config.alfworld_gateway
     assert captured["run_dir"] is bundle.run_dir
     assert captured["resource_scope"] is base_application.resource_scope
+    assert {tool.name for tool in replaced} == {"robot_go_to", "robot_manipulate"}
+    assert all(tool.physical is True for tool in replaced)
+    assert all(tool.physical_adapter is not None for tool in replaced)
     wrapped = captured["web_application"]
     assert wrapped is expected_app.state.alfworld_application
     assert wrapped._application is base_application
@@ -284,6 +290,43 @@ async def test_create_alfworld_web_app_reuses_existing_binding(monkeypatch) -> N
     assert expected_app.state.home_bundle is bundle
     close_base.assert_not_awaited()
 
+
+@pytest.mark.asyncio
+async def test_create_alfworld_web_app_forwards_config_path(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "alfworld.yaml"
+    config = SimpleNamespace(alfworld_gateway=object())
+    captured: dict[str, object] = {}
+    base_application = SimpleNamespace(
+        resource_scope=object(),
+        session_manager=object(),
+        aclose=AsyncMock(),
+        tool_executor=SimpleNamespace(
+            registry=SimpleNamespace(replace=lambda _tool: None),
+            permission_store=None,
+        ),
+    )
+    bundle = SimpleNamespace(
+        application=base_application,
+        config=config,
+        run_dir=object(),
+        mindmemos=None,
+    )
+    binding = SimpleNamespace(adapter=object(), dependencies={})
+    owner = SimpleNamespace(claim=AsyncMock(return_value=True), seal=AsyncMock())
+    expected_app = SimpleNamespace(state=SimpleNamespace())
+
+    async def fake_binding(*_args, **_kwargs):
+        return binding, owner
+
+    monkeypatch.setattr(serve, "load_config", lambda *, config_path: config)
+    monkeypatch.setattr(serve, "create_home_application", lambda **kwargs: captured.update(kwargs) or bundle)
+    monkeypatch.setattr(serve, "create_alfworld_gateway_binding", fake_binding, raising=False)
+    monkeypatch.setattr(serve, "create_web_app", lambda **_kwargs: expected_app)
+
+    result = await serve.create_alfworld_web_app(config_path)
+
+    assert result is expected_app
+    assert captured["config"] is config
 
 @pytest.mark.asyncio
 async def test_create_alfworld_web_app_closes_base_when_binding_fails(monkeypatch) -> None:

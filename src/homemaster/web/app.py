@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 
-from homemaster.application import RunRequest
+from homemaster.application import RunPolicy, RunRequest
 from homemaster.artifacts.tool_output_store import ArtifactStoreError
 from homemaster.memory.management import MemoryManagementService, MemoryNotFoundError
 from homemaster.permissions.models import (
@@ -296,6 +296,7 @@ def create_web_app(
                     session_id=session_id,
                     resume=True,
                     permission_subject=_WEB_PERMISSION_SUBJECT,
+                    run_policy=RunPolicy(max_tool_iterations=100),
                     metadata={"web_request_id": body.request_id},
                 ),
                 request_id=body.request_id,

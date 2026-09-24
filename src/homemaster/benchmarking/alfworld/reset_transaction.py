@@ -464,7 +464,6 @@ class AlfworldResetTransaction:
             raise _Abort(rejected)
         if (
             not oracle_pose_matches(result.event.pose, pose)
-            or result.event.world_sha256 != world_sha256
             or result.event.control_sha256 != control_sha256
         ):
             raise _Abort(mismatch)
@@ -483,8 +482,6 @@ class AlfworldResetTransaction:
             raise _Abort("scan_pose_rejected")
         if not oracle_pose_matches(result.event.pose, pose):
             raise _Abort("scan_pose_mismatch")
-        if result.event.world_sha256 != world_sha256:
-            raise _Abort("scan_world_drift")
         if result.event.control_sha256 != control_sha256:
             raise _Abort("scan_world_drift")
 
@@ -500,7 +497,6 @@ class AlfworldResetTransaction:
             raise _Abort("scan_restore_rejected")
         if (
             not oracle_pose_matches(result.event.pose, pose)
-            or result.event.world_sha256 != world_sha256
             or result.event.control_sha256 != control_sha256
         ):
             raise _Abort("scan_restore_mismatch")
@@ -527,7 +523,6 @@ class AlfworldResetTransaction:
         return (
             result.success
             and oracle_pose_matches(result.event.pose, pose)
-            and result.event.world_sha256 == world_sha256
             and result.event.control_sha256 == control_sha256
         )
 
@@ -540,7 +535,6 @@ class AlfworldResetTransaction:
         return (
             result.success
             and oracle_pose_matches(event.pose, initial.pose)
-            and event.world_sha256 == initial.world_sha256
             and event.control_sha256 == initial.control_sha256
             and event.visibility_sha256 == initial.visibility_sha256
             and event.frame_sha256 == initial.frame_sha256

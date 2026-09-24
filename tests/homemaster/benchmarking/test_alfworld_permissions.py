@@ -185,7 +185,7 @@ async def test_prepare_is_deterministic(tmp_path: Path) -> None:
     first = await adapter.prepare(call, _context(tmp_path))
     second = await adapter.prepare(call, _context(tmp_path))
     assert _signature(first) == _signature(second)
-    assert first.request_id == second.request_id
+    assert first.request_id != second.request_id
 
 
 @pytest.mark.asyncio
@@ -371,8 +371,11 @@ async def test_unknown_binding_and_release(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_refuses_unsupported_tools_and_calls(tmp_path: Path) -> None:
     backend = FakeAlfworldBackend()
-    with pytest.raises(ValueError):
-        AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
+    nav = AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
+    request = await nav.prepare({"target": "cup a"}, _context(tmp_path))
+    assert request.requirements[0].key.action == "enter"
+    assert len(request.steps) == 1
+    assert request.steps[0].summary == "navigate to cup a"
     adapter = _adapter(backend)
     for call in (
         {"action": "dance", "object": "cup a"},
@@ -418,3 +421,124 @@ def test_profiles_hook_builds_physical_tool(tmp_path: Path) -> None:
 def test_thor_view_marks_unverified_seams() -> None:
     view = ThorBackendView(env=None)
     assert view.toggle_state("Lamp|001") is None
+
+
+@pytest.mark.asyncio
+async def test_nav_parity_with_legacy_helper(tmp_path: Path) -> None:
+    """Adapter-declared navigation must equal the legacy execution path.
+
+    Regression: canonical spellings (pick_up/place) fed straight into the
+    helper (which matches backend spellings take/put) silently navigated to
+    the object instead of the receptacle for put.
+    """
+    from test_alfworld_permissions import FakeAlfworldBackend
+
+    from homemaster.benchmarking.alfworld.permission_adapter import (
+        AlfworldPermissionAdapter,
+    )
+    from homemaster.tools.base import ToolExecutionContext
+
+    backend = FakeAlfworldBackend()
+    adapter = AlfworldPermissionAdapter(backend=backend)
+    context = ToolExecutionContext(tmp_path, metadata={})
+    cases = [
+        ({"action": "take", "object": "cup a"}, "cup a"),
+        ({"action": "put", "object": "cup a", "target_receptacle": "countertop"},
+         "countertop"),
+        ({"action": "heat", "object": "cup a", "tool_receptacle": "microwave"},
+         "microwave"),
+        ({"action": "open", "target_receptacle": "microwave"}, "microwave"),
+    ]
+    for call, expected_nav in cases:
+        request = await adapter.prepare(call, context)
+        nav_steps = [s for s in request.steps if s.summary.startswith("navigate to ")]
+        assert len(nav_steps) == 1
+        assert nav_steps[0].summary == f"navigate to {expected_nav}"
+        assert navigation_target_for_action(call) == expected_nav
+
+
+from types import SimpleNamespace
+
+import pytest
+
+from homemaster.benchmarking.alfworld.execution import SceneObjectIndex
+from homemaster.benchmarking.alfworld.grounding import resolve_authoritative
+from homemaster.benchmarking.alfworld.tools import navigation_target_for_action
+
+
+def _two_desk_index() -> SceneObjectIndex:
+    return SceneObjectIndex.from_objects(
+        objects=[
+            {"objectId": "Desk|aaa", "objectType": "Desk", "receptacle": True},
+            {"objectId": "Desk|bbb", "objectType": "Desk", "receptacle": True},
+            {"objectId": "Mug|ccc", "objectType": "Mug", "receptacle": False},
+        ],
+        scene_generation=1,
+        snapshot_event_sequence=1,
+    )
+
+
+def _state() -> SimpleNamespace:
+    return SimpleNamespace(
+        task="put the mug on the desk",
+        observation="You see desk 1, desk 2, mug 1.",
+        inventory=None,
+        last_feedback=None,
+    )
+
+
+def _subtask() -> SimpleNamespace:
+    return SimpleNamespace(object="Mug", parent="Desk", toggle=None, mrecep=None)
+
+
+def test_bare_label_with_two_instances_refuses() -> None:
+    target = resolve_authoritative(
+        "desk", state=_state(), subtask=_subtask(),
+        allowed_kinds={"object", "receptacle", "toggle"},
+        scene_index=_two_desk_index(),
+    )
+    assert target is None
+
+
+def test_exact_instance_pin_accepts() -> None:
+    target = resolve_authoritative(
+        "desk 1", state=_state(), subtask=_subtask(),
+        allowed_kinds={"object", "receptacle", "toggle"},
+        scene_index=_two_desk_index(),
+    )
+    assert target is not None
+    assert target.reference.object_id == "Desk|aaa"
+
+
+def test_unique_bare_label_accepts() -> None:
+    target = resolve_authoritative(
+        "mug", state=_state(), subtask=_subtask(),
+        allowed_kinds={"object", "receptacle", "toggle"},
+        scene_index=_two_desk_index(),
+    )
+    assert target is not None
+    assert target.reference.object_id == "Mug|ccc"
+
+
+@pytest.mark.asyncio
+async def test_adapter_refuses_ambiguous_receptacle(tmp_path: Path) -> None:
+    from test_alfworld_permissions import FakeAlfworldBackend
+
+    from homemaster.benchmarking.alfworld.permission_adapter import (
+        AlfworldPermissionAdapter,
+        TargetUnresolved,
+    )
+    from homemaster.tools.base import ToolExecutionContext
+
+    class TwoDeskBackend(FakeAlfworldBackend):
+        def resolve_target(self, label: str, *, allowed: frozenset) -> BackendTarget | None:
+            if label.strip().casefold() == "desk":
+                return None
+            return super().resolve_target(label, allowed=allowed)
+
+    backend = TwoDeskBackend()
+    adapter = AlfworldPermissionAdapter(backend=backend)
+    context = ToolExecutionContext(tmp_path, metadata={})
+    with pytest.raises(TargetUnresolved):
+        await adapter.prepare(
+            {"action": "put", "object": "cup a", "target_receptacle": "desk"}, context)

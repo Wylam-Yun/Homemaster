@@ -324,6 +324,19 @@ def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
     )
 
 
+def alfworld_physical_go_to_tool(*, backend: Any) -> Any:
+    from homemaster.benchmarking.alfworld.permission_adapter import AlfworldPermissionAdapter
+    from homemaster.benchmarking.alfworld.tools import make_alfworld_robot_go_to
+    spec = make_alfworld_robot_go_to()
+    adapter = AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
+    registered = _adapted_tool(
+        spec, alias="robot_go_to", environment="alfworld",
+        policy=_policy_for("robot_go_to", environment="alfworld"),
+        state_effects=("backend.advance",),
+    )
+    return from_registered_tool(registered, physical=True, physical_adapter=adapter)
+
+
 def _screenshot_tool() -> RegisteredTool:
     return RegisteredTool(
         definition=ToolDefinition(

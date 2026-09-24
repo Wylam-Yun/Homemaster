@@ -186,6 +186,23 @@ def serve(args: argparse.Namespace) -> int:
                         },
                     )
                     return
+                if self.path == "/v1/scene-index":
+                    index = adapter.authoritative_object_index
+                    if index is None:
+                        self._send_json(503, {"ok": False, "error": "scene_index_unavailable"})
+                        return
+                    objects = [dict(ref.metadata) for ref in index.by_canonical_label.values()]
+                    self._send_json(
+                        200,
+                        {
+                            "ok": True,
+                            "state_sequence": state_sequence,
+                            "scene_generation": index.scene_generation,
+                            "snapshot_event_sequence": index.snapshot_event_sequence,
+                            "objects": objects,
+                        },
+                    )
+                    return
                 if self.path == "/v1/screenshot":
                     frame_path = adapter.current_state.frame_path
                     if not frame_path:

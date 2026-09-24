@@ -358,6 +358,17 @@ class ToolRegistry:
         self._tools: dict[str, BaseTool] = {}
         self._frozen = False
 
+    def replace(self, tool: BaseTool) -> None:
+        """Replace one already-composed tool before the registry is frozen."""
+        if self._frozen:
+            raise ToolRegistryError("tool registry is frozen")
+        if not isinstance(tool, BaseTool):
+            raise TypeError("registry entries must be BaseTool instances")
+        tool.validate_identity()
+        if tool.name not in self._tools:
+            raise ToolRegistryError(f"cannot replace unknown tool name {tool.name!r}")
+        self._tools[tool.name] = tool
+
     def register(self, tool: BaseTool) -> None:
         if self._frozen:
             raise ToolRegistryError("tool registry is frozen")

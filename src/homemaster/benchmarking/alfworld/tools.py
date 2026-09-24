@@ -174,7 +174,7 @@ def _exec_manipulate(
         if navigation_target:
             navigation = _adapter(run_context).go_to_target(
                 navigation_target,
-                tool_name="robot_manipulate",
+                tool_name="robot_go_to",
                 tool_args=_with_grounding_metadata(grounded, grounding_results),
             )
             navigation_refs = _write_trace(run_context, navigation)

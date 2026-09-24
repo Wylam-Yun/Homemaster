@@ -38,6 +38,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
+from uuid import uuid4
 
 from homemaster.permissions.models import (
     ExecutionObservation,
@@ -170,7 +171,7 @@ class AlfworldPermissionAdapter:
         tool: str = SUPPORTED_TOOL,
         backend: AlfworldBackend | None = None,
     ) -> None:
-        if tool != SUPPORTED_TOOL:
+        if tool not in {SUPPORTED_TOOL, "robot_go_to"}:
             raise ValueError(
                 f"unsupported tool {tool!r}; this adapter serves "
                 f"{SUPPORTED_TOOL!r} only (standalone navigation stays legacy: "
@@ -220,7 +221,7 @@ class AlfworldPermissionAdapter:
             raise TargetUnresolved(
                 f"target unresolved: {planned.primary_label!r}"
             )
-        nav_label = self._navigation_label(args, planned)
+        nav_label = planned.primary_label if self._tool == "robot_go_to" else self._navigation_label(args, planned)
         nav_target: BackendTarget | None = None
         if nav_label is not None:
             nav_target = backend.resolve_target(nav_label, allowed=_NAV_ROLES)
@@ -250,6 +251,12 @@ class AlfworldPermissionAdapter:
         )
 
     def _plan(self, args: dict[str, Any], backend: AlfworldBackend) -> _PlannedEffect:
+        if self._tool == "robot_go_to":
+            return _PlannedEffect(
+                canonical_action="enter",
+                primary_label=_required_text(args.get("target"), "navigation target"),
+                primary_allowed=_NAV_ROLES,
+            )
         raw_action = args.get("action")
         if not isinstance(raw_action, str) or not raw_action.strip():
             raise TargetUnresolved("manipulate call declares no action")
@@ -344,7 +351,12 @@ class AlfworldPermissionAdapter:
         )
 
         probe = dict(args)
-        probe["action"] = planned.canonical_action
+        # The shared helper matches backend spellings (take/put); the plan
+        # holds canonical spellings (pick_up/place). Convert once here so
+        # declared navigation always equals the legacy execution path.
+        probe["action"] = _BACKEND_ACTIONS.get(
+            planned.canonical_action, planned.canonical_action
+        )
         return navigation_target_for_action(probe)
 
     def _build_request(
@@ -361,24 +373,17 @@ class AlfworldPermissionAdapter:
     ) -> PreparedPhysicalRequest:
         del recep_target  # identity locked inside bindings, not a separate item
         action_label = _ACTION_LABELS[planned.canonical_action]
-        call_hash = _call_hash(
-            {
-                "tool": self._tool,
-                "env": env_id,
-                "scene": scene_rev,
-                "action": planned.canonical_action,
-                "primary": primary.object_id,
-                "nav": nav_target.object_id if nav_target is not None else None,
-            }
-        )
-        request_id = f"alfworld-{call_hash[:16]}"
-        item_id = _stable_id(
-            "item", env_id, "object", primary.object_id, planned.canonical_action
-        )
+        # Uniqueness per prepare (uuid): repeated identical calls are separate
+        # requests. Revalidation safety comes from content-derived keys and
+        # binding refs, which the executor compares - never from these ids.
+        nonce = uuid4().hex[:12]
+        request_id = f"alfworld-{nonce}"
+        item_id = f"item-{nonce}"
         step_ids: list[str] = []
         if nav_label is not None:
-            step_ids.append(f"step-nav-{call_hash[:12]}")
-        step_ids.append(f"step-op-{call_hash[:12]}")
+            step_ids.append(f"step-nav-{nonce}")
+        if self._tool != "robot_go_to":
+            step_ids.append(f"step-op-{nonce}")
         requirement = Requirement(
             item_id=item_id,
             key=ResourceKey(
@@ -394,8 +399,18 @@ class AlfworldPermissionAdapter:
         )
         steps: list[PreparedStep] = []
         locked_args = _locked_args(args, planned, primary, nav_label)
+        content = _call_hash(
+            {
+                "tool": self._tool,
+                "env": env_id,
+                "scene": scene_rev,
+                "action": planned.canonical_action,
+                "primary": primary.object_id,
+                "nav": nav_target.object_id if nav_target is not None else None,
+            }
+        )[:12]
         if nav_label is not None:
-            binding_ref = f"bind-{step_ids[0]}"
+            binding_ref = f"bind-nav-{content}"
             steps.append(
                 PreparedStep(
                     step_id=step_ids[0],
@@ -411,7 +426,29 @@ class AlfworldPermissionAdapter:
                 nav_target.object_id if nav_target is not None else primary.object_id,
                 _StepCall(kind="go_to", label=nav_label),
             )
-        binding_ref = f"bind-{step_ids[-1]}"
+        if self._tool == "robot_go_to":
+            created = datetime.now(UTC)
+            metadata = getattr(context, "metadata", None)
+            if not isinstance(metadata, Mapping):
+                metadata = {}
+            session_id = metadata.get("session_id") or f"session-{nonce}"
+            run_id = metadata.get("run_id") or f"run-{nonce}"
+            return PreparedPhysicalRequest(
+                request_id=request_id,
+                approval_id=f"{request_id}-approval",
+                environment_id=env_id,
+                session_id=str(session_id),
+                run_id=str(run_id),
+                intent_id=f"intent-{nonce}",
+                intent_summary=f"导航到{primary.display}（{primary.location}）",
+                revision=1,
+                requirements=(requirement,),
+                steps=tuple(steps),
+                target_snapshot_revision=scene_rev,
+                created_at=_iso(created),
+                deadline_at=_iso(created + timedelta(seconds=300)),
+            )
+        binding_ref = f"bind-op-{content}"
         steps.append(
             PreparedStep(
                 step_id=step_ids[-1],
@@ -437,15 +474,15 @@ class AlfworldPermissionAdapter:
         metadata = getattr(context, "metadata", None)
         if not isinstance(metadata, Mapping):
             metadata = {}
-        session_id = metadata.get("session_id") or f"session-{call_hash[:12]}"
-        run_id = metadata.get("run_id") or f"run-{call_hash[:12]}"
+        session_id = metadata.get("session_id") or f"session-{nonce}"
+        run_id = metadata.get("run_id") or f"run-{nonce}"
         return PreparedPhysicalRequest(
             request_id=request_id,
             approval_id=f"{request_id}-approval",
             environment_id=env_id,
             session_id=str(session_id),
             run_id=str(run_id),
-            intent_id=f"intent-{call_hash[:12]}",
+            intent_id=f"intent-{nonce}",
             intent_summary=f"{action_label}{primary.display}（{primary.location}）",
             revision=1,
             requirements=(requirement,),
@@ -597,7 +634,7 @@ class ThorBackendView:
     async def go_to(self, canonical_label: str) -> BackendReceipt:
         result = self._env.go_to_target(
             canonical_label,
-            tool_name="robot_manipulate",
+            tool_name="robot_go_to",
             tool_args={"action": "go_to", "target": canonical_label},
         )
         return _receipt_from_step(result)
@@ -634,11 +671,6 @@ def _required_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TargetUnresolved(f"manipulate call declares no {label}")
     return value.strip()
-
-
-def _stable_id(*parts: str) -> str:
-    digest = hashlib.sha1("\x00".join(parts).encode("utf-8")).hexdigest()
-    return f"{parts[0]}-{digest[:12]}"
 
 
 def _call_hash(payload: Mapping[str, Any]) -> str:
