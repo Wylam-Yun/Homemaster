@@ -45,6 +45,7 @@
 - Renamed the Home navigation factory to `make_robot_go_to` and added interface audits covering all formal tool factories.
 - Added the versioned `homemaster-alfworld-v1` NDJSON worker schema and isolated stdlib worker package; the launcher no longer injects the main runtime's editable site-packages into the ALFWorld process.
 - Hard-cut the runtime to `AlfredThorEnv` and `robot_go_to`, removed the legacy `ToolSpec`/adapter modules and universal-registry compatibility builder, and updated production/test surfaces to the canonical names.
+- Fixed canonical task-state result projection to preserve the domain task status and made canonical domain/ALFWorld executors read the application-owned `run_context` at the context boundary.
 
 ### Changed
 

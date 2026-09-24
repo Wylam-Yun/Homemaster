@@ -351,7 +351,9 @@ class _AlfworldExecutor:
         arguments: Mapping[str, object],
         context: ToolExecutionContext,
     ) -> ToolExecutionResult:
-        run_context = context.services.get("run_context")
+        run_context = context.metadata.get("run_context")
+        if run_context is None:
+            run_context = context.services.get("run_context")
         if not isinstance(run_context, RunContext):
             return ToolExecutionResult(
                 status=ToolExecutionStatus.FAILURE,

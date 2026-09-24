@@ -45,7 +45,9 @@ def _failure(code: str, message: str, *, attempted: bool = False) -> ToolExecuti
 
 
 def _run_context(context: ToolExecutionContext) -> Any:
-    value = context.services.get("run_context")
+    value = context.metadata.get("run_context")
+    if value is None:
+        value = context.services.get("run_context")
     if value is None:
         raise RuntimeError("canonical tool context has no run_context service")
     return value

@@ -179,6 +179,11 @@ class ApplicationToolExecutor:
     def _message(self, call: ToolCall, result: ToolResult) -> ToolResultMessage:
         canonical_result = result.canonical_result
         data = dict(result.metadata)
+        if call.name in {"task_planner", "task_progress_check"}:
+            domain_status = data.get("domain_status")
+            if isinstance(domain_status, str):
+                data["status"] = domain_status
+                data.pop("domain_status", None)
         if call.name in _MEMORY_TOOL_NAMES and data:
             model_payload = dict(data)
             if result.output:

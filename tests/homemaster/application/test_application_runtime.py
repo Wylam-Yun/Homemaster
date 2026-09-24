@@ -594,7 +594,7 @@ class _BlockingTaskStateExecutor:
 
     async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments
-        run_context = context.services["run_context"]
+        run_context = context.metadata["run_context"]
         store = run_context.deps["task_state_store"]
         store.create_or_replace_plan(
             goal="run-local",
