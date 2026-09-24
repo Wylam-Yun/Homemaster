@@ -48,6 +48,7 @@
 - Fixed canonical task-state result projection to preserve the domain task status and made canonical domain/ALFWorld executors read the application-owned `run_context` at the context boundary.
 - Kept the cancellation regression test genuinely asynchronous by moving its deliberately blocking wait to a worker thread.
 - Made the cancellation fixture retain its post-cancel backend mutation, so the test checks both immediate unknown outcome and later external state completion.
+- Migrated task-state tests to invoke the canonical async registrations directly and restored schema descriptions at the registration boundary.
 
 ### Changed
 
