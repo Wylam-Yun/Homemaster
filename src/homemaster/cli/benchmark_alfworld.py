@@ -24,7 +24,7 @@ def handle_benchmark_alfworld(
     alfworld_root: Path,
     alfworld_config: Path,
     trace_root: Path,
-    env_type: str = "AlfredTWEnv",
+    env_type: str = "AlfredThorEnv",
     split: str = "valid_seen",
     episodes: int = 1,
     memory_mode: str = "disabled",

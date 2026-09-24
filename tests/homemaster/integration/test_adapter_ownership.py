@@ -92,7 +92,7 @@ def test_agent_has_no_private_run_context_or_runtime_tool_spec() -> None:
     runtime = _tree("src/homemaster/agent/generic_runtime.py")
 
     assert not any(
-        isinstance(node, ast.ClassDef) and node.name == "ToolSpec"
+        isinstance(node, ast.ClassDef) and node.name == "ToolDefinition"
         for node in ast.walk(runtime)
     )
     assert not any(

@@ -9,7 +9,7 @@ from homemaster.benchmarking.alfworld.translator import (
 
 
 def test_textworld_translator_maps_core_actions() -> None:
-    translator = create_translator("AlfredTWEnv")
+    translator = create_translator("AlfredThorEnv")
 
     assert translator.observe(mode="look") == "look"
     assert translator.observe(mode="inventory") == "inventory"
@@ -33,7 +33,7 @@ def test_textworld_translator_maps_core_actions() -> None:
 
 
 def test_translator_rejects_missing_conditional_arguments() -> None:
-    translator = create_translator("AlfredTWEnv")
+    translator = create_translator("AlfredThorEnv")
 
     with pytest.raises(TranslatorValidationError, match="source_receptacle"):
         translator.manipulate(action="take", object="apple 1")
@@ -46,7 +46,7 @@ def test_translator_rejects_missing_conditional_arguments() -> None:
 
 
 def test_public_action_schema_contains_textworld_put_template() -> None:
-    translator = create_translator("AlfredTWEnv")
+    translator = create_translator("AlfredThorEnv")
 
     schema = translator.public_action_schema()
     assert schema["navigation"] == {

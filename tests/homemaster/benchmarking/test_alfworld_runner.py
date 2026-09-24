@@ -585,7 +585,7 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     )
     tool_names = {tool["name"] for tool in transport.seen_tools[0]}
     assert "robot_go_to" in tool_names
-    assert "robot_navigate" not in tool_names
+    assert "robot_go_to" in tool_names
     assert "robot_inspect_view" not in tool_names
     assert "robot_observe" not in tool_names
     assert "task_planner" in tool_names

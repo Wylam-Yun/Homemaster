@@ -38,7 +38,7 @@ def _checker(
 
 @pytest.mark.parametrize("mode", [PermissionMode.FULL_AUTO, PermissionMode.DEFAULT])
 @pytest.mark.parametrize("capabilities", [(), ("tool.auto",)])
-@pytest.mark.parametrize("allowed", [(), ("robot_navigate",)])
+@pytest.mark.parametrize("allowed", [(), ("robot_go_to",)])
 def test_physical_missing_ignores_tool_modes(
     tmp_path: Path,
     store: PermissionStore,

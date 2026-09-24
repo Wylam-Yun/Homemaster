@@ -87,26 +87,6 @@ class _ReceiptVerifier:
         )
 
 
-def build_universal_tool_registry(
-    *,
-    world_path: Path | None = None,
-    memory_path: Path | None = None,
-    runtime_memory_root: Path | None = None,
-    memory_mode: str = "disabled",
-    memory_enabled: bool = True,
-) -> ToolRegistry:
-    """Compatibility builder for the historical local-robot CLI surface."""
-
-    return build_tool_registry(
-        environment="local_robot",
-        world_path=world_path,
-        memory_path=memory_path,
-        runtime_memory_root=runtime_memory_root,
-        memory_mode=memory_mode,
-        memory_enabled=memory_enabled,
-    )
-
-
 def build_tool_registry(
     *,
     environment: Literal["local_robot", "alfworld", "browser"] | None,
@@ -403,5 +383,4 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
     return VerificationPolicy(execution_proof=ExecutionProof.NONE)
 __all__ = [
     "build_tool_registry",
-    "build_universal_tool_registry",
 ]

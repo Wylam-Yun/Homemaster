@@ -50,7 +50,7 @@ def test_model_trace_preserves_values_and_trajectory_is_written(tmp_path: Path) 
         },
     })
     writer.write_event({
-        "tool_name": "robot_navigate",
+        "tool_name": "robot_go_to",
         "tool_args": {"target_receptacle": "table 1"},
         "translated_command": "go to table 1",
         "feedback": "You see apple 1.",
@@ -81,7 +81,7 @@ def test_model_trace_preserves_values_and_trajectory_is_written(tmp_path: Path) 
     assert '"input_tokens": 1' in model_trace
     assert '"output_tokens": 2' in model_trace
     trajectory = writer.trajectory_path.read_text(encoding="utf-8")
-    assert "robot_navigate" in trajectory
+    assert "robot_go_to" in trajectory
     assert "frames/frame-0001.png" in trajectory
     assert "put apple on table" in aggregate.read_text(encoding="utf-8")
 

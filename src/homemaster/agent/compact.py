@@ -112,7 +112,7 @@ def summarize_tool_result(
             top_hit = str(hits[0])[:200]
         count_text = "unknown" if hit_count is None else str(hit_count)
         return f"[memory] {count_text} hits, top-1: {top_hit or text[:200]}"
-    if tool_name == "robot_navigate":
+    if tool_name == "robot_go_to":
         return f"[navigate] {text[:300]}"
     if tool_name == "robot_verify":
         return f"[verify] {text[:300]}"

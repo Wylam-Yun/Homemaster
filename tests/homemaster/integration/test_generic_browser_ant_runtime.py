@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from homemaster.adapters.profiles import build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.agent.context import ContextAssembler
 from homemaster.agent.messages import ToolCall
 from homemaster.application.factory import create_application
@@ -204,7 +204,8 @@ def _single_ref(message, expected_name: str) -> tuple[str, str]:
 @pytest.mark.asyncio
 async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Path) -> None:
     assert ANT_ORIGIN is not None
-    registry = build_universal_tool_registry(
+    registry = build_tool_registry(
+        environment="local_robot",
         world_path=None,
         memory_path=None,
         runtime_memory_root=tmp_path / "memory",

@@ -404,8 +404,8 @@ def test_adapter_step_uses_environment_feedback_for_invalid_actions() -> None:
     adapter = AlfworldEnvAdapter(env=env, episode_prefix="episode", seed=123)
     adapter.reset()
 
-    valid = adapter.step("go to countertop 1", tool_name="robot_navigate", tool_args={})
-    invalid = adapter.step("go to fridge 1", tool_name="robot_navigate", tool_args={})
+    valid = adapter.step("go to countertop 1", tool_name="robot_go_to", tool_args={})
+    invalid = adapter.step("go to fridge 1", tool_name="robot_go_to", tool_args={})
 
     assert valid.success is True
     assert valid.failure_reason is None
@@ -444,7 +444,7 @@ def test_adapter_saves_thor_frames_when_available(tmp_path: Path) -> None:
     reset_state = reset_result.state
     step_result = adapter.step(
         "go to countertop 1",
-        tool_name="robot_navigate",
+        tool_name="robot_go_to",
         tool_args={},
     )
 
@@ -563,7 +563,7 @@ def test_virtual_navigate_teleports_until_target_is_visible(tmp_path: Path) -> N
 
     result = adapter.virtual_navigate(
         "floorlamp",
-        tool_name="robot_navigate",
+        tool_name="robot_go_to",
         tool_args={},
     )
 
@@ -940,7 +940,7 @@ def test_find_object_uses_thor_metadata_then_navigates_to_source(tmp_path: Path)
 
     result = adapter.find_object(
         "mug",
-        tool_name="robot_find_object",
+        tool_name="robot_go_to",
         tool_args={"object": "mug"},
     )
 

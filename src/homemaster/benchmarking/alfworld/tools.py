@@ -15,10 +15,6 @@ from homemaster.benchmarking.alfworld.grounding import (
     ground_text,
     normalized_key,
 )
-from homemaster.benchmarking.alfworld.translator import (
-    AlfworldCommandTranslator,
-    TranslatorValidationError,
-)
 from homemaster.benchmarking.alfworld.types import make_execution_feedback
 from homemaster.tools.contracts import (
     RegisteredTool,
@@ -47,24 +43,12 @@ def _adapter(run_context: RunContext) -> AlfworldEnvAdapter:
     return adapter
 
 
-def _translator(run_context: RunContext) -> AlfworldCommandTranslator:
-    translator = run_context.deps.get("alfworld_translator")
-    if translator is None:
-        raise RuntimeError("missing run_context.deps['alfworld_translator']")
-    return translator
-
-
 def _current_subtask(run_context: RunContext) -> Any:
     return run_context.deps.get("alfworld_current_subtask")
 
 
 def _judge_config_path(run_context: RunContext) -> Any:
     return run_context.deps.get("alfworld_semantic_judge_config")
-
-
-def _env_type(run_context: RunContext) -> str:
-    config = run_context.deps.get("alfworld_config")
-    return str(getattr(config, "env_type", "AlfredThorEnv"))
 
 
 def _feedback_action(tool_name: str, arguments: dict[str, Any]) -> Any:
@@ -147,27 +131,11 @@ def _exec_go_to(
     )
     grounded["target"] = target_grounding.value
     grounded_args = _with_grounding_metadata(grounded, {"target": target_grounding})
-    if _env_type(run_context) == "AlfredTWEnv":
-        try:
-            command = _translator(run_context).navigate(target_receptacle=target_grounding.value)
-        except TranslatorValidationError as exc:
-            return _validation_failure(
-                tool_name="robot_go_to",
-                arguments=grounded,
-                run_context=run_context,
-                error=exc,
-            )
-        step_result = _adapter(run_context).step(
-            command,
-            tool_name="robot_go_to",
-            tool_args=grounded_args,
-        )
-    else:
-        step_result = _adapter(run_context).go_to_target(
-            target_grounding.value,
-            tool_name="robot_go_to",
-            tool_args=grounded_args,
-        )
+    step_result = _adapter(run_context).go_to_target(
+        target_grounding.value,
+        tool_name="robot_go_to",
+        tool_args=grounded_args,
+    )
     evidence_refs = _write_trace(run_context, step_result)
     return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
 
@@ -178,51 +146,18 @@ def _exec_manipulate(
     run_context: RunContext,
 ) -> ToolResultMessage:
     grounded, grounding_results = _ground_manipulate_arguments(run_context, arguments)
-    if _env_type(run_context) == "AlfredThorEnv":
-        navigation_target = _navigation_target_for_action(grounded)
-        if navigation_target:
-            navigation = _adapter(run_context).go_to_target(
-                navigation_target,
-                tool_name="robot_go_to",
-                tool_args=_with_grounding_metadata(grounded, grounding_results),
-            )
-            navigation_refs = _write_trace(run_context, navigation)
-            if not navigation.success:
-                return _result_from_step(
-                    navigation,
-                    run_context,
-                    evidence_refs=navigation_refs,
-                )
-    if _env_type(run_context) == "AlfredThorEnv":
-        step_result = _adapter(run_context).manipulate_with_thor(
-            action=str(grounded.get("action", "")),
-            tool_name="robot_manipulate",
+    navigation_target = _navigation_target_for_action(grounded)
+    if navigation_target:
+        navigation = _adapter(run_context).go_to_target(
+            navigation_target,
+            tool_name="robot_go_to",
             tool_args=_with_grounding_metadata(grounded, grounding_results),
         )
-        evidence_refs = _write_trace(run_context, step_result)
-        return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
-    if grounded.get("action") == "use" and _is_current_subtask_toggle_target(
-        run_context,
-        str(grounded.get("object", "")),
-    ):
-        step_result = _adapter(run_context).force_toggle_unique_object_type(
-            canonical_command_name(str(grounded.get("object", ""))),
-            tool_name="robot_manipulate",
-            tool_args=_with_grounding_metadata(grounded, grounding_results),
-        )
-        evidence_refs = _write_trace(run_context, step_result)
-        return _result_from_step(step_result, run_context, evidence_refs=evidence_refs)
-    try:
-        command = _translator(run_context).manipulate(**grounded)
-    except TranslatorValidationError as exc:
-        return _validation_failure(
-            tool_name="robot_manipulate",
-            arguments=grounded,
-            run_context=run_context,
-            error=exc,
-        )
-    step_result = _adapter(run_context).step(
-        command,
+        navigation_refs = _write_trace(run_context, navigation)
+        if not navigation.success:
+            return _result_from_step(navigation, run_context, evidence_refs=navigation_refs)
+    step_result = _adapter(run_context).manipulate_with_thor(
+        action=str(grounded.get("action", "")),
         tool_name="robot_manipulate",
         tool_args=_with_grounding_metadata(grounded, grounding_results),
     )

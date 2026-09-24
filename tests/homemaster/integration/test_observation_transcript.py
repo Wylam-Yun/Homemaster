@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from homemaster.adapters import build_universal_tool_registry
+from homemaster.adapters import build_tool_registry
 from homemaster.tools.contracts import ToolExecutionStatus
 from tests.homemaster.tools.universal_harness import execute
 
@@ -34,7 +34,7 @@ class Backend:
 
 @pytest.mark.asyncio
 async def test_explicit_screenshot_is_image_only_and_creates_no_action_debt() -> None:
-    registry = build_universal_tool_registry()
+    registry = build_tool_registry(environment="local_robot")
     backend = Backend()
     observe = registry.get("observe")
     action = registry.get("robot_go_to")

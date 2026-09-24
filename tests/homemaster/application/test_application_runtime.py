@@ -105,7 +105,6 @@ from homemaster.tools.contracts import (
     VerificationStatus,
 )
 from homemaster.tools.executor import PermissionDecision, ToolExecutor
-from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
 from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
 
@@ -593,8 +592,9 @@ class _BlockingTaskStateExecutor:
         self.release = threading.Event()
         self.terminal_path = terminal_path
 
-    def __call__(self, *, arguments, run_context) -> ToolExecutionResult:
+    async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments
+        run_context = context.services["run_context"]
         store = run_context.deps["task_state_store"]
         store.create_or_replace_plan(
             goal="run-local",
@@ -729,12 +729,7 @@ def _observation_tool() -> RegisteredTool:
 
 
 def _progress_tool(*, external: bool = False) -> RegisteredTool:
-    adapted = adapt_legacy_tool_spec(
-        make_task_progress_check_tool(),
-        internal_id="test.task_progress_check.v1",
-        version="1.9.0",
-        output_schema={"type": "object"},
-    ).registered_tool
+    adapted = make_task_progress_check_tool()
     if not external:
         return adapted
     return RegisteredTool(
@@ -1951,12 +1946,7 @@ async def test_action_does_not_block_task_completion_without_observe(tmp_path) -
         ),
         executor=_ActionExecutor(),
     )
-    progress = adapt_legacy_tool_spec(
-        make_task_progress_check_tool(),
-        internal_id="test.task_progress_check.v1",
-        version="1.9.0",
-        output_schema={"type": "object"},
-    ).registered_tool
+    progress = make_task_progress_check_tool()
     transport = _FakeTransport(
         [
             _tool("call-action", "action", {}),
@@ -1999,12 +1989,7 @@ async def test_action_does_not_block_task_completion_without_observe(tmp_path) -
 
 @pytest.mark.asyncio
 async def test_external_terminal_rule_blocks_model_completion_claim(tmp_path) -> None:
-    adapted = adapt_legacy_tool_spec(
-        make_task_progress_check_tool(),
-        internal_id="test.task_progress_check.v1",
-        version="1.9.0",
-        output_schema={"type": "object"},
-    ).registered_tool
+    adapted = make_task_progress_check_tool()
     progress = RegisteredTool(
         definition=replace(
             adapted.definition,
@@ -2110,16 +2095,10 @@ async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_s
 ) -> None:
     terminal_path = tmp_path / "cancelled-tool-terminal.txt"
     blocking = _BlockingTaskStateExecutor(terminal_path)
-    adapted = adapt_legacy_tool_spec(
-        make_task_progress_check_tool(),
-        internal_id="test.blocking_state.v1",
-        version="1.9.0",
-        executor=blocking,
-        output_schema={"type": "object"},
-    ).registered_tool
+    base = make_task_progress_check_tool()
     tool = RegisteredTool(
-        definition=replace(adapted.definition, state_effects=("external.write",)),
-        executor=adapted.executor,
+        definition=replace(base.definition, internal_id="test.blocking_state.v1", state_effects=("external.write",)),
+        executor=blocking,
     )
     transport = _FakeTransport(
         [

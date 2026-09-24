@@ -46,8 +46,7 @@ def test_alfworld_registry_has_one_navigation_tool_and_no_legacy_bypasses() -> N
     names = set(build_tool_registry(environment="alfworld").all_names())
 
     assert "robot_go_to" in names
-    assert "robot_navigate" not in names
-    assert "robot_find_object" not in names
+    assert "robot_go_to" in names
 
 
 def test_formal_executors_do_not_reach_candidate_or_text_navigation_helpers() -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from homemaster.adapters import build_universal_tool_registry
+from homemaster.adapters import build_tool_registry
 from homemaster.agent.messages import ToolCall
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
 from homemaster.tools import ToolExecutionContext, ToolRegistry, ToolResult
@@ -13,7 +13,7 @@ from homemaster.tools.executor import ToolExecutor
 
 
 def registry() -> ToolRegistry:
-    return build_universal_tool_registry()
+    return build_tool_registry(environment="local_robot")
 
 
 async def execute(

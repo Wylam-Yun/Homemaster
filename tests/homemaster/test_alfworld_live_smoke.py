@@ -23,7 +23,7 @@ def test_live_alfworld_textworld_reset_and_look(tmp_path: Path) -> None:
         alfworld_root=Path(root),
         alfworld_config=Path(config_path),
         trace_root=tmp_path / "traces",
-        env_type="AlfredTWEnv",
+        env_type="AlfredThorEnv",
         split=os.environ.get("HOMEMASTER_ALFWORLD_SPLIT", "valid_seen"),  # type: ignore[arg-type]
         episodes=1,
     )

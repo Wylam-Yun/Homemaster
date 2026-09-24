@@ -32,7 +32,7 @@ async def test_real_schema_episode_alfworld_single_episode() -> None:
     provider_config = Path(
         os.environ.get("HOMEMASTER_ALFWORLD_PROVIDER_CONFIG", "config/homemaster.yaml")
     )
-    env_type = os.environ.get("HOMEMASTER_ALFWORLD_ENV_TYPE", "AlfredTWEnv")
+    env_type = os.environ.get("HOMEMASTER_ALFWORLD_ENV_TYPE", "AlfredThorEnv")
     split = os.environ.get("HOMEMASTER_ALFWORLD_SPLIT", "valid_seen")
     assert (alfworld_root / "data" / "json_2.1.1" / split).is_dir()
     assert alfworld_config.is_file()

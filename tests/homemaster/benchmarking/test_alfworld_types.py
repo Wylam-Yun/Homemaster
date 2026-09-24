@@ -19,7 +19,7 @@ def test_config_defaults_keep_memory_disabled_and_invalid_limit_100(tmp_path: Pa
         trace_root=tmp_path / "traces",
     )
 
-    assert config.env_type == "AlfredTWEnv"
+    assert config.env_type == "AlfredThorEnv"
     assert config.split == "valid_seen"
     assert config.memory_mode == "disabled"
     assert config.max_invalid_actions == 100

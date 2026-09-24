@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 MemoryMode = Literal["disabled", "readonly", "full"]
-EnvType = Literal["AlfredTWEnv", "AlfredThorEnv"]
+EnvType = Literal["AlfredThorEnv"]
 SplitName = Literal["train", "valid_seen", "valid_unseen"]
 ObservationMode = Literal["visual_eval", "textual_debug"]
 GoalType = Literal[
@@ -82,7 +82,7 @@ GoalAdvanceFailureCode = Literal[
 SetupRecoveryStatus = Literal["not_applicable", "not_needed", "restored", "unverified", "failed"]
 SetupCleanupStatus = Literal["not_applicable", "not_needed", "succeeded", "unverified", "failed"]
 EnvironmentDisposition = Literal["ready", "not_started", "closed", "quarantined"]
-AlfworldBackendKind = Literal["thor", "textworld"]
+AlfworldBackendKind = Literal["thor"]
 ExecutionReadStatus = Literal["ok", "not_applicable", "absent", "malformed", "stale", "error"]
 ObjectExecutionState = Literal[
     "held",
@@ -195,7 +195,7 @@ _GOAL_ADVANCE_FAILURE_CODES = {
 _RECOVERY_STATUSES = {"not_applicable", "not_needed", "restored", "unverified", "failed"}
 _CLEANUP_STATUSES = {"not_applicable", "not_needed", "succeeded", "unverified", "failed"}
 _ENVIRONMENT_DISPOSITIONS = {"ready", "not_started", "closed", "quarantined"}
-_BACKEND_KINDS = {"thor", "textworld"}
+_BACKEND_KINDS = {"thor"}
 _READ_STATUSES = {"ok", "not_applicable", "absent", "malformed", "stale", "error"}
 _OBJECT_EXECUTION_STATES = {
     "held",
@@ -366,7 +366,7 @@ class AlfworldBenchmarkConfig:
     trace_root: Path
     data_root: Path | None = None
     use_installed_alfworld: bool = False
-    env_type: EnvType = "AlfredTWEnv"
+    env_type: EnvType = "AlfredThorEnv"
     split: SplitName = "valid_seen"
     episodes: int = 1
     memory_mode: MemoryMode = "disabled"
@@ -392,7 +392,7 @@ class AlfworldBenchmarkConfig:
             raise ValueError("max_tool_iterations must be > 0")
         if self.memory_mode not in {"disabled", "readonly", "full"}:
             raise ValueError(f"unsupported memory_mode: {self.memory_mode}")
-        if self.env_type not in {"AlfredTWEnv", "AlfredThorEnv"}:
+        if self.env_type != "AlfredThorEnv":
             raise ValueError(f"unsupported env_type: {self.env_type}")
         if self.split not in {"train", "valid_seen", "valid_unseen"}:
             raise ValueError(f"unsupported split: {self.split}")
@@ -584,28 +584,17 @@ class AlfworldGoalAdvanceResult:
                 raise ValueError("ready goal advance must leave a reusable environment")
             if self.goal_generation is None or self.goal_trial_fingerprint is None:
                 raise ValueError("ready goal advance requires goal identity")
-            if self.backend_kind == "thor":
-                required = (
-                    self.scene_generation,
-                    self.scene_reset_fingerprint,
-                    self.snapshot_sha256,
-                    self.before_scene_state_sha256,
-                    self.after_scene_state_sha256,
-                )
-                if any(value is None for value in required):
-                    raise ValueError("ready THOR goal advance requires scene snapshot identity")
-                if self.before_scene_state_sha256 != self.after_scene_state_sha256:
-                    raise ValueError("goal advance changed scene state")
-            else:
-                thor_only = (
-                    self.scene_generation,
-                    self.scene_reset_fingerprint,
-                    self.snapshot_sha256,
-                    self.before_scene_state_sha256,
-                    self.after_scene_state_sha256,
-                )
-                if any(value is not None for value in thor_only):
-                    raise ValueError("TextWorld goal advance cannot contain THOR scene fields")
+            required = (
+                self.scene_generation,
+                self.scene_reset_fingerprint,
+                self.snapshot_sha256,
+                self.before_scene_state_sha256,
+                self.after_scene_state_sha256,
+            )
+            if any(value is None for value in required):
+                raise ValueError("ready THOR goal advance requires scene snapshot identity")
+            if self.before_scene_state_sha256 != self.after_scene_state_sha256:
+                raise ValueError("goal advance changed scene state")
             return
 
         if self.state is not None:
@@ -914,28 +903,17 @@ def _validate_ready_control_result(
         raise ValueError("ready reset must leave a reusable environment")
     if goal_generation is None or goal_trial_fingerprint is None:
         raise ValueError("ready reset requires goal identity")
-    if backend_kind == "thor":
-        if any(value is None for value in (scene_generation, scene_reset_fingerprint)):
-            raise ValueError("ready THOR reset requires scene identity")
-        if snapshot_sha256 is None or snapshot_ref is None:
-            if snapshot_sha256 is not None or snapshot_ref is not None:
-                raise ValueError("ready direct THOR reset cannot contain partial snapshot identity")
-            if recovery_status != "not_needed" or cleanup_status != "not_applicable":
-                raise ValueError("ready direct THOR reset requires no reset transaction")
-            return
-        _validate_sha256("snapshot_sha256", snapshot_sha256)
-        if recovery_status not in {"restored", "not_needed"} or cleanup_status != "not_needed":
-            raise ValueError("ready THOR reset requires usable recovery and no cleanup")
-    else:
-        if any(
-            value is not None
-            for value in (scene_generation, scene_reset_fingerprint, snapshot_sha256, snapshot_ref)
-        ):
-            raise ValueError("ready TextWorld reset cannot contain THOR scene fields")
-        if action_count != 0:
-            raise ValueError("ready TextWorld reset cannot send setup backend actions")
-        if recovery_status != "not_applicable" or cleanup_status != "not_applicable":
-            raise ValueError("ready TextWorld reset requires not-applicable THOR statuses")
+    if any(value is None for value in (scene_generation, scene_reset_fingerprint)):
+        raise ValueError("ready THOR reset requires scene identity")
+    if snapshot_sha256 is None or snapshot_ref is None:
+        if snapshot_sha256 is not None or snapshot_ref is not None:
+            raise ValueError("ready direct THOR reset cannot contain partial snapshot identity")
+        if recovery_status != "not_needed" or cleanup_status != "not_applicable":
+            raise ValueError("ready direct THOR reset requires no reset transaction")
+        return
+    _validate_sha256("snapshot_sha256", snapshot_sha256)
+    if recovery_status not in {"restored", "not_needed"} or cleanup_status != "not_needed":
+        raise ValueError("ready THOR reset requires usable recovery and no cleanup")
 
 
 def _validate_terminal_disposition(

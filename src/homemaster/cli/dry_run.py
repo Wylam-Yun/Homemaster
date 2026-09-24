@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from homemaster.adapters.profiles import build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.application.composition import load_home_skills
 from homemaster.config import ConfigError, HomeMasterConfig, load_config
 from homemaster.mcp.audit import McpAuditLog
@@ -46,7 +46,8 @@ def build_dry_run_preview(
             "protocol": "unknown_until_configured",
             "base_url": "",
         }
-    registry = build_universal_tool_registry(
+    registry = build_tool_registry(
+        environment="local_robot",
         world_path=world_path,
         memory_path=memory_path,
         memory_enabled=resolved.memory.enabled,

@@ -421,7 +421,7 @@ def benchmark_alfworld_command(
     env_type: Annotated[
         str,
         typer.Option("--env-type", help="ALFWorld environment type."),
-    ] = "AlfredTWEnv",
+    ] = "AlfredThorEnv",
     split: Annotated[
         str,
         typer.Option("--split", help="train, valid_seen, or valid_unseen."),

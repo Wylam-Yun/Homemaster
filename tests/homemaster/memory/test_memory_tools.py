@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from homemaster.adapters.profiles import build_tool_registry, build_universal_tool_registry
+from homemaster.adapters.profiles import build_tool_registry
 from homemaster.agent.messages import UserMessage
 from homemaster.memory.add_queue import MemoryAddQueue
 from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
@@ -42,12 +42,12 @@ LEGACY_MEMORY_TOOL_NAMES = {
 
 
 def test_default_home_surface_has_exactly_seven_memory_tools() -> None:
-    names = set(build_universal_tool_registry().all_names())
+    names = set(build_tool_registry(environment="local_robot").all_names())
     assert MEMORY_TOOL_NAMES <= names
     assert not (LEGACY_MEMORY_TOOL_NAMES & names)
     assert "memory_retriever" not in names
     assert "memory_writer" not in names
-    disabled = set(build_universal_tool_registry(memory_enabled=False).all_names())
+    disabled = set(build_tool_registry(environment="local_robot", memory_enabled=False).all_names())
     assert not (MEMORY_TOOL_NAMES & disabled)
 
 

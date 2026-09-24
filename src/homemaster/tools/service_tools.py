@@ -128,7 +128,7 @@ def validate_timezone(timezone: str | None) -> bool:
 
 
 @dataclass(frozen=True)
-class ServiceToolSpec:
+class ServiceToolDefinition:
     name: str
     description: str
     input_schema: dict[str, Any]
@@ -138,7 +138,7 @@ class ServiceToolSpec:
 class HomeServiceExecutor:
     """Run a service-backed tool behind HomeMaster's execution contract."""
 
-    def __init__(self, spec: ServiceToolSpec) -> None:
+    def __init__(self, spec: ServiceToolDefinition) -> None:
         self._spec = spec
 
     async def execute(
@@ -816,14 +816,14 @@ def build_service_tools() -> tuple[RegisteredTool, ...]:
     return tuple(tools)
 
 
-def _load_service_specs() -> tuple[ServiceToolSpec, ...]:
+def _load_service_specs() -> tuple[ServiceToolDefinition, ...]:
     resource = files("homemaster.tools").joinpath("service_tool_specs.json")
     payload = json.loads(resource.read_text(encoding="utf-8"))
-    return tuple(ServiceToolSpec(**item) for item in payload)
+    return tuple(ServiceToolDefinition(**item) for item in payload)
 
 
 def _arguments_with_defaults(
-    spec: ServiceToolSpec,
+    spec: ServiceToolDefinition,
     arguments: Mapping[str, object],
 ) -> dict[str, Any]:
     values = dict(spec.defaults)
@@ -831,7 +831,7 @@ def _arguments_with_defaults(
     return values
 
 
-def _definition(tool: ServiceToolSpec) -> ToolDefinition:
+def _definition(tool: ServiceToolDefinition) -> ToolDefinition:
     mutating = tool.name not in _READ_ONLY
     capabilities = ["tool.read" if not mutating else "tool.mutate"]
     state_effects: tuple[str, ...] = ()
@@ -877,7 +877,7 @@ def _definition(tool: ServiceToolSpec) -> ToolDefinition:
     )
 
 
-def _schema_with_defaults(tool: ServiceToolSpec) -> dict[str, Any]:
+def _schema_with_defaults(tool: ServiceToolDefinition) -> dict[str, Any]:
     schema = json.loads(json.dumps(tool.input_schema))
     properties = schema.get("properties")
     if isinstance(properties, dict):

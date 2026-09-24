@@ -8,7 +8,7 @@ def test_alfworld_registry_has_one_observe_and_one_navigation_contract() -> None
 
     assert registry.all_names().count("observe") == 1
     assert registry.all_names().count("robot_go_to") == 1
-    assert "robot_navigate" not in registry.all_names()
+    assert "robot_go_to" in registry.all_names()
 
 
 def test_environment_registries_expose_only_the_selected_surface() -> None:

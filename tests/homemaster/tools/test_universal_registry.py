@@ -122,7 +122,7 @@ def test_alfworld_registry_uses_alfworld_robot_contract() -> None:
     schema = go_to.to_api_schema()["input_schema"]
     assert schema["required"] == ["target"]
     assert set(schema["properties"]) == {"target"}
-    assert registry.get("robot_navigate") is None
+    assert registry.get("robot_go_to") is not None
     assert len(registry.all_names()) == len(set(registry.all_names()))
 
 
@@ -158,9 +158,9 @@ def test_alfworld_structured_memory_surface_is_controlled_only_by_memory_enabled
 
 
 def test_every_composed_tool_implements_the_complete_public_contract() -> None:
-    from homemaster.adapters.profiles import build_universal_tool_registry
+    from homemaster.adapters.profiles import build_tool_registry
 
-    registry = build_universal_tool_registry()
+    registry = build_tool_registry(environment="local_robot")
 
     assert registry.list_tools()
     for tool in registry.list_tools():
@@ -188,9 +188,9 @@ def test_only_alfworld_state_changing_tools_require_model_observation() -> None:
 
 
 def test_composed_registry_preserves_execution_safety_capabilities() -> None:
-    from homemaster.adapters.profiles import build_universal_tool_registry
+    from homemaster.adapters.profiles import build_tool_registry
 
-    registry = build_universal_tool_registry()
+    registry = build_tool_registry(environment="local_robot")
 
     assert set(registry.get("terminal").required_capabilities) >= {
         "tool.mutate",

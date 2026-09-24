@@ -146,7 +146,7 @@ def _next_state(state: AlfworldEnvState, command: str) -> AlfworldEnvState:
 def _context(
     adapter: FakeAdapter,
     *,
-    env_type: str = "AlfredTWEnv",
+    env_type: str = "AlfredThorEnv",
 ) -> RunContext:
     return RunContext(
         session_id="s1",

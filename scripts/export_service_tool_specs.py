@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from homemaster.adapters import build_universal_tool_registry
+from homemaster.adapters import build_tool_registry
 
 NAMES = (
     "ask_user_question",
@@ -35,7 +35,7 @@ NAMES = (
 
 
 def main() -> None:
-    registry = build_universal_tool_registry()
+    registry = build_tool_registry(environment="local_robot")
     tools = {name: registry.get(name) for name in NAMES}
     missing = [name for name, tool in tools.items() if tool is None]
     if missing:

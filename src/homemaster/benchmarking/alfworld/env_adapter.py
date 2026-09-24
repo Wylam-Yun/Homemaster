@@ -986,7 +986,7 @@ class AlfworldEnvAdapter:
         """Walk the batch env wrapper to the底层 ThorEnv instance.
 
         AlfredThorEnv batch env: self._env.envs[0].env  (Thor thread.env = ThorEnv)
-        Falls back to attribute search for non-batch / TextWorld envs.
+        Falls back to attribute search only for diagnostics around the THOR adapter.
         """
         env = self._env
         envs = getattr(env, "envs", None)
@@ -2598,7 +2598,7 @@ def _legacy_execution_feedback(
     }
     if raw_action in allowed_actions:
         action = raw_action
-    elif tool_name in {"robot_go_to", "robot_navigate", "robot_find_object"}:
+    elif tool_name == "robot_go_to":
         action = "navigate"
     else:
         action = "verify"
@@ -4062,7 +4062,7 @@ def _find_object_location(thor_env: Any, object_type: str) -> _ObjectLocationRes
             success=False,
             feedback=(
                 f"No movable {object_type} object found in the current scene. "
-                "Use robot_navigate for places, furniture, appliances, and receptacles."
+                "Use robot_go_to for places, furniture, appliances, and receptacles."
             ),
             object_label=None,
             source_receptacle=None,

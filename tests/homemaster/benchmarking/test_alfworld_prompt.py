@@ -25,7 +25,7 @@ def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:
 
     prompt = build_episode_prompt(
         state=state,
-        translator=create_translator("AlfredTWEnv"),
+        translator=create_translator("AlfredThorEnv"),
         memory_mode="disabled",
         max_invalid_actions=100,
         max_env_steps=50,

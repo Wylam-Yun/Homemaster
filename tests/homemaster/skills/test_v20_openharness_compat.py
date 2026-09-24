@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.adapters import build_universal_tool_registry
+from homemaster.adapters import build_tool_registry
 from homemaster.agent.normalized import RunContext
 from homemaster.skills.loader import load_skill_registry
 from homemaster.tools.contracts import ToolExecutionStatus
@@ -68,7 +68,7 @@ async def test_load_skill_refreshes_then_returns_complete_content(tmp_path: Path
     registry.set_refresher(discover)
     path = _write_skill(root)
 
-    tool_registry = build_universal_tool_registry()
+    tool_registry = build_tool_registry(environment="local_robot")
     run_context = RunContext(
         session_id="session",
         run_id="run",

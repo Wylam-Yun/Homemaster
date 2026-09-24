@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from homemaster.adapters import build_universal_tool_registry
+from homemaster.adapters import build_tool_registry
 from homemaster.agent.messages import ToolCall
 from homemaster.agent.normalized import RunContext
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
@@ -40,7 +40,7 @@ class Gate:
         self.root = root
         self.home = home
         self.skill_root = home / ".homemaster" / "skills"
-        self.tool_registry = build_universal_tool_registry()
+        self.tool_registry = build_tool_registry(environment="local_robot")
         self.executor = ToolExecutor(
             self.tool_registry,
             permission_checker=PermissionChecker(

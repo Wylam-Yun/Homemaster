@@ -2,7 +2,7 @@
 
 Package layout:
   agent/      Generic runtime (messages, sessions, transport, tool loop)
-  tools/      ToolSpec / ToolRegistry / Dispatcher
+  tools/      canonical ToolDefinition / RegisteredTool execution contracts
   domain/     Domain tool packages for robot capabilities
   memory/     RAG retrieval, indexing, tokenization, runtime memory store
   skills/     SkillSpec / SkillLoader / SkillRegistry / builtin SKILL.md
