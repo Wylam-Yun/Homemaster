@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +20,7 @@ from homemaster.benchmarking.alfworld.types import (
     AlfworldStepResult,
     make_execution_feedback,
 )
+from homemaster.tools.contracts import ToolExecutionContext
 
 
 class FakeAdapter:
@@ -173,29 +175,28 @@ def _context(
 
 
 def _payload(result: Any) -> dict[str, Any]:
-    return json.loads(next(block.text for block in result.content if block.type == "text"))
+    return dict(result.data)
 
 
-def test_textworld_go_to_uses_same_public_tool_and_translates_command() -> None:
+def _execute(tool: Any, arguments: dict[str, Any], run_context: RunContext) -> Any:
+    context = ToolExecutionContext(Path("/tmp"), metadata={"run_context": run_context})
+    return asyncio.run(tool.executor.execute(arguments, context))
+
+
+def test_go_to_uses_the_thor_oracle_adapter_boundary() -> None:
     adapter = FakeAdapter()
-    result = make_alfworld_robot_go_to().executor(
-        arguments={"target": "countertop 1"},
-        run_context=_context(adapter),
-    )
+    result = _execute(make_alfworld_robot_go_to(), {"target": "countertop 1"}, _context(adapter))
 
     assert result.is_error is False
-    assert adapter.commands == ["go to countertop 1"]
-    assert adapter.go_to_calls == []
+    assert adapter.commands == []
+    assert adapter.go_to_calls == ["countertop 1"]
     assert _payload(result)["action"] == "navigate"
     assert _payload(result)["target"] == "countertop 1"
 
 
 def test_thor_go_to_uses_oracle_adapter_boundary() -> None:
     adapter = FakeAdapter()
-    result = make_alfworld_robot_go_to().executor(
-        arguments={"target": "remote control"},
-        run_context=_context(adapter, env_type="AlfredThorEnv"),
-    )
+    result = _execute(make_alfworld_robot_go_to(), {"target": "remote control"}, _context(adapter, env_type="AlfredThorEnv"))
 
     assert result.is_error is False
     assert adapter.commands == []
@@ -208,14 +209,11 @@ def test_thor_go_to_uses_oracle_adapter_boundary() -> None:
 
 def test_typed_payload_is_the_only_model_projection() -> None:
     adapter = FakeAdapter()
-    result = make_alfworld_robot_go_to().executor(
-        arguments={
+    result = _execute(make_alfworld_robot_go_to(), {
             "target": "remote control",
             "object_id": "RemoteControl|0",
             "requested_pose": {"x": 1.0},
-        },
-        run_context=_context(adapter, env_type="AlfredThorEnv"),
-    )
+        }, _context(adapter, env_type="AlfredThorEnv"))
 
     payload = _payload(result)
     assert payload == {
@@ -236,10 +234,7 @@ def test_typed_payload_is_the_only_model_projection() -> None:
 
 def test_validation_failure_uses_closed_typed_error_and_does_not_step() -> None:
     adapter = FakeAdapter()
-    result = make_alfworld_robot_manipulate().executor(
-        arguments={"action": "take", "object": "apple 1"},
-        run_context=_context(adapter),
-    )
+    result = _execute(make_alfworld_robot_manipulate(), {"action": "take", "object": "apple 1"}, _context(adapter))
 
     assert adapter.commands == []
     assert _payload(result)["error"] == "invalid_tool_arguments"
@@ -248,10 +243,7 @@ def test_validation_failure_uses_closed_typed_error_and_does_not_step() -> None:
 
 def test_thor_manipulation_forwards_exact_typed_feedback() -> None:
     adapter = FakeAdapter()
-    result = make_alfworld_robot_manipulate().executor(
-        arguments={"action": "take", "object": "remote control"},
-        run_context=_context(adapter, env_type="AlfredThorEnv"),
-    )
+    result = _execute(make_alfworld_robot_manipulate(), {"action": "take", "object": "remote control"}, _context(adapter, env_type="AlfredThorEnv"))
 
     assert adapter.manipulation_calls == ["take"]
     payload = _payload(result)
@@ -265,12 +257,12 @@ def test_verify_uses_typed_nonterminal_result_until_environment_wins() -> None:
     adapter = FakeAdapter()
     spec = make_alfworld_robot_verify()
 
-    pending = spec.executor(arguments={}, run_context=_context(adapter))
+    pending = _execute(spec, {}, _context(adapter))
     assert _payload(pending)["error"] == "action_not_applicable"
     assert pending.is_error is False
 
     adapter.state = AlfworldEnvState(**{**adapter.state.__dict__, "won": True, "done": True})
-    completed = spec.executor(arguments={}, run_context=_context(adapter))
+    completed = _execute(spec, {}, _context(adapter))
     assert _payload(completed)["success"] is True
     assert _payload(completed)["error"] is None
 

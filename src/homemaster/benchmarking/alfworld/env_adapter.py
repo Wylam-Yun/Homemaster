@@ -380,7 +380,7 @@ class AlfworldEnvAdapter:
         unsupported_task = _unsupported_task_type(selection_entry)
         if unsupported_task is not None:
             result = AlfworldResetResult(
-                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
+                backend_kind="thor",
                 ready=False, state=None, scene_generation=None, goal_generation=None,
                 scene_reset_fingerprint=None,
                 goal_trial_fingerprint=selection_entry.goal_fingerprint,
@@ -396,7 +396,7 @@ class AlfworldEnvAdapter:
             state = self._reset_state()
         except Exception:
             result = AlfworldResetResult(
-                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
+                backend_kind="thor",
                 ready=False,
                 state=None,
                 scene_generation=None,
@@ -451,19 +451,13 @@ class AlfworldEnvAdapter:
         )
         if not v18_reset_required:
             result = AlfworldResetResult(
-                backend_kind="thor" if self._looks_like_thor_backend() else "textworld",
+                backend_kind="thor",
                 ready=True,
                 state=state,
-                scene_generation=self._scene_generation
-                if self._looks_like_thor_backend()
-                else None,
+                scene_generation=self._scene_generation,
                 goal_generation=self._goal_generation,
-                scene_reset_fingerprint=(
-                    _portable_state_fingerprint(
-                        {"episode_id": state.episode_id, "task": state.task}
-                    )
-                    if self._looks_like_thor_backend()
-                    else None
+                scene_reset_fingerprint=_portable_state_fingerprint(
+                    {"episode_id": state.episode_id, "task": state.task}
                 ),
                 goal_trial_fingerprint=goal_fingerprint,
                 snapshot_sha256=None,
@@ -473,9 +467,7 @@ class AlfworldEnvAdapter:
                 classification=None,
                 score_eligible=True,
                 setup_backend_action_count=0,
-                recovery_status=(
-                    "not_needed" if self._looks_like_thor_backend() else "not_applicable"
-                ),
+                recovery_status="not_needed",
                 cleanup_status="not_applicable",
                 quarantine_required=False,
                 environment_disposition="ready",

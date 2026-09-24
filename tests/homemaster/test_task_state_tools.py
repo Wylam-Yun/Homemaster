@@ -145,29 +145,29 @@ async def test_task_progress_check_accepts_string_evidence_for_model_recovery() 
     )
 
     assert result.data is not None
-    assert result.data["subtasks"][0]["evidence"] == ["single evidence item"]
+    assert list(result.data["subtasks"][0]["evidence"]) == ["single evidence item"]
 
 
 def test_task_state_tool_schemas_describe_nested_fields() -> None:
     planner = make_task_planner_tool()
     progress = make_task_progress_check_tool()
 
-    assert planner.description
-    assert progress.description
+    assert planner.definition.description
+    assert progress.definition.description
 
-    for property_schema in planner.input_schema["properties"].values():
+    for property_schema in planner.definition.input_schema["properties"].values():
         assert property_schema.get("description")
-    for property_schema in progress.input_schema["properties"].values():
+    for property_schema in progress.definition.input_schema["properties"].values():
         assert property_schema.get("description")
 
-    subtask_schema = planner.input_schema["properties"]["subtasks"]["items"]
+    subtask_schema = planner.definition.input_schema["properties"]["subtasks"]["items"]
     assert {"id", "description"}.issubset(set(subtask_schema["required"]))
     assert "status" in subtask_schema["properties"]
     assert subtask_schema["properties"]["evidence"]["items"]["type"] == "string"
     for property_schema in subtask_schema["properties"].values():
         assert property_schema.get("description")
 
-    update_schema = progress.input_schema["properties"]["updates"]["items"]
+    update_schema = progress.definition.input_schema["properties"]["updates"]["items"]
     assert {"subtask_id", "status"}.issubset(set(update_schema["required"]))
     assert update_schema["properties"]["evidence"]["type"] == "array"
     for property_schema in update_schema["properties"].values():
