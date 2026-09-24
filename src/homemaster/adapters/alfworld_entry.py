@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from homemaster.application import RunRequest, RunResult
-from homemaster.cli.composition import HomeApplicationBundle, create_home_application
+from homemaster.application.composition import HomeApplicationBundle, compose_application
 from homemaster.config import HomeMasterConfig
 
 
@@ -25,7 +25,7 @@ class AlfworldApplicationEntry:
         event_sink: Any,
     ) -> None:
         del memory_mode  # Embedded MindMemOS is controlled exclusively by memory.enabled.
-        self.bundle: HomeApplicationBundle = create_home_application(
+        self.bundle: HomeApplicationBundle = compose_application(
             config=config,
             run_label=runtime_root.name,
             quiet=True,

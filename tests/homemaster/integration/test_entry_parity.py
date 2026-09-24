@@ -9,7 +9,7 @@ from pathlib import Path
 from homemaster.agent.messages import Message
 from homemaster.application import RunRequest, RunStatus
 from homemaster.browser.application import BrowserApplication
-from homemaster.cli.composition import HomeCliBackend, create_home_application
+from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.config import BrowserGatewayConfig, HomeMasterConfig
 from homemaster.providers.transports import TransportDelta
 
@@ -71,7 +71,7 @@ def _config(tmp_path: Path):
 def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider(
     tmp_path,
 ) -> None:
-    bundle = create_home_application(config=_config(tmp_path), run_label="one-shot")
+    bundle = compose_application(config=_config(tmp_path), run_label="one-shot")
     provider = FakeTransport(["hello"])
     bundle.application.provider_factory = lambda request, run_id: provider
 
@@ -98,7 +98,7 @@ def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider
 def test_home_application_injects_skill_registry_without_entry_specific_dependencies(
     tmp_path,
 ) -> None:
-    bundle = create_home_application(config=_config(tmp_path), run_label="gateway-entry")
+    bundle = compose_application(config=_config(tmp_path), run_label="gateway-entry")
     provider = FakeTransport(["hello"])
     bundle.application.provider_factory = lambda request, run_id: provider
     original_factory = bundle.application.context_assembler_factory
@@ -143,7 +143,7 @@ def test_configured_browser_capability_is_composed_independent_of_input_channel(
         }
     )
 
-    bundle = create_home_application(
+    bundle = compose_application(
         config=config,
         run_label="configured-browser",
         tool_environment=None,
@@ -160,7 +160,7 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
     tmp_path,
 ) -> None:
     config = _config(tmp_path)
-    first = create_home_application(config=config, run_label="first-process")
+    first = compose_application(config=config, run_label="first-process")
     first.application.provider_factory = lambda request, run_id: FakeTransport(["first"])
 
     async def first_process():
@@ -177,7 +177,7 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
         return initial, compact
 
     initial, compact = asyncio.run(first_process())
-    second = create_home_application(config=config, run_label="second-process")
+    second = compose_application(config=config, run_label="second-process")
     second.application.provider_factory = lambda request, run_id: FakeTransport(["second"])
 
     async def second_process():

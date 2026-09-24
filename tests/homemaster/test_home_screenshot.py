@@ -5,7 +5,7 @@ import io
 import pytest
 from PIL import Image, ImageGrab
 
-from homemaster.cli.composition import HomeCliBackend
+from homemaster.application.composition import HomeCliBackend
 
 
 @pytest.mark.asyncio

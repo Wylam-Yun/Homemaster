@@ -38,6 +38,12 @@
 
 ## Unreleased
 
+### V3.5 canonical tool migration checkpoint
+
+- Moved Home and task-state tool factories to direct `RegisteredTool` values with async canonical executors and typed `ToolExecutionResult` outcomes.
+- Migrated ALFWorld robot tool registrations to the same canonical contract and removed the synchronous executor fallback and `from_tool_spec` path.
+- Renamed the Home navigation factory to `make_robot_go_to` and added interface audits covering all formal tool factories.
+
 ### Changed
 
 - Verified the ALFWorld adapter against real THOR (ai2thor 2.1.0, pinned trial):

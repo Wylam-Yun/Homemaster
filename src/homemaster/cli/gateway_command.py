@@ -10,7 +10,7 @@ from typing import Literal
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.channels.feishu_groups import FeishuGroupOperations
 from homemaster.channels.impl.feishu import FeishuApiService
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig
 from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
@@ -30,7 +30,7 @@ async def serve_gateway(
     api_service = FeishuApiService.from_config(config.gateway.feishu)
     group_operations = FeishuGroupOperations(api_service)
     confirmation_handler = FeishuGatewayConfirmationHandler()
-    bundle = create_home_application(
+    bundle = compose_application(
         config=config,
         progress=False,
         quiet=True,

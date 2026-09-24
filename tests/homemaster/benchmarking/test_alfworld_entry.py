@@ -32,11 +32,11 @@ def test_alfworld_entry_uses_full_home_composition_with_isolated_roots(
         trajectory_writer=object(),
     )
 
-    def fake_create_home_application(**kwargs: object) -> object:
+    def fake_compose_application(**kwargs: object) -> object:
         calls.update(kwargs)
         return bundle
 
-    monkeypatch.setattr(alfworld_entry, "create_home_application", fake_create_home_application)
+    monkeypatch.setattr(alfworld_entry, "compose_application", fake_compose_application)
 
     def transport_factory() -> object:
         return object()
@@ -69,7 +69,7 @@ def test_alfworld_entry_fails_closed_without_mindmemos(
     )
     monkeypatch.setattr(
         alfworld_entry,
-        "create_home_application",
+        "compose_application",
         lambda **_kwargs: bundle,
     )
 
@@ -119,7 +119,7 @@ def test_alfworld_entry_closes_open_session_before_application_resources(
     application = Application()
     monkeypatch.setattr(
         alfworld_entry,
-        "create_home_application",
+        "compose_application",
         lambda **_kwargs: SimpleNamespace(
             application=application,
             mindmemos=object(),

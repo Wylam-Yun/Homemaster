@@ -159,7 +159,7 @@ def test_stream_json_composition_error_preserves_bare_configured_literal(monkeyp
         raise RuntimeError(f"composition exposed {secret}")
 
     monkeypatch.setattr(
-        "homemaster.cli.run_command.create_home_application",
+        "homemaster.cli.run_command.compose_application",
         fail_composition,
     )
 
@@ -203,7 +203,7 @@ def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_pa
         lambda **_kwargs: SimpleNamespace(providers=object()),
     )
     monkeypatch.setattr(
-        "homemaster.cli.run_command.create_home_application",
+        "homemaster.cli.run_command.compose_application",
         lambda **_kwargs: bundle,
     )
 
@@ -269,7 +269,7 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     def forbidden(*args, **kwargs):
         raise AssertionError("dry-run created the application")
 
-    monkeypatch.setattr("homemaster.cli.composition.create_application", forbidden)
+    monkeypatch.setattr("homemaster.application.composition.create_application", forbidden)
     result = CliRunner().invoke(
         app,
         ["--dry-run", "-p", "inspect", "--output-format", "json"],
@@ -381,7 +381,7 @@ def test_home_application_wires_validated_skill_registry_into_run_dependencies(
         lambda **kwargs: SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=None)),
     )
     monkeypatch.setattr(
-        "homemaster.cli.run_command.create_home_application",
+        "homemaster.cli.run_command.compose_application",
         lambda **kwargs: Bundle(),
     )
 

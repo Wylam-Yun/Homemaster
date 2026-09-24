@@ -97,7 +97,7 @@ def test_locomo_finalizes_source_sessions_but_not_qa_probes(
         config=SimpleNamespace(runtime=SimpleNamespace(max_tool_iterations=2)),
     )
     monkeypatch.setattr(
-        "homemaster.benchmarking.locomo.runner.create_home_application",
+        "homemaster.benchmarking.locomo.runner.compose_application",
         lambda **_kwargs: bundle,
     )
 

@@ -11,7 +11,7 @@ from homemaster.domain.tools import (
     make_memory_retriever,
     make_memory_writer,
     make_robot_manipulate,
-    make_robot_navigate,
+    make_robot_go_to,
     make_robot_verify,
     make_target_grounder,
     make_task_interpreter,
@@ -36,7 +36,6 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.core_tools import build_core_tools
 from homemaster.tools.file_tools import build_file_tools
-from homemaster.tools.legacy_adapter import adapt_legacy_tool_spec
 from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
 from homemaster.tools.service_tools import build_service_tools
@@ -200,13 +199,13 @@ def _home_tools(
         *build_service_tools(),
     ]
     existing_names = {tool.definition.model_alias for tool in tools}
-    specs = {
-        spec.name: spec
-        for spec in (
+    tools_by_name = {
+        tool.definition.model_alias: tool
+        for tool in (
             make_task_interpreter(),
             make_target_grounder(world_path=world_path),
             make_load_skill(),
-            make_robot_navigate(),
+            make_robot_go_to(),
             make_robot_manipulate(),
             make_robot_verify(),
             make_task_summarizer(),
@@ -232,13 +231,12 @@ def _home_tools(
         if name == "observe":
             tools.append(_screenshot_tool())
             continue
-        spec = specs.get("robot_navigate" if name == "robot_go_to" else name)
-        if spec is None:
+        tool = tools_by_name.get(name)
+        if tool is None:
             continue
         tools.append(
-            _adapted_tool(
-                spec,
-                alias=name,
+            _configured_tool(
+                tool,
                 environment="homemaster" if name == "load_skill" else "home",
                 policy=_policy_for(name, environment="home"),
                 state_effects=("backend.advance",)
@@ -264,7 +262,7 @@ def _alfworld_tools(
 
     if memory_mode not in {"disabled", "readonly", "full"}:
         raise ValueError(f"unsupported memory_mode: {memory_mode}")
-    specs = []
+    specs: list[RegisteredTool] = []
     if memory_mode in {"readonly", "full"}:
         specs.append(make_memory_retriever(memory_path=memory_path))
     if memory_mode == "full":
@@ -279,16 +277,15 @@ def _alfworld_tools(
         )
     )
     tools = [
-        _adapted_tool(
-            spec,
-            alias=spec.name,
+        _configured_tool(
+            tool,
             environment="alfworld",
-            policy=_policy_for(spec.name, environment="alfworld"),
+            policy=_policy_for(tool.definition.model_alias, environment="alfworld"),
             state_effects=("backend.advance",)
-            if spec.name in {"robot_go_to", "robot_manipulate"}
+            if tool.definition.model_alias in {"robot_go_to", "robot_manipulate"}
             else (),
         )
-        for spec in specs
+        for tool in specs
     ]
     tools.append(_screenshot_tool())
     return tuple(tools)
@@ -312,9 +309,8 @@ def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
 
     spec = make_alfworld_robot_manipulate()
     adapter = AlfworldPermissionAdapter(tool="robot_manipulate", backend=backend)
-    registered = _adapted_tool(
+    registered = _configured_tool(
         spec,
-        alias="robot_manipulate",
         environment="alfworld",
         policy=_policy_for("robot_manipulate", environment="alfworld"),
         state_effects=("backend.advance",),
@@ -329,8 +325,8 @@ def alfworld_physical_go_to_tool(*, backend: Any) -> Any:
     from homemaster.benchmarking.alfworld.tools import make_alfworld_robot_go_to
     spec = make_alfworld_robot_go_to()
     adapter = AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
-    registered = _adapted_tool(
-        spec, alias="robot_go_to", environment="alfworld",
+    registered = _configured_tool(
+        spec, environment="alfworld",
         policy=_policy_for("robot_go_to", environment="alfworld"),
         state_effects=("backend.advance",),
     )
@@ -353,25 +349,22 @@ def _screenshot_tool() -> RegisteredTool:
     )
 
 
-def _adapted_tool(
-    spec: Any,
+def _configured_tool(
+    registered: RegisteredTool,
     *,
-    alias: str,
     environment: str,
     policy: VerificationPolicy,
     state_effects: tuple[str, ...],
     required_capabilities: tuple[str, ...] = (),
 ) -> RegisteredTool:
-    adapted = adapt_legacy_tool_spec(
-        spec,
-        internal_id=f"homemaster.{alias}.v1",
-        version="1.9.0",
-        provenance=ToolProvenance(source=environment, reference=f"{environment}.{spec.name}"),
-        output_schema=getattr(spec, "output_schema", None) or {"type": "object"},
-    )
+    definition = registered.definition
     definition = replace(
-        adapted.definition,
-        model_alias=alias,
+        definition,
+        provenance=ToolProvenance(
+            source=environment,
+            reference=f"{environment}.{definition.model_alias}",
+        ),
+        version="3.5.0",
         verification_policy=policy,
         state_effects=state_effects,
         concurrency_policy=(
@@ -386,9 +379,9 @@ def _adapted_tool(
         verifier = _ReceiptVerifier(
             external_state=policy.execution_proof is ExecutionProof.EXTERNAL_STATE
         )
-    return RegisteredTool(
+    return replace(
+        registered,
         definition=definition,
-        executor=adapted.registered_tool.executor,
         verifier=verifier,
     )
 

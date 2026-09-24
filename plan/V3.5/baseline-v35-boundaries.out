@@ -1,0 +1,128 @@
+F.FFFFFF                                                                 [100%]
+=================================== FAILURES ===================================
+______________ test_non_cli_modules_do_not_import_cli_composition ______________
+
+    def test_non_cli_modules_do_not_import_cli_composition() -> None:
+        forbidden = "homemaster.cli.composition"
+        offenders = [
+            str(path.relative_to(REPO_ROOT))
+            for path in _python_sources(SRC_ROOT)
+            if path.relative_to(SRC_ROOT).parts[:2] != ("cli", "composition.py")
+            and forbidden in path.read_text(encoding="utf-8")
+        ]
+>       assert offenders == [], f"public composition is still imported by: {offenders}"
+E       AssertionError: public composition is still imported by: ['src/homemaster/adapters/alfworld_entry.py', 'src/homemaster/benchmarking/locomo/runner.py', 'src/homemaster/cli/dry_run.py', 'src/homemaster/cli/gateway_command.py', 'src/homemaster/cli/interactive_shell.py', 'src/homemaster/cli/run_command.py', 'src/homemaster/web/serve.py']
+E       assert ['src/homemas...mand.py', ...] == []
+E         
+E         Left contains 7 more items, first extra item: 'src/homemaster/adapters/alfworld_entry.py'
+E         Use -v to get more diff
+
+tests/homemaster/v35/test_architecture_boundaries.py:26: AssertionError
+________ test_worker_source_exists_and_has_no_main_environment_imports _________
+
+    def test_worker_source_exists_and_has_no_main_environment_imports() -> None:
+>       assert WORKER_ROOT.is_dir(), "the isolated ALFWorld worker source tree is missing"
+E       AssertionError: the isolated ALFWorld worker source tree is missing
+E       assert False
+E        +  where False = is_dir()
+E        +    where is_dir = PosixPath('/Users/wylam/Documents/workspace/HomeMaster/workers/alfworld_worker').is_dir
+
+tests/homemaster/v35/test_architecture_boundaries.py:46: AssertionError
+_____________ test_alfworld_protocol_schema_is_versioned_and_typed _____________
+
+    def test_alfworld_protocol_schema_is_versioned_and_typed() -> None:
+>       assert SCHEMA_PATH.is_file(), "the versioned ALFWorld protocol schema is missing"
+E       AssertionError: the versioned ALFWorld protocol schema is missing
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('/Users/wylam/Documents/workspace/HomeMaster/protocols/alfworld-v1.schema.json').is_file
+
+tests/homemaster/v35/test_worker_protocol_contract.py:14: AssertionError
+_______________ test_worker_protocol_has_explicit_operation_enum _______________
+
+    def test_worker_protocol_has_explicit_operation_enum() -> None:
+>       assert SCHEMA_PATH.is_file(), "the versioned ALFWorld protocol schema is missing"
+E       AssertionError: the versioned ALFWorld protocol schema is missing
+E       assert False
+E        +  where False = is_file()
+E        +    where is_file = PosixPath('/Users/wylam/Documents/workspace/HomeMaster/protocols/alfworld-v1.schema.json').is_file
+
+tests/homemaster/v35/test_worker_protocol_contract.py:23: AssertionError
+____________ test_worker_launcher_does_not_inject_main_environment _____________
+
+    def test_worker_launcher_does_not_inject_main_environment() -> None:
+        launcher = (REPO_ROOT / "scripts" / "homemaster").read_text(encoding="utf-8")
+        forbidden = ("formal_site", "mindmemos_source", "export PYTHONPATH")
+        offenders = [term for term in forbidden if term in launcher]
+>       assert offenders == [], f"worker launcher still mixes environments: {offenders}"
+E       AssertionError: worker launcher still mixes environments: ['formal_site', 'mindmemos_source', 'export PYTHONPATH']
+E       assert ['formal_site...t PYTHONPATH'] == []
+E         
+E         Left contains 3 more items, first extra item: 'formal_site'
+E         Use -v to get more diff
+
+tests/homemaster/v35/test_worker_protocol_contract.py:33: AssertionError
+__________ test_legacy_tool_symbols_are_removed_from_runtime_surfaces __________
+
+    def test_legacy_tool_symbols_are_removed_from_runtime_surfaces() -> None:
+        forbidden = (
+            "ToolSpec",
+            "legacy_adapter",
+            "from_tool_spec",
+            "robot_navigate",
+            "robot_find_object",
+            "build_universal_tool_registry",
+        )
+        offenders = {
+            term: [str(path.relative_to(REPO_ROOT)) for path in _text_files() if term in path.read_text(encoding="utf-8")]
+            for term in forbidden
+        }
+        offenders = {term: paths for term, paths in offenders.items() if paths}
+>       assert offenders == {}, f"legacy runtime symbols remain: {offenders}"
+E       AssertionError: legacy runtime symbols remain: {'ToolSpec': ['src/homemaster/__init__.py', 'src/homemaster/benchmarking/alfworld/tools.py', 'src/homemaster/domain/tools.py', 'src/homemaster/task_state/tools.py', 'src/homemaster/tools/adapters.py', 'src/homemaster/tools/legacy_adapter.py', 'src/homemaster/tools/service_tools.py', 'src/homemaster/tools/spec.py', 'tests/homemaster/integration/test_adapter_ownership.py', 'tests/homemaster/test_tool_registry.py', 'tests/homemaster/tools/test_legacy_adapter.py'], 'legacy_adapter': ['src/homemaster/adapters/profiles.py', 'tests/homemaster/application/test_application_runtime.py', 'tests/homemaster/tools/test_legacy_adapter.py'], 'from_tool_spec': ['src/homemaster/tools/adapters.py'], 'robot_navigate': ['src/homemaster/adapters/profiles.py', 'src/homemaster/agent/compact.py', 'src/homemaster/benchmarking/alfworld/env_adapter.py', 'src/homemaster/domain/tools.py', 'tests/homemaster/benchmarking/test_alfworld_env_adapter.py', 'tests/homemaster/benchmarking/test_alfworld_runner.py', 'tests/homemaster/benchmarking/test_alfworld_tracing.py', 'tests/homemaster/benchmarking/test_alfworld_v18_guards.py', 'tests/homemaster/fixtures/v19/allowed_deltas.json', 'tests/homemaster/integration/test_observation_profiles.py', 'tests/homemaster/permissions/test_physical_policy.py', 'tests/homemaster/test_domain_home_tools.py', 'tests/homemaster/tools/test_universal_registry.py'], 'robot_find_object': ['src/homemaster/benchmarking/alfworld/env_adapter.py', 'tests/homemaster/benchmarking/test_alfworld_env_adapter.py', 'tests/homemaster/benchmarking/test_alfworld_v18_guards.py'], 'build_universal_tool_registry': ['scripts/export_service_tool_specs.py', 'scripts/v20/verify_skill_installation.py', 'src/homemaster/adapters/__init__.py', 'src/homemaster/adapters/profiles.py', 'src/homemaster/cli/dry_run.py', 'tests/homemaster/integration/test_generic_browser_ant_runtime.py', 'tests/homemaster/integration/test_observation_transcript.py', 'tests/homemaster/memory/test_memory_tools.py', 'tests/homemaster/skills/test_installed_package.py', 'tests/homemaster/skills/test_v20_openharness_compat.py', 'tests/homemaster/tools/test_universal_registry.py', 'tests/homemaster/tools/universal_harness.py']}
+E       assert {'ToolSpec': ...y', ...], ...} == {}
+E         
+E         Left contains 6 more items:
+E         {'ToolSpec': ['src/homemaster/__init__.py',
+E                       'src/homemaster/benchmarking/alfworld/tools.py',
+E                       'src/homemaster/domain/tools.py',
+E                       'src/homemaster/task_state/tools.py',
+E                       'src/homemaster/tools/adapters.py',...
+E         
+E         ...Full output truncated (39 lines hidden), use '-vv' to show
+
+tests/homemaster/v35/test_v35_audit_commands.py:40: AssertionError
+_______________ test_textworld_and_http_worker_paths_are_removed _______________
+
+    def test_textworld_and_http_worker_paths_are_removed() -> None:
+        forbidden = ("AlfredTWEnv", "TextWorld", "http_worker.py", "http_client.py")
+        offenders = {
+            term: [str(path.relative_to(REPO_ROOT)) for path in _text_files() if term in path.read_text(encoding="utf-8")]
+            for term in forbidden
+        }
+        offenders = {term: paths for term, paths in offenders.items() if paths}
+>       assert offenders == {}, f"removed environment paths remain: {offenders}"
+E       AssertionError: removed environment paths remain: {'AlfredTWEnv': ['src/homemaster/benchmarking/alfworld/tools.py', 'src/homemaster/benchmarking/alfworld/translator.py', 'src/homemaster/benchmarking/alfworld/types.py', 'src/homemaster/cli/app.py', 'src/homemaster/cli/benchmark_alfworld.py', 'tests/homemaster/benchmarking/test_alfworld_prompt.py', 'tests/homemaster/benchmarking/test_alfworld_tools.py', 'tests/homemaster/benchmarking/test_alfworld_translator.py', 'tests/homemaster/benchmarking/test_alfworld_types.py', 'tests/homemaster/memory/test_schema_episode_alfworld_integration.py', 'tests/homemaster/test_alfworld_live_smoke.py'], 'TextWorld': ['src/homemaster/benchmarking/alfworld/env_adapter.py', 'src/homemaster/benchmarking/alfworld/types.py']}
+E       assert {'AlfredTWEnv...ld/types.py']} == {}
+E         
+E         Left contains 2 more items:
+E         {'AlfredTWEnv': ['src/homemaster/benchmarking/alfworld/tools.py',
+E                          'src/homemaster/benchmarking/alfworld/translator.py',
+E                          'src/homemaster/benchmarking/alfworld/types.py',
+E                          'src/homemaster/cli/app.py',
+E                          'src/homemaster/cli/benchmark_alfworld.py',...
+E         
+E         ...Full output truncated (9 lines hidden), use '-vv' to show
+
+tests/homemaster/v35/test_v35_audit_commands.py:50: AssertionError
+=========================== short test summary info ============================
+FAILED tests/homemaster/v35/test_architecture_boundaries.py::test_non_cli_modules_do_not_import_cli_composition
+FAILED tests/homemaster/v35/test_architecture_boundaries.py::test_worker_source_exists_and_has_no_main_environment_imports
+FAILED tests/homemaster/v35/test_worker_protocol_contract.py::test_alfworld_protocol_schema_is_versioned_and_typed
+FAILED tests/homemaster/v35/test_worker_protocol_contract.py::test_worker_protocol_has_explicit_operation_enum
+FAILED tests/homemaster/v35/test_worker_protocol_contract.py::test_worker_launcher_does_not_inject_main_environment
+FAILED tests/homemaster/v35/test_v35_audit_commands.py::test_legacy_tool_symbols_are_removed_from_runtime_surfaces
+FAILED tests/homemaster/v35/test_v35_audit_commands.py::test_textworld_and_http_worker_paths_are_removed
+7 failed, 1 passed in 1.11s
+
+EXIT_CODE=1

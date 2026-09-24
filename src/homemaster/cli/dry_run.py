@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 
 from homemaster.adapters.profiles import build_universal_tool_registry
-from homemaster.cli.composition import load_home_skills
+from homemaster.application.composition import load_home_skills
 from homemaster.config import ConfigError, HomeMasterConfig, load_config
 from homemaster.mcp.audit import McpAuditLog
 from homemaster.mcp.client import Connector, McpClientManager

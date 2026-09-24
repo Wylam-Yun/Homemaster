@@ -1,0 +1,30 @@
+V3.5 Phase 0 baseline
+
+Repository baseline:
+- commit: see baseline-commit.txt
+- working tree: see baseline-git-status.txt
+
+Commands and captured output:
+
+1. `uv run pytest -q tests/homemaster/application tests/homemaster/tools tests/homemaster/benchmarking/test_alfworld_*.py`
+   - local execution did not produce output and was terminated after hanging in uv environment resolution.
+   - This is an environment/setup observation, not a test result.
+
+2. `/Users/wylam/Documents/workspace/HomeMaster/.venv/bin/python -m pytest -q tests/homemaster/application tests/homemaster/tools tests/homemaster/benchmarking/test_alfworld_*.py`
+   - exit code: 2
+   - collection failed because the local stale virtualenv has no `structlog`.
+   - complete output: baseline-pytest.out
+
+3. `/Users/wylam/Documents/workspace/HomeMaster/.venv/bin/ruff check src tests scripts`
+   - exit code: 1
+   - 19 pre-existing lint errors.
+   - complete output: baseline-ruff.out
+
+4. `python scripts/guard_no_legacy_terms.py`
+   - exit code: 1
+   - reported existing legacy terms and historical text; complete output was captured in the Phase 0 command log.
+   - complete output: baseline-legacy-guard.out
+
+5. `/Users/wylam/Documents/workspace/HomeMaster/.venv/bin/python -m pytest -q tests/homemaster/v35/test_architecture_boundaries.py tests/homemaster/v35/test_worker_protocol_contract.py tests/homemaster/v35/test_v35_audit_commands.py`
+   - exit code: 1
+   - 7 boundary failures and 1 passing runtime-agnostic check; complete output: baseline-v35-boundaries.out

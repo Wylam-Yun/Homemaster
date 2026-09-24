@@ -20,7 +20,16 @@ from homemaster.benchmarking.alfworld.translator import (
     TranslatorValidationError,
 )
 from homemaster.benchmarking.alfworld.types import make_execution_feedback
-from homemaster.tools.spec import ToolSpec
+from homemaster.tools.contracts import (
+    RegisteredTool,
+    ToolDefinition,
+    ToolExecutionContext,
+    ToolExecutionError,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    ToolProvenance,
+    VerificationPolicy,
+)
 
 _TERMINAL_EXECUTION_FAILURES = {
     "execution_state_uncertain",
@@ -397,113 +406,117 @@ def _with_grounding_metadata(
     return payload
 
 
-def make_alfworld_robot_go_to() -> ToolSpec:
-    return ToolSpec(
-        name="robot_go_to",
-        description=(
-            "Move directly to any named ALFWorld target using the navigation "
-            "backend. The target may be a movable object, a receptacle, "
-            "furniture, an appliance, or a switch/toggle object. Use this "
-            "instead of guessing source locations or ALFWorld navigation names."
+class _AlfworldExecutor:
+    def __init__(self, function: Any, name: str) -> None:
+        self._function = function
+        self._name = name
+
+    async def execute(
+        self,
+        arguments: Mapping[str, object],
+        context: ToolExecutionContext,
+    ) -> ToolExecutionResult:
+        run_context = context.services.get("run_context")
+        if not isinstance(run_context, RunContext):
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                error=ToolExecutionError(
+                    code="missing_runtime_context",
+                    message="ALFWorld tool requires a connected run context",
+                ),
+            )
+        message = self._function(arguments=dict(arguments), run_context=run_context)
+        data = dict(getattr(message, "data", None) or {})
+        refs = data.get("evidence_refs", ())
+        evidence_refs = (refs,) if isinstance(refs, str) else tuple(refs or ())
+        attempted = bool(data.get("backend_attempted", False))
+        success = not bool(getattr(message, "is_error", False)) and data.get("success", True) is not False
+        if success:
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS,
+                text=str(data.get("summary", "")),
+                data=data,
+                evidence_refs=evidence_refs,
+                backend_attempted=attempted,
+            )
+        reason = str(data.get("failure_reason") or data.get("error") or "ALFWorld action failed")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.FAILURE,
+            text=reason,
+            data=data,
+            evidence_refs=evidence_refs,
+            error=ToolExecutionError(code=str(data.get("error_code") or "alfworld_action_failed"), message=reason),
+            backend_attempted=attempted,
+        )
+
+
+def _registered(name: str, description: str, schema: Mapping[str, object], function: Any) -> RegisteredTool:
+    return RegisteredTool(
+        definition=ToolDefinition(
+            internal_id=f"homemaster.{name}.v1",
+            model_alias=name,
+            description=description,
+            input_schema=dict(schema),
+            output_schema={"type": "object"},
+            verification_policy=VerificationPolicy(),
+            provenance=ToolProvenance(source="homemaster.alfworld", reference=f"alfworld.{name}"),
+            version="3.5.0",
+            state_effects=("backend.advance",) if name != "robot_verify" else (),
         ),
-        input_schema={
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "description": (
-                        "Task target to move to, such as the object to pick up "
-                        "or the place/tool/container needed next."
-                    ),
-                },
-            },
-            "required": ["target"],
-        },
-        executor_mode="programmatic",
-        selectable_by_model=True,
-        executor=_exec_go_to,
+        executor=_AlfworldExecutor(function, name),
     )
 
 
-def make_alfworld_robot_manipulate() -> ToolSpec:
-    return ToolSpec(
-        name="robot_manipulate",
-        description=(
-            "Execute one high-level ALFWorld manipulation action. For heat, cool, "
-            "clean, and slice, do not decompose the task into low-level open/put/"
-            "close/use steps; call the abstract action directly when the required "
-            "object/tool preconditions are met."
-        ),
-        input_schema={
+def make_alfworld_robot_go_to() -> RegisteredTool:
+    return _registered(
+        "robot_go_to",
+        "Move directly to a named ALFWorld target using the navigation backend.",
+        {
+            "type": "object",
+            "properties": {"target": {"type": "string"}},
+            "required": ["target"],
+        },
+        _exec_go_to,
+    )
+
+
+def make_alfworld_robot_manipulate() -> RegisteredTool:
+    return _registered(
+        "robot_manipulate",
+        "Execute one high-level ALFWorld manipulation action.",
+        {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": (
-                        "One ALFWorld action. use is only for switch/toggle objects; "
-                        "heat/cool/clean are abstract state-change actions."
-                    ),
-                    "enum": [
-                        "take",
-                        "put",
-                        "open",
-                        "close",
-                        "use",
-                        "heat",
-                        "cool",
-                        "clean",
-                        "slice",
-                    ],
+                    "enum": ["take", "put", "open", "close", "use", "heat", "cool", "clean", "slice"],
                 },
-                "object": {
-                    "type": "string",
-                    "description": (
-                        "Object to manipulate. For heat/cool/clean, this object "
-                        "should usually be in inventory."
-                    ),
-                },
-                "source_receptacle": {
-                    "type": "string",
-                    "description": "Receptacle to take the object from.",
-                },
-                "target_receptacle": {
-                    "type": "string",
-                    "description": "Receptacle to put/open/close.",
-                },
-                "tool_receptacle": {
-                    "type": "string",
-                    "description": (
-                        "Tool/receptacle for state-changing actions: microwave for "
-                        "heat, fridge for cool, sinkbasin for clean, knife or "
-                        "butterknife for slice."
-                    ),
-                },
+                "object": {"type": "string"},
+                "source_receptacle": {"type": "string"},
+                "target_receptacle": {"type": "string"},
+                "tool_receptacle": {"type": "string"},
             },
             "required": ["action"],
         },
-        executor_mode="programmatic",
-        selectable_by_model=True,
-        executor=_exec_manipulate,
+        _exec_manipulate,
     )
 
 
-def make_alfworld_robot_verify() -> ToolSpec:
-    return ToolSpec(
-        name="robot_verify",
-        description=(
-            "Check whether ALFWorld reports the task as won. "
-            "This is the only benchmark success signal."
-        ),
-        input_schema={
+def make_alfworld_robot_verify() -> RegisteredTool:
+    return _registered(
+        "robot_verify",
+        "Check whether ALFWorld reports the task as won.",
+        {
             "type": "object",
-            "properties": {
-                "expected_done": {
-                    "type": "string",
-                    "description": ("Optional description of the expected completed condition."),
-                },
-            },
+            "properties": {"expected_done": {"type": "string"}},
         },
-        executor_mode="programmatic",
-        selectable_by_model=True,
-        executor=_exec_verify,
+        _exec_verify,
     )
+
+
+__all__ = [
+    "make_alfworld_robot_go_to",
+    "make_alfworld_robot_manipulate",
+    "make_alfworld_robot_verify",
+    "navigation_target_for_action",
+]

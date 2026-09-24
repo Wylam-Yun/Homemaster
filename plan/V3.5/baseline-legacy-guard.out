@@ -1,0 +1,9 @@
+BLOCKED TEXT ['pipeline']: CLAUDE.md
+BLOCKED TEXT ['pipeline']: docs/architecture/browser-operation-handoff.html
+BLOCKED TEXT ['pipeline']: docs/architecture/browser-operation-handoff.md
+BLOCKED TEXT ['pipeline']: docs/pitfalls.md
+BLOCKED TEXT ['stage_']: src/homemaster/channels/impl/feishu.py
+BLOCKED TEXT ['scenario']: src/homemaster/skills/bundled/content/test.md
+BLOCKED TEXT ['pipeline']: tests/homemaster/tools/test_universal_registry.py
+
+EXIT_CODE=1

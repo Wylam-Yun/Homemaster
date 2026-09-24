@@ -1,0 +1,262 @@
+B033 [*] Sets should not contain duplicate item `"docs/reports/2026-08-27-coworker-delivery-task-plan.md"`
+  --> scripts/guard_no_legacy_terms.py:84:9
+   |
+82 |         "src/homemaster/tools/legacy_adapter.py",
+83 |         "src/homemaster/tools/pipeline.py",
+84 |         "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+85 |         "tests/homemaster/permissions/test_policy.py",
+86 |         "tests/homemaster/application/test_application_runtime.py",
+   |
+  ::: scripts/guard_no_legacy_terms.py:75:9
+   |
+73 |         # Historical coworker records archived from repo root on 2026-08-27.
+74 |         "docs/reports/2026-08-27-coworker-demo-findings.md",
+75 |         "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
+   |         -------------------------------------------------------- Previous occurrence here
+76 |         "docs/reports/2026-08-27-progress-archive.md",
+77 |         "src/homemaster/application/factory.py",
+   |
+help: Remove duplicate item
+
+F401 [*] `signal` imported but unused
+  --> scripts/verify_v34_permissions.py:18:8
+   |
+16 | import argparse
+17 | import json
+18 | import signal
+   |        ^^^^^^
+19 | import sqlite3
+20 | import subprocess
+   |
+help: Remove unused import: `signal`
+
+F811 Redefinition of unused `backend_id` from line 181
+   --> src/homemaster/benchmarking/alfworld/http_client.py:193:9
+    |
+192 |     @property
+193 |     def backend_id(self) -> str:
+    |         ^^^^^^^^^^ `backend_id` redefined here
+194 |         return f"alfworld:{self._state.episode_id}"
+    |
+   ::: src/homemaster/benchmarking/alfworld/http_client.py:181:9
+    |
+180 |     @property
+181 |     def backend_id(self) -> str:
+    |         ---------- previous definition of `backend_id` here
+182 |         return f"alfworld-http:{self._process.pid}"
+    |
+help: Remove definition: `backend_id`
+
+E501 Line too long (115 > 100)
+   --> src/homemaster/benchmarking/alfworld/permission_adapter.py:224:101
+    |
+222 |                 f"target unresolved: {planned.primary_label!r}"
+223 |             )
+224 |         nav_label = planned.primary_label if self._tool == "robot_go_to" else self._navigation_label(args, planned)
+    |                                                                                                     ^^^^^^^^^^^^^^^
+225 |         nav_target: BackendTarget | None = None
+226 |         if nav_label is not None:
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/homemaster/experience/__init__.py:3:1
+   |
+ 1 |   """Session-end experience extraction."""
+ 2 |
+ 3 | / from .alfworld_compile_jobs import AlfworldCompileJobService
+ 4 | | from .alfworld_compiler import (
+ 5 | |     AlfworldDerivedExperience,
+ 6 | |     AlfworldDiagnostic,
+ 7 | |     compile_alfworld_trajectory,
+ 8 | | )
+ 9 | | from .dreaming_state import DreamingBatch, DreamingCoordinator, DreamingStateStore
+10 | | from .finalizer import ExperienceOperation, FinalizeResult, SessionFinalizer, TaskTraceEnvelope
+11 | | from .session_finalization import SessionFinalizationController
+12 | | from .schema_episode import build_schema_episode, serialize_schema_episode
+   | |__________________________________________________________________________^
+13 |
+14 |   __all__ = [
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/homemaster/web/serve.py:3:1
+   |
+ 1 |   """Loopback-only production entrypoint for the HomeMaster Web Console."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import asyncio
+ 6 | | import errno
+ 7 | | import ipaddress
+ 8 | | import socket
+ 9 | | from pathlib import Path
+10 | | from typing import Literal
+11 | |
+12 | | import uvicorn
+13 | | from fastapi import FastAPI
+14 | |
+15 | | from homemaster.cli.composition import create_home_application
+16 | | from homemaster.config import load_config
+17 | | from homemaster.gateway.alfworld import (
+18 | |     AlfworldGatewayApplication,
+19 | |     create_alfworld_gateway_binding,
+20 | | )
+21 | | from homemaster.benchmarking.alfworld.permission_adapter import ThorBackendView
+22 | | from homemaster.memory.management import MemoryManagementService
+23 | | from homemaster.permissions import PermissionMode
+24 | | from homemaster.web.app import create_web_app
+25 | | from homemaster.web.confirmations import WebConfirmationHandler
+   | |_______________________________________________________________^
+   |
+help: Organize imports
+
+E501 Line too long (148 > 100)
+  --> src/homemaster/web/serve.py:82:101
+   |
+80 | …
+81 | …g_path is not None else load_config()
+82 | …untime.model_copy(update={"max_tool_iterations": 100, "max_consecutive_tool_errors": 0})})
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+83 | …
+84 | …
+   |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:2:1
+  |
+1 |   """Stateful contract regressions; real runtime gates remain separate."""
+2 | / from types import SimpleNamespace
+3 | |
+4 | | import pytest
+5 | |
+6 | | from homemaster.benchmarking.alfworld.env_adapter import _execute_heat, _execute_cool, _execute_clean
+  | |_____________________________________________________________________________________________________^
+  |
+help: Organize imports
+
+E501 Line too long (101 > 100)
+ --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:6:101
+  |
+4 | import pytest
+5 |
+6 | from homemaster.benchmarking.alfworld.env_adapter import _execute_heat, _execute_cool, _execute_clean
+  |                                                                                                     ^
+  |
+
+E501 Line too long (125 > 100)
+  --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:33:101
+   |
+31 |         kind = action["action"]
+32 |         field, desired = {"OpenObject": ("isOpen",True), "CloseObject": ("isOpen",False),
+33 |                           "ToggleObjectOn": ("isToggled",True), "ToggleObjectOff": ("isToggled",False)}.get(kind,(None,None))
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+34 |         if field and (obj[field] == desired or (kind == "OpenObject" and obj["isToggled"])):
+35 |             m.update(lastActionSuccess=False, errorMessage="Nothing happens / Target must be OFF to open")
+   |
+
+E501 Line too long (106 > 100)
+  --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:35:101
+   |
+33 |                           "ToggleObjectOn": ("isToggled",True), "ToggleObjectOff": ("isToggled",False)}.get(kind,(None,None))
+34 |         if field and (obj[field] == desired or (kind == "OpenObject" and obj["isToggled"])):
+35 |             m.update(lastActionSuccess=False, errorMessage="Nothing happens / Target must be OFF to open")
+   |                                                                                                     ^^^^^^
+36 |         elif not self.ignore_actions:
+37 |             if field:
+   |
+
+E501 Line too long (112 > 100)
+  --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:79:101
+   |
+77 |     assert len(env.calls) == 1, "stop at first contradictory receipt"
+78 |
+79 | @pytest.mark.parametrize("action,expected", [("heat", "microwave"), ("cool", "fridge"), ("clean", "sinkbasin")])
+   |                                                                                                     ^^^^^^^^^^^^
+80 | def test_macro_navigation_targets_appliance(action, expected):
+81 |     from homemaster.benchmarking.alfworld.tools import _navigation_target_for_action
+   |
+
+E501 Line too long (134 > 100)
+  --> tests/homemaster/benchmarking/test_alfworld_adapter_semantics.py:83:101
+   |
+81 |     from homemaster.benchmarking.alfworld.tools import _navigation_target_for_action
+82 |     assert _navigation_target_for_action({"action": action, "object": "apple"}) == expected
+83 |     assert _navigation_target_for_action({"action": action, "object": "apple", "tool_receptacle": expected + " 1"}) == expected + " 1"
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+
+E731 Do not assign a `lambda` expression, use a `def`
+   --> tests/homemaster/benchmarking/test_alfworld_runner.py:364:13
+    |
+363 |           async def add_schema_episode(self, *_args: object, **_kwargs: object) -> object:
+364 | /             type_result = lambda **values: SimpleNamespace(
+365 | |                 model_dump=lambda **_dump_kwargs: values,
+366 | |                 **values,
+367 | |             )
+    | |_____________^
+368 |               return SimpleNamespace(
+369 |                   add_record_id="alfworld-test-add",
+    |
+help: Rewrite `type_result` as a `def`
+
+E731 Do not assign a `lambda` expression, use a `def`
+  --> tests/homemaster/experience/test_finalizer.py:26:9
+   |
+24 |       async def add_schema_episode(self, episode, context, *, metadata):
+25 |           self.calls.append((episode, context, metadata))
+26 | /         type_result = lambda **values: SimpleNamespace(
+27 | |             model_dump=lambda **_kwargs: values,
+28 | |             **values,
+29 | |         )
+   | |_________^
+30 |           return SimpleNamespace(
+31 |               add_record_id="add-record-1",
+   |
+help: Rewrite `type_result` as a `def`
+
+E501 Line too long (105 > 100)
+   --> tests/homemaster/experience/test_finalizer.py:102:101
+    |
+102 | def test_finalizer_rejects_memory_implementation_without_schema_episode_contract(tmp_path: Path) -> None:
+    |                                                                                                     ^^^^^
+103 |     with pytest.raises(TypeError, match="add_schema_episode"):
+104 |         SessionFinalizer(
+    |
+
+E501 Line too long (102 > 100)
+   --> tests/homemaster/experience/test_finalizer.py:206:101
+    |
+205 | @pytest.mark.asyncio
+206 | async def test_finalizer_submits_normalized_episode_without_internal_metadata(tmp_path: Path) -> None:
+    |                                                                                                     ^^
+207 |     trace = tmp_path / "runtime_events.jsonl"
+208 |     _write_semantic_events(trace)
+    |
+
+E501 Line too long (107 > 100)
+  --> tests/homemaster/memory/test_automatic_recall_integration.py:65:101
+   |
+63 |             assert fact_ids
+64 |
+65 |             experience_text = f"Complete validation task {nonce}: find medicine and place it on the table."
+   |                                                                                                     ^^^^^^^
+66 |             episode = {
+67 |                 "schema_version": "homemaster.schema_episode.v1",
+   |
+
+E501 Line too long (109 > 100)
+   --> tests/homemaster/web/test_serve.py:322:101
+    |
+321 |     monkeypatch.setattr(serve, "load_config", lambda *, config_path: config)
+322 |     monkeypatch.setattr(serve, "create_home_application", lambda **kwargs: captured.update(kwargs) or bundle)
+    |                                                                                                     ^^^^^^^^^
+323 |     monkeypatch.setattr(serve, "create_alfworld_gateway_binding", fake_binding, raising=False)
+324 |     monkeypatch.setattr(serve, "create_web_app", lambda **_kwargs: expected_app)
+    |
+
+Found 19 errors.
+[*] 5 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).
+
+EXIT_CODE=1

@@ -1,4 +1,4 @@
-"""Outer Home CLI composition for the V1.9 application runtime."""
+"""Public application composition for the HomeMaster runtime."""
 
 from __future__ import annotations
 
@@ -88,6 +88,35 @@ class HomeApplicationBundle:
     session_finalization: SessionFinalizationController | None = None
 
 
+@dataclass(frozen=True)
+class ApplicationCompositionRequest:
+    """Inputs needed to assemble one application instance.
+
+    The optional keyword form remains accepted by ``compose_application`` while
+    existing entry adapters migrate to this request object.
+    """
+
+    config: HomeMasterConfig | None = None
+    profile: Literal["local_robot", "browser", "alfworld"] = "local_robot"
+    runtime_root: Path | None = None
+    session_root: Path | None = None
+    world_path: Path | None = None
+    memory_path: Path | None = None
+    memory_tenant_id: str = "local"
+    event_sink: Any | None = None
+    mcp_connector: Connector | None = None
+    permission_mode: PermissionMode | None = None
+    confirmation_handler: Any | None = None
+    publish_artifacts: bool = False
+    run_label: str | None = None
+    progress: bool = False
+    verbose: bool = False
+    quiet: bool = False
+    console_show_replies: bool = True
+    feishu_group_operations: FeishuGroupOperations | None = None
+    session_finalizer_trace_path: Path | None = None
+
+
 class HomeCliBackend:
     """Borrowed Home backend, including the current desktop screenshot source."""
 
@@ -128,7 +157,8 @@ class HomeCliBackend:
         return output.getvalue()
 
 
-def create_home_application(
+def compose_application(
+    request: ApplicationCompositionRequest | None = None,
     *,
     config: HomeMasterConfig | None = None,
     world_path: Path | None = None,
@@ -153,6 +183,27 @@ def create_home_application(
     publish_artifacts: bool = False,
 ) -> HomeApplicationBundle:
     """Compose one Home application without opening provider connections."""
+
+    if request is not None:
+        config = request.config
+        world_path = request.world_path
+        memory_path = request.memory_path
+        run_label = request.run_label
+        progress = request.progress
+        verbose = request.verbose
+        quiet = request.quiet
+        console_show_replies = request.console_show_replies
+        mcp_connector = request.mcp_connector
+        event_sink = request.event_sink
+        feishu_group_operations = request.feishu_group_operations
+        tool_environment = request.profile
+        runtime_root = request.runtime_root
+        session_root = request.session_root
+        memory_tenant_id = request.memory_tenant_id
+        session_finalizer_trace_path = request.session_finalizer_trace_path
+        permission_mode = request.permission_mode
+        confirmation_handler = request.confirmation_handler
+        publish_artifacts = request.publish_artifacts
 
     resolved = config or load_config()
     effective_tool_environment = _resolve_tool_environment(resolved, tool_environment)
@@ -706,8 +757,9 @@ def load_home_skills(
 
 
 __all__ = [
+    "ApplicationCompositionRequest",
     "HomeApplicationBundle",
     "HomeCliBackend",
-    "create_home_application",
+    "compose_application",
     "load_home_skills",
 ]

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from homemaster.application import RunPolicy, RunRequest, RunStatus
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import load_config
 from homemaster.experience import DreamingCoordinator, DreamingStateStore
 from homemaster.memory.models import FactRecord
@@ -44,7 +44,7 @@ def live_config(tmp_path: Path):
 async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> None:
     nonce = "v27-stored-first-" + uuid.uuid4().hex[:10]
     content = f"Project {nonce} uses the uv package manager."
-    bundle = create_home_application(
+    bundle = compose_application(
         config=live_config,
         run_label=nonce,
         progress=False,
@@ -147,7 +147,7 @@ async def test_real_stored_first_add_enriches_same_memory_id(live_config) -> Non
 @pytest.mark.asyncio
 async def test_real_structured_update_and_history_reach_qdrant_and_neo4j(live_config) -> None:
     nonce = "v26-direct-update-" + uuid.uuid4().hex[:10]
-    bundle = create_home_application(
+    bundle = compose_application(
         config=live_config,
         run_label=nonce,
         progress=False,
@@ -241,7 +241,7 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
     live_config,
 ) -> None:
     nonce = "v26-explicit-" + uuid.uuid4().hex[:10]
-    bundle = create_home_application(
+    bundle = compose_application(
         config=live_config,
         run_label=nonce,
         progress=False,
@@ -365,7 +365,7 @@ async def test_real_application_explicit_feedback_updates_only_recalled_memory(
 @pytest.mark.asyncio
 async def test_real_dreaming_no_action_consumes_verified_batch(live_config) -> None:
     nonce = "v26-dreaming-" + uuid.uuid4().hex[:10]
-    bundle = create_home_application(
+    bundle = compose_application(
         config=live_config,
         run_label=nonce,
         progress=False,

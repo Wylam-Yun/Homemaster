@@ -92,7 +92,7 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
     monkeypatch.setattr(composition, "MemoryAddQueue", FakeMemoryAddQueue)
-    bundle = composition.create_home_application(config=_config(tmp_path), run_label="managed")
+    bundle = composition.compose_application(config=_config(tmp_path), run_label="managed")
 
     assert "managed_neo4j" in bundle.application.settings.application_services
     await bundle.application.start()
@@ -149,7 +149,7 @@ async def test_session_finalization_drains_before_memory_resources_close(
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
     monkeypatch.setattr(composition, "SessionFinalizer", FakeSessionFinalizer)
-    bundle = composition.create_home_application(
+    bundle = composition.compose_application(
         config=_config(tmp_path),
         run_label="session-finalization-order",
         memory_tenant_id="benchmark-tenant",
@@ -199,7 +199,7 @@ async def test_managed_neo4j_start_failure_prevents_mindmemos_start(
 
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FailingManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
-    bundle = composition.create_home_application(config=_config(tmp_path), run_label="managed-fail")
+    bundle = composition.compose_application(config=_config(tmp_path), run_label="managed-fail")
 
     with pytest.raises(RuntimeError, match="managed Neo4j unavailable"):
         await bundle.application.start()
@@ -238,7 +238,7 @@ async def test_managed_mode_rejects_unavailable_mindmemos_before_first_run(
 
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", UnavailableMindMemOS)
-    bundle = composition.create_home_application(
+    bundle = composition.compose_application(
         config=_config(tmp_path), run_label="mindmemos-fail"
     )
 

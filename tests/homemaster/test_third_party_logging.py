@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import structlog
 
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
 
@@ -127,7 +127,7 @@ async def test_home_application_owns_third_party_capture_lifecycle(
     )
     logger = logging.getLogger("neo4j.notifications")
     handlers_before = tuple(logger.handlers)
-    bundle = create_home_application(
+    bundle = compose_application(
         config=config,
         run_label="third-party-capture",
         tool_environment=None,

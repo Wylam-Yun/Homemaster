@@ -11,7 +11,7 @@ import typer
 
 from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunStatus
-from homemaster.cli.composition import HomeCliBackend, create_home_application
+from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.cli.confirmation import CliConfirmationHandler, CliPermissionMode
 from homemaster.cli.doctor import render_doctor_text, run_doctor
 from homemaster.skills.commands import resolve_skill_command
@@ -40,7 +40,7 @@ def run_interactive_shell(
     confirmation_handler = (
         CliConfirmationHandler() if permission_mode is CliPermissionMode.CONFIRM else None
     )
-    bundle = create_home_application(
+    bundle = compose_application(
         run_label=f"shell-{new_session_id()}",
         progress=True,
         permission_mode=permission_mode.policy_mode,

@@ -1055,7 +1055,7 @@ async def test_gateway_cli_composes_one_handler_before_application_and_transport
     runtime = SimpleNamespace(aclose=AsyncMock(return_value=True))
     assembly = SimpleNamespace(runtime=runtime, channel=object())
 
-    def fake_create_home_application(**kwargs):
+    def fake_compose_application(**kwargs):
         captured["application_handler"] = kwargs["confirmation_handler"]
         return bundle
 
@@ -1071,7 +1071,7 @@ async def test_gateway_cli_composes_one_handler_before_application_and_transport
         "from_config",
         lambda config: api_service,
     )
-    monkeypatch.setattr(gateway_command, "create_home_application", fake_create_home_application)
+    monkeypatch.setattr(gateway_command, "compose_application", fake_compose_application)
     monkeypatch.setattr(gateway_command, "build_gateway_assembly", fake_build_gateway_assembly)
     monkeypatch.setattr(gateway_command, "_serve_until_shutdown", fake_serve)
     monkeypatch.setattr(gateway_command, "_install_shutdown_handlers", lambda *args: lambda: None)

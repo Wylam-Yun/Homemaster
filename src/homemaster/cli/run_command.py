@@ -12,7 +12,7 @@ import typer
 
 from homemaster.agent.turn import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunResult
-from homemaster.cli.composition import HomeCliBackend, create_home_application
+from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.cli.live_output import StreamJsonEventSink, TextStreamEventSink
 from homemaster.cli.renderers import (
     OutputFormat,
@@ -74,7 +74,7 @@ def execute_one_shot(
         live_sink = StreamJsonEventSink(file=sys.stdout)
     projection = PublicEventProjection()
     try:
-        bundle = create_home_application(
+        bundle = compose_application(
             config=config,
             world_path=world_path,
             memory_path=memory_path,

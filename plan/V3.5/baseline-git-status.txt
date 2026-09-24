@@ -1,0 +1,5 @@
+ M config/homemaster.example.yaml
+ M plan/V3.5/architecture-problems-and-target-design.md
+?? architecture/home-master-layer-map.md
+?? plan/V3.5/baseline-git-status.txt
+?? plan/V3.5/implementation-plan.md

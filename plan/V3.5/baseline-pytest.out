@@ -1,0 +1,288 @@
+
+==================================== ERRORS ====================================
+__ ERROR collecting tests/homemaster/application/test_application_runtime.py ___
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/application/test_application_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/application/test_application_runtime.py:81: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+_____ ERROR collecting tests/homemaster/application/test_runtime_stress.py _____
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/application/test_runtime_stress.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/application/test_runtime_stress.py:12: in <module>
+    from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+___ ERROR collecting tests/homemaster/application/test_thread_owned_sync.py ____
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/application/test_thread_owned_sync.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/application/test_thread_owned_sync.py:8: in <module>
+    from homemaster.adapters.thread_owned_sync import (
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+________ ERROR collecting tests/homemaster/tools/test_legacy_adapter.py ________
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_legacy_adapter.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_legacy_adapter.py:12: in <module>
+    from homemaster.adapters.thread_owned_sync import ThreadOwnedSyncBackendAdapter
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+__ ERROR collecting tests/homemaster/tools/test_v20_openharness_bash_tool.py ___
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_bash_tool.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_bash_tool.py:14: in <module>
+    from tests.homemaster.tools.universal_harness import execute, registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+__ ERROR collecting tests/homemaster/tools/test_v20_openharness_core_tools.py __
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_core_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_core_tools.py:12: in <module>
+    from tests.homemaster.tools.universal_harness import execute, registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+_ ERROR collecting tests/homemaster/tools/test_v20_openharness_default_tools.py _
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_default_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_default_tools.py:3: in <module>
+    from tests.homemaster.tools.universal_harness import registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+__ ERROR collecting tests/homemaster/tools/test_v20_openharness_file_tools.py __
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_file_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_file_tools.py:12: in <module>
+    from tests.homemaster.tools.universal_harness import execute, registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+_ ERROR collecting tests/homemaster/tools/test_v20_openharness_service_tools.py _
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_service_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_service_tools.py:20: in <module>
+    from tests.homemaster.tools.universal_harness import execute, registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+__ ERROR collecting tests/homemaster/tools/test_v20_openharness_web_tools.py ___
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/tools/test_v20_openharness_web_tools.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/tools/test_v20_openharness_web_tools.py:16: in <module>
+    from tests.homemaster.tools.universal_harness import execute, registry
+tests/homemaster/tools/universal_harness.py:7: in <module>
+    from homemaster.adapters import build_universal_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+____ ERROR collecting tests/homemaster/benchmarking/test_alfworld_entry.py _____
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/benchmarking/test_alfworld_entry.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/benchmarking/test_alfworld_entry.py:8: in <module>
+    from homemaster.adapters import alfworld_entry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+____ ERROR collecting tests/homemaster/benchmarking/test_alfworld_runner.py ____
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/benchmarking/test_alfworld_runner.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/benchmarking/test_alfworld_runner.py:22: in <module>
+    from homemaster.benchmarking.alfworld import runner as runner_module
+src/homemaster/benchmarking/alfworld/runner.py:11: in <module>
+    from homemaster.adapters.alfworld_entry import AlfworldApplicationEntry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+__ ERROR collecting tests/homemaster/benchmarking/test_alfworld_v18_guards.py __
+ImportError while importing test module '/Users/wylam/Documents/workspace/HomeMaster/tests/homemaster/benchmarking/test_alfworld_v18_guards.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/homemaster/benchmarking/test_alfworld_v18_guards.py:8: in <module>
+    from homemaster.adapters.profiles import build_tool_registry
+src/homemaster/adapters/__init__.py:3: in <module>
+    from homemaster.adapters.profiles import (
+src/homemaster/adapters/profiles.py:40: in <module>
+    from homemaster.tools.memory_tools import build_memory_tools
+src/homemaster/tools/memory_tools.py:32: in <module>
+    from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
+src/homemaster/memory/mindmemos_runtime.py:20: in <module>
+    from homemaster.events.third_party_logging import ThirdPartyLogCapture
+src/homemaster/events/third_party_logging.py:15: in <module>
+    import structlog
+E   ModuleNotFoundError: No module named 'structlog'
+=========================== short test summary info ============================
+ERROR tests/homemaster/application/test_application_runtime.py
+ERROR tests/homemaster/application/test_runtime_stress.py
+ERROR tests/homemaster/application/test_thread_owned_sync.py
+ERROR tests/homemaster/tools/test_legacy_adapter.py
+ERROR tests/homemaster/tools/test_v20_openharness_bash_tool.py
+ERROR tests/homemaster/tools/test_v20_openharness_core_tools.py
+ERROR tests/homemaster/tools/test_v20_openharness_default_tools.py
+ERROR tests/homemaster/tools/test_v20_openharness_file_tools.py
+ERROR tests/homemaster/tools/test_v20_openharness_service_tools.py
+ERROR tests/homemaster/tools/test_v20_openharness_web_tools.py
+ERROR tests/homemaster/benchmarking/test_alfworld_entry.py
+ERROR tests/homemaster/benchmarking/test_alfworld_runner.py
+ERROR tests/homemaster/benchmarking/test_alfworld_v18_guards.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 13 errors during collection !!!!!!!!!!!!!!!!!!!
+13 errors in 2.69s
+
+EXIT_CODE=2

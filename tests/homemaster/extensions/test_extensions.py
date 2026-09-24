@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import homemaster.cli.composition as composition
+import homemaster.application.composition as composition
 import homemaster.extensions.loader as extension_loader
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import (
     ExtensionApprovalConfig,
     ExtensionsConfig,
@@ -388,7 +388,7 @@ def build_extension(context):
         ),
     )
 
-    bundle = create_home_application(config=config, run_label="extension-composition")
+    bundle = compose_application(config=config, run_label="extension-composition")
     try:
         assert bundle.extension_runner is not None
         assert bundle.extension_reloader is not None
@@ -568,7 +568,7 @@ def build_extension(context):
         ),
     )
     with pytest.raises(ToolRegistryError, match="duplicate tool name 'observe'"):
-        create_home_application(config=collision_config, run_label="collision")
+        compose_application(config=collision_config, run_label="collision")
     assert cleaned_collision.read_text(encoding="utf-8") == "clean"
 
 
@@ -613,7 +613,7 @@ def build_extension(context):
 
     monkeypatch.setattr(composition, "load_home_skills", fail_skills)
     with pytest.raises(RuntimeError, match="skill build failed"):
-        create_home_application(config=config, run_label="composition-rollback")
+        compose_application(config=config, run_label="composition-rollback")
 
     assert cleaned.read_text(encoding="utf-8") == "clean"
 

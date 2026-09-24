@@ -132,7 +132,7 @@ def _install_shell(monkeypatch, tmp_path: Path):
         bundle.composition_kwargs = kwargs
         return bundle
 
-    monkeypatch.setattr(module, "create_home_application", create)
+    monkeypatch.setattr(module, "compose_application", create)
     monkeypatch.setattr(
         module,
         "run_doctor",

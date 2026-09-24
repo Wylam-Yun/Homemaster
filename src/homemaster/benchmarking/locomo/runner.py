@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from homemaster.application import RunPolicy, RunRequest, RunStatus
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.events.event_payloads import trace_event_payload
 from homemaster.experience import FinalizeResult
 from homemaster.tools.contracts import PermissionSubject
@@ -273,7 +273,7 @@ class LocomoBenchmarkRunner:
         finalization_records: list[dict[str, Any]] = []
         qa_records: list[dict[str, Any]] = []
         failure: str | None = None
-        bundle = create_home_application(
+        bundle = compose_application(
             config=self.config.home_config,
             run_label=run_id,
             quiet=True,

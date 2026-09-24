@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig, MemoryConfig
 from homemaster.memory.migration import (
     LEGACY_MIGRATION_SCHEMA,
@@ -277,7 +277,7 @@ async def test_application_start_migrates_before_opening_owned_stores(
             "observability": {"session_dir": str(tmp_path / "sessions")},
         }
     )
-    bundle = create_home_application(config=config, run_label="migration-entry")
+    bundle = compose_application(config=config, run_label="migration-entry")
 
     await bundle.application.start()
     try:

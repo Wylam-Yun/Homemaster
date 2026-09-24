@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig
 from homemaster.mcp.client import McpConnection
 from homemaster.tools.base import ToolRegistryError
@@ -106,7 +106,7 @@ async def test_start_connects_once_refreezes_home_without_gating_skills(tmp_path
             close,
         )
 
-    bundle = create_home_application(
+    bundle = compose_application(
         config=_config(tmp_path, explicit_skill=True),
         run_label="mcp-start",
         mcp_connector=connector,
@@ -164,7 +164,7 @@ async def test_alias_conflict_rolls_back_connected_manager_without_registry_muta
     payload = _config(tmp_path).model_dump(mode="python")
     payload["mcp"]["servers"] = {"demo": payload["mcp"]["servers"]["demo"]}
     config = HomeMasterConfig.model_validate(payload)
-    bundle = create_home_application(config=config, mcp_connector=connector)
+    bundle = compose_application(config=config, mcp_connector=connector)
     before = bundle.application.registry.list_tools()
 
     with pytest.raises(ToolRegistryError, match="duplicate tool name"):

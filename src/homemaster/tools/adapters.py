@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -46,26 +45,7 @@ def from_registered_tool(
     definition = registered.definition
 
     async def execute(arguments: dict[str, Any], context: ToolExecutionContext) -> Any:
-        executor = registered.executor
-        legacy = getattr(executor, "_executor", None)
-        run_context = context.metadata.get("run_context")
-        if callable(legacy) and run_context is not None:
-            thread_adapter = run_context.deps.get("sync_backend_adapter")
-            if thread_adapter is None:
-                value = await asyncio.to_thread(
-                    legacy,
-                    arguments=dict(arguments),
-                    run_context=run_context,
-                )
-            else:
-                value = await thread_adapter.run(
-                    legacy,
-                    arguments=dict(arguments),
-                    run_context=run_context,
-                )
-            value = await value if inspect.isawaitable(value) else value
-        else:
-            value = await executor.execute(arguments, context)
+        value = await registered.executor.execute(arguments, context)
         if registered.verifier is not None and _verifier_applies(registered, value):
             value = await _verify_registered_tool(registered, value, context)
         return normalize_tool_result(value)
@@ -185,59 +165,4 @@ async def _verify_registered_tool(
     return replace(result, verification=verification)
 
 
-def from_tool_spec(
-    spec: Any,
-    *,
-    physical: bool = False,
-    physical_adapter: PhysicalDeviceAdapter | None = None,
-) -> FunctionTool:
-    """Adapt a ToolSpec directly to the universal Registry."""
-
-    if not callable(spec.executor):
-        raise ValueError(f"tool {spec.name!r} has no executor")
-    if physical and physical_adapter is None:
-        raise ValueError(
-            "physical tool spec declares no physical_adapter; "
-            "refusing to adapt it as an ordinary tool"
-        )
-    if physical_adapter is not None and not physical:
-        raise ValueError(
-            "physical_adapter without physical=True; "
-            "declare the spec as physical explicitly"
-        )
-
-    async def execute(arguments: dict[str, Any], context: ToolExecutionContext) -> Any:
-        run_context = context.metadata.get("run_context")
-        if run_context is None:
-            return {
-                "error": "unsupported_capability",
-                "detail": "tool invocation has no connected runtime backend",
-            }
-        thread_adapter = run_context.deps.get("sync_backend_adapter")
-        if thread_adapter is None:
-            value = await asyncio.to_thread(
-                spec.executor,
-                arguments=dict(arguments),
-                run_context=run_context,
-            )
-        else:
-            value = await thread_adapter.run(
-                spec.executor,
-                arguments=dict(arguments),
-                run_context=run_context,
-            )
-        return await value if inspect.isawaitable(value) else value
-
-    effects = tuple(getattr(spec, "state_effects", ()))
-    return FunctionTool(
-        name=spec.name,
-        description=spec.description,
-        input_schema=spec.input_schema,
-        execute=execute,
-        read_only=not any(effect not in {"none", "read", "read_only"} for effect in effects),
-        physical=physical,
-        physical_adapter=physical_adapter,
-    )
-
-
-__all__ = ["from_registered_tool", "from_tool_spec"]
+__all__ = ["from_registered_tool"]

@@ -12,7 +12,7 @@ from typing import Literal
 import uvicorn
 from fastapi import FastAPI
 
-from homemaster.cli.composition import create_home_application
+from homemaster.application.composition import compose_application
 from homemaster.config import load_config
 from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
@@ -80,7 +80,7 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
     confirmation_handler = WebConfirmationHandler()
     config = load_config(config_path=config_path) if config_path is not None else load_config()
     config = config.model_copy(update={"runtime": config.runtime.model_copy(update={"max_tool_iterations": 100, "max_consecutive_tool_errors": 0})})
-    bundle = create_home_application(
+    bundle = compose_application(
         config=config,
         progress=False,
         quiet=True,
@@ -112,7 +112,7 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console with the same browser execution profile as other channels."""
 
     confirmation_handler = WebConfirmationHandler()
-    bundle = create_home_application(
+    bundle = compose_application(
         config=load_config(config_path=config_path),
         progress=False,
         quiet=True,
@@ -145,7 +145,7 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console around the existing fixed-episode ALFWorld adapter."""
 
     confirmation_handler = WebConfirmationHandler()
-    bundle = create_home_application(
+    bundle = compose_application(
         config=load_config(config_path=config_path) if config_path is not None else None,
         progress=False,
         quiet=True,
