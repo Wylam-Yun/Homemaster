@@ -592,6 +592,12 @@ class _BlockingTaskStateExecutor:
         self.release = threading.Event()
         self.terminal_path = terminal_path
 
+    def _finish(self, run_context) -> None:
+        store = run_context.deps["task_state_store"]
+        self.release.wait(5)
+        self.terminal_path.write_text("late-mutation-finished", encoding="utf-8")
+        store.mark_completed(final_summary="late")
+
     async def execute(self, arguments, context) -> ToolExecutionResult:
         del arguments
         run_context = context.metadata["run_context"]
@@ -601,9 +607,8 @@ class _BlockingTaskStateExecutor:
             subtasks=[{"id": "a", "description": "A"}],
         )
         self.entered.set()
-        await asyncio.to_thread(self.release.wait, 5)
-        self.terminal_path.write_text("late-mutation-finished", encoding="utf-8")
-        store.mark_completed(final_summary="late")
+        task = asyncio.create_task(asyncio.to_thread(self._finish, run_context))
+        await asyncio.shield(task)
         return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
 
 

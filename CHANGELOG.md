@@ -47,6 +47,7 @@
 - Hard-cut the runtime to `AlfredThorEnv` and `robot_go_to`, removed the legacy `ToolSpec`/adapter modules and universal-registry compatibility builder, and updated production/test surfaces to the canonical names.
 - Fixed canonical task-state result projection to preserve the domain task status and made canonical domain/ALFWorld executors read the application-owned `run_context` at the context boundary.
 - Kept the cancellation regression test genuinely asynchronous by moving its deliberately blocking wait to a worker thread.
+- Made the cancellation fixture retain its post-cancel backend mutation, so the test checks both immediate unknown outcome and later external state completion.
 
 ### Changed
 
