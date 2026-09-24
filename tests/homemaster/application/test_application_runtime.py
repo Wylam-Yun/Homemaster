@@ -601,7 +601,7 @@ class _BlockingTaskStateExecutor:
             subtasks=[{"id": "a", "description": "A"}],
         )
         self.entered.set()
-        self.release.wait(5)
+        await asyncio.to_thread(self.release.wait, 5)
         self.terminal_path.write_text("late-mutation-finished", encoding="utf-8")
         store.mark_completed(final_summary="late")
         return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS)
