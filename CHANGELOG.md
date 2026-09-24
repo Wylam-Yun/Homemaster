@@ -43,6 +43,7 @@
 - Moved Home and task-state tool factories to direct `RegisteredTool` values with async canonical executors and typed `ToolExecutionResult` outcomes.
 - Migrated ALFWorld robot tool registrations to the same canonical contract and removed the synchronous executor fallback and `from_tool_spec` path.
 - Renamed the Home navigation factory to `make_robot_go_to` and added interface audits covering all formal tool factories.
+- Added the versioned `homemaster-alfworld-v1` NDJSON worker schema and isolated stdlib worker package; the launcher no longer injects the main runtime's editable site-packages into the ALFWorld process.
 
 ### Changed
 

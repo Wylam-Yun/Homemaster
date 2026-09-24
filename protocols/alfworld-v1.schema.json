@@ -1,0 +1,14 @@
+{
+  "$id": "homemaster-alfworld-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HomeMaster isolated ALFWorld worker request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "request_id", "operation", "payload"],
+  "properties": {
+    "protocol": {"const": "homemaster-alfworld-v1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "operation": {"enum": ["reset", "observe", "act", "close"]},
+    "payload": {"type": "object"}
+  }
+}
