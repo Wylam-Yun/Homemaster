@@ -1,0 +1,198 @@
+{
+  "checks": [
+    {
+      "details": {
+        "executable": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/venv/bin/python"
+      },
+      "impact": null,
+      "message": "python=/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/venv/bin/python",
+      "name": "python_environment",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:homemaster",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:pydantic",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:httpx",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:typer",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:jieba",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:mindmemos",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:fastembed",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "import ok",
+      "name": "import:qdrant_client",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "marker": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/doctor/mindmemos/blackbox.json",
+        "origin": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/venv/lib/python3.11/site-packages/mindmemos/__init__.py"
+      },
+      "impact": null,
+      "message": "MindMemOS import and runtime-root read/write blackbox passed",
+      "name": "mindmemos_runtime",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "binding": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/alfworld-binding.json",
+        "python": "/data0/yuqiao/envs/hm_alfworld/bin/python3.11",
+        "root": "/data1/haodong2/weilin/red_bird/alfworld"
+      },
+      "impact": null,
+      "message": "ALFWorld worker imports and asset binding passed",
+      "name": "alfworld_binding",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {},
+      "impact": null,
+      "message": "isolated worker ready/close protocol and process cleanup passed",
+      "name": "alfworld_worker_ipc",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "chat_provider": {
+          "api_format": "anthropic",
+          "api_key_count": 1,
+          "api_keys_configured": true,
+          "auth_type": "auth_token",
+          "base_url": "https://token-plan-cn.xiaomimimo.com/anthropic",
+          "context_window_tokens": 1000000,
+          "embedding_url": null,
+          "kind": "chat",
+          "max_output_tokens": null,
+          "model": "mimo-v2.5",
+          "name": "Mimo",
+          "transport": "anthropic_sdk"
+        },
+        "config_source": "config/homemaster.yaml",
+        "embedding_provider": {
+          "api_format": "openai",
+          "api_key_count": 1,
+          "api_keys_configured": true,
+          "auth_type": "api_key",
+          "base_url": "https://api.siliconflow.cn/v1",
+          "context_window_tokens": 8192,
+          "embedding_url": "https://api.siliconflow.cn/v1/embeddings",
+          "kind": "embedding",
+          "max_output_tokens": null,
+          "model": "Qwen/Qwen3-Embedding-8B",
+          "name": "MemoryEmbedding",
+          "transport": "openai_sdk"
+        },
+        "field_sources": {
+          "chat_auth": "file",
+          "chat_model": "file",
+          "default_provider": "file",
+          "embedding_auth": "file",
+          "embedding_model": "file"
+        }
+      },
+      "impact": null,
+      "message": "provider config loaded",
+      "name": "config_source",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "endpoint": "https://api.siliconflow.cn/v1/embeddings",
+        "model": "Qwen/Qwen3-Embedding-8B",
+        "provider_name": "MemoryEmbedding"
+      },
+      "impact": null,
+      "message": "embedding endpoint=https://api.siliconflow.cn/v1/embeddings",
+      "name": "embedding_endpoint",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "data_root": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/memory",
+        "embedding_provider_name": "MemoryEmbedding",
+        "enabled": true,
+        "java_home": "/data1/haodong2/.local/share/homemaster/java",
+        "neo4j_database": "neo4j",
+        "neo4j_home": "/data1/haodong2/.local/share/homemaster/neo4j",
+        "neo4j_mode": "managed_local",
+        "neo4j_uri": "bolt://127.0.0.1:7687",
+        "neo4j_username": "neo4j",
+        "probe": "not_opened",
+        "qdrant_path": "/data1/haodong2/weilin/red_bird/Homemaster-v35/.runtime/memory/mindmemos/qdrant"
+      },
+      "impact": null,
+      "message": "memory configuration and migration state are ready; backend was not opened",
+      "name": "memory_backend",
+      "status": "PASS",
+      "suggestion": null
+    },
+    {
+      "details": {
+        "missed": []
+      },
+      "impact": null,
+      "message": "runtime/debug paths are ignored",
+      "name": "ignored_runtime_paths",
+      "status": "PASS",
+      "suggestion": null
+    }
+  ],
+  "config_source": "config/homemaster.yaml",
+  "live": false
+}

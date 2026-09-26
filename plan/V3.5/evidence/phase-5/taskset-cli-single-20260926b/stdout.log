@@ -1,0 +1,9 @@
+run_id: v35-cli-taskset-single-20260926b
+tasksets: 1
+agent_scored_tasksets: 1
+agent_success_rate_on_valid: 0.000
+harness_invalid_tasksets: 0
+harness_valid_coverage: 1.000
+formal_score_available: true
+not_run_subtasks: 0
+  [easy] formal_alarmclock_desklamp_323 (FloorPlan323): chain_success=False subtask_success_rate=0.000 chain_completed=0/1

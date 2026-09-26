@@ -55,6 +55,6 @@ async def test_explicit_screenshot_is_image_only_and_creates_no_action_debt() ->
     assert backend.state_sequence == 0
     assert backend.event_sequence == 0
     assert result.text == ""
-    assert len(result.data["images"]) == 1
-    assert result.data["images"][0]["media_type"] == "image/png"
+    assert len(result.images) == 1
+    assert result.images[0].media_type == "image/png"
     assert action.name == "robot_go_to"

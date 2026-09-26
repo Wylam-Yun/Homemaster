@@ -1,0 +1,30 @@
+{
+  "schema": "homemaster-v35-setup-gates-v1",
+  "host": "hkust4",
+  "setup_alfworld": {
+    "status": "PASS",
+    "command": "scripts/setup-alfworld.sh --root /home/haodong2/weilin/red_bird/alfworld --python /data0/yuqiao/envs/hm_alfworld/bin/python",
+    "binding_schema": "homemaster-alfworld-binding-v1",
+    "python": "/data0/yuqiao/envs/hm_alfworld/bin/python3.11",
+    "root": "/data1/haodong2/weilin/red_bird/alfworld",
+    "data_root": "/data1/haodong2/weilin/red_bird/alfworld/data",
+    "requirements": "config/alfworld/requirements.lock"
+  },
+  "setup": {
+    "status": "PASS",
+    "command": "./scripts/setup.sh",
+    "uv": "0.11.19",
+    "return_code": 0,
+    "runtime_python": ".runtime/venv/bin/python",
+    "imports": ["homemaster", "mindmemos"],
+    "doctor": {
+      "status": "ready",
+      "checks": 16,
+      "failed": 0,
+      "mindmemos_runtime": "PASS",
+      "alfworld_binding": "PASS",
+      "alfworld_worker_ipc": "PASS",
+      "ignored_runtime_paths": "PASS"
+    }
+  }
+}

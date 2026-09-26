@@ -5,15 +5,14 @@ from typing import Any
 
 import pytest
 
-from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
-from homemaster.benchmarking.alfworld.execution import (
+from homemaster.alfworld.benchmark.adapter import AlfworldEnvAdapter
+from homemaster.alfworld.benchmark.scene_execution import (
     AgentPose,
     ExecutionBackend,
     ExecutionBudget,
     ExternalActionResult,
     ExternalRead,
     ManipulationExecutor,
-    ManipulationRouter,
     PoseContext,
     PutExecutionRequest,
     SceneObjectIndex,
@@ -599,42 +598,3 @@ def test_put_budget_stops_without_an_n_plus_one_backend_request(
     assert result.put_attempt_count == 1
     assert result.pose_candidates_attempted == 1
     assert backend.calls == [("put", PENCIL_ID, SHELF_ID)]
-
-
-class PutExecutorSpy:
-    def __init__(self) -> None:
-        self.requests: list[Any] = []
-
-    def execute_put(self, request: Any) -> object:
-        self.requests.append(request)
-        return object()
-
-
-class LegacyExecutorSpy:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.result = object()
-
-    def execute(self, *, action: str, arguments: dict[str, Any]) -> object:
-        self.calls.append((action, arguments))
-        return self.result
-
-
-@pytest.mark.parametrize(
-    "action",
-    ["take", "open", "close", "use", "heat", "cool", "clean", "slice"],
-)
-def test_legacy_actions_do_not_enter_the_put_executor(action: str) -> None:
-    put_executor = PutExecutorSpy()
-    legacy_executor = LegacyExecutorSpy()
-    router = ManipulationRouter(
-        put_executor=put_executor,
-        legacy_executor=legacy_executor,
-    )
-    arguments = {"object": "mug 1"}
-
-    result = router.execute(action=action, arguments=arguments)
-
-    assert result is legacy_executor.result
-    assert legacy_executor.calls == [(action, arguments)]
-    assert put_executor.requests == []

@@ -19,8 +19,8 @@ from homemaster.permissions.models import (
     ResourceKey,
 )
 from homemaster.permissions.store import PermissionStore
-from homemaster.tools import ToolExecutionContext
 from homemaster.tools.contracts import PermissionSubject
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 class _EventSink:

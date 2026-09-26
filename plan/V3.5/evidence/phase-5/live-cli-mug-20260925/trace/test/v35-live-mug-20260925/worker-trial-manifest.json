@@ -1,0 +1,13 @@
+{
+  "schema_version": "alfworld-trial-selection-v1",
+  "entries": [
+    {
+      "trial_id": "valid_unseen/pick_and_place_simple-Mug-None-Desk-308/trial_T20190908_125200_737896/traj_data.json",
+      "trial_sha256": "29704e481ddd849c6ed6a0a6227914f5a808cf278fbfd903817ac77a12f2702c",
+      "expected_logical_scene": "FloorPlan308",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Mug\",\"parent_target\":\"Desk\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+      "goal_fingerprint": "636983c9dcc99fcb7dc576e90c870b3cc33fd861efca70b09d843a05b47b7449",
+      "identity_status": "cli_formal"
+    }
+  ]
+}

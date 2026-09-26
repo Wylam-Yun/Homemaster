@@ -1,0 +1,15 @@
+{
+  "classification": "agent_model_failure",
+  "episode_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
+  "failure_reason": "max_consecutive_tool_errors",
+  "goal_condition_success_rate": 0.0,
+  "invalid_actions": 0,
+  "outcome": "failure",
+  "run_id": "v35-live-remotecontrol-20260925d-0001",
+  "runtime_status": "failed",
+  "score_eligible": true,
+  "source_trace_sha256": "61680aa22942172406e529505602556b5c64bb7d12b173451b521fd2bab52be1",
+  "steps": 2,
+  "success": false,
+  "trajectory_id": "aa6e89bc-326a-5bef-8793-958e3bce720a"
+}

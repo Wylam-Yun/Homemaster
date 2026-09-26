@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from homemaster.benchmarking.alfworld.env_adapter import _AdapterOracleBackend
-from homemaster.benchmarking.alfworld.gateway import OracleExecutionBackend
-from homemaster.benchmarking.alfworld.pose_snapshot import (
+from homemaster.alfworld.benchmark.adapter import _AdapterOracleBackend
+from homemaster.alfworld.gateway import OracleExecutionBackend
+from homemaster.alfworld.pose_snapshot import (
     FrozenOraclePoseStore,
     OraclePoseStore,
 )

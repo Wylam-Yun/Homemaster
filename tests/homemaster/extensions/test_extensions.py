@@ -32,7 +32,7 @@ from homemaster.extensions import (
     register_extension_tools_atomically,
 )
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
-from homemaster.tools import ToolExecutionContext, ToolRegistry
+from homemaster.tools import ToolRegistry
 from homemaster.tools.base import ToolRegistryError
 from homemaster.tools.contracts import (
     ExecutionBackend,
@@ -41,6 +41,7 @@ from homemaster.tools.contracts import (
     ToolProvenance,
     VerificationPolicy,
 )
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 def _write_extension(

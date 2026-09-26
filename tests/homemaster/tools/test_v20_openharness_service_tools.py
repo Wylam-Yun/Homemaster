@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import os
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
 from homemaster.config import HomeMasterConfig, load_config
@@ -122,8 +124,13 @@ async def test_image_tools_use_configured_provider_boundary_and_publish_verified
     from homemaster.tools.image_generation import ImageGenerationTool
     from homemaster.tools.image_to_text import ImageToTextTool
 
-    source_bytes = b"\x89PNG\r\n\x1a\nsource"
-    generated_bytes = b"\x89PNG\r\n\x1a\ngenerated"
+    def png_bytes(color: tuple[int, int, int]) -> bytes:
+        output = io.BytesIO()
+        Image.new("RGB", (2, 2), color).save(output, format="PNG")
+        return output.getvalue()
+
+    source_bytes = png_bytes((1, 2, 3))
+    generated_bytes = png_bytes((4, 5, 6))
     source = tmp_path / "source.png"
     source.write_bytes(source_bytes)
     seen: dict[str, object] = {}
@@ -539,7 +546,7 @@ async def test_task_tools_observe_output_metadata_and_real_process_stop(tmp_path
             {"task_id": running_id},
         )
         assert stopped.status is ToolExecutionStatus.SUCCESS
-        assert stopped.data["domain_status"] == "killed"
+        assert stopped.data["status"] == "killed"
         for stopped_pid in (pid, child_pid):
             with pytest.raises(ProcessLookupError):
                 os.kill(stopped_pid, 0)

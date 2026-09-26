@@ -1096,7 +1096,7 @@ class EmbeddedMindMemOS:
     ) -> dict[str, object]:
         """Persist one validated ALFWorld trajectory as an immutable source memory."""
 
-        from homemaster.benchmarking.alfworld.trajectory_memory import (
+        from homemaster.alfworld.trajectory_memory import (
             AlfworldTrajectoryRecord,
         )
 

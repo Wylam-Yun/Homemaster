@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from homemaster.agent.normalized import RunContext
-from homemaster.benchmarking.alfworld.tools import (
+from homemaster.alfworld.benchmark.translator import create_translator
+from homemaster.alfworld.tools import (
     _write_trace,
     make_alfworld_robot_go_to,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_verify,
 )
-from homemaster.benchmarking.alfworld.translator import create_translator
-from homemaster.benchmarking.alfworld.types import (
+from homemaster.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
     AlfworldStepResult,
     make_execution_feedback,
 )
-from homemaster.tools.contracts import ToolExecutionContext
+from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
 
 
 class FakeAdapter:
@@ -179,7 +179,20 @@ def _payload(result: Any) -> dict[str, Any]:
 
 
 def _execute(tool: Any, arguments: dict[str, Any], run_context: RunContext) -> Any:
-    context = ToolExecutionContext(Path("/tmp"), metadata={"run_context": run_context})
+    context = ToolExecutionContext(
+        session_id=run_context.session_id,
+        run_id=run_context.run_id,
+        turn_index=run_context.turn_index,
+        tool_call_id="tool-call-1",
+        internal_tool_id=str(tool.definition.internal_id),
+        permission_subject=PermissionSubject(subject_id="test", channel="test"),
+        backend=run_context.deps.get("alfworld_env"),
+        deadline=None,
+        cancellation=None,
+        domain_observer=None,
+        working_directory=Path("/tmp"),
+        services={"run_context": run_context},
+    )
     return asyncio.run(tool.executor.execute(arguments, context))
 
 
@@ -196,14 +209,18 @@ def test_go_to_uses_the_thor_oracle_adapter_boundary() -> None:
 
 def test_thor_go_to_uses_oracle_adapter_boundary() -> None:
     adapter = FakeAdapter()
-    result = _execute(make_alfworld_robot_go_to(), {"target": "remote control"}, _context(adapter, env_type="AlfredThorEnv"))
+    result = _execute(
+        make_alfworld_robot_go_to(),
+        {"target": "remote control"},
+        _context(adapter, env_type="AlfredThorEnv"),
+    )
 
     assert result.is_error is False
     assert adapter.commands == []
     assert adapter.go_to_calls == ["remotecontrol 1"]
     assert _payload(result)["target"] == "remotecontrol 1"
     assert _payload(result)["target_state"] == "visible"
-    assert result.data["backend_attempted"] is True
+    assert result.backend_attempted is True
     assert "backend_attempted" not in _payload(result)
 
 
@@ -219,7 +236,7 @@ def test_typed_payload_is_the_only_model_projection() -> None:
     assert payload == {
         key: value for key, value in result.data.items() if key != "backend_attempted"
     }
-    assert result.data["backend_attempted"] is True
+    assert result.backend_attempted is True
     encoded = json.dumps(payload, sort_keys=True)
     for forbidden in (
         "tool_args",
@@ -234,23 +251,33 @@ def test_typed_payload_is_the_only_model_projection() -> None:
 
 def test_validation_failure_uses_closed_typed_error_and_does_not_step() -> None:
     adapter = FakeAdapter()
-    result = _execute(make_alfworld_robot_manipulate(), {"action": "take", "object": "apple 1"}, _context(adapter))
+    result = _execute(
+        make_alfworld_robot_manipulate(),
+        {"action": "take", "object": "apple 1"},
+        _context(adapter),
+    )
 
     assert adapter.commands == []
-    assert _payload(result)["error"] == "invalid_tool_arguments"
-    assert _payload(result)["terminal"] is False
+    assert result.status is ToolExecutionStatus.INVALID
+    assert result.error is not None
+    assert result.error.code == "invalid_tool_arguments"
+    assert result.backend_attempted is False
 
 
 def test_thor_manipulation_forwards_exact_typed_feedback() -> None:
     adapter = FakeAdapter()
-    result = _execute(make_alfworld_robot_manipulate(), {"action": "take", "object": "remote control"}, _context(adapter, env_type="AlfredThorEnv"))
+    result = _execute(
+        make_alfworld_robot_manipulate(),
+        {"action": "take", "object": "remote control"},
+        _context(adapter, env_type="AlfredThorEnv"),
+    )
 
     assert adapter.manipulation_calls == ["take"]
     payload = _payload(result)
     assert payload["action"] == "take"
     assert payload["object"] == "remotecontrol 1"
     assert payload["object_state"] == "held"
-    assert payload["inventory"] == ["remotecontrol 1"]
+    assert payload["inventory"] == ("remotecontrol 1",)
 
 
 def test_verify_uses_typed_nonterminal_result_until_environment_wins() -> None:
@@ -259,7 +286,8 @@ def test_verify_uses_typed_nonterminal_result_until_environment_wins() -> None:
 
     pending = _execute(spec, {}, _context(adapter))
     assert _payload(pending)["error"] == "action_not_applicable"
-    assert pending.is_error is False
+    assert pending.status is ToolExecutionStatus.FAILURE
+    assert pending.error is not None
 
     adapter.state = AlfworldEnvState(**{**adapter.state.__dict__, "won": True, "done": True})
     completed = _execute(spec, {}, _context(adapter))

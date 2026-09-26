@@ -5,18 +5,18 @@ from typing import Any
 
 import pytest
 
-from homemaster.benchmarking.alfworld.execution import (
+from homemaster.alfworld.benchmark.scene_execution import (
     OracleExecutionContext,
     OracleManipulationExecutor,
     SceneObjectIndex,
 )
-from homemaster.benchmarking.alfworld.gateway import (
+from homemaster.alfworld.gateway import (
     ExternalActionRequest,
     ExternalEventRead,
     GatewayActionResult,
 )
-from homemaster.benchmarking.alfworld.object_view import CurrentObjectView
-from homemaster.benchmarking.alfworld.pose_snapshot import OraclePose
+from homemaster.alfworld.object_view import CurrentObjectView
+from homemaster.alfworld.pose_snapshot import OraclePose
 
 DRAWER = "Drawer|+00.00|+00.50|+00.00"
 PENCIL = "Pencil|+00.10|+00.80|+00.10"

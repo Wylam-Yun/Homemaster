@@ -319,6 +319,33 @@ class ToolExecutionContext:
             raise TypeError("services must be a mapping")
         object.__setattr__(self, "services", MappingProxyType(dict(self.services)))
 
+    @property
+    def metadata(self) -> Mapping[str, object]:
+        """Read-only compatibility view for generic dispatch instrumentation."""
+
+        values = dict(self.services)
+        values.update(
+            {
+                "session_id": self.session_id,
+                "run_id": self.run_id,
+                "turn_index": self.turn_index,
+                "tool_call_id": self.tool_call_id,
+                "internal_tool_id": self.internal_tool_id,
+                "permission_subject": self.permission_subject,
+                "backend": self.backend,
+                "deadline": self.deadline,
+                "cancellation": self.cancellation,
+                "domain_observer": self.domain_observer,
+            }
+        )
+        return MappingProxyType(values)
+
+    @property
+    def tool_registry(self) -> object | None:
+        """Return the run-scoped registry supplied by the composition layer."""
+
+        return self.services.get("tool_registry")
+
 
 @dataclass(frozen=True)
 class ToolExecutionError:
@@ -455,6 +482,7 @@ class ToolExecutionResult:
     verification: VerificationRecord = field(default_factory=VerificationRecord)
     terminal: TerminalInfo | None = None
     backend_attempted: bool = False
+    external_return_code: int | None = None
     model_projection: ResultProjection = ResultProjection.STANDARD
 
     def __post_init__(self) -> None:
@@ -476,6 +504,11 @@ class ToolExecutionResult:
             raise TypeError("retryable must be a boolean")
         if not isinstance(self.backend_attempted, bool):
             raise TypeError("backend_attempted must be a boolean")
+        if self.external_return_code is not None and (
+            isinstance(self.external_return_code, bool)
+            or not isinstance(self.external_return_code, int)
+        ):
+            raise TypeError("external_return_code must be an integer or None")
         object.__setattr__(self, "data", _freeze_json_object(self.data, "result data"))
         object.__setattr__(self, "images", tuple(self.images))
         object.__setattr__(self, "attachments", tuple(self.attachments))
@@ -571,6 +604,7 @@ class ToolExecutionResult:
             "verification": self.verification.to_dict(),
             "terminal": self.terminal.to_dict() if self.terminal is not None else None,
             "backend_attempted": self.backend_attempted,
+            "external_return_code": self.external_return_code,
             "model_projection": self.model_projection.value,
         }
 
@@ -601,6 +635,12 @@ class ToolExecutionResult:
         _require_nonempty(tool_call_id, label="tool call id")
         _require_nonempty(name, label="tool result name")
         payload = self.to_public_dict()
+        # Evidence refs identify internal ledger artifacts; keep them in the
+        # application trace/result data, never in provider-facing content.
+        payload.pop("evidence_refs", None)
+        verification = payload.get("verification")
+        if isinstance(verification, dict):
+            verification.pop("evidence_refs", None)
         if self.model_projection is ResultProjection.IMAGE_ONLY:
             image = self.images[0]
             return ToolResultMessage(

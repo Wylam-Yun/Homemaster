@@ -13,8 +13,8 @@ from homemaster.gateway.confirmation import (
     FeishuApprovalRoute,
     FeishuGatewayConfirmationHandler,
 )
-from homemaster.tools import ToolExecutionContext
 from homemaster.tools.contracts import PermissionSubject
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 async def _notify(request):

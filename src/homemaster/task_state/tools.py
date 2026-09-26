@@ -12,7 +12,6 @@ from homemaster.tools.contracts import (
     RegisteredTool,
     ToolDefinition,
     ToolExecutionContext,
-    ToolExecutionError,
     ToolExecutionResult,
     ToolExecutionStatus,
     ToolProvenance,
@@ -114,7 +113,9 @@ class _TaskExecutor:
         return await self._function(arguments, context)
 
 
-def _registered(name: str, description: str, schema: Mapping[str, object], function: Any) -> RegisteredTool:
+def _registered(
+    name: str, description: str, schema: Mapping[str, object], function: Any
+) -> RegisteredTool:
     return RegisteredTool(
         definition=ToolDefinition(
             internal_id=f"homemaster.{name}.v1",
@@ -123,7 +124,9 @@ def _registered(name: str, description: str, schema: Mapping[str, object], funct
             input_schema=dict(schema),
             output_schema={"type": "object"},
             verification_policy=VerificationPolicy(),
-            provenance=ToolProvenance(source="homemaster.task_state", reference=f"task_state.{name}"),
+            provenance=ToolProvenance(
+                source="homemaster.task_state", reference=f"task_state.{name}"
+            ),
             version="3.5.0",
         ),
         executor=_TaskExecutor(function),
@@ -140,25 +143,48 @@ def make_task_planner_tool() -> RegisteredTool:
                 "goal": {"type": "string", "description": "Overall task outcome."},
                 "subtasks": {
                     "type": "array",
+                    "description": "Ordered subtasks that make the goal explicit.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "id": {"type": "string", "description": "Stable subtask identifier."},
-                            "description": {"type": "string", "description": "Concrete subtask work."},
+                            "description": {
+                                "type": "string",
+                                "description": "Concrete subtask work.",
+                            },
                             "status": {
                                 "type": "string",
-                                "enum": ["pending", "in_progress", "completed", "blocked", "cancelled", "uncertain"],
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "blocked",
+                                    "cancelled",
+                                    "uncertain",
+                                ],
                                 "description": "Initial subtask status.",
                             },
-                            "evidence": {"type": "array", "items": {"type": "string"}, "description": "Existing evidence."},
+                            "evidence": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Existing evidence.",
+                            },
                         },
                         "required": ["id", "description"],
                     },
                 },
                 "current_subtask": {"type": "string", "description": "Current subtask ID."},
                 "next_focus": {"type": "string", "description": "Next focus."},
-                "open_questions": {"type": "array", "items": {"type": "string"}, "description": "Unresolved inputs."},
-                "constraints": {"type": "array", "items": {"type": "string"}, "description": "Stable constraints."},
+                "open_questions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Unresolved inputs.",
+                },
+                "constraints": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Stable constraints.",
+                },
             },
             "required": ["goal", "subtasks"],
         },
@@ -175,16 +201,28 @@ def make_task_progress_check_tool() -> RegisteredTool:
             "properties": {
                 "updates": {
                     "type": "array",
+                    "description": "Explicit subtask status changes to apply.",
                     "items": {
                         "type": "object",
                         "properties": {
                             "subtask_id": {"type": "string", "description": "Existing subtask ID."},
                             "status": {
                                 "type": "string",
-                                "enum": ["pending", "in_progress", "completed", "blocked", "cancelled", "uncertain"],
+                                "enum": [
+                                    "pending",
+                                    "in_progress",
+                                    "completed",
+                                    "blocked",
+                                    "cancelled",
+                                    "uncertain",
+                                ],
                                 "description": "Updated subtask status.",
                             },
-                            "evidence": {"type": "array", "items": {"type": "string"}, "description": "Observed evidence."},
+                            "evidence": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Observed evidence.",
+                            },
                         },
                         "required": ["subtask_id", "status"],
                     },
@@ -196,7 +234,10 @@ def make_task_progress_check_tool() -> RegisteredTool:
                     "enum": ["active", "paused", "completed", "failed", "cancelled"],
                     "description": "Optional overall task status.",
                 },
-                "completion_summary": {"type": "string", "description": "Final evidence-based summary."},
+                "completion_summary": {
+                    "type": "string",
+                    "description": "Final evidence-based summary.",
+                },
             },
             "required": ["updates"],
         },

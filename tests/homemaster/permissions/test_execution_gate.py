@@ -19,9 +19,9 @@ from homemaster.agent.messages import ToolCall
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.permissions.models import ResourceKey
 from homemaster.permissions.store import PermissionStore
-from homemaster.tools import ToolExecutionContext
-from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
+from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.executor import AllowAllPermissionChecker, ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 def _iso(clock: FakeClock, offset_s: float = 0) -> str:
@@ -267,7 +267,7 @@ async def test_reject_starts_nothing(tmp_path: Path) -> None:
     try:
         result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
         assert world.robot_area == "living"
         assert world.held is None
         assert world.backend_calls == []
@@ -283,7 +283,7 @@ async def test_no_handler_starts_nothing(tmp_path: Path) -> None:
     try:
         result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert result.metadata["status"] == "approval_channel_unavailable"
+        assert result.data["status"] == "approval_channel_unavailable"
         assert world.backend_calls == []
     finally:
         store.close()
@@ -301,7 +301,7 @@ async def test_nav_allowed_then_pick_rejected(tmp_path: Path) -> None:
         handler.answer = False
         second = await _await_call(executor, context, {"op": "manipulate",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert second.metadata["status"] == "permission_denied"
+        assert second.data["status"] == "permission_denied"
         assert world.held is None
         assert world.robot_area == "bedroom"
         assert len(handler.calls) == 2
@@ -337,7 +337,7 @@ async def test_target_changed_aborts_before_side_effects(tmp_path: Path) -> None
     try:
         result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert result.metadata["status"] == "target_changed"
+        assert result.data["status"] == "target_changed"
         assert world.backend_calls == []
         assert world.held is None
         assert _statuses(store) == ["cancelled"]
@@ -370,7 +370,7 @@ async def test_unknown_outcome_does_not_retry(tmp_path: Path) -> None:
     try:
         result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert result.metadata["status"] == "outcome_unknown"
+        assert result.data["status"] == "outcome_unknown"
         assert world.backend_calls.count("pick_up:cup-a@bedroom") == 1
     finally:
         store.close()
@@ -404,7 +404,7 @@ async def test_revoke_before_second_step_stops(tmp_path: Path) -> None:
         world.on_execute = revoke_pick
         result = await _await_call(executor, context, {"op": "combo", "area": "bedroom",
                                                  "action": "pick_up", "object": "cup-a"})
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
         assert world.robot_area == "bedroom"
         assert world.held is None
         assert handler.calls == []
@@ -436,9 +436,9 @@ async def test_suppressed_second_ask_in_same_run(tmp_path: Path) -> None:
     try:
         call = {"op": "manipulate", "action": "pick_up", "object": "cup-b"}
         first = await _await_call(executor, context, call)
-        assert first.metadata["status"] == "permission_denied"
+        assert first.data["status"] == "permission_denied"
         second = await _await_call(executor, context, call)
-        assert second.metadata["status"] == "permission_denied"
+        assert second.data["status"] == "permission_denied"
         assert len(handler.calls) == 1
     finally:
         store.close()
@@ -479,7 +479,7 @@ async def test_physical_without_store_is_configuration_error(tmp_path: Path) -> 
         ToolCall(id="1", name="home_act", arguments={"op": "navigate", "area": "x"}),
         context,
     )
-    assert result.metadata["status"] == "permission_configuration_error"
+    assert result.data["status"] == "permission_configuration_error"
     assert world.prepare_calls == 0
 
 
@@ -524,7 +524,7 @@ async def test_structured_blocked_resolution_denies_without_bool(tmp_path: Path)
         result = await _await_call(executor, context, {"op": "manipulate",
                                                        "action": "pick_up",
                                                        "object": "cup-b"})
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
         assert world.held is None
         assert world.backend_calls == []
         assert handler.calls == 1

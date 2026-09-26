@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from homemaster.benchmarking.alfworld.runner import AlfworldBenchmarkRunner, AlfworldTasksetRunner
-from homemaster.benchmarking.alfworld.taskset_loader import load_taskset_config
-from homemaster.benchmarking.alfworld.types import (
+from homemaster.alfworld.benchmark.runner import AlfworldBenchmarkRunner, AlfworldTasksetRunner
+from homemaster.alfworld.taskset_loader import load_taskset_config
+from homemaster.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldSummary,
     EnvType,
@@ -56,6 +56,7 @@ def handle_benchmark_alfworld(
         run_id=run_id,
         observation_mode=cast(ObservationMode, observation_mode),
         trial_manifest=trial_manifest,
+        use_isolated_worker=True,
     )
     return AlfworldBenchmarkRunner(config=config).run()
 

@@ -15,7 +15,8 @@ from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import resume_session
 from homemaster.agent.state import AgentState
 from homemaster.providers.transports.types import TransportDelta
-from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
+from homemaster.tools.base import FunctionTool, ToolRegistry
+from tests.homemaster.tools.test_support import ToolResult
 
 
 def _png_base64() -> str:

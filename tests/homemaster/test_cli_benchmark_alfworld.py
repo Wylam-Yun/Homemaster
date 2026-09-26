@@ -80,7 +80,7 @@ def test_benchmark_alfworld_cli_invokes_handler(
         captured.update(kwargs)
         return FakeSummary()
 
-    app_module = importlib.import_module("homemaster.cli.app")
+    app_module = importlib.import_module("homemaster.cli.benchmark_alfworld")
     monkeypatch.setattr(app_module, "handle_benchmark_alfworld", fake_handle)
 
     result = CliRunner().invoke(
@@ -138,7 +138,7 @@ def test_benchmark_alfworld_taskset_cli_reports_coverage_and_score_gate(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    app_module = importlib.import_module("homemaster.cli.app")
+    app_module = importlib.import_module("homemaster.cli.benchmark_alfworld")
     monkeypatch.setattr(
         app_module,
         "handle_benchmark_alfworld_taskset",

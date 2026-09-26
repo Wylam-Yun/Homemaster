@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.cli import composition
+import homemaster.application.composition.base as composition
 from homemaster.config import HomeMasterConfig
 from homemaster.experience import FinalizeResult
 
@@ -73,6 +73,9 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
         def __init__(self, _config: object) -> None:
             pass
 
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
         async def start(self) -> None:
             calls.append("mindmemos.start")
 
@@ -131,6 +134,9 @@ async def test_session_finalization_drains_before_memory_resources_close(
 
         def __init__(self, _config: object) -> None:
             pass
+
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
 
         async def start(self) -> None:
             calls.append("mindmemos.start")
@@ -191,6 +197,9 @@ async def test_managed_neo4j_start_failure_prevents_mindmemos_start(
         def __init__(self, _config: object) -> None:
             pass
 
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
         async def start(self) -> None:
             calls.append("mindmemos.start")
 
@@ -230,6 +239,9 @@ async def test_managed_mode_rejects_unavailable_mindmemos_before_first_run(
         def __init__(self, _config: object) -> None:
             pass
 
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
         async def start(self) -> None:
             return None
 
@@ -238,9 +250,7 @@ async def test_managed_mode_rejects_unavailable_mindmemos_before_first_run(
 
     monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
     monkeypatch.setattr(composition, "EmbeddedMindMemOS", UnavailableMindMemOS)
-    bundle = composition.compose_application(
-        config=_config(tmp_path), run_label="mindmemos-fail"
-    )
+    bundle = composition.compose_application(config=_config(tmp_path), run_label="mindmemos-fail")
 
     with pytest.raises(RuntimeError, match="Neo4j schema initialization failed"):
         await bundle.application.start()

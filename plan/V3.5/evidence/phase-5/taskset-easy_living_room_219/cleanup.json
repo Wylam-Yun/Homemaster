@@ -1,0 +1,10 @@
+{
+  "evidence_ref": null,
+  "external_return_code": 0,
+  "process_alive_after_close": false,
+  "remaining_thor_processes": {},
+  "started_thor_processes": {
+    "1205020": "/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-20190906"
+  },
+  "status": "succeeded"
+}

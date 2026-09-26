@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from homemaster.benchmarking.alfworld.pose_snapshot import (
+from homemaster.alfworld.pose_snapshot import (
     CachePoseInput,
     FrozenOraclePoseStore,
     OraclePose,

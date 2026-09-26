@@ -8,8 +8,8 @@ from .alfworld_compiler import (
 )
 from .dreaming_state import DreamingBatch, DreamingCoordinator, DreamingStateStore
 from .finalizer import ExperienceOperation, FinalizeResult, SessionFinalizer, TaskTraceEnvelope
-from .session_finalization import SessionFinalizationController
 from .schema_episode import build_schema_episode, serialize_schema_episode
+from .session_finalization import SessionFinalizationController
 
 __all__ = [
     "AlfworldCompileJobService",

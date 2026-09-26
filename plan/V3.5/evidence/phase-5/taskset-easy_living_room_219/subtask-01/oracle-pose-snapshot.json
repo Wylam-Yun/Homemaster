@@ -1,0 +1,798 @@
+{
+  "algorithm_version": "v18-bounded-scan-1",
+  "entries": [
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "ArmChair|-01.84|-00.01|+04.51",
+      "pose": null,
+      "pose_freshness_sha256": "a44a3c9a47bb6c51d63b9b28e0f71988efb1ba9e4fed9a0b53b035cd9ec74853",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Box|-00.95|+00.83|+03.55",
+      "pose": null,
+      "pose_freshness_sha256": "452d35f54d5edbdce67058613a3b3c4378716c7a96078118c06b07fd49465591",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Box|-02.98|+00.42|+04.34",
+      "pose": null,
+      "pose_freshness_sha256": "98b21206df9dc23da3cc1207f0061a884a4280f775e1d1e1ad094349a44f0f44",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Box|-03.57|+00.43|+04.46",
+      "pose": null,
+      "pose_freshness_sha256": "a6728d670147ad8c65603e90fa50c7eb11da6234e582b0e8f4ad415892284022",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0021-TeleportFull.json",
+      "exact_object_id": "Cabinet|-02.70|+00.56|+04.20",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 6.22077465,
+        "x": -2.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "dae63d40dfad91400ed2c37c9842ba6d6656db316e3b6182b33c7d76ce819d61",
+      "pose_sha256": "660465d94ab8a5e1cb7fbd934fe0b4a6ea834ce443d02b887854d6e8f0b45887",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0018-TeleportFull.json",
+      "exact_object_id": "Cabinet|-03.85|+00.56|+04.20",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 347.519073,
+        "x": -3.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "b2c0c404919a8a3fe348b8bbf141661e3c02e29bc46aa395377ca7360117511e",
+      "pose_sha256": "689ca5b53f04400a2f5fec8f33081db2575f779d219b6312824b2972d9e22f84",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0017-TeleportFull.json",
+      "exact_object_id": "Cabinet|-03.87|+00.56|+04.20",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 345.069855,
+        "x": -3.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "45aa660cbd86af4e98a30f2c6e7ace5d823336b10b68ef71379225256bc90309",
+      "pose_sha256": "8034d14526de4735cea1448eb282586c818dcc1261706d6146c2556201c2b997",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0009-TeleportFull.json",
+      "exact_object_id": "Cabinet|-05.02|+00.56|+04.20",
+      "pose": {
+        "horizon": 48.0,
+        "rotation": 48.3322334,
+        "x": -5.25,
+        "y": 0.9010564,
+        "z": 4.0
+      },
+      "pose_freshness_sha256": "892dd8fc0a9991ade406c3dd65f09086dfefe9aba6d200218798df316e6dacd4",
+      "pose_sha256": "c5078c77734b85db6c9c75e7d0dd652cd01b5243b247d634f98532a08ebda818",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "CellPhone|-01.46|+01.10|+00.19",
+      "pose": null,
+      "pose_freshness_sha256": "6bce0af2714ed1fd88d255ecc679bd6e6ea3b516c19f0594b93ec973378bc76a",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "CreditCard|-04.87|+00.86|+00.41",
+      "pose": null,
+      "pose_freshness_sha256": "cf7165570361b40a05850303322b4589a1277e981d4f6413ead08b14897aff02",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "CreditCard|-05.53|+01.04|+00.44",
+      "pose": null,
+      "pose_freshness_sha256": "48adf6f39648d1577722b0dff63f9f4ed7ffa62da9a38bc5d931b6ead23dedbb",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0021-TeleportFull.json",
+      "exact_object_id": "Drawer|-02.99|+01.01|+04.30",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 6.22077465,
+        "x": -2.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "5d81e70fb57792c9c9d1e3ec6a2527ace49c487e655596bc5bc1ddf93b36ca6d",
+      "pose_sha256": "660465d94ab8a5e1cb7fbd934fe0b4a6ea834ce443d02b887854d6e8f0b45887",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0017-TeleportFull.json",
+      "exact_object_id": "Drawer|-03.57|+01.01|+04.30",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 345.069855,
+        "x": -3.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "ba46241900ce2c2daf599004d38415437420e79474231b8616768144e5680dc1",
+      "pose_sha256": "8034d14526de4735cea1448eb282586c818dcc1261706d6146c2556201c2b997",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0017-TeleportFull.json",
+      "exact_object_id": "Drawer|-04.16|+01.01|+04.30",
+      "pose": {
+        "horizon": 36.0000038,
+        "rotation": 345.069855,
+        "x": -3.75,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "650c73f272fa9ef0688c59e8995208a94fef2eb3a31db4b320880ee4bd3539fe",
+      "pose_sha256": "8034d14526de4735cea1448eb282586c818dcc1261706d6146c2556201c2b997",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0009-TeleportFull.json",
+      "exact_object_id": "Drawer|-04.74|+01.01|+04.30",
+      "pose": {
+        "horizon": 48.0,
+        "rotation": 48.3322334,
+        "x": -5.25,
+        "y": 0.9010564,
+        "z": 4.0
+      },
+      "pose_freshness_sha256": "f57bccba7cf6b72a856dcaf21a9a93c750f4fd717a7b81344625b6e6608307d4",
+      "pose_sha256": "c5078c77734b85db6c9c75e7d0dd652cd01b5243b247d634f98532a08ebda818",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0011-TeleportFull.json",
+      "exact_object_id": "Drawer|-05.02|+00.88|+00.37",
+      "pose": {
+        "horizon": 51.0000076,
+        "rotation": 181.9133,
+        "x": -5.0,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "1a2a1544dff65ab871e62d2771f43c8c4be7399b21b4c08886612b7f2bdb5966",
+      "pose_sha256": "fed2b85df81dc170b0088785f203e06aa0081d0ad3580fb6e675a1089ba70dc7",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Dresser|-03.86|00.00|+04.59",
+      "pose": null,
+      "pose_freshness_sha256": "741ba12be61a0743a2bb30f310d7c79dc486a20dbe963196292994fdf86e175a",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0023-TeleportFull.json",
+      "exact_object_id": "FloorLamp|-00.65|+00.27|+04.43",
+      "pose": {
+        "horizon": 30.0000038,
+        "rotation": 51.2661972,
+        "x": -1.5,
+        "y": 0.9010564,
+        "z": 3.75
+      },
+      "pose_freshness_sha256": "179d4f1ad5a9442c9cfb761c0ee42b8392e0c8012461707bce7c84581d51988e",
+      "pose_sha256": "4d5ee593ffae11370a76f119a5ba494f9fe4340628b85661e0e1487cf6a8ba24",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0010-TeleportFull.json",
+      "exact_object_id": "FloorLamp|-05.60|+00.00|+04.64",
+      "pose": {
+        "horizon": 50.0000153,
+        "rotation": 331.2957,
+        "x": -5.25,
+        "y": 0.9010564,
+        "z": 4.0
+      },
+      "pose_freshness_sha256": "523d4a650e04e4f0d389eb15cc118926b476dc424d5bbff7a8c5ddff5300f95e",
+      "pose_sha256": "4e97fdd091e6d3f007375ef5f31a2d36e55405199c24e6dc86f80c3f9be3395c",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "GarbageCan|-05.80|+00.00|+04.07",
+      "pose": null,
+      "pose_freshness_sha256": "69d49b390668c7a9dd494cea9282472d98921ac7eb365b119ef1cbcb2c79cd31",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "HousePlant|-03.97|+01.64|+00.14",
+      "pose": null,
+      "pose_freshness_sha256": "b0a27806f3e4f64701051de3379ce2090f049cf2e2e4cf2b10af3e3c9a0c1500",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "KeyChain|-02.46|+00.03|+00.37",
+      "pose": null,
+      "pose_freshness_sha256": "be907e1724054b62527317a56793021cd27c66d193a64ab598ed608be7a5e55f",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Lamp|-02.81|+01.10|+04.52",
+      "pose": null,
+      "pose_freshness_sha256": "177263ace61a07f1201a69b18840c1baf4f98675dd87ec4a02c7c6e7c6e57272",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Lamp|-04.65|+01.03|+00.27",
+      "pose": null,
+      "pose_freshness_sha256": "f8a1f49d4b394f75f2f07f5f80d76c21fbc37368455235c97d2f9925a229495c",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Laptop|-02.09|+00.59|+04.38",
+      "pose": null,
+      "pose_freshness_sha256": "c56637c22be343194f95eefc5e18bec062c3aef579e9d1c6b360c2ff0db32d0b",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Laptop|-03.86|+01.11|+04.69",
+      "pose": null,
+      "pose_freshness_sha256": "e37b0354cf5e00aca0736e972aa7e55f5c8d3ec866b132fe7b9f572228a9b6b9",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "LightSwitch|-06.00|+01.35|+03.40",
+      "pose": null,
+      "pose_freshness_sha256": "c8b5c1c00ea2883440aacda061e2cfdae983998db6afa57377bdba559c1342e9",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Newspaper|-04.83|+01.12|+04.69",
+      "pose": null,
+      "pose_freshness_sha256": "2888fcc1f07c2ef75611418211fbb18db1a20343ee40d272bbf0e67420731f73",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Painting|-06.02|+01.80|+04.18",
+      "pose": null,
+      "pose_freshness_sha256": "bc606c4604aa46094072eb51826571c4a1f5aa54b9ae87029898a24d7c42e342",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Pillow|-01.58|+00.67|+04.30",
+      "pose": null,
+      "pose_freshness_sha256": "de24504b548e1cb36d14b1f5073022c4370187e3a5709e6dbb5cfe211b231b0d",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0031-TeleportFull.json",
+      "exact_object_id": "RemoteControl|-00.22|+01.59|+01.01",
+      "pose": {
+        "horizon": -20.0,
+        "rotation": 90.43987,
+        "x": -0.75,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "5650db141cc05f21fcd28cc9821f4ada126c4cc6a9b74040eb08a5418b8b365d",
+      "pose_sha256": "6d3111c3346753833b6459947b759c3dbcc930a8a0390442bad21f15383e7195",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0022-TeleportFull.json",
+      "exact_object_id": "RemoteControl|-01.12|+00.61|+03.28",
+      "pose": {
+        "horizon": 38.0000038,
+        "rotation": 85.27542,
+        "x": -1.5,
+        "y": 0.9010564,
+        "z": 3.25
+      },
+      "pose_freshness_sha256": "0885282990b093e430534b9bcf2280fed9d35dbadca24bdbe3c1a4ba98715143",
+      "pose_sha256": "1f4c39f27b475a1cc0b735b2942ec6b4752156d9fe6b9236e124de571b0bd9cf",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0009-TeleportFull.json",
+      "exact_object_id": "RemoteControl|-04.18|+01.11|+04.79",
+      "pose": {
+        "horizon": 48.0,
+        "rotation": 48.3322334,
+        "x": -5.25,
+        "y": 0.9010564,
+        "z": 4.0
+      },
+      "pose_freshness_sha256": "0206efc18c7bef394420c0d3b767c6995adca8a36902f28c44dbd089a05e81bf",
+      "pose_sha256": "c5078c77734b85db6c9c75e7d0dd652cd01b5243b247d634f98532a08ebda818",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0009-TeleportFull.json",
+      "exact_object_id": "RemoteControl|-04.51|+01.11|+04.59",
+      "pose": {
+        "horizon": 48.0,
+        "rotation": 48.3322334,
+        "x": -5.25,
+        "y": 0.9010564,
+        "z": 4.0
+      },
+      "pose_freshness_sha256": "abf2eada2cef7b96604a6cd26aaeefe47f532aad35443358307ff5b143a33f39",
+      "pose_sha256": "c5078c77734b85db6c9c75e7d0dd652cd01b5243b247d634f98532a08ebda818",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Safe|-02.30|-00.01|+00.27",
+      "pose": null,
+      "pose_freshness_sha256": "c7184dc4bcbe0717d84c65fb7e3472790b70174f6b1b1b69462078f5f8c2e2cf",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0030-TeleportFull.json",
+      "exact_object_id": "Shelf|-00.22|+00.58|+01.00",
+      "pose": {
+        "horizon": 30.0000076,
+        "rotation": 90.32552,
+        "x": -0.75,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "9dbdcfd6e87d4cb2dd8cf6a873ed00c5813d7048b72f477f407b6db5dfc43603",
+      "pose_sha256": "5b4c607d80ff49ef9f5575ec7791deacf97d878cc88e834c949e06af9755ff7a",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0029-TeleportFull.json",
+      "exact_object_id": "Shelf|-00.23|+01.09|+01.00",
+      "pose": {
+        "horizon": 59.0000076,
+        "rotation": 90.23528,
+        "x": -0.75,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "2e133da822b31a8852bbc0a56a98d59a378fe29ea813fd91668d81d00b3022c3",
+      "pose_sha256": "c095a9dac51fd3d3cfbc038863771cd87525f5c4b74f608e507e7b6fb3b30e6a",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0029-TeleportFull.json",
+      "exact_object_id": "Shelf|-00.26|+00.07|+01.00",
+      "pose": {
+        "horizon": 59.0000076,
+        "rotation": 90.23528,
+        "x": -0.75,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "ba6bf33d10e8ed45940a9e06a9551f24669ed7024cccaa07d8103ddb5f51ff05",
+      "pose_sha256": "c095a9dac51fd3d3cfbc038863771cd87525f5c4b74f608e507e7b6fb3b30e6a",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "Shelf|-00.27|+01.58|+00.99",
+      "pose": null,
+      "pose_freshness_sha256": "75bd697c27c4fcc4cac90b56c15f912508b64da9164e262f16a09b5760ff53d7",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0026-TeleportFull.json",
+      "exact_object_id": "Shelf|-01.29|+00.07|+00.26",
+      "pose": {
+        "horizon": 59.0000153,
+        "rotation": 184.5786,
+        "x": -1.25,
+        "y": 0.9010564,
+        "z": 0.75
+      },
+      "pose_freshness_sha256": "88745307309acbafc9d7b6195211ade74d0b707ee6390c2a3b91ad6eba7a7ed0",
+      "pose_sha256": "6f18b534185af3cbff19bf6df5f7cbca1d9f1c42600f0d45d88034b958daf1dc",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0024-TeleportFull.json",
+      "exact_object_id": "Shelf|-01.29|+00.58|+00.22",
+      "pose": {
+        "horizon": 30.0000076,
+        "rotation": 184.332321,
+        "x": -1.25,
+        "y": 0.9010564,
+        "z": 0.75
+      },
+      "pose_freshness_sha256": "384c86fcbc24f25a71515599e433892a8c8c3187ad360cdb847b046d2156f60b",
+      "pose_sha256": "f2c7b306e31f5a23327dfe2581c2e8c80da5b038a18b6fd2b5f9c1c931f8d21f",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0026-TeleportFull.json",
+      "exact_object_id": "Shelf|-01.29|+01.09|+00.23",
+      "pose": {
+        "horizon": 59.0000153,
+        "rotation": 184.5786,
+        "x": -1.25,
+        "y": 0.9010564,
+        "z": 0.75
+      },
+      "pose_freshness_sha256": "6d288a418e01dd00c8ec0633c84c6e1847f6497f62933a4ef652481f8883022d",
+      "pose_sha256": "6f18b534185af3cbff19bf6df5f7cbca1d9f1c42600f0d45d88034b958daf1dc",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "Shelf|-01.29|+01.58|+00.27",
+      "pose": null,
+      "pose_freshness_sha256": "c4c53741ff6992500596aa61e2d0d5f5576919d819acc52fc8e239b6af0ce31a",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0004-TeleportFull.json",
+      "exact_object_id": "Shelf|-05.24|+01.39|+00.09",
+      "pose": {
+        "horizon": -13.0,
+        "rotation": 183.536926,
+        "x": -5.5,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "8ae9d1cca2df33b850893a09ed53eaed3a61c9bcb7b07c230b05fb0e2c8d23c4",
+      "pose_sha256": "2684ba42bba096a4db8fb909bc6226580676a907960a7ad35cbededac8b1abf2",
+      "source_kind": "incidental",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "Shelf|-05.24|+01.58|+00.07",
+      "pose": null,
+      "pose_freshness_sha256": "ffd4bdbb2210b933580470b6dcda21efb44e75e0e63417fce0d90a8c7104d1d8",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "Shelf|-05.24|+01.78|+00.07",
+      "pose": null,
+      "pose_freshness_sha256": "8476470a9cb240c5a4ca4843b8af1a56818f025054e43cef6edc5c01a476e48e",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": null,
+      "exact_object_id": "Shelf|-05.24|+01.97|+00.09",
+      "pose": null,
+      "pose_freshness_sha256": "e1aef08afe03f111a466b4569535e38ec354efb48544747a8878a6bcdaba9a40",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "coverage_miss"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0011-TeleportFull.json",
+      "exact_object_id": "SideTable|-05.02|-00.01|+00.27",
+      "pose": {
+        "horizon": 51.0000076,
+        "rotation": 181.9133,
+        "x": -5.0,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "193e251ec29345eded054efb5e3e5f1ebe3a65ae3e1562220192bab3bbeee4e7",
+      "pose_sha256": "fed2b85df81dc170b0088785f203e06aa0081d0ad3580fb6e675a1089ba70dc7",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Sofa|-00.74|+00.00|+02.75",
+      "pose": null,
+      "pose_freshness_sha256": "f58a68087030a04165d556e4d19cfddafc77d3fa0696aa5c04bb0c4b271118b2",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "public_semantic",
+      "addressable": true,
+      "evidence_ref": "events/0003-TeleportFull.json",
+      "exact_object_id": "Statue|-05.53|+01.04|+00.17",
+      "pose": {
+        "horizon": -9.0,
+        "rotation": 182.405212,
+        "x": -5.5,
+        "y": 0.9010564,
+        "z": 1.0
+      },
+      "pose_freshness_sha256": "dd864282aafbb864da0866e0612f5def03a3ff93e38494a6c611cfec64c6fbec",
+      "pose_sha256": "d771fec03c085560ff6845ac3791c253ad6f5274ab0066a240a239be1bf96d79",
+      "source_kind": "geometry",
+      "status": "ok"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Television|-03.35|+00.70|+00.13",
+      "pose": null,
+      "pose_freshness_sha256": "eb72adcf703df708fad66d4a6871e16192224241724bf5fcd9b7544f5eae1de4",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "TissueBox|-03.54|+01.11|+04.49",
+      "pose": null,
+      "pose_freshness_sha256": "920a23ef64f89b4ceffc4bc001fe925e882561b6db13f724da9c05ead2137a79",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "TissueBox|-04.51|+01.11|+04.39",
+      "pose": null,
+      "pose_freshness_sha256": "d4046fc4bf0e756cf77f41ca2cf077472ebdd68bf5882e1eb388a3b0d469314f",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Vase|-02.19|+00.04|+00.32",
+      "pose": null,
+      "pose_freshness_sha256": "33c3dccb882a40c3b532797c4bdd6c1d62c5a1f5891f676c74deb6ac2990a34d",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Vase|-03.22|+01.12|+04.79",
+      "pose": null,
+      "pose_freshness_sha256": "3a72e4c3aae282d46c191016daff26b869d1c2186cecf0d6cb2440b1a44c16de",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Watch|-01.55|+00.07|+00.41",
+      "pose": null,
+      "pose_freshness_sha256": "b935fc2c11634d01aaeb960ca227545c89bdfe4ede5325d111a869734d1ba2ef",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "closed_ancestor",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Watch|-02.40|+00.03|+00.27",
+      "pose": null,
+      "pose_freshness_sha256": "4087cba7642c63d8f39d7aff0a973832cdfd6fab68098676431db415e81c5c3f",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    },
+    {
+      "addressability_reason": "not_public_semantic",
+      "addressable": false,
+      "evidence_ref": null,
+      "exact_object_id": "Watch|-02.90|+01.11|+04.79",
+      "pose": null,
+      "pose_freshness_sha256": "4884d1c7a50d60481a5bdc69fbd9b582c0a5be1eda4e39bf958ee9cc179fbbb4",
+      "pose_sha256": null,
+      "source_kind": "none",
+      "status": "unobserved"
+    }
+  ],
+  "initial_event_ref": "events/0000-TeleportFull.json",
+  "initial_world_sha256": "cefa26a6980b6e7d2fb98a70a6f2e6b08d4e33153a4fd5b7a5b57151d369f396",
+  "reachable_canonical_sha256": "004ec69a6f2a43b80d8210c641c1265a7f39c86ebfbb74996a066f1aec99e22f",
+  "reachable_payload_sha256": "1975042c56f2f66d7eff924b0d218dc7a0a878775e33e95b8e649e50dc1823be",
+  "restored_event_ref": "events/0034-ChangeTimeScale.json",
+  "restored_world_sha256": "cefa26a6980b6e7d2fb98a70a6f2e6b08d4e33153a4fd5b7a5b57151d369f396",
+  "scan_plan_sha256": "20023dfc99dc51b39cf40be37274d22403aefc006093cace73d0477c4c569278",
+  "scan_policy_sha256": "d1e8f88ecade7d69f17a5db3127275007bd378449c8a0186286337a0cee79215",
+  "scene_generation": 1,
+  "scene_reset_fingerprint": "29d0a360188f666f0967a0134c91dbcb2587752ea67c40192438b128dfc2acc9",
+  "snapshot_sha256": "6f28382b76a4e9f7a73ae884354caf2bcce3a68333b2022477f6f27950c11108"
+}

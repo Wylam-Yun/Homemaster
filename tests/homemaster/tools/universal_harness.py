@@ -7,9 +7,14 @@ from typing import Any
 from homemaster.adapters import build_tool_registry
 from homemaster.agent.messages import ToolCall
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
-from homemaster.tools import ToolExecutionContext, ToolRegistry, ToolResult
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionStatus
+from homemaster.tools import ToolRegistry
+from homemaster.tools.contracts import (
+    PermissionSubject,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+)
 from homemaster.tools.executor import ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 def registry() -> ToolRegistry:
@@ -67,11 +72,16 @@ async def execute(
 class ResultView:
     """Readable assertions over the public small ToolResult contract."""
 
-    def __init__(self, result: ToolResult) -> None:
+    def __init__(self, result: ToolExecutionResult) -> None:
         self.raw = result
-        self.text = result.output
-        self.data = result.metadata
-        status = str(result.metadata.get("status", "failure" if result.is_error else "success"))
+        self.text = result.text
+        # Keep the fixture view compatible with the pre-canonical assertions:
+        # ``data`` is the tool payload, while the canonical envelope remains
+        # available through ``raw`` and ``to_public_dict``.
+        public = result.to_public_dict()
+        payload = public.get("data")
+        self.data = dict(payload) if isinstance(payload, dict) else {}
+        status = result.status.value
         legacy_status = {
             "permission_denied": "denied",
             "invalid_tool_arguments": "invalid",
@@ -79,18 +89,18 @@ class ResultView:
             "deadline_exceeded": "failure",
         }.get(status, status)
         self.status = ToolExecutionStatus(legacy_status)
-        error_code = result.metadata.get("error_code")
+        error_code = result.error.code if result.error is not None else None
         self.error = (
-            SimpleNamespace(code=error_code, message=result.output) if error_code else None
+            SimpleNamespace(code=error_code, message=result.failure_reason) if error_code else None
         )
-        verification_status = result.metadata.get("verification_status", "not_requested")
+        verification_status = result.verification.status.value
         self.verification = SimpleNamespace(
             status=SimpleNamespace(value=verification_status),
-            detail=result.metadata.get("verification_detail", ""),
+            detail=result.verification.detail or "",
         )
-        self.backend_attempted = bool(result.metadata.get("backend_attempted", False))
+        self.backend_attempted = result.backend_attempted
         self.is_error = result.is_error
-        self.images = [SimpleNamespace(**item) for item in result.metadata.get("images", [])]
+        self.images = list(result.images)
 
     def to_dict(self) -> dict[str, object]:
         return {

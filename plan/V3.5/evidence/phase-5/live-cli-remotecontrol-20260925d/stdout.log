@@ -1,0 +1,15 @@
+run_id: v35-live-remotecontrol-20260925d
+episodes: 1
+success_rate: 0.000
+raw_success_rate: 0.000
+agent_scored_episodes: 1
+agent_success_rate_on_valid: 0.000
+harness_invalid_episodes: 0
+harness_valid_coverage: 1.000
+evaluation_valid_coverage: 1.000
+harness_coverage: 1.000
+provider_availability: 1.000
+runtime_availability: 1.000
+cancelled_episodes: 0
+formal_score_available: true
+trace_root: plan/V3.5/evidence/phase-5/live-cli-remotecontrol-20260925d/trace/test/v35-live-remotecontrol-20260925d

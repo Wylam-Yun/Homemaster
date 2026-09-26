@@ -16,9 +16,10 @@ from homemaster.application.runtime import _GenerationFencedEventSink
 from homemaster.application.session import SessionGenerationError, SessionManager
 from homemaster.events.bus import EventBus
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.tools.executor import ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 def _event(index: int, *, session_id: str = "stress") -> RuntimeEvent:

@@ -23,6 +23,8 @@ index 中的离屏语义目标映射到 reset snapshot 的唯一 pose，并尝�
 设置 `alfworld_gateway.allow_offscreen_object_navigation: false` 后，当前不可见且
 `receptacle=false` 的目标在任何 THOR 动作前返回 `target_not_visible`；当前不可见的 receptacle
 仍可作为搜索锚点导航。该模式用于验证模型是否能搜索并记住物体所在锚点，不删除默认点导航能力。
+隔离 benchmark worker 使用同一策略：`AlfworldBenchmarkConfig` 和 taskset YAML 的
+`run.allow_offscreen_object_navigation` 默认值为 `true`，需要做位置记忆实验时显式设为 `false`。
 
 `observe({})` 返回当前 frame 的一张 PNG，供模型自行确认画面；没有文字或状态 payload，也不会步进环境、改变
 评分状态，或成为 `robot_go_to` / `robot_manipulate` / `robot_verify` 的前置条件。
@@ -35,8 +37,9 @@ ALFWorld `won=true` 计成功。
 ## 飞书 Gateway 模式
 
 Gateway 进程继续运行在 HomeMaster 的项目 `.venv`；ALFWorld、AI2-THOR 与 Torch 留在
-`alfworld_gateway.python_executable` 指向的既有环境。HomeMaster 只通过 loopback HTTP 与受管 worker
-交换 JSON，不需要统一两套依赖。
+独立的 `alfworld_gateway.python_executable` 环境。HomeMaster 通过 `AlfworldWorkerClient` 的
+版本化 stdin/stdout NDJSON 与受管 worker 交换 typed JSON；截图通过共享 artifact path 读取，
+不需要统一两套依赖，也不使用内部 loopback HTTP。
 
 在 ignored 的 `config/homemaster.yaml` 填写 `alfworld_gateway`（字段模板见
 `config/homemaster.example.yaml`），然后运行：
@@ -87,13 +90,8 @@ worktree 的 `.runtime/venv`、`config/homemaster.yaml` 和 `src`，不会误用
 
 ```bash
 uv sync --all-extras
-uv run python scripts/setup_memory_runtime.py setup \
-  --python .venv/bin/python \
-  --alfworld-python /path/to/alfworld-env/bin/python \
-  --alfworld-root /path/to/alfworld \
-  --neo4j-home /path/to/neo4j-community \
-  --java-home /path/to/jdk-21 \
-  --memory-home ~/.homemaster/memory
+./scripts/setup.sh
+./scripts/setup-alfworld.sh --root /path/to/alfworld
 ```
 
 之后将下文命令中的 `.venv/bin/python -m homemaster.cli` 替换为 `scripts/homemaster`，不再手动设置
@@ -206,7 +204,14 @@ generic `mug` 会优先选择当前可见 Mug；全部离屏时选择 frozen ful
 
 ## Taskset 行为
 
-Taskset 会在构造 Adapter 前验证整条链的所有 trial。setup failure 时全部 subtask 为 `not_run/taskset_setup_failure`；goal advance failure 时当前行为 `goal_advance_failure`，后续行为 `prior_infrastructure_failure`。
+Taskset 会在构造 Adapter 前验证整条链的所有 trial，并在启用正式配置时使用一个隔离
+worker 保持 scene。每次连续 `set_task` 都校验 trial identity 和 scene digest；setup failure
+时全部 subtask 为 `not_run/taskset_setup_failure`；goal advance failure 时当前行为
+`goal_advance_failure`，后续行为 `prior_infrastructure_failure`。CLI 的最终 summary 仍需结合
+每个 subtask 的真实外部状态和 cleanup 证据判断，不能只看进程返回码。
+正式 taskset runner 会在 taskset 目录写入 `worker.json`，其中包含 close 请求返回码、worker
+退出码、完整 stderr 和 `worker_exited` cleanup 标记；该文件与每个 subtask 的 `summary.json`
+一起构成 taskset 的外部验收证据。
 
 not-run 行不拥有 classification 或 action count。root 单独报告：
 

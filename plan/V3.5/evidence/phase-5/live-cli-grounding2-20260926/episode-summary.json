@@ -1,0 +1,15 @@
+{
+  "classification": "agent_success",
+  "episode_id": "valid_seen/look_at_obj_in_light-AlarmClock-None-DeskLamp-323/trial_T20190909_044715_250790/traj_data.json",
+  "failure_reason": null,
+  "goal_condition_success_rate": 1.0,
+  "invalid_actions": 0,
+  "outcome": "success",
+  "run_id": "v35-cli-grounding2-20260926-0001",
+  "runtime_status": "replied",
+  "score_eligible": true,
+  "source_trace_sha256": "632ee0c24b37d430e1206ba8e0271e707368f7e9ced4dfe72f7527bed1ce7a76",
+  "steps": 4,
+  "success": true,
+  "trajectory_id": "886dfb23-0816-52b9-8d03-a4c20908da79"
+}

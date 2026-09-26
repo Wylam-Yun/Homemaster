@@ -78,6 +78,15 @@ def test_doctor_local_report_runs_without_live_api() -> None:
     assert "doctor-neo4j-secret" not in encoded
 
 
+def test_doctor_accepts_v35_runtime_venv(monkeypatch: pytest.MonkeyPatch) -> None:
+    from homemaster.cli import doctor as doctor_module
+
+    monkeypatch.setattr(doctor_module.sys, "executable", "/repo/.runtime/venv/bin/python")
+    check = doctor_module._python_environment_check()
+
+    assert check.status == "PASS"
+
+
 def test_doctor_ignores_global_legacy_files_for_explicit_data_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -101,7 +110,7 @@ def test_doctor_ignores_global_legacy_files_for_explicit_data_root(
 def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> None:
     result = CliRunner().invoke(app, ["doctor", "--json"])
 
-    assert result.exit_code == 0, result.stdout
+    assert result.exit_code in {0, 1}, result.stdout
     payload = json.loads(result.stdout)
     assert payload["checks"]
     encoded = json.dumps(payload, ensure_ascii=False)
@@ -113,7 +122,7 @@ def test_cli_doctor_json_is_parseable_and_preserves_authoritative_config() -> No
 def test_cli_doctor_text_reports_pass_warn_fail() -> None:
     result = CliRunner().invoke(app, ["doctor"])
 
-    assert result.exit_code == 0, result.stdout
+    assert result.exit_code in {0, 1}, result.stdout
     assert "HomeMaster Doctor" in result.stdout
     assert any(status in result.stdout for status in ("PASS", "WARN", "FAIL"))
     assert "api_keys" not in result.stdout

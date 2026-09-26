@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from homemaster.artifacts.tool_output_store import ArtifactStoreError, ToolOutputStore
 from homemaster.channels.contracts import OutboundArtifactRef
-from homemaster.tools.base import ToolResult
 from homemaster.tools.contracts import ToolExecutionResult
 
 
@@ -56,23 +55,15 @@ class ArtifactPublisher:
 
     def publish(
         self,
-        result: ToolExecutionResult | ToolResult,
+        result: ToolExecutionResult,
         *,
         tenant_id: str,
         session_id: str,
         run_id: str,
     ) -> tuple[dict[str, str], ...]:
         artifacts: list[dict[str, str]] = []
-        images = (
-            result.metadata.get("images", [])
-            if isinstance(result, ToolResult)
-            else result.images
-        )
-        attachments = (
-            result.metadata.get("attachments", [])
-            if isinstance(result, ToolResult)
-            else result.attachments
-        )
+        images = result.images
+        attachments = result.attachments
         for index, image in enumerate(images):
             media_type = _field(image, "media_type")
             data_base64 = _field(image, "data_base64")

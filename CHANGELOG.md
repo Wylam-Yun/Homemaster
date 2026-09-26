@@ -1,4 +1,76 @@
+# Unreleased
+
+- V3.5 final delivery: complete the Application Composition, canonical Tool,
+  Oracle Harness, isolated NDJSON worker, Linux setup, release audit, and live
+  acceptance gates. Fix partial-worker initialization in Oracle object grounding;
+  document the `set_task` protocol and remove stale `AlfworldApplicationEntry`
+  descriptions. Verification: remote setup/doctor `16/16 PASS`, remote focused
+  regression `150 passed, 2 deselected`, local focused regression `151 passed,
+  2 deselected`, architecture audit `10/10 PASS`, release audit `9/9 PASS`,
+  Ruff, compileall, and diff checks PASS; gateway smoke, taskset, worker-use,
+  failure, and SIGINT live evidence all passed with return-code and cleanup
+  proofs. The implementation plan is now `56/56` checked.
+
+- V3.5 acceptance follow-up: added the standalone per-trial Gateway THOR smoke
+  verifier and recorded reset/navigation/manipulation/close evidence with worker
+  exit and stderr cleanup checks. Added the package-data/release audit and sdist
+  manifest for lock/schema inputs, renamed the NDJSON live test away from the
+  removed HTTP transport, and documented the Linux setup prerequisite gate.
+
+- V3.5 follow-up: fixed isolated worker propagation of the formal V1.8
+  `allow_offscreen_object_navigation` policy; benchmark/taskset config now owns
+  the explicit default. Added taskset worker lifecycle evidence and verified a
+  provider-backed `benchmark-alfworld-taskset` run with per-subtask success,
+  close return code `0`, worker exit `0`, and traceback-free stderr. The broad
+  five-subtask fixture remains model-sensitive and is retained as a diagnostic
+  failure record rather than a release gate.
+
+- V3.5: fixed SIGINT handling during worker close so the signal is deferred
+  until the close receipt is reconciled; added live action/close SIGINT evidence
+  with worker and descendant cleanup checks.
+- V3.5: typed Harness failures now keep diagnostic stderr without printing a
+  traceback for expected target/backend failures; added the live failure
+  black-box record and migrated the remaining permission context fixtures to
+  the canonical test adapter (`297 passed`).
+- V3.5: restored the public composition skill-loader test seam, migrated legacy
+  memory/permission fixtures to immutable canonical contexts and async
+  `RegisteredTool` executors, updated the cleanup guard and example config
+  placeholder, and kept interactive confirmation compatible with minimal test
+  application doubles.
+- V3.5: completed the local NDJSON ALFWorld worker reset contract, typed Harness
+  failure/stale-snapshot/close handling, explicit benchmark event-loop composition,
+  deterministic batch fixtures, and the final Ruff/static architecture gates.
+- V3.5: split application composition into provider, tool, skill, memory,
+  observability, and profile modules; shared episode/taskset lifecycle now owns
+  benchmark resource boundaries. The former ALFWorld package files were moved to
+  `homemaster.alfworld`, package data is included in the wheel, and the legacy
+  path guard was updated for the new ownership boundaries.
+- V3.5: the formal single-episode benchmark CLI now starts the isolated worker
+  through `WorkerAlfworldAdapter`; the continuous taskset `set_task` path remains
+  explicitly pending until its control operations are represented in NDJSON.
+- V3.5: removed the old ALFWorld HTTP worker/client and legacy tool protocol from
+  runtime surfaces; live THOR evidence remains an external acceptance gate.
+- V3.5: enabled the immutable reset snapshot for declared tasksets so
+  `advance_goal()` can verify an unchanged THOR scene; added reproducible per-trial
+  and per-subtask live evidence. The two-subtask taskset records subtask 1 success
+  and subtask 2's real retained-inventory `agent_model_failure`, with close and
+  process cleanup evidence.
+- V3.5: taskset `RunRequest` now carries the same `alfworld_harness` dependency as
+  single episodes, so manipulation calls use the canonical Harness/worker path;
+  close drains a bounded late worker receipt after an interrupted action. Focused
+  V3.5 tests pass; real action-SIGINT cleanup passes, while close-SIGINT remains an
+  open shutdown gate.
+
 # Changelog
+
+## 2026-09-24 - V3.5 隔离 Worker 与 HomeWorld 外部终态
+
+- 用版本化 stdin/stdout NDJSON worker 替换 ALFWorld 内部 loopback HTTP，worker 启动时清空 `PYTHONPATH`，并隔离 Unity stdout，保留 typed 返回码、状态和证据引用。
+- Home `robot_go_to` / `robot_manipulate` 现在通过 file-backed `HomeWorldBackend` 读写 `world.json`，返回真实外部返回码和 readback evidence；新增 HomeWorld 黑盒测试和真实 THOR worker live acceptance。
+- 删除旧 `http_client.py`、`http_worker.py` 路径，更新 ALFWorld 架构、用户指南和分层架构文档。
+- 完成 Tool canonical 硬切：`contracts.py` 是唯一 `ToolExecutionContext`/`ToolExecutionResult` 来源，executor、权限 adapter、服务工具和 application message projection 全部使用 typed result；provider content 去除内部 evidence refs，并在消息边界递归 thaw JSON 容器。
+- 远端 canonical 回归 `112 passed`，真实 THOR worker live acceptance `1 passed`；同步过程清理了远端未跟踪的旧 `homemaster/` 包副本，避免 worker 路径从 `src` 漂移到上级目录。
+- 迁移历史工具/权限/runtime 测试到 canonical `ToolExecutionResult` 与显式 context；修复权限、图像工具和 V2.0 verifier 的残留旧 context/result 访问。修复 browser shadow-root handle/state 错位，远端受影响回归通过：tools `57`、physical `32`、runtime `49`、canonical `34`、browser `56`。
 
 ## 2026-09-19 - Compact Schema Input And 3 MiB Admission
 
@@ -1175,6 +1247,11 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
 - `mindmemos_search` 将原生 Vanilla Session experience 作为既有 `procedure` 类型返回，同时保持损坏的 Schema
   记录 fail closed，使自动沉淀经验能在新进程中被真实 LLM 召回。
 # Unreleased
+
+- V3.5 worker now grounds duplicate ALFWorld objects through trial/Oracle identities, freezes
+  deterministic off-screen THOR poses, and verifies real `take/use` terminal state; provider-backed
+  formal CLI evidence reaches `won=true` with clean worker shutdown. Added live worker/CLI evidence
+  and regression coverage for the grounding path.
 
 - V3.2 阶段一将 Neo4j 部署边界收窄为 HomeMaster 管理的本地 loopback 服务，拒绝 external/远程 URI，并让
   doctor 对 provider secret 做统一脱敏、拒绝禁用记忆配置、移除旧 Mac/bm25s 检查；失败诊断改用受限唯一目录。

@@ -1,0 +1,13 @@
+{
+  "schema_version": "alfworld-trial-selection-v1",
+  "entries": [
+    {
+      "trial_id": "valid_seen/look_at_obj_in_light-AlarmClock-None-DeskLamp-323/trial_T20190909_044715_250790/traj_data.json",
+      "trial_sha256": "8530ee9e0cf8409af67a42b69afcbf9fd97a61582ca2b962752aad237e3f762f",
+      "expected_logical_scene": "FloorPlan323",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"AlarmClock\",\"parent_target\":\"\",\"toggle_target\":\"DeskLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "goal_fingerprint": "b3911573b1c14c3e3359be9d04f854feffa207c657c6d0c3e91791f87559329c",
+      "identity_status": "auto_selected"
+    }
+  ]
+}

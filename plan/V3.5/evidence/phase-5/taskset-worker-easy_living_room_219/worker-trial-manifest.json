@@ -1,0 +1,21 @@
+{
+  "schema_version": "alfworld-trial-selection-v1",
+  "entries": [
+    {
+      "trial_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
+      "trial_sha256": "0e91b92f6e7fbd57ea1bc0037837650e8bbb5423cd1b7879c3e19b871ba58bf8",
+      "expected_logical_scene": "FloorPlan219",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"RemoteControl\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "goal_fingerprint": "35c0a548bf07b8ac6f9894920ea27e69b8e48545f125d94f1a1c51d4a0a26a0f",
+      "identity_status": "taskset_declared"
+    },
+    {
+      "trial_id": "valid_unseen/look_at_obj_in_light-CellPhone-None-FloorLamp-219/trial_T20190908_044113_026049/traj_data.json",
+      "trial_sha256": "e4fc0138d9dd85d760a2842d0cca8dac687287406fe3fb23dfedf780f5821f5e",
+      "expected_logical_scene": "FloorPlan219",
+      "goal_identity": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"CellPhone\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+      "goal_fingerprint": "72d8bf86d975846776df2e462305720d7fcadcef367335d55cabe0b49a02da9b",
+      "identity_status": "taskset_declared"
+    }
+  ]
+}

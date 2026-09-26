@@ -13,8 +13,9 @@ from homemaster.browser.policy import BrowserPolicy
 from homemaster.browser.tools import build_browser_registered_tools, build_browser_run_registry
 from homemaster.providers.transports.openai_chat import OpenAIChatTransport
 from homemaster.tools.adapters import from_registered_tool
-from homemaster.tools.base import ToolExecutionContext, ToolRegistry, ToolRegistryError
+from homemaster.tools.base import ToolRegistry, ToolRegistryError
 from homemaster.tools.browser import registry as browser_registry
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 SAFE_NAMES = (
     "browser_navigate",
@@ -300,7 +301,8 @@ async def test_failed_browser_action_preserves_structured_error(tmp_path: Path) 
     arguments = tool.input_model(target={"role": "button", "name": "Apply"})
     result = await tool.execute(arguments, ToolExecutionContext(tmp_path))
     assert result.is_error is True
-    assert result.metadata["error_code"] == "target_obscured"
+    assert result.error is not None
+    assert result.error.code == "target_obscured"
 
 
 @pytest.mark.asyncio
@@ -322,5 +324,5 @@ async def test_semantic_browser_action_returns_receipt_without_forced_inspect(
     arguments = tool.input_model(target={"role": "button", "name": "Apply"})
     result = await tool.execute(arguments, ToolExecutionContext(tmp_path))
     assert result.is_error is False
-    assert result.metadata["interaction_verified"] is True
-    assert result.metadata["target"] == {"role": "button", "name": "Apply"}
+    assert result.data["interaction_verified"] is True
+    assert result.data["target"] == {"role": "button", "name": "Apply"}

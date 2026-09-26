@@ -12,6 +12,7 @@ dependencies = [
   "jieba>=0.42.1",
   "jsonschema>=4.23,<5",
   "litellm>=1.85.0",
+  "mindmemos",
   "neo4j>=6.2.0",
   "numpy>=2.3.5",
   "omegaconf",
@@ -60,6 +61,9 @@ gateway = [
 [project.scripts]
 homemaster = "homemaster.cli.app:app"
 
+[tool.uv.sources]
+mindmemos = { path = "third_party/MindMemOS/src/mindmemos" }
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta:__legacy__"
@@ -68,8 +72,6 @@ build-backend = "setuptools.build_meta:__legacy__"
 where = ["src", "third_party/MindMemOS/src/mindmemos"]
 include = ["homemaster*", "mindmemos*"]
 exclude = [
-  "homemaster.adapters.alfworld_entry",
-  "homemaster.benchmarking.alfworld*",
   "homemaster.cli.benchmark_alfworld",
 ]
 
@@ -82,6 +84,9 @@ homemaster = [
   "prompts/*.md",
   "prompts/*.txt",
   "memory/*.json",
+  "alfworld/*.md",
+  "alfworld/*.yaml",
+  "alfworld/*.json",
   "permissions/*.yaml",
   "skills/builtin/*/SKILL.md",
   "skills/builtin/*/**/*",

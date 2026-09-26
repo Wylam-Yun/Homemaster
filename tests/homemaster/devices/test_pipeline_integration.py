@@ -15,9 +15,10 @@ from homemaster.devices import (
     DeviceState,
     DeviceStateObservation,
 )
-from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.tools.executor import ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 class Backend:
@@ -113,9 +114,9 @@ async def test_stale_generation_is_denied_before_backend_execution() -> None:
         context("call-stale"),
     )
 
-    assert result.metadata["status"] == "denied"
-    assert result.metadata["error_code"] == "stale_generation"
-    assert result.metadata["backend_attempted"] is False
+    assert result.data["status"] == "denied"
+    assert result.data["error_code"] == "stale_generation"
+    assert result.data["backend_attempted"] is False
     assert executor.calls == 0
 
 
@@ -140,9 +141,9 @@ async def test_emergency_stop_during_action_returns_outcome_unknown() -> None:
     result = await execution
 
     assert stopped.succeeded is True
-    assert result.metadata["status"] == "outcome_unknown"
-    assert result.metadata["error_code"] == "device_generation_changed"
-    assert result.metadata["backend_attempted"] is True
+    assert result.data["status"] == "outcome_unknown"
+    assert result.data["error_code"] == "device_generation_changed"
+    assert result.data["backend_attempted"] is True
     assert executor.calls == 1
 
 
@@ -179,9 +180,9 @@ async def test_disconnect_fences_active_and_waiting_pipeline_actions() -> None:
 
     assert generation == 1
     assert pool.state(backend.device_identity) is DeviceState.DISCONNECTED
-    assert waiting_result.metadata["status"] == "denied"
-    assert waiting_result.metadata["error_code"] == "device_fenced"
-    assert waiting_result.metadata["backend_attempted"] is False
-    assert active_result.metadata["status"] == "outcome_unknown"
-    assert active_result.metadata["backend_attempted"] is True
+    assert waiting_result.data["status"] == "denied"
+    assert waiting_result.data["error_code"] == "device_fenced"
+    assert waiting_result.data["backend_attempted"] is False
+    assert active_result.data["status"] == "outcome_unknown"
+    assert active_result.data["backend_attempted"] is True
     assert executor.calls == 1

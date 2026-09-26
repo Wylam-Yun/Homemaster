@@ -18,15 +18,15 @@ from homemaster.agent.messages import (
     UserMessage,
 )
 from homemaster.agent.session import AgentSession
-from homemaster.application import RunResult, RunStatus
-from homemaster.benchmarking.alfworld import runner as runner_module
-from homemaster.benchmarking.alfworld.env_adapter import AlfworldEnvAdapter
-from homemaster.benchmarking.alfworld.runner import (
+from homemaster.alfworld.benchmark import runner as runner_module
+from homemaster.alfworld.benchmark.adapter import AlfworldEnvAdapter
+from homemaster.alfworld.benchmark.runner import (
     AlfworldBenchmarkRunner,
     AlfworldTasksetRunner,
     _episode_classification,
+    _final_inventory,
 )
-from homemaster.benchmarking.alfworld.types import (
+from homemaster.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
     AlfworldGoalAdvanceResult,
@@ -36,6 +36,7 @@ from homemaster.benchmarking.alfworld.types import (
     Taskset,
     TasksetRunConfig,
 )
+from homemaster.application import RunResult, RunStatus
 from homemaster.providers.attempts import (
     OutboundImageBinding,
     ProviderAttemptRecord,
@@ -342,7 +343,7 @@ def _provider_config(tmp_path: Path) -> Path:
 
 
 def _patch_empty_mindmemos(monkeypatch: Any) -> None:
-    from homemaster.cli import composition
+    from homemaster.application.composition import base as composition
 
     class EmptyMindMemOS:
         available = True
@@ -361,10 +362,11 @@ def _patch_empty_mindmemos(monkeypatch: Any) -> None:
             return []
 
         async def add_schema_episode(self, *_args: object, **_kwargs: object) -> object:
-            type_result = lambda **values: SimpleNamespace(
-                model_dump=lambda **_dump_kwargs: values,
-                **values,
-            )
+            def type_result(**values: object) -> SimpleNamespace:
+                return SimpleNamespace(
+                    model_dump=lambda **_dump_kwargs: values,
+                    **values,
+                )
             return SimpleNamespace(
                 add_record_id="alfworld-test-add",
                 result=SimpleNamespace(
@@ -506,14 +508,14 @@ def test_build_pinned_adapter_passes_first_trial_path_by_keyword(
         trace_root=tmp_path / "traces",
         env_type="AlfredThorEnv",
         provider_config=_provider_config(tmp_path),
+        use_isolated_worker=False,
     )
     runner = AlfworldBenchmarkRunner(config=config)
 
-    adapter = runner._build_pinned_adapter(  # noqa: SLF001
+    runner._build_pinned_adapter(  # noqa: SLF001
         SimpleNamespace(trial_id="case-1/traj_data.json")
     )
 
-    assert adapter._require_v18_reset is False  # noqa: SLF001
     assert observed == {
         "config": config,
         "first_trial_path": (
@@ -538,6 +540,14 @@ def test_terminal_harness_navigation_failure_wins_over_runtime_budget_error() ->
         == "harness_navigation_failure"
     )
     assert outcome.score_eligible is False
+
+
+def test_final_inventory_normalizes_worker_nested_lists() -> None:
+    assert _final_inventory([["RemoteControl"], "KeyChain"]) == (
+        "RemoteControl",
+        "KeyChain",
+    )
+    assert _final_inventory([]) is None
 
 
 def test_runner_uses_application_runtime_and_marks_success_on_env_won(
@@ -780,12 +790,12 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
 
         def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
             return AlfworldResetResult(
-                backend_kind="textworld",
+                backend_kind="thor",
                 ready=True,
                 state=self.current_state,
-                scene_generation=None,
+                scene_generation=1,
                 goal_generation=1,
-                scene_reset_fingerprint=None,
+                scene_reset_fingerprint="a" * 64,
                 goal_trial_fingerprint=selection_entry.goal_fingerprint,
                 snapshot_sha256=None,
                 snapshot_ref=None,
@@ -794,7 +804,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
                 classification=None,
                 score_eligible=True,
                 setup_backend_action_count=0,
-                recovery_status="not_applicable",
+                    recovery_status="not_needed",
                 cleanup_status="not_applicable",
                 quarantine_required=False,
                 environment_disposition="ready",
@@ -817,16 +827,16 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
                 task="put second pencil on shelf",
             )
             return AlfworldGoalAdvanceResult(
-                backend_kind="textworld",
+                backend_kind="thor",
                 ready=True,
                 state=self.current_state,
-                scene_generation=None,
+                scene_generation=1,
                 goal_generation=2,
-                scene_reset_fingerprint=None,
+                scene_reset_fingerprint="a" * 64,
                 goal_trial_fingerprint=selection_entry.goal_fingerprint,
-                snapshot_sha256=None,
-                before_scene_state_sha256=None,
-                after_scene_state_sha256=None,
+                snapshot_sha256="b" * 64,
+                before_scene_state_sha256="c" * 64,
+                after_scene_state_sha256="c" * 64,
                 advance_trigger=None,
                 advance_failure=None,
                 classification=None,
@@ -1058,6 +1068,7 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     class FakeTasksetAdapter:
         def __init__(self) -> None:
             self.current_state = state
+            self.harness = object()
             self.reset_calls = 0
             self.advance_goal_calls = 0
             self.close_calls = 0
@@ -1068,12 +1079,12 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
         def reset(self, *, selection_entry: Any) -> AlfworldResetResult:
             self.reset_calls += 1
             return AlfworldResetResult(
-                backend_kind="textworld",
+                backend_kind="thor",
                 ready=True,
                 state=self.current_state,
-                scene_generation=None,
+                scene_generation=1,
                 goal_generation=1,
-                scene_reset_fingerprint=None,
+                scene_reset_fingerprint="a" * 64,
                 goal_trial_fingerprint=selection_entry.goal_fingerprint,
                 snapshot_sha256=None,
                 snapshot_ref=None,
@@ -1082,7 +1093,7 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
                 classification=None,
                 score_eligible=True,
                 setup_backend_action_count=0,
-                recovery_status="not_applicable",
+                recovery_status="not_needed",
                 cleanup_status="not_applicable",
                 quarantine_required=False,
                 environment_disposition="ready",
@@ -1150,7 +1161,7 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
 
     monkeypatch.setattr(
         runner_module,
-        "AlfworldApplicationEntry",
+        "_ApplicationRuntimeHandle",
         TerminalApplicationEntry,
     )
     monkeypatch.setattr(
@@ -1194,6 +1205,7 @@ def test_taskset_runner_propagates_terminal_outcome_and_marks_remaining_not_run(
     assert len(observed_requests) == 1
     assert observed_requests[0].continuous_taskset is True
     assert observed_requests[0].environment is adapter
+    assert observed_requests[0].dependencies["alfworld_harness"] is adapter.harness
     assert adapter.reset_calls == 1
     assert adapter.advance_goal_calls == 0
     assert adapter.close_calls == 1
@@ -1257,9 +1269,9 @@ def test_taskset_reset_terminal_stops_before_model_and_transport(
                 backend_kind="thor",
                 ready=False,
                 state=None,
-                scene_generation=None,
+                scene_generation=1,
                 goal_generation=None,
-                scene_reset_fingerprint=None,
+                scene_reset_fingerprint="a" * 64,
                 goal_trial_fingerprint=None,
                 snapshot_sha256=None,
                 snapshot_ref=None,
@@ -1466,7 +1478,7 @@ def test_taskset_goal_terminal_stops_current_subtask_before_transport(
 
     monkeypatch.setattr(
         runner_module,
-        "AlfworldApplicationEntry",
+        "_ApplicationRuntimeHandle",
         SuccessfulApplicationEntry,
     )
     monkeypatch.setattr(

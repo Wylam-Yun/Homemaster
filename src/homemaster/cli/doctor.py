@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import os
+import select
 import subprocess
 import sys
 from pathlib import Path
@@ -57,6 +59,9 @@ def run_doctor(*, live: bool = False) -> DoctorReport:
     config_source = _config_source()
     checks.append(_python_environment_check())
     checks.extend(_import_checks())
+    checks.append(_mindmemos_blackbox_check())
+    checks.append(_alfworld_binding_check())
+    checks.append(_worker_protocol_check())
     checks.append(_config_check(config_source))
     checks.append(_embedding_endpoint_check())
     checks.append(_memory_backend_check())
@@ -78,12 +83,21 @@ def render_doctor_text(report: DoctorReport) -> str:
 def _python_environment_check() -> DoctorCheck:
     executable = Path(sys.executable)
     resolved = executable.resolve()
-    status: DoctorStatus = "PASS" if ".venv" in resolved.parts else "WARN"
+    managed_parts = (executable.parts, resolved.parts)
+    managed_runtime = any(
+        ".venv" in parts
+        or any(
+            parts[index : index + 2] == (".runtime", "venv")
+            for index in range(len(parts) - 1)
+        )
+        for parts in managed_parts
+    )
+    status: DoctorStatus = "PASS" if managed_runtime else "WARN"
     return DoctorCheck(
         name="python_environment",
         status=status,
         message=f"python={executable}",
-        suggestion="Use the project-managed .venv Python executable"
+        suggestion="Use the project-managed .runtime/venv Python executable"
         if status == "WARN"
         else None,
         details={"executable": str(executable)},
@@ -117,6 +131,177 @@ def _import_checks() -> list[DoctorCheck]:
         else:
             checks.append(DoctorCheck(name=f"import:{module}", status="PASS", message="import ok"))
     return checks
+
+
+def _mindmemos_blackbox_check() -> DoctorCheck:
+    """Prove the installed MindMemOS package and a real writable runtime root."""
+
+    try:
+        module = importlib.import_module("mindmemos")
+        origin = Path(getattr(module, "__file__", "")).resolve()
+        third_party = (REPO_ROOT / "third_party" / "MindMemOS").resolve()
+        if third_party in origin.parents:
+            return DoctorCheck(
+                name="mindmemos_runtime",
+                status="FAIL",
+                message="mindmemos resolves to the repository source tree",
+                suggestion="Install the locked local workspace dependency into .runtime/venv.",
+                details={"origin": str(origin)},
+            )
+        root = REPO_ROOT / ".runtime" / "doctor" / "mindmemos"
+        root.mkdir(parents=True, exist_ok=True)
+        marker = root / "blackbox.json"
+        payload = {"schema": "homemaster-mindmemos-doctor-v1", "pid": os.getpid()}
+        marker.write_text(json.dumps(payload), encoding="utf-8")
+        observed = json.loads(marker.read_text(encoding="utf-8"))
+        if observed != payload:
+            raise RuntimeError("MindMemOS runtime readback did not match the written state")
+    except Exception as exc:  # pragma: no cover - environment-specific
+        return DoctorCheck(
+            name="mindmemos_runtime",
+            status="FAIL",
+            message=f"MindMemOS import/read-write blackbox failed: {type(exc).__name__}",
+            suggestion="Run scripts/setup.sh in the project-managed runtime.",
+            details={"error": str(exc)},
+        )
+    return DoctorCheck(
+        name="mindmemos_runtime",
+        status="PASS",
+        message="MindMemOS import and runtime-root read/write blackbox passed",
+        details={"origin": str(origin), "marker": str(marker)},
+    )
+
+
+def _alfworld_binding_check() -> DoctorCheck:
+    binding = REPO_ROOT / ".runtime" / "alfworld-binding.json"
+    if not binding.is_file():
+        return DoctorCheck(
+            name="alfworld_binding",
+            status="FAIL",
+            message="ALFWorld runtime binding is missing",
+            suggestion="Run scripts/setup-alfworld.sh --root <alfworld checkout>.",
+            details={"binding": str(binding)},
+        )
+    try:
+        payload = json.loads(binding.read_text(encoding="utf-8"))
+        python = Path(payload["python"]).resolve(strict=True)
+        root = Path(payload["root"]).resolve(strict=True)
+        if not (root / "configs" / "base_config.yaml").is_file():
+            raise RuntimeError("configs/base_config.yaml is missing")
+        if not (root / "data" / "json_2.1.1").is_dir():
+            raise RuntimeError("data/json_2.1.1 is missing")
+        probe = subprocess.run(
+            [str(python), "-c", "import alfworld, ai2thor, torch, cv2, PIL, numpy"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode:
+            raise RuntimeError((probe.stderr or probe.stdout).strip()[-500:])
+    except Exception as exc:  # pragma: no cover - environment-specific
+        return DoctorCheck(
+            name="alfworld_binding",
+            status="FAIL",
+            message=f"ALFWorld binding/import check failed: {type(exc).__name__}",
+        suggestion=(
+            "Recreate the isolated worker environment from "
+            "config/alfworld/requirements.lock."
+        ),
+            details={"binding": str(binding), "error": str(exc)},
+        )
+    return DoctorCheck(
+        name="alfworld_binding",
+        status="PASS",
+        message="ALFWorld worker imports and asset binding passed",
+        details={"binding": str(binding), "python": str(python), "root": str(root)},
+    )
+
+
+def _worker_protocol_check() -> DoctorCheck:
+    worker = REPO_ROOT / "workers" / "alfworld_worker" / "main.py"
+    if not worker.is_file():
+        return DoctorCheck(
+            name="alfworld_worker_ipc",
+            status="FAIL",
+            message="isolated worker entrypoint is missing",
+            suggestion="Restore workers/alfworld_worker/main.py.",
+        )
+    binding = REPO_ROOT / ".runtime" / "alfworld-binding.json"
+    try:
+        payload = json.loads(binding.read_text(encoding="utf-8"))
+        python = Path(payload["python"]).resolve(strict=True)
+    except Exception as exc:
+        return DoctorCheck(
+            name="alfworld_worker_ipc",
+            status="FAIL",
+            message="worker IPC probe cannot resolve the ALFWorld Python binding",
+            details={"error": str(exc)},
+        )
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    process = subprocess.Popen(
+        [str(python), str(worker)],
+        cwd=str(worker.parent),
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert process.stdout is not None and process.stdin is not None
+        ready = _read_worker_line(process.stdout, timeout_s=5.0)
+        if ready.get("status") != "ready" or ready.get("external_return_code") != 0:
+            raise RuntimeError(f"unexpected ready response: {ready}")
+        request_id = "doctor-close"
+        process.stdin.write(
+            json.dumps(
+                {
+                    "protocol": "homemaster-alfworld-v1",
+                    "request_id": request_id,
+                    "operation": "close",
+                    "payload": {},
+                }
+            )
+            + "\n"
+        )
+        process.stdin.flush()
+        closed = _read_worker_line(process.stdout, timeout_s=5.0)
+        if closed.get("request_id") != request_id or closed.get("external_return_code") != 0:
+            raise RuntimeError(f"unexpected close response: {closed}")
+        return_code = process.wait(timeout=5)
+        if return_code != 0:
+            raise RuntimeError(f"worker exited with {return_code}")
+    except Exception as exc:  # pragma: no cover - environment-specific
+        process.kill()
+        process.wait(timeout=5)
+        return DoctorCheck(
+            name="alfworld_worker_ipc",
+            status="FAIL",
+            message=f"isolated reset/close protocol probe failed: {type(exc).__name__}",
+            suggestion="Run the worker directly and inspect its stderr before live THOR tests.",
+            details={"error": str(exc)},
+        )
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+    return DoctorCheck(
+        name="alfworld_worker_ipc",
+        status="PASS",
+        message="isolated worker ready/close protocol and process cleanup passed",
+    )
+
+
+def _read_worker_line(stream: Any, *, timeout_s: float) -> dict[str, Any]:
+    ready, _, _ = select.select([stream], [], [], timeout_s)
+    if not ready:
+        raise TimeoutError("worker response timed out")
+    line = stream.readline()
+    value = json.loads(line)
+    if not isinstance(value, dict):
+        raise RuntimeError("worker response is not an object")
+    return value
 
 
 def _config_source() -> str:

@@ -8,8 +8,9 @@ from dataclasses import replace
 from typing import Any
 
 from homemaster.permissions.resources import PhysicalDeviceAdapter
-from homemaster.tools.base import FunctionTool, ToolExecutionContext, normalize_tool_result
+from homemaster.tools.base import FunctionTool
 from homemaster.tools.contracts import (
+    ToolExecutionContext,
     ToolExecutionError,
     ToolExecutionResult,
     ToolExecutionStatus,
@@ -48,7 +49,12 @@ def from_registered_tool(
         value = await registered.executor.execute(arguments, context)
         if registered.verifier is not None and _verifier_applies(registered, value):
             value = await _verify_registered_tool(registered, value, context)
-        return normalize_tool_result(value)
+        if not isinstance(value, ToolExecutionResult):
+            raise TypeError(
+                f"registered tool {definition.model_alias!r} executor must return "
+                "ToolExecutionResult"
+            )
+        return value
 
     effects = tuple(getattr(definition, "state_effects", ()))
     verification_policy = definition.verification_policy

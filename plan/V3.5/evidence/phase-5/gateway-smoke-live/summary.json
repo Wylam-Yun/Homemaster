@@ -1,0 +1,11 @@
+{
+  "schema": "homemaster-v35-gateway-smoke-summary-v1",
+  "entries": [
+    {
+      "trial_index": 0,
+      "trial_id": "valid_unseen/pick_and_place_simple-SaltShaker-None-Drawer-10/trial_T20190909_021728_339782/traj_data.json",
+      "passed": true
+    }
+  ],
+  "passed": true
+}

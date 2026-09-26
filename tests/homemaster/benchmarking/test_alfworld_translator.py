@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from homemaster.benchmarking.alfworld.translator import (
+from homemaster.alfworld.benchmark.translator import (
     TranslatorValidationError,
     create_translator,
 )
 
 
-def test_textworld_translator_maps_core_actions() -> None:
+def test_thor_translator_maps_core_actions() -> None:
     translator = create_translator("AlfredThorEnv")
 
     assert translator.observe(mode="look") == "look"
@@ -45,7 +45,7 @@ def test_translator_rejects_missing_conditional_arguments() -> None:
         translator.manipulate(action="clean", object="mug 1")
 
 
-def test_public_action_schema_contains_textworld_put_template() -> None:
+def test_public_action_schema_contains_thor_put_template() -> None:
     translator = create_translator("AlfredThorEnv")
 
     schema = translator.public_action_schema()

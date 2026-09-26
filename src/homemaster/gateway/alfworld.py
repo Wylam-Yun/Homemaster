@@ -10,6 +10,24 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from homemaster.alfworld import AlfworldHarness
+from homemaster.alfworld.benchmark.translator import (
+    AlfworldCommandTranslator,
+    create_translator,
+)
+from homemaster.alfworld.tracing import (
+    AlfworldToolDispatchObserver,
+    AlfworldTraceWriter,
+)
+from homemaster.alfworld.trial_selection import (
+    TrialSelectionEntry,
+    load_trial_selection_manifest,
+)
+from homemaster.alfworld.types import (
+    AlfworldBenchmarkConfig,
+    EpisodeOutcome,
+)
+from homemaster.alfworld.worker_client import AlfworldWorkerClient, WorkerThorBackend
 from homemaster.application.contracts import (
     ResourceBinding,
     ResourceLifetime,
@@ -18,29 +36,13 @@ from homemaster.application.contracts import (
     RunStatus,
 )
 from homemaster.application.resources import RunResourceScope
-from homemaster.benchmarking.alfworld.http_client import AlfworldHttpEnvironment
-from homemaster.benchmarking.alfworld.tracing import (
-    AlfworldToolDispatchObserver,
-    AlfworldTraceWriter,
-)
-from homemaster.benchmarking.alfworld.translator import (
-    AlfworldCommandTranslator,
-    create_translator,
-)
-from homemaster.benchmarking.alfworld.trial_selection import (
-    TrialSelectionEntry,
-    load_trial_selection_manifest,
-)
-from homemaster.benchmarking.alfworld.types import (
-    AlfworldBenchmarkConfig,
-    EpisodeOutcome,
-)
 from homemaster.config import AlfworldGatewayConfig
 
 
 @dataclass(frozen=True)
 class AlfworldGatewayBinding:
-    adapter: AlfworldHttpEnvironment
+    adapter: AlfworldWorkerClient
+    harness: AlfworldHarness
     translator: AlfworldCommandTranslator
     terminal_owner: object
     dependencies: Mapping[str, object]
@@ -125,7 +127,7 @@ class AlfworldGatewayApplication:
 
 
 class _AlfworldTerminalOwner:
-    def __init__(self, adapter: AlfworldHttpEnvironment) -> None:
+    def __init__(self, adapter: AlfworldWorkerClient) -> None:
         self._adapter = adapter
 
     @property
@@ -266,7 +268,7 @@ async def create_alfworld_gateway_binding(
         trial_manifest=manifest_path,
     )
     adapter = await asyncio.to_thread(
-        AlfworldHttpEnvironment.start,
+        AlfworldWorkerClient.start,
         python_executable=python_executable,
         asset_root=asset_root,
         data_root=data_root,
@@ -285,8 +287,20 @@ async def create_alfworld_gateway_binding(
     )
     resource_scope.bind(
         ResourceBinding.owned(
-            "alfworld-http-environment",
+            "alfworld-worker-environment",
             adapter,
+            lifetime=ResourceLifetime.APPLICATION,
+        )
+    )
+
+    harness = AlfworldHarness(WorkerThorBackend(adapter))
+    reset_receipt = harness.reset(selection)
+    if reset_receipt.external_return_code != 0:
+        raise RuntimeError("ALFWorld Harness could not bind the reset worker state")
+    resource_scope.bind(
+        ResourceBinding.owned(
+            "alfworld-harness",
+            harness,
             lifetime=ResourceLifetime.APPLICATION,
         )
     )
@@ -303,10 +317,12 @@ async def create_alfworld_gateway_binding(
         "alfworld_tool_observer": AlfworldToolDispatchObserver(outcome),
         "external_terminal_owner": terminal_owner,
         "alfworld_semantic_judge_config": (asset_root / "configs" / "semantic_judge_agnes.yaml"),
+        "alfworld_harness": harness,
     }
     return (
         AlfworldGatewayBinding(
             adapter=adapter,
+            harness=harness,
             translator=translator,
             terminal_owner=terminal_owner,
             dependencies=dependencies,

@@ -23,10 +23,11 @@ class FakeMindMemOS:
 
     async def add_schema_episode(self, episode, context, *, metadata):
         self.calls.append((episode, context, metadata))
-        type_result = lambda **values: SimpleNamespace(
-            model_dump=lambda **_kwargs: values,
-            **values,
-        )
+        def type_result(**values: object) -> SimpleNamespace:
+            return SimpleNamespace(
+                model_dump=lambda **_kwargs: values,
+                **values,
+            )
         return SimpleNamespace(
             add_record_id="add-record-1",
             result=SimpleNamespace(
@@ -99,7 +100,9 @@ class FakeMindMemOS:
         return SimpleNamespace(status="ok", message=None, actions=[])
 
 
-def test_finalizer_rejects_memory_implementation_without_schema_episode_contract(tmp_path: Path) -> None:
+def test_finalizer_rejects_memory_implementation_without_schema_episode_contract(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(TypeError, match="add_schema_episode"):
         SessionFinalizer(
             trace_path=tmp_path / "runtime_events.jsonl",
@@ -203,7 +206,9 @@ def _write_semantic_events(path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalizer_submits_normalized_episode_without_internal_metadata(tmp_path: Path) -> None:
+async def test_finalizer_submits_normalized_episode_without_internal_metadata(
+    tmp_path: Path,
+) -> None:
     trace = tmp_path / "runtime_events.jsonl"
     _write_semantic_events(trace)
     mindmemos = FakeMindMemOS()

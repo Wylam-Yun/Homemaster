@@ -1,0 +1,33 @@
+Initialize AlfredThorEnv...
+Overall we have 192 games...
+Evaluating with 192 games
+Overall we have 192 games...
+Evaluating with 192 games
+Found path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64
+Mono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'
+Mono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'
+Preloaded 'ScreenSelector.so'
+Display 0 'screen': 1280x1024 (primary device).
+Logging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log
+ThorEnv started.
+Overall we have 192 games...
+Evaluating with 192 games
+Resetting ThorEnv
+Task: put some mug on desk
+Initialize AlfredThorEnv...
+Overall we have 192 games...
+Evaluating with 192 games
+Overall we have 192 games...
+Evaluating with 192 games
+Found path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64
+Mono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'
+Mono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'
+Preloaded 'ScreenSelector.so'
+Display 0 'screen': 1280x1024 (primary device).
+Logging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log
+ThorEnv started.
+Overall we have 192 games...
+Evaluating with 192 games
+Resetting ThorEnv
+Task: put some mug on desk
+ValueError: unsupported action kind

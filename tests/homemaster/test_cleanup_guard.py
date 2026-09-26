@@ -44,13 +44,7 @@ def test_cleanup_guard_has_no_unclassified_violations() -> None:
         capture_output=True,
     )
     assert result.stderr == ""
-    assert set(result.stdout.splitlines()) == {
-        "BLOCKED TEXT ['pipeline']: CLAUDE.md",
-        "BLOCKED TEXT ['pipeline']: docs/pitfalls.md",
-        "BLOCKED TEXT ['stage_']: src/homemaster/channels/impl/feishu.py",
-        "BLOCKED TEXT ['scenario']: src/homemaster/skills/bundled/content/test.md",
-        "BLOCKED TEXT ['pipeline']: tests/homemaster/tools/test_universal_registry.py",
-    }
+    assert result.stdout.splitlines() == []
 
 
 def test_cleanup_guard_allows_ordinary_deterministic_language(tmp_path, monkeypatch) -> None:

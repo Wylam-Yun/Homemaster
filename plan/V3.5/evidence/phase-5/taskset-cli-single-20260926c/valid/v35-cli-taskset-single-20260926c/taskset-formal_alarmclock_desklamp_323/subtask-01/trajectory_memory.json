@@ -1,0 +1,32 @@
+{
+  "classification": "agent_success",
+  "domain": "alfworld",
+  "episode_id": "formal_alarmclock_desklamp_323/subtask-01",
+  "failure_advice": [],
+  "failure_reason": null,
+  "failure_summary": [],
+  "final_environment_state": {
+    "done": false,
+    "goal_condition_success_rate": 1.0,
+    "invalid_action_count": 0,
+    "inventory": [
+      "AlarmClock"
+    ],
+    "step_index": 4,
+    "won": true
+  },
+  "goal_type": "look_at_obj_in_light",
+  "is_executable": false,
+  "outcome": "success",
+  "record_kind": "trajectory",
+  "run_id": "v35-cli-taskset-single-20260926c",
+  "schema_version": 1,
+  "source_session_id": "v35-cli-taskset-single-20260926c-formal_alarmclock_desklamp_323-subtask-01",
+  "source_trace_path": "/home/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/taskset-cli-single-20260926c/valid/v35-cli-taskset-single-20260926c/taskset-formal_alarmclock_desklamp_323/subtask-01/trace.jsonl",
+  "source_trace_sha256": "6580c6619615a3e1c26852c90325da6b52b5fc39246c35d9ae9f132db4b7e931",
+  "steps": [],
+  "subtask_index": 0,
+  "task": "Navigate to DeskLamp, take AlarmClock, navigate to DeskLamp, use DeskLamp, and stop when the goal is won.",
+  "taskset_id": "formal_alarmclock_desklamp_323",
+  "trajectory_id": "e61dcb61-6887-5b4f-93c0-3099f5028a19"
+}

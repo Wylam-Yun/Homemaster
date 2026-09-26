@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryRecord
 from homemaster.experience.alfworld_compile_jobs import AlfworldCompileJobService
 
 

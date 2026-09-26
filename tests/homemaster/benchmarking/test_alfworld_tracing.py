@@ -5,7 +5,7 @@ from pathlib import Path
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
 from homemaster.agent.session import AgentSession
-from homemaster.benchmarking.alfworld.tracing import (
+from homemaster.alfworld.tracing import (
     AlfworldTraceWriter,
     split_trace_bucket,
     write_readable_trajectories,

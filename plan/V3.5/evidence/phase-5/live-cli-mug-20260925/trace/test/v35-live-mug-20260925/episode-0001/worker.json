@@ -1,0 +1,3611 @@
+{
+  "schema": "homemaster-v35-worker-lifecycle-v1",
+  "worker_pid": 1432348,
+  "worker_exit_code": 0,
+  "request_history": [
+    {
+      "request_id": "unbound-f322c4c217d34de1a5194bcfc380705d",
+      "operation": "reset",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": true
+    },
+    {
+      "request_id": "unbound-c4423af60e46473884f862555d9f62f5",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-9ad5130e5a5b4a9dbf0199181787b315",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-b0ead93be1c941d9babb31e90babfebc",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-9ad1758631ff4cc58341681644d68833",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-23870988584746f3b42d2f3258ccbd89",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-4314530457884b7380d135a34d28a946",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-de97013f8d334f4082e181c4707bcaf2",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-7a3a0a1f7681448eb84cf9bdca61962f",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-83a5a402fda649fa8df6dd821caa35f3",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-685ffa925c2f40669c8fbf614719e7d2",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-d0da64df4f0f4875b247d157719ef235",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-021469bf098a4d89ba20a86a3f4f607c",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-cc90b7fa04d7471c81bbaef03f3b10b5",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-9dced25f4c734802bef1b8a7de3d9e07",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-1d7680778f724b5eb3ad71e6424b1b36",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-d56396e14be4408594f7b6e09685faef",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-568f29235f794d9384fe9629ea05a9f2",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-a7d02c93d15d4c908fc8ee7eefb44991",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-ec365c71d8e24e5d8a1a08a6a1cf4f21",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-fe8b61d20ce549f6a4cd97ac5f874d11",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-303e5b1b899341e58e47db42ae9a5eca",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-4c2640de2f16475d93739234a95f138f",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-5f92551007894d7e8a51cf6d7941ae92",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-5f5ce01c79164c7baab520dd7b226c78",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-06bf7a1d113145a5a890a1de55caffcf",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-f0b6b6da05814647abc010e9bc533a3a",
+      "operation": "observe",
+      "status": "ok",
+      "external_return_code": 0,
+      "backend_attempted": false
+    },
+    {
+      "request_id": "unbound-64ed73e8194343819cc08c0791b994a1",
+      "operation": "close",
+      "status": "closed",
+      "external_return_code": 0,
+      "backend_attempted": false
+    }
+  ],
+  "raw_state": {
+    "episode_id": "valid_unseen/pick_and_place_simple-Mug-None-Desk-308/trial_T20190908_125200_737896/traj_data.json",
+    "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a bed 1, a desk 1, a drawer 1, a drawer 2, a desk 2, a shelf 1, a shelf 2, a shelf 3, a shelf 4, a laundryhamper 1, a drawer 3, a safe 1, a garbagecan 1, a drawer 4, a drawer 5, a drawer 6, a shelf 5, and a shelf 6.\n\nYour task is to: put some mug on desk",
+    "logical_scene": "FloorPlan308",
+    "observation": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a bed 1, a desk 1, a drawer 1, a drawer 2, a desk 2, a shelf 1, a shelf 2, a shelf 3, a shelf 4, a laundryhamper 1, a drawer 3, a safe 1, a garbagecan 1, a drawer 4, a drawer 5, a drawer 6, a shelf 5, and a shelf 6.\n\nYour task is to: put some mug on desk",
+    "inventory": [],
+    "last_command": null,
+    "last_feedback": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a bed 1, a desk 1, a drawer 1, a drawer 2, a desk 2, a shelf 1, a shelf 2, a shelf 3, a shelf 4, a laundryhamper 1, a drawer 3, a safe 1, a garbagecan 1, a drawer 4, a drawer 5, a drawer 6, a shelf 5, and a shelf 6.\n\nYour task is to: put some mug on desk",
+    "reward": 0.0,
+    "done": false,
+    "won": false,
+    "goal_condition_success_rate": 0.0,
+    "frame_path": "/data1/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/live-cli-mug-20260925/trace/test/v35-live-mug-20260925/episode-0001/frames/frame-000001.png",
+    "frame_artifact": {
+      "path": "/data1/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/live-cli-mug-20260925/trace/test/v35-live-mug-20260925/episode-0001/frames/frame-000001.png",
+      "size": 88077,
+      "sha256": "b73835a6831ac51ad4739852768af334b727b630a37f4acf313b0f5eaf1ca8de",
+      "mime_type": "image/png"
+    },
+    "objects": [
+      {
+        "name": "CellPhone_ca4b3ad9(Clone)_copy_16",
+        "position": {
+          "x": -0.735577941,
+          "y": 0.858646154,
+          "z": -0.836806238
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": true,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.16,
+        "salientMaterials": [
+          "Metal",
+          "Glass"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.27383637,
+        "objectType": "CellPhone",
+        "objectId": "CellPhone|-00.74|+00.86|-00.84",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-00.57|+00.00|-01.35"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -0.6887148,
+              "y": 0.8557192,
+              "z": -0.7443959
+            },
+            {
+              "x": -0.7824411,
+              "y": 0.8557192,
+              "z": -0.7443959
+            },
+            {
+              "x": -0.7824411,
+              "y": 0.8557192,
+              "z": -0.9289721
+            },
+            {
+              "x": -0.6887148,
+              "y": 0.8557192,
+              "z": -0.9289721
+            },
+            {
+              "x": -0.6887148,
+              "y": 0.8705741,
+              "z": -0.7443959
+            },
+            {
+              "x": -0.7824411,
+              "y": 0.8705741,
+              "z": -0.7443959
+            },
+            {
+              "x": -0.7824411,
+              "y": 0.8705741,
+              "z": -0.9289721
+            },
+            {
+              "x": -0.6887148,
+              "y": 0.8705741,
+              "z": -0.9289721
+            }
+          ]
+        }
+      },
+      {
+        "name": "KeyChain_0522d00d(Clone)_copy_14",
+        "position": {
+          "x": -2.240416,
+          "y": 0.0304215811,
+          "z": 2.68283868
+        },
+        "rotation": {
+          "x": 0.00122769468,
+          "y": 179.9939,
+          "z": 358.8605
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.075,
+        "salientMaterials": [
+          "Metal",
+          "Plastic"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 5.49689341,
+        "objectType": "KeyChain",
+        "objectId": "KeyChain|-02.24|+00.04|+02.68",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Safe|-02.18|+00.00|+02.58"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -2.277033,
+              "y": 0.0275454186,
+              "z": 2.66912055
+            },
+            {
+              "x": -2.14043283,
+              "y": 0.03026248,
+              "z": 2.669135
+            },
+            {
+              "x": -2.1404376,
+              "y": 0.0302634,
+              "z": 2.7120893
+            },
+            {
+              "x": -2.27703786,
+              "y": 0.0275463387,
+              "z": 2.712075
+            },
+            {
+              "x": -2.27735662,
+              "y": 0.04380819,
+              "z": 2.66912
+            },
+            {
+              "x": -2.14075637,
+              "y": 0.04652525,
+              "z": 2.66913462
+            },
+            {
+              "x": -2.140761,
+              "y": 0.04652617,
+              "z": 2.712089
+            },
+            {
+              "x": -2.27736115,
+              "y": 0.04380911,
+              "z": 2.71207452
+            }
+          ]
+        }
+      },
+      {
+        "name": "Bowl_e11a5ffa(Clone)_copy_12",
+        "position": {
+          "x": -1.83404362,
+          "y": 0.886348665,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": true,
+        "isFilledWithLiquid": false,
+        "dirtyable": true,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.47,
+        "salientMaterials": [
+          "Glass"
+        ],
+        "receptacleObjectIds": [],
+        "distance": 3.72339034,
+        "objectType": "Bowl",
+        "objectId": "Bowl|-01.83|+00.89|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-01.58|+00.02|+00.67",
+          "Shelf|-01.96|+00.87|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.72748685,
+              "y": 0.8807978,
+              "z": 0.5160794
+            },
+            {
+              "x": -1.941289,
+              "y": 0.8807978,
+              "z": 0.5160794
+            },
+            {
+              "x": -1.941289,
+              "y": 0.8807978,
+              "z": 0.301690668
+            },
+            {
+              "x": -1.72748685,
+              "y": 0.8807978,
+              "z": 0.301690668
+            },
+            {
+              "x": -1.72748685,
+              "y": 1.01240253,
+              "z": 0.5160794
+            },
+            {
+              "x": -1.941289,
+              "y": 1.01240253,
+              "z": 0.5160794
+            },
+            {
+              "x": -1.941289,
+              "y": 1.01240253,
+              "z": 0.301690668
+            },
+            {
+              "x": -1.72748685,
+              "y": 1.01240253,
+              "z": 0.301690668
+            }
+          ]
+        }
+      },
+      {
+        "name": "Pen_2fb4e25b(Clone)_copy_9",
+        "position": {
+          "x": -1.91403115,
+          "y": 0.3850177,
+          "z": 0.6839214
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.00037496438
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.0599999949,
+        "salientMaterials": [
+          "Plastic",
+          "Metal"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.95751143,
+        "objectType": "Pen",
+        "objectId": "Pen|-01.91|+00.39|+00.68",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Drawer|-02.07|+00.49|+00.73"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.80628765,
+              "y": 0.377365559,
+              "z": 0.691239059
+            },
+            {
+              "x": -2.00881648,
+              "y": 0.377364218,
+              "z": 0.691239059
+            },
+            {
+              "x": -2.00881648,
+              "y": 0.377364218,
+              "z": 0.676603734
+            },
+            {
+              "x": -1.80628765,
+              "y": 0.377365559,
+              "z": 0.676603734
+            },
+            {
+              "x": -1.80628765,
+              "y": 0.392671257,
+              "z": 0.691239059
+            },
+            {
+              "x": -2.00881648,
+              "y": 0.392669916,
+              "z": 0.691239059
+            },
+            {
+              "x": -2.00881648,
+              "y": 0.392669916,
+              "z": 0.676603734
+            },
+            {
+              "x": -1.80628765,
+              "y": 0.392671257,
+              "z": 0.676603734
+            }
+          ]
+        }
+      },
+      {
+        "name": "AlarmClock_bd50a771(Clone)_copy_7",
+        "position": {
+          "x": -1.28610492,
+          "y": 1.7174232,
+          "z": 0.489406049
+        },
+        "rotation": {
+          "x": 1.74489724e-05,
+          "y": -0.0001431137,
+          "z": -1.959976e-05
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.8,
+        "salientMaterials": [
+          "Metal",
+          "Plastic",
+          "Glass"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.38444424,
+        "objectType": "AlarmClock",
+        "objectId": "AlarmClock|-01.29|+01.72|+00.49",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Shelf|-01.29|+01.72|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.19082534,
+              "y": 1.71448684,
+              "z": 0.534978151
+            },
+            {
+              "x": -1.38138473,
+              "y": 1.71448684,
+              "z": 0.5349777
+            },
+            {
+              "x": -1.38138449,
+              "y": 1.71448684,
+              "z": 0.443833917
+            },
+            {
+              "x": -1.1908251,
+              "y": 1.71448684,
+              "z": 0.4438344
+            },
+            {
+              "x": -1.19082534,
+              "y": 1.92545867,
+              "z": 0.5349782
+            },
+            {
+              "x": -1.38138461,
+              "y": 1.92545867,
+              "z": 0.534977734
+            },
+            {
+              "x": -1.38138437,
+              "y": 1.92545867,
+              "z": 0.443834
+            },
+            {
+              "x": -1.1908251,
+              "y": 1.92545867,
+              "z": 0.443834484
+            }
+          ]
+        }
+      },
+      {
+        "name": "KeyChain_0522d00d(Clone)_copy_4",
+        "position": {
+          "x": -2.2926743,
+          "y": 0.0304113645,
+          "z": 2.57598543
+        },
+        "rotation": {
+          "x": 0.0255215466,
+          "y": 179.985535,
+          "z": 358.88208
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.075,
+        "salientMaterials": [
+          "Metal",
+          "Plastic"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 5.457148,
+        "objectType": "KeyChain",
+        "objectId": "KeyChain|-02.29|+00.04|+02.58",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Safe|-02.18|+00.00|+02.58"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -2.32929039,
+              "y": 0.0275431778,
+              "z": 2.56226325
+            },
+            {
+              "x": -2.19268918,
+              "y": 0.0302087925,
+              "z": 2.56229639
+            },
+            {
+              "x": -2.19270015,
+              "y": 0.0302279275,
+              "z": 2.60525084
+            },
+            {
+              "x": -2.32930136,
+              "y": 0.02756231,
+              "z": 2.60521746
+            },
+            {
+              "x": -2.329608,
+              "y": 0.04380607,
+              "z": 2.56225586
+            },
+            {
+              "x": -2.19300652,
+              "y": 0.0464716852,
+              "z": 2.56228924
+            },
+            {
+              "x": -2.19301748,
+              "y": 0.04649082,
+              "z": 2.60524344
+            },
+            {
+              "x": -2.32961869,
+              "y": 0.0438252,
+              "z": 2.6052103
+            }
+          ]
+        }
+      },
+      {
+        "name": "Chair_9fa6161e",
+        "position": {
+          "x": -1.42373252,
+          "y": 0.5308338,
+          "z": 0.8031491
+        },
+        "rotation": {
+          "x": 2.584175,
+          "y": 27.1739063,
+          "z": 0.0542596728
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 10.0,
+        "salientMaterials": [
+          "Metal",
+          "Fabric"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.59174824,
+        "objectType": "Chair",
+        "objectId": "Chair|-01.42|+00.53|+00.80",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Drawer_27e13dfe",
+        "position": {
+          "x": -2.07476282,
+          "y": 0.7432,
+          "z": 0.7272298
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 4.08818626,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-02.07|+00.74|+00.73",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Desk_fe936fd5",
+        "position": {
+          "x": -1.581,
+          "y": 0.022,
+          "z": 0.66665107
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "AlarmClock|-02.09|+00.88|+00.58",
+          "Laptop|-01.78|+00.87|+00.73",
+          "Bowl|-01.83|+00.89|+00.41",
+          "CD|-01.22|+00.88|+00.83",
+          "DeskLamp|-02.30|+00.87|+00.75"
+        ],
+        "distance": 3.73346353,
+        "objectType": "Desk",
+        "objectId": "Desk|-01.58|+00.02|+00.67",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Book_b5ec5330",
+        "position": {
+          "x": 0.800964832,
+          "y": 0.783036,
+          "z": 0.7874603
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.5,
+        "salientMaterials": [
+          "Paper"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.157269,
+        "objectType": "Book",
+        "objectId": "Book|+00.80|+00.78|+00.79",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Bed|+01.23|+00.00|+01.67"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": 0.9046013,
+              "y": 0.781461,
+              "z": 0.9182006
+            },
+            {
+              "x": 0.689741135,
+              "y": 0.781461,
+              "z": 0.9182006
+            },
+            {
+              "x": 0.689741135,
+              "y": 0.781461,
+              "z": 0.656720042
+            },
+            {
+              "x": 0.9046013,
+              "y": 0.781461,
+              "z": 0.656720042
+            },
+            {
+              "x": 0.9046013,
+              "y": 0.8146133,
+              "z": 0.9182006
+            },
+            {
+              "x": 0.689741135,
+              "y": 0.8146133,
+              "z": 0.9182006
+            },
+            {
+              "x": 0.689741135,
+              "y": 0.8146133,
+              "z": 0.656720042
+            },
+            {
+              "x": 0.9046013,
+              "y": 0.8146133,
+              "z": 0.656720042
+            }
+          ]
+        }
+      },
+      {
+        "name": "Drawer_427dce2e",
+        "position": {
+          "x": -0.5054214,
+          "y": 0.4710002,
+          "z": -0.8529663
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "CreditCard|-00.47|+00.36|-00.93"
+        ],
+        "distance": 2.08907866,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-00.51|+00.47|-00.85",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "LaundryHamperLid_05dc426c",
+        "position": {
+          "x": 0.163023487,
+          "y": 0.4787645,
+          "z": 2.636052
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 86.39364,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 4.131245,
+        "objectType": "LaundryHamperLid",
+        "objectId": "LaundryHamperLid|+00.16|+00.48|+02.64",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Drawer_0596f75b",
+        "position": {
+          "x": -2.07476282,
+          "y": 0.494647682,
+          "z": 0.7272298
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "KeyChain|-01.99|+00.39|+00.65",
+          "Pen|-01.91|+00.39|+00.68"
+        ],
+        "distance": 4.1053,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-02.07|+00.49|+00.73",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Chair_40aa4a07",
+        "position": {
+          "x": -0.128509447,
+          "y": 0.5255193,
+          "z": -1.57708633
+        },
+        "rotation": {
+          "x": 359.844727,
+          "y": 134.328156,
+          "z": 1.316092
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 10.0,
+        "salientMaterials": [
+          "Metal",
+          "Fabric"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 1.70294261,
+        "objectType": "Chair",
+        "objectId": "Chair|-00.13|+00.53|-01.58",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Desk_a36afb2a",
+        "position": {
+          "x": -0.566,
+          "y": 0.0,
+          "z": -1.34672892
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "Pen|-00.74|+00.86|-01.70",
+          "CellPhone|-00.74|+00.86|-00.84",
+          "Bowl|-00.48|+00.86|-01.01"
+        ],
+        "distance": 2.25599456,
+        "objectType": "Desk",
+        "objectId": "Desk|-00.57|+00.00|-01.35",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "LaundryHamper_590d1c7e",
+        "position": {
+          "x": 0.163,
+          "y": 0.006,
+          "z": 2.636
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 86.39364,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 4.20589924,
+        "objectType": "LaundryHamper",
+        "objectId": "LaundryHamper|+00.16|+00.01|+02.64",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Drawer_5e1f4750",
+        "position": {
+          "x": -0.5054214,
+          "y": 0.189671516,
+          "z": -0.8529663
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 2.16456413,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-00.51|+00.19|-00.85",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Bed_2d3d5bb6",
+        "position": {
+          "x": 1.227,
+          "y": 0.0,
+          "z": 1.67
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": true,
+        "isDirty": true,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "Book|+00.80|+00.78|+00.79",
+          "Pillow|+01.41|+00.92|+01.37"
+        ],
+        "distance": 3.06801724,
+        "objectType": "Bed",
+        "objectId": "Bed|+01.23|+00.00|+01.67",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Drawer_dd4a4507",
+        "position": {
+          "x": -2.07476282,
+          "y": 0.212700054,
+          "z": 0.7272298
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 4.14271927,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-02.07|+00.21|+00.73",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Drawer_9b443906",
+        "position": {
+          "x": -0.5054214,
+          "y": 0.7240708,
+          "z": -0.8529663
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "Pencil|-00.51|+00.65|-00.69"
+        ],
+        "distance": 2.051988,
+        "objectType": "Drawer",
+        "objectId": "Drawer|-00.51|+00.72|-00.85",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "LightSwitch_c21071dc",
+        "position": {
+          "x": 2.15102935,
+          "y": 1.233,
+          "z": -0.518
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 270.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": true,
+        "isToggled": true,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 1.03435373,
+        "objectType": "LightSwitch",
+        "objectId": "LightSwitch|+02.15|+01.23|-00.52",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "AlarmClock_bd50a771",
+        "position": {
+          "x": -2.091723,
+          "y": 0.87232697,
+          "z": 0.581795454
+        },
+        "rotation": {
+          "x": 1.38202986e-05,
+          "y": -0.000503633,
+          "z": -3.622585e-05
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.8,
+        "salientMaterials": [
+          "Metal",
+          "Plastic",
+          "Glass"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 4.03196859,
+        "objectType": "AlarmClock",
+        "objectId": "AlarmClock|-02.09|+00.88|+00.58",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-01.58|+00.02|+00.67",
+          "Shelf|-01.96|+00.87|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.99644375,
+              "y": 0.869390547,
+              "z": 0.627368152
+            },
+            {
+              "x": -2.18700314,
+              "y": 0.869390666,
+              "z": 0.6273665
+            },
+            {
+              "x": -2.18700218,
+              "y": 0.869390666,
+              "z": 0.536222756
+            },
+            {
+              "x": -1.99644291,
+              "y": 0.869390547,
+              "z": 0.5362244
+            },
+            {
+              "x": -1.99644363,
+              "y": 1.08036232,
+              "z": 0.6273682
+            },
+            {
+              "x": -2.187003,
+              "y": 1.08036244,
+              "z": 0.627366543
+            },
+            {
+              "x": -2.18700218,
+              "y": 1.08036256,
+              "z": 0.536222756
+            },
+            {
+              "x": -1.99644279,
+              "y": 1.08036244,
+              "z": 0.5362245
+            }
+          ]
+        }
+      },
+      {
+        "name": "BasketBall_4d3c931a",
+        "position": {
+          "x": 1.9761951,
+          "y": 0.120000415,
+          "z": 0.2112078
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 331.0765,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.6,
+        "salientMaterials": [
+          "Rubber"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 1.72390521,
+        "objectType": "BasketBall",
+        "objectId": "BasketBall|+01.98|+00.12|+00.21",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": 2.02380848,
+              "y": -0.00304044783,
+              "z": 0.376584053
+            },
+            {
+              "x": 1.81084359,
+              "y": -0.00304044783,
+              "z": 0.258907169
+            },
+            {
+              "x": 1.92858171,
+              "y": -0.00304044783,
+              "z": 0.04583156
+            },
+            {
+              "x": 2.14154649,
+              "y": -0.00304044783,
+              "z": 0.163508445
+            },
+            {
+              "x": 2.02380848,
+              "y": 0.243041277,
+              "z": 0.376584053
+            },
+            {
+              "x": 1.81084359,
+              "y": 0.243041277,
+              "z": 0.258907169
+            },
+            {
+              "x": 1.92858171,
+              "y": 0.243041277,
+              "z": 0.04583156
+            },
+            {
+              "x": 2.14154649,
+              "y": 0.243041277,
+              "z": 0.163508445
+            }
+          ]
+        }
+      },
+      {
+        "name": "GarbageCan_3bb7551d",
+        "position": {
+          "x": -0.748,
+          "y": 0.0,
+          "z": -0.338
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 2.58786559,
+        "objectType": "GarbageCan",
+        "objectId": "GarbageCan|-00.75|+00.00|-00.34",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_bb926c4b",
+        "position": {
+          "x": -1.293752,
+          "y": 1.715191,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "AlarmClock|-01.29|+01.72|+00.49"
+        ],
+        "distance": 3.34896,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.29|+01.72|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_dccdecd5",
+        "position": {
+          "x": -1.293752,
+          "y": 1.342191,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 3.27830362,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.29|+01.34|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_b87097ca",
+        "position": {
+          "x": -1.9550519,
+          "y": 1.715191,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "CellPhone|-01.83|+01.72|+00.41"
+        ],
+        "distance": 3.9176352,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.96|+01.72|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_eb6beffc",
+        "position": {
+          "x": -1.293752,
+          "y": 0.873591,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [],
+        "distance": 3.248596,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.29|+00.87|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_00b56f03",
+        "position": {
+          "x": -1.9550519,
+          "y": 1.341191,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "Mug|-02.05|+01.35|+00.45"
+        ],
+        "distance": 3.85729527,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.96|+01.34|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Shelf_9cf415b6",
+        "position": {
+          "x": -1.9550519,
+          "y": 0.874191046,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "Bowl|-01.83|+00.89|+00.41",
+          "AlarmClock|-02.09|+00.88|+00.58",
+          "DeskLamp|-02.30|+00.87|+00.75"
+        ],
+        "distance": 3.83218956,
+        "objectType": "Shelf",
+        "objectId": "Shelf|-01.96|+00.87|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Pen_2fb4e25b",
+        "position": {
+          "x": -0.735577941,
+          "y": 0.8563641,
+          "z": -1.70286334
+        },
+        "rotation": {
+          "x": -0.000142866935,
+          "y": 1.0122821e-07,
+          "z": -0.000166805359
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.0599999949,
+        "salientMaterials": [
+          "Plastic",
+          "Metal"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.28142214,
+        "objectType": "Pen",
+        "objectId": "Pen|-00.74|+00.86|-01.70",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-00.57|+00.00|-01.35"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -0.627834439,
+              "y": 0.848710954,
+              "z": -1.69554567
+            },
+            {
+              "x": -0.8303633,
+              "y": 0.8487115,
+              "z": -1.69554567
+            },
+            {
+              "x": -0.8303633,
+              "y": 0.8487115,
+              "z": -1.710181
+            },
+            {
+              "x": -0.627834439,
+              "y": 0.8487109,
+              "z": -1.710181
+            },
+            {
+              "x": -0.627834439,
+              "y": 0.8640166,
+              "z": -1.69554567
+            },
+            {
+              "x": -0.8303633,
+              "y": 0.8640172,
+              "z": -1.69554567
+            },
+            {
+              "x": -0.8303633,
+              "y": 0.8640172,
+              "z": -1.710181
+            },
+            {
+              "x": -0.627834439,
+              "y": 0.8640166,
+              "z": -1.710181
+            }
+          ]
+        }
+      },
+      {
+        "name": "Laptop_50f3d2ae",
+        "position": {
+          "x": -1.783595,
+          "y": 0.8719339,
+          "z": 0.7320865
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": true,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": true,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 1.0,
+        "salientMaterials": [
+          "Metal",
+          "Plastic",
+          "Glass"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.83555841,
+        "objectType": "Laptop",
+        "objectId": "Laptop|-01.78|+00.87|+00.73",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-01.58|+00.02|+00.67"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.576023,
+              "y": 0.8719339,
+              "z": 0.8814996
+            },
+            {
+              "x": -1.991167,
+              "y": 0.8719339,
+              "z": 0.8814996
+            },
+            {
+              "x": -1.991167,
+              "y": 0.8719339,
+              "z": 0.59009403
+            },
+            {
+              "x": -1.576023,
+              "y": 0.8719339,
+              "z": 0.59009403
+            },
+            {
+              "x": -1.576023,
+              "y": 1.17214119,
+              "z": 0.8814996
+            },
+            {
+              "x": -1.991167,
+              "y": 1.17214119,
+              "z": 0.8814996
+            },
+            {
+              "x": -1.991167,
+              "y": 1.17214119,
+              "z": 0.59009403
+            },
+            {
+              "x": -1.576023,
+              "y": 1.17214119,
+              "z": 0.59009403
+            }
+          ]
+        }
+      },
+      {
+        "name": "BaseballBat_c36151df",
+        "position": {
+          "x": 1.953,
+          "y": 0.659,
+          "z": -1.81
+        },
+        "rotation": {
+          "x": 346.388153,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": true,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.9,
+        "salientMaterials": [
+          "Metal"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 0.7598503,
+        "objectType": "BaseballBat",
+        "objectId": "BaseballBat|+01.95|+00.66|-01.81",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": 2.01054549,
+              "y": 0.943524241,
+              "z": -1.82112134
+            },
+            {
+              "x": 2.01054263,
+              "y": -0.00289589167,
+              "z": -1.591951
+            },
+            {
+              "x": 2.01054263,
+              "y": -0.0293257833,
+              "z": -1.70110035
+            },
+            {
+              "x": 2.01054549,
+              "y": 0.91709435,
+              "z": -1.93027055
+            },
+            {
+              "x": 1.89672315,
+              "y": 0.943524539,
+              "z": -1.82112145
+            },
+            {
+              "x": 1.89672029,
+              "y": -0.002895534,
+              "z": -1.59195113
+            },
+            {
+              "x": 1.89672029,
+              "y": -0.0293254256,
+              "z": -1.70110035
+            },
+            {
+              "x": 1.89672315,
+              "y": 0.9170947,
+              "z": -1.93027067
+            }
+          ]
+        }
+      },
+      {
+        "name": "Bowl_e11a5ffa",
+        "position": {
+          "x": -0.483831167,
+          "y": 0.86127007,
+          "z": -1.01001763
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": true,
+        "isFilledWithLiquid": false,
+        "dirtyable": true,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.47,
+        "salientMaterials": [
+          "Glass"
+        ],
+        "receptacleObjectIds": [],
+        "distance": 1.99868858,
+        "objectType": "Bowl",
+        "objectId": "Bowl|-00.48|+00.86|-01.01",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-00.57|+00.00|-01.35"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -0.377274424,
+              "y": 0.8557192,
+              "z": -0.90151906
+            },
+            {
+              "x": -0.5910765,
+              "y": 0.8557192,
+              "z": -0.90151906
+            },
+            {
+              "x": -0.5910765,
+              "y": 0.8557192,
+              "z": -1.11590791
+            },
+            {
+              "x": -0.377274424,
+              "y": 0.8557192,
+              "z": -1.11590791
+            },
+            {
+              "x": -0.377274424,
+              "y": 0.9873239,
+              "z": -0.90151906
+            },
+            {
+              "x": -0.5910765,
+              "y": 0.9873239,
+              "z": -0.90151906
+            },
+            {
+              "x": -0.5910765,
+              "y": 0.9873239,
+              "z": -1.11590791
+            },
+            {
+              "x": -0.377274424,
+              "y": 0.9873239,
+              "z": -1.11590791
+            }
+          ]
+        }
+      },
+      {
+        "name": "Pillow_492a1c0b",
+        "position": {
+          "x": 1.40960121,
+          "y": 0.918681443,
+          "z": 1.36632764
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.7,
+        "salientMaterials": [
+          "Fabric"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.61794877,
+        "objectType": "Pillow",
+        "objectId": "Pillow|+01.41|+00.92|+01.37",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Bed|+01.23|+00.00|+01.67"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": 1.6307354,
+              "y": 0.781461,
+              "z": 1.51205754
+            },
+            {
+              "x": 1.188467,
+              "y": 0.781461,
+              "z": 1.51205754
+            },
+            {
+              "x": 1.188467,
+              "y": 0.781461,
+              "z": 1.22059774
+            },
+            {
+              "x": 1.6307354,
+              "y": 0.781461,
+              "z": 1.22059774
+            },
+            {
+              "x": 1.6307354,
+              "y": 1.05590189,
+              "z": 1.51205754
+            },
+            {
+              "x": 1.188467,
+              "y": 1.05590189,
+              "z": 1.51205754
+            },
+            {
+              "x": 1.188467,
+              "y": 1.05590189,
+              "z": 1.22059774
+            },
+            {
+              "x": 1.6307354,
+              "y": 1.05590189,
+              "z": 1.22059774
+            }
+          ]
+        }
+      },
+      {
+        "name": "KeyChain_0522d00d",
+        "position": {
+          "x": -1.99427259,
+          "y": 0.3804167,
+          "z": 0.646231651
+        },
+        "rotation": {
+          "x": 0.988559544,
+          "y": 359.976379,
+          "z": 358.924377
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.075,
+        "salientMaterials": [
+          "Metal",
+          "Plastic"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 4.00956869,
+        "objectType": "KeyChain",
+        "objectId": "KeyChain|-01.99|+00.39|+00.65",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Drawer|-02.07|+00.49|+00.73"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.9576565,
+              "y": 0.377345473,
+              "z": 0.659910142
+            },
+            {
+              "x": -2.09425974,
+              "y": 0.379909843,
+              "z": 0.659898043
+            },
+            {
+              "x": -2.09424186,
+              "y": 0.380650938,
+              "z": 0.616950035
+            },
+            {
+              "x": -1.95763874,
+              "y": 0.378086537,
+              "z": 0.616962135
+            },
+            {
+              "x": -1.95735121,
+              "y": 0.393606156,
+              "z": 0.6601908
+            },
+            {
+              "x": -2.09395432,
+              "y": 0.396170557,
+              "z": 0.6601787
+            },
+            {
+              "x": -2.09393668,
+              "y": 0.396911621,
+              "z": 0.6172308
+            },
+            {
+              "x": -1.95733356,
+              "y": 0.39434725,
+              "z": 0.6172429
+            }
+          ]
+        }
+      },
+      {
+        "name": "CreditCard_3e601b13",
+        "position": {
+          "x": -0.473243952,
+          "y": 0.364877433,
+          "z": -0.933289051
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.0599999949,
+        "salientMaterials": [
+          "Plastic"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.06916022,
+        "objectType": "CreditCard",
+        "objectId": "CreditCard|-00.47|+00.36|-00.93",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Drawer|-00.51|+00.47|-00.85"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -0.4293924,
+              "y": 0.362881452,
+              "z": -0.9055862
+            },
+            {
+              "x": -0.5170955,
+              "y": 0.362881452,
+              "z": -0.9055862
+            },
+            {
+              "x": -0.5170955,
+              "y": 0.362881452,
+              "z": -0.9609919
+            },
+            {
+              "x": -0.4293924,
+              "y": 0.362881452,
+              "z": -0.9609919
+            },
+            {
+              "x": -0.4293924,
+              "y": 0.370673448,
+              "z": -0.9055862
+            },
+            {
+              "x": -0.5170955,
+              "y": 0.370673448,
+              "z": -0.9055862
+            },
+            {
+              "x": -0.5170955,
+              "y": 0.370673448,
+              "z": -0.9609919
+            },
+            {
+              "x": -0.4293924,
+              "y": 0.370673448,
+              "z": -0.9609919
+            }
+          ]
+        }
+      },
+      {
+        "name": "CellPhone_ca4b3ad9",
+        "position": {
+          "x": -1.83404386,
+          "y": 1.72438323,
+          "z": 0.4075809
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": true,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.16,
+        "salientMaterials": [
+          "Metal",
+          "Glass"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.81331682,
+        "objectType": "CellPhone",
+        "objectId": "CellPhone|-01.83|+01.72|+00.41",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Shelf|-01.96|+01.72|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.78718066,
+              "y": 1.72145629,
+              "z": 0.499991238
+            },
+            {
+              "x": -1.880907,
+              "y": 1.72145629,
+              "z": 0.499991238
+            },
+            {
+              "x": -1.880907,
+              "y": 1.72145629,
+              "z": 0.315415025
+            },
+            {
+              "x": -1.78718066,
+              "y": 1.72145629,
+              "z": 0.315415025
+            },
+            {
+              "x": -1.78718066,
+              "y": 1.7363112,
+              "z": 0.499991238
+            },
+            {
+              "x": -1.880907,
+              "y": 1.7363112,
+              "z": 0.499991238
+            },
+            {
+              "x": -1.880907,
+              "y": 1.7363112,
+              "z": 0.315415025
+            },
+            {
+              "x": -1.78718066,
+              "y": 1.7363112,
+              "z": 0.315415025
+            }
+          ]
+        }
+      },
+      {
+        "name": "Mirror_7e0f60c3",
+        "position": {
+          "x": -1.358,
+          "y": 1.428,
+          "z": 2.855987
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": -4.78113179e-05,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": true,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 5.03041,
+        "objectType": "Mirror",
+        "objectId": "Mirror|-01.36|+01.43|+02.86",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "DeskLamp_a7394b86",
+        "position": {
+          "x": -2.29813218,
+          "y": 0.87316215,
+          "z": 0.751002431
+        },
+        "rotation": {
+          "x": 359.953827,
+          "y": 359.9835,
+          "z": 359.064331
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": true,
+        "isToggled": true,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 4.29308653,
+        "objectType": "DeskLamp",
+        "objectId": "DeskLamp|-02.30|+00.87|+00.75",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-01.58|+00.02|+00.67",
+          "Shelf|-01.96|+00.87|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "CD_05a2c75a",
+        "position": {
+          "x": -1.22414875,
+          "y": 0.873150945,
+          "z": 0.832937539
+        },
+        "rotation": {
+          "x": 4.120733e-07,
+          "y": -0.000356877339,
+          "z": 1.76782237e-06
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.0149999987,
+        "salientMaterials": [
+          "Plastic"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 3.42934251,
+        "objectType": "CD",
+        "objectId": "CD|-01.22|+00.88|+00.83",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Desk|-01.58|+00.02|+00.67"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.168033,
+              "y": 0.871544242,
+              "z": 0.889413059
+            },
+            {
+              "x": -1.28026521,
+              "y": 0.871544242,
+              "z": 0.8894124
+            },
+            {
+              "x": -1.2802645,
+              "y": 0.871544242,
+              "z": 0.776462
+            },
+            {
+              "x": -1.16803229,
+              "y": 0.871544242,
+              "z": 0.7764627
+            },
+            {
+              "x": -1.168033,
+              "y": 0.8764434,
+              "z": 0.889413059
+            },
+            {
+              "x": -1.28026521,
+              "y": 0.8764434,
+              "z": 0.8894124
+            },
+            {
+              "x": -1.2802645,
+              "y": 0.8764434,
+              "z": 0.776462
+            },
+            {
+              "x": -1.16803229,
+              "y": 0.8764434,
+              "z": 0.7764627
+            }
+          ]
+        }
+      },
+      {
+        "name": "Window_b6bb1d2b",
+        "position": {
+          "x": -0.421,
+          "y": 1.534,
+          "z": -1.947
+        },
+        "rotation": {
+          "x": 90.0,
+          "y": 6.278574e-05,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 2.13933182,
+        "objectType": "Window",
+        "objectId": "Window|-00.42|+01.53|-01.95",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Window_a1995e24",
+        "position": {
+          "x": 0.58,
+          "y": 1.534,
+          "z": -1.94725156
+        },
+        "rotation": {
+          "x": 90.0,
+          "y": 6.278574e-05,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 1.31652951,
+        "objectType": "Window",
+        "objectId": "Window|+00.58|+01.53|-01.95",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Pencil_f507937c",
+        "position": {
+          "x": -0.5115827,
+          "y": 0.6457994,
+          "z": -0.692579031
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": -0.000193150845
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 0.0599999949,
+        "salientMaterials": [
+          "Wood"
+        ],
+        "receptacleObjectIds": null,
+        "distance": 2.10292888,
+        "objectType": "Pencil",
+        "objectId": "Pencil|-00.51|+00.65|-00.69",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Drawer|-00.51|+00.72|-00.85"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -0.4117473,
+              "y": 0.640123665,
+              "z": -0.68700546
+            },
+            {
+              "x": -0.603732169,
+              "y": 0.6401243,
+              "z": -0.68700546
+            },
+            {
+              "x": -0.603732169,
+              "y": 0.6401243,
+              "z": -0.6981526
+            },
+            {
+              "x": -0.4117473,
+              "y": 0.640123665,
+              "z": -0.6981526
+            },
+            {
+              "x": -0.411747247,
+              "y": 0.6514744,
+              "z": -0.68700546
+            },
+            {
+              "x": -0.603732169,
+              "y": 0.6514751,
+              "z": -0.68700546
+            },
+            {
+              "x": -0.603732169,
+              "y": 0.6514751,
+              "z": -0.6981526
+            },
+            {
+              "x": -0.411747247,
+              "y": 0.6514744,
+              "z": -0.6981526
+            }
+          ]
+        }
+      },
+      {
+        "name": "Safe_b9e81652",
+        "position": {
+          "x": -2.184,
+          "y": 8.225441e-05,
+          "z": 2.576
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 180.000168,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": [
+          "KeyChain|-02.29|+00.04|+02.58",
+          "KeyChain|-02.24|+00.04|+02.68"
+        ],
+        "distance": 5.387187,
+        "objectType": "Safe",
+        "objectId": "Safe|-02.18|+00.00|+02.58",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Mug_a12c171b",
+        "position": {
+          "x": -2.04559612,
+          "y": 1.34103012,
+          "z": 0.448493481
+        },
+        "rotation": {
+          "x": 1.1402547e-05,
+          "y": -3.66589047e-05,
+          "z": 3.35377649e-07
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": true,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": true,
+        "isBroken": false,
+        "canFillWithLiquid": true,
+        "isFilledWithLiquid": false,
+        "dirtyable": true,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": false,
+        "isOpen": false,
+        "pickupable": true,
+        "isPickedUp": false,
+        "mass": 1.0,
+        "salientMaterials": [
+          "Ceramic"
+        ],
+        "receptacleObjectIds": [],
+        "distance": 3.95597768,
+        "objectType": "Mug",
+        "objectId": "Mug|-02.05|+01.35|+00.45",
+        "parentReceptacle": null,
+        "parentReceptacles": [
+          "Shelf|-01.96|+01.34|+00.41"
+        ],
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": {
+          "objectBoundsCorners": [
+            {
+              "x": -1.985753,
+              "y": 1.34103012,
+              "z": 0.5058525
+            },
+            {
+              "x": -2.13024378,
+              "y": 1.34103012,
+              "z": 0.5058524
+            },
+            {
+              "x": -2.13024378,
+              "y": 1.34103012,
+              "z": 0.3911344
+            },
+            {
+              "x": -1.985753,
+              "y": 1.34103012,
+              "z": 0.3911345
+            },
+            {
+              "x": -1.985753,
+              "y": 1.45284379,
+              "z": 0.5058525
+            },
+            {
+              "x": -2.13024378,
+              "y": 1.45284379,
+              "z": 0.505852461
+            },
+            {
+              "x": -2.13024378,
+              "y": 1.45284379,
+              "z": 0.391134441
+            },
+            {
+              "x": -1.985753,
+              "y": 1.45284379,
+              "z": 0.39113453
+            }
+          ]
+        }
+      },
+      {
+        "name": "Blinds_5f9aa6d8",
+        "position": {
+          "x": 0.601,
+          "y": 2.162,
+          "z": -1.9161
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 1.68582714,
+        "objectType": "Blinds",
+        "objectId": "Blinds|+00.60|+02.16|-01.92",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      },
+      {
+        "name": "Blinds_eff6405f",
+        "position": {
+          "x": -0.403,
+          "y": 2.162,
+          "z": -1.9161
+        },
+        "rotation": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "cameraHorizon": 0.0,
+        "visible": false,
+        "receptacle": false,
+        "toggleable": false,
+        "isToggled": false,
+        "breakable": false,
+        "isBroken": false,
+        "canFillWithLiquid": false,
+        "isFilledWithLiquid": false,
+        "dirtyable": false,
+        "isDirty": false,
+        "canBeUsedUp": false,
+        "isUsedUp": false,
+        "cookable": false,
+        "isCooked": false,
+        "ObjectTemperature": "RoomTemp",
+        "canChangeTempToHot": false,
+        "canChangeTempToCold": false,
+        "sliceable": false,
+        "isSliced": false,
+        "openable": true,
+        "isOpen": false,
+        "pickupable": false,
+        "isPickedUp": false,
+        "mass": 0.0,
+        "salientMaterials": null,
+        "receptacleObjectIds": null,
+        "distance": 2.37807083,
+        "objectType": "Blinds",
+        "objectId": "Blinds|-00.40|+02.16|-01.92",
+        "parentReceptacle": null,
+        "parentReceptacles": null,
+        "currentTime": 0.0,
+        "isMoving": false,
+        "objectBounds": null
+      }
+    ],
+    "agent_pose": {
+      "name": "agent",
+      "position": {
+        "x": 1.5,
+        "y": 0.9009992,
+        "z": -1.25
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 180.0,
+        "z": 0.0
+      },
+      "cameraHorizon": 30.0000038,
+      "visible": false,
+      "receptacle": false,
+      "toggleable": false,
+      "isToggled": false,
+      "breakable": false,
+      "isBroken": false,
+      "canFillWithLiquid": false,
+      "isFilledWithLiquid": false,
+      "dirtyable": false,
+      "isDirty": false,
+      "canBeUsedUp": false,
+      "isUsedUp": false,
+      "cookable": false,
+      "isCooked": false,
+      "ObjectTemperature": null,
+      "canChangeTempToHot": false,
+      "canChangeTempToCold": false,
+      "sliceable": false,
+      "isSliced": false,
+      "openable": false,
+      "isOpen": false,
+      "pickupable": false,
+      "isPickedUp": false,
+      "mass": 0.0,
+      "salientMaterials": null,
+      "receptacleObjectIds": null,
+      "distance": 0.0,
+      "objectType": null,
+      "objectId": null,
+      "parentReceptacle": null,
+      "parentReceptacles": null,
+      "currentTime": 0.0,
+      "isMoving": false,
+      "objectBounds": null
+    },
+    "step_index": 0,
+    "invalid_action_count": 0,
+    "admissible_commands": [
+      "go to bed 1",
+      "go to desk 1",
+      "go to drawer 1",
+      "go to drawer 2",
+      "go to desk 2",
+      "go to shelf 1",
+      "go to shelf 2",
+      "go to shelf 3",
+      "go to shelf 4",
+      "go to laundryhamper 1",
+      "go to drawer 3",
+      "go to safe 1",
+      "go to garbagecan 1",
+      "go to drawer 4",
+      "go to drawer 5",
+      "go to drawer 6",
+      "go to shelf 5",
+      "go to shelf 6",
+      "inventory",
+      "look",
+      "help"
+    ]
+  },
+  "close": {
+    "status": "succeeded",
+    "evidence_ref": "worker:1432348:close",
+    "request": {
+      "request_id": "unbound-64ed73e8194343819cc08c0791b994a1",
+      "operation": "close",
+      "status": "closed",
+      "external_return_code": 0,
+      "backend_attempted": false
+    }
+  },
+  "stderr_path": "plan/V3.5/evidence/phase-5/live-cli-mug-20260925/trace/test/v35-live-mug-20260925/episode-0001/worker.stderr.log",
+  "stderr": "Initialize AlfredThorEnv...\nOverall we have 192 games...\nEvaluating with 192 games\nOverall we have 192 games...\nEvaluating with 192 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 192 games...\nEvaluating with 192 games\nResetting ThorEnv\nTask: put a mug in desk\n",
+  "cleanup": {
+    "worker_exited": true
+  }
+}

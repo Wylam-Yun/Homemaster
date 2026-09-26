@@ -1,0 +1,32 @@
+{
+  "classification": "agent_model_failure",
+  "domain": "alfworld",
+  "episode_id": "formal_alarmclock_desklamp_323/subtask-01",
+  "failure_advice": [],
+  "failure_reason": "max_consecutive_tool_errors",
+  "failure_summary": [],
+  "final_environment_state": {
+    "done": false,
+    "goal_condition_success_rate": 0.5,
+    "invalid_action_count": 0,
+    "inventory": [
+      "AlarmClock"
+    ],
+    "step_index": 5,
+    "won": false
+  },
+  "goal_type": "look_at_obj_in_light",
+  "is_executable": false,
+  "outcome": "failure",
+  "record_kind": "trajectory",
+  "run_id": "v35-cli-taskset-single-20260926b",
+  "schema_version": 1,
+  "source_session_id": "v35-cli-taskset-single-20260926b-formal_alarmclock_desklamp_323-subtask-01",
+  "source_trace_path": "/home/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/taskset-cli-single-20260926b/valid/v35-cli-taskset-single-20260926b/taskset-formal_alarmclock_desklamp_323/subtask-01/trace.jsonl",
+  "source_trace_sha256": "e9aa0f2aaf021eda3824bbc599df605f780a78fd1addd9707728ec5af7802797",
+  "steps": [],
+  "subtask_index": 0,
+  "task": "look at the alarm clock under the desk lamp",
+  "taskset_id": "formal_alarmclock_desklamp_323",
+  "trajectory_id": "37104e95-1757-5bd6-992d-6ca2f8ff4a62"
+}

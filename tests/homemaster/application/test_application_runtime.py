@@ -2102,7 +2102,11 @@ async def test_cancel_does_not_wait_for_blocked_tool_or_publish_run_local_task_s
     blocking = _BlockingTaskStateExecutor(terminal_path)
     base = make_task_progress_check_tool()
     tool = RegisteredTool(
-        definition=replace(base.definition, internal_id="test.blocking_state.v1", state_effects=("external.write",)),
+        definition=replace(
+            base.definition,
+            internal_id="test.blocking_state.v1",
+            state_effects=("external.write",),
+        ),
         executor=blocking,
     )
     transport = _FakeTransport(

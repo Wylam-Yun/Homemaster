@@ -1,3 +1,59 @@
+## 2026-09-26 - Raw THOR metadata selected the wrong duplicate object
+
+- 症状：`look_at_obj_in_light` 中 `take` 成功，但 `use desklamp` 对两个同名灯具盲取第一个
+  raw metadata ID；Unity 返回 `object not found`，单测仍可通过。
+- 根因：worker 绕过 Oracle controller 的稳定 identity，并且远端 source checkout 的
+  `WorkerAlfworldAdapter` 还硬编码关闭了 off-screen navigation；本地 source、远端 checkout 和
+  installed package 没有一起核对。
+- 修法/教训：优先使用 trial plan 的精确 object ID，并与 Oracle map/当前 metadata 交叉校验；
+  目标不可见时冻结并逐个验证 deterministic TeleportFull pose，再执行动作；远端 live 命令必须
+  显式固定 `PYTHONPATH`、checkout、binding 和 evidence root，并核对 worker identity 配置。
+- Ref: `workers/alfworld_worker/thor_backend.py`,
+  `src/homemaster/alfworld/benchmark/worker_adapter.py`,
+  `plan/V3.5/evidence/phase-5/live-worker-use-20260926/worker-use.json`
+
+## 2026-09-26 - Close SIGINT interrupted the receipt it was supposed to reconcile
+
+- 症状：action 边界的真实 SIGINT 能在 close 前收到 late receipt，但 close
+  边界的 SIGINT 直接打断了 `_read_response()`，旧黑盒只能看到强制清理，
+  没有 close receipt。
+- 根因：close 生命周期没有暂时接管进程 SIGINT；Python 默认 handler 越过了
+  receipt reconciliation 和外部 cleanup gate。
+- 修法/教训：close 阶段延迟 SIGINT，先完成同一 close request 的 receipt、返回码
+  和 worker wait，再恢复信号；live gate 必须检查 close receipt、worker/descendant
+  终态和 stderr，而不是只检查“开始清理”日志。
+- Ref: `src/homemaster/alfworld/worker_client.py`,
+  `scripts/verify_v35_sigint_live.py`,
+  `plan/V3.5/evidence/phase-5/sigint-20260926/sigint.json`
+
+## 2026-09-25 - Versioned worker operation was added to only one protocol implementation
+
+- 症状：主端 client/schema 接受了 `set_task`，但真实独立 worker 用 `external_return_code=64` 将它拒绝为 unsupported operation；主端单测仍然通过。
+- 根因：`src/homemaster/alfworld/worker_protocol.py` 与 schema 已更新，独立 source tree 的 `workers/alfworld_worker/protocol.py` 仍保留旧 operation enum。
+- 修法/教训：协议变更必须同步主端、worker、schema 和所有实现，并用真实 worker 黑盒验证每个 operation 的返回码；接口审计不能只检查主包。
+- Ref: `src/homemaster/alfworld/worker_protocol.py`, `workers/alfworld_worker/protocol.py`, `scripts/verify_v35_taskset_worker_live.py`, `plan/V3.5/evidence/phase-5/taskset-worker-easy_living_room_219/`
+
+## 2026-09-25 - Live evidence can target the wrong checkout or invent cleanup success
+
+- 症状：一次远端 live pytest 通过，但 episode JSON 被写入原始 `Homemaster` checkout；另一次 taskset evidence 把无法观测的 THOR PID 写成了 `process_alive_after_close=false`。
+- 根因：测试进程继承了旧的 evidence-root 环境值；证据脚本把“没有 controller `_process`”与“进程已退出”混为一谈。
+- 修法/教训：远端命令显式固定 checkout、asset、manifest 和 evidence root；进程清理必须从外部 `ps` 采集启动前后的 PID 集合，未知状态写 `null`，不能写成功布尔值。证据路径和每个实例的外部终态要在复制回本地后再次断言。
+- Ref: `tests/homemaster/alfworld/test_worker_live.py`, `scripts/verify_v35_taskset_live.py`, `plan/V3.5/evidence/phase-5/`
+
+## 2026-09-24 - Shadow DOM handles and state snapshots can become misaligned
+
+- 症状：V3.1 browser black-box 的 `find({name: "Shadow action"})` 找不到明明存在且可见的 open-shadow-root 控件。
+- 根因：Playwright 的 `query_selector_all` 已穿透 shadow root，但同一轮的 `document.querySelectorAll` 状态快照没有；按位置 `zip` 两列后，handle 和状态错位，过滤阶段丢弃了目标。
+- 修法/教训：收集 handles 与状态后先核对长度；不一致时逐 handle 读取状态，保持身份对齐。涉及跨执行环境的两组结果，不能假设集合顺序或数量天然一致。
+- Ref: `src/homemaster/browser/inspection.py`, `tests/homemaster/browser/test_v31_playwright_blackbox.py`
+
+## 2026-09-24 - ALFWorld worker stdout 污染 NDJSON
+
+- 症状：真实 THOR worker 的 reset 在 HomeMaster client 侧报 `invalid worker response`，stderr 没有 traceback；直接读取 stdout 可见 `Found path`、`Mono path`、`Display` 等 Unity 日志。
+- 根因：AI2-THOR/Unity 子进程继承 worker 的 stdout fd，第三方 Python 日志和 Unity 启动日志与协议响应共用 NDJSON 通道。
+- 修法/教训：worker 在 reset/observe/act/close 的外部调用边界临时把 Python stdout 和 fd 1 重定向到 stderr，协议 emit 只在边界外写 stdout；live acceptance 必须同时核对可解析协议、外部返回码、真实 frame/action 终态、worker 退出码和 stderr。
+- ref: `workers/alfworld_worker/__main__.py`, `tests/homemaster/alfworld/test_worker_live.py`
+
 ## 2026-09-19 - Fixed schema ingress bypassed chunking and rejected a long trajectory
 
 The 144618 pan run produced 526,321 canonical UTF-8 bytes, exceeding the 524,288-byte ingress gate before the native
@@ -2646,3 +2702,33 @@ Ruff 从当前目录向上发现配置。隔离 `/tmp` 不在 HomeMaster 仓库�
 - `src/homemaster/benchmarking/alfworld/execution.py`
 - `var/alfworld-evidence/20260712-preimplementation/shelf-characterization-v3/summary.json`
 - `var/alfworld-evidence/20260712-preimplementation/product-harness-v2/shelf-{3,4,6}/result.json`
+## 2026-09-24 - Canonical result migration leaked internal evidence and loaded a stale remote package
+
+- 症状：canonical migration 后 memory procedure 回归在 provider stream 阶段失败，或消息 deep-copy 报
+  `cannot pickle 'mappingproxy' object`；远端 live worker 还会从错误的 `/red_bird/workers` 路径启动。
+- 根因：`ToolExecutionResult.data` 是递归 immutable mapping，application 直接把它放入 Pydantic message；
+  `to_message()` 也把内部 evidence refs 放进 provider content。远端工作树另有未跟踪的根目录 `homemaster/`
+  副本，cwd 优先加载它后 `Path(__file__).parents[3]` 不再指向 checkout 根目录。
+- 修法/教训：消息边界只接收 `to_dict()` 的普通 JSON，并从 provider payload 删除 evidence refs；同步远端时
+  只同步单个目录并清理确认过的未跟踪 stale package，live gate 要核对实际加载路径和 worker cwd。
+- ref: `src/homemaster/application/tool_executor.py`, `src/homemaster/tools/contracts.py`,
+  `src/homemaster/alfworld/worker_client.py`, `tests/homemaster/alfworld/test_worker_live.py`
+## 2026-09-25 - THOR scene metadata carries a physics suffix
+
+- 症状：worker reset correctly selected the manifest trial, but the strict scene check rejected `FloorPlan308_physics` against manifest identity `FloorPlan308`.
+- 根因：AI2-THOR exposes the runtime controller scene name with the `_physics` suffix while ALFWorld trial data stores the logical floor plan name.
+- 修法/教训：normalize only this documented runtime suffix at the worker boundary, then compare the normalized scene and actual `extra.gamefile` independently. Never weaken the trial identity check or compare raw and logical names as if they were the same field.
+- ref: `workers/alfworld_worker/thor_backend.py`, `src/homemaster/alfworld/env_adapter.py`, `tests/homemaster/alfworld/test_worker_live.py`
+# V3.5 formal CLI launcher root vs installed package (2026-09-26)
+
+- **症状**：直接用 `.runtime/venv/bin/python -m homemaster.cli benchmark-alfworld` 启动时，worker 报 `isolated worker source is missing from checkout`，路径错误地落到 `.runtime/venv/lib/python3.11/workers/...`。
+- **根因**：worker 源码故意不打进通用 wheel；正式 launcher `scripts/homemaster` 才会设置 `HOMEMASTER_REPO_ROOT`，让主环境找到 repo-local worker source。绕过 launcher 的验证命令缺少这个部署事实。
+- **修法/教训**：所有正式 benchmark/live 验证必须经 `scripts/homemaster` 或显式设置 `HOMEMASTER_REPO_ROOT`；测试应同时覆盖 installed-package + repo-local worker seam，不能只测 Python module import。
+- **ref**：`scripts/homemaster`、`src/homemaster/alfworld/worker_client.py`、V3.5 Phase 5 live CLI run `v35-cli-fix-20260926`。
+
+# V3.5 isolated worker off-screen navigation policy (2026-09-26)
+
+- **症状**：正式 CLI reset 成功，但模型调用目标物体时持续得到 `target_unresolved`，`backend_attempted=false`；之前的 worker live action 仍可通过，因为它使用了显式可见/可导航目标。
+- **根因**：`WorkerAlfworldAdapter.start()` 将 `allow_offscreen_object_navigation` 硬编码为 `False`，丢失 V1.8 正式 THOR 的导航策略。
+- **修法/教训**：把该策略放进 `AlfworldBenchmarkConfig`/`TasksetRunConfig`，默认显式为 `True`，由 worker adapter 透传；调试实验仍可在配置中关闭。策略不能藏在 adapter 常量里。
+- **ref**：`src/homemaster/alfworld/benchmark/worker_adapter.py`、`src/homemaster/alfworld/types.py`、`src/homemaster/alfworld/taskset_loader.py`。

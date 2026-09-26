@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from homemaster.cli.app import app
 from homemaster.application.composition import compose_application
+from homemaster.cli.app import app
 from homemaster.config import HomeMasterConfig, MemoryConfig
 from homemaster.memory.migration import (
     LEGACY_MIGRATION_SCHEMA,

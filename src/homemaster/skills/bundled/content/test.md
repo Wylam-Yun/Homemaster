@@ -26,6 +26,6 @@ Use when the user asks to write tests, verify behavior, or improve test coverage
 
 - Test behavior, not implementation details
 - One assertion per test when possible
-- Use descriptive test names that explain the scenario
+- Use descriptive test names that explain the case
 - Don't test framework or library code
 - Mock at system boundaries (external APIs, filesystem, network)

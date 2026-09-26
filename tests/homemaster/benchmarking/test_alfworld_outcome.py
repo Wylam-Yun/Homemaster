@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from homemaster.benchmarking.alfworld.types import (
+from homemaster.alfworld.types import (
     AlfworldSummary,
     SubtaskResult,
     TasksetResult,

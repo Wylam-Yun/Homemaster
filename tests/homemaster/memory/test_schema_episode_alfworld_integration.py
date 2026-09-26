@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.benchmarking.alfworld.env_adapter import (
+from homemaster.alfworld.benchmark.adapter import (
     AlfworldEnvAdapter,
     build_alfworld_batch_env,
 )
-from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
+from homemaster.alfworld.types import AlfworldBenchmarkConfig
 from homemaster.config import load_config
 from homemaster.memory.automatic_recall import build_mindmemos_request_context
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime

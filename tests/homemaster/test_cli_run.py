@@ -269,7 +269,7 @@ def test_dry_run_resolves_home_profile_without_application_or_external_io(
     def forbidden(*args, **kwargs):
         raise AssertionError("dry-run created the application")
 
-    monkeypatch.setattr("homemaster.application.composition.create_application", forbidden)
+    monkeypatch.setattr("homemaster.application.composition.base.create_application", forbidden)
     result = CliRunner().invoke(
         app,
         ["--dry-run", "-p", "inspect", "--output-format", "json"],

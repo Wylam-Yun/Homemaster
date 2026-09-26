@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 
-from homemaster.benchmarking.alfworld.tools import (
+from homemaster.alfworld.tools import (
     make_alfworld_robot_go_to,
     make_alfworld_robot_manipulate,
     make_alfworld_robot_verify,

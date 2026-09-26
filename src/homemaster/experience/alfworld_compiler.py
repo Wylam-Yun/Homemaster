@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryRecord
 from homemaster.memory.models import (
     ProcedureEntry,
     ProcedureExpect,

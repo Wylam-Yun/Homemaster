@@ -57,7 +57,7 @@ HomeMaster 是一个以 LLM 为决策核心的通用 Agent 运行时：统一的
   console/network 和独立终态读回；高权限 `browser_eval` 默认不注册。
 - **本地 Web Console** — React 流式对话界面，实时展示 thinking、回答和逐实例工具结果，支持
   session 恢复、取消、危险操作审批与断线重连；图片 artifact 在对应工具卡片内预览并可点击放大，
-  `serve --alfworld` 复用同一 ALFWorld backend，默认且仅允许 loopback 绑定。
+  `serve --alfworld` 复用同一隔离 ALFWorld worker，默认且仅允许 loopback 绑定。
 - **MCP 扩展** — 连接 stdio / streamable HTTP MCP server，discovery 结果原子注册进工具 Registry，
   tool/resource 调用全部落 JSONL audit。
 - **安全模型** — typed capability 权限、generation-aware 设备租约、带双重回执的急停（emergency stop）、
@@ -159,20 +159,14 @@ chmod 600 config/homemaster.yaml
 memory 数据不会写入 Git，也不会被 setup 自动复制或删除：
 
 ```bash
-uv run python scripts/setup_memory_runtime.py setup \
-  --python .venv/bin/python \
-  --neo4j-home /path/to/neo4j-community \
-  --java-home /path/to/jdk-21 \
-  --alfworld-python /path/to/alfworld-env/bin/python \
-  --alfworld-root /path/to/alfworld \
-  --memory-home ~/.homemaster/memory
+./scripts/setup.sh
+./scripts/setup-alfworld.sh --root /path/to/alfworld
 
 scripts/homemaster doctor --json
 ```
 
-初始化会把 ignored `config/homemaster.yaml` 固定为相对 `.runtime` 路径，并绑定本机的 HomeMaster Python、
-可选 ALFWorld Python 与 config/dataset root、Neo4j、Java 和已有 memory root。ALFWorld 的 Torch/THOR 环境可以和
-HomeMaster 主 venv 分开维护，launcher 会在 benchmark 时组合二者。迁移到另一台服务器时只需在新 checkout 重复一次 setup；日常命令都从
+初始化会把通用环境固定为 `.runtime/venv`，并把 ALFWorld worker 的 Python、源码和数据绑定到
+`.runtime/alfworld-venv`/`.runtime/alfworld`。迁移到另一台服务器时只需在新 checkout 重复两条 setup 命令；日常命令都从
 `scripts/homemaster` 启动，因此不依赖当前工作目录或 shell 环境变量。
 
 配置至少包含两类 provider（示例为占位值，字段说明见
@@ -416,11 +410,24 @@ scripts/homemaster benchmark-alfworld \
   --observation-mode visual_eval
 ```
 
+连续 taskset 使用同一个隔离 worker 保持 scene，并在 summary 之外写出每个 taskset 的
+`worker.json` close/exit/stderr 证据：
+
+```bash
+scripts/homemaster benchmark-alfworld-taskset \
+  --taskset-config src/homemaster/alfworld/alfworld_tasksets.yaml \
+  --alfworld-root .runtime/alfworld \
+  --alfworld-config .runtime/alfworld/configs/base_config.yaml
+```
+
+验收时必须逐个读取 subtask summary、真实环境状态和 `worker.json`，不能只看 CLI 返回码或
+taskset 聚合成功率。
+
 #### 单 episode 起跑流程（已验证配方）
 
 > 用 `single_mug_manifest.json`（put a mug in desk）三轮验证通过：空库失败轮、
-> 空库成功轮、有库召回轮。`memory_mode` 必须保持 disabled（legacy 守卫，
-> `AlfworldApplicationEntry` 会拒绝其他值）；记忆链由临时配置的 `memory.enabled`
+> 空库成功轮、有库召回轮。`memory_mode` 通过临时配置的 `memory.enabled` 控制；
+> benchmark 使用统一 Application Composition 和独立 worker，不再切换隐藏入口。
 > 控制，与 benchmark flag 无关。
 
 1. 起跑前检查：无活跃 benchmark 进程、benchmark flock 空闲、Xvfb 在 `:99` 运行、

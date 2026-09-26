@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
-from homemaster.tools import ToolExecutionContext
 from homemaster.tools.contracts import PermissionSubject
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 def _context(tmp_path: Path, capabilities: tuple[str, ...]) -> ToolExecutionContext:

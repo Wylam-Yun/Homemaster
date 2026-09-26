@@ -7,7 +7,6 @@ import json
 import pytest
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
-from homemaster.tools.base import normalize_tool_result
 from homemaster.tools.contracts import (
     OutcomeCertainty,
     ResultAttachment,
@@ -68,8 +67,11 @@ def test_full_result_projects_public_data_and_lossless_provider_image() -> None:
     assert message.tool_call_id == "call-1"
     assert message.name == "robot_go_to"
     assert message.is_error is False
-    assert message.data == result.to_public_dict()
-    assert json.loads(message.content[0].text) == result.to_public_dict()
+    expected_public = result.to_public_dict()
+    expected_public.pop("evidence_refs", None)
+    expected_public["verification"].pop("evidence_refs", None)
+    assert message.data == expected_public
+    assert json.loads(message.content[0].text) == expected_public
     assert message.content[1].type == "image"
     assert message.content[1].source == {
         "type": "base64",
@@ -92,20 +94,27 @@ def test_canonical_result_adapter_thaws_nested_data_for_next_model_turn() -> Non
         data={"metadata": {"url": "https://example.test", "status_code": 200}},
     )
 
-    normalized = normalize_tool_result(canonical)
     message = ToolResultMessage(
         tool_call_id="call-1",
         name="web_fetch",
-        content=[ContentBlock(text=normalized.output)],
-        data=normalized.metadata,
+        content=[ContentBlock(text=canonical.text)],
+        data=canonical.to_public_dict(),
     )
 
     copied = message.model_copy(deep=True)
-    assert copied.data == {
-        "metadata": {"url": "https://example.test", "status_code": 200},
-        "status": "success",
-        "backend_attempted": False,
-    }
+    assert copied.data == canonical.to_public_dict()
+
+
+def test_external_return_code_survives_model_projection() -> None:
+    canonical = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="moved",
+        external_return_code=0,
+        backend_attempted=True,
+    )
+
+    assert canonical.to_dict()["external_return_code"] == 0
+    assert canonical.to_public_dict()["external_return_code"] == 0
 
 
 def test_image_only_projection_emits_no_result_json_or_text() -> None:

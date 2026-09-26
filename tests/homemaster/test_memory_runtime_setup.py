@@ -216,6 +216,7 @@ def test_launcher_uses_bound_python_and_config_from_unrelated_cwd(tmp_path: Path
         "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then exit 0; fi\n"
         f"printf '%s\\n' \"{{\\\"cwd\\\":\\\"$PWD\\\",\\\"config\\\":"
         f"\\\"$HOMEMASTER_CONFIG_PATH\\\",\\\"pythonpath\\\":\\\"$PYTHONPATH\\\","
+        f"\\\"repo_root\\\":\\\"$HOMEMASTER_REPO_ROOT\\\","
         f"\\\"args\\\":\\\"$*\\\"}}\" > {capture}\n",
     )
     fake_venv = tmp_path / "fake-venv"
@@ -238,7 +239,8 @@ def test_launcher_uses_bound_python_and_config_from_unrelated_cwd(tmp_path: Path
     recorded = json.loads(capture.read_text(encoding="utf-8"))
     assert recorded["cwd"] == str(repo)
     assert recorded["config"] == str(config)
-    assert recorded["pythonpath"] == str(repo / "src")
+    assert recorded["pythonpath"] == ""
+    assert recorded["repo_root"] == str(repo)
     assert recorded["args"] == "-m homemaster.cli doctor --json"
 
 
@@ -281,7 +283,7 @@ def test_launcher_keeps_runtime_preflight_out_of_machine_readable_stdout(
     assert json.loads(completed.stdout) == {"checks": [], "live": False}
 
 
-def test_alfworld_launcher_bridges_formal_editable_mindmemos_source(
+def test_alfworld_launcher_keeps_worker_environment_isolated(
     tmp_path: Path,
 ) -> None:
     repo = tmp_path / "Homemaster"
@@ -294,37 +296,18 @@ def test_alfworld_launcher_bridges_formal_editable_mindmemos_source(
     _private_config(repo / "config" / "homemaster.yaml")
     runtime = repo / ".runtime"
     runtime.mkdir()
-    formal_site = tmp_path / "formal-site"
-    mindmemos_source = tmp_path / "MindMemOS" / "src" / "mindmemos"
-    formal_site.mkdir()
-    mindmemos_source.mkdir(parents=True)
     capture = tmp_path / "alfworld-capture.json"
-    probe = tmp_path / "alfworld-probe.txt"
     formal_python = _executable(
         tmp_path / "formal-python",
         "#!/bin/sh\n"
-        "case \"$2\" in\n"
-        f"  *site.getsitepackages*) printf '%s\\n' {formal_site} ;;\n"
-        f"  *mindmemos.__file__*) printf '%s\\n' {mindmemos_source} ;;\n"
-        "  *) exit 3 ;;\n"
-        "esac\n",
-    )
-    alfworld_python = _executable(
-        tmp_path / "alfworld-python",
-        "#!/bin/sh\n"
-        f"if [ \"$1\" = \"-c\" ]; then printf '%s\\n' \"$2\" > {probe}; exit 0; fi\n"
-        "if [ \"$2\" = \"scripts/setup_memory_runtime.py\" ]; then exit 0; fi\n"
         f"printf '%s\\n' \"{{\\\"pythonpath\\\":\\\"$PYTHONPATH\\\","
+        f"\\\"repo_root\\\":\\\"$HOMEMASTER_REPO_ROOT\\\","
         f"\\\"args\\\":\\\"$*\\\"}}\" > {capture}\n",
     )
     formal_venv = tmp_path / "formal-venv"
-    alfworld_venv = tmp_path / "alfworld-venv"
     formal_venv.joinpath("bin").mkdir(parents=True)
-    alfworld_venv.joinpath("bin").mkdir(parents=True)
     formal_venv.joinpath("bin", "python").symlink_to(formal_python)
-    alfworld_venv.joinpath("bin", "python").symlink_to(alfworld_python)
     (runtime / "venv").symlink_to(formal_venv)
-    (runtime / "alfworld-venv").symlink_to(alfworld_venv)
     (runtime / "alfworld" / "configs").mkdir(parents=True)
     (runtime / "alfworld" / "configs" / "base_config.yaml").write_text(
         "env: {}\n", encoding="utf-8"
@@ -348,10 +331,5 @@ def test_alfworld_launcher_bridges_formal_editable_mindmemos_source(
 
     assert completed.returncode == 0, completed.stderr
     recorded = json.loads(capture.read_text(encoding="utf-8"))
-    python_paths = recorded["pythonpath"].split(os.pathsep)
-    assert str(repo / "src") in python_paths
-    assert str(formal_site) in python_paths
-    assert str(mindmemos_source) in python_paths
-    assert "import alfworld, ai2thor, homemaster, mindmemos" in probe.read_text(
-        encoding="utf-8"
-    )
+    assert recorded["pythonpath"] == ""
+    assert recorded["repo_root"] == str(repo)

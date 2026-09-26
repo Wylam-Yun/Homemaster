@@ -1,0 +1,30 @@
+{
+  "classification": "agent_model_failure",
+  "domain": "alfworld",
+  "episode_id": "valid_unseen/pick_and_place_simple-Mug-None-Desk-308/trial_T20190908_125200_737896/traj_data.json",
+  "failure_advice": [],
+  "failure_reason": "max_consecutive_tool_errors",
+  "failure_summary": [],
+  "final_environment_state": {
+    "done": false,
+    "goal_condition_success_rate": 0.0,
+    "invalid_action_count": 0,
+    "inventory": null,
+    "step_index": 0,
+    "won": false
+  },
+  "goal_type": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"Mug\",\"parent_target\":\"Desk\",\"toggle_target\":\"\"},\"task_type\":\"pick_and_place_simple\"}",
+  "is_executable": false,
+  "outcome": "failure",
+  "record_kind": "trajectory",
+  "run_id": "v35-live-mug-20260925-0001",
+  "schema_version": 1,
+  "source_session_id": "v35-live-mug-20260925-0001",
+  "source_trace_path": "plan/V3.5/evidence/phase-5/live-cli-mug-20260925/trace/test/v35-live-mug-20260925/episode-0001/trace.jsonl",
+  "source_trace_sha256": "8f287aa70e5fb9d9ddfcf356de8f069b26dee706f75946714c5cda0e8251c407",
+  "steps": [],
+  "subtask_index": null,
+  "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a bed 1, a desk 1, a drawer 1, a drawer 2, a desk 2, a shelf 1, a shelf 2, a shelf 3, a shelf 4, a laundryhamper 1, a drawer 3, a safe 1, a garbagecan 1, a drawer 4, a drawer 5, a drawer 6, a shelf 5, and a shelf 6.\n\nYour task is to: put some mug on desk",
+  "taskset_id": null,
+  "trajectory_id": "63f1480c-dfe8-5131-9917-12fdfca4c473"
+}

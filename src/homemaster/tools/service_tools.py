@@ -7,7 +7,7 @@ import base64
 import hashlib
 import inspect
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -24,11 +24,10 @@ from homemaster.services.lsp import (
     list_document_symbols,
     workspace_symbol_search,
 )
-from homemaster.tools.base import ToolExecutionContext as BaseToolExecutionContext
-from homemaster.tools.base import ToolResult
 from homemaster.tools.contracts import (
     ConcurrencyPolicy,
     ExecutionProof,
+    OutcomeCertainty,
     RegisteredTool,
     ResultImage,
     ToolDefinition,
@@ -178,31 +177,32 @@ class HomeServiceExecutor:
         if result.is_error:
             return ToolExecutionResult(
                 status=ToolExecutionStatus.FAILURE,
-                text=result.output,
-                data=result.metadata,
-                error=ToolExecutionError("homemaster_tool_error", result.output),
+                text=result.text,
+                data=result.data,
+                error=ToolExecutionError("homemaster_tool_error", result.text),
                 backend_attempted=True,
             )
         images: tuple[ResultImage, ...] = ()
-        data = dict(result.metadata)
+        data = dict(result.data)
         if self._spec.name == "image_generation":
             try:
                 images, receipts = _generated_image_receipts(data)
             except (OSError, ValueError) as exc:
                 return ToolExecutionResult(
                     status=ToolExecutionStatus.OUTCOME_UNKNOWN,
-                    text=result.output,
+                    text=result.text,
                     data=data,
                     error=ToolExecutionError(
                         "image_terminal_state_unreadable",
                         f"image_generation wrote files but verification setup failed: {exc}",
                     ),
                     backend_attempted=True,
+                    outcome_certainty=OutcomeCertainty.UNKNOWN,
                 )
             data["files"] = receipts
         return ToolExecutionResult(
             status=ToolExecutionStatus.SUCCESS,
-            text=result.output,
+            text=result.text,
             data=data,
             images=images,
             backend_attempted=True,
@@ -259,7 +259,11 @@ def _generated_image_receipts(
     metadata: Mapping[str, object],
 ) -> tuple[tuple[ResultImage, ...], list[dict[str, object]]]:
     raw_paths = metadata.get("paths")
-    if not isinstance(raw_paths, list) or not raw_paths:
+    if (
+        not isinstance(raw_paths, Sequence)
+        or isinstance(raw_paths, (str, bytes, bytearray))
+        or not raw_paths
+    ):
         raise ValueError("provider returned no generated image paths")
     images: list[ResultImage] = []
     receipts: list[dict[str, object]] = []
@@ -323,38 +327,36 @@ async def _execute_ported_tool(
     if name == "ask_user_question":
         prompt = metadata.get("ask_user_prompt")
         if not callable(prompt):
-            return ToolResult(arguments.question)
+            return _service_success(arguments.question)
         answer = prompt(arguments.question)
-        return ToolResult(str(await answer if inspect.isawaitable(answer) else answer))
+        return _service_success(str(await answer if inspect.isawaitable(answer) else answer))
     if name == "lsp":
         return _execute_lsp(arguments, context.working_directory)
-    tool_context = BaseToolExecutionContext(
-        cwd=context.working_directory,
-        metadata=metadata,
-    )
     if name == "image_to_text":
-        return await ImageToTextTool().execute(arguments, tool_context)
+        return await ImageToTextTool().execute(arguments, context)
     if name == "image_generation":
-        return await ImageGenerationTool().execute(arguments, tool_context)
+        return await ImageGenerationTool().execute(arguments, context)
     raise ValueError(f"unsupported service tool: {name}")
 
 
-def _execute_lsp(arguments: Any, root: Path) -> ToolResult:
+def _execute_lsp(arguments: Any, root: Path) -> ToolExecutionResult:
     root = root.resolve()
     if arguments.operation == "workspace_symbol":
         if not arguments.query:
-            return ToolResult("workspace_symbol requires query", is_error=True)
-        return ToolResult(_format_symbols(workspace_symbol_search(root, arguments.query), root))
+            return _service_failure("workspace_symbol requires query")
+        return _service_success(
+            _format_symbols(workspace_symbol_search(root, arguments.query), root)
+        )
     if not arguments.file_path:
-        return ToolResult(f"{arguments.operation} requires file_path", is_error=True)
+        return _service_failure(f"{arguments.operation} requires file_path")
     path = Path(arguments.file_path).expanduser()
     path = (root / path).resolve() if not path.is_absolute() else path.resolve()
     if not path.exists():
-        return ToolResult(f"File not found: {path}", is_error=True)
+        return _service_failure(f"File not found: {path}")
     if path.suffix != ".py":
-        return ToolResult("The lsp tool currently supports Python files only.", is_error=True)
+        return _service_failure("The lsp tool currently supports Python files only.")
     if arguments.operation == "document_symbol":
-        return ToolResult(_format_symbols(list_document_symbols(path), root))
+        return _service_success(_format_symbols(list_document_symbols(path), root))
     kwargs = {
         "root": root,
         "file_path": path,
@@ -363,21 +365,18 @@ def _execute_lsp(arguments: Any, root: Path) -> ToolResult:
         "character": arguments.character,
     }
     if not arguments.symbol and arguments.line is None:
-        return ToolResult(
-            f"{arguments.operation} requires symbol or line",
-            is_error=True,
-        )
+        return _service_failure(f"{arguments.operation} requires symbol or line")
     if arguments.operation == "go_to_definition":
-        return ToolResult(_format_symbols(go_to_definition(**kwargs), root))
+        return _service_success(_format_symbols(go_to_definition(**kwargs), root))
     if arguments.operation == "find_references":
         refs = find_references(**kwargs)
         output = "\n".join(
             f"{_display_path(item_path, root)}:{line}:{text}" for item_path, line, text in refs
         )
-        return ToolResult(output or "(no results)")
+        return _service_success(output or "(no results)")
     result = hover(**kwargs)
     if result is None:
-        return ToolResult("(no hover result)")
+        return _service_success("(no hover result)")
     output = [
         f"{result.kind} {result.name}",
         f"path: {_display_path(result.path, root)}:{result.line}:{result.character}",
@@ -386,7 +385,24 @@ def _execute_lsp(arguments: Any, root: Path) -> ToolResult:
         output.append(f"signature: {result.signature}")
     if result.docstring:
         output.append(f"docstring: {result.docstring.strip()}")
-    return ToolResult("\n".join(output))
+    return _service_success("\n".join(output))
+
+
+def _service_success(text: str) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text=text,
+        backend_attempted=True,
+    )
+
+
+def _service_failure(text: str) -> ToolExecutionResult:
+    return ToolExecutionResult(
+        status=ToolExecutionStatus.FAILURE,
+        text=text,
+        error=ToolExecutionError("service_tool_error", text),
+        backend_attempted=True,
+    )
 
 
 def _format_symbols(results: list[Any], root: Path) -> str:

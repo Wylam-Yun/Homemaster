@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_PATH = REPO_ROOT / "protocols" / "alfworld-v1.schema.json"
 
@@ -23,7 +22,13 @@ def test_worker_protocol_has_explicit_operation_enum() -> None:
     assert SCHEMA_PATH.is_file(), "the versioned ALFWorld protocol schema is missing"
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     properties = schema["properties"]
-    assert set(properties["operation"]["enum"]) == {"reset", "observe", "act", "close"}
+    assert set(properties["operation"]["enum"]) == {
+        "reset",
+        "set_task",
+        "observe",
+        "act",
+        "close",
+    }
 
 
 def test_worker_launcher_does_not_inject_main_environment() -> None:

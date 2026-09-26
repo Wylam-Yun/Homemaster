@@ -5,15 +5,15 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.benchmarking.alfworld.env_adapter import (
+from homemaster.alfworld.benchmark.adapter import (
     AlfworldEnvAdapter,
     build_alfworld_batch_env,
 )
-from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
+from homemaster.alfworld.types import AlfworldBenchmarkConfig
 
 
 @pytest.mark.live_alfworld
-def test_live_alfworld_textworld_reset_and_look(tmp_path: Path) -> None:
+def test_live_alfworld_thor_reset_and_look(tmp_path: Path) -> None:
     root = os.environ.get("HOMEMASTER_ALFWORLD_ROOT")
     config_path = os.environ.get("HOMEMASTER_ALFWORLD_CONFIG")
     if not root or not config_path:

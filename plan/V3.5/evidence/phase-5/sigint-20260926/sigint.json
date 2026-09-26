@@ -1,0 +1,61 @@
+{
+  "schema": "homemaster-v35-phase5-sigint-v3",
+  "results": {
+    "action": {
+      "worker_pid": 1550762,
+      "descendants_before": {
+        "1551050": {
+          "ppid": "1550762",
+          "args": "/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64 -screen-fullscreen 0 -screen-quality 4 -screen-width 300 -screen-height 300"
+        }
+      },
+      "action_interrupted": true,
+      "action_completed": false,
+      "action_error": "KeyboardInterrupt",
+      "close_receipt": {
+        "operation": "close",
+        "external_return_code": 0,
+        "backend_attempted": true,
+        "state": {
+          "closed": true,
+          "worker_pid": 1550762,
+          "sigint_count": 0
+        },
+        "evidence_ref": "worker:1550762:close"
+      },
+      "close_sigint_count": 0,
+      "close_error": null,
+      "worker_exit_code": 0,
+      "descendants_after": {},
+      "stderr_path": "/data1/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/sigint-20260926/action.stderr.log",
+      "stderr": "Initialize AlfredThorEnv...\nOverall we have 192 games...\nEvaluating with 192 games\nOverall we have 192 games...\nEvaluating with 192 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 192 games...\nEvaluating with 192 games\nResetting ThorEnv\nTask: put a mug in desk\n"
+    },
+    "close": {
+      "worker_pid": 1551745,
+      "descendants_before": {
+        "1551943": {
+          "ppid": "1551745",
+          "args": "/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64 -screen-fullscreen 0 -screen-quality 4 -screen-width 300 -screen-height 300"
+        }
+      },
+      "close_interrupted": true,
+      "close_receipt": {
+        "operation": "close",
+        "external_return_code": 0,
+        "backend_attempted": true,
+        "state": {
+          "closed": true,
+          "worker_pid": 1551745,
+          "sigint_count": 1
+        },
+        "evidence_ref": "worker:1551745:close"
+      },
+      "close_sigint_count": 1,
+      "close_error": null,
+      "worker_exit_code": 0,
+      "descendants_after": {},
+      "stderr_path": "/data1/haodong2/weilin/red_bird/Homemaster-v35/plan/V3.5/evidence/phase-5/sigint-20260926/close.stderr.log",
+      "stderr": "Initialize AlfredThorEnv...\nOverall we have 192 games...\nEvaluating with 192 games\nOverall we have 192 games...\nEvaluating with 192 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 192 games...\nEvaluating with 192 games\nResetting ThorEnv\nTask: put a mug in desk\n"
+    }
+  }
+}

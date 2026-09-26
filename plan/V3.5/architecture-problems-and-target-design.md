@@ -1,10 +1,18 @@
 # HomeMaster V3.5 架构问题与目标设计
 
-**状态：待重新审查**
-**日期：2026-09-24**
+**状态：已实现并完成静态、package-data、clean build 与远端 THOR smoke 验收（2026-09-26）**
+**日期：2026-09-26**
 **范围：代码架构、Application Composition、Application Runtime、ALFWorld THOR Harness**
 
 ## 1. 已锁定的架构决策
+
+> 状态更新：2026-09-26。本地 composition、canonical tool contract、THOR Harness、benchmark
+> lifecycle 和 NDJSON worker 已实现并通过静态/focused gates；远端 doctor 为 `16/16 PASS`。
+> 单 episode 和 bounded provider-backed taskset CLI 均有逐实例成功、close、worker exit 与
+> stderr 证据；taskset runner 现在额外写入 `worker.json`。完整 clean checkout/release gate、
+> 历史 fixture 清理和架构目标文档交叉引用现已补齐；仅 commit 前的最终文档审计仍待执行。
+> taskset 连续 `set_task` 已走
+> `WorkerAlfworldAdapter`，并修复了 taskset 漏传 `alfworld_harness` 依赖的问题。
 
 本次讨论锁定以下决策，后续实现和审计都以此为准：
 
@@ -78,6 +86,8 @@ robot_manipulate
 
 ## 4. 当前真实架构与问题
 
+本节前半记录 V3.5 开工时的基线问题；截至 2026-09-26，目标迁移已落地。当前实现链路以 `src/homemaster/application/composition`、`src/homemaster/application/runtime.py`、`src/homemaster/alfworld/harness.py` 和 `src/homemaster/alfworld/worker_client.py` 为准，历史 HTTP/混合解释器描述只用于解释迁移动机。
+
 当前核心运行链：
 
 ```text
@@ -96,7 +106,7 @@ CLI / Web / Feishu / ALFWorld benchmark
       EventBus / trace / session / memory
 ```
 
-当前环境边界并没有实现上面的抽象边界。真实链路是：
+迁移前环境边界并没有实现上面的抽象边界，真实链路曾经是：
 
 ```text
 scripts/homemaster
@@ -106,7 +116,7 @@ scripts/homemaster
   -> loopback HTTP -> HomeMaster-side http_client
 ```
 
-这不是两个独立环境，而是一个由启动器临时拼接出来的混合解释器。当前代码证据：
+这不是两个独立环境，而是一个由启动器临时拼接出来的混合解释器。该基线已由 NDJSON worker 替换；当前代码证据和验收记录保留如下，作为迁移前问题的可追溯记录：
 
 - `pyproject.toml` 的 `alfworld` extra 只有 `pyyaml`，没有 ALFWorld、AI2-THOR、Torch 或完整图像依赖锁；
 - `scripts/setup_memory_runtime.py` 同时绑定通用 `.runtime/venv`、`.runtime/alfworld-venv` 和 `.runtime/alfworld`，但不负责安装 ALFWorld 环境；
@@ -182,7 +192,7 @@ pillow
 worker 只接受一个稳定的本地协议：
 
 ```json
-{"protocol":"homemaster-alfworld-v1","request_id":"...","operation":"reset|observe|act|close","payload":{}}
+{"protocol":"homemaster-alfworld-v1","request_id":"...","operation":"reset|set_task|observe|act|close","payload":{}}
 ```
 
 响应必须包含 `protocol`、`request_id`、`status`、`external_return_code`、`backend_attempted` 和 typed result。请求和响应均为 stdin/stdout NDJSON；worker 的第三方日志只写 stderr。截图、raw event 和大型轨迹不经过 IPC body，写入双方都可见的 repo-local artifact path，并回传路径、大小和 SHA-256。一个 worker serializes 一个 episode；需要并行时启动多个独立 worker，而不是让一个 worker 共享多个 session。
@@ -213,6 +223,8 @@ external world: action return code and actual terminal state both verified
 ## 5. Application Composition 与 ApplicationRuntime
 
 ### 5.1 Application Composition
+
+实施状态：已完成。实现路径为 `src/homemaster/application/composition/{base,providers,tools,skills,memory,observability,profiles}.py`；公共导出位于 `src/homemaster/application/composition/__init__.py`。依赖方向由 `scripts/verify_v35_architecture.py` 的 `composition_import_direction` 和 `generic_runtime_domain_free` 检查，运行时生命周期证据见 `plan/V3.5/evidence/phase-1/README.md`。
 
 Application Composition 回答：**这个应用实例由哪些实现组成？**
 
@@ -250,6 +262,8 @@ profiles.py      local_robot、browser、alfworld profile
 
 ### 5.2 ApplicationRuntime
 
+实施状态：已完成。`src/homemaster/application/runtime.py` 负责 run/session/resource lifecycle，入口适配器通过 `RunRequest` 注入依赖；`tests/homemaster/application/` 覆盖 start/close、取消、generation fencing 和 context projection。架构边界审计见 `plan/V3.5/evidence/phase-4/README.md`。
+
 ApplicationRuntime 回答：**已经组装好的应用实例，如何执行一次 run？**
 
 它负责：
@@ -285,15 +299,17 @@ Runtime 可以持有并管理 Composition 创建的对象，但不能变成新�
 
 ### AlfworldGatewayApplication
 
-负责把一个 HTTP ALFWorld worker 绑定到固定 session，将 environment、trace、terminal owner 放入 `RunRequest`，防止多个 session 争用同一个 episode，然后委托底层 Runtime。它是 Gateway transport/session binding，不是 benchmark runner。
+负责把一个 `AlfworldWorkerClient` 绑定到固定 session，将 environment、trace、terminal owner 放入 `RunRequest`，防止多个 session 争用同一个 episode，然后委托底层 Runtime。worker 使用 stdin/stdout NDJSON；它是 Gateway transport/session binding，不是 benchmark runner。实现为 `src/homemaster/gateway/alfworld.py`，真实证据为 `plan/V3.5/evidence/phase-5/gateway-smoke-live/summary.json`。
 
-### AlfworldApplicationEntry
+### AlfworldApplicationEntry（已删除）
 
-当前只是同步 benchmark runner 与异步 Runtime 的桥，同时重复持有 application 创建、start、session 和 close。目标重构中删除它；benchmark runner 显式使用 `application.composition` 创建 Runtime，并在自己的 async episode/taskset lifecycle 中管理 session。同步入口如有必要，只能是明确命名的 event-loop owner，不能再次成为隐式 composition root。
+旧的同步 benchmark/runtime wrapper 已删除。当前 `src/homemaster/alfworld/benchmark/runner.py` 显式使用 composition 并由 async lifecycle 管理 episode/taskset；同步 CLI 只负责 event-loop owner。删除门由 `test_v35_audit_commands.py` 和架构审计共同覆盖。
 
 ## 7. ALFWorld Harness 目标边界
 
 ### 7.1 目标位置
+
+实施状态：已完成。以下文件已存在并由 `scripts/verify_v35_architecture.py` 的 `required_v35_artifacts` 检查：`harness.py`、`backend.py`、`lifecycle.py`、`scene.py`、`actions.py`、`outcomes.py`、`recording.py`；benchmark 编排位于 `src/homemaster/alfworld/benchmark/`。
 
 将 HomeMaster 自己维护的 THOR Harness 从 `benchmarking/alfworld` 的混合目录中收敛出来：
 
@@ -315,6 +331,8 @@ src/homemaster/alfworld/
 这是职责目标，不要求机械搬运文件；拆分必须围绕稳定接口和调用方向进行。
 
 ### 7.2 责任边界
+
+实施状态：已完成。fake backend 对抗测试位于 `tests/homemaster/alfworld/test_harness_contract.py`；真实 THOR worker 的 per-trial reset/action/return-code/raw-state/close/cleanup 证据位于 `plan/V3.5/evidence/phase-5/gateway-smoke-live/`、`live-worker-use-20260926/` 和 `taskset-worker-easy_living_room_219/`。
 
 `backend.py` 只访问 ALFWorld/AI2-THOR：发送请求、读取 raw event、读取返回码、关闭环境。不得包含 prompt、Provider 或评分策略。
 
@@ -346,6 +364,8 @@ Navigation 不是传统路径规划，而是把 agent 移动到动作前置条�
 
 ### 7.3 工具层接口
 
+实施状态：已完成。canonical tool mapping 位于 `src/homemaster/alfworld/tools.py`，Harness 深接口位于 `src/homemaster/alfworld/harness.py`；`tests/homemaster/v35/test_tool_interface_audit.py` 验证所有公开 registry entry 使用 async canonical executor。
+
 工具层只把模型 schema 映射为 typed action request：
 
 ```text
@@ -375,6 +395,8 @@ ground -> navigate -> manipulate -> verify -> feedback
 - `AlfworldApplicationEntry` 这种隐式 composition/lifecycle wrapper。
 
 ### 8.1 Tool 协议硬切
+
+实施状态：已完成。旧 `ToolSpec`、旧结果类型、legacy adapter、旧导航别名和 HTTP worker 文件均已从源码路径删除；静态删除门和全量测试已通过。发布包边界由 `scripts/verify_v35_release.py` 验证。
 
 Tool 迁移采用破坏性硬切。这里的“硬切”是架构和 API 决策，不是新增一个运行时 mode：迁移完成后，主线不再接受旧 Tool API，也不再通过 adapter、alias 或 fallback 继续运行旧工具。
 
@@ -465,32 +487,32 @@ Benchmark Runner  -> summary / score / trial orchestration
 
 ### Application 层
 
-- [ ] 非 CLI 模块不再 import `homemaster.cli.composition`；
-- [ ] 公共 application 创建只来自 `homemaster.application.composition`；
-- [ ] Provider、Skill、MCP、Memory 的创建位于 composition，生命周期由 Runtime 管理；
-- [ ] `ApplicationRuntime` 不包含入口判断和领域动作实现；
-- [ ] 入口适配器只做 transport/capability/session binding。
+- [x] 非 CLI 模块不再 import `homemaster.cli.composition`；
+- [x] 公共 application 创建只来自 `homemaster.application.composition`；
+- [x] Provider、Skill、MCP、Memory 的创建位于 composition，生命周期由 Runtime 管理；
+- [x] `ApplicationRuntime` 不包含入口判断和领域动作实现；
+- [x] 入口适配器只做 transport/capability/session binding。
 
 ### ALFWorld 层
 
-- [ ] 源码、配置、文档和测试中不再支持 `AlfredTWEnv`；
-- [ ] 源码中不再存在 legacy navigation/manipulation/feedback 主路径；
-- [ ] 不再存在 `require_v18_reset` 或类似双路径开关；
-- [ ] `robot_go_to` 和 `robot_manipulate` 只有 Oracle Harness 实现；
-- [ ] grounding、navigation、manipulation、verification 的责任分别可定位；
-- [ ] episode 与 taskset 共享同一生命周期执行模块，而不是复制完整编排；
-- [ ] benchmark runner 不构造第二套 Agent/Provider/ToolExecutor；
-- [ ] 每个外部动作都有返回码和真实终态黑盒验证。
+- [x] 源码、配置、文档和测试中不再支持 `AlfredTWEnv`；
+- [x] 源码中不再存在 legacy navigation/manipulation/feedback 主路径；
+- [x] 不再存在 `require_v18_reset` 或类似双路径开关；
+- [x] `robot_go_to` 和 `robot_manipulate` 只有 Oracle Harness 实现；
+- [x] grounding、navigation、manipulation、verification 的责任分别可定位；
+- [x] episode 与 taskset 共享同一生命周期执行模块，而不是复制完整编排；
+- [x] benchmark runner 不构造第二套 Agent/Provider/ToolExecutor；
+- [x] 每个外部动作都有返回码和真实终态黑盒验证。
 
 ### 文档和测试
 
-- [ ] `architecture/` 简图与代码依赖方向一致；
-- [ ] 架构文档不再把 legacy 或 TextWorld 描述为受支持能力；
-- [ ] 删除旧路径后同步删除旧测试和旧 fixture；
-- [ ] 源码中不再导入 `ToolSpec`、旧 `ToolResult`、`legacy_adapter` 或 `from_tool_spec`；
-- [ ] 每个正式 registry entry 都直接来自 canonical `RegisteredTool`，不存在同步 executor fallback；
-- [ ] `ToolExecutionContext`、`ToolExecutionResult` 只有一套有效语义，权限、验证和 dispatch 不再跨两套 context/result 传递；
-- [ ] verifier 在所有需要验证的工具上真实执行，不能因为旧 `ToolResultMessage` 或 `_executor` 分支被绕过；
-- [ ] `robot_navigate`、`robot_find_object` 和 `build_universal_tool_registry()` 的调用方已迁移或删除；
-- [ ] 重新跑 import boundary、interface audit、ALFWorld Harness、Application Runtime 和真实 THOR 黑盒门；
-- [ ] 失败必须按 instance/episode/taskset 分别记录，不能用聚合成功掩盖单项失败。
+- [x] `architecture/` 简图与代码依赖方向一致；
+- [x] 架构文档不再把 legacy 或 TextWorld 描述为受支持能力；
+- [x] 删除旧路径后同步删除旧测试和旧 fixture；
+- [x] 源码中不再导入 `ToolSpec`、旧 `ToolResult`、`legacy_adapter` 或 `from_tool_spec`；
+- [x] 每个正式 registry entry 都直接来自 canonical `RegisteredTool`，不存在同步 executor fallback；
+- [x] `ToolExecutionContext`、`ToolExecutionResult` 只有一套有效语义，权限、验证和 dispatch 不再跨两套 context/result 传递；
+- [x] verifier 在所有需要验证的工具上真实执行，不能因为旧 `ToolResultMessage` 或 `_executor` 分支被绕过；
+- [x] `robot_navigate`、`robot_find_object` 和 `build_universal_tool_registry()` 的调用方已迁移或删除；
+- [x] 重新跑 import boundary、interface audit、ALFWorld Harness、Application Runtime 和真实 THOR 黑盒门；
+- [x] 失败必须按 instance/episode/taskset 分别记录，不能用聚合成功掩盖单项失败。

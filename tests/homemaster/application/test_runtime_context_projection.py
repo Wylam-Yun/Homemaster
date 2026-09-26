@@ -14,8 +14,9 @@ from homemaster.application.tool_executor import ApplicationToolExecutor
 from homemaster.config import ContextPolicyConfig, HomeMasterConfig
 from homemaster.providers.transports import AnthropicTransport, OpenAIChatTransport, TransportDelta
 from homemaster.tools.adapters import from_registered_tool
-from homemaster.tools.base import ToolExecutionContext, ToolRegistry
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.bash import build_terminal_tool
+from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext
 
 
 class _RecordingTransport:
@@ -142,7 +143,22 @@ async def test_terminal_receipt_survives_actual_provider_serialization(
 ) -> None:
     terminal = from_registered_tool(build_terminal_tool())
     arguments = terminal.input_model.model_validate({"command": command})
-    normalized = await terminal.execute(arguments, ToolExecutionContext(tmp_path))
+    normalized = await terminal.execute(
+        arguments,
+        ToolExecutionContext(
+            session_id="session",
+            run_id="run",
+            turn_index=0,
+            tool_call_id="terminal-call",
+            internal_tool_id="homemaster.terminal.v1",
+            permission_subject=PermissionSubject(subject_id="test", channel="pytest"),
+            backend=None,
+            deadline=None,
+            cancellation=None,
+            domain_observer=None,
+            working_directory=tmp_path,
+        ),
+    )
     message = _projector()._message(
         ToolCall(id="terminal-call", name="terminal", arguments={"command": command}),
         normalized,

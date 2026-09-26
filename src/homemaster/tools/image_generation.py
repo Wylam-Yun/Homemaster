@@ -13,7 +13,13 @@ import httpx
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from homemaster.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from homemaster.tools.base import BaseTool
+from homemaster.tools.contracts import (
+    ToolExecutionContext,
+    ToolExecutionError,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+)
 
 log = logging.getLogger(__name__)
 
@@ -107,25 +113,26 @@ class ImageGenerationTool(BaseTool):
         self,
         arguments: ImageGenerationToolInput,
         context: ToolExecutionContext,
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         config = context.metadata.get("image_generation_config", {})
         if not isinstance(config, dict):
             config = {}
         provider = _resolve_provider(arguments.provider, config)
 
         try:
-            output_paths = self._resolve_output_paths(arguments, context.cwd)
+            output_paths = self._resolve_output_paths(arguments, context.working_directory)
             if provider == "codex":
                 image_b64, revised_prompt = await self._generate_with_codex(arguments, config)
                 written = self._write_images(image_b64, output_paths, overwrite=arguments.overwrite)
                 extra = f"\nRevised prompt: {revised_prompt}" if revised_prompt else ""
-                return ToolResult(
-                    output=(
+                return ToolExecutionResult(
+                    status=ToolExecutionStatus.SUCCESS,
+                    text=(
                         "[Image generation via Codex hosted image_generation]\n"
                         + "\n".join(f"Wrote {path}" for path in written)
                         + extra
                     ),
-                    metadata={
+                    data={
                         "paths": [str(path) for path in written],
                         "provider": "codex",
                         "revised_prompt": revised_prompt,
@@ -136,16 +143,21 @@ class ImageGenerationTool(BaseTool):
             written = self._write_images(image_b64, output_paths, overwrite=arguments.overwrite)
         except Exception as exc:
             log.exception("image_generation failed")
-            return ToolResult(output=f"image_generation failed: {exc}", is_error=True)
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                text=f"image_generation failed: {exc}",
+                error=ToolExecutionError("image_generation_failed", str(exc)),
+            )
 
         mode = "edit" if arguments.image_paths else "generate"
         model = (arguments.model or str(config.get("model") or _DEFAULT_MODEL)).strip()
-        return ToolResult(
-            output=(
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text=(
                 f"[Image generation via {model} ({mode}, openai)]\n"
                 + "\n".join(f"Wrote {path}" for path in written)
             ),
-            metadata={
+            data={
                 "paths": [str(path) for path in written],
                 "model": model,
                 "mode": mode,

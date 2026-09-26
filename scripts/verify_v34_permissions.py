@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import signal
 import sqlite3
 import subprocess
 import sys

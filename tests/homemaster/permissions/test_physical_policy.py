@@ -14,8 +14,8 @@ from homemaster.permissions import (
     PhysicalDecision,
 )
 from homemaster.permissions.store import PermissionStore
-from homemaster.tools import ToolExecutionContext
 from homemaster.tools.executor import AllowAllPermissionChecker
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 def _pctx(

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from homemaster.agent.messages import UserMessage
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryRecord
 from homemaster.experience.alfworld_compiler import AlfworldDerivedExperience
 from homemaster.memory.automatic_recall import build_mindmemos_request_context
 from homemaster.memory.models import MEMORY_RECORD_ADAPTER

@@ -148,6 +148,10 @@ async def collect_elements(
                 "element_count": len(handles),
             }
         )
+        # Playwright query_selector_all includes open shadow roots, while
+        # document.querySelectorAll does not. Keep handles and states aligned.
+        if len(handles) != len(states):
+            states = [await handle.evaluate(_ELEMENT_STATE_JS) for handle in handles]
         requested_frame = semantic_filters.get("frame_ref")
         if requested_frame is not None and str(requested_frame) != frame_id:
             continue

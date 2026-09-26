@@ -23,8 +23,13 @@ from homemaster.agent.messages import ToolCall
 from homemaster.agent.normalized import RunContext
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
 from homemaster.skills.loader import load_skill_registry
-from homemaster.tools import ToolExecutionContext, ToolResult
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionStatus, VerificationStatus
+from homemaster.tools import ToolExecutionContext
+from homemaster.tools.contracts import (
+    PermissionSubject,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    VerificationStatus,
+)
 from homemaster.tools.executor import ToolExecutor
 
 COMMIT = "9b2efd795c6aa09f88b0c257d269a9e518da6ae7"
@@ -69,15 +74,12 @@ class Gate:
             deps={"skill_registry": self.registry},
         )
         context = ToolExecutionContext(
-            self.root,
-            metadata={
-                "session_id": "v20-install",
-                "run_id": "v20-install",
-                "turn_index": 0,
-                "tool_call_id": f"call-{name}",
-                "internal_tool_id": f"homemaster.{name}.v1",
-                "tool_registry": self.tool_registry,
-                "permission_subject": PermissionSubject(
+            session_id="v20-install",
+            run_id="v20-install",
+            turn_index=0,
+            tool_call_id=f"call-{name}",
+            internal_tool_id=f"homemaster.{name}.v1",
+            permission_subject=PermissionSubject(
                     subject_id="v20-verifier",
                     channel="cli",
                     roles=("local_operator",),
@@ -90,9 +92,15 @@ class Gate:
                         "network.http",
                         "process.exec",
                     ),
-                ),
+            ),
+            backend=None,
+            deadline=None,
+            cancellation=None,
+            domain_observer=None,
+            working_directory=self.root,
+            services={
+                "tool_registry": self.tool_registry,
                 "run_context": run_context,
-                "services": {"skill_registry": self.registry},
                 "skill_registry": self.registry,
             },
         )
@@ -114,20 +122,12 @@ class Gate:
 
 
 class _GateResult:
-    def __init__(self, result: ToolResult) -> None:
+    def __init__(self, result: ToolExecutionResult) -> None:
         self._result = result
-        self.text = result.output
-        self.data = result.metadata
-        status = result.metadata.get("status")
-        self.status = (
-            ToolExecutionStatus(status)
-            if status is not None
-            else ToolExecutionStatus.FAILURE
-            if result.is_error
-            else ToolExecutionStatus.SUCCESS
-        )
-        verification = result.metadata.get("verification_status", "not_requested")
-        self.verification = SimpleNamespace(status=VerificationStatus(verification))
+        self.text = result.text
+        self.data = result.data
+        self.status = result.status
+        self.verification = SimpleNamespace(status=result.verification.status)
 
     def to_dict(self) -> dict[str, object]:
         return {

@@ -1,0 +1,30 @@
+{
+  "classification": "agent_model_failure",
+  "domain": "alfworld",
+  "episode_id": "valid_seen/look_at_obj_in_light-AlarmClock-None-DeskLamp-323/trial_T20190909_044715_250790/traj_data.json",
+  "failure_advice": [],
+  "failure_reason": "max_tool_iterations_exceeded",
+  "failure_summary": [],
+  "final_environment_state": {
+    "done": false,
+    "goal_condition_success_rate": 0.0,
+    "invalid_action_count": 0,
+    "inventory": null,
+    "step_index": 0,
+    "won": false
+  },
+  "goal_type": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"AlarmClock\",\"parent_target\":\"\",\"toggle_target\":\"DeskLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+  "is_executable": false,
+  "outcome": "failure",
+  "record_kind": "trajectory",
+  "run_id": "v35-live-episode-20260925h-0001",
+  "schema_version": 1,
+  "source_session_id": "v35-live-episode-20260925h-0001",
+  "source_trace_path": "/tmp/hm-v35-cli-live-20260925h/trace/valid/v35-live-episode-20260925h/episode-0001/trace.jsonl",
+  "source_trace_sha256": "9cf5c763f206b35de73ca1415ac1c89dd4502392dc518fa0d8cc089c46f48f34",
+  "steps": [],
+  "subtask_index": null,
+  "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a bed 1, a dresser 1, a bed 2, a drawer 1, a sidetable 1, a drawer 2, a sidetable 2, a drawer 3, a drawer 4, a desk 1, a garbagecan 1, a drawer 5, a drawer 6, a drawer 7, a drawer 8, a drawer 9, a drawer 10, a drawer 11, and a safe 1.\n\nYour task is to: examine the alarmclock with the desklamp",
+  "taskset_id": null,
+  "trajectory_id": "e0669100-2a2f-59af-b2a0-0a08788c0ba0"
+}

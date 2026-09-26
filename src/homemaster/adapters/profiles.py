@@ -10,8 +10,8 @@ from homemaster.domain.tools import (
     make_load_skill,
     make_memory_retriever,
     make_memory_writer,
-    make_robot_manipulate,
     make_robot_go_to,
+    make_robot_manipulate,
     make_robot_verify,
     make_target_grounder,
     make_task_interpreter,
@@ -234,7 +234,7 @@ def _alfworld_tools(
     memory_path: Path | None,
     runtime_memory_root: Path | None,
 ) -> tuple[RegisteredTool, ...]:
-    from homemaster.benchmarking.alfworld.tools import (
+    from homemaster.alfworld.tools import (
         make_alfworld_robot_go_to,
         make_alfworld_robot_manipulate,
         make_alfworld_robot_verify,
@@ -274,16 +274,13 @@ def _alfworld_tools(
 def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
     """Build the opt-in permission-gated ALFWorld manipulation tool.
 
-    The default benchmark profile keeps the legacy ungated tools; call this
-    explicitly with an AlfworldBackend (usually ThorBackendView around the
-    live AlfworldEnvAdapter) to route robot_manipulate through the V3.4
-    current-call gate. Standalone robot_go_to stays legacy: ALFWorld
-    exposes no authoritative area model to gate it against.
+    The benchmark profile can opt into the permission-gated physical tools by
+    supplying the current Harness-backed AlfworldBackend.
     """
-    from homemaster.benchmarking.alfworld.permission_adapter import (
+    from homemaster.alfworld.permission_adapter import (
         AlfworldPermissionAdapter,
     )
-    from homemaster.benchmarking.alfworld.tools import (
+    from homemaster.alfworld.tools import (
         make_alfworld_robot_manipulate,
     )
 
@@ -301,8 +298,8 @@ def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
 
 
 def alfworld_physical_go_to_tool(*, backend: Any) -> Any:
-    from homemaster.benchmarking.alfworld.permission_adapter import AlfworldPermissionAdapter
-    from homemaster.benchmarking.alfworld.tools import make_alfworld_robot_go_to
+    from homemaster.alfworld.permission_adapter import AlfworldPermissionAdapter
+    from homemaster.alfworld.tools import make_alfworld_robot_go_to
     spec = make_alfworld_robot_go_to()
     adapter = AlfworldPermissionAdapter(tool="robot_go_to", backend=backend)
     registered = _configured_tool(

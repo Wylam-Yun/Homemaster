@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from homemaster.benchmarking.alfworld.object_view import CurrentObjectView
+from homemaster.alfworld.object_view import CurrentObjectView
 
 OBJECT = "Mug|+00.10|+00.90|+00.20"
 

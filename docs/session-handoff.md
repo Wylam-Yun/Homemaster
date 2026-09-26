@@ -1,5 +1,118 @@
 # Session Handoff
 
+## V3.5 continuation - 2026-09-26
+
+### Current state
+
+- Local checkout: `/Users/wylam/Documents/workspace/HomeMaster`, branch `v35-architecture`.
+- Worker reset now uses the cached immutable reset payload and reports the real worker
+  return code/attempt flag; Harness rejects stale snapshots before sending an action,
+  grounds target receptacles by object identity, and exposes close failures.
+- Benchmark runner constructs `ApplicationCompositionRequest` through the single
+  `application.composition` entry and owns the event loop explicitly.
+- `uv run ruff check src tests scripts`, `git diff --check`, and
+  `uv run python scripts/verify_v35_architecture.py --json` pass before the
+  final live-only changes; the focused adapter/runner suite after the taskset
+  snapshot fix is `48 passed`.
+- The remote single-worker trial was rerun against this exact worktree: reset,
+  PNG readback, four actions, `won=true`, close return code `0`, worker exit code
+  `0`, and persistent stderr without traceback.
+- The remote `easy_living_room_219` taskset was rerun on one THOR scene. Subtask 1
+  succeeded; subtask 2 advanced the goal with unchanged scene digest and recorded
+  the real retained-inventory `agent_model_failure`. THOR close succeeded and the
+  simulator was gone after close. Evidence is under
+  `plan/V3.5/evidence/phase-5/taskset-easy_living_room_219/`.
+- Local release audit now builds wheel/sdist, checks ALFWorld package data,
+  sdist lock/schema inputs, wheel import, worker protocol isolation, and private
+  config/runtime ignore rules. `scripts/homemaster doctor --json` remains blocked
+  locally until `.runtime/venv` is initialized; no local live pass is claimed.
+- Taskset runner now passes `alfworld_harness` in the continuous `RunRequest`; the
+  previous fallback could turn a `robot_manipulate` call into an internal
+  `robot_go_to`. The regression test and focused V3.5 suite pass.
+- Remote doctor is now `16/16 PASS`, including the installed MindMemOS origin in
+  the V3.5 `.runtime/venv`. A post-fix taskset CLI run reached Harness grounding but
+  timed out after 900 seconds without a final summary; this is a failed live gate.
+- Real action-SIGINT and close-SIGINT now both reconcile a close receipt with
+  external return code `0`, worker exit `0`, no descendants, and clean stderr;
+  evidence is under `plan/V3.5/evidence/phase-5/sigint-20260926/`.
+- Real unresolved-target and forced-backend failure black boxes now preserve
+  typed failures, external return codes, unchanged state digests, and clean
+  worker shutdown under `plan/V3.5/evidence/phase-3/failure-live-20260926b/`.
+- The permissions and benchmarking regression collection is now `297 passed`
+  after moving the remaining legacy context fixtures to the test adapter.
+- The current V3.5 focused gate is `559 passed, 2 warnings`; Ruff, diff check,
+  architecture audit (`10/10`), compileall, wheel build/install, and package-data
+  inspection pass.
+- `WorkerAlfworldAdapter` now explicitly propagates
+  `allow_offscreen_object_navigation` from benchmark/taskset config, defaulting to
+  the formal V1.8 value `true`; the changed ALFWorld type/runner regression is
+  `20 passed` and changed-file Ruff passes.
+- A broad five-subtask taskset CLI fixture remains model-sensitive: one run
+  exposed an ambiguous `Box` grounding failure and another reached its tool limit.
+  A bounded fixed-trial taskset CLI run now passes through `scripts/homemaster`
+  with provider/runtime/harness coverage `1.0`, per-subtask `agent_success`, and
+  CLI exit code `0`. The same run writes `worker.json` with close return code `0`,
+  worker exit `0`, and traceback-free stderr. The launcher seam remains recorded
+  in `docs/pitfalls.md`.
+- Clean Linux checkout work was attempted in `/tmp/hm-v35-clean`; source
+  `compileall` and worker isolation checks passed, while the full sync/build gate
+  did not complete because the remote runtime has no `uv`, `pip`, or `build` module.
+- A broader local collection was used only for diagnosis. Remaining failures
+  are outside the V3.5 gate: missing Playwright binaries, tests that require a
+  real Neo4j installation or provider, stale tests that contradict the current
+  memory/tool contracts, and the local ignored runtime/config residue.
+- The gateway smoke manifest was run on hkust4 through the standalone
+  `scripts/verify_v35_gateway_smoke_live.py`; every configured entry passed reset,
+  navigation, real manipulation, return-code checks, close, worker exit and
+  traceback-free stderr. Evidence is under
+  `plan/V3.5/evidence/phase-5/gateway-smoke-live/`.
+- `scripts/setup-alfworld.sh` passed a real remote dependency/binding probe using
+  the checked-in lock file. After installing supported `uv 0.11.19`, the general
+  `scripts/setup.sh` gate also passed and doctor reported `16/16 PASS`; this is
+  recorded in `plan/V3.5/evidence/phase-5/setup-gates-20260926.json`.
+
+### Remaining gates
+
+1. Before any future commit, add the final change summary to `CHANGELOG.md` and use the same content in the commit message. No commit has been requested, so this gate is intentionally pending.
+
+### Important facts
+
+- Remote checkout: `hkust4:/home/haodong2/weilin/red_bird/Homemaster-v35`.
+- Remote worker interpreter: `.runtime/alfworld-venv/bin/python`.
+- Remote `main` must remain untouched; sync and test only `v35-architecture`.
+- Taskset reset now enables the existing immutable snapshot transaction only for
+  `identity_status="taskset_declared"`; ordinary episodes retain the lightweight
+  reset path.
+
+## V3.5 Worker / HomeWorld Continuation - 2026-09-24
+
+### Current state
+
+- Local checkout: `/Users/wylam/Documents/workspace/HomeMaster`, branch `v35-architecture`.
+- Remote test checkout: `hkust4:/home/haodong2/weilin/red_bird/Homemaster-v35`; remote `main` was not modified.
+- ALFWorld transport is now versioned stdin/stdout NDJSON. The worker clears `PYTHONPATH`; Unity/third-party stdout is redirected to stderr during external calls so protocol frames remain parseable.
+- Home `robot_go_to` and `robot_manipulate` use `HomeWorldBackend` against `world.json`, return `external_return_code`, `backend_attempted`, and readback evidence refs.
+
+### Verification
+
+- Local: HomeWorld black-box `2 passed`; V3.5/worker/ALFWorld/Gateway focused suite `28 passed`; worker protocol `1 passed`; changed-file Ruff and diff check passed.
+- Remote canonical regression: `112 passed` across V3.5 audits, HomeWorld black-box, application/runtime, browser scope, task-state, ALFWorld tools/guards, and permission interface audits; changed-file Ruff passed.
+- Remote live THOR: `tests/homemaster/alfworld/test_worker_live.py` passed with reset, PNG readback, navigation, manipulation, close, worker exit, and stderr traceback gate (`1 passed`, 33.29s) using `.runtime/alfworld-venv` and Xvfb `:99`.
+- Remote migration follow-up: historical tool/permission/runtime tests now use canonical contracts (`57 + 32 + 49 + 34` passed); browser full scope passes `56`; full pytest collection passes `1605` tests with no collection errors.
+
+### Remaining work
+
+1. Remove or migrate remaining TextWorld-era translator/types/tests and update any stale live gateway test names/documentation.
+2. Run the broader remote regression after that cleanup; the full suite still contains environment-dependent and external-provider gates that must be reported separately.
+3. Commit with a message matching the new CHANGELOG entry when the user requests the checkpoint.
+
+### Important facts
+
+- Remote dependency interpreter: `/home/haodong2/weilin/red_bird/Homemaster/.venv/bin/python`.
+- Remote ALFWorld interpreter: `/home/haodong2/weilin/red_bird/Homemaster/.runtime/alfworld-venv/bin/python`.
+- Live ALFWorld assets: `/home/haodong2/weilin/red_bird/Homemaster/.runtime/alfworld`.
+- Do not modify remote `main`; synchronize only the `Homemaster-v35` worktree for tests.
+
 ## V3.6 Compact Schema Input / Embedding Follow-up - 2026-09-19
 
 ### Current request and scope

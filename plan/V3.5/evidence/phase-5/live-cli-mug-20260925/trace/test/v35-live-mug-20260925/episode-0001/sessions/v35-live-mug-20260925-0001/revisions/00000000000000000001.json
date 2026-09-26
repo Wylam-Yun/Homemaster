@@ -1,0 +1,43 @@
+{
+  "agent_state": {
+    "active_task_snapshot_id": null,
+    "consecutive_tool_errors": 0,
+    "estimated_context_tokens": 0,
+    "iteration_index": 0,
+    "last_assistant_text": null,
+    "last_compaction": null,
+    "last_progress_marker": null,
+    "last_tool_calls": [],
+    "last_tool_results_summary": [],
+    "max_tool_iterations": null,
+    "metadata": {},
+    "no_progress_iterations": 0,
+    "pending_model_observation": null,
+    "provider_usage": null,
+    "run_id": "",
+    "session_id": "v35-live-mug-20260925-0001",
+    "status": "running",
+    "total_model_calls": 0,
+    "total_tool_calls": 0,
+    "turn_index": 1,
+    "unconsumed_observation_tool_call_id": null
+  },
+  "canonical_evidence_refs": [],
+  "created_at": 1790338850.0064447,
+  "environment_ref": "alfworld-worker:1432348",
+  "messages": [],
+  "model": "",
+  "require_recall": false,
+  "saved_at": 1790338850.0088642,
+  "schema_version": 1,
+  "session_generation": 1,
+  "session_id": "v35-live-mug-20260925-0001",
+  "session_status": "running",
+  "snapshot_revision": 1,
+  "system_prompt": "",
+  "task_state": {
+    "run_id": "v35-live-mug-20260925-0001",
+    "snapshot": null,
+    "snapshot_counter": 0
+  }
+}

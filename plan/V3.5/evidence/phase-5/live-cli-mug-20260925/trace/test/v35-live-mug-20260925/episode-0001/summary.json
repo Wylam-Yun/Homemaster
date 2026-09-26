@@ -1,0 +1,15 @@
+{
+  "classification": "agent_model_failure",
+  "episode_id": "valid_unseen/pick_and_place_simple-Mug-None-Desk-308/trial_T20190908_125200_737896/traj_data.json",
+  "failure_reason": "max_consecutive_tool_errors",
+  "goal_condition_success_rate": 0.0,
+  "invalid_actions": 0,
+  "outcome": "failure",
+  "run_id": "v35-live-mug-20260925-0001",
+  "runtime_status": "failed",
+  "score_eligible": true,
+  "source_trace_sha256": "8f287aa70e5fb9d9ddfcf356de8f069b26dee706f75946714c5cda0e8251c407",
+  "steps": 0,
+  "success": false,
+  "trajectory_id": "63f1480c-dfe8-5131-9917-12fdfca4c473"
+}

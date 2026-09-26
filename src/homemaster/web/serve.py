@@ -12,13 +12,13 @@ from typing import Literal
 import uvicorn
 from fastapi import FastAPI
 
+from homemaster.alfworld.permission_adapter import ThorBackendView
 from homemaster.application.composition import compose_application
 from homemaster.config import load_config
 from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,
     create_alfworld_gateway_binding,
 )
-from homemaster.benchmarking.alfworld.permission_adapter import ThorBackendView
 from homemaster.memory.management import MemoryManagementService
 from homemaster.permissions import PermissionMode
 from homemaster.web.app import create_web_app
@@ -79,7 +79,13 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
 
     confirmation_handler = WebConfirmationHandler()
     config = load_config(config_path=config_path) if config_path is not None else load_config()
-    config = config.model_copy(update={"runtime": config.runtime.model_copy(update={"max_tool_iterations": 100, "max_consecutive_tool_errors": 0})})
+    config = config.model_copy(
+        update={
+            "runtime": config.runtime.model_copy(
+                update={"max_tool_iterations": 100, "max_consecutive_tool_errors": 0}
+            )
+        }
+    )
     bundle = compose_application(
         config=config,
         progress=False,

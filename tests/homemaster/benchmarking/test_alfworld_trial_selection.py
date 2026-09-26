@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.benchmarking.alfworld.trial_selection import (
+from homemaster.alfworld.trial_selection import (
     TrialSelectionEntry,
     build_trial_selection_entry,
     load_trial_selection_manifest,

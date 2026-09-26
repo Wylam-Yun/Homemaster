@@ -159,7 +159,8 @@ persistent memory。自动召回、证据、任务状态和预算仍位于原有
 
 registered executor 返回的 canonical `ToolExecutionResult` 经通用 adapter 时保留原值；application 消息边界
 调用其统一 provider projection，使状态、业务 data、cwd、外部返回码和结构化错误进入真实 tool-result
-`content`。扁平 `ToolResult.metadata` 继续供 completion guard、observer 和既有内部消费者使用。memory 工具
+`content`。结构化 `ToolExecutionResult.data` 供 completion guard、observer 和其他内部消费者使用；内部
+evidence refs 只留在应用 trace/result 数据，不进入 provider-facing content。memory 工具
 保持已经公开的顶层 `memory_id/records/versions` 模型形状，图片仍成为 provider image block，附件原始字节只
 交给 artifact publisher。Anthropic/OpenAI transport 只负责序列化 `ToolResultMessage.content`，不解释或拼接
 内部 `data`。

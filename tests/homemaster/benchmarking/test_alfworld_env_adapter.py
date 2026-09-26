@@ -8,19 +8,18 @@ from typing import Any
 
 import pytest
 
-from homemaster.benchmarking.alfworld.env_adapter import (
+from homemaster.alfworld.benchmark.adapter import (
     AlfworldEnvAdapter,
     _event_world_sha256,
     _external_event_read,
     load_alfworld_yaml,
     split_to_train_eval,
 )
-from homemaster.benchmarking.alfworld.execution import (
+from homemaster.alfworld.benchmark.scene_execution import (
     AgentPose,
     ExecutionBudget,
     PoseContext,
 )
-from homemaster.benchmarking.alfworld.trial_selection import TrialSelectionEntry
 
 
 class FakeBatchEnv:
@@ -324,80 +323,6 @@ def test_adapter_reset_normalizes_initial_state_without_visible_admissible_comma
     ]
 
 
-@pytest.mark.parametrize(
-    ("runtime_scene", "expected_failure"),
-    [
-        pytest.param(
-            "FloorPlan2_physics",
-            "runtime_scene_mismatch",
-            id="wrong-runtime-scene",
-        ),
-        pytest.param(
-            "FloorPlan1",
-            "reset_identity_unreadable",
-            id="bare-logical-scene-is-not-a-runtime-asset",
-        ),
-    ],
-)
-def test_v18_reset_rejects_runtime_scene_before_setup_actions(
-    runtime_scene: str,
-    expected_failure: str,
-) -> None:
-    class Event:
-        metadata = {
-            "lastAction": "Reset",
-            "lastActionSuccess": True,
-            "objects": [],
-            "sceneName": runtime_scene,
-        }
-
-    class ThorEnv:
-        last_event = Event()
-        actions: list[dict[str, Any]] = []
-
-        def step(self, action: dict[str, Any]) -> Any:
-            self.actions.append(action)
-            raise AssertionError("runtime scene failure must precede setup actions")
-
-    class BatchEnv(FakeBatchEnv):
-        def __init__(self) -> None:
-            super().__init__()
-            self.thor = ThorEnv()
-            self.envs = [SimpleNamespace(env=self.thor)]
-            self.close_calls = 0
-
-        def close(self) -> None:
-            self.close_calls += 1
-
-    env = BatchEnv()
-    adapter = AlfworldEnvAdapter(
-        env=env,
-        episode_prefix="episode",
-        seed=123,
-        require_v18_reset=True,
-    )
-    selection = TrialSelectionEntry(
-        trial_id="case-1/traj_data.json",
-        trial_sha256="a" * 64,
-        expected_logical_scene="FloorPlan1",
-        goal_identity="{}",
-        goal_fingerprint="b" * 64,
-        identity_status="test",
-    )
-
-    result = adapter.reset(selection_entry=selection)
-
-    assert not result.ready
-    assert result.setup_trigger == expected_failure
-    assert result.setup_failure == expected_failure
-    assert result.classification == "execution_state_uncertain"
-    assert result.setup_backend_action_count == 0
-    assert result.cleanup_status == "succeeded"
-    assert result.environment_disposition == "closed"
-    assert env.thor.actions == []
-    assert env.close_calls == 1
-
-
 def test_adapter_step_uses_environment_feedback_for_invalid_actions() -> None:
     env = FakeBatchEnv()
     env.current_admissible = ["look"]
@@ -491,92 +416,6 @@ async def test_screenshot_returns_the_exact_current_frame_without_advancing_stat
     assert screenshot == frame_path.read_bytes()
     assert adapter.event_sequence == event_sequence
     assert adapter.state_sequence == state_sequence
-
-
-def test_virtual_navigate_teleports_until_target_is_visible(tmp_path: Path) -> None:
-    pytest.importorskip("PIL")
-    numpy = pytest.importorskip("numpy")
-
-    class Event:
-        def __init__(self, *, visible: bool = False, reachable: bool = False) -> None:
-            self.frame = numpy.zeros((4, 4, 3), dtype=numpy.uint8)
-            self.instance_detections2D = {"FloorLamp|1": [0, 0, 3, 3]} if visible else {}
-            self.metadata = {
-                "lastActionSuccess": True,
-                "agent": {"position": {"y": 0.9}},
-                "reachablePositions": (
-                    [{"x": 1.0, "z": 1.0}, {"x": 2.0, "z": 2.0}] if reachable else []
-                ),
-                "objects": [
-                    {
-                        "objectId": "FloorLamp|0",
-                        "objectType": "FloorLamp",
-                        "position": {"x": 10.0, "y": 1.2, "z": 10.0},
-                        "visible": False,
-                    },
-                    {
-                        "objectId": "FloorLamp|1",
-                        "objectType": "FloorLamp",
-                        "position": {"x": 2.0, "y": 1.2, "z": 2.0},
-                        "visible": visible,
-                    },
-                ],
-            }
-
-    class ThorEnv:
-        def __init__(self) -> None:
-            self.last_event = Event()
-            self.actions: list[dict] = []
-            self.teleport_count = 0
-
-        def step(self, action: dict):
-            self.actions.append(action)
-            if action["action"] == "GetReachablePositions":
-                self.last_event = Event(reachable=True)
-            elif action["action"] == "TeleportFull":
-                self.teleport_count += 1
-                self.last_event = Event(visible=self.teleport_count >= 2)
-            else:
-                raise AssertionError(action)
-            return self.last_event
-
-        def get_goal_satisfied(self) -> bool:
-            return False
-
-        def get_goal_conditions_met(self):
-            return (0, 2)
-
-    class InnerEnv:
-        def __init__(self, thor_env: ThorEnv) -> None:
-            self.env = thor_env
-
-    env = FakeBatchEnv()
-    thor_env = ThorEnv()
-    env.envs = [InnerEnv(thor_env)]
-    adapter = AlfworldEnvAdapter(
-        env=env,
-        episode_prefix="episode",
-        seed=123,
-        frame_dir=tmp_path / "frames",
-    )
-    adapter.reset()
-
-    result = adapter.virtual_navigate(
-        "floorlamp",
-        tool_name="robot_go_to",
-        tool_args={},
-    )
-
-    assert result.success is True
-    assert result.failure_reason is None
-    assert result.translated_command == "virtual go to floorlamp"
-    assert result.state.step_index == 1
-    assert result.state.invalid_action_count == 0
-    assert result.state.frame_path is not None
-    assert Path(result.state.frame_path).exists()
-    assert thor_env.actions[0] == {"action": "GetReachablePositions"}
-    assert thor_env.teleport_count >= 2
-    assert all(action["action"] == "TeleportFull" for action in thor_env.actions[1:])
 
 
 def test_go_to_target_teleports_to_specific_movable_object(tmp_path: Path) -> None:

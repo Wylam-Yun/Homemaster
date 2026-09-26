@@ -41,8 +41,8 @@ load and verify complete trial manifest
 
 `AlfworldResetResult` 和 `AlfworldGoalAdvanceResult` 是 closed typed result。ready 与 terminal 字段组合互斥；终止记录保留 trigger、最终 failure、classification、恢复/清理状态、环境 disposition、计数和 evidence ref。
 
-ALFWorld 与记忆 backend 保持解耦：Adapter 不 import 或持久化 MindMemOS，`AlfworldApplicationEntry` 只选择
-`tool_environment="alfworld"` 并委托标准 `create_home_application`。因此 benchmark 与其他入口共享
+ALFWorld 与记忆 backend 保持解耦：Adapter 不 import 或持久化 MindMemOS，benchmark lifecycle 只选择
+`profile="alfworld"` 并通过 `application.composition` 委托标准 `ApplicationRuntime`。因此 benchmark 与其他入口共享
 embedded MindMemOS、Evidence ledger、FIFO、自动召回、managed Neo4j 和 application close 顺序。
 legacy `memory_mode=disabled` 仅禁止旧 ALFWorld writer；canonical `config.memory.enabled` 必须为 true，
 MindMemOS 或 FIFO 未组成时 benchmark 在 Provider 调用前失败。
@@ -50,13 +50,21 @@ MindMemOS 或 FIFO 未组成时 benchmark 在 Provider 调用前失败。
 ### Gateway 固定 Episode 绑定
 
 `AlfworldGatewayApplication` 在 application composition 外绑定一个固定 episode 和唯一 session。
-HomeMaster 进程不 import ALFWorld；`AlfworldHttpEnvironment` 使用随机 token 和 loopback ephemeral port
-启动配置中的 ALFWorld Python worker。HTTP 只承载 reset/current state、语义动作、截图与 close，
-worker 内部仍复用同一个 Adapter 和 Oracle 外部动作网关。启动 readiness、每次 HTTP status、返回
-schema、图片 hash/可解码性和进程退出分别核对；关闭回收 worker、Unity 与由应用管理的 Xvfb。
+HomeMaster 进程不 import ALFWorld；`AlfworldWorkerClient` 启动配置中的独立 ALFWorld Python
+worker，并通过版本化 stdin/stdout NDJSON 传递 reset/current state、语义动作和 close。截图通过
+共享 artifact path 读取，不放入协议 JSON body。启动 readiness、每次协议返回码、typed result、
+图片 hash/可解码性和进程退出分别核对；关闭回收 worker、Unity 与由应用管理的 Xvfb。
 
 这条 transport 只解决两套既有 Python 环境的进程隔离，不改变模型通信路径：模型仍经
 ApplicationRuntime/Provider 调用普通工具，工具 executor 才访问绑定的 environment。
+
+正式单 episode benchmark CLI 和 `benchmark-alfworld-taskset` 都通过
+`benchmark/worker_adapter.py` 使用这条隔离边界；taskset 的连续 `set_task` 在同一个
+worker 内校验 trial identity 并要求 scene digest 不变。taskset 的 Harness 依赖与 episode
+保持一致，避免 manipulation 回落到旧的内部导航路径。Phase 5 的真实 provider 成功证据见
+`plan/V3.5/evidence/phase-5/live-cli-grounding2-20260926/`；bounded taskset CLI 的逐子任务
+成功与同 run 的 worker close/exit/stderr 证据见
+`plan/V3.5/evidence/phase-5/taskset-cli-single-20260926c/`；正式 CLI 终态门已通过。
 
 ## Snapshot 与当前物理视图
 
@@ -93,7 +101,7 @@ Gateway/通用 Agent Loop 另有一个模型观察屏障：具身工具结果只
 control hash、准确目标可见性和 bbox。每个 runtime THOR action 的 raw event 另存为受限 JSONL/artifact，
 用于独立核对返回码、pose 和 strict visibility，不投影给模型或飞书。
 
-Manipulation 锁定准确对象、准确 target 和有效 `OracleExecutionContext`。`take/open/close/put/use/slice/heat/cool/clean` 通过动作专用 precondition、gateway 请求、return-code 和 terminal-state evaluator；context 按动作语义 preserve、rebase、consume 或 invalidate。正式 V1.8 public call graph 不到达 V1.7 navigation/local-Put compatibility implementation，但兼容代码仍物理保留，尚未完成源文件级删除。
+Manipulation 锁定准确对象、准确 target 和有效 `OracleExecutionContext`。`take/open/close/put/use/slice/heat/cool/clean` 通过动作专用 precondition、gateway 请求、return-code 和 terminal-state evaluator；context 按动作语义 preserve、rebase、consume 或 invalidate。正式 V1.8 public call graph 通过 `homemaster.alfworld` Harness 暴露；旧实现已迁入新的 benchmark/Harness 分层并从旧 `homemaster.benchmarking.alfworld` 包路径删除，公开入口不再提供 V1.7 compatibility route。
 
 ## 强类型反馈
 

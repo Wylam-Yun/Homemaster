@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from homemaster.benchmarking.alfworld.gateway import (
+from homemaster.alfworld.gateway import (
     CleanupResult,
     ExternalEventRead,
     OracleActionGateway,
 )
-from homemaster.benchmarking.alfworld.pose_snapshot import (
+from homemaster.alfworld.pose_snapshot import (
     OraclePose,
     ScanPoseProvenance,
     ScanPoseStep,

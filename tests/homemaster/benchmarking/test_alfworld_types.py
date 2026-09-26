@@ -4,11 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from homemaster.benchmarking.alfworld.types import (
+from homemaster.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
     AlfworldExecutionFeedback,
     AlfworldResetResult,
+    Subtask,
+    Taskset,
+    TasksetRunConfig,
 )
 
 
@@ -27,6 +30,31 @@ def test_config_defaults_keep_memory_disabled_and_invalid_limit_100(tmp_path: Pa
     assert config.max_tool_iterations == 200
     assert config.provider_name is None
     assert config.observation_mode == "visual_eval"
+    assert config.allow_offscreen_object_navigation is True
+
+
+def test_taskset_config_defaults_allow_offscreen_navigation(tmp_path: Path) -> None:
+    taskset = Taskset(
+        id="taskset",
+        floorplan=219,
+        subtasks=(
+            Subtask(
+                goal_type="look_at_obj_in_light",
+                object="RemoteControl",
+                toggle="FloorLamp",
+                traj_path=tmp_path / "traj_data.json",
+            ),
+        ),
+    )
+    config = TasksetRunConfig(
+        alfworld_root=tmp_path,
+        alfworld_config=tmp_path / "base_config.yaml",
+        trace_root=tmp_path / "traces",
+        provider_config=tmp_path / "homemaster.yaml",
+        provider_name="Mimo",
+        tasksets=(taskset,),
+    )
+    assert config.allow_offscreen_object_navigation is True
 
 
 def test_config_rejects_non_positive_episode_count(tmp_path: Path) -> None:

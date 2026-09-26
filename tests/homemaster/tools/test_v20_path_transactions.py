@@ -10,9 +10,10 @@ import pytest
 
 from homemaster.agent.messages import ToolCall
 from homemaster.permissions import PermissionChecker, PermissionMode, PermissionSettingsConfig
-from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools import FunctionTool, ToolRegistry
 from homemaster.tools.executor import ToolExecutor
 from homemaster.tools.paths import path_resource_key, resolve_context_tool_path
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 def test_relative_path_permission_and_execution_stay_anchored_after_cwd_changes(

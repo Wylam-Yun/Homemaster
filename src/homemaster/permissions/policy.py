@@ -226,7 +226,7 @@ class PermissionChecker:
                     continue
                 candidate_path = Path(item).expanduser()
                 if not candidate_path.is_absolute():
-                    candidate_path = context.cwd / candidate_path
+                    candidate_path = context.working_directory / candidate_path
                 path = str(candidate_path.resolve(strict=False))
                 candidates = (path.rstrip("/"), path.rstrip("/") + "/")
                 for candidate in candidates:

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryRecord
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.experience.alfworld_compiler import COMPILER_VERSION, compile_alfworld_trajectory
 from homemaster.memory.automatic_recall import build_mindmemos_request_context

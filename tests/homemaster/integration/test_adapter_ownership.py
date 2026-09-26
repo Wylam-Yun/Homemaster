@@ -9,11 +9,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRY_PATHS = (
     "src/homemaster/agent/turn.py",
     "src/homemaster/cli/interactive_shell.py",
-    "src/homemaster/benchmarking/alfworld/runner.py",
+    "src/homemaster/alfworld/benchmark/runner.py",
 )
 FORBIDDEN_IMPORTS = {
     "homemaster.agent.generic_runtime",
-    "homemaster.benchmarking.alfworld.registry",
+    "homemaster.alfworld.registry",
     "homemaster.domain.tool_registry",
     "homemaster.providers.llm_client",
     "homemaster.tools.dispatcher",
@@ -30,8 +30,8 @@ FORBIDDEN_CONSTRUCTORS = {
 }
 
 REMOVED_DEAD_PATHS = (
-    "src/homemaster/benchmarking/alfworld/registry.py",
-    "src/homemaster/benchmarking/alfworld/runtime_contract.py",
+    "src/homemaster/alfworld/registry.py",
+    "src/homemaster/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/browser_demo/trajectory.py",
     "src/homemaster/benchmarking/browser_demo/__init__.py",
     "src/homemaster/channels/impl/telegram.py",
@@ -108,8 +108,8 @@ def test_migrated_dead_path_is_absent_from_distribution_source(relative: str) ->
 
 def test_removed_execution_modules_are_absent_from_production() -> None:
     removed_modules = {
-        "homemaster.benchmarking.alfworld.registry",
-        "homemaster.benchmarking.alfworld.runtime_contract",
+        "homemaster.alfworld.registry",
+        "homemaster.alfworld.runtime_contract",
         "homemaster.benchmarking.browser_demo.trajectory",
         "homemaster.benchmarking.browser_demo",
         "homemaster.channels.impl.telegram",

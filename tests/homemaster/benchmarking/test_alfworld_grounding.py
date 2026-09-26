@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from homemaster.benchmarking.alfworld.grounding import (
+from homemaster.alfworld.grounding import (
     GroundingCandidate,
     build_grounding_candidates,
     canonical_command_name,
     ground_text,
     normalized_key,
 )
-from homemaster.benchmarking.alfworld.types import AlfworldEnvState, Subtask
+from homemaster.alfworld.types import AlfworldEnvState, Subtask
 
 
 def test_canonical_command_name_flattens_alfworld_camel_case() -> None:
@@ -191,7 +191,7 @@ def test_semantic_judge_checks_yes_no_without_candidate_selection(
         requests.append(kwargs["json"])
         return _Response()
 
-    monkeypatch.setattr("homemaster.benchmarking.alfworld.grounding.httpx.post", fake_post)
+    monkeypatch.setattr("homemaster.alfworld.grounding.httpx.post", fake_post)
 
     result = ground_text(
         "standing light",

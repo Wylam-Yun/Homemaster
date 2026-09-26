@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,8 +20,9 @@ from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.feedback_context import build_feedback_context_snapshot
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
-from homemaster.tools.base import ToolExecutionContext
+from homemaster.tools.contracts import PermissionSubject
 from homemaster.tools.memory_tools import AddMemoryInput, build_memory_tools
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 MEMORY_TOOL_NAMES = {
     "context_memory",
@@ -195,11 +197,15 @@ async def test_file_memory_mutation_requires_tool_mutate_and_uses_service(tmp_pa
     assert denied.error.code == "memory_permission_denied"
     assert store.read("user").entries == ()
 
-    context.metadata["permission_subject"] = type(
-        "Subject",
-        (),
-        {"tenant_id": "tenant-a", "capabilities": ("tool.read", "tool.mutate")},
-    )()
+    context = replace(
+        context,
+        permission_subject=PermissionSubject(
+            subject_id="test",
+            channel="pytest",
+            tenant_id="tenant-a",
+            capabilities=("tool.read", "tool.mutate"),
+        ),
+    )
     added = await executor.execute(
         {"target": "user", "action": "add", "content": "偏好简洁回答"},
         context,
@@ -1138,7 +1144,9 @@ async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Pat
         if tool.definition.model_alias == "mindmemos_feedback"
     )
     context = _feedback_tool_context(tmp_path, store)
-    context.metadata["memory_feedback_context"] = build_feedback_context_snapshot(
+    context = _with_services(
+        context,
+        memory_feedback_context=build_feedback_context_snapshot(
         [UserMessage.from_text("I use uv, not conda.")],
         automatic_recalled_memories=[
             MemorySearchItem(
@@ -1147,6 +1155,7 @@ async def test_feedback_verifies_update_terminal_state_and_lineage(tmp_path: Pat
                 last_update_at="2026-08-01 00:00:00",
             )
         ],
+        ),
     )
 
     result = await executor.execute({"feedback": "Use uv, not conda."}, context)
@@ -1225,7 +1234,9 @@ async def test_feedback_rejects_schema_update_when_record_json_stays_stale(tmp_p
         if tool.definition.model_alias == "mindmemos_feedback"
     )
     context = _feedback_tool_context(tmp_path, store)
-    context.metadata["memory_feedback_context"] = build_feedback_context_snapshot(
+    context = _with_services(
+        context,
+        memory_feedback_context=build_feedback_context_snapshot(
         [UserMessage.from_text("Online uses uv; offline uses Poetry.")],
         automatic_recalled_memories=[
             MemorySearchItem(
@@ -1235,6 +1246,7 @@ async def test_feedback_rejects_schema_update_when_record_json_stays_stale(tmp_p
                 structured_record=old_record,
             )
         ],
+        ),
     )
 
     result = await executor.execute(
@@ -1305,8 +1317,10 @@ async def test_feedback_rejects_invalid_recalled_raw_without_backend_mutation(
         if tool.definition.model_alias == "mindmemos_feedback"
     )
     context = _feedback_tool_context(tmp_path, store)
-    context.metadata["run_context"] = SimpleNamespace(event_sink=sink)
-    context.metadata["memory_feedback_context"] = build_feedback_context_snapshot(
+    context = _with_services(
+        context,
+        run_context=SimpleNamespace(event_sink=sink),
+        memory_feedback_context=build_feedback_context_snapshot(
         [UserMessage.from_text("correct it")],
         automatic_recalled_memories=[
             MemorySearchItem(
@@ -1315,6 +1329,7 @@ async def test_feedback_rejects_invalid_recalled_raw_without_backend_mutation(
                 last_update_at="2026-08-01 00:00:00",
             )
         ],
+        ),
     )
 
     result = await executor.execute({"feedback": "new content"}, context)
@@ -1358,3 +1373,7 @@ def _feedback_tool_context(
             "tool_call_id": "call-feedback",
         },
     )
+
+
+def _with_services(context: ToolExecutionContext, **services: object) -> ToolExecutionContext:
+    return replace(context, services={**context.services, **services})

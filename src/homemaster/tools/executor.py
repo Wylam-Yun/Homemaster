@@ -27,7 +27,16 @@ from homemaster.permissions.models import (
     TargetUnresolved,
 )
 from homemaster.permissions.store import MAX_ATTEMPTS_DEFAULT, PermissionStore
-from homemaster.tools.base import BaseTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.base import BaseTool, ToolRegistry
+from homemaster.tools.contracts import (
+    OutcomeCertainty,
+    ToolExecutionContext,
+    ToolExecutionError,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+    VerificationRecord,
+    VerificationStatus,
+)
 
 log = logging.getLogger(__name__)
 
@@ -141,8 +150,8 @@ class PhysicalGateOwner:
 
 def _physical_result(
     message: str, status: str, *, backend_attempted: bool = False
-) -> ToolResult:
-    return ToolResult(
+) -> ToolExecutionResult:
+    return _result(
         message,
         True,
         {
@@ -150,6 +159,59 @@ def _physical_result(
             "error_code": status,
             "backend_attempted": backend_attempted,
         },
+    )
+
+
+def _result(
+    text: str = "",
+    is_error: bool = False,
+    data: dict[str, Any] | None = None,
+) -> ToolExecutionResult:
+    """Build one canonical result for executor-level control-flow failures."""
+
+    payload = dict(data or {})
+    status_text = str(payload.get("status", "failure" if is_error else "success"))
+    status_by_name = {
+        "success": ToolExecutionStatus.SUCCESS,
+        "ok": ToolExecutionStatus.SUCCESS,
+        "no_effect": ToolExecutionStatus.SUCCESS,
+        "invalid_tool_arguments": ToolExecutionStatus.INVALID,
+        "unknown_tool": ToolExecutionStatus.INVALID,
+        "permission_denied": ToolExecutionStatus.DENIED,
+        "cancelled": ToolExecutionStatus.CANCELLED,
+        "execution_cancelled": ToolExecutionStatus.CANCELLED,
+        "deadline_exceeded": ToolExecutionStatus.FAILURE,
+        "outcome_unknown": ToolExecutionStatus.OUTCOME_UNKNOWN,
+        "verification_pending": ToolExecutionStatus.VERIFICATION_PENDING,
+    }
+    status = status_by_name.get(status_text, ToolExecutionStatus.FAILURE)
+    attempted = bool(payload.get("backend_attempted", False))
+    if status is ToolExecutionStatus.CANCELLED and attempted:
+        status = ToolExecutionStatus.OUTCOME_UNKNOWN
+    if status is ToolExecutionStatus.OUTCOME_UNKNOWN:
+        certainty = OutcomeCertainty.UNKNOWN
+    else:
+        certainty = OutcomeCertainty.CONFIRMED
+    error = None
+    verification = VerificationRecord()
+    if status is ToolExecutionStatus.VERIFICATION_PENDING:
+        verification = VerificationRecord(
+            status=VerificationStatus.PENDING,
+            detail=text or "verification is pending",
+        )
+    if status is not ToolExecutionStatus.SUCCESS:
+        error = ToolExecutionError(
+            code=str(payload.get("error_code", status_text)),
+            message=text or status_text,
+        )
+    return ToolExecutionResult(
+        status=status,
+        text=text,
+        data=payload,
+        error=error,
+        backend_attempted=attempted,
+        outcome_certainty=certainty,
+        verification=verification,
     )
 
 
@@ -176,10 +238,10 @@ class ToolExecutor:
         self.permission_store = permission_store
         self.physical_owner = physical_owner or PhysicalGateOwner()
 
-    async def execute(self, call: ToolCall, context: ToolExecutionContext) -> ToolResult:
+    async def execute(self, call: ToolCall, context: ToolExecutionContext) -> ToolExecutionResult:
         tool = self.registry.get(call.name)
         if tool is None:
-            return ToolResult(
+            return _result(
                 f"unknown tool: {call.name}",
                 True,
                 {"status": "unknown_tool"},
@@ -204,13 +266,13 @@ class ToolExecutor:
                 value = confirm(tool, normalized_arguments, context, decision)
                 approved = bool(await value if inspect.isawaitable(value) else value)
             if not approved:
-                return ToolResult(
+                return _result(
                     decision.reason or "tool confirmation was not granted",
                     True,
                     {"status": "permission_denied", "error_code": "permission_denied"},
                 )
         elif not decision.allowed:
-            return ToolResult(
+            return _result(
                 decision.reason or "tool execution was denied",
                 True,
                 {"status": "permission_denied", "error_code": "permission_denied"},
@@ -222,7 +284,7 @@ class ToolExecutor:
             return resource_error
         backend_started = False
 
-        async def invoke() -> ToolResult:
+        async def invoke() -> ToolExecutionResult:
             nonlocal backend_started
             async with _lease(self.resource_manager, resource_key, context):
                 backend_started = True
@@ -245,7 +307,7 @@ class ToolExecutor:
             )
         except asyncio.CancelledError:
             if backend_started and not is_read_only:
-                return ToolResult(
+                return _result(
                     "tool cancellation occurred after a mutation may have started",
                     True,
                     {
@@ -262,7 +324,7 @@ class ToolExecutor:
             if manager_error is not None:
                 return manager_error
             if backend_started and not is_read_only:
-                return ToolResult(
+                return _result(
                     f"backend outcome is unknown after {type(exc).__name__}: {exc}",
                     True,
                     {
@@ -272,7 +334,7 @@ class ToolExecutor:
                         "backend_attempted": True,
                     },
                 )
-            return ToolResult(
+            return _result(
                 f"{type(exc).__name__}: {exc}",
                 True,
                 {
@@ -287,7 +349,7 @@ class ToolExecutor:
         tool: BaseTool,
         normalized_arguments: dict[str, Any],
         context: ToolExecutionContext,
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         """Run one prepared physical call through the permission gate.
 
         Single path: prepare once, persist, judge, confirm the missing
@@ -309,7 +371,7 @@ class ToolExecutor:
                 str(exc) or "target could not be resolved", "target_unresolved"
             )
         except Exception as exc:
-            return ToolResult(
+            return _result(
                 f"{type(exc).__name__}: {exc}",
                 True,
                 {
@@ -394,7 +456,7 @@ class ToolExecutor:
         except Exception as exc:
             store.cancel(prepared.request_id, "target changed during approval")
             await self._release_adapter(adapter, prepared.request_id)
-            return ToolResult(
+            return _result(
                 f"{type(exc).__name__}: {exc}",
                 True,
                 {
@@ -422,7 +484,7 @@ class ToolExecutor:
             resolution = self._submit_for_execution(
                 store, prepared, choices, context
             )
-            if isinstance(resolution, ToolResult):
+            if isinstance(resolution, ToolExecutionResult):
                 return resolution
         if resolution.request_status == "blocked":
             note = getattr(self.permission_checker, "note_rejected", None)
@@ -441,7 +503,7 @@ class ToolExecutor:
             await self._release_adapter(adapter, prepared.request_id)
             return resource_error
         owner = self.physical_owner
-        last_result: ToolResult | None = None
+        last_result: ToolExecutionResult | None = None
         try:
             for step in prepared.steps:
                 needed = [
@@ -478,18 +540,18 @@ class ToolExecutor:
         prepared: Any,
         normalized_arguments: dict[str, Any],
         context: ToolExecutionContext,
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         """Run permission-free steps without touching the store."""
         resource_key, resource_error = self._resource_key(
             tool, normalized_arguments, context
         )
         if resource_error is not None:
             return resource_error
-        last: ToolResult | None = None
+        last: ToolExecutionResult | None = None
         for step in prepared.steps:
             backend_started = False
 
-            async def invoke(bound: str = step.binding_ref) -> ToolResult:
+            async def invoke(bound: str = step.binding_ref) -> ToolExecutionResult:
                 nonlocal backend_started
                 async with _lease(self.resource_manager, resource_key, context):
                     backend_started = True
@@ -511,7 +573,7 @@ class ToolExecutor:
                 )
             except asyncio.CancelledError:
                 if backend_started:
-                    return ToolResult(
+                    return _result(
                         "tool cancellation occurred after a mutation may have started",
                         True,
                         {
@@ -526,7 +588,7 @@ class ToolExecutor:
                 if manager_error is not None:
                     return manager_error
                 if backend_started:
-                    return ToolResult(
+                    return _result(
                         f"backend outcome is unknown after {type(exc).__name__}: {exc}",
                         True,
                         {
@@ -536,7 +598,7 @@ class ToolExecutor:
                             "backend_attempted": True,
                         },
                     )
-                return ToolResult(
+                return _result(
                     f"{type(exc).__name__}: {exc}",
                     True,
                     {
@@ -548,7 +610,7 @@ class ToolExecutor:
             if last.is_error:
                 return last
         if last is None:
-            return ToolResult(
+            return _result(
                 "no physical effects required",
                 False,
                 {"status": "no_effect", "backend_attempted": False},
@@ -578,7 +640,7 @@ class ToolExecutor:
         prepared: Any,
         choices: dict[str, str],
         context: ToolExecutionContext,
-    ) -> ApprovalResolution | ToolResult:
+    ) -> ApprovalResolution | ToolExecutionResult:
         try:
             decisions = tuple(
                 ItemDecision(item_id=item_id, choice=choice)  # type: ignore[arg-type]
@@ -591,7 +653,7 @@ class ToolExecutor:
                 decisions=decisions,
             )
         except ValueError as exc:
-            return ToolResult(
+            return _result(
                 f"invalid approval submission: {exc}",
                 True,
                 {
@@ -611,7 +673,7 @@ class ToolExecutor:
                 f"approval conflict: {exc}", "approval_conflict"
             )
         except ValueError as exc:
-            return ToolResult(
+            return _result(
                 f"invalid approval submission: {exc}",
                 True,
                 {
@@ -637,7 +699,7 @@ class ToolExecutor:
         resource_key: str | None,
         context: ToolExecutionContext,
         owner: PhysicalGateOwner,
-    ) -> tuple[ToolResult, bool]:
+    ) -> tuple[ToolExecutionResult, bool]:
         """Run one step across its attempts: claim, execute, observe, finish."""
         while True:
             try:
@@ -668,7 +730,7 @@ class ToolExecutor:
                 ), False
             backend_started = False
 
-            async def invoke(bound: str = binding) -> ToolResult:
+            async def invoke(bound: str = binding) -> ToolExecutionResult:
                 nonlocal backend_started
                 async with _lease(self.resource_manager, resource_key, context):
                     backend_started = True
@@ -694,12 +756,12 @@ class ToolExecutor:
                 observation = await self._observe_best_effort(adapter, binding, context)
                 self._finish_best_effort(store, prepared, step, observation)
                 if observation.outcome == "succeeded":
-                    return ToolResult(
+                    return _result(
                         "step completed (verified after timeout)",
                         False,
                         {"status": "success", "backend_attempted": True},
                     ), False
-                return ToolResult(
+                return _result(
                     "backend outcome is unknown after timeout",
                     True,
                     {
@@ -723,7 +785,7 @@ class ToolExecutor:
                             evidence_ref="unobserved",
                         ),
                     )
-                    return ToolResult(
+                    return _result(
                         "tool cancellation occurred after a mutation may have started",
                         True,
                         {
@@ -750,7 +812,7 @@ class ToolExecutor:
                         adapter, binding, context
                     )
                     self._finish_best_effort(store, prepared, step, observation)
-                    return ToolResult(
+                    return _result(
                         f"backend outcome is unknown after {type(exc).__name__}: {exc}",
                         True,
                         {
@@ -760,7 +822,7 @@ class ToolExecutor:
                             "backend_attempted": True,
                         },
                     ), False
-                return ToolResult(
+                return _result(
                     f"{type(exc).__name__}: {exc}",
                     True,
                     {
@@ -784,7 +846,7 @@ class ToolExecutor:
             if observation.outcome == "no_effect_failure" and request_status == "running":
                 continue
             if observation.outcome == "unknown":
-                return ToolResult(
+                return _result(
                     "backend outcome is unknown",
                     True,
                     {
@@ -794,7 +856,7 @@ class ToolExecutor:
                     },
                 ), False
             if request_status == "failed":
-                return ToolResult(
+                return _result(
                     "step exhausted its attempt budget",
                     True,
                     {
@@ -847,7 +909,7 @@ class ToolExecutor:
     async def execute_many(
         self,
         calls: list[tuple[ToolCall, ToolExecutionContext]],
-    ) -> list[ToolResult]:
+    ) -> list[ToolExecutionResult]:
         grouped: dict[tuple[str, str | int], list[tuple[int, ToolCall, ToolExecutionContext]]] = {}
         for index, (call, context) in enumerate(calls):
             grouped.setdefault(self._execution_conflict_key(call, context, index), []).append(
@@ -856,8 +918,8 @@ class ToolExecutor:
 
         async def run_group(
             items: list[tuple[int, ToolCall, ToolExecutionContext]],
-        ) -> list[tuple[int, ToolResult | BaseException]]:
-            values: list[tuple[int, ToolResult | BaseException]] = []
+        ) -> list[tuple[int, ToolExecutionResult | BaseException]]:
+            values: list[tuple[int, ToolExecutionResult | BaseException]] = []
             for position, (index, call, context) in enumerate(items):
                 if _cancellation_requested(context):
                     values.extend(
@@ -866,7 +928,7 @@ class ToolExecutor:
                     )
                     break
                 try:
-                    value: ToolResult | BaseException = await self.execute(call, context)
+                    value: ToolExecutionResult | BaseException = await self.execute(call, context)
                 except asyncio.CancelledError:
                     values.extend(
                         (remaining_index, _cancelled_result(backend_attempted=False))
@@ -880,7 +942,7 @@ class ToolExecutor:
 
         group_tasks = [asyncio.create_task(run_group(items)) for items in grouped.values()]
 
-        async def collect_groups() -> list[list[tuple[int, ToolResult | BaseException]]]:
+        async def collect_groups() -> list[list[tuple[int, ToolExecutionResult | BaseException]]]:
             return await asyncio.gather(*group_tasks)
 
         collector = asyncio.create_task(collect_groups())
@@ -891,11 +953,11 @@ class ToolExecutor:
                 if not task.done():
                     task.cancel()
             batches = await collector
-        ordered: list[ToolResult | None] = [None] * len(calls)
+        ordered: list[ToolExecutionResult | None] = [None] * len(calls)
         for batch in batches:
             for index, value in batch:
                 if isinstance(value, Exception):
-                    value = ToolResult(
+                    value = _result(
                         f"Tool {calls[index][0].name} failed: {type(value).__name__}: {value}",
                         True,
                         {"status": "tool_error", "exception_type": type(value).__name__},
@@ -928,7 +990,7 @@ class ToolExecutor:
         tool: Any,
         arguments: dict[str, Any],
         context: ToolExecutionContext,
-    ) -> tuple[str | None, ToolResult | None]:
+    ) -> tuple[str | None, ToolExecutionResult | None]:
         policy = getattr(tool, "concurrency_policy", "parallel")
         if policy == "serialized":
             return f"tool:{tool.name}", None
@@ -938,7 +1000,7 @@ class ToolExecutor:
             resolver = getattr(tool, "resource_key_resolver", None)
             value = resolver(arguments, context) if callable(resolver) else tool.resource_key
         except Exception as exc:
-            return None, ToolResult(
+            return None, _result(
                 f"resource key resolution failed: {type(exc).__name__}: {exc}",
                 True,
                 {
@@ -947,7 +1009,7 @@ class ToolExecutor:
                 },
             )
         if not isinstance(value, str) or not value or "\x00" in value:
-            return None, ToolResult(
+            return None, _result(
                 "resource key resolver must return a non-empty string",
                 True,
                 {"status": "resource_key_resolution_failed"},
@@ -981,7 +1043,7 @@ def _invalid_arguments_result(
     tool: BaseTool,
     call: ToolCall,
     error: ValidationError,
-) -> ToolResult:
+) -> ToolExecutionResult:
     schema = tool.input_model.model_json_schema()
     required = schema.get("required", [])
     missing_required = sorted(
@@ -1013,7 +1075,7 @@ def _invalid_arguments_result(
         "missing_required_arguments": missing_required,
         "issues": issues,
     }
-    return ToolResult(json.dumps(payload, ensure_ascii=False, sort_keys=True), True, payload)
+    return _result(json.dumps(payload, ensure_ascii=False, sort_keys=True), True, payload)
 
 
 @asynccontextmanager
@@ -1046,8 +1108,8 @@ def _cancellation_requested(context: ToolExecutionContext) -> bool:
     return bool(getattr(cancellation, "cancelled", False))
 
 
-def _cancelled_result(*, backend_attempted: bool) -> ToolResult:
-    return ToolResult(
+def _cancelled_result(*, backend_attempted: bool) -> ToolExecutionResult:
+    return _result(
         "tool execution was cancelled",
         True,
         {
@@ -1058,7 +1120,7 @@ def _cancelled_result(*, backend_attempted: bool) -> ToolResult:
     )
 
 
-def _deadline_result(*, is_read_only: bool, backend_attempted: bool) -> ToolResult:
+def _deadline_result(*, is_read_only: bool, backend_attempted: bool) -> ToolExecutionResult:
     status = "outcome_unknown" if backend_attempted and not is_read_only else "deadline_exceeded"
     message = (
         "backend outcome is unknown after timeout"
@@ -1067,19 +1129,19 @@ def _deadline_result(*, is_read_only: bool, backend_attempted: bool) -> ToolResu
         if not is_read_only
         else "tool execution timed out"
     )
-    return ToolResult(
+    return _result(
         message,
         True,
         {"status": status, "backend_attempted": backend_attempted},
     )
 
 
-def _resource_manager_error(exc: BaseException) -> ToolResult | None:
+def _resource_manager_error(exc: BaseException) -> ToolExecutionResult | None:
     code = getattr(exc, "error_code", None)
     status = getattr(exc, "execution_status", None)
     if not isinstance(code, str) or not isinstance(status, str):
         return None
-    return ToolResult(
+    return _result(
         str(exc),
         True,
         {

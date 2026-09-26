@@ -1,0 +1,9 @@
+# HomeMaster V3.5 isolated ALFWorld worker environment.
+# Keep this file pinned: changing any entry requires a new THOR characterization run.
+alfworld==0.4.2
+ai2thor==2.1.0
+torch==2.2.2
+numpy==1.26.4
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+PyYAML==6.0.2

@@ -45,13 +45,13 @@ BASELINE_FILES = {
     "coworker-contract-hashes.json",
 }
 ALFWORLD_CONTRACT_PATHS = (
-    "src/homemaster/benchmarking/alfworld/execution.py",
-    "src/homemaster/benchmarking/alfworld/gateway.py",
-    "src/homemaster/benchmarking/alfworld/object_view.py",
-    "src/homemaster/benchmarking/alfworld/reset_transaction.py",
-    "src/homemaster/benchmarking/alfworld/tracing.py",
-    "src/homemaster/benchmarking/alfworld/trial_selection.py",
-    "src/homemaster/benchmarking/alfworld/types.py",
+    "src/homemaster/alfworld/execution.py",
+    "src/homemaster/alfworld/gateway.py",
+    "src/homemaster/alfworld/object_view.py",
+    "src/homemaster/alfworld/reset_transaction.py",
+    "src/homemaster/alfworld/tracing.py",
+    "src/homemaster/alfworld/trial_selection.py",
+    "src/homemaster/alfworld/types.py",
 )
 _SECRET_ENV_KEY_PARTS = (
     "access_key",

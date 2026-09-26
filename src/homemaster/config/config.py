@@ -26,7 +26,18 @@ from homemaster.config.observability import ObservabilityConfig
 from homemaster.mcp.types import McpSettingsConfig
 from homemaster.permissions.config import PermissionSettingsConfig
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+_PACKAGE_ROOT = Path(__file__).resolve().parents[3]
+if (_PACKAGE_ROOT / "pyproject.toml").is_file():
+    REPO_ROOT = _PACKAGE_ROOT
+else:
+    _configured_root = os.environ.get("HOMEMASTER_REPO_ROOT", "").strip()
+    _configured_config = os.environ.get("HOMEMASTER_CONFIG_PATH", "").strip()
+    if _configured_root:
+        REPO_ROOT = Path(_configured_root).expanduser().resolve()
+    elif _configured_config:
+        REPO_ROOT = Path(_configured_config).expanduser().resolve().parent.parent
+    else:
+        REPO_ROOT = Path.cwd().resolve()
 logger = logging.getLogger(__name__)
 _WARNED_LEGACY_MEMORY_FIELDS: set[tuple[str, ...]] = set()
 

@@ -6,10 +6,13 @@ import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import pytest
+
+import homemaster.application.composition.base as composition
 from homemaster.agent.messages import Message
 from homemaster.application import RunRequest, RunStatus
-from homemaster.browser.application import BrowserApplication
 from homemaster.application.composition import HomeCliBackend, compose_application
+from homemaster.browser.application import BrowserApplication
 from homemaster.config import BrowserGatewayConfig, HomeMasterConfig
 from homemaster.providers.transports import TransportDelta
 
@@ -66,6 +69,49 @@ def _config(tmp_path: Path):
     )
     runtime = config.runtime.model_copy(update={"runtime_root": tmp_path / "runs"})
     return config.model_copy(update={"observability": observability, "runtime": runtime})
+
+
+@pytest.fixture(autouse=True)
+def isolated_memory_runtime(monkeypatch: pytest.MonkeyPatch):
+    """Keep entry-parity tests focused on composition/runtime wiring.
+
+    The production composition still owns and starts the real Neo4j/MindMemOS
+    resources. These tests intentionally provide an explicit in-process memory
+    implementation because their config has no external database or embedding
+    provider and must not accidentally open one.
+    """
+
+    class FakeManagedNeo4jRuntime:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def start(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+    class FakeEmbeddedMindMemOS:
+        available = True
+        unavailable_cause = None
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        async def start(self) -> None:
+            return None
+
+        async def close(self) -> None:
+            return None
+
+        async def add_flat(self, *_args, **_kwargs):
+            return {"memory_id": "isolated-memory"}
+
+        async def add_schema_episode(self, *_args, **_kwargs):
+            return {"memory_id": "isolated-episode"}
+
+    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
+    monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
 
 
 def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider(

@@ -5,11 +5,10 @@ from pydantic import BaseModel
 
 from homemaster.tools import (
     BaseTool,
-    ToolExecutionContext,
     ToolRegistry,
     ToolRegistryError,
-    ToolResult,
 )
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 class _Input(BaseModel):
@@ -27,7 +26,7 @@ class _EchoTool(BaseTool):
         arguments: BaseModel,
         context: ToolExecutionContext,
     ) -> ToolResult:
-        assert context.cwd.is_absolute()
+        assert context.working_directory.is_absolute()
         return ToolResult(arguments.value)
 
 
@@ -84,8 +83,8 @@ async def test_tool_result_is_small_and_context_is_runtime_agnostic(tmp_path: Pa
     )
 
     assert result == ToolResult(output="exact-token")
-    assert not hasattr(result, "verification")
-    assert not hasattr(result, "outcome_certainty")
+    assert result.status.value == "success"
+    assert result.verification.status.value == "not_requested"
 
 
 @pytest.mark.asyncio
@@ -108,7 +107,7 @@ async def test_function_tool_validates_declared_json_schema(tmp_path: Path) -> N
 
     parsed = tool.input_model.model_validate({"target": "kitchen"})
     result = await tool.execute(parsed, ToolExecutionContext(tmp_path))
-    assert result.output == "kitchen"
+    assert result.text == "kitchen"
 
 
 def test_alfworld_registry_uses_alfworld_robot_contract() -> None:

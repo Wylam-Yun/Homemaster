@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryRecord
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryRecord
 from homemaster.experience.alfworld_compiler import compile_alfworld_trajectory
 
 

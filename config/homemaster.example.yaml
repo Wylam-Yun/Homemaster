@@ -9,7 +9,7 @@ providers:
       base_url: https://provider.example/anthropic
       model: your-chat-model
       api_keys:
-        - "mimo-v2.6-flash"
+        - "<your-api-token>"
       context_window_tokens: 200000
       max_output_tokens: null
 

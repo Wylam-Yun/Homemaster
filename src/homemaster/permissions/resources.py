@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         ExecutionObservation,
         PreparedPhysicalRequest,
     )
-    from homemaster.tools.base import ToolExecutionContext, ToolResult
+    from homemaster.tools.contracts import ToolExecutionContext, ToolExecutionResult
 
 _BROAD_CALLS = ("use", "toggle", "manipulate")
 
@@ -52,7 +52,7 @@ class PhysicalDeviceAdapter(Protocol):
 
     async def execute(
         self, binding_ref: str, context: ToolExecutionContext
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         """Execute one previously prepared binding."""
         ...  # pragma: no cover
 

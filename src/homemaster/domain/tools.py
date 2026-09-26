@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from homemaster.domain.home_backend import HomeBackendReceipt
 from homemaster.tools.contracts import (
     RegisteredTool,
     ToolDefinition,
@@ -26,6 +28,7 @@ def _result(
     data: Mapping[str, object] | None = None,
     evidence_refs: tuple[str, ...] = (),
     backend_attempted: bool = False,
+    external_return_code: int | None = None,
 ) -> ToolExecutionResult:
     return ToolExecutionResult(
         status=ToolExecutionStatus.SUCCESS,
@@ -33,6 +36,7 @@ def _result(
         data=dict(data or {}),
         evidence_refs=evidence_refs,
         backend_attempted=backend_attempted,
+        external_return_code=external_return_code,
     )
 
 
@@ -41,6 +45,39 @@ def _failure(code: str, message: str, *, attempted: bool = False) -> ToolExecuti
         status=ToolExecutionStatus.FAILURE,
         error=ToolExecutionError(code=code, message=message),
         backend_attempted=attempted,
+    )
+
+
+def _home_backend(context: ToolExecutionContext) -> Any:
+    backend = context.backend or context.services.get("backend")
+    if backend is None or not callable(getattr(backend, "go_to", None)):
+        return None
+    return backend
+
+
+def _home_receipt_result(receipt: HomeBackendReceipt, *, action: str) -> ToolExecutionResult:
+    data = {
+        "action": action,
+        "external_return_code": receipt.external_return_code,
+        "backend_code": receipt.code,
+        "state": dict(receipt.state),
+    }
+    if receipt.ok:
+        return _result(
+            text=receipt.detail,
+            data=data,
+            evidence_refs=(receipt.evidence_ref,),
+            backend_attempted=True,
+            external_return_code=receipt.external_return_code,
+        )
+    return ToolExecutionResult(
+        status=ToolExecutionStatus.FAILURE,
+        text=receipt.detail,
+        data=data,
+        evidence_refs=(receipt.evidence_ref,),
+        error=ToolExecutionError(code=receipt.code, message=receipt.detail),
+        backend_attempted=True,
+        external_return_code=receipt.external_return_code,
     )
 
 
@@ -90,7 +127,9 @@ def _registered(
     )
 
 
-async def _task_interpreter(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _task_interpreter(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     del context
     utterance = arguments.get("utterance", "")
     if not utterance:
@@ -106,7 +145,9 @@ async def _task_interpreter(arguments: dict[str, Any], context: ToolExecutionCon
     )
 
 
-async def _memory_retriever(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _memory_retriever(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     query = arguments.get("query", "")
     if not query:
         return _failure("invalid_arguments", "query is required")
@@ -122,7 +163,9 @@ async def _memory_retriever(arguments: dict[str, Any], context: ToolExecutionCon
         hits = [
             record
             for record in records
-            if any(keyword in json.dumps(record, ensure_ascii=False).lower() for keyword in keywords)
+            if any(
+                keyword in json.dumps(record, ensure_ascii=False).lower() for keyword in keywords
+            )
         ][: int(arguments.get("top_k", 5))]
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
         hits = []
@@ -132,7 +175,9 @@ async def _memory_retriever(arguments: dict[str, Any], context: ToolExecutionCon
     )
 
 
-async def _target_grounder(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _target_grounder(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     del context
     target = arguments.get("target_object", "")
     if not target:
@@ -148,7 +193,9 @@ async def _target_grounder(arguments: dict[str, Any], context: ToolExecutionCont
     )
 
 
-async def _load_skill(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _load_skill(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     skill_name = arguments.get("name", "")
     if not isinstance(skill_name, str) or not skill_name.strip():
         return _failure("invalid_arguments", "name is required")
@@ -175,26 +222,58 @@ async def _load_skill(arguments: dict[str, Any], context: ToolExecutionContext) 
     )
 
 
-async def _robot_go_to(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
-    del context
-    room = arguments.get("room_hint", arguments.get("target_room", "unknown"))
-    return _result(
-        text=f"Navigated to {room}",
-        data={"location": room, "observation": f"navigated to {room}"},
-    )
+async def _robot_go_to(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
+    backend = _home_backend(context)
+    if backend is None:
+        return _failure("backend_unavailable", "HomeWorld backend is not configured")
+    target = arguments.get("room_hint", arguments.get("target_room", ""))
+    try:
+        receipt = backend.go_to(str(target))
+        if inspect.isawaitable(receipt):
+            receipt = await receipt
+    except Exception as exc:
+        return _failure("backend_error", f"HomeWorld navigation failed: {exc}", attempted=True)
+    if not isinstance(receipt, HomeBackendReceipt):
+        return _failure(
+            "backend_protocol_error",
+            "HomeWorld navigation returned no typed receipt",
+            attempted=True,
+        )
+    return _home_receipt_result(receipt, action="go_to")
 
 
-async def _robot_manipulate(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
-    del context
+async def _robot_manipulate(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     action = arguments.get("action", "pick_up")
     target = arguments.get("target_object", "unknown")
-    return _result(
-        text=f"{action} {target}",
-        data={"holding": target, "action": action, "result": f"{action} {target}"},
-    )
+    backend = _home_backend(context)
+    if backend is None or not callable(getattr(backend, "manipulate", None)):
+        return _failure("backend_unavailable", "HomeWorld backend is not configured")
+    try:
+        receipt = backend.manipulate(
+            action=str(action),
+            target=str(target),
+            receptacle=arguments.get("target_receptacle"),
+        )
+        if inspect.isawaitable(receipt):
+            receipt = await receipt
+    except Exception as exc:
+        return _failure("backend_error", f"HomeWorld manipulation failed: {exc}", attempted=True)
+    if not isinstance(receipt, HomeBackendReceipt):
+        return _failure(
+            "backend_protocol_error",
+            "HomeWorld manipulation returned no typed receipt",
+            attempted=True,
+        )
+    return _home_receipt_result(receipt, action=str(action))
 
 
-async def _robot_verify(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _robot_verify(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     del context
     target = arguments.get("target_object", "unknown")
     expected = arguments.get("expected_state", "delivered")
@@ -204,7 +283,9 @@ async def _robot_verify(arguments: dict[str, Any], context: ToolExecutionContext
     )
 
 
-async def _memory_writer(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _memory_writer(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     proposal = arguments.get("proposal")
     if not proposal:
         return _failure("invalid_arguments", "proposal is required")
@@ -249,7 +330,9 @@ async def _memory_writer(arguments: dict[str, Any], context: ToolExecutionContex
     )
 
 
-async def _task_summarizer(arguments: dict[str, Any], context: ToolExecutionContext) -> ToolExecutionResult:
+async def _task_summarizer(
+    arguments: dict[str, Any], context: ToolExecutionContext
+) -> ToolExecutionResult:
     del context
     task_name = arguments.get("task_name", "unknown")
     status = arguments.get("status", "completed")
@@ -340,6 +423,7 @@ def make_robot_go_to() -> RegisteredTool:
                 "room_hint": {"type": "string", "description": "Target room."},
                 "target_room": {"type": "string", "description": "Target room."},
             },
+            "anyOf": [{"required": ["room_hint"]}, {"required": ["target_room"]}],
         },
         function=_robot_go_to,
         state_effects=("backend.advance",),
@@ -355,6 +439,10 @@ def make_robot_manipulate() -> RegisteredTool:
             "properties": {
                 "action": {"type": "string", "description": "Action to perform."},
                 "target_object": {"type": "string", "description": "Object to manipulate."},
+                "target_receptacle": {
+                    "type": "string",
+                    "description": "Receptacle for put/place actions.",
+                },
             },
             "required": ["action", "target_object"],
         },

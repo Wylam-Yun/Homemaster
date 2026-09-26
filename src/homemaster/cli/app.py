@@ -482,7 +482,7 @@ def benchmark_alfworld_command(
 ) -> None:
     """Run HomeMaster on ALFWorld benchmark episodes."""
     try:
-        from homemaster.benchmarking.alfworld.tracing import split_trace_bucket
+        from homemaster.alfworld.tracing import split_trace_bucket
         from homemaster.cli.benchmark_alfworld import handle_benchmark_alfworld
 
         summary = handle_benchmark_alfworld(

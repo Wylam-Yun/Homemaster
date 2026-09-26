@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 
-from homemaster.benchmarking.alfworld.permission_adapter import (
+from homemaster.alfworld.permission_adapter import (
     AlfworldBackend,
     AlfworldPermissionAdapter,
     BackendReceipt,
@@ -24,7 +24,7 @@ from homemaster.benchmarking.alfworld.permission_adapter import (
     ThorBackendView,
 )
 from homemaster.permissions.models import TargetUnresolved
-from homemaster.tools.base import ToolExecutionContext
+from tests.homemaster.tools.test_support import ToolExecutionContext
 
 
 @dataclass
@@ -268,7 +268,7 @@ async def test_execute_uses_backend_spellings_and_records_take(tmp_path: Path) -
     assert nav_result.is_error is False
     op_result = await adapter.execute(request.steps[1].binding_ref, context)
     assert op_result.is_error is False
-    assert op_result.metadata["backend_code"] == "fake:ok"
+    assert op_result.data["backend_code"] == "fake:ok"
     assert backend.calls[0] == ("go_to", "cup a")
     assert backend.calls[1][0:2] == ("manipulate", "take")
     assert backend.calls[1][2]["object"] == "cup a"
@@ -333,7 +333,7 @@ async def test_unknown_and_failed_receipts(tmp_path: Path) -> None:
     backend.unknown_next = True
     unknown_result = await adapter.execute(binding, context)
     assert unknown_result.is_error is True
-    assert unknown_result.metadata["backend_code"] == "fake:unknown"
+    assert unknown_result.data["backend_code"] == "fake:unknown"
     observed = await adapter.observe(binding, context)
     assert observed.outcome == "unknown"
     assert observed.backend_code == "fake:unknown"
@@ -392,7 +392,6 @@ def test_adapter_has_no_translator_import() -> None:
         Path(__file__).resolve().parents[3]
         / "src"
         / "homemaster"
-        / "benchmarking"
         / "alfworld"
         / "permission_adapter.py"
     )
@@ -433,10 +432,10 @@ async def test_nav_parity_with_legacy_helper(tmp_path: Path) -> None:
     """
     from test_alfworld_permissions import FakeAlfworldBackend
 
-    from homemaster.benchmarking.alfworld.permission_adapter import (
+    from homemaster.alfworld.permission_adapter import (
         AlfworldPermissionAdapter,
     )
-    from homemaster.tools.base import ToolExecutionContext
+    from tests.homemaster.tools.test_support import ToolExecutionContext
 
     backend = FakeAlfworldBackend()
     adapter = AlfworldPermissionAdapter(backend=backend)
@@ -461,9 +460,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from homemaster.benchmarking.alfworld.execution import SceneObjectIndex
-from homemaster.benchmarking.alfworld.grounding import resolve_authoritative
-from homemaster.benchmarking.alfworld.tools import navigation_target_for_action
+from homemaster.alfworld.benchmark.scene_execution import SceneObjectIndex
+from homemaster.alfworld.grounding import resolve_authoritative
+from homemaster.alfworld.tools import navigation_target_for_action
 
 
 def _two_desk_index() -> SceneObjectIndex:
@@ -524,11 +523,11 @@ def test_unique_bare_label_accepts() -> None:
 async def test_adapter_refuses_ambiguous_receptacle(tmp_path: Path) -> None:
     from test_alfworld_permissions import FakeAlfworldBackend
 
-    from homemaster.benchmarking.alfworld.permission_adapter import (
+    from homemaster.alfworld.permission_adapter import (
         AlfworldPermissionAdapter,
         TargetUnresolved,
     )
-    from homemaster.tools.base import ToolExecutionContext
+    from tests.homemaster.tools.test_support import ToolExecutionContext
 
     class TwoDeskBackend(FakeAlfworldBackend):
         def resolve_target(self, label: str, *, allowed: frozenset) -> BackendTarget | None:

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from homemaster.benchmarking.alfworld.env_adapter import _execute_heat, _execute_cool, _execute_clean
+from homemaster.alfworld.benchmark.adapter import _execute_clean, _execute_cool, _execute_heat
 
 
 class StatefulThor:
@@ -29,10 +29,17 @@ class StatefulThor:
         m.update(lastActionSuccess=True, errorMessage="")
         obj = next(o for o in m["objects"] if o["objectId"] == action["objectId"])
         kind = action["action"]
-        field, desired = {"OpenObject": ("isOpen",True), "CloseObject": ("isOpen",False),
-                          "ToggleObjectOn": ("isToggled",True), "ToggleObjectOff": ("isToggled",False)}.get(kind,(None,None))
+        field, desired = {
+            "OpenObject": ("isOpen", True),
+            "CloseObject": ("isOpen", False),
+            "ToggleObjectOn": ("isToggled", True),
+            "ToggleObjectOff": ("isToggled", False),
+        }.get(kind, (None, None))
         if field and (obj[field] == desired or (kind == "OpenObject" and obj["isToggled"])):
-            m.update(lastActionSuccess=False, errorMessage="Nothing happens / Target must be OFF to open")
+            m.update(
+                lastActionSuccess=False,
+                errorMessage="Nothing happens / Target must be OFF to open",
+            )
         elif not self.ignore_actions:
             if field:
                 obj[field] = desired
@@ -76,8 +83,13 @@ def test_macro_rejects_success_receipt_without_world_change():
     assert not result.success
     assert len(env.calls) == 1, "stop at first contradictory receipt"
 
-@pytest.mark.parametrize("action,expected", [("heat", "microwave"), ("cool", "fridge"), ("clean", "sinkbasin")])
+@pytest.mark.parametrize(
+    "action,expected",
+    [("heat", "microwave"), ("cool", "fridge"), ("clean", "sinkbasin")],
+)
 def test_macro_navigation_targets_appliance(action, expected):
-    from homemaster.benchmarking.alfworld.tools import _navigation_target_for_action
+    from homemaster.alfworld.tools import _navigation_target_for_action
     assert _navigation_target_for_action({"action": action, "object": "apple"}) == expected
-    assert _navigation_target_for_action({"action": action, "object": "apple", "tool_receptacle": expected + " 1"}) == expected + " 1"
+    assert _navigation_target_for_action(
+        {"action": action, "object": "apple", "tool_receptacle": expected + " 1"}
+    ) == expected + " 1"

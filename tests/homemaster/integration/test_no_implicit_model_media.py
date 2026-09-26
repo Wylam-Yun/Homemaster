@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from homemaster.alfworld.tools import _receipt_tool_result
 from homemaster.application import RunRequest
-from homemaster.benchmarking.alfworld.tools import _receipt_tool_result
 
 
 def test_initial_prompt_and_alfworld_action_receipt_have_no_image() -> None:

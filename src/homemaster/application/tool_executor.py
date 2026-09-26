@@ -10,8 +10,9 @@ from typing import Any
 
 from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
-from homemaster.tools.base import ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
+    ToolExecutionContext,
     ToolExecutionError,
     ToolExecutionResult,
     ToolExecutionStatus,
@@ -140,32 +141,35 @@ class ApplicationToolExecutor:
         feedback_context = (
             feedback_by_call.get(call.id) if isinstance(feedback_by_call, dict) else None
         )
-        metadata = {
-            **deps,
-            "services": deps,
-            "tool_registry": self._registry,
-            "run_context": tool_run_context,
-            "backend": self._backend,
-            "session_id": self._runtime.session.session_id,
-            "run_id": self._run_id,
-            "turn_index": self._agent_state.turn_index,
-            "tool_call_id": call.id,
-            "internal_tool_id": stable_id,
-            "permission_subject": self._request.permission_subject,
-            "cancellation": self._runtime.cancellation,
-            "domain_observer": self._request.dependencies.get("domain_observer"),
-            "deadline": self,
-        }
+        deps.update(
+            {
+                "tool_registry": self._registry,
+                "run_context": tool_run_context,
+            }
+        )
         gateway_generation = self._request.metadata.get("gateway_generation")
         if (
             not isinstance(gateway_generation, bool)
             and isinstance(gateway_generation, int)
             and gateway_generation >= 1
         ):
-            metadata["gateway_generation"] = gateway_generation
+            deps["gateway_generation"] = gateway_generation
         if feedback_context is not None:
-            metadata["memory_feedback_context"] = feedback_context
-        return ToolExecutionContext(self._working_directory, metadata=metadata)
+            deps["memory_feedback_context"] = feedback_context
+        return ToolExecutionContext(
+            session_id=self._runtime.session.session_id,
+            run_id=self._run_id,
+            turn_index=self._agent_state.turn_index,
+            tool_call_id=call.id,
+            internal_tool_id=stable_id,
+            permission_subject=self._request.permission_subject,
+            backend=self._backend,
+            deadline=self,
+            cancellation=self._runtime.cancellation,
+            domain_observer=self._request.dependencies.get("domain_observer"),
+            working_directory=self._working_directory,
+            services=deps,
+        )
 
     def remaining_s(self) -> float | None:
         if self._expires_at is None:
@@ -176,9 +180,18 @@ class ApplicationToolExecutor:
     def deadline(self) -> ApplicationToolExecutor:
         return self
 
-    def _message(self, call: ToolCall, result: ToolResult) -> ToolResultMessage:
-        canonical_result = result.canonical_result
-        data = dict(result.metadata)
+    def _message(self, call: ToolCall, result: ToolExecutionResult) -> ToolResultMessage:
+        serialized = result.to_dict()
+        data = dict(serialized.get("data", {}))
+        existing_status = data.get("status")
+        if existing_status is not None and existing_status != serialized["status"]:
+            data.setdefault("domain_status", existing_status)
+        data["status"] = serialized["status"]
+        data["backend_attempted"] = serialized["backend_attempted"]
+        if serialized.get("error") is not None:
+            error = serialized["error"]
+            if isinstance(error, dict):
+                data.setdefault("error_code", error.get("code"))
         if call.name in {"task_planner", "task_progress_check"}:
             domain_status = data.get("domain_status")
             if isinstance(domain_status, str):
@@ -186,8 +199,8 @@ class ApplicationToolExecutor:
                 data.pop("domain_status", None)
         if call.name in _MEMORY_TOOL_NAMES and data:
             model_payload = dict(data)
-            if result.output:
-                model_payload.setdefault("text", result.output)
+            if result.text:
+                model_payload.setdefault("text", result.text)
             content = [
                 ContentBlock(
                     text=json.dumps(
@@ -199,31 +212,13 @@ class ApplicationToolExecutor:
                 )
             ]
             is_error = result.is_error
-        elif canonical_result is not None:
-            projected = canonical_result.to_message(tool_call_id=call.id, name=call.name)
+        else:
+            projected = result.to_message(tool_call_id=call.id, name=call.name)
             content = list(projected.content)
             is_error = projected.is_error
-        else:
-            model_text = result.output
-            content = [ContentBlock(text=model_text)] if model_text else []
-            for image in data.get("images", []):
-                if isinstance(image, dict) and image.get("data_base64"):
-                    content.append(
-                        ContentBlock(
-                            type="image",
-                            source={
-                                "type": "base64",
-                                "media_type": image.get("media_type", "image/png"),
-                                "data": image["data_base64"],
-                            },
-                        )
-                    )
-            is_error = result.is_error
-        data.pop("images", None)
-        data.pop("attachments", None)
         if self._artifact_publisher is not None:
             artifacts = self._artifact_publisher.publish(
-                canonical_result or result,
+                result,
                 tenant_id=self._request.permission_subject.tenant_id,
                 session_id=self._runtime.session.session_id,
                 run_id=self._run_id,
@@ -238,9 +233,8 @@ class ApplicationToolExecutor:
             data=data,
         )
 
-    def _record_evidence(self, result: ToolResult) -> None:
-        raw = result.metadata.get("evidence_refs", ())
-        refs = [raw] if isinstance(raw, str) else list(raw) if isinstance(raw, list | tuple) else []
+    def _record_evidence(self, result: ToolExecutionResult) -> None:
+        refs = list(result.evidence_refs)
         if refs:
             self.evidence_refs = tuple(dict.fromkeys((*self.evidence_refs, *refs)))
 
@@ -248,8 +242,8 @@ class ApplicationToolExecutor:
         self,
         call: ToolCall,
         context: ToolExecutionContext,
-        result: ToolResult,
-    ) -> ToolResult:
+        result: ToolExecutionResult,
+    ) -> ToolExecutionResult:
         if result.is_error or call.name in {
             "context_memory",
             "mindmemos_add",
@@ -259,7 +253,7 @@ class ApplicationToolExecutor:
             "mindmemos_delete",
         }:
             return result
-        if not bool(result.metadata.get("backend_attempted")):
+        if not result.backend_attempted:
             return result
         tool = self._registry.get(call.name)
         if tool is None:
@@ -268,7 +262,7 @@ class ApplicationToolExecutor:
             arguments = tool.input_model.model_validate(call.arguments)
         except Exception:
             return result
-        verified = result.metadata.get("verification_status") == "passed"
+        verified = result.verification.status is VerificationStatus.PASSED
         if not verified and not tool.is_read_only(arguments):
             return result
         ledger = context.services.get("memory_evidence_ledger")
@@ -284,17 +278,10 @@ class ApplicationToolExecutor:
             tool_call_id=call.id,
             verification="passed" if verified else "read_observation",
         )
-        metadata = dict(result.metadata)
-        raw_refs = metadata.get("evidence_refs", ())
-        refs = (
-            [raw_refs]
-            if isinstance(raw_refs, str)
-            else list(raw_refs)
-            if isinstance(raw_refs, (list, tuple))
-            else []
+        return replace(
+            result,
+            evidence_refs=tuple(dict.fromkeys((*result.evidence_refs, evidence.ref))),
         )
-        metadata["evidence_refs"] = list(dict.fromkeys((*refs, evidence.ref)))
-        return replace(result, metadata=metadata)
 
 
 def _bind_backend(deps: dict[str, object], profile: str, backend: object | None) -> None:
@@ -320,10 +307,10 @@ class _CompletionGuard:
         self._verification_required_tool_names = verification_required_tool_names
         self._verification: dict[str, bool] = {}
 
-    def record(self, tool_name: str, result: ToolResult) -> None:
+    def record(self, tool_name: str, result: ToolExecutionResult) -> None:
         if tool_name not in self._verification_required_tool_names:
             return
-        self._verification[tool_name] = result.metadata.get("verification_status") == "passed"
+        self._verification[tool_name] = result.verification.status is VerificationStatus.PASSED
 
     def __call__(self) -> ToolExecutionResult | None:
         if any(not passed for passed in self._verification.values()):

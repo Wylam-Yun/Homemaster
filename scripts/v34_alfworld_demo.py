@@ -49,23 +49,26 @@ async def _amain(args: argparse.Namespace) -> int:
     import uvicorn
 
     from homemaster.agent.messages import ToolCall
-    from homemaster.application.session import SessionManager
-    from homemaster.benchmarking.alfworld.env_adapter import (
+    from homemaster.alfworld.benchmark.adapter import (
         AlfworldEnvAdapter,
         build_alfworld_batch_env,
     )
-    from homemaster.benchmarking.alfworld.permission_adapter import (
+    from homemaster.alfworld.permission_adapter import (
         AlfworldPermissionAdapter,
         ThorBackendView,
     )
-    from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
+    from homemaster.alfworld.types import AlfworldBenchmarkConfig
+    from homemaster.application.session import SessionManager
     from homemaster.events.bus import EventBus
     from homemaster.events.runtime_events import RuntimeEvent
     from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
     from homemaster.permissions.store import PermissionStore
-    from homemaster.tools import ToolExecutionContext
-    from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
-    from homemaster.tools.contracts import PermissionSubject
+    from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry
+    from homemaster.tools.contracts import (
+        PermissionSubject,
+        ToolExecutionResult,
+        ToolExecutionStatus,
+    )
     from homemaster.tools.executor import ToolExecutor
     from homemaster.web.app import create_web_app
     from homemaster.web.confirmations import WebConfirmationHandler
@@ -94,7 +97,7 @@ async def _amain(args: argparse.Namespace) -> int:
     backend = ThorBackendView(env_adapter, subtask=subtask)
     adapter = AlfworldPermissionAdapter(backend=backend)
 
-    def _boom(arguments: Any, context: Any) -> ToolResult:
+    def _boom(arguments: Any, context: Any) -> ToolExecutionResult:
         raise AssertionError("physical tools must run through the adapter")
 
     tool = FunctionTool(
@@ -150,9 +153,6 @@ async def _amain(args: argparse.Namespace) -> int:
     Path(args.ready_file).write_text(json.dumps({"session_id": session_id}))
     _log(f"demo: session {session_id}")
 
-    ctx = ToolExecutionContext(
-        WORKTREE, metadata={"session_id": session_id, "run_id": "demo-run-1"})
-
     async def drive() -> None:
         await _wait_http(args.port)
         _log("demo: server up; waiting for your browser ...")
@@ -187,14 +187,22 @@ async def _amain(args: argparse.Namespace) -> int:
             try:
                 state["result"] = await executor.execute(
                     ToolCall(id="1", name="robot_manipulate", arguments=call),
-                    ToolExecutionContext(WORKTREE, metadata={
-                        "session_id": session_id,
-                        "run_id": run_id,
-                        "turn_index": 0,
-                        "tool_call_id": "1",
-                        "permission_subject": web_subject,
-                        "run_context": SimpleNamespace(event_sink=application.event_bus),
-                    }),
+                    ToolExecutionContext(
+                        session_id=session_id,
+                        run_id=run_id,
+                        turn_index=0,
+                        tool_call_id="1",
+                        internal_tool_id="homemaster.robot_manipulate.v1",
+                        permission_subject=web_subject,
+                        backend=backend,
+                        deadline=None,
+                        cancellation=None,
+                        domain_observer=None,
+                        working_directory=WORKTREE,
+                        services={
+                            "run_context": SimpleNamespace(event_sink=application.event_bus),
+                        },
+                    ),
                 )
             except BaseException as exc:  # noqa: BLE001
                 state["error"] = exc
@@ -215,10 +223,10 @@ async def _amain(args: argparse.Namespace) -> int:
             _log(f"demo: call {index + 1} raised {box['error']!r}")
             return True
         result = box["result"]
-        status = result.metadata.get("status", "")
+        status = result.status.value
         _log(f"demo: call {index + 1} done: error={result.is_error} "
-             f"status={status} {result.output[:100]}")
-        if result.is_error and status == "permission_denied":
+             f"status={status} {result.text[:100]}")
+        if result.status is ToolExecutionStatus.DENIED:
             _log(f"demo: call {index + 1} denied/cancelled; re-prompting")
             return False
         return True

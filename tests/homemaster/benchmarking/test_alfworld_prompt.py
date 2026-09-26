@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from homemaster.benchmarking.alfworld.prompt import build_episode_prompt
-from homemaster.benchmarking.alfworld.translator import create_translator
-from homemaster.benchmarking.alfworld.types import AlfworldEnvState
+from homemaster.alfworld.benchmark.translator import create_translator
+from homemaster.alfworld.prompt import build_episode_prompt
+from homemaster.alfworld.types import AlfworldEnvState
 
 
 def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:

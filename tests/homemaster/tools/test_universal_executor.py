@@ -10,9 +10,10 @@ import pytest
 from homemaster.agent.messages import ToolCall
 from homemaster.permissions import PermissionChecker
 from homemaster.permissions.config import PermissionMode, PermissionSettingsConfig
-from homemaster.tools import FunctionTool, ToolExecutionContext, ToolRegistry, ToolResult
+from homemaster.tools import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.tools.executor import PermissionDecision, ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 
 def _registry(*, read_only: bool = False) -> ToolRegistry:
@@ -49,7 +50,7 @@ async def test_executor_resolves_only_ordinary_names_and_preserves_output(tmp_pa
     )
 
     assert result == ToolResult("/host/path?token=exact")
-    assert stable.is_error and stable.metadata["status"] == "unknown_tool"
+    assert stable.is_error and stable.data["status"] == "unknown_tool"
 
 
 @pytest.mark.asyncio
@@ -66,7 +67,7 @@ async def test_permission_checker_uses_ordinary_names(tmp_path: Path) -> None:
     )
 
     assert result.is_error
-    assert result.output == "echo is explicitly denied"
+    assert result.text == "echo is explicitly denied"
 
 
 @pytest.mark.asyncio
@@ -118,7 +119,7 @@ async def test_permission_checker_preserves_principal_capability_authorization(
     )
 
     assert denied.is_error is True
-    assert denied.output == "principal lacks required capability: process.exec"
+    assert denied.text == "principal lacks required capability: process.exec"
     assert allowed == ToolResult("ran")
 
 
@@ -153,7 +154,7 @@ async def test_session_plan_mode_blocks_mutation_but_allows_exit(tmp_path: Path)
     exited = await executor.execute(ToolCall(id="2", name="exit_plan_mode", arguments={}), context)
 
     assert blocked.is_error is True
-    assert blocked.output == "plan mode blocks mutating tools"
+    assert blocked.text == "plan mode blocks mutating tools"
     assert exited == ToolResult("exit_plan_mode")
 
 
@@ -276,7 +277,7 @@ async def test_confirmation_gates_external_mutation_before_resource_acquisition(
         assert acquisitions == 1
         assert backend_calls == 1
     else:
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
         assert not terminal.exists()
         assert acquisitions == 0
         assert backend_calls == 0
@@ -330,7 +331,7 @@ async def test_nonconfirmation_policy_branches_never_call_handler(
 
     assert confirmation_calls == 0
     if mode is PermissionMode.PLAN:
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
     else:
         assert result == ToolResult("value")
 
@@ -391,7 +392,7 @@ async def test_executor_serializes_resource_key_calls(tmp_path: Path) -> None:
         ]
     )
 
-    assert [result.output for result in results] == ["ok", "ok"]
+    assert [result.text for result in results] == ["ok", "ok"]
     assert overlaps == []
     assert order == ["enter:1", "exit:1", "enter:2", "exit:2"]
 
@@ -449,8 +450,8 @@ async def test_denial_and_invalid_input_never_acquire_or_execute(tmp_path: Path)
         ToolCall(id="2", name="write_note", arguments={"value": "x"}), context
     )
 
-    assert invalid.metadata["status"] == "invalid_tool_arguments"
-    assert invalid.metadata == {
+    assert invalid.data["status"] == "invalid_tool_arguments"
+    assert invalid.to_dict()["data"] == {
         "status": "invalid_tool_arguments",
         "error_code": "invalid_tool_arguments",
         "tool": "write_note",
@@ -465,8 +466,8 @@ async def test_denial_and_invalid_input_never_acquire_or_execute(tmp_path: Path)
             }
         ],
     }
-    assert json.loads(invalid.output) == invalid.metadata
-    assert denied.metadata["status"] == "permission_denied"
+    assert json.loads(invalid.text) == invalid.to_dict()["data"]
+    assert denied.data["status"] == "permission_denied"
     assert calls == 0
     assert acquires == 0
 
@@ -488,7 +489,7 @@ async def test_expired_deadline_never_attempts_backend(
     )
 
     assert result.is_error is True
-    assert result.metadata == {"status": "deadline_exceeded", "backend_attempted": False}
+    assert result.data == {"status": "deadline_exceeded", "backend_attempted": False}
 
 
 @pytest.mark.asyncio
@@ -526,7 +527,7 @@ async def test_mutating_deadline_after_execution_starts_is_outcome_unknown(
 
     assert started.is_set()
     assert result.is_error is True
-    assert result.metadata == {"status": "outcome_unknown", "backend_attempted": True}
+    assert result.data == {"status": "outcome_unknown", "backend_attempted": True}
 
 
 @pytest.mark.asyncio
@@ -578,7 +579,7 @@ async def test_deadline_bounds_contended_resource_lease_before_execution(tmp_pat
     assert entered.is_set()
     assert executed is False
     assert result.is_error is True
-    assert result.metadata == {"status": "deadline_exceeded", "backend_attempted": False}
+    assert result.data == {"status": "deadline_exceeded", "backend_attempted": False}
 
 
 @pytest.mark.asyncio
@@ -620,7 +621,7 @@ async def test_mutating_cancellation_reports_unknown_while_thread_reaches_extern
     result = await task
 
     assert result.is_error is True
-    assert result.metadata == {
+    assert result.data == {
         "status": "outcome_unknown",
         "error_code": "execution_cancelled",
         "backend_attempted": True,
@@ -665,9 +666,9 @@ async def test_executor_exception_preserves_mutating_uncertainty(
     )
 
     assert result.is_error is True
-    assert result.metadata["status"] == expected_status
-    assert result.metadata["exception_type"] == "RuntimeError"
-    assert result.metadata["backend_attempted"] is True
+    assert result.data["status"] == expected_status
+    assert result.data["exception_type"] == "RuntimeError"
+    assert result.data["backend_attempted"] is True
 
 
 def test_legacy_permission_ids_migrate_and_conflicts_fail() -> None:

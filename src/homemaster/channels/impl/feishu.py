@@ -1233,7 +1233,7 @@ class FeishuChannel(BaseChannel):
                     tenant_id=message.identity.tenant_id,
                     session_id=message.session_id,
                 )
-                with self._stage_artifact(artifact.content, artifact.filename) as path:
+                with self._store_artifact(artifact.content, artifact.filename) as path:
                     receipt = await self.api_service.upload_and_send_artifact(
                         path=path,
                         media_type=artifact.media_type,
@@ -1300,7 +1300,7 @@ class FeishuChannel(BaseChannel):
         )
 
     @contextmanager
-    def _stage_artifact(self, content: bytes, filename: str):
+    def _store_artifact(self, content: bytes, filename: str):
         root = self._attachment_root / ".outbound-staging"
         root.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(root, 0o700)

@@ -22,6 +22,8 @@ case "$(uname -s):$(uname -m)" in
 esac
 
 state_file="$repo_root/.runtime/setup-state.json"
+runtime_root="$repo_root/.runtime"
+runtime_python="$runtime_root/venv/bin/python"
 if (( ! with_browser )) && [[ -f "$state_file" ]] && grep -q '"browser"[[:space:]]*:[[:space:]]*true' "$state_file"; then
   with_browser=1
 fi
@@ -45,21 +47,22 @@ if [[ -n "$offline_bundle" ]]; then
   export UV_NO_INDEX=1 UV_FIND_LINKS="$offline_bundle/wheelhouse"
 fi
 
-"$uv_bin" venv --allow-existing --python 3.11 "$repo_root/.venv"
-sync_args=(sync --frozen)
+mkdir -p "$runtime_root"
+"$uv_bin" venv --allow-existing --python 3.11 "$runtime_root/venv"
+sync_args=(sync --frozen --no-editable)
 if ((with_browser)); then sync_args+=(--extra browser); fi
-"$uv_bin" "${sync_args[@]}" --project "$repo_root"
+UV_PROJECT_ENVIRONMENT="$runtime_root/venv" "$uv_bin" "${sync_args[@]}" --project "$repo_root"
 
 neo4j_home="${HOMEMASTER_NEO4J_HOME:-$repo_root/.runtime/neo4j}"
 java_home="${HOMEMASTER_JAVA_HOME:-$repo_root/.runtime/java}"
 if [[ ! -x "$neo4j_home/bin/neo4j" || ! -x "$neo4j_home/bin/neo4j-admin" ]]; then
   asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
   [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
-  "$repo_root/.venv/bin/python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
+  "$runtime_python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
 elif [[ ! -x "$java_home/bin/java" ]]; then
   asset_args=(--repo-root "$repo_root" --destination "$neo4j_home" --java-destination "$java_home")
   [[ -n "$offline_bundle" ]] && asset_args+=(--offline-bundle "$offline_bundle")
-  "$repo_root/.venv/bin/python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
+  "$runtime_python" "$repo_root/scripts/download_runtime_assets.py" "${asset_args[@]}"
 fi
 
 config="$repo_root/config/homemaster.yaml"
@@ -68,7 +71,7 @@ mkdir -p "$(dirname "$config")"
 if [[ ! -e "$config" ]]; then
   cp -- "$template" "$config"
   chmod 600 "$config"
-  "$repo_root/.venv/bin/python" - "$config" <<'PY'
+  "$runtime_python" - "$config" <<'PY'
 from pathlib import Path
 import secrets
 import sys
@@ -86,7 +89,7 @@ else
   [[ "$(stat -c '%a' "$config")" == 600 ]] || { echo "private config must be mode 0600: $config" >&2; exit 2; }
 fi
 
-python_path="$repo_root/.venv/bin/python"
+python_path="$runtime_python"
 [[ -x "$neo4j_home/bin/neo4j" ]] || { echo "Neo4j executable is missing: $neo4j_home/bin/neo4j" >&2; exit 2; }
 [[ -x "$java_home/bin/java" ]] || { echo "Java executable is missing: $java_home/bin/java" >&2; exit 2; }
 
@@ -100,6 +103,8 @@ fi
 
 mkdir -p "$(dirname "$state_file")"
 printf '{"browser":%s}\n' "$([[ $with_browser -eq 1 ]] && echo true || echo false)" > "$state_file"
+
+"$python_path" -c 'import homemaster, mindmemos'
 
 export HOMEMASTER_CONFIG_PATH="$config"
 exec "$repo_root/scripts/homemaster" doctor --json

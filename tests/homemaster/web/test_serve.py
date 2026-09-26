@@ -319,7 +319,11 @@ async def test_create_alfworld_web_app_forwards_config_path(monkeypatch, tmp_pat
         return binding, owner
 
     monkeypatch.setattr(serve, "load_config", lambda *, config_path: config)
-    monkeypatch.setattr(serve, "compose_application", lambda **kwargs: captured.update(kwargs) or bundle)
+    monkeypatch.setattr(
+        serve,
+        "compose_application",
+        lambda **kwargs: captured.update(kwargs) or bundle,
+    )
     monkeypatch.setattr(serve, "create_alfworld_gateway_binding", fake_binding, raising=False)
     monkeypatch.setattr(serve, "create_web_app", lambda **_kwargs: expected_app)
 

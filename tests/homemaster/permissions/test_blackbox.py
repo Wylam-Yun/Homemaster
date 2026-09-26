@@ -40,9 +40,9 @@ from homemaster.permissions.models import (
     TargetUnresolved,
 )
 from homemaster.permissions.store import MAX_ATTEMPTS_DEFAULT, PermissionStore
-from homemaster.tools import ToolExecutionContext
-from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
+from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.executor import ToolExecutor
+from tests.homemaster.tools.test_support import ToolExecutionContext, ToolResult
 
 DEVICE_PATH = (
     Path(__file__).resolve().parents[2] / "fixtures" / "permissions" / "device_process.py"
@@ -454,7 +454,7 @@ async def test_first_approval_zero_change(tmp_path: Path) -> None:
     try:
         result = await bb.run({"op": "take", "object": "cup-a"})
         assert result.is_error is True
-        assert result.metadata["status"] == "permission_denied"
+        assert result.data["status"] == "permission_denied"
         assert bb.side_effect_ops() == {"move": 0, "pick_up": 0, "place": 0, "clean": 0}
         state = bb.state()
         assert state["area"] == "living"
@@ -519,7 +519,7 @@ async def test_bounded_retry_counts_attempts(tmp_path: Path) -> None:
         bb.device.fail_next()
         result = await bb.run({"op": "take", "object": "cup-a"})
         assert result.is_error is False
-        assert result.metadata["backend_code"] == "pick_up-ok"
+        assert result.data["backend_code"] == "pick_up-ok"
         assert bb.state()["ops"]["pick_up"] == 2
         assert bb.state()["objects"]["cup-a"]["held"] is True
     finally:
@@ -542,7 +542,7 @@ async def test_unknown_outcome_never_resends(tmp_path: Path) -> None:
         bb.adapter.on_execute = hook
         result = await bb.run({"op": "take", "object": "cup-a"})
         assert result.is_error is True
-        assert result.metadata["status"] == "outcome_unknown"
+        assert result.data["status"] == "outcome_unknown"
         assert sum(bb.adapter.exec_attempts.values()) == 1
         replacement = DeviceProcess()
         bb.adapter.device = replacement
@@ -609,7 +609,7 @@ async def test_destination_only_no_reask_inside(tmp_path: Path) -> None:
         moves_before = bb.state()["ops"]["move"]
         result = await bb.run({"op": "enter", "area": "bedroom"})
         assert result.is_error is False
-        assert "no physical effects required" in result.output
+        assert "no physical effects required" in result.text
         assert _request_count(bb.store) == before
         assert bb.state()["ops"]["move"] == moves_before
         assert bb.state()["area"] == "bedroom"
@@ -739,7 +739,7 @@ async def test_failed_attempt_leaves_no_partial_state(tmp_path: Path) -> None:
         bb.device.fail_next()
         result = await bb.adapter.execute("take:cup-a@living", bb.context)
         assert result.is_error is True
-        assert result.metadata["backend_code"] == "injected-failure"
+        assert result.data["backend_code"] == "injected-failure"
         after = bb.state()
         assert after["objects"]["cup-a"] == before["objects"]["cup-a"]
         assert after["area"] == before["area"]

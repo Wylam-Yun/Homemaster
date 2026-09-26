@@ -59,15 +59,15 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     (out / "tmp").mkdir(parents=True)
 
-    from homemaster.benchmarking.alfworld.env_adapter import (
+    from homemaster.alfworld.benchmark.adapter import (
         AlfworldEnvAdapter,
         build_alfworld_batch_env,
     )
-    from homemaster.benchmarking.alfworld.permission_adapter import (
+    from homemaster.alfworld.permission_adapter import (
         AlfworldPermissionAdapter,
         ThorBackendView,
     )
-    from homemaster.benchmarking.alfworld.types import AlfworldBenchmarkConfig
+    from homemaster.alfworld.types import AlfworldBenchmarkConfig
     from homemaster.tools.base import ToolExecutionContext
 
     evidence = _evidence()

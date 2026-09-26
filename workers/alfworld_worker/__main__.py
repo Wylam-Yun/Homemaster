@@ -1,63 +1,236 @@
-"""Run the dependency-light ALFWorld worker protocol loop."""
+"""Run the isolated ALFWorld worker protocol loop."""
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import sys
-from typing import Any
+import traceback
+from collections.abc import Iterator
 
-PROTOCOL = "homemaster-alfworld-v1"
-OPERATIONS = frozenset({"reset", "observe", "act", "close"})
-
-
-def _frame(request_id: str, *, ok: bool, result: dict[str, Any] | None = None, error: str | None = None) -> dict[str, Any]:
-    payload: dict[str, Any] = {"ok": ok}
-    if result is not None:
-        payload["result"] = result
-    if error is not None:
-        payload["error"] = error
-    return {"protocol": PROTOCOL, "request_id": request_id, "ok": ok, "payload": payload}
+from protocol import MAX_LINE_BYTES, OPERATIONS, PROTOCOL, emit, response
+from thor_backend import ThorBackend
 
 
-def _handle(frame: object, *, closed: bool) -> tuple[dict[str, Any], bool]:
-    if not isinstance(frame, dict):
-        return _frame("unknown", ok=False, error="frame must be an object"), closed
-    request_id = frame.get("request_id")
-    if not isinstance(request_id, str) or not request_id:
-        return _frame("unknown", ok=False, error="request_id is required"), closed
-    if frame.get("protocol") != PROTOCOL:
-        return _frame(request_id, ok=False, error="protocol mismatch"), closed
-    operation = frame.get("operation")
-    if operation not in OPERATIONS:
-        return _frame(request_id, ok=False, error="unsupported operation"), closed
-    if closed:
-        return _frame(request_id, ok=False, error="worker is closed"), closed
-    if operation == "close":
-        return _frame(request_id, ok=True, result={"closed": True}), True
-    payload = frame.get("payload")
-    if not isinstance(payload, dict):
-        return _frame(request_id, ok=False, error="payload must be an object"), closed
-    # The environment-specific backend is injected behind this process boundary.
-    # Until it is attached, the worker reports a deterministic unavailable state.
-    return _frame(
-        request_id,
-        ok=True,
-        result={"operation": operation, "backend": "unavailable", "payload": payload},
-    ), closed
+def _module_origin(name: str) -> str:
+    import importlib.util
+
+    spec = importlib.util.find_spec(name)
+    return str(spec.origin) if spec and spec.origin else ""
+
+
+def _module_version(name: str) -> str:
+    try:
+        module = __import__(name)
+    except Exception:
+        return "unknown"
+    return str(getattr(module, "__version__", "unknown"))
+
+
+@contextlib.contextmanager
+def _redirect_external_output() -> Iterator[None]:
+    """Keep third-party/Unity stdout out of the worker's NDJSON channel."""
+
+    saved_fd = os.dup(1)
+    try:
+        sys.stdout.flush()
+        os.dup2(2, 1)
+        with contextlib.redirect_stdout(sys.stderr):
+            yield
+    finally:
+        sys.stderr.flush()
+        os.dup2(saved_fd, 1)
+        os.close(saved_fd)
 
 
 def main() -> int:
+    backend: ThorBackend | None = None
     closed = False
-    for line in sys.stdin:
+    seen: set[str] = set()
+    emit(
+        response(
+            "ready",
+            status="ready",
+            result={
+                "worker_version": "3.5.0",
+                "python_executable": sys.executable,
+                "alfworld_origin": _module_origin("alfworld"),
+                "ai2thor_version": _module_version("ai2thor"),
+                "capabilities": sorted(OPERATIONS),
+            },
+        )
+    )
+    for raw_line in sys.stdin.buffer:
+        if len(raw_line) > MAX_LINE_BYTES:
+            emit(
+                response(
+                    "unknown",
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "line_too_long", "message": "request exceeds protocol limit"},
+                )
+            )
+            continue
         try:
-            frame = json.loads(line)
-            response, closed = _handle(frame, closed=closed)
-        except json.JSONDecodeError:
-            response, closed = _frame("unknown", ok=False, error="invalid JSON"), closed
-        sys.stdout.write(json.dumps(response, ensure_ascii=True, separators=(",", ":")) + "\n")
-        sys.stdout.flush()
+            frame = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            emit(
+                response(
+                    "unknown",
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "invalid_json", "message": str(exc)},
+                )
+            )
+            continue
+        if not isinstance(frame, dict):
+            emit(
+                response(
+                    "unknown",
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "invalid_frame", "message": "request must be an object"},
+                )
+            )
+            continue
+        request_id = frame.get("request_id")
+        operation = frame.get("operation")
+        payload = frame.get("payload")
+        if not isinstance(request_id, str) or not request_id:
+            emit(
+                response(
+                    "unknown",
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "missing_request_id", "message": "request_id is required"},
+                )
+            )
+            continue
+        if request_id in seen:
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=64,
+                    error={
+                        "code": "duplicate_request_id",
+                        "message": "request_id was already used",
+                    },
+                )
+            )
+            continue
+        seen.add(request_id)
+        if frame.get("protocol") != PROTOCOL:
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "protocol_mismatch", "message": "protocol mismatch"},
+                )
+            )
+            continue
+        if operation not in OPERATIONS:
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "unsupported_operation", "message": "unsupported operation"},
+                )
+            )
+            continue
+        if not isinstance(payload, dict):
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "invalid_payload", "message": "payload must be an object"},
+                )
+            )
+            continue
         if closed:
-            break
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=64,
+                    error={"code": "worker_closed", "message": "worker is closed"},
+                )
+            )
+            continue
+        try:
+            if operation == "reset":
+                backend = ThorBackend(payload)
+                with _redirect_external_output():
+                    result = backend.reset()
+                result.update(backend.identity())
+                emit(response(request_id, status="ok", result=result, backend_attempted=True))
+            elif operation == "observe":
+                if backend is None:
+                    raise RuntimeError("backend has not been reset")
+                with _redirect_external_output():
+                    result = backend.observe()
+                emit(response(request_id, status="ok", result=result))
+            elif operation == "set_task":
+                if backend is None:
+                    raise RuntimeError("backend has not been reset")
+                with _redirect_external_output():
+                    result = backend.set_task(payload)
+                emit(
+                    response(
+                        request_id,
+                        status="ok",
+                        result=result,
+                        external_return_code=0,
+                        backend_attempted=True,
+                    )
+                )
+            elif operation == "act":
+                if backend is None:
+                    raise RuntimeError("backend has not been reset")
+                with _redirect_external_output():
+                    result = backend.act(payload)
+                return_code = int(result.pop("external_return_code", 0))
+                emit(
+                    response(
+                        request_id,
+                        status="ok",
+                        result=result,
+                        external_return_code=return_code,
+                        backend_attempted=True,
+                    )
+                )
+            else:
+                with _redirect_external_output():
+                    result = (
+                        backend.close()
+                        if backend is not None
+                        else {"closed": True, "cleanup_status": "succeeded"}
+                    )
+                emit(response(request_id, status="closed", result=result))
+                closed = True
+                break
+        except Exception as exc:
+            if isinstance(exc, ValueError) and operation in {"act", "set_task"}:
+                # Expected action/control rejection is already represented by
+                # the typed error response. Keep stderr diagnostic without a
+                # traceback so a verified failure black box can still close
+                # cleanly; unexpected faults retain the full traceback.
+                print(f"{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+            else:
+                print(traceback.format_exc(), file=sys.stderr, flush=True)
+            emit(
+                response(
+                    request_id,
+                    status="error",
+                    external_return_code=1,
+                    backend_attempted=operation in {"reset", "act", "close"},
+                    error={"code": "backend_failure", "message": f"{type(exc).__name__}: {exc}"},
+                )
+            )
     return 0
 
 

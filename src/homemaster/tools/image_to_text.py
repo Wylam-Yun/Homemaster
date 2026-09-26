@@ -15,7 +15,13 @@ from pathlib import Path
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from homemaster.tools.base import BaseTool, ToolExecutionContext, ToolResult
+from homemaster.tools.base import BaseTool
+from homemaster.tools.contracts import (
+    ToolExecutionContext,
+    ToolExecutionError,
+    ToolExecutionResult,
+    ToolExecutionStatus,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,13 +77,14 @@ class ImageToTextTool(BaseTool):
 
     async def execute(
         self, arguments: ImageToTextToolInput, context: ToolExecutionContext
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         # 1. Resolve image data
         image_data, media_type = await self._resolve_image(arguments, context)
         if image_data is None:
-            return ToolResult(
-                output="image_to_text failed: provide either image_data (base64) or image_path",
-                is_error=True,
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                text="image_to_text failed: provide either image_data (base64) or image_path",
+                error=ToolExecutionError("image_input_missing", "image input is missing"),
             )
 
         # 2. Get vision model config from context metadata
@@ -94,14 +101,17 @@ class ImageToTextTool(BaseTool):
                 "image_to_text: vision model not configured. "
                 "Set vision.model and vision.api_key in settings."
             )
-            return ToolResult(
-                output=(
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                text=(
                     "image_to_text failed: vision model is not configured. "
                     "Please set vision.model and vision.api_key in your settings, "
                     "or configure the HOMEMASTER_VISION_MODEL and "
                     "HOMEMASTER_VISION_API_KEY environment variables."
                 ),
-                is_error=True,
+                error=ToolExecutionError(
+                    "vision_model_unconfigured", "vision model is not configured"
+                ),
             )
 
         # 3. Call the vision model
@@ -117,13 +127,15 @@ class ImageToTextTool(BaseTool):
             )
         except Exception as exc:
             log.exception("image_to_text: vision model call failed")
-            return ToolResult(
-                output=f"image_to_text failed: vision model error: {exc}",
-                is_error=True,
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILURE,
+                text=f"image_to_text failed: vision model error: {exc}",
+                error=ToolExecutionError("vision_model_error", str(exc)),
             )
 
-        return ToolResult(
-            output=(
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text=(
                 f"[Image description via {model}]\n\n{description}"
             )
         )
@@ -148,7 +160,7 @@ class ImageToTextTool(BaseTool):
         if arguments.image_path:
             path = Path(arguments.image_path)
             if not path.is_absolute():
-                path = context.cwd / path
+                path = context.working_directory / path
             path = path.expanduser().resolve()
 
             if not path.exists():

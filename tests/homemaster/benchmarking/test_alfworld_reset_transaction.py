@@ -5,18 +5,18 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
-from homemaster.benchmarking.alfworld.gateway import CleanupResult, ExternalEventRead
-from homemaster.benchmarking.alfworld.pose_snapshot import (
+from homemaster.alfworld.gateway import CleanupResult, ExternalEventRead
+from homemaster.alfworld.pose_snapshot import (
     CachePoseInput,
     FrozenOraclePoseStore,
     OraclePose,
     SceneObjectScanInput,
 )
-from homemaster.benchmarking.alfworld.reset_transaction import (
+from homemaster.alfworld.reset_transaction import (
     AlfworldResetTransaction,
     ResetTransactionInput,
 )
-from homemaster.benchmarking.alfworld.types import AlfworldEnvState
+from homemaster.alfworld.types import AlfworldEnvState
 
 
 def _sha(value: str) -> str:

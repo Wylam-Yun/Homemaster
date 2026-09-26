@@ -48,7 +48,10 @@ def run_interactive_shell(
     )
     application = bundle.application
     if confirmation_handler is not None:
-        confirmation_handler.bind_store(application.tool_executor.permission_store)
+        tool_executor = getattr(application, "tool_executor", None)
+        permission_store = getattr(tool_executor, "permission_store", None)
+        if permission_store is not None:
+            confirmation_handler.bind_store(permission_store)
     backend = HomeCliBackend(world_path=None, memory_path=None)
     session_id = resume_session_id or new_session_id()
     session_open = False

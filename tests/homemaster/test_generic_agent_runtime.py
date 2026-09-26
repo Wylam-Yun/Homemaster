@@ -44,7 +44,8 @@ from homemaster.providers.errors import (
     LLMProviderError,
 )
 from homemaster.providers.transports import TransportDelta
-from homemaster.tools.base import FunctionTool, ToolRegistry, ToolResult
+from homemaster.tools.base import FunctionTool, ToolRegistry
+from tests.homemaster.tools.test_support import ToolResult
 
 
 class FakeTransport:

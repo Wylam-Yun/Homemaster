@@ -24,6 +24,8 @@
   run 已停止。每次编排只能启动一次；需要重跑时使用全新 ID/root。
 - summary 与退出码成功后仍必须独立检查完整 stderr，并逐实例核对环境、数据库和进程清理终态。stderr 中存在
   traceback、外部 DB 错误或迟到异常时整次 run 不得记为 PASS，即使正式 score 为 1.0。
+- 外部进程清理证据必须来自启动前后锁定 PID 集合的独立探测；无法观测 PID 时写 `null`，不得把未知状态压成
+  `false`。远端 live 命令必须显式固定 checkout、资源绑定、manifest 和 evidence root，复制回本地后再按实例复核路径。
 - CLI wrapper 的成功 preflight 不得写入被包装命令的 stdout；machine-readable 模式必须从真实 wrapper 入口
   产生且只产生一个可解析 payload。preflight 失败保留非零退出码和独立诊断，不能用静默成功掩盖失败。
 - 可选 benchmark/runtime 的一次性部署绑定必须覆盖完整资源闭包：interpreter、依赖 import、config、dataset/
@@ -37,6 +39,8 @@
 
 - 向量写入外部存储后的读回验证必须考虑其公开数值精度（例如 Qdrant float32）；逐实例核对维度、非零性和
   每一维有限误差，禁止用 Python 浮点逐位完全相等把成功落盘误报为失败。
+
+- 外部子进程或引擎接入 typed stdout 协议时，必须把第三方 stdout 与协议通道物理隔离；协议边界只允许机器帧，第三方日志统一进入 stderr。真实验收逐次核对帧可解析、外部返回码、目标终态、进程退出码和 stderr 无 traceback。
 
 ## 分阶段后台任务重入纪律
 
@@ -86,6 +90,9 @@
   raw/redacted mode，也不得以收尾为由重建工具路由架构。
 - canonical immutable result 进入 Pydantic/session/provider message 前必须递归 thaw 为普通 JSON 容器；
   回归要对包含 nested mapping 的真实 message 执行 deep copy，不能只断言顶层 dict。
+- canonical result 的 evidence refs 属于内部审计证据；provider-facing content 必须显式移除它们，内部
+  trace/result data 仍需完整保留。跨 checkout 同步时一次只传一个 source directory，确认并清理未跟踪的
+  stale package 副本后再跑 live gate，避免 cwd 优先级让测试加载另一套源码。
 
 ## Gateway 远程边界纪律
 
@@ -418,6 +425,7 @@
 - 每个发给 THOR 的请求都计一个 backend action，包括 `GetReachablePositions` 等 query。请求前检查候选数、backend action 数和 wall-clock 三预算，预算到达后不得再发 N+1 请求。
 - 从确定性 scene snapshot 只解析一次准确对象和目标；显式实例 miss 不得类型级 fallback。候选集合、顺序和 hash 在 context 创建时锁定，重试期间不得重新解析或重算目标。
 - 真环境验收按 target/instance 独立 reset、独立断言，禁止用 best/any 或全局聚合掩盖失败。更换 ALFWorld、ai2thor 或 Unity 运行时版本后，重新执行 runtime contract 与逐实例 characterization。
+- 重复同名外部对象必须先绑定稳定的 trial/controller identity，再从当前 metadata 读取状态；off-screen 导航必须冻结候选位姿并逐个核对目标可见性。远端验证同时固定 source checkout、`PYTHONPATH`、绑定配置和 evidence root，不能假设 installed package 与 checkout 相同。
 - Helper 自测必须审计真实 CLI/handler 接线；新 validator 存在或 isolated fixture 通过不算接线完成。case/run verifier 必须逐 case 回读 raw setup artifacts 并独立重算，禁止只信 worker 自报计数。
 - 共享 schema 迁移时，把同一份 committed payload 直接喂给每个真实 consumer；禁止在 synthetic fixture 中补回生产 payload 已删除的字段。目标 mutation 必须核对具体拒绝原因，不能把其他缺字段异常算 PASS。
 - 跨 producer/consumer 的 synthetic shared-schema fixture 必须由真实 producer 生成，或从 producer 的实际 coverage rule 重算并逐 ID 审计；禁止手工补出真实生产路径不会发布的行或字段。

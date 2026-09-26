@@ -3,88 +3,19 @@
 from __future__ import annotations
 
 import inspect
-import json
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from homemaster.permissions.resources import PhysicalDeviceAdapter
-
-if TYPE_CHECKING:
-    from homemaster.extensions.hook_runner import HookRunner
-    from homemaster.tools.contracts import ToolExecutionResult
+from homemaster.tools.contracts import ToolExecutionContext, ToolExecutionResult
 
 _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _STABLE_ID_RE = re.compile(r"^homemaster\.[a-z][a-z0-9_]*\.v[1-9][0-9]*$")
-
-
-@dataclass
-class ToolExecutionContext:
-    """Execution resources shared by all tools.
-
-    Application-only state lives in metadata so the tool API remains independent
-    from profiles, tenants, backends, and Gateway transports.
-    """
-
-    cwd: Path
-    metadata: dict[str, Any] = field(default_factory=dict)
-    hook_executor: HookRunner | None = None
-
-    def __post_init__(self) -> None:
-        resolved = self.cwd.expanduser().resolve(strict=True)
-        if not resolved.is_dir():
-            raise ValueError("tool cwd must be an existing directory")
-        self.cwd = resolved
-        self.metadata = dict(self.metadata)
-
-    @property
-    def working_directory(self) -> Path:
-        """Compatibility spelling used by existing HomeMaster tool bodies."""
-
-        return self.cwd
-
-    @property
-    def services(self) -> dict[str, Any]:
-        value = self.metadata.get("services", self.metadata)
-        return value if isinstance(value, dict) else self.metadata
-
-    @property
-    def backend(self) -> object | None:
-        return self.metadata.get("backend")
-
-    @property
-    def tool_registry(self) -> ToolRegistry | None:
-        value = self.metadata.get("tool_registry")
-        return value if isinstance(value, ToolRegistry) else None
-
-    def __getattr__(self, name: str) -> Any:
-        try:
-            return self.metadata[name]
-        except KeyError as exc:
-            raise AttributeError(name) from exc
-
-
-@dataclass(frozen=True)
-class ToolResult:
-    """The complete model-facing tool result plus small machine metadata."""
-
-    output: str
-    is_error: bool = False
-    metadata: dict[str, Any] = field(default_factory=dict)
-    canonical_result: ToolExecutionResult | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.output, str):
-            raise TypeError("tool result output must be a string")
-        if not isinstance(self.is_error, bool):
-            raise TypeError("tool result is_error must be a boolean")
-        object.__setattr__(self, "metadata", dict(self.metadata))
 
 
 class BaseTool(ABC):
@@ -109,7 +40,7 @@ class BaseTool(ABC):
         self,
         arguments: BaseModel,
         context: ToolExecutionContext,
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         """Execute a validated invocation."""
 
     def is_read_only(self, arguments: BaseModel) -> bool:
@@ -146,14 +77,13 @@ class BaseTool(ABC):
             )
         if self.physical_adapter is not None and not self.physical:
             raise ValueError(
-                f"tool {self.name!r} carries a physical_adapter without "
-                "declaring physical=True"
+                f"tool {self.name!r} carries a physical_adapter without declaring physical=True"
             )
 
 
 ToolFunction = Callable[
     [Mapping[str, Any], ToolExecutionContext],
-    ToolResult | Any | Awaitable[ToolResult | Any],
+    ToolExecutionResult | Awaitable[ToolExecutionResult],
 ]
 
 
@@ -186,8 +116,7 @@ class FunctionTool(BaseTool):
             )
         if physical_adapter is not None and not physical:
             raise ValueError(
-                f"tool {name!r} carries a physical_adapter without "
-                "declaring physical=True"
+                f"tool {name!r} carries a physical_adapter without declaring physical=True"
             )
         self.name = name
         self.stable_id = f"homemaster.{name}.v1"
@@ -209,107 +138,27 @@ class FunctionTool(BaseTool):
         self,
         arguments: BaseModel,
         context: ToolExecutionContext,
-    ) -> ToolResult:
+    ) -> ToolExecutionResult:
         if self.physical and self.physical_adapter is None:
             raise RuntimeError(
-                f"physical tool {self.name!r} has no physical_adapter; "
-                "refusing execution"
+                f"physical tool {self.name!r} has no physical_adapter; refusing execution"
             )
         raw = arguments.model_dump(mode="python")
         value = self._execute(raw, context)
         if inspect.isawaitable(value):
             value = await value
-        return normalize_tool_result(value)
+        if not isinstance(value, ToolExecutionResult):
+            raise TypeError(
+                f"tool {self.name!r} executor must return ToolExecutionResult, "
+                f"got {type(value).__name__}"
+            )
+        return value
 
     def is_read_only(self, arguments: BaseModel) -> bool:
         raw = arguments.model_dump(mode="python")
         if callable(self._read_only):
             return bool(self._read_only(raw))
         return self._read_only
-
-
-def normalize_tool_result(value: Any) -> ToolResult:
-    """Collapse pre-migration HomeMaster result values into the small contract."""
-
-    if isinstance(value, ToolResult):
-        return value
-    if isinstance(value, str):
-        return ToolResult(value)
-    if isinstance(value, Mapping):
-        return ToolResult(json.dumps(dict(value), ensure_ascii=False, sort_keys=True))
-
-    content = getattr(value, "content", None)
-    if isinstance(content, list):
-        output = "\n".join(
-            str(getattr(block, "text", "")) for block in content if getattr(block, "text", "")
-        )
-        metadata = _plain_json(dict(getattr(value, "data", None) or {}))
-        return ToolResult(output, bool(getattr(value, "is_error", False)), metadata)
-
-    from homemaster.tools.contracts import ToolExecutionResult
-
-    canonical_result = value if isinstance(value, ToolExecutionResult) else None
-    data = _plain_json(dict(getattr(value, "data", None) or {}))
-    images = getattr(value, "images", ())
-    attachments = getattr(value, "attachments", ())
-    evidence_refs = getattr(value, "evidence_refs", ())
-    verification = getattr(value, "verification", None)
-    if images:
-        data["images"] = [
-            item.to_dict() if callable(getattr(item, "to_dict", None)) else dict(item)
-            for item in images
-        ]
-    if attachments:
-        data["attachments"] = [
-            item.to_dict() if callable(getattr(item, "to_dict", None)) else dict(item)
-            for item in attachments
-        ]
-    verification_refs = tuple(getattr(verification, "evidence_refs", ()))
-    combined_refs = tuple(dict.fromkeys((*evidence_refs, *verification_refs)))
-    if combined_refs:
-        data["evidence_refs"] = list(combined_refs)
-    verification_status = getattr(verification, "status", None)
-    if verification_status is not None:
-        status_value = str(getattr(verification_status, "value", verification_status))
-        if status_value != "not_requested":
-            data["verification_status"] = status_value
-            detail = getattr(verification, "detail", None)
-            if detail is not None:
-                data["verification_detail"] = str(detail)
-    text = getattr(value, "text", None)
-    summary = getattr(value, "summary", None)
-    error = getattr(value, "error", None)
-    failure_reason = getattr(value, "failure_reason", None)
-    success = getattr(value, "success", None)
-    status = getattr(value, "status", None)
-    is_error = bool(success is False)
-    backend_attempted = getattr(value, "backend_attempted", None)
-    if backend_attempted is not None:
-        data.setdefault("backend_attempted", bool(backend_attempted))
-    if status is not None:
-        status_value = str(getattr(status, "value", status))
-        existing_status = data.get("status")
-        if existing_status is not None and existing_status != status_value:
-            data.setdefault("domain_status", existing_status)
-        data["status"] = status_value
-        is_error = status_value not in {"success", "ok"}
-    if error is not None:
-        is_error = True
-        data.setdefault("error_code", getattr(error, "code", "tool_error"))
-        failure_reason = getattr(error, "message", None) or failure_reason
-    content_text = data.get("content")
-    output = str(
-        text or summary or failure_reason or (content_text if isinstance(content_text, str) else "")
-    )
-    if not output and data:
-        renderable = {
-            key: item
-            for key, item in data.items()
-            if key not in {"images", "attachments", "status", "backend_attempted"}
-        }
-        if renderable:
-            output = json.dumps(renderable, ensure_ascii=False, sort_keys=True)
-    return ToolResult(output, is_error, data, canonical_result)
 
 
 def _schema_model(tool_name: str, schema: Mapping[str, Any]) -> type[BaseModel]:
@@ -430,6 +279,4 @@ __all__ = [
     "ToolExecutionContext",
     "ToolRegistry",
     "ToolRegistryError",
-    "ToolResult",
-    "normalize_tool_result",
 ]

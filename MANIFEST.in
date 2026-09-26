@@ -1,0 +1,5 @@
+include uv.lock
+include protocols/alfworld-v1.schema.json
+include config/alfworld/requirements.lock
+include config/homemaster.example.yaml
+recursive-include workers/alfworld_worker *.py

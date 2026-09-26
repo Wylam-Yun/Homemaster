@@ -1,6 +1,6 @@
 # HomeMaster 分层架构简图
 
-**用途：** 作为 V3.5 架构审计的快速入口。本文描述目标依赖方向，同时标出当前代码中的主要实现位置和正在迁移的边界。
+**用途：** 作为 V3.5 架构审计的快速入口。本文描述已交付的依赖方向、实现位置和外部验收边界。
 
 ## 1. 总体关系
 
@@ -191,8 +191,8 @@ taskset: 一个 scene + 多个 goal + 一个连续 session
 | Application Runtime | `application/runtime.py`, `application/factory.py` | 保留，收紧依赖接口 |
 | Agent Runtime | `agent/generic_runtime.py` | 保留唯一 Agent loop |
 | 通用能力 | `providers/`, `tools/`, `memory/`, `mcp/`, `skills/`, `events/` | 由 composition 组装，由 Runtime 使用和管理生命周期 |
-| ALFWorld Harness | `benchmarking/alfworld/env_adapter.py`, `execution.py`, `tools.py` | 收敛为单一 Oracle Harness，删除 TextWorld 和 legacy |
-| Benchmark 编排 | `benchmarking/alfworld/runner.py` | 拆出 episode/taskset lifecycle，共享编排核心 |
+| ALFWorld Harness | `alfworld/harness.py`, `backend.py`, `lifecycle.py`, `scene.py`, `actions.py`, `outcomes.py` | 单一 Oracle Harness；`benchmark/worker_adapter.py` 只负责隔离 worker 的生命周期绑定 |
+| Benchmark 编排 | `alfworld/benchmark/runner.py` | episode/taskset 共用 Application event-loop owner 和 typed outcome |
 | 外部环境 | ALFWorld / AI2-THOR / Unity / Xvfb | 只通过 Harness 访问 |
 
 ## 7. 复现与安装边界
@@ -210,8 +210,9 @@ scripts/homemaster doctor
 scripts/homemaster benchmark-alfworld ...
 ```
 
-`setup-alfworld.sh` 是目标命令，当前仓库尚未实现；当前仍使用
-`scripts/setup_memory_runtime.py` 和 loopback HTTP launcher。它们列在图中是为了锁定迁移后的用户体验，不能被审计误认为已经交付。
+`setup-alfworld.sh` 创建部署所需的 worker 环境；worker 入口由 `scripts/homemaster` 绑定
+`.runtime/alfworld-venv`，HomeMaster 与 worker 通过版本化 stdin/stdout NDJSON 通信。
+不存在 ALFWorld loopback HTTP transport。
 
 其中：
 
@@ -229,4 +230,6 @@ worker 协议使用 stdin/stdout NDJSON；大型截图和 raw event 走双方共
 2. ALFWorld 环境：worker Python 可 import `alfworld`、`ai2thor`，配置和 `data/json_2.1.1` 存在，Unity/Display 可启动。
 3. 隔离黑盒：在 ALFWorld worker 中检查 `homemaster`、`mindmemos` 不可导入；HomeMaster 侧能通过 IPC 完成一次 reset、一次动作请求和一次 close，并核对 worker 返回码与真实环境终态。
 
-当前 `scripts/homemaster` 的 `PYTHONPATH` 注入和 loopback HTTP 是迁移前实现，不能作为目标架构或复现步骤继续保留。
+worker 启动时清空 `PYTHONPATH`，并在 reset/set_task/observe/act/close 的外部调用期间把第三方/Unity
+stdout 重定向到 stderr，避免污染 NDJSON；验收必须同时核对协议返回码、真实环境状态、frame
+readback、worker 退出码和 stderr 无 traceback。

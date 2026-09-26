@@ -62,7 +62,9 @@ async def test_real_automatic_recall_smoke_benchmark() -> None:
             fact_ids = await _active_ids(store, context, created_ids, "fact")
             assert fact_ids
 
-            experience_text = f"Complete validation task {nonce}: find medicine and place it on the table."
+            experience_text = (
+                f"Complete validation task {nonce}: find medicine and place it on the table."
+            )
             episode = {
                 "schema_version": "homemaster.schema_episode.v1",
                 "session_id": nonce,

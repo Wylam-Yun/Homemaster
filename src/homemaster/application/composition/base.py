@@ -5,34 +5,34 @@ from __future__ import annotations
 import asyncio
 import io
 import os
+import sys
 import uuid
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from homemaster.adapters.profiles import (
-    build_tool_registry,
-)
+from homemaster.alfworld.trajectory_memory import AlfworldTrajectoryWriter
 from homemaster.application import (
     ApplicationRuntime,
     ResourceBinding,
     ResourceLifetime,
     SessionManager,
 )
+from homemaster.application.composition.observability import compose_observability_sinks
+from homemaster.application.composition.profiles import resolve_tool_environment
+from homemaster.application.composition.providers import image_provider_services
+from homemaster.application.composition.skills import compose_skill_registry
+from homemaster.application.composition.tools import compose_tool_registry
 from homemaster.application.factory import create_application
 from homemaster.application.resources import RunResourceScope
 from homemaster.artifacts import ArtifactPublisher, ToolOutputStore
-from homemaster.benchmarking.alfworld.trajectory_memory import AlfworldTrajectoryWriter
 from homemaster.channels.feishu_groups import FeishuGroupOperations, build_feishu_group_tools
 from homemaster.cli.live_output import RichStreamEventSink
 from homemaster.cli.rich_renderer import RichOutputRenderer
 from homemaster.config import HomeMasterConfig, load_config
+from homemaster.domain.home_backend import HomeBackendReceipt, HomeWorldBackend
 from homemaster.events.bus import EventBus
-from homemaster.events.sinks import (
-    FanoutEventSink,
-    JsonlTraceSink,
-    MessagesLogSink,
-)
+from homemaster.events.sinks import FanoutEventSink
 from homemaster.events.third_party_logging import ThirdPartyLogCapture
 from homemaster.experience import (
     AlfworldCompileJobService,
@@ -56,7 +56,6 @@ from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.permissions import PermissionMode, PermissionSettingsConfig
 from homemaster.prompts.loader import PromptId
-from homemaster.skills.loader import load_skill_registry
 from homemaster.skills.registry import SkillRegistry
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
@@ -133,6 +132,7 @@ class HomeCliBackend:
         self.event_sequence = 0
         self.world_path = world_path
         self.memory_path = memory_path
+        self.world = HomeWorldBackend(world_path) if world_path is not None else None
 
     def bind_application_run(self, run_id: str, generation: int) -> None:
         self.run_id = run_id
@@ -141,6 +141,22 @@ class HomeCliBackend:
     def advance(self) -> None:
         self.state_sequence += 1
         self.event_sequence += 1
+
+    def go_to(self, target: str) -> HomeBackendReceipt:
+        if self.world is None:
+            raise RuntimeError("HomeWorld backend is not configured")
+        receipt = self.world.go_to(target)
+        self.advance()
+        return receipt
+
+    def manipulate(
+        self, *, action: str, target: str, receptacle: str | None = None
+    ) -> HomeBackendReceipt:
+        if self.world is None:
+            raise RuntimeError("HomeWorld backend is not configured")
+        receipt = self.world.manipulate(action=action, target=target, receptacle=receptacle)
+        self.advance()
+        return receipt
 
     async def screenshot(self) -> bytes:
         return await asyncio.to_thread(self._capture_display_png)
@@ -171,9 +187,7 @@ def compose_application(
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
     feishu_group_operations: FeishuGroupOperations | None = None,
-    tool_environment: Literal["local_robot", "alfworld", "browser"] | None = (
-        "local_robot"
-    ),
+    tool_environment: Literal["local_robot", "alfworld", "browser"] | None = ("local_robot"),
     runtime_root: Path | None = None,
     session_root: Path | None = None,
     memory_tenant_id: str = "local",
@@ -206,7 +220,7 @@ def compose_application(
         publish_artifacts = request.publish_artifacts
 
     resolved = config or load_config()
-    effective_tool_environment = _resolve_tool_environment(resolved, tool_environment)
+    effective_tool_environment = resolve_tool_environment(resolved, tool_environment)
     permission_settings = resolved.permissions
     if permission_mode is not None:
         if not isinstance(permission_mode, PermissionMode):
@@ -228,7 +242,7 @@ def compose_application(
         if runtime_root is not None
         else Path(resolved.runtime.runtime_root).expanduser() / label
     )
-    registry = build_tool_registry(
+    registry = compose_tool_registry(
         environment=effective_tool_environment,
         world_path=world_path,
         memory_path=memory_path,
@@ -300,17 +314,6 @@ def compose_application(
         raise
 
 
-def _resolve_tool_environment(
-    config: HomeMasterConfig,
-    requested: Literal["local_robot", "alfworld", "browser"] | None,
-) -> Literal["local_robot", "alfworld", "browser"] | None:
-    """Enable configured Browser capability before an input channel is attached."""
-
-    if requested != "alfworld" and config.browser_gateway.start_url is not None:
-        return "browser"
-    return requested
-
-
 def _finish_home_application(
     *,
     resolved: HomeMasterConfig,
@@ -336,7 +339,7 @@ def _finish_home_application(
     """Finish composition while the caller retains extension rollback ownership."""
 
     artifact_publisher: ArtifactPublisher | None = None
-    skill_registry = load_home_skills(resolved)
+    skill_registry = _load_public_skill_registry(resolved)
     bus = EventBus()
     scope = RunResourceScope()
     if feishu_group_operations is not None:
@@ -362,7 +365,7 @@ def _finish_home_application(
             )
         )
         artifact_publisher = ArtifactPublisher(gateway_store)
-    trace = JsonlTraceSink(run_dir)
+    trace, messages_log = compose_observability_sinks(run_dir)
     scope.bind(
         ResourceBinding.owned(
             "cli-trace",
@@ -370,7 +373,7 @@ def _finish_home_application(
             lifetime=ResourceLifetime.APPLICATION,
         )
     )
-    sinks: list[Any] = [trace, MessagesLogSink(run_dir)]
+    sinks: list[Any] = [trace, messages_log]
     live_rendered = False
     if event_sink is not None:
         sinks.append(event_sink)
@@ -659,7 +662,7 @@ def _finish_home_application(
                 and mindmemos is not None
                 else {}
             ),
-            **_image_provider_services(resolved),
+            **image_provider_services(resolved),
             **({"mcp_manager": mcp_manager} if mcp_manager is not None else {}),
         },
         session_end_handler=session_end_handler,
@@ -688,26 +691,6 @@ def _finish_home_application(
     )
 
 
-def _image_provider_services(config: HomeMasterConfig) -> dict[str, object]:
-    try:
-        provider = config.get_provider(
-            config.runtime_defaults.default_provider_name,
-            kind="chat",
-        )
-    except Exception:
-        return {}
-    api_key = provider.api_keys[0] if provider.api_keys else ""
-    common = {
-        "model": provider.model,
-        "api_key": api_key,
-        "base_url": provider.base_url,
-    }
-    return {
-        "vision_model_config": dict(common),
-        "image_generation_config": {**common, "provider": "openai"},
-    }
-
-
 def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, ...]:
     config_dir = config.config_path.parent if config.config_path is not None else Path.cwd()
     approvals: list[ExtensionApproval] = []
@@ -728,32 +711,15 @@ def _extension_approvals(config: HomeMasterConfig) -> tuple[ExtensionApproval, .
     return tuple(approvals)
 
 
-def load_home_skills(
-    config: HomeMasterConfig,
-    *,
-    cwd: Path | None = None,
-) -> SkillRegistry:
-    """Load HomeMaster's independent, dynamically refreshable Skill sources."""
+load_home_skills = compose_skill_registry
 
-    sources = config.skills
-    discovery_cwd = cwd or Path.cwd()
 
-    def discover() -> SkillRegistry:
-        return load_skill_registry(
-            cwd=discovery_cwd,
-            user_dirs=sources.user_dirs,
-            project_dirs=sources.project_dirs,
-            explicit_dirs=sources.explicit_dirs,
-            allow_project=sources.allow_project,
-            plugin_roots=sources.plugin_roots,
-            enabled_plugins=sources.enabled_plugins,
-            allow_project_plugin_skills=sources.allow_project_plugin_skills,
-            allowed_builtin_overrides=sources.allowed_builtin_overrides,
-        )
+def _load_public_skill_registry(config: HomeMasterConfig) -> SkillRegistry:
+    """Honor the public composition loader seam used by rollback tests."""
 
-    registry = discover()
-    registry.set_refresher(discover)
-    return registry
+    public_module = sys.modules.get("homemaster.application.composition")
+    loader = getattr(public_module, "load_home_skills", load_home_skills)
+    return loader(config)
 
 
 __all__ = [

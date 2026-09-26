@@ -7,10 +7,10 @@ import signal
 from collections.abc import Callable
 from typing import Literal
 
+from homemaster.application.composition import compose_application
 from homemaster.application.resources import ResourceCleanupError
 from homemaster.channels.feishu_groups import FeishuGroupOperations
 from homemaster.channels.impl.feishu import FeishuApiService
-from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig
 from homemaster.gateway.alfworld import (
     AlfworldGatewayApplication,

@@ -1,14 +1,37 @@
 {
   "$id": "homemaster-alfworld-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "HomeMaster isolated ALFWorld worker request",
+  "title": "HomeMaster isolated ALFWorld worker protocol",
   "type": "object",
   "additionalProperties": false,
   "required": ["protocol", "request_id", "operation", "payload"],
   "properties": {
     "protocol": {"const": "homemaster-alfworld-v1"},
     "request_id": {"type": "string", "minLength": 1},
-    "operation": {"enum": ["reset", "observe", "act", "close"]},
+    "operation": {"enum": ["reset", "set_task", "observe", "act", "close"]},
     "payload": {"type": "object"}
+  },
+  "$defs": {
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "status",
+        "external_return_code",
+        "backend_attempted",
+        "result"
+      ],
+      "properties": {
+        "protocol": {"const": "homemaster-alfworld-v1"},
+        "request_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["ready", "ok", "error", "closed"]},
+        "external_return_code": {"type": "integer"},
+        "backend_attempted": {"type": "boolean"},
+        "result": {"type": "object"},
+        "error": {"type": ["object", "null"]}
+      }
+    }
   }
 }

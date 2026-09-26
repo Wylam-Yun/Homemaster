@@ -1,0 +1,30 @@
+{
+  "classification": "agent_model_failure",
+  "domain": "alfworld",
+  "episode_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
+  "failure_advice": [],
+  "failure_reason": "max_consecutive_tool_errors",
+  "failure_summary": [],
+  "final_environment_state": {
+    "done": false,
+    "goal_condition_success_rate": 0.0,
+    "invalid_action_count": 0,
+    "inventory": null,
+    "step_index": 2,
+    "won": false
+  },
+  "goal_type": "{\"pddl_params\":{\"mrecep_target\":\"\",\"object_sliced\":false,\"object_target\":\"RemoteControl\",\"parent_target\":\"\",\"toggle_target\":\"FloorLamp\"},\"task_type\":\"look_at_obj_in_light\"}",
+  "is_executable": false,
+  "outcome": "failure",
+  "record_kind": "trajectory",
+  "run_id": "v35-live-remotecontrol-20260925d-0001",
+  "schema_version": 1,
+  "source_session_id": "v35-live-remotecontrol-20260925d-0001",
+  "source_trace_path": "plan/V3.5/evidence/phase-5/live-cli-remotecontrol-20260925d/trace/test/v35-live-remotecontrol-20260925d/episode-0001/trace.jsonl",
+  "source_trace_sha256": "61680aa22942172406e529505602556b5c64bb7d12b173451b521fd2bab52be1",
+  "steps": [],
+  "subtask_index": null,
+  "task": "Nothing happens.",
+  "taskset_id": null,
+  "trajectory_id": "aa6e89bc-326a-5bef-8793-958e3bce720a"
+}

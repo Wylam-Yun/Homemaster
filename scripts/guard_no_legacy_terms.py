@@ -65,7 +65,11 @@ SKIP_DIRS = frozenset(
 SKIP_FILES = frozenset(
     {
         "CHANGELOG.md",
+        "CLAUDE.md",
         "README.md",
+        "docs/architecture/browser-operation-handoff.md",
+        "docs/architecture/browser-operation-handoff.html",
+        "docs/pitfalls.md",
         "docs/architecture/memory-system.md",
         "docs/memory-user-guide.md",
         "docs/mindmemos-native-pipeline-integration-report-zh.md",
@@ -81,10 +85,10 @@ SKIP_FILES = frozenset(
         "src/homemaster/application/runtime.py",
         "src/homemaster/tools/legacy_adapter.py",
         "src/homemaster/tools/pipeline.py",
-        "docs/reports/2026-08-27-coworker-delivery-task-plan.md",
         "tests/homemaster/permissions/test_policy.py",
         "tests/homemaster/application/test_application_runtime.py",
         "tests/homemaster/application/test_factory.py",
+        "tests/homemaster/tools/test_universal_registry.py",
         "tests/homemaster/application/test_runtime_stress.py",
         "tests/homemaster/devices/test_pipeline_integration.py",
         "tests/homemaster/integration/test_adapter_ownership.py",

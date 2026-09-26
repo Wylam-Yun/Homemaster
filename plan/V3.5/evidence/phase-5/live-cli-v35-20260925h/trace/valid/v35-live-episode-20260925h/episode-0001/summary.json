@@ -1,0 +1,15 @@
+{
+  "classification": "agent_model_failure",
+  "episode_id": "valid_seen/look_at_obj_in_light-AlarmClock-None-DeskLamp-323/trial_T20190909_044715_250790/traj_data.json",
+  "failure_reason": "max_tool_iterations_exceeded",
+  "goal_condition_success_rate": 0.0,
+  "invalid_actions": 0,
+  "outcome": "failure",
+  "run_id": "v35-live-episode-20260925h-0001",
+  "runtime_status": "failed",
+  "score_eligible": true,
+  "source_trace_sha256": "9cf5c763f206b35de73ca1415ac1c89dd4502392dc518fa0d8cc089c46f48f34",
+  "steps": 0,
+  "success": false,
+  "trajectory_id": "e0669100-2a2f-59af-b2a0-0a08788c0ba0"
+}
