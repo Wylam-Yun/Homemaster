@@ -7,7 +7,7 @@
     "ready": true,
     "scene_generation": 1,
     "goal_generation": 1,
-    "scene_reset_fingerprint": "33d89a26c321d26c8e1c723776bc6045772f73d2044fa063201955d83dd28e6b",
+    "scene_reset_fingerprint": "e528d41077e4471d443095345bc31ca663b7ff14b567e9ceef1d2070f9e7c57f",
     "goal_trial_fingerprint": "35c0a548bf07b8ac6f9894920ea27e69b8e48545f125d94f1a1c51d4a0a26a0f",
     "snapshot_sha256": null,
     "snapshot_ref": null,
@@ -18,14 +18,14 @@
     "cleanup_status": "not_applicable",
     "quarantine_required": false,
     "environment_disposition": "ready",
-    "evidence_ref": "worker:1814214:reset",
+    "evidence_ref": "worker:30518:reset",
     "state": {
       "episode_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
-      "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
-      "observation": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
+      "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
+      "observation": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
       "inventory": [],
       "last_command": null,
-      "last_feedback": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
+      "last_feedback": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
       "reward": 0.0,
       "done": false,
       "won": false,
@@ -66,11 +66,11 @@
   },
   "first_state": {
     "episode_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json",
-    "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
-    "observation": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
+    "task": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
+    "observation": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
     "inventory": [],
     "last_command": null,
-    "last_feedback": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: examine the remotecontrol with the floorlamp",
+    "last_feedback": "-= Welcome to TextWorld, ALFRED! =-\n\nYou are in the middle of a room. Looking quickly around you, you see a armchair 1, a dresser 1, a sofa 1, a cabinet 1, a cabinet 2, a drawer 1, a drawer 2, a cabinet 3, a cabinet 4, a drawer 3, a drawer 4, a sidetable 1, a drawer 5, a shelf 1, a shelf 2, a shelf 3, a safe 1, a shelf 4, a shelf 5, a shelf 6, a shelf 7, a shelf 8, a shelf 9, and a shelf 10.\n\nYour task is to: look at remotecontrol under the floorlamp",
     "reward": 0.0,
     "done": false,
     "won": false,
@@ -112,9 +112,9 @@
     "ready": true,
     "scene_generation": 1,
     "goal_generation": 2,
-    "scene_reset_fingerprint": "33d89a26c321d26c8e1c723776bc6045772f73d2044fa063201955d83dd28e6b",
+    "scene_reset_fingerprint": "e528d41077e4471d443095345bc31ca663b7ff14b567e9ceef1d2070f9e7c57f",
     "goal_trial_fingerprint": "72d8bf86d975846776df2e462305720d7fcadcef367335d55cabe0b49a02da9b",
-    "snapshot_sha256": "33d89a26c321d26c8e1c723776bc6045772f73d2044fa063201955d83dd28e6b",
+    "snapshot_sha256": "e528d41077e4471d443095345bc31ca663b7ff14b567e9ceef1d2070f9e7c57f",
     "before_scene_state_sha256": "abd38554cbaeb7203786b622a625bcb18a2d6291d12932c35e27403478fc16fd",
     "after_scene_state_sha256": "abd38554cbaeb7203786b622a625bcb18a2d6291d12932c35e27403478fc16fd",
     "advance_trigger": null,
@@ -125,7 +125,7 @@
     "cleanup_status": "not_needed",
     "quarantine_required": false,
     "environment_disposition": "ready",
-    "evidence_ref": "worker:1814214:set-task",
+    "evidence_ref": "worker:30518:set-task",
     "state": {
       "episode_id": "valid_unseen/look_at_obj_in_light-RemoteControl-None-FloorLamp-219/trial_T20190909_032721_511027/traj_data.json/easy_living_room_219-subtask-02",
       "task": "look at cellphone under the floorlamp",
@@ -4264,35 +4264,35 @@
   },
   "request_history": [
     {
-      "request_id": "unbound-e392ce8a285e4aba8b63f2fc49568bf5",
+      "request_id": "unbound-7e8c381fea354125a4c8dbc91dcfa90d",
       "operation": "reset",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-9625b0bfcded4bf3a1e425b70c7aabc4",
+      "request_id": "unbound-a44fb9af2140444b8912cd505107562d",
       "operation": "observe",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": false
     },
     {
-      "request_id": "unbound-eeba535a6bc64a23a85cb36a50f34995",
+      "request_id": "unbound-e592e33630ed4663b22bd644e6ee6b38",
       "operation": "set_task",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-7f38bca790a74b409bcf3f6a12e2a9b3",
+      "request_id": "unbound-762e3de5dcd94196991b1e58f6d1b24b",
       "operation": "act",
       "status": "ok",
       "external_return_code": 1,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-a3bcb44f97044058bdb7a9e1869cd741",
+      "request_id": "unbound-64a8381291144b9bac562b20333f847b",
       "operation": "close",
       "status": "closed",
       "external_return_code": 0,
@@ -4301,18 +4301,18 @@
   ],
   "close": {
     "cleanup_status": "succeeded",
-    "evidence_ref": "worker:1814214:close",
+    "evidence_ref": "worker:30518:close",
     "request": {
-      "request_id": "unbound-a3bcb44f97044058bdb7a9e1869cd741",
+      "request_id": "unbound-64a8381291144b9bac562b20333f847b",
       "operation": "close",
       "status": "closed",
       "external_return_code": 0,
       "backend_attempted": false
     }
   },
-  "worker_pid": 1814214,
+  "worker_pid": 30518,
   "worker_exit_code": 0,
-  "stderr": "Initialize AlfredThorEnv...\nOverall we have 192 games...\nEvaluating with 192 games\nOverall we have 192 games...\nEvaluating with 192 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 192 games...\nEvaluating with 192 games\nResetting ThorEnv\nTask: examine the remotecontrol with the floorlamp\n",
+  "stderr": "Initialize AlfredThorEnv...\nOverall we have 192 games...\nEvaluating with 192 games\nOverall we have 192 games...\nEvaluating with 192 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 192 games...\nEvaluating with 192 games\nResetting ThorEnv\nTask: look at remotecontrol under the floorlamp\n",
   "cleanup": {
     "worker_exited": true
   }

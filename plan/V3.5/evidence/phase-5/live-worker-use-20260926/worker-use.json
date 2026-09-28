@@ -1656,10 +1656,10 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Pen|-02.53|+00.69|-03.23",
               "AlarmClock|-02.48|+00.68|-03.30",
-              "CellPhone|-02.48|+00.68|-03.15",
-              "CD|-02.44|+00.68|-02.92"
+              "CD|-02.44|+00.68|-02.92",
+              "Pen|-02.53|+00.69|-03.23",
+              "CellPhone|-02.48|+00.68|-03.15"
             ],
             "distance": 0.811109841,
             "objectType": "SideTable",
@@ -1759,15 +1759,15 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Bowl|+01.84|+00.89|-03.24",
-              "CD|+01.87|+00.90|-02.98",
-              "Pen|+02.04|+00.90|-03.11",
-              "AlarmClock|+02.04|+00.90|-03.32",
+              "DeskLamp|+02.76|+00.89|-03.32",
               "Mug|+02.56|+00.89|-03.04",
+              "AlarmClock|+02.04|+00.90|-03.32",
               "Mug|+02.04|+00.89|-03.04",
               "Pen|+02.21|+00.90|-03.39",
               "Book|+02.35|+00.89|-03.16",
-              "DeskLamp|+02.76|+00.89|-03.32"
+              "Bowl|+01.84|+00.89|-03.24",
+              "CD|+01.87|+00.90|-02.98",
+              "Pen|+02.04|+00.90|-03.11"
             ],
             "distance": 4.17429829,
             "objectType": "Desk",
@@ -1963,8 +1963,8 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Mug|-02.53|+00.68|-00.28",
-              "DeskLamp|-02.46|+00.67|-00.53"
+              "DeskLamp|-02.46|+00.67|-00.53",
+              "Mug|-02.53|+00.68|-00.28"
             ],
             "distance": 2.61066961,
             "objectType": "SideTable",
@@ -5832,10 +5832,10 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Pen|-02.53|+00.69|-03.23",
               "AlarmClock|-02.48|+00.68|-03.30",
-              "CellPhone|-02.48|+00.68|-03.15",
-              "CD|-02.44|+00.68|-02.92"
+              "CD|-02.44|+00.68|-02.92",
+              "Pen|-02.53|+00.69|-03.23",
+              "CellPhone|-02.48|+00.68|-03.15"
             ],
             "distance": 5.01686144,
             "objectType": "SideTable",
@@ -5935,15 +5935,15 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Bowl|+01.84|+00.89|-03.24",
-              "CD|+01.87|+00.90|-02.98",
-              "Pen|+02.04|+00.90|-03.11",
-              "AlarmClock|+02.04|+00.90|-03.32",
+              "DeskLamp|+02.76|+00.89|-03.32",
               "Mug|+02.56|+00.89|-03.04",
+              "AlarmClock|+02.04|+00.90|-03.32",
               "Mug|+02.04|+00.89|-03.04",
               "Pen|+02.21|+00.90|-03.39",
               "Book|+02.35|+00.89|-03.16",
-              "DeskLamp|+02.76|+00.89|-03.32"
+              "Bowl|+01.84|+00.89|-03.24",
+              "CD|+01.87|+00.90|-02.98",
+              "Pen|+02.04|+00.90|-03.11"
             ],
             "distance": 1.33950293,
             "objectType": "Desk",
@@ -6139,8 +6139,8 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Mug|-02.53|+00.68|-00.28",
-              "DeskLamp|-02.46|+00.67|-00.53"
+              "DeskLamp|-02.46|+00.67|-00.53",
+              "Mug|-02.53|+00.68|-00.28"
             ],
             "distance": 5.23188257,
             "objectType": "SideTable",
@@ -10009,10 +10009,10 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Pen|-02.53|+00.69|-03.23",
               "AlarmClock|-02.48|+00.68|-03.30",
-              "CellPhone|-02.48|+00.68|-03.15",
-              "CD|-02.44|+00.68|-02.92"
+              "CD|-02.44|+00.68|-02.92",
+              "Pen|-02.53|+00.69|-03.23",
+              "CellPhone|-02.48|+00.68|-03.15"
             ],
             "distance": 5.01686144,
             "objectType": "SideTable",
@@ -10112,15 +10112,15 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Bowl|+01.84|+00.89|-03.24",
-              "CD|+01.87|+00.90|-02.98",
-              "Pen|+02.04|+00.90|-03.11",
-              "AlarmClock|+02.04|+00.90|-03.32",
+              "DeskLamp|+02.76|+00.89|-03.32",
               "Mug|+02.56|+00.89|-03.04",
+              "AlarmClock|+02.04|+00.90|-03.32",
               "Mug|+02.04|+00.89|-03.04",
               "Pen|+02.21|+00.90|-03.39",
               "Book|+02.35|+00.89|-03.16",
-              "DeskLamp|+02.76|+00.89|-03.32"
+              "Bowl|+01.84|+00.89|-03.24",
+              "CD|+01.87|+00.90|-02.98",
+              "Pen|+02.04|+00.90|-03.11"
             ],
             "distance": 1.33950293,
             "objectType": "Desk",
@@ -10316,8 +10316,8 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Mug|-02.53|+00.68|-00.28",
-              "DeskLamp|-02.46|+00.67|-00.53"
+              "DeskLamp|-02.46|+00.67|-00.53",
+              "Mug|-02.53|+00.68|-00.28"
             ],
             "distance": 5.23188257,
             "objectType": "SideTable",
@@ -14186,10 +14186,10 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Pen|-02.53|+00.69|-03.23",
               "AlarmClock|-02.48|+00.68|-03.30",
-              "CellPhone|-02.48|+00.68|-03.15",
-              "CD|-02.44|+00.68|-02.92"
+              "CD|-02.44|+00.68|-02.92",
+              "Pen|-02.53|+00.69|-03.23",
+              "CellPhone|-02.48|+00.68|-03.15"
             ],
             "distance": 5.01686144,
             "objectType": "SideTable",
@@ -14289,15 +14289,15 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Bowl|+01.84|+00.89|-03.24",
-              "CD|+01.87|+00.90|-02.98",
-              "Pen|+02.04|+00.90|-03.11",
-              "AlarmClock|+02.04|+00.90|-03.32",
+              "DeskLamp|+02.76|+00.89|-03.32",
               "Mug|+02.56|+00.89|-03.04",
+              "AlarmClock|+02.04|+00.90|-03.32",
               "Mug|+02.04|+00.89|-03.04",
               "Pen|+02.21|+00.90|-03.39",
               "Book|+02.35|+00.89|-03.16",
-              "DeskLamp|+02.76|+00.89|-03.32"
+              "Bowl|+01.84|+00.89|-03.24",
+              "CD|+01.87|+00.90|-02.98",
+              "Pen|+02.04|+00.90|-03.11"
             ],
             "distance": 1.33950293,
             "objectType": "Desk",
@@ -14493,8 +14493,8 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Mug|-02.53|+00.68|-00.28",
-              "DeskLamp|-02.46|+00.67|-00.53"
+              "DeskLamp|-02.46|+00.67|-00.53",
+              "Mug|-02.53|+00.68|-00.28"
             ],
             "distance": 5.23188257,
             "objectType": "SideTable",
@@ -18363,10 +18363,10 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Pen|-02.53|+00.69|-03.23",
               "AlarmClock|-02.48|+00.68|-03.30",
-              "CellPhone|-02.48|+00.68|-03.15",
-              "CD|-02.44|+00.68|-02.92"
+              "CD|-02.44|+00.68|-02.92",
+              "Pen|-02.53|+00.69|-03.23",
+              "CellPhone|-02.48|+00.68|-03.15"
             ],
             "distance": 5.01686144,
             "objectType": "SideTable",
@@ -18466,15 +18466,15 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Bowl|+01.84|+00.89|-03.24",
-              "CD|+01.87|+00.90|-02.98",
-              "Pen|+02.04|+00.90|-03.11",
-              "AlarmClock|+02.04|+00.90|-03.32",
+              "DeskLamp|+02.76|+00.89|-03.32",
               "Mug|+02.56|+00.89|-03.04",
+              "AlarmClock|+02.04|+00.90|-03.32",
               "Mug|+02.04|+00.89|-03.04",
               "Pen|+02.21|+00.90|-03.39",
               "Book|+02.35|+00.89|-03.16",
-              "DeskLamp|+02.76|+00.89|-03.32"
+              "Bowl|+01.84|+00.89|-03.24",
+              "CD|+01.87|+00.90|-02.98",
+              "Pen|+02.04|+00.90|-03.11"
             ],
             "distance": 1.33950293,
             "objectType": "Desk",
@@ -18670,8 +18670,8 @@
             "mass": 0.0,
             "salientMaterials": null,
             "receptacleObjectIds": [
-              "Mug|-02.53|+00.68|-00.28",
-              "DeskLamp|-02.46|+00.67|-00.53"
+              "DeskLamp|-02.46|+00.67|-00.53",
+              "Mug|-02.53|+00.68|-00.28"
             ],
             "distance": 5.23188257,
             "objectType": "SideTable",
@@ -22536,10 +22536,10 @@
         "mass": 0.0,
         "salientMaterials": null,
         "receptacleObjectIds": [
-          "Pen|-02.53|+00.69|-03.23",
           "AlarmClock|-02.48|+00.68|-03.30",
-          "CellPhone|-02.48|+00.68|-03.15",
-          "CD|-02.44|+00.68|-02.92"
+          "CD|-02.44|+00.68|-02.92",
+          "Pen|-02.53|+00.69|-03.23",
+          "CellPhone|-02.48|+00.68|-03.15"
         ],
         "distance": 5.01686144,
         "objectType": "SideTable",
@@ -22639,15 +22639,15 @@
         "mass": 0.0,
         "salientMaterials": null,
         "receptacleObjectIds": [
-          "Bowl|+01.84|+00.89|-03.24",
-          "CD|+01.87|+00.90|-02.98",
-          "Pen|+02.04|+00.90|-03.11",
-          "AlarmClock|+02.04|+00.90|-03.32",
+          "DeskLamp|+02.76|+00.89|-03.32",
           "Mug|+02.56|+00.89|-03.04",
+          "AlarmClock|+02.04|+00.90|-03.32",
           "Mug|+02.04|+00.89|-03.04",
           "Pen|+02.21|+00.90|-03.39",
           "Book|+02.35|+00.89|-03.16",
-          "DeskLamp|+02.76|+00.89|-03.32"
+          "Bowl|+01.84|+00.89|-03.24",
+          "CD|+01.87|+00.90|-02.98",
+          "Pen|+02.04|+00.90|-03.11"
         ],
         "distance": 1.33950293,
         "objectType": "Desk",
@@ -22843,8 +22843,8 @@
         "mass": 0.0,
         "salientMaterials": null,
         "receptacleObjectIds": [
-          "Mug|-02.53|+00.68|-00.28",
-          "DeskLamp|-02.46|+00.67|-00.53"
+          "DeskLamp|-02.46|+00.67|-00.53",
+          "Mug|-02.53|+00.68|-00.28"
         ],
         "distance": 5.23188257,
         "objectType": "SideTable",
@@ -25074,49 +25074,49 @@
   },
   "request_history": [
     {
-      "request_id": "unbound-9af38aa0182647e598a92b187d96e6db",
+      "request_id": "unbound-57af29ac09484b18b954600c8bfa6c44",
       "operation": "reset",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-00c0d31c9c064a78ab907bbfe0c49d93",
+      "request_id": "unbound-a6473fe681514eb4be203f8260958166",
       "operation": "observe",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": false
     },
     {
-      "request_id": "unbound-65c5543abfcb4a2283da5ed5ff0bcf73",
+      "request_id": "unbound-6e27c1852c9141f6b9474448943ee0d8",
       "operation": "act",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-8873ced798a84daeb74226af6e0a1925",
+      "request_id": "unbound-c484f95104e04279b3c6d8e761ec9391",
       "operation": "act",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-bc72345d2a8c40fda4526385fe1779d9",
+      "request_id": "unbound-481fb737bf7946f9b79503cb699cb7b8",
       "operation": "act",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-df80ea9ea57f4adf9fc6bc2914c4d0f8",
+      "request_id": "unbound-1c2cca59671f4c029a1cfc6244bf906e",
       "operation": "act",
       "status": "ok",
       "external_return_code": 0,
       "backend_attempted": true
     },
     {
-      "request_id": "unbound-a0496656e5434ac7b46a5c0624b72d82",
+      "request_id": "unbound-6c477b3faaf249179ccd747c46a0bd45",
       "operation": "close",
       "status": "closed",
       "external_return_code": 0,
@@ -25125,7 +25125,7 @@
   ],
   "close": {
     "status": "succeeded",
-    "evidence_ref": "worker:1811955:close",
+    "evidence_ref": "worker:28964:close",
     "worker_exit_code": 0
   },
   "stderr": "Initialize AlfredThorEnv...\nOverall we have 187 games...\nEvaluating with 187 games\nOverall we have 187 games...\nEvaluating with 187 games\nFound path: /home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64\nMono path[0] = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Managed'\nMono config path = '/home/haodong2/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64_Data/Mono/etc'\nPreloaded 'ScreenSelector.so'\nDisplay 0 'screen': 1280x1024 (primary device).\nLogging to /home/haodong2/.config/unity3d/Allen Institute for Artificial Intelligence/AI2-Thor/Player.log\nThorEnv started.\nOverall we have 187 games...\nEvaluating with 187 games\nResetting ThorEnv\nTask: look at alarmclock under the desklamp\n"

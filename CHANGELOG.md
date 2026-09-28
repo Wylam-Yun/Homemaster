@@ -1,5 +1,7 @@
 # Unreleased
 
+- V3.5 evidence refresh: reran the Oracle worker and continuous RemoteControl/FloorLamp taskset with canonical goal wording, updating scene fingerprints, request/worker receipts, and stderr records while preserving external return-code and cleanup proofs.
+
 - V3.5 final delivery: complete the Application Composition, canonical Tool,
   Oracle Harness, isolated NDJSON worker, Linux setup, release audit, and live
   acceptance gates. Fix partial-worker initialization in Oracle object grounding;
