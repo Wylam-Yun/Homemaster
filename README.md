@@ -160,13 +160,18 @@ memory 数据不会写入 Git，也不会被 setup 自动复制或删除：
 
 ```bash
 ./scripts/setup.sh
-./scripts/setup-alfworld.sh --root /path/to/alfworld
-
 scripts/homemaster doctor --json
 ```
 
-初始化会把通用环境固定为 `.runtime/venv`，并把 ALFWorld worker 的 Python、源码和数据绑定到
-`.runtime/alfworld-venv`/`.runtime/alfworld`。迁移到另一台服务器时只需在新 checkout 重复两条 setup 命令；日常命令都从
+其中 `setup.sh` 只安装通用 HomeMaster 运行时，因此不需要 ALFWorld。需要运行 ALFWorld benchmark 时，再执行：
+
+```bash
+./scripts/setup-alfworld.sh --root /path/to/alfworld
+scripts/homemaster doctor --alfworld --json
+```
+
+第二条 setup 会把 ALFWorld worker 的 Python、源码和数据绑定到 `.runtime/alfworld-venv`/`.runtime/alfworld`。
+迁移到另一台服务器时只需在新 checkout 重复对应的 setup 命令；日常命令都从
 `scripts/homemaster` 启动，因此不依赖当前工作目录或 shell 环境变量。
 
 配置至少包含两类 provider（示例为占位值，字段说明见

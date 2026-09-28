@@ -984,9 +984,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-alfworld = [
-    { name = "pyyaml" },
-]
 browser = [
     { name = "playwright" },
 ]
@@ -1034,7 +1031,6 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "pytz", specifier = ">=2024.1" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'alfworld'", specifier = ">=6.0" },
     { name = "qdrant-client", specifier = "==1.18.0" },
     { name = "rich", specifier = ">=13.7" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6,<1.0" },
@@ -1045,7 +1041,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", specifier = ">=0.47.0" },
 ]
-provides-extras = ["dev", "browser", "alfworld", "mcp", "gateway"]
+provides-extras = ["dev", "browser", "mcp", "gateway"]
 
 [[package]]
 name = "hpack"

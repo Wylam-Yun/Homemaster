@@ -48,9 +48,6 @@ dev = [
 browser = [
   "playwright>=1.45,<2.0",
 ]
-alfworld = [
-  "pyyaml>=6.0",
-]
 mcp = [
     "mcp>=1.0,<2",
 ]

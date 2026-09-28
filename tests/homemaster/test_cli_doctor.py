@@ -56,7 +56,6 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def test_doctor_local_report_runs_without_live_api() -> None:
     report = run_doctor(live=False)
-
     payload = report.model_dump()
     assert payload["live"] is False
     assert payload["checks"]
@@ -162,3 +161,63 @@ def test_doctor_checks_embedded_mindmemos_import(
 
     assert next(check for check in checks if check.name == "import:mindmemos").status == "PASS"
     assert events == ["import"]
+
+
+def test_doctor_default_report_skips_optional_alfworld_checks() -> None:
+    report = run_doctor(live=False)
+
+    names = {check.name for check in report.checks}
+    assert "alfworld_binding" not in names
+    assert "alfworld_worker_ipc" not in names
+
+
+def test_doctor_alfworld_checks_are_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    from homemaster.cli import doctor as doctor_module
+
+    calls: list[str] = []
+
+    def binding_check() -> doctor_module.DoctorCheck:
+        calls.append("binding")
+        return doctor_module.DoctorCheck(
+            name="alfworld_binding",
+            status="PASS",
+            message="binding ok",
+        )
+
+    def worker_check() -> doctor_module.DoctorCheck:
+        calls.append("worker")
+        return doctor_module.DoctorCheck(
+            name="alfworld_worker_ipc",
+            status="PASS",
+            message="worker ok",
+        )
+
+    monkeypatch.setattr(doctor_module, "_alfworld_binding_check", binding_check)
+    monkeypatch.setattr(doctor_module, "_worker_protocol_check", worker_check)
+
+    run_doctor(live=False)
+    assert calls == []
+
+    run_doctor(live=False, alfworld=True)
+    assert calls == ["binding", "worker"]
+
+
+def test_cli_doctor_alfworld_flag_is_forwarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from homemaster.cli.doctor import DoctorReport
+
+    app_module = importlib.import_module("homemaster.cli.app")
+    received: dict[str, bool] = {}
+
+    def fake_run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
+        received["live"] = live
+        received["alfworld"] = alfworld
+        return DoctorReport(live=live, config_source="test", checks=[])
+
+    monkeypatch.setattr(app_module, "run_doctor", fake_run_doctor)
+
+    result = CliRunner().invoke(app, ["doctor", "--alfworld", "--json"])
+
+    assert result.exit_code == 0, result.stdout
+    assert received == {"live": False, "alfworld": True}

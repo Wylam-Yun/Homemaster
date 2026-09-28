@@ -301,11 +301,15 @@ def doctor_command(
         bool,
         typer.Option("--json", help="Print machine-readable JSON."),
     ] = False,
+    alfworld: Annotated[
+        bool,
+        typer.Option("--alfworld", help="Check the optional ALFWorld worker binding and IPC."),
+    ] = False,
 ) -> None:
     """Check HomeMaster local environment and optional live providers."""
     try:
         setup_logging()
-        report = run_doctor(live=live)
+        report = run_doctor(live=live, alfworld=alfworld)
         if json_output:
             typer.echo(doctor_report_to_json(report))
         else:

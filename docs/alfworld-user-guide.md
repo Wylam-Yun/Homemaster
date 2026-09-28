@@ -89,10 +89,13 @@ worktree 的 `.runtime/venv`、`config/homemaster.yaml` 和 `src`，不会误用
 首次部署先执行：
 
 ```bash
-uv sync --all-extras
 ./scripts/setup.sh
 ./scripts/setup-alfworld.sh --root /path/to/alfworld
+scripts/homemaster doctor --alfworld --json
 ```
+
+其中 `setup.sh` 安装通用 HomeMaster 运行时；`setup-alfworld.sh` 单独创建并绑定 ALFWorld worker
+环境。只运行通用 agent 时无需执行第二条 setup。
 
 之后将下文命令中的 `.venv/bin/python -m homemaster.cli` 替换为 `scripts/homemaster`，不再手动设置
 `HOMEMASTER_CONFIG_PATH` 或依赖启动 cwd。

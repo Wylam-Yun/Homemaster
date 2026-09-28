@@ -1,5 +1,8 @@
 # Unreleased
 
+- Implementation: make ALFWorld doctor checks opt-in via `doctor --alfworld`;
+  generic installation and `doctor --json` no longer require the benchmark worker.
+
 - Design: make ALFWorld an opt-in doctor capability so base HomeMaster
   installation and health checks do not require the benchmark worker.
 

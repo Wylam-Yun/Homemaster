@@ -52,7 +52,7 @@ class DoctorReport(BaseModel):
         return any(check.status == "FAIL" for check in self.checks)
 
 
-def run_doctor(*, live: bool = False) -> DoctorReport:
+def run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
     """Run local checks and optional provider smoke checks with authoritative details."""
 
     checks: list[DoctorCheck] = []
@@ -60,8 +60,9 @@ def run_doctor(*, live: bool = False) -> DoctorReport:
     checks.append(_python_environment_check())
     checks.extend(_import_checks())
     checks.append(_mindmemos_blackbox_check())
-    checks.append(_alfworld_binding_check())
-    checks.append(_worker_protocol_check())
+    if alfworld:
+        checks.append(_alfworld_binding_check())
+        checks.append(_worker_protocol_check())
     checks.append(_config_check(config_source))
     checks.append(_embedding_endpoint_check())
     checks.append(_memory_backend_check())
