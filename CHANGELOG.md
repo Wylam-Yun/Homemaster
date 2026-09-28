@@ -1,5 +1,8 @@
 # Unreleased
 
+- Design: make ALFWorld an opt-in doctor capability so base HomeMaster
+  installation and health checks do not require the benchmark worker.
+
 - V3.5 evidence refresh: reran the Oracle worker and continuous RemoteControl/FloorLamp taskset with canonical goal wording, updating scene fingerprints, request/worker receipts, and stderr records while preserving external return-code and cleanup proofs.
 
 - V3.5 final delivery: complete the Application Composition, canonical Tool,
