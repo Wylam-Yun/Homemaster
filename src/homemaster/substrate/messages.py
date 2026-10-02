@@ -170,8 +170,9 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                     )
                 )
             # One HM segment per merged AssistantMessage: per-message fields
-            # survive the reply-level merge losslessly.
-            seg: dict = {}
+            # survive the reply-level merge losslessly. ``n`` = blocks this
+            # segment contributed; 0 marks an originally-empty message.
+            seg: dict = {"n": len(blocks)}
             if message.finish_reason is not None:
                 seg["finish_reason"] = message.finish_reason
             if message.provider_metadata:
@@ -313,14 +314,31 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
             pending_reasoning: list[str] = []
             pending_calls: list[ToolCall] = []
 
+            def emit_empty_segs() -> None:
+                # Segments whose "n" is 0 were originally-empty AssistantMessages;
+                # they emit positionally before the next segment's blocks.
+                nonlocal seg_idx
+                while (
+                    not (pending_content or pending_reasoning or pending_calls)
+                    and seg_idx < len(seg_list)
+                    and seg_list[seg_idx].get("n", 1) == 0
+                ):
+                    seg = seg_list[seg_idx]
+                    seg_idx += 1
+                    out.append(
+                        AssistantMessage(
+                            finish_reason=seg.get("finish_reason"),
+                            usage=seg.get("usage"),
+                            provider_metadata=seg.get("provider_metadata") or {},
+                        )
+                    )
+
             def flush() -> None:
                 nonlocal seg_idx, pending_content, pending_reasoning, pending_calls
-                has_seg = seg_idx < len(seg_list)
-                if not (
-                    pending_content or pending_reasoning or pending_calls or has_seg
-                ):
+                emit_empty_segs()
+                if not (pending_content or pending_reasoning or pending_calls):
                     return
-                seg = seg_list[seg_idx] if has_seg else {}
+                seg = seg_list[seg_idx] if seg_idx < len(seg_list) else {}
                 seg_idx += 1
                 _restore_block_meta(seg, pending_content)
                 out.append(
@@ -395,10 +413,13 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                         "dropped non-canonical block %s from assistant Msg",
                         type(block).__name__,
                     )
-            while pending_content or pending_reasoning or pending_calls or seg_idx < len(
-                seg_list
-            ):
-                flush()
+            flush()
+            emit_empty_segs()
+            if seg_idx < len(seg_list):
+                log.warning(
+                    "assistant Msg has %d unconsumed segment records",
+                    len(seg_list) - seg_idx,
+                )
         else:
             raise MessageConversionError(f"unsupported Msg role: {msg.role!r}")
     return out
