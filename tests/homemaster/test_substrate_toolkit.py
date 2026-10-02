@@ -25,9 +25,11 @@ from homemaster.substrate import (
 from homemaster.substrate.toolkit import _current_tool_call_id
 from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import (
+    OutcomeCertainty,
     PermissionSubject,
     ResultAttachment,
     ResultImage,
+    ToolExecutionError,
     ToolExecutionResult,
     ToolExecutionStatus,
 )
@@ -230,6 +232,11 @@ def test_outcome_unknown_never_maps_to_interrupted() -> None:
         status=ToolExecutionStatus.OUTCOME_UNKNOWN,
         text="lost contact after backend start",
         data={"status": "outcome_unknown"},
+        error=ToolExecutionError(
+            code="outcome_unknown",
+            message="lost contact after backend start",
+        ),
+        outcome_certainty=OutcomeCertainty.UNKNOWN,
         backend_attempted=True,
     )
     chunk = result_to_chunk(result)
