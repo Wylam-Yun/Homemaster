@@ -12,6 +12,12 @@ from homemaster.substrate.messages import (
     to_agent_scope,
 )
 from homemaster.substrate.models import chat_model_from_profile
+from homemaster.substrate.snapshot import (
+    SNAPSHOT_SCHEMA_VERSION,
+    ParsedSnapshot,
+    build_snapshot_payload,
+    parse_snapshot_payload,
+)
 from homemaster.substrate.toolkit import (
     HomeToolAdapter,
     RunScope,
@@ -23,8 +29,12 @@ from homemaster.substrate.toolkit import (
 __all__ = [
     "HomeToolAdapter",
     "MessageConversionError",
+    "ParsedSnapshot",
     "RunScope",
+    "SNAPSHOT_SCHEMA_VERSION",
     "RunScopeMiddleware",
+    "build_snapshot_payload",
+    "parse_snapshot_payload",
     "assert_semantic_equal",
     "chat_model_from_profile",
     "current_tool_call_id",
