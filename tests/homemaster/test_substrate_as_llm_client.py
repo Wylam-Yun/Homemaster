@@ -9,7 +9,6 @@ import pytest
 from agentscope.message import TextBlock, ToolCallBlock
 from agentscope.model import ChatResponse
 from agentscope.model._model_response import FinishedReason
-
 from homemaster.agent.messages import UserMessage
 from homemaster.config.config import ProviderProfileConfig
 from homemaster.providers.attempts import ListProviderAttemptSink

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from agentscope.message import (
     Base64Source,
@@ -28,7 +29,6 @@ from agentscope.message import (
     URLSource,
     Usage,
 )
-
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,
@@ -290,141 +290,154 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
             _restore_block_meta(hm, converted)
             out.append(UserMessage(content=converted))
         elif msg.role == "assistant":
-            segs = hm.get("segments")
-            if isinstance(segs, list):
-                seg_list = [s if isinstance(s, dict) else {} for s in segs]
-            else:
-                seg = dict(hm)
-                if msg.usage is not None:
-                    usage = {
-                        "input_tokens": msg.usage.input_tokens,
-                        "output_tokens": msg.usage.output_tokens,
-                    }
-                    if msg.usage.cache_input_tokens:
-                        usage["cache_input_tokens"] = msg.usage.cache_input_tokens
-                    if msg.usage.cache_creation_input_tokens:
-                        usage["cache_creation_input_tokens"] = (
-                            msg.usage.cache_creation_input_tokens
-                        )
-                    usage.update(hm.get("usage_extra") or {})
-                    seg["usage"] = usage
-                seg_list = [seg]
-            seg_idx = 0
-            pending_content: list[ContentBlock] = []
-            pending_reasoning: list[str] = []
-            pending_calls: list[ToolCall] = []
-
-            def emit_empty_segs() -> None:
-                # Segments whose "n" is 0 were originally-empty AssistantMessages;
-                # they emit positionally before the next segment's blocks.
-                nonlocal seg_idx
-                while (
-                    not (pending_content or pending_reasoning or pending_calls)
-                    and seg_idx < len(seg_list)
-                    and seg_list[seg_idx].get("n", 1) == 0
-                ):
-                    seg = seg_list[seg_idx]
-                    seg_idx += 1
-                    out.append(
-                        AssistantMessage(
-                            finish_reason=seg.get("finish_reason"),
-                            usage=seg.get("usage"),
-                            provider_metadata=seg.get("provider_metadata") or {},
-                        )
-                    )
-
-            def flush() -> None:
-                nonlocal seg_idx, pending_content, pending_reasoning, pending_calls
-                emit_empty_segs()
-                if not (pending_content or pending_reasoning or pending_calls):
-                    return
-                seg = seg_list[seg_idx] if seg_idx < len(seg_list) else {}
-                seg_idx += 1
-                _restore_block_meta(seg, pending_content)
-                out.append(
-                    AssistantMessage(
-                        content=pending_content,
-                        reasoning_content=(
-                            "\n".join(pending_reasoning) if pending_reasoning else None
-                        ),
-                        tool_calls=pending_calls,
-                        finish_reason=seg.get("finish_reason"),
-                        usage=seg.get("usage"),
-                        provider_metadata=seg.get("provider_metadata") or {},
-                    )
-                )
-                pending_content, pending_reasoning, pending_calls = [], [], []
-
-            for block in msg.content:
-                if isinstance(block, ThinkingBlock):
-                    if block.thinking:
-                        pending_reasoning.append(block.thinking)
-                elif isinstance(block, (TextBlock, DataBlock)):
-                    pending_content.append(_block_from_as(block))
-                elif isinstance(block, ToolCallBlock):
-                    try:
-                        arguments = json.loads(block.input or "{}")
-                    except ValueError as exc:
-                        raise MessageConversionError(
-                            f"tool_call {block.id!r} input is not valid JSON"
-                        ) from exc
-                    if not isinstance(arguments, dict):
-                        raise MessageConversionError(
-                            f"tool_call {block.id!r} input is not a JSON object"
-                        )
-                    pending_calls.append(
-                        ToolCall(id=block.id, name=block.name, arguments=arguments)
-                    )
-                elif isinstance(block, ToolResultBlock):
-                    flush()
-                    result_meta = (
-                        block.metadata.get("hm", {})
-                        if isinstance(block.metadata, dict)
-                        else {}
-                    )
-                    output_blocks: list[ContentBlock] = []
-                    if isinstance(block.output, str):
-                        if block.output:
-                            output_blocks.append(
-                                ContentBlock(type="text", text=block.output)
-                            )
-                    else:
-                        output_blocks = [
-                            _block_from_as(b)
-                            for b in block.output
-                            if isinstance(b, (TextBlock, DataBlock))
-                        ]
-                        _restore_block_meta(result_meta, output_blocks)
-                    out.append(
-                        ToolResultMessage(
-                            tool_call_id=block.id,
-                            name=block.name,
-                            content=output_blocks,
-                            is_error=block.state != ToolResultState.SUCCESS,
-                            data=result_meta.get("data"),
-                            provider_metadata=result_meta.get("provider_metadata")
-                            or {},
-                        )
-                    )
-                else:
-                    # HintBlock and any future AS-internal block: engine-side
-                    # runtime-state annotations regenerated per iteration, not
-                    # canonical content — drop at DEBUG so steady-state logs
-                    # stay clean while the projection loss stays traceable.
-                    log.debug(
-                        "dropped non-canonical block %s from assistant Msg",
-                        type(block).__name__,
-                    )
-            flush()
-            emit_empty_segs()
-            if seg_idx < len(seg_list):
-                log.warning(
-                    "assistant Msg has %d unconsumed segment records",
-                    len(seg_list) - seg_idx,
-                )
+            _assistant_from_as(msg, hm, out)
         else:
             raise MessageConversionError(f"unsupported Msg role: {msg.role!r}")
     return out
+
+
+def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None:
+    """Split one assistant ``Msg`` back into per-segment HM messages.
+
+    AS accumulates an entire reply round (text/thinking/tool_calls/tool_results)
+    into one ``Msg``; HM models each model call as its own ``AssistantMessage``.
+    The ``hm["segments"]`` side-pocket written by ``to_agent_scope`` records how
+    many blocks each original segment contributed (``n``) plus its
+    finish_reason/usage/provider_metadata, so the split is positionally exact —
+    including originally-empty segments (``n == 0``).
+    """
+    segs = hm.get("segments")
+    if isinstance(segs, list):
+        seg_list = [s if isinstance(s, dict) else {} for s in segs]
+    else:
+        seg = dict(hm)
+        if msg.usage is not None:
+            usage = {
+                "input_tokens": msg.usage.input_tokens,
+                "output_tokens": msg.usage.output_tokens,
+            }
+            if msg.usage.cache_input_tokens:
+                usage["cache_input_tokens"] = msg.usage.cache_input_tokens
+            if msg.usage.cache_creation_input_tokens:
+                usage["cache_creation_input_tokens"] = (
+                    msg.usage.cache_creation_input_tokens
+                )
+            usage.update(hm.get("usage_extra") or {})
+            seg["usage"] = usage
+        seg_list = [seg]
+    seg_idx = 0
+    pending_content: list[ContentBlock] = []
+    pending_reasoning: list[str] = []
+    pending_calls: list[ToolCall] = []
+
+    def emit_empty_segs() -> None:
+        # Segments whose "n" is 0 were originally-empty AssistantMessages;
+        # they emit positionally before the next segment's blocks.
+        nonlocal seg_idx
+        while (
+            not (pending_content or pending_reasoning or pending_calls)
+            and seg_idx < len(seg_list)
+            and seg_list[seg_idx].get("n", 1) == 0
+        ):
+            seg = seg_list[seg_idx]
+            seg_idx += 1
+            out.append(
+                AssistantMessage(
+                    finish_reason=seg.get("finish_reason"),
+                    usage=seg.get("usage"),
+                    provider_metadata=seg.get("provider_metadata") or {},
+                )
+            )
+
+    def flush() -> None:
+        nonlocal seg_idx, pending_content, pending_reasoning, pending_calls
+        emit_empty_segs()
+        if not (pending_content or pending_reasoning or pending_calls):
+            return
+        seg = seg_list[seg_idx] if seg_idx < len(seg_list) else {}
+        seg_idx += 1
+        _restore_block_meta(seg, pending_content)
+        out.append(
+            AssistantMessage(
+                content=pending_content,
+                reasoning_content=(
+                    "\n".join(pending_reasoning) if pending_reasoning else None
+                ),
+                tool_calls=pending_calls,
+                finish_reason=seg.get("finish_reason"),
+                usage=seg.get("usage"),
+                provider_metadata=seg.get("provider_metadata") or {},
+            )
+        )
+        pending_content, pending_reasoning, pending_calls = [], [], []
+
+    for block in msg.content:
+        if isinstance(block, ThinkingBlock):
+            if block.thinking:
+                pending_reasoning.append(block.thinking)
+        elif isinstance(block, (TextBlock, DataBlock)):
+            pending_content.append(_block_from_as(block))
+        elif isinstance(block, ToolCallBlock):
+            try:
+                arguments = json.loads(block.input or "{}")
+            except ValueError as exc:
+                raise MessageConversionError(
+                    f"tool_call {block.id!r} input is not valid JSON"
+                ) from exc
+            if not isinstance(arguments, dict):
+                raise MessageConversionError(
+                    f"tool_call {block.id!r} input is not a JSON object"
+                )
+            pending_calls.append(
+                ToolCall(id=block.id, name=block.name, arguments=arguments)
+            )
+        elif isinstance(block, ToolResultBlock):
+            flush()
+            result_meta = (
+                block.metadata.get("hm", {})
+                if isinstance(block.metadata, dict)
+                else {}
+            )
+            output_blocks: list[ContentBlock] = []
+            if isinstance(block.output, str):
+                if block.output:
+                    output_blocks.append(
+                        ContentBlock(type="text", text=block.output)
+                    )
+            else:
+                output_blocks = [
+                    _block_from_as(b)
+                    for b in block.output
+                    if isinstance(b, (TextBlock, DataBlock))
+                ]
+                _restore_block_meta(result_meta, output_blocks)
+            out.append(
+                ToolResultMessage(
+                    tool_call_id=block.id,
+                    name=block.name,
+                    content=output_blocks,
+                    is_error=block.state != ToolResultState.SUCCESS,
+                    data=result_meta.get("data"),
+                    provider_metadata=result_meta.get("provider_metadata")
+                    or {},
+                )
+            )
+        else:
+            # HintBlock and any future AS-internal block: engine-side
+            # runtime-state annotations regenerated per iteration, not
+            # canonical content — drop at DEBUG so steady-state logs
+            # stay clean while the projection loss stays traceable.
+            log.debug(
+                "dropped non-canonical block %s from assistant Msg",
+                type(block).__name__,
+            )
+    flush()
+    emit_empty_segs()
+    if seg_idx < len(seg_list):
+        log.warning(
+            "assistant Msg has %d unconsumed segment records",
+            len(seg_list) - seg_idx,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -439,7 +452,7 @@ def assert_semantic_equal(a: Msg, b: Msg) -> None:
     assert len(a.content) == len(b.content), (
         f"block count {len(a.content)} != {len(b.content)}"
     )
-    for ba, bb in zip(a.content, b.content):
+    for ba, bb in zip(a.content, b.content, strict=True):
         assert type(ba) is type(bb), f"{type(ba)} != {type(bb)}"
         da = ba.model_dump(exclude={"id", "created_at", "finished_at"})
         db = bb.model_dump(exclude={"id", "created_at", "finished_at"})

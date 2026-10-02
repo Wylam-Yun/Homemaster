@@ -29,7 +29,7 @@ def _openai_family_model(
     key: SecretStr,
     stream: bool,
     timeout_s: float | None,
-) -> "ChatModelBase":
+) -> ChatModelBase:
     """Build an OpenAI-wire AS model for the given api_format.
 
     All OpenAI-compatible formats (openai/dashscope/deepseek/moonshot/
@@ -78,7 +78,7 @@ def chat_model_from_profile(
     stream: bool = True,
     api_key: str | None = None,
     timeout_s: float | None = None,
-) -> "ChatModelBase":
+) -> ChatModelBase:
     """Build an AgentScope chat model from a HomeMaster provider profile.
 
     Provider classes are imported lazily so importing ``homemaster.substrate``

@@ -18,7 +18,6 @@ from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg, TextBlock, ToolCallBlock
 from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
-
 from homemaster.agent.context import ContextAssembler
 from homemaster.application.contracts import (
     RunRequest,

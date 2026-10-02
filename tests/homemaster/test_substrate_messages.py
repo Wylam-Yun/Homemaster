@@ -6,6 +6,7 @@ Implements the assertions in plan/V3.7/decision-message-matrix.md §6.
 import base64
 
 import pytest
+
 from agentscope.message import (
     DataBlock,
     Msg,
@@ -15,7 +16,6 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
-
 from homemaster.agent.messages import (
     AssistantMessage,
     ContentBlock,

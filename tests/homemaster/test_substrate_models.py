@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from agentscope.model import AnthropicChatModel, OpenAIChatModel
-
 from homemaster.config.config import ProviderProfileConfig
 from homemaster.substrate import chat_model_from_profile
 

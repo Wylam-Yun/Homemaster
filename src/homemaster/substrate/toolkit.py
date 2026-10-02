@@ -10,9 +10,12 @@ chain stays inside the tool body; AS sees an ordinary local tool. Per-call
 from __future__ import annotations
 
 import contextvars
+from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Mapping
+from typing import TYPE_CHECKING, Any
+
+from pydantic import BaseModel
 
 from agentscope.message import (
     Base64Source,
@@ -27,10 +30,11 @@ from agentscope.permission import (
     PermissionDecision,
 )
 from agentscope.tool import ToolBase, ToolChunk
-from pydantic import BaseModel
-
 from homemaster.agent.messages import ToolCall
 from homemaster.tools.base import BaseTool
+
+if TYPE_CHECKING:
+    from homemaster.agent.messages import ToolResultMessage
 from homemaster.tools.contracts import (
     CancellationHandle,
     DeadlineHandle,
@@ -146,7 +150,7 @@ def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
     )
 
 
-def message_to_chunk(result: "ToolResultMessage") -> ToolChunk:
+def message_to_chunk(result: ToolResultMessage) -> ToolChunk:
     """Project a canonical ``ToolResultMessage`` (e.g. an observer-synthesized
     terminal message) into one terminal chunk — mirrors ``result_to_chunk``
     for the already-projected message shape."""

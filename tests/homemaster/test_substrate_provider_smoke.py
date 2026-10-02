@@ -9,7 +9,6 @@ per provider — not aggregates.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,7 +19,6 @@ import pytest
 from homemaster.agent.messages import UserMessage
 from homemaster.config.config import ProviderProfileConfig
 from homemaster.substrate.as_llm_client import AsLLMClient
-
 
 _OPENAI_SSE = [
     {
@@ -128,7 +126,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(length)
+        self.rfile.read(length)
         if self.path == "/v1/chat/completions":
             self._sse(_OPENAI_SSE)
             self.wfile.write(b"data: [DONE]\n\n")

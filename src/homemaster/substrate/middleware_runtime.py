@@ -19,11 +19,11 @@ import hashlib
 import inspect
 import json
 import time
-from typing import Any, AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import Any
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.permission import PermissionBehavior, PermissionDecision
-
 from homemaster.agent.messages import ToolCall
 from homemaster.agent.model_observation import (
     MAX_OBSERVE_FAILURES,

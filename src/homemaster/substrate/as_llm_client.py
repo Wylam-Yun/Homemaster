@@ -27,7 +27,6 @@ from typing import Any
 
 from homemaster.agent.messages import (
     AssistantMessage,
-    ContentBlock,
     Message,
     ToolCall,
     UserMessage,

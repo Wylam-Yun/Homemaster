@@ -129,7 +129,7 @@ def _take_script(obj: str = "cup-a") -> list[list[Any]]:
     return [
         [ToolCallBlock(
             id="tc-1", name="home_device",
-            input='{"op": "take", "object": "%s"}' % obj,
+            input=f'{{"op": "take", "object": "{obj}"}}',
         )],
         [TextBlock(text="done")],
     ]

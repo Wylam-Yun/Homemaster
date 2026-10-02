@@ -14,8 +14,6 @@ from typing import Any
 
 import pytest
 
-from agentscope.tool import ToolResponse
-
 from homemaster.artifacts.tool_output_store import ToolOutputStore
 from homemaster.mcp.adapter import (
     build_mcp_registered_tools,
@@ -79,8 +77,6 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
         )
 
         # Drive the adapter exactly as ``Toolkit.call_tool`` would.
-        from agentscope.message import ToolCallBlock
-
         token = _current_tool_call_id.set("mcp-call-1")
         try:
             response: Any = None

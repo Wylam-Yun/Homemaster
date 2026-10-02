@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from pathlib import Path
 from typing import Any
 
-import base64
-import hashlib
-
 import pytest
 
-from agentscope.message import DataBlock, TextBlock, ToolResultBlock
+from agentscope.message import DataBlock
 from agentscope.permission import PermissionBehavior
 from agentscope.tool import ToolChunk
-
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.permissions.config import PermissionMode
 from homemaster.substrate import (

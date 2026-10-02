@@ -14,7 +14,6 @@ import pytest
 from agentscope.message import TextBlock, ToolCallBlock
 from agentscope.model import ChatResponse
 from agentscope.model._model_usage import ChatUsage
-
 from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
 from homemaster.config.config import ProviderProfileConfig
@@ -104,13 +103,14 @@ class _ExecutorShim:
         self._executor = executor
 
     async def dispatch(self, *, tool_calls: list, run_context: Any = None):
+        import tempfile
+        from pathlib import Path
+
         from homemaster.agent.messages import ContentBlock, ToolResultMessage
         from homemaster.tools.contracts import (
             PermissionSubject,
             ToolExecutionContext,
         )
-        from pathlib import Path
-        import tempfile
 
         out = []
         for call in tool_calls:
