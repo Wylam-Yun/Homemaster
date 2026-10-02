@@ -92,7 +92,8 @@ def test_assistant_with_tool_calls_and_results_round_trip() -> None:
         AssistantMessage(content=[ContentBlock(text="done")]),
     ]
     converted = to_agent_scope(original)
-    assert [m.role for m in converted] == ["user", "assistant", "assistant"]
+    # one reply Msg accumulates the whole turn: calls, results, trailing text
+    assert [m.role for m in converted] == ["user", "assistant"]
     reply = converted[1]
     call_blocks = [b for b in reply.content if isinstance(b, ToolCallBlock)]
     result_blocks = [b for b in reply.content if isinstance(b, ToolResultBlock)]
