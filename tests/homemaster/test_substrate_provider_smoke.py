@@ -158,11 +158,16 @@ def wire_server() -> Any:
 
 
 def _profile(api_format: str, port: int) -> ProviderProfileConfig:
+    # OpenAI SDK treats base_url as the API root (must contain /v1);
+    # Anthropic SDK appends /v1/messages itself; Ollama appends /api/chat.
+    base = f"http://127.0.0.1:{port}"
+    if api_format in {"openai", "dashscope", "deepseek", "moonshot", "volcengine"}:
+        base += "/v1"
     return ProviderProfileConfig(
         name=f"fake-{api_format}",
         api_format=api_format,
         transport="raw_http",
-        base_url=f"http://127.0.0.1:{port}",
+        base_url=base,
         model="fake-model",
         api_keys=("sk-fake",) if api_format != "ollama" else (),
         kind="chat",
