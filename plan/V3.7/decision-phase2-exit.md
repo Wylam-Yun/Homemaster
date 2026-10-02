@@ -121,3 +121,17 @@ test_as_runtime + application/` 211/211 绿，ruff 全过。
   未出；若再报新缺陷按同一纪律处理。
 - Phase 3：删除 `generic_runtime.py` 回退位、CLI/Web 面改造、
   MindMemOS 深度集成——见 `implementation-plan.md`。
+
+## 协议围栏归属裁决（加固轮期间核实）
+
+legacy `generic_runtime` 在模型层有三道协议围栏，AS 路径的等价落点：
+
+| 围栏 | legacy 位置 | AS 路径归属 | 语义差距 |
+|---|---|---|---|
+| 观察屏障批量/协议 | 循环内联 | `ObservationBarrierMiddleware.on_check_permission` | 已全对齐 |
+| unknown tool 拒绝 | `unavailable_tool_protocol_results` → `tool.protocol_rejected` 事件 | AS `Toolkit.call_tool` 原生 `ToolNotFoundError` error result | fail-closed 等价；缺专用事件与 `backend_attempted=False` 标注 |
+| terminal allowlist | `terminal_command_protocol_results` → `terminal.command_protocol_rejected` 事件 | `PermissionPolicy`（policy.py:88-96）在权限层 deny | **权限层 fail-closed 等价**；缺专用事件与 model-facing 提示文案 |
+
+裁决：安全边界成立（两道的真防线都在权限/工具层），差异只在事件
+丰富度。若后续需要协议级 UX 等价（模型能区分"工具不存在"与"被
+权限拒绝"），可在 `on_check_permission` 补一层预检——非阻塞项。
