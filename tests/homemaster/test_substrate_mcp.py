@@ -58,7 +58,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
 
         registered = build_mcp_registered_tools(manager, store)
         registry = ToolRegistry()
-        register_mcp_tools_atomically(registered, registry)
+        register_mcp_tools_atomically(registry, registered)
         names = {tool.name for tool in registry.list_tools()}
         assert "stdio_fixture__nested_query" in names
 
