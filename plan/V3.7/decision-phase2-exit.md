@@ -59,3 +59,10 @@ Phase 3（`implementation-plan.md` 已勾完对应项并附偏差记录）。
 环境或基线（用户级 Neo4j 占 7687 → memory/mcp/cli_streaming 段；
 v19 缺兄弟仓 OpenHarness；web×10 基线 `metadata=` harness；
 browser/v20 各 1 个 flake）。substrate 涉及目录定点 295/295 绿。
+
+收口后 lint 清零（`ed0a597`）：`ruff check src/homemaster tests
+scripts` 全过——assistant 分段还原抽出为模块级
+`_assistant_from_as`（消 B023），`ToolResultMessage` 走
+TYPE_CHECKING 注解，其余为机械 import/注解修复。lint 后定点回归：
+远端 substrate+application 236/236 绿，本地含 permissions/agent
+全套 355/355 绿，`guard_no_legacy_terms` exit=0。
