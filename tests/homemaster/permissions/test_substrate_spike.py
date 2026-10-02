@@ -17,6 +17,7 @@ from test_blackbox import DecisionHandler, DeviceProcess, HomeDeviceAdapter
 
 from agentscope.agent import Agent
 from agentscope.credential import OpenAICredential
+from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import Msg, TextBlock, ToolCallBlock, ToolResultBlock
 from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.tool import Toolkit
@@ -42,6 +43,7 @@ class ScriptedModel(ChatModelBase):
             model="stub-model",
             parameters=ChatModelBase.Parameters(),
         )
+        self.formatter = OpenAIChatFormatter()
         self._script = list(script)
         self.calls: list[list[Msg]] = []
 
