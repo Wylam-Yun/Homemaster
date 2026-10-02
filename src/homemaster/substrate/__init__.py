@@ -13,6 +13,7 @@ from homemaster.substrate.messages import (
     to_agent_scope,
 )
 from homemaster.substrate.models import chat_model_from_profile
+from homemaster.substrate.runtime import AsAgentRuntime
 from homemaster.substrate.snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
     ParsedSnapshot,
@@ -28,6 +29,7 @@ from homemaster.substrate.toolkit import (
 )
 
 __all__ = [
+    "AsAgentRuntime",
     "AsLLMClient",
     "HomeToolAdapter",
     "MessageConversionError",

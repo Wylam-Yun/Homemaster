@@ -191,6 +191,10 @@ class SessionPersistenceManager:
         self.strip_images = strip_images
         self.trace_rotation_max_bytes = max(1, trace_rotation_max_mb) * 1024 * 1024
         self._events: list[RuntimeEvent] = []
+        # When set by the AgentScope runtime shell, save_snapshot writes the
+        # schema-v2 payload (engine-authoritative context) instead of the v1
+        # session-projection payload.
+        self.engine_state: Any = None
         self.session_dir.mkdir(parents=True, exist_ok=True)
         for path in (self.trace_path, self.messages_path):
             path.touch(exist_ok=True)
@@ -239,6 +243,20 @@ class SessionPersistenceManager:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def save_snapshot(self) -> None:
+        if self.engine_state is not None:
+            from homemaster.substrate.snapshot import build_snapshot_payload
+
+            payload = build_snapshot_payload(
+                session=self.session,
+                engine_state=self.engine_state,
+                agent_state=self.agent_state,
+                task_state_store=self.task_state_store,
+                model=self.model,
+                system_prompt=self.system_prompt,
+                strip_images=self.strip_images,
+            )
+            atomic_write_json(self.snapshot_path, payload)
+            return
         save_snapshot(
             session=self.session,
             agent_state=self.agent_state,

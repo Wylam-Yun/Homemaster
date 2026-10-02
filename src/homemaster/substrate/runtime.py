@@ -1,0 +1,931 @@
+"""``AsAgentRuntime`` — ``AgentRuntime``-compatible shell over AgentScope.
+
+Phase 2 (plan/V3.7): the AS ``Agent`` owns the reasoning-acting loop; this
+class preserves the HomeMaster runtime contract around it — deadlines,
+SIGINT/cancellation, session mirror, schema-v2 snapshots, provider attempt
+records, loop guards, stop conditions, and the HM event vocabulary.
+
+Event projection (AgentEvent -> RuntimeEvent) is lossy by design for the
+public stream: only fields HM's projection allowlist already exposes are
+carried through.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import signal
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from homemaster.agent.generic_runtime import (
+    GenericRunResult,
+    StopCondition,
+    _cancelled,
+)
+from homemaster.agent.interrupt import InterruptController
+from homemaster.agent.messages import (
+    ContentBlock,
+    ToolResultMessage,
+    UserMessage,
+    normalize_content,
+)
+from homemaster.agent.normalized import RunContext
+from homemaster.agent.session import AgentSession
+from homemaster.agent.session_persistence import SessionPersistenceManager
+from homemaster.agent.state import AgentState, ProviderUsage
+from homemaster.events import FanoutEventSink
+from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.substrate.messages import from_agent_scope, to_agent_scope
+from homemaster.substrate.toolkit import RunScope, RunScopeMiddleware
+from homemaster.task_state.models import TaskStatus
+from homemaster.task_state.store import TaskStateStore
+from homemaster.tools.contracts import PermissionSubject
+
+_REASON_ERROR_STATES = frozenset({"error", "denied"})
+
+
+@dataclass
+class AsRunHandle:
+    """Per-run state shared between the shell and the HM middlewares."""
+
+    session: AgentSession
+    agent_state: AgentState
+    task_state_store: TaskStateStore
+    run_id: str
+    settings: Any
+    scope: RunScope
+    emit: Callable[..., Any]
+    events: list[RuntimeEvent] = field(default_factory=list)
+    all_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
+    tool_call_names: dict[str, str] = field(default_factory=dict)
+    pending_args: dict[str, str] = field(default_factory=dict)
+    reply_finished_reason: str | None = None
+    reply_error: Any = None
+    tool_registry: Any = None
+    engine_context: list[Any] = field(default_factory=list)
+    observation_fatal: str | None = None
+
+
+class AsAgentRuntime:
+    """Drives one user turn through a vendored AgentScope ``Agent``.
+
+    Constructor dependencies mirror ``AgentRuntime``; the model is a
+    vendored ``ChatModelBase`` (built by ``chat_model_from_profile``), and
+    tools enter as ``HomeToolAdapter`` instances so the HM permission/
+    physical chain stays authoritative inside the tool body.
+    """
+
+    def __init__(
+        self,
+        *,
+        model: Any,
+        system_prompt: str = "",
+        tools: list[Any] | None = None,
+        middlewares: list[Any] | None = None,
+        max_tool_iterations: int | None = 12,
+        stop_condition: StopCondition | None = None,
+        context_assembler: Any = None,
+        provider_attempt_sink_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        self._model = model
+        self._system_prompt = system_prompt
+        self._tools = list(tools or [])
+        self._extra_middlewares = list(middlewares or [])
+        self._max_tool_iterations = max_tool_iterations
+        self._stop_condition = stop_condition
+        self._context_assembler = context_assembler
+        self._provider_attempt_sink_factory = provider_attempt_sink_factory
+
+    async def run(
+        self,
+        session: AgentSession,
+        user_text: str,
+        run_context: RunContext | None = None,
+        *,
+        user_content: list[ContentBlock] | None = None,
+        event_sink: Any = None,
+        run_id: str | None = None,
+        settings: Any = None,
+        agent_state: AgentState | None = None,
+        task_state_store: TaskStateStore | None = None,
+        force_compact: str | bool | None = None,
+        tool_registry: Any = None,
+        cancellation_token: Any = None,
+        deadline: Any = None,
+        on_compaction: Callable[[Any], Any] | None = None,
+        engine_state: Any = None,
+    ) -> GenericRunResult:
+        """Execute one agent run through the AgentScope reasoning loop."""
+        from agentscope.agent import Agent
+        from agentscope.tool import Toolkit
+
+        run_id = run_id or uuid.uuid4().hex[:12]
+        events: list[RuntimeEvent] = []
+        observability = getattr(settings, "observability", None)
+        interrupt = InterruptController(
+            abort_llm_stream=bool(
+                getattr(observability, "interrupt_abort_llm_stream", True)
+            )
+        )
+        old_sigint_handler: Any = None
+        signal_registered = False
+        if bool(getattr(observability, "interrupt_enabled", True)):
+            try:
+                old_sigint_handler = signal.signal(
+                    signal.SIGINT, interrupt.handle_sigint
+                )
+                signal_registered = True
+            except ValueError:
+                signal_registered = False
+
+        async def emit(event_type: str, **kwargs: Any) -> None:
+            local_only = bool(kwargs.pop("local_only", False))
+            event = RuntimeEvent(
+                type=event_type,
+                session_id=session.session_id,
+                run_id=run_id,
+                turn_index=0,
+                tool_call_id=kwargs.pop("tool_call_id", None),
+                name=kwargs.pop("name", None),
+                payload=kwargs.pop("payload", {}),
+                **{k: v for k, v in kwargs.items() if k != "payload"},
+            )
+            events.append(event)
+            if event_sink is not None and not local_only:
+                aemit = getattr(event_sink, "aemit", None)
+                if callable(aemit):
+                    await aemit(event)
+                else:
+                    value = event_sink.emit(event)
+                    if inspect.isawaitable(value):
+                        await value
+
+        initial_content = user_content or normalize_content(user_text)
+        session.append(UserMessage(content=initial_content))
+        if agent_state is None:
+            agent_state = AgentState(
+                run_id=run_id,
+                session_id=session.session_id,
+                max_tool_iterations=self._max_tool_iterations,
+            )
+        else:
+            agent_state.run_id = run_id
+            agent_state.session_id = session.session_id
+            agent_state.max_tool_iterations = self._max_tool_iterations
+        if task_state_store is None and run_context is not None:
+            task_state_store = run_context.deps.get("task_state_store")
+        if task_state_store is None:
+            task_state_store = TaskStateStore(run_id=run_id)
+        if run_context is not None:
+            run_context.deps["task_state_store"] = task_state_store
+
+        scope = RunScope(
+            session_id=session.session_id,
+            run_id=run_id,
+            permission_subject=_resolve_subject(run_context, settings),
+            working_directory=_resolve_workdir(run_context, settings),
+            deadline=deadline,
+            cancellation=cancellation_token or interrupt,
+            backend=(run_context.deps.get("backend") if run_context else None),
+            domain_observer=(
+                run_context.deps.get("domain_observer") if run_context else None
+            ),
+            services=dict(run_context.deps) if run_context else {},
+            turn_index=agent_state.turn_index,
+        )
+
+        # Engine state: provided (resume) or seeded from the session mirror.
+        # The session mirror is projected from the engine context — never the
+        # reverse — for the remainder of the run.
+        if engine_state is None:
+            from agentscope.state import AgentState as EngineState
+
+            prior = list(session.messages[:-1])
+            engine_state = EngineState(
+                session_id=session.session_id,
+                context=to_agent_scope(prior) if prior else [],
+            )
+
+        persistence = self._build_persistence_manager(
+            session=session,
+            agent_state=agent_state,
+            task_state_store=task_state_store,
+            engine_state=engine_state,
+            settings=settings,
+        )
+        if persistence is not None:
+            persistence.append_message(session.messages[-1])
+            event_sink = (
+                persistence
+                if event_sink is None
+                else FanoutEventSink([event_sink, persistence])
+            )
+
+        def save_snapshot(status: str | None = None) -> None:
+            if persistence is None:
+                return
+            if status is not None:
+                agent_state.status = status  # type: ignore[assignment]
+            self._sync_session(session, engine_state)
+            persistence.save_snapshot()
+
+        attempt_sink = (
+            self._provider_attempt_sink_factory()
+            if self._provider_attempt_sink_factory is not None
+            else None
+        )
+        handle = AsRunHandle(
+            session=session,
+            agent_state=agent_state,
+            task_state_store=task_state_store,
+            run_id=run_id,
+            settings=settings,
+            scope=scope,
+            emit=emit,
+            events=events,
+            all_tool_schemas=_tool_schemas(tool_registry),
+            tool_registry=tool_registry,
+        )
+
+        middlewares: list[Any] = [RunScopeMiddleware()]
+        from homemaster.substrate.middleware_runtime import (
+            ContextAssemblyMiddleware,
+            ObservationBarrierMiddleware,
+            ProviderObservabilityMiddleware,
+        )
+
+        middlewares.append(
+            ContextAssemblyMiddleware(
+                handle=handle,
+                assembler=self._context_assembler,
+                force_compact=force_compact,
+                on_compaction=on_compaction,
+            )
+        )
+        middlewares.append(ObservationBarrierMiddleware(handle=handle))
+        middlewares.append(
+            ProviderObservabilityMiddleware(
+                handle=handle,
+                attempt_sink=attempt_sink,
+            )
+        )
+        middlewares.extend(self._extra_middlewares)
+
+        agent = Agent(
+            name="homemaster",
+            system_prompt=self._system_prompt,
+            model=self._model,
+            toolkit=Toolkit(tools=list(self._tools)),
+            middlewares=middlewares,
+            state=engine_state,
+        )
+
+        await emit(
+            "runtime.turn_started",
+            payload={
+                "user_text": user_text,
+                "content_block_types": [b.type for b in initial_content],
+            },
+        )
+
+        input_msg = to_agent_scope([UserMessage(content=initial_content)])[0]
+        try:
+            result = await self._drive_reply(
+                agent=agent,
+                input_msg=input_msg,
+                handle=handle,
+                emit=emit,
+                interrupt=interrupt,
+                cancellation_token=cancellation_token,
+                deadline=deadline,
+                session=session,
+                engine_state=engine_state,
+                persistence=persistence,
+                save_snapshot=save_snapshot,
+            )
+            return result
+        finally:
+            if signal_registered:
+                signal.signal(signal.SIGINT, old_sigint_handler)
+
+    # ------------------------------------------------------------------
+    # Reply driver
+    # ------------------------------------------------------------------
+
+    async def _drive_reply(
+        self,
+        *,
+        agent: Any,
+        input_msg: Any,
+        handle: AsRunHandle,
+        emit: Callable[..., Any],
+        interrupt: InterruptController,
+        cancellation_token: Any,
+        deadline: Any,
+        session: AgentSession,
+        engine_state: Any,
+        persistence: Any,
+        save_snapshot: Callable[..., Any],
+    ) -> GenericRunResult:
+        from agentscope.event import ReplyFinishedReason
+        from agentscope.message import Msg
+
+        events = handle.events
+        run_id = handle.run_id
+        stream = agent.reply_stream(input_msg, yield_final_msg=True)
+        pending_anext: list[asyncio.Task | None] = [None]
+
+        class _StreamAbortShim:
+            """InterruptController aborts via a synchronous ``close()``;
+            the AS reply generator only exposes ``aclose()`` — cancel the
+            pending ``__anext__`` task instead (same abort boundary)."""
+
+            def close(self) -> None:
+                task = pending_anext[0]
+                if task is not None and not task.done():
+                    task.cancel()
+
+        interrupt.set_stream(_StreamAbortShim())
+        final_msg: Any = None
+        try:
+            while True:
+                if _cancelled(interrupt, cancellation_token):
+                    await stream.aclose()
+                    return await self._cancel_result(
+                        session,
+                        run_id,
+                        events,
+                        emit=emit,
+                        phase="as_reply",
+                        handle=handle,
+                        persistence=persistence,
+                        engine_state=engine_state,
+                    )
+                task = asyncio.ensure_future(stream.__anext__())
+                pending_anext[0] = task
+                try:
+                    item = await _await_with_deadline(
+                        task,
+                        deadline=deadline,
+                        operation="agentscope reply",
+                    )
+                except StopAsyncIteration:
+                    break
+                finally:
+                    pending_anext[0] = None
+                if isinstance(item, Msg):
+                    final_msg = item
+                    continue
+                stop = await self._project_event(
+                    item,
+                    handle=handle,
+                    emit=emit,
+                    stream=stream,
+                    session=session,
+                    save_snapshot=save_snapshot,
+                )
+                if stop is not None:
+                    return stop
+        except TimeoutError:
+            await emit(
+                "runtime.turn_failed",
+                payload={
+                    "error": "agentscope reply exceeded the run deadline",
+                    "error_code": "deadline_exceeded",
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code="deadline_exceeded",
+            )
+        except asyncio.CancelledError:
+            return await self._cancel_result(
+                session,
+                run_id,
+                events,
+                emit=emit,
+                phase="as_reply",
+                handle=handle,
+                persistence=persistence,
+                engine_state=engine_state,
+            )
+        except Exception as exc:
+            await emit(
+                "runtime.turn_failed",
+                payload={"error": str(exc), "error_code": "transport_error"},
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code="transport_error",
+            )
+        finally:
+            interrupt.clear_stream()
+
+        self._sync_session(session, engine_state)
+        reason = handle.reply_finished_reason
+        if reason == ReplyFinishedReason.INTERRUPTED or reason == "interrupted":
+            return await self._cancel_result(
+                session,
+                run_id,
+                events,
+                emit=emit,
+                phase="as_reply",
+                handle=handle,
+                persistence=persistence,
+                engine_state=engine_state,
+            )
+        if reason == ReplyFinishedReason.ERROR or reason == "error":
+            error_text = ""
+            if handle.reply_error is not None:
+                error_text = str(
+                    getattr(handle.reply_error, "message", handle.reply_error)
+                )
+            await emit(
+                "runtime.turn_failed",
+                payload={
+                    "error": error_text or "agentscope reply failed",
+                    "error_code": "reply_error",
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code="reply_error",
+            )
+        if (
+            reason == ReplyFinishedReason.EXCEED_MAX_ITERS
+            or reason == "exceed_max_iters"
+        ):
+            await emit(
+                "runtime.budget_exhausted",
+                payload={
+                    "max_tool_iterations": self._max_tool_iterations,
+                    "error_code": "max_tool_iterations_exceeded",
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code="max_tool_iterations_exceeded",
+            )
+
+        reply_text = _msg_text(final_msg)
+        handle.agent_state.last_assistant_text = reply_text
+        save_snapshot("replied")
+        await emit("runtime.turn_completed", payload={"final_reply": reply_text})
+        return GenericRunResult(
+            run_id=run_id,
+            status="replied",
+            session=session,
+            events=events,
+            final_reply=reply_text,
+        )
+
+    # ------------------------------------------------------------------
+    # Event projection
+    # ------------------------------------------------------------------
+
+    async def _project_event(
+        self,
+        item: Any,
+        *,
+        handle: AsRunHandle,
+        emit: Callable[..., Any],
+        stream: Any,
+        session: AgentSession,
+        save_snapshot: Callable[..., Any],
+    ) -> GenericRunResult | None:
+        """Project one AgentEvent into HM RuntimeEvents. Returns a terminal
+        result when a boundary decision (stop_condition / guard / truncation)
+        ends the run early."""
+        from agentscope.event import (
+            ModelCallEndEvent,
+            ModelCallStartEvent,
+            ReplyEndEvent,
+            TextBlockDeltaEvent,
+            ThinkingBlockDeltaEvent,
+            ToolCallDeltaEvent,
+            ToolCallEndEvent,
+            ToolCallStartEvent,
+            ToolResultEndEvent,
+            ToolResultStartEvent,
+            ToolResultTextDeltaEvent,
+        )
+
+        agent_state = handle.agent_state
+        if isinstance(item, TextBlockDeltaEvent):
+            await emit("transport.delta", payload={"text_delta": item.delta})
+        elif isinstance(item, ThinkingBlockDeltaEvent):
+            await emit(
+                "transport.delta", payload={"reasoning_delta": item.delta}
+            )
+        elif isinstance(item, ToolCallStartEvent):
+            handle.tool_call_names[item.tool_call_id] = item.tool_call_name
+            handle.pending_args[item.tool_call_id] = ""
+        elif isinstance(item, ToolCallDeltaEvent):
+            handle.pending_args[item.tool_call_id] = (
+                handle.pending_args.get(item.tool_call_id, "") + item.delta
+            )
+        elif isinstance(item, ToolCallEndEvent):
+            raw = handle.pending_args.pop(item.tool_call_id, "")
+            try:
+                arguments = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                arguments = {"_raw": raw}
+            await emit(
+                "tool.call_started",
+                tool_call_id=item.tool_call_id,
+                name=handle.tool_call_names.get(item.tool_call_id),
+                payload={"arguments": arguments},
+            )
+        elif isinstance(item, ToolResultStartEvent):
+            handle.tool_call_names[item.tool_call_id] = item.tool_call_name
+        elif isinstance(item, ToolResultTextDeltaEvent):
+            pass  # result text rides on the metadata "hm" pocket at END
+        elif isinstance(item, ToolResultEndEvent):
+            hm = (item.metadata or {}).get("hm") or {}
+            data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
+            is_error = item.state in _REASON_ERROR_STATES
+            await emit(
+                "tool.call_failed" if is_error else "tool.call_completed",
+                tool_call_id=item.tool_call_id,
+                name=handle.tool_call_names.get(item.tool_call_id),
+                payload={
+                    "is_error": is_error,
+                    "result": data.get("text", ""),
+                    "data": data,
+                    "backend_attempted": hm.get("backend_attempted"),
+                    "status": hm.get("status"),
+                },
+            )
+            agent_state.record_tool_results(
+                [
+                    {
+                        "tool_call_id": item.tool_call_id,
+                        "name": handle.tool_call_names.get(item.tool_call_id)
+                        or "",
+                        "is_error": is_error,
+                        "text": str(data.get("text", "")),
+                    }
+                ]
+            )
+            save_snapshot()
+            decision = await self._evaluate_stop(handle)
+            if decision is not None:
+                await stream.aclose()
+                await emit(
+                    "runtime.turn_completed"
+                    if decision.status in {"replied", "waiting_user"}
+                    else "runtime.turn_failed",
+                    payload={
+                        "error_code": decision.error_code,
+                        **decision.payload,
+                    },
+                )
+                save_snapshot(decision.status)
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status=decision.status,
+                    session=session,
+                    events=handle.events,
+                    final_reply=decision.final_reply,
+                    error_code=decision.error_code,
+                )
+            fatal = getattr(handle, "observation_fatal", None)
+            if fatal is not None:
+                await stream.aclose()
+                await emit(
+                    "runtime.turn_failed",
+                    payload={
+                        "error": "model observation protocol failed",
+                        "error_code": fatal,
+                    },
+                )
+                save_snapshot("failed")
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status="failed",
+                    session=session,
+                    events=handle.events,
+                    error_code=fatal,
+                )
+            guard = _check_guards(handle)
+            if guard is not None:
+                await stream.aclose()
+                await emit(
+                    "runtime.guard_triggered",
+                    payload={"guard": guard, "error_code": guard},
+                )
+                save_snapshot("failed")
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status="failed",
+                    session=session,
+                    events=handle.events,
+                    error_code=guard,
+                )
+        elif isinstance(item, ModelCallStartEvent):
+            agent_state.begin_iteration(agent_state.iteration_index + 1)
+        elif isinstance(item, ModelCallEndEvent):
+            await self._record_usage(
+                agent_state,
+                {
+                    "input_tokens": item.input_tokens,
+                    "output_tokens": item.output_tokens,
+                    "cache_read_input_tokens": item.cache_input_tokens,
+                    "cache_creation_input_tokens": (
+                        item.cache_creation_input_tokens
+                    ),
+                },
+                emit=emit,
+            )
+            await self._emit_assistant_events(handle, emit)
+        elif isinstance(item, ReplyEndEvent):
+            handle.reply_finished_reason = (
+                item.finished_reason.value
+                if hasattr(item.finished_reason, "value")
+                else item.finished_reason
+            )
+            handle.reply_error = item.error
+        return None
+
+    async def _emit_assistant_events(
+        self, handle: AsRunHandle, emit: Callable[..., Any]
+    ) -> None:
+        """Emit assistant.thinking / assistant.reply for the just-finished
+        model call, reading the assembled assistant Msg from the engine
+        context (authoritative, same data the model produced)."""
+        context = handle_engine_context(handle)
+        msg = context[-1] if context else None
+        if msg is None or getattr(msg, "role", "") != "assistant":
+            return
+        thinking = "".join(
+            getattr(block, "thinking", "") or ""
+            for block in getattr(msg, "content", []) or []
+            if getattr(block, "type", None) == "thinking"
+        )
+        text = "".join(
+            getattr(block, "text", "") or ""
+            for block in getattr(msg, "content", []) or []
+            if getattr(block, "type", None) == "text"
+        )
+        tool_calls = [
+            {
+                "id": getattr(block, "id", ""),
+                "name": getattr(block, "name", ""),
+                "arguments": getattr(block, "input", {}) or {},
+            }
+            for block in getattr(msg, "content", []) or []
+            if getattr(block, "type", None) == "tool_call"
+        ]
+        if thinking:
+            await emit("assistant.thinking", payload={"thinking": thinking})
+        await emit(
+            "assistant.reply",
+            payload={
+                "reply": text,
+                "finish_reason": getattr(msg, "finish_reason", None) or "",
+                "usage": {},
+                "tool_calls": tool_calls,
+            },
+        )
+
+    async def _evaluate_stop(self, handle: AsRunHandle) -> Any:
+        if self._stop_condition is None:
+            return None
+        results = [
+            m
+            for m in handle.session.messages
+            if isinstance(m, ToolResultMessage)
+        ]
+        decision = self._stop_condition(handle.session, results)
+        if inspect.isawaitable(decision):
+            decision = await decision
+        return decision
+
+    # ------------------------------------------------------------------
+    # Shared internals
+    # ------------------------------------------------------------------
+
+    def _sync_session(self, session: AgentSession, engine_state: Any) -> None:
+        """Mirror the authoritative engine context into the HM session."""
+        session.replace_messages(from_agent_scope(list(engine_state.context)))
+
+    async def _cancel_result(
+        self,
+        session: AgentSession,
+        run_id: str,
+        events: list[RuntimeEvent],
+        *,
+        emit: Callable[..., Any],
+        phase: str,
+        handle: AsRunHandle | None = None,
+        persistence: Any = None,
+        engine_state: Any = None,
+        local_only: bool = False,
+    ) -> GenericRunResult:
+        if engine_state is not None:
+            self._sync_session(session, engine_state)
+        await emit(
+            "runtime.cancelled",
+            payload={"phase": phase},
+            local_only=local_only,
+        )
+        if handle is not None:
+            snapshot = getattr(handle.task_state_store, "snapshot", None)
+            if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
+                handle.task_state_store.update_status(TaskStatus.PAUSED)
+            handle.agent_state.status = "cancelled"
+        if persistence is not None:
+            persistence.save_snapshot()
+        return GenericRunResult(
+            run_id=run_id,
+            status="cancelled",
+            session=session,
+            events=events,
+            error_code="user_interrupted",
+        )
+
+    @staticmethod
+    async def _record_usage(
+        agent_state: AgentState,
+        usage: dict[str, int],
+        *,
+        emit: Callable[..., Any],
+    ) -> None:
+        input_tokens = int(usage.get("input_tokens") or 0)
+        input_tokens += int(usage.get("cache_read_input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        if not (input_tokens or output_tokens):
+            return
+        previous = agent_state.provider_usage or ProviderUsage()
+        agent_state.provider_usage = ProviderUsage(
+            input_tokens=previous.input_tokens + input_tokens,
+            output_tokens=previous.output_tokens + output_tokens,
+            total_tokens=previous.total_tokens + input_tokens + output_tokens,
+        )
+        await emit(
+            "usage.update",
+            payload={
+                "input_tokens": agent_state.provider_usage.input_tokens,
+                "output_tokens": agent_state.provider_usage.output_tokens,
+                "total_tokens": agent_state.provider_usage.total_tokens,
+            },
+        )
+
+    def _build_persistence_manager(
+        self,
+        *,
+        session: AgentSession,
+        agent_state: AgentState,
+        task_state_store: TaskStateStore,
+        engine_state: Any,
+        settings: Any,
+    ) -> SessionPersistenceManager | None:
+        observability = getattr(settings, "observability", None)
+        if observability is None:
+            return None
+        if not (
+            bool(getattr(observability, "save_session_per_iteration", True))
+            or bool(getattr(observability, "save_on_sigint", True))
+        ):
+            return None
+        manager = SessionPersistenceManager(
+            session=session,
+            agent_state=agent_state,
+            task_state_store=task_state_store,
+            session_root=Path(
+                str(
+                    getattr(
+                        observability, "session_dir", "~/.homemaster/sessions"
+                    )
+                )
+            ),
+            model=str(getattr(settings, "provider_name", "")),
+            system_prompt=self._system_prompt,
+            strip_images=bool(
+                getattr(observability, "strip_images_in_snapshot", True)
+            ),
+            trace_rotation_max_mb=int(
+                getattr(observability, "trace_rotation_max_mb", 100)
+            ),
+        )
+        manager.engine_state = engine_state
+        return manager
+
+
+async def _await_with_deadline(
+    awaitable: Any,
+    *,
+    deadline: Any,
+    operation: str,
+) -> Any:
+    if not inspect.isawaitable(awaitable):
+        return awaitable
+    remaining = deadline.remaining_s() if deadline is not None else None
+    if remaining is None:
+        return await awaitable
+    task = asyncio.ensure_future(awaitable)
+    if remaining > 0:
+        try:
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+        except asyncio.CancelledError:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        if task in done:
+            return task.result()
+    if not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    raise TimeoutError(f"{operation} exceeded the run deadline")
+
+
+def handle_engine_context(handle: AsRunHandle) -> list[Any]:
+    """Engine context list — populated by ContextAssemblyMiddleware which
+    owns the live ``agent`` reference."""
+    return getattr(handle, "engine_context", [])
+
+
+def _check_guards(handle: AsRunHandle) -> str | None:
+    """Mirror ``AgentRuntime._check_loop_guards`` — thresholds from
+    ``settings.runtime_guards``."""
+    agent_state = handle.agent_state
+    guards = getattr(handle.settings, "runtime_guards", None)
+    if guards is None:
+        return None
+    max_errors = getattr(guards, "max_consecutive_tool_errors", 5)
+    if max_errors > 0 and agent_state.consecutive_tool_errors >= max_errors:
+        return "max_consecutive_tool_errors"
+    max_no_progress = getattr(guards, "max_no_progress_iterations", 20)
+    if agent_state.no_progress_iterations >= max_no_progress:
+        return "max_no_progress_iterations"
+    return None
+
+
+def _resolve_subject(
+    run_context: RunContext | None, settings: Any
+) -> PermissionSubject:
+    subject = None
+    if run_context is not None:
+        subject = run_context.deps.get("permission_subject")
+    if subject is None:
+        subject = getattr(settings, "permission_subject", None)
+    if isinstance(subject, PermissionSubject):
+        return subject
+    return PermissionSubject(
+        subject_id="runtime",
+        channel="internal",
+        roles=(),
+        tenant_id="runtime",
+        capabilities=("tool.auto",),
+    )
+
+
+def _resolve_workdir(run_context: RunContext | None, settings: Any) -> Path:
+    workdir = None
+    if run_context is not None:
+        workdir = run_context.deps.get("working_directory")
+    if workdir is None:
+        workdir = getattr(settings, "working_directory", None)
+    return Path(workdir) if workdir else Path.cwd()
+
+
+def _tool_schemas(tool_registry: Any) -> list[dict[str, Any]]:
+    if tool_registry is None:
+        return []
+    to_api_schema = getattr(tool_registry, "to_api_schema", None)
+    return list(to_api_schema()) if callable(to_api_schema) else []
+
+
+def _msg_text(msg: Any) -> str:
+    if msg is None:
+        return ""
+    return "".join(
+        getattr(block, "text", "") or ""
+        for block in getattr(msg, "content", []) or []
+        if getattr(block, "type", None) == "text"
+    )
+
+
+__all__ = ["AsAgentRuntime", "AsRunHandle"]
