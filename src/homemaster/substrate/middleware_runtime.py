@@ -625,7 +625,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         block = ToolCallBlock(
             id=observe_call.id,
             name=observe_call.name,
-            input=dict(observe_call.arguments),
+            input=json.dumps(dict(observe_call.arguments)),
         )
         await handle.emit(
             "tool.call_started",
