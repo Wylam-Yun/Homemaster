@@ -187,17 +187,22 @@ class AsLLMClient:
 
         sink = event_sink or self._event_sink
         effective_run_id = run_id or self._run_id
-        if not self._provider.api_keys:
+        keyless = self._provider.api_format == "ollama"
+        if not self._provider.api_keys and not keyless:
             raise LLMClientError(
                 error_type="no_keys",
                 message="no API keys configured",
                 cause_code="no_keys",
             )
         selected_key_index = min(
-            max(provider_key_index, 0), len(self._provider.api_keys) - 1
+            max(provider_key_index, 0), max(len(self._provider.api_keys) - 1, 0)
         )
         key_index = selected_key_index + 1
-        api_key = self._provider.api_keys[selected_key_index]
+        api_key = (
+            self._provider.api_keys[selected_key_index]
+            if self._provider.api_keys
+            else None
+        )
 
         request_sha256 = ""
         recorded = False
