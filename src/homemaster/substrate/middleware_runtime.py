@@ -993,6 +993,173 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         )
 
 
+class ProtocolFenceMiddleware(MiddlewareBase):
+    """Pre-dispatch batch fences ported from ``generic_runtime`` — the AS
+    toolkit only errors per-call on unknown names, which would let a valid
+    companion call execute before the batch's bad call fails. These fences
+    preserve HM's atomic batch rejection:
+
+    - **unavailable tool**: any round call whose name was not offered in the
+      current model request denies the whole batch
+      (``tool_not_available`` / ``tool_batch_contains_unavailable_call``).
+    - **terminal allowlist**: when ``settings.permissions`` pins
+      ``allowed_terminal_commands``, a non-matching ``terminal`` command
+      denies the whole batch (``terminal_command_not_allowed`` /
+      ``tool_batch_contains_disallowed_terminal_command``).
+
+    Ordering: must run after ``ObservationBarrierMiddleware`` so the
+    barrier's tool trimming is reflected in ``offered_tool_names``, and so
+    barrier protocol violations keep firing first (legacy order).
+    """
+
+    def __init__(self, *, handle: Any) -> None:
+        self._handle = handle
+
+    async def on_model_call(
+        self,
+        agent: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., AsyncGenerator],
+    ) -> Any:
+        tools = input_kwargs.get("tools")
+        self._handle.offered_tool_names = (
+            frozenset(_schema_name(schema) for schema in tools)
+            if isinstance(tools, list)
+            else None
+        )
+        return await next_handler()
+
+    async def on_check_permission(
+        self,
+        agent: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., Any],
+    ) -> PermissionDecision:
+        handle = self._handle
+        tool_call = input_kwargs.get("tool_call")
+        call_name = _call_name(tool_call)
+        call_id = getattr(tool_call, "id", "") or ""
+
+        if call_id.startswith("auto-observe-"):
+            return await next_handler()
+
+        round_calls = _round_tool_calls(agent)
+        if not any(getattr(c, "id", None) == call_id for c in round_calls):
+            # Not part of the current model batch (runtime-owned call) —
+            # batch fences don't apply.
+            return await next_handler()
+
+        offered = handle.offered_tool_names
+        if offered is not None:
+            unavailable = sorted(
+                {
+                    _call_name(call)
+                    for call in round_calls
+                    if _call_name(call) not in offered
+                }
+            )
+            if unavailable:
+                code = (
+                    "tool_not_available"
+                    if call_name in unavailable
+                    else "tool_batch_contains_unavailable_call"
+                )
+                message = (
+                    f"Tool {call_name!r} was not executed because it was "
+                    "not offered in this model request. Use only a "
+                    "currently available tool."
+                    if call_name in unavailable
+                    else "This tool was not executed because its batch also "
+                    f"contained unavailable tool(s): {', '.join(unavailable)}. "
+                    "Retry using only currently available tools."
+                )
+                payload = {
+                    "status": "protocol_blocked",
+                    "backend_attempted": False,
+                    "error_code": code,
+                    "rejected_tool": call_name,
+                    "unavailable_tools": unavailable,
+                    "message": message,
+                }
+                await handle.emit(
+                    "tool.protocol_rejected",
+                    tool_call_id=call_id,
+                    name=call_name,
+                    payload={
+                        "error_code": code,
+                        "backend_attempted": False,
+                        "unavailable_tools": unavailable,
+                    },
+                )
+                return PermissionDecision(
+                    behavior=PermissionBehavior.DENY,
+                    # Legacy emitted the protocol payload as the result's
+                    # JSON content — keep the same model-facing shape.
+                    message=json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+
+        permissions = getattr(handle.settings, "permissions", None)
+        allowed_commands = tuple(
+            getattr(permissions, "allowed_terminal_commands", ()) or ()
+        )
+        if allowed_commands:
+            allowed = frozenset(allowed_commands)
+            violating = {
+                getattr(call, "id", None)
+                for call in round_calls
+                if _call_name(call) == "terminal"
+                and _call_arguments(call).get("command") not in allowed
+            }
+            if violating:
+                is_violator = call_id in violating
+                code = (
+                    "terminal_command_not_allowed"
+                    if is_violator
+                    else "tool_batch_contains_disallowed_terminal_command"
+                )
+                message = (
+                    "This terminal call was not executed because its command "
+                    "did not exactly match the configured allowlist. Re-read "
+                    "the authoritative source and use only an explicitly "
+                    "permitted command verbatim."
+                    if is_violator
+                    else "This tool was not executed because its batch also "
+                    "contained a terminal command that failed the exact "
+                    "allowlist. Retry the calls separately."
+                )
+                payload = {
+                    "status": "protocol_blocked",
+                    "backend_attempted": False,
+                    "error_code": code,
+                    "rejected_tool": call_name,
+                    "message": message,
+                }
+                await handle.emit(
+                    "terminal.command_protocol_rejected",
+                    tool_call_id=call_id,
+                    name=call_name,
+                    payload={
+                        "error_code": code,
+                        "backend_attempted": False,
+                    },
+                )
+                return PermissionDecision(
+                    behavior=PermissionBehavior.DENY,
+                    message=json.dumps(
+                        payload,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                )
+        return await next_handler()
+
+
 def _find_result_block(agent: Any, tool_call_id: str) -> Any:
     """Locate the persisted ``ToolResultBlock`` for ``tool_call_id`` in the
     engine context (``agent.state.context``) — the canonical store mirrored

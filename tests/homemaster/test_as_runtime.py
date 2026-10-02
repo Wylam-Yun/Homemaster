@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -1124,4 +1125,143 @@ def test_anthropic_formatter_empty_tool_result_fallback() -> None:
     assert all(
         b.get("type") != "text" or b.get("text")
         for b in contents[0]["content"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_unavailable_tool_rejects_whole_batch(
+    tmp_path: Path,
+) -> None:
+    """Legacy parity: a batch containing a call to a tool that was NOT
+    offered must reject *every* call atomically — the valid companion call
+    must not execute (no partial side effects)."""
+    executed: list[str] = []
+
+    def _echo_execute(arguments: Any, context: Any) -> ToolExecutionResult:
+        executed.append("echo")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="ok"
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool(execute=_echo_execute))
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [
+                ToolCallBlock(id="tc-good", name="echo", input='{"x": 1}'),
+                ToolCallBlock(
+                    id="tc-bad", name="hallucinated_tool", input="{}"
+                ),
+            ],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "hi", settings=_settings(tmp_path), tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    assert executed == [], "companion call must not execute"
+    tool_msgs = [m for m in session.messages if m.role == "tool"]
+    assert len(tool_msgs) == 2
+    by_id = {m.tool_call_id: m for m in tool_msgs}
+    # The never-offered call resolves to AS's native ToolNotFoundError
+    # (no tool object exists for the permission chain to evaluate).
+    bad_text = "".join(
+        b.text or "" for b in by_id["tc-bad"].content
+    )
+    assert "hallucinated_tool" in bad_text
+    # The companion call is rejected by the protocol fence with the legacy
+    # batch-contamination code in the model-facing payload.
+    good = by_id["tc-good"]
+    good_text = "".join(b.text or "" for b in good.content)
+    assert "tool_batch_contains_unavailable_call" in good_text
+    assert (good.data or {}).get("backend_attempted") is False
+    assert any(
+        e.type == "tool.protocol_rejected"
+        and (e.payload or {}).get("error_code")
+        == "tool_batch_contains_unavailable_call"
+        for e in result.events
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_terminal_allowlist_rejects_batch(
+    tmp_path: Path,
+) -> None:
+    """Legacy parity: with ``allowed_terminal_commands`` configured, a
+    non-matching terminal call denies the whole batch and emits
+    ``terminal.command_protocol_rejected``."""
+    executed: list[str] = []
+
+    def _term(arguments: Any, context: Any) -> ToolExecutionResult:
+        executed.append(str(arguments.get("command")))
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="ran"
+        )
+
+    def _echo_execute(arguments: Any, context: Any) -> ToolExecutionResult:
+        executed.append("echo")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="ok"
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="terminal",
+            description="Run a command.",
+            input_schema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+            },
+            execute=_term,
+        )
+    )
+    registry.register(_echo_tool(execute=_echo_execute))
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [
+                ToolCallBlock(
+                    id="tc-term",
+                    name="terminal",
+                    input='{"command": "rm -rf /"}',
+                ),
+                ToolCallBlock(id="tc-echo", name="echo", input='{"x": 1}'),
+            ],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    settings = _settings(tmp_path)
+    settings.permissions = SimpleNamespace(
+        allowed_terminal_commands=("ls", "pwd")
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "hi", settings=settings, tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    assert executed == []
+    by_id = {m.tool_call_id: m for m in session.messages if m.role == "tool"}
+    term_text = "".join(b.text or "" for b in by_id["tc-term"].content)
+    echo_text = "".join(b.text or "" for b in by_id["tc-echo"].content)
+    assert "terminal_command_not_allowed" in term_text
+    assert "tool_batch_contains_disallowed_terminal_command" in echo_text
+    for m in by_id.values():
+        assert (m.data or {}).get("backend_attempted") is False
+    assert any(
+        e.type == "terminal.command_protocol_rejected"
+        and (e.payload or {}).get("error_code")
+        == "terminal_command_not_allowed"
+        for e in result.events
     )

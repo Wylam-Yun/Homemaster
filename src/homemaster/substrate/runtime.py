@@ -75,6 +75,10 @@ class AsRunHandle:
     observation_fatal: str | None = None
     observation_fatal_reason: str = ""
     normal_iterations: int = 0
+    # Tool names offered to the model on the current reasoning round —
+    # ProtocolFenceMiddleware records them in on_model_call and rejects
+    # batches containing calls outside this set (legacy parity).
+    offered_tool_names: frozenset[str] | None = None
 
 
 class AsAgentRuntime:
@@ -279,6 +283,7 @@ class AsAgentRuntime:
         from homemaster.substrate.middleware_runtime import (
             ContextAssemblyMiddleware,
             ObservationBarrierMiddleware,
+            ProtocolFenceMiddleware,
             ProviderObservabilityMiddleware,
         )
 
@@ -291,6 +296,7 @@ class AsAgentRuntime:
             )
         )
         middlewares.append(ObservationBarrierMiddleware(handle=handle))
+        middlewares.append(ProtocolFenceMiddleware(handle=handle))
         middlewares.append(
             ProviderObservabilityMiddleware(
                 handle=handle,
