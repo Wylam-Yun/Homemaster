@@ -146,3 +146,13 @@ def _is_legacy_empty_assistant(data: dict[str, Any]) -> bool:
         and not data.get("tool_calls")
         and not data.get("reasoning_content")
     )
+
+
+def new_session_id() -> str:
+    """Timestamped session id used by the CLI (moved from agent/turn.py —
+    the turn wrappers were orphaned compat shims; this is the only part
+    with live consumers)."""
+    import uuid
+    from datetime import datetime
+
+    return datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]

@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 import typer
 
-from homemaster.agent.turn import new_session_id
+from homemaster.agent.session import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.cli.confirmation import CliConfirmationHandler, CliPermissionMode

@@ -1,9 +1,9 @@
-"""Tier-1 goal verdict protocol — design-phase3-pipelines.md (定稿).
+"""Tier-1 goal verdict protocol — see the Phase-3 design doc in plan/V3.7/ (final).
 
 The LLM verdict path is intentionally NOT the vendored ``GoalPipeline``:
 both its inner ``while`` loops are unbounded, ``max_retries`` is dead, and
 ``Agent._reply_impl`` converts cancellation into an interrupted reply that
-the pipeline would retry forever. Instead this module provides a small
+the goal loop would retry forever. Instead this module provides a small
 HM-owned verifier protocol on top of ``AsLLMClient.complete_json`` — no
 Agent, no tools, no lifecycle takeover.
 
@@ -147,8 +147,6 @@ def _render_transcript(transcript: Sequence[Any], *, limit: int = 8) -> str:
         text = getattr(message, "text", "") or ""
         if not text:
             content = getattr(message, "content", None) or []
-            text = " ".join(
-                getattr(b, "text", "") or "" for b in content
-            )
+            text = " ".join(getattr(b, "text", "") or "" for b in content)
         lines.append(f"{role}: {text[:500]}")
     return "\n".join(lines)

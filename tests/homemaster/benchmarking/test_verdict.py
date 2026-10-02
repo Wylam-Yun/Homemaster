@@ -1,4 +1,4 @@
-"""Tier-1 VerdictVerifier gates — design-phase3-pipelines.md §4."""
+"""Tier-1 VerdictVerifier gates — see design doc §4."""
 
 from __future__ import annotations
 

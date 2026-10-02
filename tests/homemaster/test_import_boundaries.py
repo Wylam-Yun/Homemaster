@@ -114,3 +114,51 @@ def test_package_entrypoints_do_not_export_deleted_legacy_packages() -> None:
         assert '"stages"' not in text
         assert '"task_runner"' not in text
         assert '"decision"' not in text
+
+
+def test_vendored_agentscope_never_imports_homemaster() -> None:
+    """The vendored tree must stay HomeMaster-free — upgrades replay the
+    tree verbatim; HM coupling lives in ``substrate`` adapters only."""
+    import re
+
+    pattern = re.compile(r"^\s*(?:from|import)\s+homemaster\b", re.M)
+    offenders = []
+    for path in (ROOT / "src/agentscope").rglob("*.py"):
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == [], f"vendored agentscope imports homemaster: {offenders}"
+
+
+def test_homemaster_imports_agentscope_only_inside_substrate() -> None:
+    """Engine coupling is substrate-scoped — application/agent/domain code
+    must not import the vendored engine directly."""
+    import re
+
+    pattern = re.compile(r"^\s*(?:from|import)\s+agentscope\b", re.M)
+    offenders = []
+    for path in (ROOT / "src/homemaster").rglob("*.py"):
+        rel = str(path.relative_to(ROOT))
+        if rel.startswith("src/homemaster/substrate/"):
+            continue
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(rel)
+    assert offenders == [], (
+        f"agentscope imports outside substrate: {offenders}"
+    )
+
+
+def test_agentscope_engine_entrypoints_do_not_reverse_import_application() -> None:
+    """Substrate may consume agent-domain contracts but never the
+    application composition layer (application → substrate direction only)."""
+    import re
+
+    pattern = re.compile(
+        r"^\s*(?:from|import)\s+homemaster\.application\b", re.M
+    )
+    offenders = []
+    for path in (ROOT / "src/homemaster/substrate").rglob("*.py"):
+        if pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == [], (
+        f"substrate reverse-imports application layer: {offenders}"
+    )

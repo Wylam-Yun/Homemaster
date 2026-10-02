@@ -10,7 +10,7 @@ from typing import Literal
 
 import typer
 
-from homemaster.agent.turn import new_session_id
+from homemaster.agent.session import new_session_id
 from homemaster.application import RunPolicy, RunRequest, RunResult
 from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.cli.live_output import StreamJsonEventSink, TextStreamEventSink

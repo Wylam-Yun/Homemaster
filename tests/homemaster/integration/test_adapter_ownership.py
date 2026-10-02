@@ -7,7 +7,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ENTRY_PATHS = (
-    "src/homemaster/agent/turn.py",
     "src/homemaster/cli/interactive_shell.py",
     "src/homemaster/alfworld/benchmark/runner.py",
 )

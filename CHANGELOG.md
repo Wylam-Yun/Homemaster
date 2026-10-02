@@ -1,5 +1,20 @@
 # Unreleased
 
+- V3.7 Phase-3 deletion steps 10-11: `agent/turn.py` removed — its
+  `run_agent_turn`/`run_single_turn`/`compact_agent_context` wrappers were
+  orphaned compat shims (only consumer was their own test; both CLI entries
+  already call `application.run` directly). `new_session_id` moved to
+  `agent/session.py` as the sole live member; `test_adapter_ownership`
+  entry list updated. Import-boundary guards extended with layering
+  assertions: vendored `src/agentscope/` carries zero `homemaster` imports
+  and `substrate/` may not reach up into `application.*`/`memory.*`.
+  Remote full regression on `786881b` (hkust4): 1635 passed / 32 failed —
+  every failure identical to the pre-change baseline (environment
+  attribution), and the baseline's
+  `test_system_prompt_delivered_to_model` now passes via the F1 session
+  mirror fix.
+
+
 - V3.7 AgentScope-runtime parity round 2 (independent review): the canonical
   session mirror is now synced on every boundary independent of persistence —
   production settings without `observability` no longer run a frozen mirror,

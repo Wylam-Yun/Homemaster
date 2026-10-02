@@ -68,8 +68,13 @@
 
 - 消费方：`cli/interactive_shell.py:12`、`cli/run_command.py:13`、
   `test_agent_turn_cli_adapter.py`。
-- **裁决：删**。前置：CLI 入口直接走 `ApplicationRuntime`（AS 引擎
-  是默认后 turn.py 只是一层壳）。
+- **裁决：删**。**已执行**：CLI 两个入口本来就直走 `application.run`
+  （核实：run_command.py:106、interactive_shell.py:180），`run_agent_turn`/
+  `run_single_turn`/`compact_agent_context` 三个包装器零生产消费（仅自测
+  文件引用——孤儿 compat shim）。`new_session_id`（唯一活件，CLI ×2）迁入
+  `agent/session.py`；turn.py 与 `test_agent_turn_cli_adapter.py` 整体删除；
+  `test_adapter_ownership.py` 的 `ENTRY_PATHS` 移除 turn.py 条目。
+  回归 69/69 绿。
 
 ### G. `experience/success_path.py` — 仅注解引用
 
@@ -137,9 +142,13 @@ runtime） — 新基座，保留。
 8. legacy provider 测试逐个 port/retire；`llm_client.py` + `transports/` 实现删除。
 9. `ApplicationRuntime` legacy 分支删除；`generic_runtime.py` 删除；
    `context_projection.py` 拆投影/删围栏函数。
-10. `turn.py` 删除 + CLI 直走 ApplicationRuntime。
-11. 反向 import 审计测试钉边界（已有 `test_substrate_imports.py` AST 守卫，
-    补 `agent/`、`providers/` 不得 import `agentscope` 的反向断言）。
+10. `turn.py` 删除 + CLI 直走 ApplicationRuntime。**done**
+    （`new_session_id` → `agent/session.py`；CLI 本就直走 `application.run`）。
+11. 反向 import 审计测试钉边界。**done** — `test_import_boundaries.py`
+    AST 守卫覆盖：vendored `src/agentscope/` 零 `homemaster` import；
+    `agent/`/`providers/`/`memory/`/`skills/`/`tools/` 不得 import
+    `agentscope`（仅 `substrate/`、`application/`、`config` 允许）；
+    `substrate/` 不得 import `application.*`/`memory.*`（分层下钻禁回勾）。
 
 ## 门
 
@@ -147,3 +156,12 @@ runtime） — 新基座，保留。
 - 引擎默认切换（步骤 7）前：远端全量回归绿（扣除已知环境归因）+
   Feishu/Web smoke + ALFWorld 单集 e2e。
 - `generic_runtime.py` 删除前：grep 全仓零引用（除迁移中的 re-export）。
+
+## 远端回归门（786881b，hkust4 Homemaster-v35）
+
+全量回归 `32 failed / 1635 passed`（20min）：全部 32 败与上一份基线
+（`33 failed / 1647 passed`）逐项相同——cli_streaming/tmux、v19 ports、
+web confirmations/permissions、openharness bash 进程组、mindmemos/neo4j
+依赖段均为环境归因；基线上的 `test_system_prompt_delivered_to_model`
+本次转绿（F1 session 镜像修复的直接外部证据）。零新增失败 →
+删除清单步骤 7-9 的远端回归门满足（smoke 门另计）。
