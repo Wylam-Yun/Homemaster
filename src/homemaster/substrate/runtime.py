@@ -464,7 +464,10 @@ class AsAgentRuntime:
         except Exception as exc:
             await emit(
                 "runtime.turn_failed",
-                payload={"error": str(exc), "error_code": "transport_error"},
+                payload={
+                    "error": _flatten_error(exc),
+                    "error_code": "transport_error",
+                },
             )
             save_snapshot("failed")
             return GenericRunResult(
@@ -1016,6 +1019,25 @@ def _tool_schemas(tool_registry: Any) -> list[dict[str, Any]]:
         return []
     to_api_schema = getattr(tool_registry, "to_api_schema", None)
     return list(to_api_schema()) if callable(to_api_schema) else []
+
+
+def _flatten_error(exc: BaseException) -> str:
+    """ExceptionGroups hide the real failure behind 'N sub-exceptions' —
+    flatten the first leaf so turn_failed carries an actionable error."""
+    leaves: list[BaseException] = []
+    stack: list[BaseException] = [exc]
+    while stack and len(leaves) < 8:
+        current = stack.pop()
+        children = getattr(current, "exceptions", None)
+        if children:
+            stack.extend(children)
+        else:
+            leaves.append(current)
+    if not leaves:
+        return str(exc)
+    return "; ".join(
+        f"{type(leaf).__name__}: {leaf}" for leaf in leaves[:3]
+    )
 
 
 def _msg_text(msg: Any) -> str:
