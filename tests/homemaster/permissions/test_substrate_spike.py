@@ -194,7 +194,8 @@ async def test_approval_cancelled_blocks_device(tmp_path) -> None:
         assert rig.world()["ops"]["pick_up"] == 0
         result = rig.result_block(agent)
         hm = result.metadata["hm"]
-        assert hm["status"] == "permission_denied", hm
+        assert hm["status"] == "denied", hm
+        assert hm["data"]["error_code"] == "permission_denied", hm
         assert rig.adapter.exec_attempts == {}
     finally:
         rig.close()
