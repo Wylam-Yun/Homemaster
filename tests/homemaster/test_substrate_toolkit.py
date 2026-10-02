@@ -38,9 +38,7 @@ def _scope(tmp_path: Path) -> RunScope:
     return RunScope(
         session_id="s1",
         run_id="r1",
-        permission_subject=PermissionSubject(
-            subject_id="test", channel="pytest"
-        ),
+        permission_subject=PermissionSubject(subject_id="test", channel="pytest"),
         working_directory=tmp_path,
     )
 
@@ -94,9 +92,7 @@ async def test_call_runs_executor_and_projects_chunk(tmp_path) -> None:
         execute=_ok,
     )
     adapter = HomeToolAdapter(tool, _executor(tool), _scope(tmp_path))
-    chunks = [
-        chunk async for chunk in adapter.call(text="hi")
-    ]
+    chunks = [chunk async for chunk in adapter.call(text="hi")]
     assert len(chunks) == 1
     chunk = chunks[0]
     assert isinstance(chunk, ToolChunk)
@@ -114,12 +110,12 @@ async def test_tool_call_id_bridged_from_acting_middleware(tmp_path) -> None:
 
     def _record(arguments: dict, context: Any) -> ToolExecutionResult:
         seen.append(context.tool_call_id)
-        return ToolExecutionResult(
-            status=ToolExecutionStatus.SUCCESS, text="ok", data={}
-        )
+        return ToolExecutionResult(status=ToolExecutionStatus.SUCCESS, text="ok", data={})
 
     tool = FunctionTool(
-        name="rec", description="r", input_schema={"type": "object"},
+        name="rec",
+        description="r",
+        input_schema={"type": "object"},
         execute=_record,
     )
     adapter = HomeToolAdapter(tool, _executor(tool), _scope(tmp_path))
@@ -156,12 +152,12 @@ async def test_tool_call_id_bridged_from_acting_middleware(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_denied_at_as_level_maps_to_deny(tmp_path) -> None:
     tool = FunctionTool(
-        name="danger", description="d", input_schema={"type": "object"},
+        name="danger",
+        description="d",
+        input_schema={"type": "object"},
         execute=_ok,
     )
-    settings = PermissionSettingsConfig(
-        mode=PermissionMode.FULL_AUTO, denied_tools=("danger",)
-    )
+    settings = PermissionSettingsConfig(mode=PermissionMode.FULL_AUTO, denied_tools=("danger",))
     adapter = HomeToolAdapter(tool, _executor(tool, settings=settings), _scope(tmp_path))
     decision = await adapter.check_permissions({}, context=None)
     assert decision.behavior == PermissionBehavior.DENY
@@ -171,12 +167,19 @@ async def test_denied_at_as_level_maps_to_deny(tmp_path) -> None:
 @pytest.mark.asyncio
 async def test_concurrency_and_read_only_flags(tmp_path) -> None:
     parallel = FunctionTool(
-        name="p", description="d", input_schema={"type": "object"},
-        execute=_ok, read_only=True, concurrency_policy="parallel",
+        name="p",
+        description="d",
+        input_schema={"type": "object"},
+        execute=_ok,
+        read_only=True,
+        concurrency_policy="parallel",
     )
     serialized = FunctionTool(
-        name="s", description="d", input_schema={"type": "object"},
-        execute=_ok, concurrency_policy="serialized",
+        name="s",
+        description="d",
+        input_schema={"type": "object"},
+        execute=_ok,
+        concurrency_policy="serialized",
     )
     adapter_p = HomeToolAdapter(parallel, _executor(parallel), _scope(tmp_path))
     adapter_s = HomeToolAdapter(serialized, _executor(serialized), _scope(tmp_path))
@@ -198,13 +201,15 @@ def test_result_to_chunk_carries_images_and_attachments() -> None:
         text="shot",
         images=(
             ResultImage(
-                data_base64="AAAA", media_type="image/png",
+                data_base64="AAAA",
+                media_type="image/png",
                 content_sha256=_sha_b64(image_bytes),
             ),
         ),
         attachments=(
             ResultAttachment(
-                filename="log.txt", media_type="text/plain",
+                filename="log.txt",
+                media_type="text/plain",
                 data_base64=base64.b64encode(b"hello").decode(),
                 content_sha256=_sha_b64(attach_bytes),
             ),
@@ -241,3 +246,85 @@ def test_outcome_unknown_never_maps_to_interrupted() -> None:
     assert chunk.state == ToolResultState.ERROR
     assert chunk.state != ToolResultState.INTERRUPTED
     assert chunk.metadata["hm"]["status"] == "outcome_unknown"
+
+
+def test_result_to_chunk_thaws_frozen_result_data() -> None:
+    """Canonical frozen ``result.data`` (MappingProxyType/tuple) must be
+    recursively thawed before it enters AS pydantic metadata — otherwise
+    ``Msg.model_copy(deep=True)`` in ``_strip_context_images`` crashes with
+    ``cannot pickle 'mappingproxy'`` at session-save time (live e2e catch).
+    """
+    import copy
+    from types import MappingProxyType
+
+    result = ToolExecutionResult(
+        status=ToolExecutionStatus.SUCCESS,
+        text="done",
+        data={
+            "observation": {"objects": ["lamp", "desk"], "nested": {"won": False}},
+            "list_field": [{"a": 1}, {"b": 2}],
+        },
+        backend_attempted=True,
+    )
+    # Contract: result.data really is frozen (the thing we must thaw).
+    assert isinstance(result.data["observation"], MappingProxyType)
+
+    chunk = result_to_chunk(result)
+    payload = chunk.metadata["hm"]["data"]
+    # The whole metadata tree must survive Msg deepcopy and contain no
+    # frozen containers.
+    copied = copy.deepcopy(chunk.metadata)
+
+    def _plain(value: object) -> None:
+        assert not isinstance(value, MappingProxyType), value
+        assert not isinstance(value, tuple), value
+        if isinstance(value, dict):
+            for item in value.values():
+                _plain(item)
+        elif isinstance(value, list):
+            for item in value:
+                _plain(item)
+
+    _plain(copied)
+    assert payload["observation"]["nested"] == {"won": False}
+    assert payload["list_field"] == [{"a": 1}, {"b": 2}]
+
+
+def test_message_to_chunk_and_to_agent_scope_thaw_data() -> None:
+    """``message_to_chunk`` and ``to_agent_scope`` take the already-projected
+    ``ToolResultMessage.data``; callers may hand it still-frozen mappings, so
+    both ingresses must thaw recursively (same snapshot crash class)."""
+    import copy
+    from types import MappingProxyType
+
+    from homemaster.agent.messages import (
+        AssistantMessage,
+        ContentBlock,
+        ToolCall,
+        ToolResultMessage,
+    )
+    from homemaster.substrate.messages import to_agent_scope
+    from homemaster.substrate.toolkit import message_to_chunk
+
+    frozen = MappingProxyType({"nested": MappingProxyType({"won": True})})
+    msg = ToolResultMessage(
+        tool_call_id="call-1",
+        name="thor_action",
+        content=[ContentBlock(text='{"ok": true}')],
+        data={"backend_attempted": True, "result": frozen},
+    )
+    copied = copy.deepcopy(message_to_chunk(msg).metadata)
+    assert copied["hm"]["data"]["result"]["nested"] == {"won": True}
+
+    as_msgs = to_agent_scope(
+        [
+            AssistantMessage(
+                content=[ContentBlock(text="acting")],
+                tool_calls=[ToolCall(id="call-1", name="thor_action", arguments={})],
+            ),
+            msg,
+        ]
+    )
+    result_block = next(b for b in as_msgs[0].content if type(b).__name__ == "ToolResultBlock")
+    copied_msg = copy.deepcopy(result_block.metadata)
+    assert copied_msg["hm"]["data"]["result"]["nested"] == {"won": True}

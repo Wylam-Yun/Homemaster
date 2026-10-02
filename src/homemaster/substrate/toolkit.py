@@ -13,7 +13,7 @@ import contextvars
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 
@@ -42,6 +42,7 @@ from homemaster.tools.contracts import (
     ToolExecutionContext,
     ToolExecutionResult,
     ToolExecutionStatus,
+    thaw_json,
 )
 
 _current_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -128,7 +129,7 @@ def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
         )
     if not content:
         content.append(TextBlock(text=""))
-    data = dict(result.data)
+    data = cast(dict[str, object], thaw_json(result.data))
     existing_status = data.get("status")
     if existing_status is not None and existing_status != result.status.value:
         data.setdefault("domain_status", existing_status)
@@ -180,19 +181,13 @@ def message_to_chunk(result: ToolResultMessage) -> ToolChunk:
         content.append(TextBlock(text=""))
     return ToolChunk(
         content=content,
-        state=(
-            ToolResultState.ERROR
-            if result.is_error
-            else ToolResultState.SUCCESS
-        ),
+        state=(ToolResultState.ERROR if result.is_error else ToolResultState.SUCCESS),
         is_last=True,
         metadata={
             "hm": {
                 "status": "error" if result.is_error else "success",
-                "data": dict(result.data or {}),
-                "backend_attempted": (result.data or {}).get(
-                    "backend_attempted"
-                ),
+                "data": thaw_json(result.data or {}),
+                "backend_attempted": (result.data or {}).get("backend_attempted"),
                 "error_code": (result.data or {}).get("error_code"),
             }
         },
@@ -290,9 +285,7 @@ class HomeToolAdapter(ToolBase):
         # publication that ``ToolExecutor.execute`` alone does not.
         for_substrate = getattr(self._executor, "execute_for_substrate", None)
         if callable(for_substrate):
-            outcome = await for_substrate(
-                call, run_context=self._scope.services.get("run_context")
-            )
+            outcome = await for_substrate(call, run_context=self._scope.services.get("run_context"))
             if isinstance(outcome, ToolResultMessage):
                 yield message_to_chunk(outcome)
             else:

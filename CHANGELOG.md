@@ -1,5 +1,17 @@
 # Unreleased
 
+- V3.7 live-e2e catch (web/alfworld smoke): frozen canonical
+  `ToolExecutionResult.data` (MappingProxyType/tuple tree from
+  `_freeze_json`) leaked into AgentScope `ToolResultBlock.metadata["hm"]`
+  via shallow `dict()` copies, so `Msg.model_copy(deep=True)` inside
+  `_strip_context_images` crashed session save with
+  `cannot pickle 'mappingproxy'`. `contracts.py` now exports public
+  `thaw_json`, and all three canonical→AS ingresses (`result_to_chunk`,
+  `message_to_chunk`, `to_agent_scope`) recursively thaw `data` — matching
+  the documented "thaw before entering pydantic messages" contract.
+  Regression tests drive the real freeze→chunk→deepcopy path.
+
+
 - V3.7 Phase-3 deletion steps 10-11: `agent/turn.py` removed — its
   `run_agent_turn`/`run_single_turn`/`compact_agent_context` wrappers were
   orphaned compat shims (only consumer was their own test; both CLI entries

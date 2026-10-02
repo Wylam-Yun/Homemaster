@@ -805,6 +805,17 @@ def _thaw_json(value: object) -> object:
     return value
 
 
+def thaw_json(value: object) -> object:
+    """Recursively thaw a frozen canonical JSON tree into plain containers.
+
+    The frozen tree (MappingProxyType / tuple) produced by ``_freeze_json`` is
+    canonical-internal; it must be thawed before entering Pydantic/session/
+    provider messages, otherwise ``model_copy(deep=True)`` raises
+    ``cannot pickle 'mappingproxy'``.
+    """
+    return _thaw_json(value)
+
+
 def _validated_refs(values: Sequence[str], *, label: str) -> tuple[str, ...]:
     if isinstance(values, str):
         raise TypeError(f"{label} references must be a sequence of strings")

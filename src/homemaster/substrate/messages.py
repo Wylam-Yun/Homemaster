@@ -37,6 +37,7 @@ from homemaster.agent.messages import (
     ToolResultMessage,
     UserMessage,
 )
+from homemaster.tools.contracts import thaw_json
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +72,7 @@ def _block_to_as(block: ContentBlock) -> list:
                 media_type=str(source.get("media_type", "image/png")),
             )
         else:
-            raise MessageConversionError(
-                f"unsupported image source type: {source_type!r}"
-            )
+            raise MessageConversionError(f"unsupported image source type: {source_type!r}")
         name = None
         path = block.metadata.get("path")
         if isinstance(path, str) and path:
@@ -134,23 +133,15 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
     current_reply: Msg | None = None
     for message in messages:
         if isinstance(message, UserMessage):
-            blocks = [
-                b
-                for i, blk in enumerate(message.content)
-                for b in _block_to_as(blk)
-            ]
+            blocks = [b for i, blk in enumerate(message.content) for b in _block_to_as(blk)]
             metadata: dict = {}
             if any(b.metadata for b in message.content):
                 metadata["hm"] = {
                     "block_meta": {
-                        str(i): b.metadata
-                        for i, b in enumerate(message.content)
-                        if b.metadata
+                        str(i): b.metadata for i, b in enumerate(message.content) if b.metadata
                     }
                 }
-            out.append(
-                Msg(role="user", name=_USER_NAME, content=blocks, metadata=metadata)
-            )
+            out.append(Msg(role="user", name=_USER_NAME, content=blocks, metadata=metadata))
             current_reply = None
         elif isinstance(message, AssistantMessage):
             blocks: list = []
@@ -163,9 +154,7 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                     ToolCallBlock(
                         id=call.id,
                         name=call.name,
-                        input=json.dumps(
-                            call.arguments, ensure_ascii=False, sort_keys=True
-                        ),
+                        input=json.dumps(call.arguments, ensure_ascii=False, sort_keys=True),
                         state=ToolCallState.PENDING,
                     )
                 )
@@ -181,9 +170,7 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                 seg["usage"] = dict(message.usage)
             if any(b.metadata for b in message.content):
                 seg["block_meta"] = {
-                    str(i): b.metadata
-                    for i, b in enumerate(message.content)
-                    if b.metadata
+                    str(i): b.metadata for i, b in enumerate(message.content) if b.metadata
                 }
             seg_usage = None
             if message.usage:
@@ -205,9 +192,7 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                     else:
                         current_reply.usage.input_tokens += seg_usage.input_tokens
                         current_reply.usage.output_tokens += seg_usage.output_tokens
-                        current_reply.usage.cache_input_tokens += (
-                            seg_usage.cache_input_tokens
-                        )
+                        current_reply.usage.cache_input_tokens += seg_usage.cache_input_tokens
                         current_reply.usage.cache_creation_input_tokens += (
                             seg_usage.cache_creation_input_tokens
                         )
@@ -232,12 +217,10 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
             metadata = {"hm": {}}
             if any(b.metadata for b in message.content):
                 metadata["hm"]["block_meta"] = {
-                    str(i): b.metadata
-                    for i, b in enumerate(message.content)
-                    if b.metadata
+                    str(i): b.metadata for i, b in enumerate(message.content) if b.metadata
                 }
             if message.data:
-                metadata["hm"]["data"] = dict(message.data)
+                metadata["hm"]["data"] = thaw_json(message.data)
             if message.provider_metadata:
                 metadata["hm"]["provider_metadata"] = dict(message.provider_metadata)
             current_reply.content.append(
@@ -245,19 +228,12 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                     id=message.tool_call_id,
                     name=message.name,
                     output=output,
-                    state=(
-                        ToolResultState.ERROR
-                        if message.is_error
-                        else ToolResultState.SUCCESS
-                    ),
+                    state=(ToolResultState.ERROR if message.is_error else ToolResultState.SUCCESS),
                     metadata=metadata,
                 )
             )
             for block in current_reply.content:
-                if (
-                    isinstance(block, ToolCallBlock)
-                    and block.id == message.tool_call_id
-                ):
+                if isinstance(block, ToolCallBlock) and block.id == message.tool_call_id:
                     block.state = ToolCallState.FINISHED
         else:
             raise MessageConversionError(f"unsupported message: {type(message)!r}")
@@ -275,14 +251,10 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
     for msg in messages:
         hm = msg.metadata.get("hm", {}) if isinstance(msg.metadata, dict) else {}
         if msg.role == "system":
-            raise MessageConversionError(
-                "system role Msg cannot enter canonical history"
-            )
+            raise MessageConversionError("system role Msg cannot enter canonical history")
         if msg.role == "user":
             converted = [
-                _block_from_as(b)
-                for b in msg.content
-                if isinstance(b, (TextBlock, DataBlock))
+                _block_from_as(b) for b in msg.content if isinstance(b, (TextBlock, DataBlock))
             ]
             skipped = len(msg.content) - len(converted)
             if skipped:
@@ -319,9 +291,7 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
             if msg.usage.cache_input_tokens:
                 usage["cache_input_tokens"] = msg.usage.cache_input_tokens
             if msg.usage.cache_creation_input_tokens:
-                usage["cache_creation_input_tokens"] = (
-                    msg.usage.cache_creation_input_tokens
-                )
+                usage["cache_creation_input_tokens"] = msg.usage.cache_creation_input_tokens
             usage.update(hm.get("usage_extra") or {})
             seg["usage"] = usage
         seg_list = [seg]
@@ -360,9 +330,7 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
         out.append(
             AssistantMessage(
                 content=pending_content,
-                reasoning_content=(
-                    "\n".join(pending_reasoning) if pending_reasoning else None
-                ),
+                reasoning_content=("\n".join(pending_reasoning) if pending_reasoning else None),
                 tool_calls=pending_calls,
                 finish_reason=seg.get("finish_reason"),
                 usage=seg.get("usage"),
@@ -385,30 +353,18 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
                     f"tool_call {block.id!r} input is not valid JSON"
                 ) from exc
             if not isinstance(arguments, dict):
-                raise MessageConversionError(
-                    f"tool_call {block.id!r} input is not a JSON object"
-                )
-            pending_calls.append(
-                ToolCall(id=block.id, name=block.name, arguments=arguments)
-            )
+                raise MessageConversionError(f"tool_call {block.id!r} input is not a JSON object")
+            pending_calls.append(ToolCall(id=block.id, name=block.name, arguments=arguments))
         elif isinstance(block, ToolResultBlock):
             flush()
-            result_meta = (
-                block.metadata.get("hm", {})
-                if isinstance(block.metadata, dict)
-                else {}
-            )
+            result_meta = block.metadata.get("hm", {}) if isinstance(block.metadata, dict) else {}
             output_blocks: list[ContentBlock] = []
             if isinstance(block.output, str):
                 if block.output:
-                    output_blocks.append(
-                        ContentBlock(type="text", text=block.output)
-                    )
+                    output_blocks.append(ContentBlock(type="text", text=block.output))
             else:
                 output_blocks = [
-                    _block_from_as(b)
-                    for b in block.output
-                    if isinstance(b, (TextBlock, DataBlock))
+                    _block_from_as(b) for b in block.output if isinstance(b, (TextBlock, DataBlock))
                 ]
                 _restore_block_meta(result_meta, output_blocks)
             # Protocol-fence denials are completed protocol results, not
@@ -425,13 +381,9 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
                     tool_call_id=block.id,
                     name=block.name,
                     content=output_blocks,
-                    is_error=(
-                        block.state != ToolResultState.SUCCESS
-                        and not protocol_blocked
-                    ),
+                    is_error=(block.state != ToolResultState.SUCCESS and not protocol_blocked),
                     data=result_data,
-                    provider_metadata=result_meta.get("provider_metadata")
-                    or {},
+                    provider_metadata=result_meta.get("provider_metadata") or {},
                 )
             )
         else:
@@ -461,9 +413,7 @@ def assert_semantic_equal(a: Msg, b: Msg) -> None:
     """Field-level equality for A->H->A checks; exempt regenerated fields."""
     assert a.role == b.role, f"role {a.role!r} != {b.role!r}"
     assert a.name == b.name, f"name {a.name!r} != {b.name!r}"
-    assert len(a.content) == len(b.content), (
-        f"block count {len(a.content)} != {len(b.content)}"
-    )
+    assert len(a.content) == len(b.content), f"block count {len(a.content)} != {len(b.content)}"
     for ba, bb in zip(a.content, b.content, strict=True):
         assert type(ba) is type(bb), f"{type(ba)} != {type(bb)}"
         da = ba.model_dump(exclude={"id", "created_at", "finished_at"})
