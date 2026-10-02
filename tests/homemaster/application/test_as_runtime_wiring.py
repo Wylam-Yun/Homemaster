@@ -228,6 +228,10 @@ def _app(
     tmp_path: Path,
     tools: list[RegisteredTool],
     model: _ScriptedModel,
+    *,
+    application_services: dict[str, object] | None = None,
+    context_policy: ContextPolicyConfig | None = None,
+    context_window_tokens: int | None = None,
 ) -> ApplicationRuntime:
     registry = ToolRegistry()
     registry.register_many([from_registered_tool(t) for t in tools])
@@ -239,14 +243,18 @@ def _app(
         model="stub",
         api_keys=("sk-stub",),
         kind="chat",
+        **({"context_window_tokens": context_window_tokens} if context_window_tokens else {}),
     )
+    policy = context_policy or ContextPolicyConfig()
 
     def context_factory(request: Any, provider: Any) -> ContextAssembler:
+        # summary_client stub: the policy defaults to abort_on_summary_failure
+        # — without a client, compaction fail-closes and never triggers.
         return ContextAssembler(
             provider=profile,
-            policy=ContextPolicyConfig(),
+            policy=policy,
             system_prompt="system",
-            summary_client=None,
+            summary_client=_SummaryClient(),
         )
 
     settings = SimpleNamespace(
@@ -255,9 +263,9 @@ def _app(
             max_no_progress_iterations=20,
             reactive_compact_max_retries=2,
         ),
-        context=ContextPolicyConfig(),
+        context=policy,
         provider_name="stub",
-        application_services={},
+        application_services=dict(application_services or {}),
         observability=SimpleNamespace(
             session_dir=str(tmp_path / "sessions"),
             save_session_per_iteration=True,
@@ -375,3 +383,109 @@ async def test_app_runtime_agentscope_automatic_observation(
     assert "model_observation.automatic_completed" in event_types
     assert "model_observation.image_consumed" in event_types
     assert "runtime.turn_completed" in event_types
+
+
+class _SummaryClient:
+    """Minimal sync summary client: returns a fixed assistant summary."""
+
+    def complete(self, *args: Any, **kwargs: Any) -> Any:
+        from homemaster.agent.messages import AssistantMessage, ContentBlock
+
+        del args, kwargs
+        return AssistantMessage(content=[ContentBlock(text="summary")])
+
+
+class _FailOnceModel(_ScriptedModel):
+    """Raises a context-length error on the first API call so the runtime
+    exercises the reactive-compaction retry path."""
+
+    def __init__(self, script: list[list[Any]]) -> None:
+        super().__init__(script)
+        self._failed = False
+
+    async def _call_api(self, model_name, messages, tools=None, **kwargs):
+        if not self._failed:
+            self._failed = True
+            raise ValueError("context length exceeded: 200k > 128k")
+        return await super()._call_api(model_name, messages, tools=tools, **kwargs)
+
+
+class _MindMemOSStub:
+    """Counts automatic-recall searches; returns no memories."""
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def search(self, query: Any, context: Any, **kwargs: Any) -> Any:
+        del context, kwargs
+        self.queries.append(str(query))
+        return SimpleNamespace(memories=[])
+
+
+@pytest.mark.asyncio
+async def test_app_runtime_agentscope_post_compaction_recalls_inline(
+    tmp_path: Path,
+) -> None:
+    """C+ acceptance: compaction inside an AS-path run must fire
+    ``on_compaction`` → re-arm ``require_recall`` → run a SECOND
+    ``mindmemos.search`` inline in the same run — previously the AS path
+    never fired the callback outside reactive retries, and even on legacy
+    the flag only took effect on the *next* run."""
+    store = _MindMemOSStub()
+    # First model call fails on context length → reactive compaction fires
+    # inside the run → on_compaction → inline second recall.
+    model = _FailOnceModel([[TextBlock(text="ok")]])
+    app = _app(
+        tmp_path,
+        [],
+        model,
+        application_services={"mindmemos": store},
+        # Small window + disabled auto-compact: the run must compact only via
+        # the reactive retry, and the seeded history must exceed the threshold
+        # so `_acompact` produces an `older` segment worth summarising.
+        context_policy=ContextPolicyConfig(
+            auto_compact_enabled=False,
+            output_reserve_tokens=200,
+            safety_buffer_tokens=200,
+        ),
+        context_window_tokens=2000,
+    )
+    session_id = "as-recall-inline"
+    # Seed prior history so force_compact actually compacts something.
+    from homemaster.agent.messages import (
+        AssistantMessage,
+        ContentBlock,
+        UserMessage,
+    )
+
+    runtime = await app.session_manager.open_or_resume(session_id)
+    for index in range(6):
+        runtime.session.append(
+            UserMessage.from_text(f"earlier question {index} " + "x" * 300)
+        )
+        runtime.session.append(
+            AssistantMessage(content=[ContentBlock(text="a" * 300)])
+        )
+    result = await app.run(
+        RunRequest(
+            text="hello",
+            session_id=session_id,
+            resume=True,
+            permission_subject=PermissionSubject(
+                subject_id="operator",
+                channel="cli",
+                tenant_id="tenant-x",
+                capabilities=("tool.auto",),
+            ),
+        )
+    )
+
+    assert result.status is RunStatus.REPLIED
+    # Initial recall at run start + inline re-recall after the compaction
+    # — both inside ONE run.
+    assert len(store.queries) == 2
+    runtime_after = app.session_manager.get(session_id)
+    assert runtime_after.require_recall is False
+    event_types = [e.type for e in app.event_bus.events]
+    assert "context.compaction" in event_types
+    assert event_types.count("memory.automatic_recall") == 2

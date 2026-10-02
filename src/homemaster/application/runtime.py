@@ -572,8 +572,41 @@ class ApplicationRuntime:
                     )
 
                 async def rearm_recall_after_compaction(_metrics: Any) -> None:
+                    # C+ (design-phase3 review): re-arm the generation-fenced
+                    # flag, then recall + bind INLINE so the post-compaction
+                    # continuation sees fresh memories on the next prepare —
+                    # identical semantics on both engines. The bound context
+                    # lands on the next ``prepare``, not the triggering call.
                     runtime.require_recall_after_compaction(generation)
-                    await self._save_if_configured(session_id, generation)
+                    (
+                        recall_attempted,
+                        post_memory_context,
+                        post_recalled,
+                    ) = await self._automatic_recall(
+                        request=request,
+                        runtime=runtime,
+                        generation=generation,
+                        run_id=run_id,
+                        task_state_store=task_state_store,
+                        event_sink=run_event_sink,
+                        deadline=executor.deadline,
+                    )
+                    if post_memory_context:
+                        rebind_context = getattr(
+                            assembler, "bind_automatic_memory_context", None
+                        )
+                        if callable(rebind_context):
+                            rebind_context(post_memory_context)
+                    rebind_recalled = getattr(
+                        assembler, "bind_automatic_recalled_memories", None
+                    )
+                    if callable(rebind_recalled):
+                        rebind_recalled(post_recalled)
+                    run_context.deps["automatic_recalled_memories"] = (
+                        post_recalled
+                    )
+                    if recall_attempted:
+                        await self._save_if_configured(session_id, generation)
 
                 try:
                     generic = await agent.run(
@@ -594,6 +627,14 @@ class ApplicationRuntime:
                             {
                                 "engine_state": runtime.engine_state,
                                 "scope": scope,
+                                # Keep the session fence and recall deadline
+                                # surfacing raw — same contract as the legacy
+                                # engine (stale_generation → CANCELLED; recall
+                                # deadline raises to the caller).
+                                "propagate_exceptions": (
+                                    SessionGenerationError,
+                                    AutomaticRecallRunDeadlineExceeded,
+                                ),
                             }
                             if _is_agentscope_provider(provider)
                             else {}

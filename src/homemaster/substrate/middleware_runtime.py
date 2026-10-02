@@ -118,6 +118,21 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         self._on_compaction = on_compaction
         self._max_reactive_retries = max_reactive_retries
 
+    async def on_compress_context(
+        self,
+        agent: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., Any],
+    ) -> None:
+        """Fence: HM's ContextAssembler is the sole context authority.
+        Short-circuiting here (never calling ``next_handler``) prevents
+        AgentScope's native ``_compress_context_impl`` — including its
+        image limiter and the extra ``generate_structured_output`` model
+        call — from silently mutating canonical history once the token
+        count crosses ``trigger_ratio``. Covers both the per-iteration
+        auto-compression and the CompressContext tool paths."""
+        return None
+
     async def on_model_call(
         self,
         agent: Any,
@@ -196,13 +211,8 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             payload={"attempt": attempt},
         )
         prepared = await self._compact()
-        metrics = getattr(prepared, "metrics", None)
-        if metrics is None:
+        if getattr(prepared, "metrics", None) is None:
             raise RuntimeError("reactive compaction produced no metrics")
-        await self._handle.emit(
-            "context.compaction",
-            payload={"metrics": _metrics_payload(metrics)},
-        )
         return self._render(input_kwargs, prepared)
 
     async def _assemble(self, input_kwargs: dict) -> tuple[list[Any], Any]:
@@ -220,7 +230,40 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         handle.agent_state.estimated_context_tokens = getattr(
             getattr(prepared, "metrics", None), "estimated_input_tokens", 0
         )
+        # Threshold and manual compactions surface here (the reactive path
+        # notifies via ``_compact``). Legacy fires the event + callback for
+        # every compaction kind — same-parity requirement, otherwise
+        # ``require_recall`` is silently never re-armed on the AS path.
+        metrics = getattr(prepared, "metrics", None)
+        if metrics is not None and getattr(
+            metrics, "compaction_triggered", False
+        ):
+            await self._notify_compaction(metrics)
         return self._render(input_kwargs, prepared)
+
+    async def _notify_compaction(self, metrics: Any) -> None:
+        """Emit the legacy-shaped ``context.compaction`` event then invoke
+        the ``on_compaction`` callback (order matches generic_runtime)."""
+        kind = getattr(metrics, "compaction_kind", "") or ""
+        trigger = (
+            "manual"
+            if kind.startswith("manual")
+            else "reactive"
+            if kind in {"reactive", "emergency"}
+            else "auto"
+        )
+        await self._handle.emit(
+            "context.compaction",
+            payload={
+                "trigger": trigger,
+                "after_tokens": getattr(metrics, "estimated_tokens", 0) or 0,
+                "kind": kind,
+            },
+        )
+        if self._on_compaction is not None:
+            result = self._on_compaction(metrics)
+            if inspect.isawaitable(result):
+                await result
 
     def _render(self, input_kwargs: dict, prepared: Any) -> tuple[list[Any], Any]:
         """Rebuild the model input: HM system prompt (assembler is the
@@ -237,6 +280,12 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             prompt = append_model_observation_prompt(
                 prompt, tool_name=barrier.observe_tool_name
             )
+        # Frozen copy of the canonical request messages — consumed by the
+        # provider_attempt_context_binder (mindmemos_feedback) exactly like
+        # legacy's ``frozen_messages`` snapshot before dispatch.
+        self._handle.last_frozen_messages = [
+            m.model_copy(deep=True) for m in prepared.messages
+        ]
         messages = [SystemMsg(name="system", content=prompt)] + to_agent_scope(
             list(prepared.messages)
         )
@@ -250,12 +299,17 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             agent_state=handle.agent_state,
             task_state_store=handle.task_state_store,
             tools=handle.all_tool_schemas or None,
-            force_compact=True,
+            # Legacy passes "aggressive" for reactive compaction
+            # (generic_runtime.py: `pending_compaction = "aggressive"`) —
+            # a bare True would string-coerce into neither the aggressive
+            # nor manual branch and silently no-op on small histories.
+            force_compact="aggressive",
         )
-        if self._on_compaction is not None:
-            result = self._on_compaction(getattr(prepared, "metrics", None))
-            if inspect.isawaitable(result):
-                await result
+        metrics = getattr(prepared, "metrics", None)
+        if metrics is not None and getattr(
+            metrics, "compaction_triggered", False
+        ):
+            await self._notify_compaction(metrics)
         return prepared
 
 
@@ -269,6 +323,57 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         self._handle = handle
         self._attempt_sink = attempt_sink
         self._attempt_index = 0
+        self._bound_call_ids: set[str] = set()
+
+    async def on_check_permission(
+        self,
+        agent: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., Any],
+    ) -> PermissionDecision:
+        """Bind provider-attempt feedback context once per tool-call round.
+
+        This hook is the deterministic pre-dispatch point: by the time it
+        runs, the round's assistant Msg (with its tool_call blocks) is in
+        ``agent.state.context`` and the tool body has not executed. Legacy
+        binds right after stream aggregation, before dispatch — AS's
+        Msg-to-context append lands too late for the shell's watermark
+        scan, so the permission boundary carries the equivalent.
+        ``mindmemos_feedback`` reads the bound context via
+        ``run_context.deps`` at call time."""
+        round_calls = _round_tool_calls(agent)
+        if any(c.id not in self._bound_call_ids for c in round_calls):
+            self._bound_call_ids.update(
+                getattr(c, "id", "") or "" for c in round_calls
+            )
+            handle = self._handle
+            scope = getattr(handle, "scope", None)
+            services = getattr(scope, "services", None)
+            run_context = (
+                services.get("run_context")
+                if hasattr(services, "get")
+                else None
+            )
+            deps = getattr(run_context, "deps", None)
+            binder = (
+                deps.get("provider_attempt_context_binder")
+                if hasattr(deps, "get")
+                else None
+            )
+            if callable(binder):
+                binder(
+                    tool_calls=[
+                        ToolCall(
+                            id=getattr(c, "id", "") or "",
+                            name=getattr(c, "name", "") or "",
+                            arguments=_call_arguments(c),
+                        )
+                        for c in round_calls
+                    ],
+                    frozen_messages=list(handle.last_frozen_messages),
+                    deps=deps,
+                )
+        return await next_handler()
 
     async def on_model_call(
         self,
@@ -1302,26 +1407,9 @@ def _outbound_image_bindings(messages: Any) -> tuple[Any, ...]:
     return tuple(bindings)
 
 
-def _metrics_payload(metrics: Any) -> dict[str, Any]:
-    if metrics is None:
-        return {}
-    if hasattr(metrics, "model_dump"):
-        return metrics.model_dump(mode="json")
-    if isinstance(metrics, dict):
-        return dict(metrics)
-    return {
-        key: getattr(metrics, key)
-        for key in (
-            "estimated_input_tokens",
-            "removed_messages",
-            "retained_messages",
-        )
-        if hasattr(metrics, key)
-    }
-
-
 __all__ = [
     "ContextAssemblyMiddleware",
     "ObservationBarrierMiddleware",
+    "ProtocolFenceMiddleware",
     "ProviderObservabilityMiddleware",
 ]

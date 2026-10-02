@@ -52,7 +52,7 @@
 
 任务清单：
 
-- [x] middleware 实装：`physical_safety.py`（完整许可链+阻塞确认+租约+`outcome_unknown`）、`observe_barrier.py`（ToolResponse.content 注入，状态随 SessionSnapshot）、`reactive_compact.py`、`file_memory.py`、`mindmemos.py`。
+- [x] middleware 实装（实际落点与本计划写法不同，见偏差记录）：许可链/观察屏障/围栏经 `middleware_runtime.py` 三件套 + `ProtocolFenceMiddleware`（0907ede）落地；记忆轨按评审定稿 C+——**不建** `file_memory.py`/`mindmemos.py` middleware（file 轨注入本就在 assembler；recall 时机经 `rearm_recall_after_compaction` 内联，见 design-phase3-memory-middleware.md）。
 - [x] `agents/tools/base.py` `HomeTool(ToolBase)` + HM 侧 registry 镜像（按名查 canonical `ToolDefinition`）：承载 `stable_id`/`required_capabilities`/`verification_policy`/`provenance`/`external_terminal_owner`/`requires_model_observation`——现有 `BaseTool` 元数据全部平移，不丢字段。
 - [x] **RunScope/DomainBridge per-call 桥接对象**（`deps`/`services` dict 清零的承接载体）：每调用合成 task_state_store/completion_guard/current_tool_call_id/backend/alfworld_env/tool_registry/run_context/gateway_generation/memory_feedback/internal_tool_id/permission_subject/deadline/cancellation/domain_observer——`AgentState` 是跨调用共享态装不下 per-call 键，ALFWorld 三工具端到端跑通为验收。
 - [ ] `ApplicationRuntime` 瘦身 → `SessionOrchestrator`：只留 generation fencing/cancel/turn 生命周期；dedup/registry/terminal/取消/清理逐项指派给保留 Web 层对象（运行所有权表）；`compose_application` 拆 per-domain composer + 资源图（谁拥有什么、关闭顺序）。

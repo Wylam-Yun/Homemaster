@@ -585,7 +585,12 @@ class _FakeAssembler:
             messages=[UserMessage.from_text(f"assembled:{text}")],
             system_prompt=self._prompt,
             tools=None,
-            metrics=SimpleNamespace(estimated_input_tokens=11),
+            metrics=SimpleNamespace(
+                estimated_input_tokens=11,
+                estimated_tokens=11,
+                compaction_triggered=bool(force_compact),
+                compaction_kind="manual" if force_compact else "none",
+            ),
         )
 
 
@@ -677,7 +682,7 @@ async def test_as_runtime_reactive_compaction_sends_fresh_messages(
     assert result.final_reply == "recovered"
     assert len(model.attempt_inputs) == 2
     assert len(assembler.calls) == 2
-    assert assembler.calls[1]["force_compact"] is True
+    assert assembler.calls[1]["force_compact"] == "aggressive"
     retry = model.attempt_inputs[1]
     retry_text = json.dumps(
         [m.model_dump(mode="json") for m in retry], default=str
@@ -1021,7 +1026,7 @@ async def test_as_runtime_streaming_pre_chunk_retry_uses_compacted(
     result = await runtime.run(session, "hi", settings=_settings(tmp_path))
     assert result.status == "replied", result.events
     assert model.attempts == 2
-    assert assembler.calls[1]["force_compact"] is True
+    assert assembler.calls[1]["force_compact"] == "aggressive"
     retry_text = json.dumps(
         [m.model_dump(mode="json") for m in model.calls[-1]], default=str
     )
@@ -1265,3 +1270,207 @@ async def test_as_runtime_terminal_allowlist_rejects_batch(
         == "terminal_command_not_allowed"
         for e in result.events
     )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_manual_compaction_emits_event_and_callback(
+    tmp_path: Path,
+) -> None:
+    """Review-H1: a compaction inside ``_assemble`` (manual/force_compact,
+    threshold) must emit ``context.compaction`` and invoke ``on_compaction``
+    — previously only the reactive-retry path did, so ``require_recall``
+    re-arms were silently dropped on the AS path."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    runtime = AsAgentRuntime(
+        model=ScriptedModel([[TextBlock(text="ok")]]),
+        system_prompt="sys",
+        tools=[
+            HomeToolAdapter(t, executor, scope)
+            for t in registry.list_tools()
+        ],
+        context_assembler=_FakeAssembler(),
+    )
+    seen_kinds: list[str] = []
+
+    async def _on_compaction(metrics: Any) -> None:
+        seen_kinds.append(getattr(metrics, "compaction_kind", ""))
+
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session,
+        "hi",
+        settings=_settings(tmp_path),
+        force_compact=True,
+        on_compaction=_on_compaction,
+    )
+    assert result.status == "replied"
+    assert seen_kinds == ["manual"]
+    compaction_events = [
+        e for e in result.events if e.type == "context.compaction"
+    ]
+    assert len(compaction_events) == 1
+    assert compaction_events[0].payload["trigger"] == "manual"
+    assert compaction_events[0].payload["kind"] == "manual"
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_native_compress_context_fenced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review-H5: AgentScope's per-iteration ``compress_context`` must never
+    reach ``_compress_context_impl`` — the HM assembler owns all context
+    mutation. The fence is the middleware not calling next_handler."""
+    from agentscope.agent._agent import Agent as _ASAgent
+
+    impl_calls: list[None] = []
+    original = _ASAgent._compress_context_impl
+
+    async def _spy(self: Any, *args: Any, **kwargs: Any) -> None:
+        impl_calls.append(None)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(_ASAgent, "_compress_context_impl", _spy)
+
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    runtime, _model = _runtime(
+        tmp_path,
+        script=[[TextBlock(text="ok")]],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied"
+    assert impl_calls == []
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_propagate_exceptions_surface_raw(
+    tmp_path: Path,
+) -> None:
+    """Review-H3/C+: types listed in ``propagate_exceptions`` re-raise raw
+    after cleanup instead of being classified as transport_error — the app
+    layer relies on this for SessionGenerationError/recall-deadline parity."""
+    class _Fence(RuntimeError):
+        pass
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+
+    # ToolCallBlock carries a mutable state field — each run needs fresh
+    # block instances or the second run sees them as already-dispatched.
+    def _script() -> list[list[Any]]:
+        return [
+            [ToolCallBlock(id="tc1", name="echo", input='{"x": 1}')],
+            [TextBlock(text="done")],
+        ]
+
+    # stop_condition evaluates each tool result — a tool-call round is
+    # required for it to fire.
+    def _bad_stop(_session: Any, _results: Any) -> Any:
+        raise _Fence("stale generation")
+
+    runtime = AsAgentRuntime(
+        model=ScriptedModel(_script()),
+        system_prompt="sys",
+        tools=[
+            HomeToolAdapter(t, executor, scope)
+            for t in registry.list_tools()
+        ],
+        stop_condition=_bad_stop,
+    )
+    session = AgentSession("as-runtime-test")
+    with pytest.raises(_Fence):
+        await runtime.run(
+            session,
+            "hi",
+            settings=_settings(tmp_path),
+            propagate_exceptions=(_Fence,),
+        )
+
+    # A non-listed exception still classifies to transport_error.
+    def _other_stop(_session: Any, _results: Any) -> Any:
+        raise ValueError("unlisted")
+
+    runtime2 = AsAgentRuntime(
+        model=ScriptedModel(_script()),
+        system_prompt="sys",
+        tools=[
+            HomeToolAdapter(t, executor, scope)
+            for t in registry.list_tools()
+        ],
+        stop_condition=_other_stop,
+    )
+    session2 = AgentSession("as-runtime-test-2")
+    result2 = await runtime2.run(
+        session2,
+        "hi",
+        settings=_settings(tmp_path),
+    )
+    assert result2.status == "failed"
+    assert result2.error_code == "transport_error"
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_provider_attempt_context_binder_fires(
+    tmp_path: Path,
+) -> None:
+    """Review-M4: provider_attempt_context_binder must be invoked with
+    canonical ToolCall objects + frozen request messages BEFORE the calls
+    dispatch — mindmemos_feedback's deps write-back was dead on AS."""
+    order: list[str] = []
+    bound: dict[str, Any] = {}
+
+    def _binder(*, tool_calls, frozen_messages, deps):
+        order.append("bind")
+        bound["tool_calls"] = list(tool_calls)
+        bound["frozen"] = list(frozen_messages)
+        deps["memory_feedback_context_by_tool_call_id"] = {"tc1": {"k": 1}}
+
+    def _exec(arguments: Any, context: Any) -> Any:
+        order.append("exec")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="echo:1"
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool(_exec))
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    scope.services = {
+        "run_context": SimpleNamespace(
+            deps={"provider_attempt_context_binder": _binder}
+        )
+    }
+    model = ScriptedModel(
+        [
+            [ToolCallBlock(id="tc1", name="echo", input='{"x": 1}')],
+            [TextBlock(text="done")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[
+            HomeToolAdapter(t, executor, scope)
+            for t in registry.list_tools()
+        ],
+        context_assembler=_FakeAssembler(),
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "hi", settings=_settings(tmp_path), scope=scope
+    )
+
+    assert result.status == "replied"
+    assert order[:1] == ["bind"] and "exec" in order
+    assert order.index("bind") < order.index("exec")
+    assert [c.name for c in bound["tool_calls"]] == ["echo"]
+    assert bound["tool_calls"][0].id == "tc1"
+    assert bound["tool_calls"][0].arguments == {"x": 1}
+    assert bound["frozen"], "frozen request messages must reach the binder"

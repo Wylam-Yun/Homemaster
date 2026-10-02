@@ -79,6 +79,11 @@ class AsRunHandle:
     # ProtocolFenceMiddleware records them in on_model_call and rejects
     # batches containing calls outside this set (legacy parity).
     offered_tool_names: frozenset[str] | None = None
+    # Deep-copied canonical messages of the last rendered model input —
+    # fed to the provider_attempt_context_binder (mindmemos_feedback)
+    # alongside each new assistant tool_call batch, matching the legacy
+    # ``frozen_messages`` contract.
+    last_frozen_messages: list[Any] = field(default_factory=list)
 
 
 class AsAgentRuntime:
@@ -130,12 +135,20 @@ class AsAgentRuntime:
         on_compaction: Callable[[Any], Any] | None = None,
         engine_state: Any = None,
         scope: RunScope | None = None,
+        propagate_exceptions: tuple[type[BaseException], ...] = (),
     ) -> GenericRunResult:
-        """Execute one agent run through the AgentScope reasoning loop."""
+        """Execute one agent run through the AgentScope reasoning loop.
+
+        ``propagate_exceptions`` lists exception types that must surface raw
+        out of this method (after stream/dangling-tool-call cleanup) instead
+        of being classified into ``deadline_exceeded``/``transport_error``
+        results — the application layer uses it for the session-generation
+        fence and the recall deadline, matching the legacy engine contract."""
         from agentscope.agent import Agent
         from agentscope.tool import Toolkit
 
         run_id = run_id or uuid.uuid4().hex[:12]
+        self._propagate_exceptions = tuple(propagate_exceptions)
         events: list[RuntimeEvent] = []
         observability = getattr(settings, "observability", None)
         interrupt = InterruptController(
@@ -471,10 +484,13 @@ class AsAgentRuntime:
                     )
                 if stop is not None:
                     return stop
-        except TimeoutError:
+        except TimeoutError as exc:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
             self._sync_session(session, engine_state)
+            if isinstance(exc, self._propagate_exceptions):
+                save_snapshot("failed")
+                raise
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -506,6 +522,9 @@ class AsAgentRuntime:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
             self._sync_session(session, engine_state)
+            if isinstance(exc, self._propagate_exceptions):
+                save_snapshot("failed")
+                raise
             await emit(
                 "runtime.turn_failed",
                 payload={

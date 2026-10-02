@@ -1,5 +1,23 @@
 # Unreleased
 
+- V3.7 Phase-3 memory hardening (C+): repair two shipped AgentScope-path
+  regressions and restore parity with the legacy runtime. `context.compaction`
+  events and the `on_compaction` callback now fire for every real compaction
+  path (assembler threshold/manual, not only reactive retries), reactive
+  compaction uses the legacy `"aggressive"` mode, and the application-owned
+  `rearm_recall_after_compaction` callback now re-arms recall AND runs an
+  inline second automatic recall inside the same run, rebinding memory context
+  for the next model preparation. AgentScope-native `compress_context()` is
+  fenced by `ContextAssemblyMiddleware.on_compress_context` so vendored
+  context mutation never bypasses the canonical assembler/event/audit path.
+  `AsAgentRuntime.run(propagate_exceptions=...)` surfaces listed exception
+  types raw (SessionGenerationError / AutomaticRecallRunDeadlineExceeded
+  parity), and `provider_attempt_context_binder` now fires pre-dispatch via
+  `on_check_permission` so `mindmemos_feedback` calls bind feedback context
+  on the AS path. Adds adversarial substrate tests plus an app-level end-to-end
+  test asserting two `mindmemos.search` calls in one run; Phase-3 memory
+  design doc rewritten to the reviewed C+ decision.
+
 - Implementation: make ALFWorld doctor checks opt-in via `doctor --alfworld`;
   generic installation and `doctor --json` no longer require the benchmark worker.
 

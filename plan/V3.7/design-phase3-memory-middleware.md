@@ -1,115 +1,118 @@
-# Phase 3 设计草案：记忆双轨 middleware 化
+# Phase 3 设计：记忆双轨 —— 评审后定稿 C+
 
-状态：草案（待独立评审）。对应 `agentscope-migration-design.md` §5.3
-"双轨记忆注入边界（两轨并存已锁）"。
+状态：**已定稿**（独立评审驳回草案 A，采纳修正后 C+）。对应
+`agentscope-migration-design.md` §5.3 "双轨记忆注入边界（两轨并存已锁）"。
+评审发现的两处**已出货回归**已随本定稿一并修复。
 
-## 现状盘点（已核实，非猜测）
+## 评审裁决摘要（subagent 439aab61）
 
-注入通道**已经在 assembler 内**，AS 路径自动继承：
+草案 A（middleware 拥有 recall 时机）被驳回，核心原因：
 
-- `ContextAssembler`（`agent/context.py`）把
-  `frozen_memory_context.snapshot(session_id)` 拼进 system prompt parts
-  （context.py:375-378），`bind_automatic_memory_context` /
-  `bind_automatic_recalled_memories` 绑定的召回结果进 prelude
-  （414-415、527-528）。`ContextAssemblyMiddleware._render` 用
-  `prepared.system_prompt` 重建 messages[0]——所以**记忆注入已随
-  assembler 到达 AS 引擎，无需 middleware 另开注入通道**。
-- MindMemOS 召回在 app 层 `_automatic_recall`
-  （`application/runtime.py:645`）于每次 `agent.run` 之前跑：generation
-  fencing（`consume_recall`）、共享 deadline、unavailable/error 事件。
-  compaction 后 `on_compaction → require_recall_after_compaction` 只
-  重挂 flag，实际召回**拖到下一轮 run 开始**才发生。
-- 写回：`memory_add`/`memory_link` 走普通工具链（已自动进 AS path
-  经 `HomeToolAdapter`）；session-end finalizer 是 app-owned
-  （`experience/session_finalization.py`），不属于引擎生命周期。
+1. **事实错误**：`AsRunHandle` 没有 generation/SessionRuntime/request.text/
+   save 通路，候选 A 依赖的 plumbing 全部未在草案中枚举（评审 H2）。
+2. **错误分类漂移**：middleware 内 recall 异常会落进 `_drive_reply` 的
+   `except TimeoutError/Exception`——`AutomaticRecallRunDeadlineExceeded`
+   被吞成 `deadline_exceeded` 结果、`SessionGenerationError` 被吞成
+   `transport_error`，与 app 层契约（`pytest.raises` /
+   stale_generation→CANCELLED）不符（评审 H3）。
+3. **性价比失真**：同 run 重召回不是 A 独有——C+（回调内联召回）~1/5
+   工作量、双引擎同语义、顺带修复出货回归。
 
-## 关键约束（review 轮①教训）
+## 修复的出货回归（本 commit 落地，先于一切选型）
 
-1. `ContextAssemblyMiddleware._render` 丢弃 AS `_system_prompt` 链的
-   产物（H1 修复：assembler 是唯一上下文权威）。因此 AS
-   `on_system_prompt` hook（AgenticMemoryMiddleware 的注入点）**在本
-   架构下是死通道**——注入必须经 assembler 或在 `_render` 之后。
-2. `inject_runtime_state=False`，HintBlock 不进 canonical history；
-   记忆文本走 system prompt/prelude（现状语义），不改投 HintBlock。
-3. generation fencing / deadline 共享 / `automatic_recall` 事件契约
-   不能丢——middleware 内要能拿到 `AsRunHandle`（session/generation/
-   deadline/event emit 都有）。
+**H1（已修）**：AS 路径 `on_compaction`/`context.compaction` 原本只在
+reactive 重试路径触发；`_assemble` 路径的阈值/手动压缩什么都不发——
+`require_recall` 在 AS 上**静默不重挂**。修复：
+`ContextAssemblyMiddleware._assemble`/`_compact` 统一走
+`_notify_compaction`（legacy 形状 `{trigger, after_tokens, kind}` 事件
++ 回调，顺序与 generic_runtime 一致）。测试：
+`test_as_runtime_manual_compaction_emits_event_and_callback`。
 
-## 方案
+**H5（已修）**：AS 原生 `compress_context()` 每轮在 `_reply_impl` 跑，
+`trigger_ratio=0.9` 处仍会调 `_compress_context_impl`（含图片裁剪 +
+额外 `generate_structured_output` 模型调用）静默改 `state.context`/
+`summary`——无事件、无审计、摘要还因 `_render` 重建而永不到模型。
+修复：`ContextAssemblyMiddleware.on_compress_context` 短路围栏（不调
+`next_handler`，impl 永不执行；覆盖自动压缩与 CompressContext 工具两条
+路）。测试：`test_as_runtime_native_compress_context_fenced`（spy 断言
+impl 零调用）。
 
-### 候选 A（推荐）：middleware 拥有"时机"，assembler 保留"通道"
+**M4（已修）**：`provider_attempt_context_binder` 在 AS 路径从未被调用
+→ `mindmemos_feedback` 恒 `memory_feedback_context_missing`。修复：
+`ProviderObservabilityMiddleware.on_check_permission` 在权限边界（唯一
+确定的 pre-dispatch 点——Msg 落 context 晚于 ToolCallStart 消费，shell
+侧 watermark 来不及）按轮去重绑定整批 `ToolCall` + `last_frozen_messages`
+（`_render` 处深拷贝缓存，与 legacy `frozen_messages` 契约对齐）。
+测试：`test_as_runtime_provider_attempt_context_binder_fires`（断言
+bind 先于 exec、canonical ToolCall 形状、frozen 非空）。
 
-新增 `substrate/middleware_memory.py`：
+**H3（已修）**：`AsAgentRuntime.run(propagate_exceptions=...)` 新 kwarg——
+列出的异常类型在清理后原样上抛，不进 deadline_exceeded/transport_error
+分类。应用层传入 `(SessionGenerationError,
+AutomaticRecallRunDeadlineExceeded)`——保留 legacy 的
+stale_generation→CANCELLED 与 recall-deadline 上抛契约。测试：
+`test_as_runtime_propagate_exceptions_surface_raw`。
+
+## 定稿方案 C+（已实施）
+
+**召回时机保持在 app 层**（`_execute_run` 的 `_automatic_recall`，
+engine-agnostic），**`rearm_recall_after_compaction` 回调从"只挂 flag"
+扩展为"挂 flag + 内联召回 + 内联绑定"**：
 
 ```python
-class MindMemOSMiddleware(MiddlewareBase):
-    """接管 _automatic_recall 的触发时机与写回重挂；注入仍走
-    assembler.bind_automatic_*（唯一上下文权威）。"""
-
-    async def on_reply(self, agent, input_kwargs, next_handler):
-        # 平移 _automatic_recall：consume_recall(generation) →
-        # build_automatic_recall_query → mindmemos.search(共享 deadline)
-        # → assembler.bind_automatic_memory_context/recalled_memories
-        # → emit automatic_recall 事件（契约不变）
-        # 完成后才 yield from next_handler —— recall 结果必须在首个
-        # on_model_call 渲染前落地
-        ...
-
-    # compaction 后同 run 内重召回（新能力）：
-    # 订阅 ContextAssemblyMiddleware 的 compaction 通知 → 立即重跑
-    # recall + rebind，不等下一 turn（现行 flag 语义只能到下一 turn）
+async def rearm_recall_after_compaction(_metrics):
+    runtime.require_recall_after_compaction(generation)      # generation-fenced
+    (attempted, mem_ctx, recalled) = await self._automatic_recall(...)
+    bind_automatic_memory_context(mem_ctx)                    # assembler prelude
+    bind_automatic_recalled_memories(recalled)
+    run_context.deps["automatic_recalled_memories"] = recalled  # 工具面写回
+    if attempted: await self._save_if_configured(...)           # 崩溃一致性
 ```
 
-`FileMemoryMiddleware`：file_store 快照已由 `frozen_memory_context`
-经 assembler 注入且每 prepare 重取——**无新逻辑需要 middleware 承载**；
-只保留 `memory_add`/`memory_link` 工具（已在链上）。即 file 轨
-"middleware 化"是空壳，YAGNI——文档里把"常驻身份层注入"的所有权
-记在 assembler/`FrozenMemoryContextService`，不造空 middleware。
+- 双引擎同语义：`on_compaction` 回调对 legacy/AS 都是同一闭包（H1 修复后
+  AS 才会真的调到它——这也是评审指出的隐藏前置）。
+- 注入通道不动摇：记忆文本仍只经 assembler（frozen_memory_context →
+  system prompt parts；bind_automatic_* → prelude）。`_render` 重建
+  messages[0] 时自动携带。
+- 已知时序语义（记录在案）：绑定落到**下一次** `prepare`，不是触发
+  compaction 的那次调用本身——prepared 在回调前已建好。
+- flag 归属：`SessionRuntime.require_recall`/`consume_recall`/
+  `require_recall_after_compaction` 保持 runtime-owned、持久化、
+  generation-fenced，**不改快照 schema**（评审 open-Q1 裁决）。
+- 取消/deadline：复用 `_await_with_remaining_deadline`（
+  `handle.scope.deadline`/`executor.deadline` 同对象），
+  `AutomaticRecallRunDeadlineExceeded` 经 propagate_exceptions 原样上抛。
+- `FileMemoryMiddleware` 不建——file 轨注入已在 assembler
+  （`FrozenMemoryContextService` 每 prepare 重取快照），middleware 化是
+  空壳 YAGNI（评审确认草案此判断正确）。
+- finalizer（session-end 写回）保持 app-owned——middleware 不持有 session
+  生命周期（评审 open-Q4 确认无争议）。**§5.3 修正备案**：原锁定设计
+  写过 `FileMemoryMiddleware`、HintBlock 注入、middleware-owned
+  finalizer hook——本条记录三项均不采纳（HintBlock 不进 canonical
+  history；finalizer 留 app 层）。
+- middleware 边界**推迟**：等出现第二个"引擎生命周期内的记忆行为"再立
+  （评审推荐的 D 变体：flag + `on_reasoning` 每轮消费——若届时实施，
+  需要的 plumbing 已在 H2/H3 修复中铺好）。
 
-### 候选 B：middleware 拥有"通道"（on_model_call 里在 _render 后追加）
+## 事实更正（评审 L1/L3）
 
-MindMemOS 召回结果不走 assembler，由 middleware 在
-`on_model_call` 拿到 rendered messages 后追加一条 system Msg。
+- 记忆工具名：`context_memory`（file 轨）+ `mindmemos_add/search/
+  history/update/delete/feedback` + 域内 `memory_writer`；草案中
+  `memory_add`/`memory_link` 为误写。全部经 `HomeToolAdapter →
+  execute_for_substrate` 进 AS 链，无需迁移。
+- `implementation-plan.md:55` 曾误标 `file_memory.py`/`mindmemos.py`
+  middleware `[x]`——已更正为 C+ 落地描述。
+- `ComposedContext.automatic_recalled_memories`（context.py:325/500/611）
+  目前 write-only——deps 通路才是真消费面；记录在案待后续清理裁决。
 
-代价：两套注入通道并存（assembler + middleware），"assembler 是唯一
-权威"被打破；屏障/压缩路径要多管一条注入源；快照看 assembled
-context 的行为要重审计。**不推荐**——除非评审认为 assembler 不该再
-聚合记忆职责。
+## 验证门（已过）
 
-### 候选 C：不做 middleware，保持 app 层召回
-
-`_automatic_recall` 已是 engine-agnostic（两引擎共用同一段代码），
-唯一损失是"同 run 内 compaction 后立即重召回"。可以小修：让
-`on_compaction` 回调里直接重跑 recall（app 层回调已有全部上下文），
-而不是只挂 flag。改动最小，middleware 层不增。
-
-## 推荐与开放问题
-
-推荐 **A**：拿到"同 run 重召回"的真实语义升级 + middleware 边界与
-设计文档一致；注入通道不动摇（H1 纪律不破）。C 是诚实备选——如果
-评审认定"同 run 重召回"价值低，C 以 1/5 工作量拿同等正确性。
-
-开放问题（评审须裁决）：
-
-1. `consume_recall/require_recall` flag 是 `SessionRuntime` 字段（持久
-   化到快照 payload `require_recall`）。middleware 化后 flag 归属不
-   变（仍 runtime-owned、generation-fenced）还是迁进 middleware 状态？
-   ——迁移会改变快照 payload 形状，需 schema 裁决。
-2. `on_reply` 在 AS 里是 async generator hook；召回 `await` 会推迟整个
-   reply_stream 首事件——deadline 语义等价但取消语义要核实
-   （SIGINT 在 recall await 中 → CancelledError 穿透链路）。
-3. `automatic_recalled_memories`/`recalled_memories_by_tool_call_id`
-   进了 `RunContext.deps`（application/runtime.py:507-509）供工具
-   消费；middleware 化后 deps 的装配时序要重新对齐（deps 在
-   `agent.run` 前构造，recall 结果那时还没有）。
-4. finalizer（session-end 写回）维持在 app 层——中间件不持有
-   session 生命周期，确认无争议。
-
-## 验证门（若采纳 A）
-
-- 定点测试：middleware 内 recall → assembler prelude 出现召回文本；
-  compaction 触发同 run 重召回（断言第二次 search 调用发生且
-  bind 刷新）；`consume_recall` 为 false 时不发 search。
-- 契约等价：`automatic_recall` 事件 status/count 词表与 app 层一致；
-  recall 中 SIGINT → cancelled，无 traceback 泄漏。
-- 回归：application/test_as_runtime_wiring + memory 相关套件全绿。
+- `test_as_runtime.py` 24/24 绿（含 4 个新测试钉死 H1/H5/H3/M4）。
+- 定点回归 `test_substrate_*` + `test_as_runtime` + `application/`
+  118/118 绿；ruff 全过。
+- app 级端到端已落地：
+  `test_app_runtime_agentscope_post_compaction_recalls_inline`——
+  MindMemOS 桩 + 小窗口 + `_FailOnceModel` context-length 错误 →
+  reactive `"aggressive"` 压缩 → 断言同一 run 内恰好两次 `search`
+  调用、`context.compaction` 事件、`memory.automatic_recall` ×2、
+  recall flag 消费归零。

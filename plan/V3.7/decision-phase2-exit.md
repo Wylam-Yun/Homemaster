@@ -122,16 +122,48 @@ test_as_runtime + application/` 211/211 绿，ruff 全过。
 - Phase 3：删除 `generic_runtime.py` 回退位、CLI/Web 面改造、
   MindMemOS 深度集成——见 `implementation-plan.md`。
 
-## 协议围栏归属裁决（加固轮期间核实）
+## 协议围栏归属裁决（加固轮期间核实，已移植）
 
-legacy `generic_runtime` 在模型层有三道协议围栏，AS 路径的等价落点：
+legacy `generic_runtime` 在模型层有三道协议围栏，其中两道是**原子
+拒批**（一批里有一个不可用/越权调用 → 整批拒，附带调用拿
+`tool_batch_contains_*`）。evidence-map 审计发现 AS per-call 报错会让
+有效附带调用先执行（部分副作用）——已按 legacy 语义移植，不再只是
+fail-closed 等价：
 
-| 围栏 | legacy 位置 | AS 路径归属 | 语义差距 |
+| 围栏 | legacy 位置 | AS 路径落点 | 状态 |
 |---|---|---|---|
 | 观察屏障批量/协议 | 循环内联 | `ObservationBarrierMiddleware.on_check_permission` | 已全对齐 |
-| unknown tool 拒绝 | `unavailable_tool_protocol_results` → `tool.protocol_rejected` 事件 | AS `Toolkit.call_tool` 原生 `ToolNotFoundError` error result | fail-closed 等价；缺专用事件与 `backend_attempted=False` 标注 |
-| terminal allowlist | `terminal_command_protocol_results` → `terminal.command_protocol_rejected` 事件 | `PermissionPolicy`（policy.py:88-96）在权限层 deny | **权限层 fail-closed 等价**；缺专用事件与 model-facing 提示文案 |
+| unknown tool 原子拒批 | `unavailable_tool_protocol_results` | `ProtocolFenceMiddleware`（`on_model_call` 记 offered 集 + `on_check_permission` 拒整批） | **已移植** |
+| terminal allowlist 原子拒批 | `terminal_command_protocol_results` | 同上，`exact-match` 校验全部 terminal 调用 | **已移植** |
 
-裁决：安全边界成立（两道的真防线都在权限/工具层），差异只在事件
-丰富度。若后续需要协议级 UX 等价（模型能区分"工具不存在"与"被
-权限拒绝"），可在 `on_check_permission` 补一层预检——非阻塞项。
+移植要点（`ProtocolFenceMiddleware`，middleware_runtime.py）：
+
+- `on_model_call` 在 `ObservationBarrierMiddleware` 之后记录本迭代实际
+  offered 工具名集（屏障裁剪后的真实集合，与 legacy "当前可用"语义一致）。
+- `on_check_permission` 取当前轮全部 tool_call 做两阶段判批：先判
+  unavailable（offered 集之外），再判 terminal 越权（`allowed_terminal_commands`
+  精确匹配）；任一污染 → 整批每个调用都被 DENY。
+- 豁免：runtime-owned `auto-observe-*` 调用与不在当前轮的调用不参与判批。
+- DENY `message` 直接携带 legacy 同款 JSON payload
+  （`status/protocol_blocked`、`error_code`、`rejected_tool`、
+  `unavailable_tools`、`message`），模型面逐字节对齐；事件保留
+  `tool.protocol_rejected` / `terminal.command_protocol_rejected` 原名。
+
+已记录的等价分歧（接受，不影响安全语义）：
+
+1. 从未 offered 的调用本身到不了权限链（AS 先查 tool 解析，无名工具无
+   tool 对象 → `Toolkit.call_tool` 原生 `ToolNotFoundError` error result）。
+   该调用仍不出活、不触后端；批量原子性由对附带调用的 DENY 保证。
+2. 被 DENY 的结果 canonical `data.status` 是 `"denied"` 而非 legacy 的
+   `"protocol_blocked"`；`error_code` 进 content JSON 与事件 payload，
+   不进 `ToolResultMessage.data`（核实过 `.data.error_code` 无下游消费者）。
+   `backend_attempted=False` 在 `data` 与事件中均保留。
+3. `_hm_denial_data` 临时属性通道被否掉并回滚：AS `_check_permission`
+   深拷贝 ToolCallBlock，middleware 改的副本到不了 `_handle_error_tool_call`
+   使用的原对象。最终走 denial message 携带 payload——这是非拷贝敏感的
+   运输路径。
+
+测试：`test_as_runtime.py` 批量原子性（伴随调用零执行）、terminal
+白名单拒批、违反者 vs 伴随调用 error_code 区分、真 serialized envelope
+断言。定点回归 216/216 绿（`test_substrate_*` + `test_as_runtime` +
+`application/`），ruff 全过。提交 `0907ede`。
