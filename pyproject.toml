@@ -124,14 +124,24 @@ homemaster = [
   "browser/generated/opencli_1_8_7/*",
 ]
 agentscope = [
-  "py.typed",
   "LICENSE",
   "VENDORED_SOURCE.md",
-  "**/_models/*.yaml",
-  "**/_cosyvoice_models/*.yaml",
-  "**/_audio_models/*.yaml",
-  "**/Dockerfile*.template",
-  "**/_alembic/*",
+]
+# Vendored agentscope package-data (mirrors upstream patterns; "*" applies to
+# every discovered package so the data-only _models/_cosyvoice_models/
+# _audio_models subdirs with no __init__.py are shipped).
+"*" = [
+  "py.typed",
+  "_models/*.yaml",
+  "_cosyvoice_models/*.yaml",
+  "_audio_models/*.yaml",
+]
+"agentscope.workspace._docker" = ["Dockerfile*.template"]
+"agentscope.app.storage._sql" = [
+  "_alembic/alembic.ini",
+  "_alembic/script.py.mako",
+  "_alembic/env.py",
+  "_alembic/versions/*.py",
 ]
 
 [tool.pytest.ini_options]
