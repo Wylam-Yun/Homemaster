@@ -165,7 +165,13 @@ class HomeToolAdapter(ToolBase):
         self._scope = scope
         self.name = tool.name
         self.description = tool.description
-        self.input_schema = tool.to_api_schema()["input_schema"]
+        schema = dict(tool.to_api_schema()["input_schema"])
+        # AS RegisteredTool requires an explicit ``properties`` mapping;
+        # an empty-properties object schema is legal JSON Schema (and what
+        # pydantic emits for field-less models) but fails AS validation.
+        if schema.get("type") == "object":
+            schema.setdefault("properties", {})
+        self.input_schema = schema
         # HM serializes anything that is not declared parallel; resource_key
         # degrades to sequential (documented loss in decision ③ §2).
         self.is_concurrency_safe = tool.concurrency_policy == "parallel"
