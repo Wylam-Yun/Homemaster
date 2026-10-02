@@ -48,11 +48,11 @@ class _ScriptedAsModel:
                 # The HM tool_result must have been converted into AS blocks.
                 for msg in messages:
                     for block in msg.content:
-                        data = getattr(block, "data", None) or {}
-                        hm = data.get("hm") if isinstance(data, dict) else None
-                        if isinstance(hm, dict) and hm.get("status"):
+                        if getattr(block, "type", None) != "tool_result":
+                            continue
+                        for out_block in getattr(block, "output", ()) or ():
                             self.seen_tool_result_text += str(
-                                getattr(block, "text", "") or ""
+                                getattr(out_block, "text", "") or ""
                             )
                 yield ChatResponse(
                     content=[TextBlock(text="done", id="t")],
