@@ -80,8 +80,13 @@ def _usage_to_dict(usage: Any) -> dict[str, int] | None:
         ("cache_read_input_tokens", "cache_input_tokens"),
     ):
         value = getattr(usage, as_key, None)
-        if isinstance(value, int):
-            out[hm_key] = value
+        if not isinstance(value, int):
+            continue
+        # ChatUsage defaults cache counters to 0, conflating absent with
+        # zero; HM only emits keys the provider actually sent.
+        if hm_key.startswith("cache_") and not value:
+            continue
+        out[hm_key] = value
     return out or None
 
 
