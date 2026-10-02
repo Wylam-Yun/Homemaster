@@ -227,9 +227,7 @@ class AsLLMClient:
             )
             request_body = {
                 "model": self._provider.model,
-                "messages": [
-                    m.model_dump(mode="json") for m in as_messages
-                ],
+                "messages": [_stable_msg_view(m) for m in as_messages],
                 "tools": as_tools or [],
                 **call_kwargs,
             }
@@ -438,6 +436,23 @@ class AsLLMClient:
 
 async def _one_shot(response: Any) -> AsyncIterator[Any]:
     yield response
+
+
+def _stable_msg_view(msg: Any) -> dict[str, Any]:
+    """Deterministic serialization for the request fingerprint.
+
+    ``to_agent_scope`` regenerates ``id``/``created_at`` per call, so the
+    raw dump would hash differently on every retry — violating the
+    frozen-request invariant. Strip volatile fields; keep semantics.
+    """
+    dump = msg.model_dump(mode="json")
+    for key in ("id", "created_at", "finished_at"):
+        dump.pop(key, None)
+    for block in dump.get("content") or []:
+        if isinstance(block, dict):
+            for key in ("id", "created_at", "finished_at"):
+                block.pop(key, None)
+    return dump
 
 
 def _parse_tool_input(raw: Any) -> dict[str, Any]:
