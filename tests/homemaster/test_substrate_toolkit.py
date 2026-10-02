@@ -328,3 +328,39 @@ def test_message_to_chunk_and_to_agent_scope_thaw_data() -> None:
     result_block = next(b for b in as_msgs[0].content if type(b).__name__ == "ToolResultBlock")
     copied_msg = copy.deepcopy(result_block.metadata)
     assert copied_msg["hm"]["data"]["result"]["nested"] == {"won": True}
+
+
+@pytest.mark.asyncio
+async def test_on_acting_reset_survives_cross_context_aclose() -> None:
+    """Asyncgen finalization can run the ``finally`` in a different Context
+    than the one where ``ContextVar.set`` happened (e.g. loop asyncgen
+    finalizer, or aclose driven by the consumer task). ``Token.reset``
+    raises ``ValueError: token created in a different Context`` — the
+    binding must degrade gracefully instead of failing the run
+    (live ALFWorld e2e caught this as transport_error)."""
+    from types import SimpleNamespace
+
+    async def _handler():
+        yield "chunk-1"  # middleware passes through whatever the inner handler yields
+
+    mw = RunScopeMiddleware()
+    call = SimpleNamespace(id="call-x")
+    agen = mw.on_acting(
+        SimpleNamespace(), {"tool_call": call}, _handler
+    )
+
+    async def drive_first() -> object:
+        return await agen.__anext__()
+
+    async def close() -> None:
+        await agen.aclose()
+
+    # First iteration under task context A; close under task context B.
+    task_a = asyncio.create_task(drive_first())
+    first = await task_a
+    assert first is not None
+    task_b = asyncio.create_task(close())
+    await task_b  # must not raise ValueError
+
+
+import asyncio  # noqa: E402

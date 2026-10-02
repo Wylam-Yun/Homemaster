@@ -1,5 +1,17 @@
 # Unreleased
 
+- V3.7 live-e2e catch (ALFWorld): `RunScopeMiddleware.on_acting` and the
+  automatic-observe binding reset `_current_tool_call_id` with a raw
+  `ContextVar.reset(token)`; when the acting generator's `finally` runs
+  under a different Context (event-loop asyncgen finalization / aclose
+  from the consumer), the reset raises `ValueError: token created in a
+  different Context`, surfacing as `transport_error` after a successful
+  real tool call. Both sites now degrade via `_reset_call_id` — a foreign
+  context never held our value, so it is left untouched; the origin
+  context's stale value dies with its worker task. Regression test drives
+  the real cross-context aclose path.
+
+
 - V3.7 live-e2e catch (web/alfworld smoke): frozen canonical
   `ToolExecutionResult.data` (MappingProxyType/tuple tree from
   `_freeze_json`) leaked into AgentScope `ToolResultBlock.metadata["hm"]`

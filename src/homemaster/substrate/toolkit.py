@@ -88,7 +88,24 @@ class RunScopeMiddleware(MiddlewareBase):
             async for event in next_handler():
                 yield event
         finally:
-            _current_tool_call_id.reset(token)
+            _reset_call_id(token)
+
+
+def _reset_call_id(token: contextvars.Token[str]) -> None:
+    """Reset ``_current_tool_call_id``, tolerating cross-context finalization.
+
+    Async-generator ``finally`` blocks may run in a different ``Context`` than
+    the one that performed ``set`` — e.g. the event-loop asyncgen finalizer or
+    ``aclose()`` driven by the consumer task after an early exit. ``reset``
+    then raises ``ValueError: token created in a different Context``. The
+    foreign context never received our value (``set`` is context-local), so
+    the correct degradation is to leave it alone; the origin context's stale
+    value dies with the worker task that owns it.
+    """
+    try:
+        _current_tool_call_id.reset(token)
+    except ValueError:
+        pass
 
 
 def current_tool_call_id() -> str:

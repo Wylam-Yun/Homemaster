@@ -860,7 +860,10 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         # Runtime-owned call bypasses the on_acting middleware that binds
         # ``_current_tool_call_id`` — bind it here so the adapter/executor
         # attributes results to the observe call id, not a stale model call.
-        from homemaster.substrate.toolkit import _current_tool_call_id
+        from homemaster.substrate.toolkit import (
+            _current_tool_call_id,
+            _reset_call_id,
+        )
 
         token = _current_tool_call_id.set(observe_call.id)
         try:
@@ -868,7 +871,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             async for chunk in agent.toolkit.call_tool(block, agent.state):
                 final = chunk
         finally:
-            _current_tool_call_id.reset(token)
+            _reset_call_id(token)
         if not isinstance(final, ToolResponse):
             await handle.emit(
                 "tool.call_failed",
