@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 from conftest import FakeClock
-from pydantic import BaseModel
 from test_blackbox import DecisionHandler, DeviceProcess, HomeDeviceAdapter
 
 from agentscope.agent import Agent
@@ -28,7 +27,6 @@ from homemaster.substrate import HomeToolAdapter, RunScope, RunScopeMiddleware
 from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.tools.executor import ToolExecutor
-from tests.homemaster.tools.test_support import ToolExecutionContext  # noqa: F401
 
 
 def _boom(arguments: Any, context: Any) -> Any:
@@ -42,7 +40,7 @@ class ScriptedModel(ChatModelBase):
         super().__init__(
             credential=OpenAICredential(api_key="sk-stub"),
             model="stub-model",
-            parameters=BaseModel(),
+            parameters=ChatModelBase.Parameters(),
         )
         self._script = list(script)
         self.calls: list[list[Msg]] = []
