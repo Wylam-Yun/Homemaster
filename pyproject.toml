@@ -47,6 +47,7 @@ dependencies = [
   "json5",
   "json_repair[schema]>=0.63.4",
   "mcp>=1.0,<2",
+  "ollama>=0.5.4",
   "opentelemetry-semantic-conventions>=0.60b0",
   "pypdf",
   "python-datauri",

@@ -100,7 +100,9 @@ class OpenAIChatTokenEstimator(BaseTokenEstimator):
 
 
 def make_default_estimator(provider: ProviderProfileConfig) -> TokenEstimator:
-    if provider.api_format == "openai":
+    from homemaster.config.config import OPENAI_WIRE_FORMATS
+
+    if provider.api_format in OPENAI_WIRE_FORMATS:
         return OpenAIChatTokenEstimator()
     return MimoTokenEstimator()
 

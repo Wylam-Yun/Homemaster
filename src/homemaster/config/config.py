@@ -53,7 +53,24 @@ DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000
 DEFAULT_PROVIDER_NAME = "Mimo"
 DEFAULT_EMBEDDING_PROVIDER_NAME = "MemoryEmbedding"
 
-ApiFormatName = Literal["anthropic", "openai"]
+ApiFormatName = Literal[
+    "anthropic",
+    "minimax",
+    "openai",
+    "dashscope",
+    "deepseek",
+    "moonshot",
+    "volcengine",
+    "ollama",
+]
+# Wire-protocol families used for model-factory dispatch and token
+# estimation. ``xai``/``gemini`` exist in vendored AgentScope but have no
+# ``base_url`` override (xai takes a bare host, gemini none at all), so
+# they cannot be pointed at profile ``base_url`` values deterministically.
+ANTHROPIC_WIRE_FORMATS: frozenset[str] = frozenset({"anthropic", "minimax"})
+OPENAI_WIRE_FORMATS: frozenset[str] = frozenset(
+    {"openai", "dashscope", "deepseek", "moonshot", "volcengine", "ollama"}
+)
 TransportName = Literal["anthropic_sdk", "openai_sdk", "raw_http"]
 ProviderKind = Literal["chat", "embedding"]
 AuthType = Literal["api_key", "auth_token"]
