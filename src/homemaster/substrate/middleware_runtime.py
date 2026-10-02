@@ -432,6 +432,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         handle = self._handle
         tool_call = input_kwargs.get("tool_call")
         call_name = getattr(tool_call, "name", "") or ""
+        call_id = getattr(tool_call, "id", "") or ""
         round_calls = _round_tool_calls(agent)
 
         if call_id.startswith("auto-observe-"):
