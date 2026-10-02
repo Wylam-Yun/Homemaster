@@ -127,6 +127,12 @@ class AsLLMClient:
     def token_estimator(self) -> TokenEstimator:
         return self._token_estimator
 
+    @property
+    def api_format(self) -> str:
+        """Wire family of the underlying profile — surfaced for transport
+        observability (`model_api_format` on AsAgentRuntime)."""
+        return str(getattr(self._provider, "api_format", "") or "")
+
     def chat_model(self, *, provider_key_index: int = 0) -> Any:
         """Build the underlying ``ChatModelBase`` for the AgentScope-agent
         path (Phase 2): same profile resolution + key selection as

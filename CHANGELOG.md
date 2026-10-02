@@ -43,6 +43,13 @@
   the real cross-context aclose path.
 
 
+- V3.7 observability fix: `transport.request_started`'s `api_format` was
+  always empty on the AS path — `application/runtime` read it off the
+  `AsLLMClient` binding, which never exposed the profile field. Added an
+  `api_format` property to `AsLLMClient`; real e2e events now carry the
+  wire family (`anthropic`/`openai`/...) matching the legacy transport
+  payload.
+
 - V3.7 live-e2e catch (ALFWorld, degraded env): upstream
   `_json_loads_with_repair` reported "Failed to parse your tool arguments"
   to the model for EVERY call — including valid `{}` — whenever
