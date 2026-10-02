@@ -71,15 +71,17 @@ def _usage_to_dict(usage: Any) -> dict[str, int] | None:
     if usage is None:
         return None
     out: dict[str, int] = {}
-    for key in (
-        "input_tokens",
-        "output_tokens",
-        "cache_creation_input_tokens",
-        "cache_input_tokens",
+    for hm_key, as_key in (
+        ("input_tokens", "input_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("cache_creation_input_tokens", "cache_creation_input_tokens"),
+        # HM vocabulary uses cache_read_input_tokens; AS calls the same
+        # counter cache_input_tokens.
+        ("cache_read_input_tokens", "cache_input_tokens"),
     ):
-        value = getattr(usage, key, None)
+        value = getattr(usage, as_key, None)
         if isinstance(value, int):
-            out[key] = value
+            out[hm_key] = value
     return out or None
 
 
