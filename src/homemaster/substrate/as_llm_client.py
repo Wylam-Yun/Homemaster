@@ -257,6 +257,8 @@ class AsLLMClient:
 
             last: Any = None
             interrupted = False
+            streamed_text = ""
+            streamed_thinking = ""
             try:
                 stream = await model(
                     as_messages, tools=as_tools, **call_kwargs
@@ -277,10 +279,12 @@ class AsLLMClient:
                         text = getattr(block, "text", None)
                         thinking = getattr(block, "thinking", None)
                         if text:
+                            streamed_text += text
                             yield TransportDelta(
                                 type="transport.delta", text_delta=text
                             )
                         elif thinking:
+                            streamed_thinking += thinking
                             yield TransportDelta(
                                 type="transport.delta",
                                 reasoning_delta=thinking,
@@ -294,6 +298,33 @@ class AsLLMClient:
                     cause_code="interrupted",
                 )
             if last is not None:
+                # The final AS chunk carries the *complete* response; emit
+                # only the text/thinking suffix not already streamed, so
+                # non-incremental (stream=False) replies are not dropped
+                # and cumulative streams are not duplicated.
+                tail_text = "".join(
+                    getattr(block, "text", "") or ""
+                    for block in last.content
+                )
+                if tail_text:
+                    if tail_text.startswith(streamed_text):
+                        tail_text = tail_text[len(streamed_text):]
+                    if tail_text:
+                        yield TransportDelta(
+                            type="transport.delta", text_delta=tail_text
+                        )
+                tail_thinking = "".join(
+                    getattr(block, "thinking", "") or ""
+                    for block in last.content
+                )
+                if tail_thinking:
+                    if tail_thinking.startswith(streamed_thinking):
+                        tail_thinking = tail_thinking[len(streamed_thinking):]
+                    if tail_thinking:
+                        yield TransportDelta(
+                            type="transport.delta",
+                            reasoning_delta=tail_thinking,
+                        )
                 for block in last.content:
                     if getattr(block, "type", None) == "tool_call":
                         yield TransportDelta(
