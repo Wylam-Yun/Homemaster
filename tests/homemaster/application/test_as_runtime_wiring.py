@@ -125,6 +125,9 @@ def _definition(internal_id: str, alias: str, **kwargs: Any) -> ToolDefinition:
         verification_policy=VerificationPolicy(),
         provenance=ToolProvenance(source="test", reference=internal_id),
         version="1.0.0",
+        requires_model_observation=kwargs.get(
+            "requires_model_observation", False
+        ),
     )
 
 
@@ -145,6 +148,78 @@ def _write_tool(target: Path) -> RegisteredTool:
     return RegisteredTool(
         definition=_definition("test.write_note.v1", "write_note"),
         executor=_WriteExecutor(target),
+    )
+
+
+class _ActionExecutor:
+    """State-changing tool whose writes prove it ran (external terminal)."""
+
+    def __init__(self, marker: Path) -> None:
+        self._marker = marker
+
+    async def execute(self, arguments: Any, context: Any) -> ToolExecutionResult:
+        self._marker.write_text("moved", encoding="utf-8")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+
+class _ObserveExecutor:
+    """Returns one valid base64 PNG so the runtime-owned observation
+    validates through the real evidence chain."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def execute(self, arguments: Any, context: Any) -> ToolExecutionResult:
+        import base64
+        import hashlib
+        import io
+
+        from PIL import Image
+
+        from homemaster.tools.contracts import ResultImage
+
+        self.calls += 1
+        image = Image.new("RGB", (2, 2), (0, 128, 255))
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        data = buf.getvalue()
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="observed",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=base64.b64encode(data).decode(),
+                    content_sha256=hashlib.sha256(data).hexdigest(),
+                )
+            ],
+        )
+
+
+def _observed_action_tool(marker: Path) -> RegisteredTool:
+    return RegisteredTool(
+        definition=_definition(
+            "test.robot_go_to.v1",
+            "robot_go_to",
+            input_schema={"type": "object", "properties": {}},
+            requires_model_observation=True,
+        ),
+        executor=_ActionExecutor(marker),
+    )
+
+
+def _observe_tool(executor: _ObserveExecutor) -> RegisteredTool:
+    return RegisteredTool(
+        definition=_definition(
+            "test.observe.v1",
+            "observe",
+            input_schema={"type": "object", "properties": {}},
+        ),
+        executor=executor,
     )
 
 
@@ -248,3 +323,48 @@ async def test_app_runtime_agentscope_engine_tool_call(tmp_path: Path) -> None:
         payload = json.loads(snapshot.read_text())
         assert payload.get("schema_version") == 2
         assert payload["agentscope_state"]["context"]
+
+
+@pytest.mark.asyncio
+async def test_app_runtime_agentscope_automatic_observation(
+    tmp_path: Path,
+) -> None:
+    """requires_model_observation through the app path: the action runs, the
+    runtime-owned observe call goes through the real executor funnel, image
+    evidence is attached, and the consume marker fires on the next turn."""
+    marker = tmp_path / "moved.txt"
+    observer = _ObserveExecutor()
+    model = _ScriptedModel(
+        [
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="observed the move")],
+        ]
+    )
+    app = _app(
+        tmp_path,
+        [_observed_action_tool(marker), _observe_tool(observer)],
+        model,
+    )
+    request = RunRequest(
+        text="move the robot",
+        session_id="as-app-observe",
+        permission_subject=PermissionSubject(
+            subject_id="operator",
+            channel="cli",
+            tenant_id="tenant-x",
+            capabilities=("tool.auto", "tool.read", "tool.mutate"),
+        ),
+    )
+    result = await app.run(request)
+
+    assert result.status is RunStatus.REPLIED
+    # External terminal state: the action executed for real.
+    assert marker.read_text(encoding="utf-8") == "moved"
+    # The runtime-owned observation ran through the same executor funnel.
+    assert observer.calls == 1
+
+    event_types = [e.type for e in app.event_bus.events]
+    assert "model_observation.automatic_started" in event_types
+    assert "model_observation.automatic_completed" in event_types
+    assert "model_observation.image_consumed" in event_types
+    assert "runtime.turn_completed" in event_types
