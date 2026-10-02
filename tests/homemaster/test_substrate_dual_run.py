@@ -18,7 +18,7 @@ from agentscope.model._model_usage import ChatUsage
 from homemaster.agent.messages import UserMessage
 from homemaster.config.config import ProviderProfileConfig
 from homemaster.providers.llm_client import LLMClient
-from homemaster.providers.transports.types import aggregate_deltas
+from homemaster.providers.types import aggregate_deltas
 from homemaster.substrate.as_llm_client import AsLLMClient
 
 # ---- fake anthropic SDK stream (same contract as the HM transport sees) ----

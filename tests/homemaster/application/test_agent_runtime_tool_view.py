@@ -4,7 +4,7 @@ import asyncio
 
 from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (

@@ -34,7 +34,7 @@ from homemaster.gateway.browser import BrowserGatewayApplication
 from homemaster.gateway.runtime import GatewayRuntime
 from homemaster.prompts.loader import PromptId, load_prompt
 from homemaster.providers.attempts import ProviderAttemptRecord
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 
 ANT_ORIGIN = os.environ.get("HOMEMASTER_ANT_ORIGIN")
 pytestmark = pytest.mark.skipif(not ANT_ORIGIN, reason="HOMEMASTER_ANT_ORIGIN is not set")

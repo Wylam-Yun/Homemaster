@@ -15,7 +15,7 @@ from homemaster.browser.contracts import BrowserSnapshot
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig
 from homemaster.events.bus import EventBus
 from homemaster.providers.attempts import ProviderAttemptRecord
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (

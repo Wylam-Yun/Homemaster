@@ -32,19 +32,19 @@ from homemaster.agent.messages import (
     UserMessage,
 )
 from homemaster.config.config import ProviderProfileConfig
+from homemaster.providers._shared import (
+    LLMJsonResponse,
+    attempt_record,
+    default_attempt_id,
+    emit_event,
+    map_sdk_error,
+    request_sha256,
+)
 from homemaster.providers.attempts import ProviderAttemptSink
 from homemaster.providers.errors import LLMClientError, LLMProviderError
 from homemaster.providers.json_utils import extract_json_payload
-from homemaster.providers.llm_client import (
-    LLMJsonResponse,
-    _attempt_record,
-    _default_attempt_id,
-    _emit,
-    _map_sdk_error,
-    _request_sha256,
-)
 from homemaster.providers.token_estimator import TokenEstimator, make_default_estimator
-from homemaster.providers.transports.types import (
+from homemaster.providers.types import (
     TransportDelta,
     aggregate_deltas,
 )
@@ -232,7 +232,7 @@ class AsLLMClient:
             else None
         )
 
-        request_sha256 = ""
+        request_hash = ""
         recorded = False
         request_body: dict[str, Any] = {}
         try:
@@ -271,8 +271,8 @@ class AsLLMClient:
                 "tools": as_tools or [],
                 **call_kwargs,
             }
-            request_sha256 = _request_sha256(request_body)
-            await _emit(
+            request_hash = request_sha256(request_body)
+            await emit_event(
                 sink,
                 "transport.request_started",
                 session_id=session_id,
@@ -297,7 +297,7 @@ class AsLLMClient:
                     as_messages, tools=as_tools, **call_kwargs
                 )
             except Exception as exc:
-                raise _map_sdk_error(exc) from exc
+                raise map_sdk_error(exc) from exc
             if not hasattr(stream, "__aiter__"):
                 # stream=False path: a single complete ChatResponse.
                 stream = _one_shot(stream)
@@ -323,7 +323,7 @@ class AsLLMClient:
                                 reasoning_delta=thinking,
                             )
             except Exception as exc:
-                raise _map_sdk_error(exc) from exc
+                raise map_sdk_error(exc) from exc
             if interrupted:
                 raise LLMProviderError(
                     error_type="interrupted",
@@ -382,7 +382,7 @@ class AsLLMClient:
                             else {}
                         ),
                     )
-            await _emit(
+            await emit_event(
                 sink,
                 "transport.response_completed",
                 session_id=session_id,
@@ -400,12 +400,12 @@ class AsLLMClient:
             )
             if attempt_sink is not None:
                 await attempt_sink.arecord_attempt(
-                    _attempt_record(
+                    attempt_record(
                         messages=messages,
                         request_body=request_body,
                         model_attempt_id=model_attempt_id
-                        or _default_attempt_id(effective_run_id, iteration),
-                        request_sha256=request_sha256,
+                        or default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_hash,
                         stripped_images=False,
                         response_completed=True,
                         error=None,
@@ -414,7 +414,7 @@ class AsLLMClient:
                 recorded = True
             return
         except LLMClientError as exc:
-            await _emit(
+            await emit_event(
                 sink,
                 "transport.request_failed",
                 session_id=session_id,
@@ -428,14 +428,14 @@ class AsLLMClient:
                     "stripped_images": False,
                 },
             )
-            if attempt_sink is not None and request_sha256:
+            if attempt_sink is not None and request_hash:
                 await attempt_sink.arecord_attempt(
-                    _attempt_record(
+                    attempt_record(
                         messages=messages,
                         request_body=request_body,
                         model_attempt_id=model_attempt_id
-                        or _default_attempt_id(effective_run_id, iteration),
-                        request_sha256=request_sha256,
+                        or default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_hash,
                         stripped_images=False,
                         response_completed=False,
                         error=exc,
@@ -444,14 +444,14 @@ class AsLLMClient:
                 recorded = True
             raise
         finally:
-            if attempt_sink is not None and request_sha256 and not recorded:
+            if attempt_sink is not None and request_hash and not recorded:
                 await attempt_sink.arecord_attempt(
-                    _attempt_record(
+                    attempt_record(
                         messages=messages,
                         request_body=request_body,
                         model_attempt_id=model_attempt_id
-                        or _default_attempt_id(effective_run_id, iteration),
-                        request_sha256=request_sha256,
+                        or default_attempt_id(effective_run_id, iteration),
+                        request_sha256=request_hash,
                         stripped_images=False,
                         response_completed=False,
                         error=LLMProviderError(

@@ -3,7 +3,7 @@
 from homemaster.providers.transports.anthropic import AnthropicTransport
 from homemaster.providers.transports.base import ProviderTransport
 from homemaster.providers.transports.openai_chat import OpenAIChatTransport
-from homemaster.providers.transports.types import TransportDelta, aggregate_deltas
+from homemaster.providers.types import TransportDelta, aggregate_deltas
 
 __all__ = [
     "AnthropicTransport",

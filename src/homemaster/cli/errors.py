@@ -8,7 +8,7 @@ import typer
 
 from homemaster.config import ConfigError
 from homemaster.providers.embedding_client import EmbeddingClientError
-from homemaster.providers.llm_client import LLMClientError
+from homemaster.providers.errors import LLMClientError
 
 logger = logging.getLogger(__name__)
 

@@ -9,7 +9,6 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
-from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,7 +41,11 @@ from homemaster.agent.model_observation import (
     validate_observation_result,
 )
 from homemaster.agent.normalized import RunContext
-from homemaster.agent.runtime_contracts import RuntimeStopDecision
+from homemaster.agent.runtime_contracts import (
+    GenericRunResult,
+    StopCondition,
+    _cancelled,
+)
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
 from homemaster.agent.state import AgentState, ProviderUsage
@@ -53,7 +56,7 @@ from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
 from homemaster.providers.errors import LLMClientError
-from homemaster.providers.transports.types import aggregate_deltas
+from homemaster.providers.types import aggregate_deltas
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 
@@ -76,27 +79,6 @@ _CANCEL_JOIN_GRACE_S = 1.0
 def _is_context_length_error(error_msg: str) -> bool:
     lowered = error_msg.lower()
     return any(keyword in lowered for keyword in _CONTEXT_LENGTH_KEYWORDS)
-
-
-@dataclass
-class GenericRunResult:
-    """Result of an AgentRuntime.run() execution."""
-
-    run_id: str
-    status: str
-    session: AgentSession
-    events: list[RuntimeEvent]
-    final_reply: str = ""
-    error_code: str | None = None
-    # AgentScope engine state for cross-run persistence (schema-v2 snapshot
-    # authority); always ``None`` on the legacy provider-loop runtime.
-    engine_state: Any = None
-
-
-StopCondition = Callable[
-    [AgentSession, list[ToolResultMessage]],
-    RuntimeStopDecision | None | Awaitable[RuntimeStopDecision | None],
-]
 
 
 class AgentRuntime:
@@ -1312,10 +1294,6 @@ class AgentRuntime:
         if inspect.isawaitable(value):
             value = await value
         return value
-
-
-def _cancelled(interrupt: InterruptController, cancellation_token: Any) -> bool:
-    return interrupt.cancelled or bool(getattr(cancellation_token, "cancelled", False))
 
 
 def _bind_provider_attempt_contexts(

@@ -8,11 +8,12 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homemaster.memory.models import ProcedureRecord
-from homemaster.providers.llm_client import LLMClient
 
+if TYPE_CHECKING:
+    from homemaster.providers.llm_client import LLMClient
 _FAILED_DROP = {"browser_find", "browser_inspect", "browser_wait", "browser_scroll"}
 _ALWAYS_DROP = {"browser_inspect", "browser_scroll"}
 _KEEP_ARG_KEYS = ("target", "name", "text", "role", "label", "value", "url", "command")

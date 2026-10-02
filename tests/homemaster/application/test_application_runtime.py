@@ -85,7 +85,7 @@ from homemaster.providers.attempts import (
     ProviderAttemptRecord,
 )
 from homemaster.providers.errors import LLMNetworkError
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.tools import make_task_progress_check_tool
 from homemaster.tools.adapters import from_registered_tool

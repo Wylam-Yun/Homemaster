@@ -10,7 +10,6 @@ from homemaster.application.contracts import (
     RunResult,
     RunStatus,
     RuntimeStopDecision,
-    TerminalPolicy,
 )
 from homemaster.application.factory import create_application
 from homemaster.application.resources import (
@@ -69,5 +68,4 @@ __all__ = [
     "SessionRuntime",
     "SessionSnapshot",
     "SessionStatus",
-    "TerminalPolicy",
 ]

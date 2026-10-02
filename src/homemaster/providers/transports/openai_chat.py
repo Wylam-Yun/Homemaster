@@ -8,7 +8,7 @@ from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, ContentBlock, Message, ToolCall
 from homemaster.providers.transports.base import ProviderTransport
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 
 
 class OpenAIChatTransport(ProviderTransport):

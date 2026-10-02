@@ -29,7 +29,7 @@ from homemaster.permissions import (
     PermissionSettingsConfig,
 )
 from homemaster.permissions.store import PermissionStore, resolve_store_path
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (

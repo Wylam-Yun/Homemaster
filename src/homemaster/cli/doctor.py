@@ -24,7 +24,8 @@ from homemaster.config import (
 )
 from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
-from homemaster.providers.llm_client import LLMClient, LLMClientError
+from homemaster.providers.errors import LLMClientError
+from homemaster.substrate.as_llm_client import AsLLMClient
 
 DoctorStatus = Literal["PASS", "WARN", "FAIL"]
 
@@ -513,7 +514,7 @@ def _live_mimo_smoke() -> DoctorCheck:
         provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
             DEFAULT_PROVIDER_NAME, kind="chat"
         )
-        client = LLMClient(provider)
+        client = AsLLMClient(provider)
 
         async def smoke():
             try:

@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from homemaster.agent.messages import AssistantMessage, Message
-from homemaster.providers.transports.types import TransportDelta
+from homemaster.providers.types import TransportDelta
 
 
 class ProviderTransport(ABC):

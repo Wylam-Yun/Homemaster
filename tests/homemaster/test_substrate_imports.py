@@ -133,3 +133,89 @@ def test_no_machine_specific_absolute_paths_in_src() -> None:
     assert not offenders, (
         "machine-specific absolute paths in source:\n" + "\n".join(offenders)
     )
+
+
+# --- RunContext.deps / services escape-hatch freeze ---------------------------
+#
+# Phase-2 acceptance gate: the deps/services dict is a *closed* dependency
+# channel, not a free-form bag. Every key below was audited to have both a
+# live writer and a live reader on the AS path (alfworld_* = benchmark DI,
+# the rest are app/substrate services). New keys must be added here with an
+# owner→consumer justification — unlisted usage fails this test.
+
+_ALLOWED_DEPS_KEYS = frozenset(
+    {
+        "alfworld_current_subtask",
+        "alfworld_env",
+        "alfworld_episode_outcome",
+        "alfworld_goal_candidates",
+        "alfworld_harness",
+        "alfworld_semantic_judge_config",
+        "alfworld_trace",
+        "automatic_recalled_memories",
+        "backend",
+        "current_tool_call_id",
+        "domain_observer",
+        "gateway_generation",
+        "mcp_manager",
+        "memory_audit_path",
+        "memory_evidence_ledger",
+        "memory_feedback_context",
+        "memory_feedback_context_by_tool_call_id",
+        "mindmemos",
+        "permission_subject",
+        "plan_mode",
+        "provider_attempt_context_binder",
+        "recalled_memories_by_tool_call_id",
+        "run_context",
+        "skill_registry",
+        "task_completion_guard",
+        "task_state_store",
+        "tool_registry",
+        "working_directory",
+    }
+)
+
+
+def _is_deps_like(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in {"deps", "services"}
+    return isinstance(node, ast.Attribute) and node.attr in {"deps", "services"}
+
+
+def _deps_keys_in_file(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"get", "setdefault", "pop"}
+            and _is_deps_like(node.func.value)
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            keys.add(node.args[0].value)
+        elif (
+            isinstance(node, ast.Subscript)
+            and _is_deps_like(node.value)
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        ):
+            keys.add(node.slice.value)
+    return keys
+
+
+def test_deps_services_dict_uses_only_audited_keys() -> None:
+    offenders: list[str] = []
+    for path in sorted((SRC_ROOT / "homemaster").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        unknown = _deps_keys_in_file(path) - _ALLOWED_DEPS_KEYS
+        for key in sorted(unknown):
+            offenders.append(f"{path.relative_to(SRC_ROOT)}: {key!r}")
+    assert not offenders, (
+        "unaudited deps/services keys — add an owner→consumer entry to "
+        "_ALLOWED_DEPS_KEYS or refactor:\n" + "\n".join(offenders)
+    )

@@ -15,9 +15,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
-from homemaster.agent.messages import ToolCall
 from homemaster.agent.runtime_contracts import RuntimeStopDecision
-from homemaster.tools.contracts import PermissionSubject, ToolExecutionResult
+from homemaster.tools.contracts import PermissionSubject
 
 
 class RunStatus(StrEnum):
@@ -51,17 +50,6 @@ class EnvironmentBackend(Protocol):
 
     @property
     def backend_id(self) -> str: ...
-
-
-@runtime_checkable
-class TerminalPolicy(Protocol):
-    """Terminal gate consulted before a tool backend is invoked."""
-
-    def before_execute(
-        self,
-        tool_call: ToolCall,
-        context: Any,
-    ) -> ToolExecutionResult | None | Awaitable[ToolExecutionResult | None]: ...
 
 
 StopCondition = Callable[[Any], bool | Awaitable[bool]]
@@ -158,7 +146,6 @@ class RunRequest:
     continuous_taskset: bool = False
     environment: EnvironmentBackend | ResourceBinding | None = None
     run_policy: RunPolicy = field(default_factory=RunPolicy)
-    terminal_policy: TerminalPolicy | None = None
     permission_subject: PermissionSubject = field(
         default_factory=lambda: PermissionSubject(
             subject_id="local-user",
@@ -211,11 +198,6 @@ class RunRequest:
             raise ValueError("continuous_taskset requires an explicit session_id")
         if not isinstance(self.run_policy, RunPolicy):
             raise TypeError("run_policy must be RunPolicy")
-        if self.terminal_policy is not None and not (
-            callable(getattr(self.terminal_policy, "before_execute", None))
-            or callable(getattr(self.terminal_policy, "check", None))
-        ):
-            raise TypeError("terminal_policy must provide before_execute() or check()")
         if not isinstance(self.permission_subject, PermissionSubject):
             raise TypeError("permission_subject must be PermissionSubject")
         object.__setattr__(self, "dependencies", _freeze_dependency_mapping(self.dependencies))
@@ -327,5 +309,4 @@ __all__ = [
     "RunRequest",
     "RunResult",
     "RunStatus",
-    "TerminalPolicy",
 ]

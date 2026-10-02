@@ -88,25 +88,57 @@
 ### J. `substrate/`（toolkit/messages/snapshot/as_llm_client/middleware_runtime/
 runtime） — 新基座，保留。
 
+### K. `application.contracts.TerminalPolicy` / `RunRequest.terminal_policy` — **已删**
+
+- 消费方审计：src+tests 全仓零引用——Protocol 无实现、字段无写入方、
+  validator 是唯一"消费"。`tests/case02_openenv/test_terminal_policy` 仅
+  残留 `.pyc`（源码已删）。真实 terminal 拦截面在
+  `PermissionPolicy.allowed_terminal_commands`（policy.py，两引擎共用的
+  fail-closed 层）+ AS 侧 `ProtocolFenceMiddleware`。
+- 裁决：**删除**（死 seam，公共契约面缩小；若未来需要 pre-exec hook，
+  走 middleware/permission 通道而不是 request 字段）。
+
+### L. `RunContext.deps` / `ToolExecutionContext.services` — 键集冻结（不删）
+
+- 全键审计（src/homemaster）：29 个键全部有活的 writer↔reader 配对
+  （alfworld_* benchmark DI、task_state_store、provider_attempt_context_
+  binder、memory_feedback_context*、mindmemos、run_context 自引用等）。
+  无 write-only/legacy-only 残留。
+- 裁决：dict 通道保留（计划内认可的 DI 通道），但**键集冻结**——
+  `test_substrate_imports.py::
+  test_deps_services_dict_uses_only_audited_keys` 以 AST 扫描钉死
+  白名单，新增键必须带 owner→consumer 证据才能进表。
+- `terminal_command_protocol_results` 字符串路由：唯一消费方是
+  `generic_runtime.py:735` 的 legacy 批量围栏——随 generic_runtime
+  一起消亡（AS 等价物 = ProtocolFenceMiddleware），不独立迁移。
+
 ## 删除顺序（依赖拓扑序，每步独立可回滚）
 
 1. ~~协议围栏移植进 AS middleware~~ — **已完成**（0907ede）。
-2. 抽离共享契约：`GenericRunResult`/`StopCondition`/`_cancelled` 出
-   `generic_runtime.py` → `agent/run_contracts.py`（新文件，generic_runtime
-   re-export 保持向后兼容）。
-3. 抽离 provider 共享 helpers → `providers/_shared.py`（转正命名：
-   `attempt_record`/`default_attempt_id`/`emit_event`/`map_sdk_error`/
-   `request_sha256`/`LLMJsonResponse`），`as_llm_client` 改指。
-4. 迁移 `transports/types.py`（`TransportDelta`/`aggregate_deltas`）→
-   `providers/types.py`；全部 import 跟随。
-5. `success_path.py` 去 `LLMClient` 注解 → duck-type/Protocol。
-6. `doctor.py` 迁 `AsLLMClient`（doctor 验收=构造+probe，无引擎语义）。
+2. ~~抽离共享契约~~ — **已完成**：`GenericRunResult`/`StopCondition`/
+   `_cancelled` → `agent/runtime_contracts.py`（复用既有契约模块，
+   不另开 `run_contracts.py`；全部注解走 `TYPE_CHECKING`，模块保持
+   运行时零依赖）。`generic_runtime` 顶部 import 回引，外部消费方
+   （`substrate/runtime.py`、`application/runtime.py`、tests）零改动。
+3. ~~抽离 provider 共享 helpers~~ — **已完成**：`providers/_shared.py`
+   新立（转正命名：`attempt_record`/`default_attempt_id`/`emit_event`/
+   `map_sdk_error`/`request_sha256`/`LLMJsonResponse` 含
+   `json_payload`/`public_summary`）。`llm_client` 以旧下划线名回引
+   兼容；`as_llm_client` 已改指 `_shared` 公共名（局部变量
+   `request_sha256` 改名 `request_hash` 避让函数名）。
+4. ~~迁移 `transports/types.py`~~ — **已完成**：`TransportDelta`/
+   `aggregate_deltas` → `providers/types.py`；transports 内部、
+   llm_client、generic_runtime、as_llm_client、9 个测试文件全量改指。
+5. ~~`success_path.py` 去 `LLMClient` 注解~~ — **已完成**（TYPE_CHECKING）。
+6. ~~`doctor.py` 迁 `AsLLMClient`~~ — **已完成**；`cli/errors.py` 的
+   `LLMClientError` 同步改指 `providers.errors`（真定义家）。
 7. `factory.py` 默认引擎切 AS（env escape hatch 保留一个版本周期）。
+   **门**：远端全量回归绿 + Feishu/Web smoke + ALFWorld 单集 e2e。
 8. legacy provider 测试逐个 port/retire；`llm_client.py` + `transports/` 实现删除。
 9. `ApplicationRuntime` legacy 分支删除；`generic_runtime.py` 删除；
    `context_projection.py` 拆投影/删围栏函数。
 10. `turn.py` 删除 + CLI 直走 ApplicationRuntime。
-11. 反向 import 审计测试钉边界（已有 `test_as_boundaries.py` AST 守卫，
+11. 反向 import 审计测试钉边界（已有 `test_substrate_imports.py` AST 守卫，
     补 `agent/`、`providers/` 不得 import `agentscope` 的反向断言）。
 
 ## 门
