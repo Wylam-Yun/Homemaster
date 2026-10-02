@@ -128,6 +128,7 @@ def _definition(internal_id: str, alias: str, **kwargs: Any) -> ToolDefinition:
         requires_model_observation=kwargs.get(
             "requires_model_observation", False
         ),
+        state_effects=kwargs.get("state_effects", ()),
     )
 
 
@@ -207,6 +208,7 @@ def _observed_action_tool(marker: Path) -> RegisteredTool:
             "robot_go_to",
             input_schema={"type": "object", "properties": {}},
             requires_model_observation=True,
+            state_effects=("physical",),
         ),
         executor=_ActionExecutor(marker),
     )
@@ -352,7 +354,13 @@ async def test_app_runtime_agentscope_automatic_observation(
             subject_id="operator",
             channel="cli",
             tenant_id="tenant-x",
-            capabilities=("tool.auto", "tool.read", "tool.mutate"),
+            capabilities=(
+                "tool.auto",
+                "tool.read",
+                "tool.mutate",
+                "device.read",
+                "device.control",
+            ),
         ),
     )
     result = await app.run(request)
