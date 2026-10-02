@@ -10,4 +10,8 @@
 
 ## Local patches
 
-(none)
+1. `middleware/__init__.py` — replaced eager re-exports with PEP 562 lazy
+   `__getattr__`. Upstream pulled optional `tts`/`classifier`/`mem0`
+   subpackages whenever `agentscope.middleware` (or just `MiddlewareBase`)
+   was imported; lazy resolution keeps extras-gated code unloaded until its
+   middleware is actually requested. Public API unchanged.
