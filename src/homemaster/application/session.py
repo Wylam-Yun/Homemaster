@@ -102,6 +102,10 @@ class SessionRuntime:
     revision: int = 0
     application_control: object | None = None
     require_recall: bool = True
+    # Schema-v2 engine state (AgentScope ``AgentState``) restored from the
+    # snapshot; ``None`` on v1 snapshots / fresh sessions — the AS runtime
+    # seeds a fresh engine context from the session mirror in that case.
+    engine_state: object | None = None
 
     def __post_init__(self) -> None:
         if self.session.session_id != self.agent_state.session_id and self.agent_state.session_id:
@@ -691,7 +695,21 @@ class SessionManager:
         return tuple(copy.deepcopy(session.messages))
 
     def _runtime_from_snapshot(self, snapshot: SessionSnapshot) -> SessionRuntime:
-        session, agent_state, task_state = AgentSession.from_snapshot_dict(snapshot.payload)
+        engine_state = None
+        if snapshot.payload.get("schema_version") == 2:
+            from homemaster.substrate.snapshot import parse_snapshot_payload
+
+            parsed = parse_snapshot_payload(snapshot.payload)
+            session = AgentSession(parsed.session_id)
+            session._created_at = parsed.created_at
+            session.replace_messages(list(parsed.messages))
+            agent_state = parsed.run_state
+            task_state = parsed.task_state
+            engine_state = parsed.engine_state
+        else:
+            session, agent_state, task_state = AgentSession.from_snapshot_dict(
+                snapshot.payload
+            )
         if task_state.snapshot is not None and task_state.snapshot.status is TaskStatus.PAUSED:
             task_state.update_status(TaskStatus.ACTIVE)
         runtime = SessionRuntime(
@@ -705,6 +723,7 @@ class SessionManager:
             generation=snapshot.generation,
             revision=snapshot.revision,
             require_recall=bool(snapshot.payload.get("require_recall", False)),
+            engine_state=engine_state,
         )
         return runtime
 
@@ -716,15 +735,31 @@ def _snapshot_payload(
     system_prompt: str,
 ) -> dict[str, Any]:
     unconsumed_call_id = runtime.agent_state.unconsumed_observation_tool_call_id
-    payload = runtime.session.to_snapshot_dict(
-        agent_state=runtime.agent_state,
-        task_state_store=runtime.task_state_store,
-        model=model,
-        system_prompt=system_prompt,
-        preserve_image_tool_call_ids=(
-            frozenset({unconsumed_call_id}) if unconsumed_call_id is not None else frozenset()
-        ),
-    )
+    if runtime.engine_state is not None:
+        from homemaster.substrate.snapshot import build_snapshot_payload
+
+        payload = build_snapshot_payload(
+            engine_state=runtime.engine_state,
+            run_state=runtime.agent_state,
+            task_state_store=runtime.task_state_store,
+            model=model,
+            system_prompt=system_prompt,
+            preserve_image_tool_call_ids=(
+                frozenset({unconsumed_call_id})
+                if unconsumed_call_id is not None
+                else frozenset()
+            ),
+        )
+    else:
+        payload = runtime.session.to_snapshot_dict(
+            agent_state=runtime.agent_state,
+            task_state_store=runtime.task_state_store,
+            model=model,
+            system_prompt=system_prompt,
+            preserve_image_tool_call_ids=(
+                frozenset({unconsumed_call_id}) if unconsumed_call_id is not None else frozenset()
+            ),
+        )
     payload.update(
         {
             "session_generation": runtime.generation,

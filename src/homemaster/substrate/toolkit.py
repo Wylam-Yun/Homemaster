@@ -146,6 +146,47 @@ def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
     )
 
 
+def message_to_chunk(result: "ToolResultMessage") -> ToolChunk:
+    """Project a canonical ``ToolResultMessage`` (e.g. an observer-synthesized
+    terminal message) into one terminal chunk — mirrors ``result_to_chunk``
+    for the already-projected message shape."""
+    content: list[TextBlock | DataBlock] = []
+    for block in result.content:
+        if block.type == "text":
+            content.append(TextBlock(text=block.text or ""))
+        elif block.type == "image" and isinstance(block.source, dict):
+            src = block.source
+            content.append(
+                DataBlock(
+                    source=Base64Source(
+                        data=src.get("data", ""),
+                        media_type=src.get("media_type", "image/png"),
+                    ),
+                )
+            )
+    if not content:
+        content.append(TextBlock(text=""))
+    return ToolChunk(
+        content=content,
+        state=(
+            ToolResultState.ERROR
+            if result.is_error
+            else ToolResultState.SUCCESS
+        ),
+        is_last=True,
+        metadata={
+            "hm": {
+                "status": "error" if result.is_error else "success",
+                "data": dict(result.data or {}),
+                "backend_attempted": (result.data or {}).get(
+                    "backend_attempted"
+                ),
+                "error_code": (result.data or {}).get("error_code"),
+            }
+        },
+    )
+
+
 class HomeToolAdapter(ToolBase):
     """Wrap one ``BaseTool`` (+ the canonical ``ToolExecutor`` funnel) as an
     AgentScope ``ToolBase``. AS-level permission is delegated back to the HM
@@ -224,12 +265,27 @@ class HomeToolAdapter(ToolBase):
         return rule_content is None
 
     async def call(self, **kwargs: Any) -> AsyncGenerator[ToolChunk, None]:
+        from homemaster.agent.messages import ToolResultMessage
+
         arguments = self._validate(kwargs)
         call = ToolCall(
             id=current_tool_call_id() or f"{self.name}-call",
             name=self._tool.name,
             arguments=arguments.model_dump(mode="json"),
         )
+        # Prefer the application-owned funnel when the executor exposes it —
+        # it carries completion guards, evidence registration, and artifact
+        # publication that ``ToolExecutor.execute`` alone does not.
+        for_substrate = getattr(self._executor, "execute_for_substrate", None)
+        if callable(for_substrate):
+            outcome = await for_substrate(
+                call, run_context=self._scope.services.get("run_context")
+            )
+            if isinstance(outcome, ToolResultMessage):
+                yield message_to_chunk(outcome)
+            else:
+                yield result_to_chunk(outcome)
+            return
         result = await self._executor.execute(call, self._build_context())
         yield result_to_chunk(result)
 
@@ -259,5 +315,6 @@ __all__ = [
     "RunScope",
     "RunScopeMiddleware",
     "current_tool_call_id",
+    "message_to_chunk",
     "result_to_chunk",
 ]

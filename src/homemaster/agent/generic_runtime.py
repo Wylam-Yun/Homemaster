@@ -88,6 +88,9 @@ class GenericRunResult:
     events: list[RuntimeEvent]
     final_reply: str = ""
     error_code: str | None = None
+    # AgentScope engine state for cross-run persistence (schema-v2 snapshot
+    # authority); always ``None`` on the legacy provider-loop runtime.
+    engine_state: Any = None
 
 
 StopCondition = Callable[

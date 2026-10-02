@@ -128,6 +128,35 @@ class AsLLMClient:
     def token_estimator(self) -> TokenEstimator:
         return self._token_estimator
 
+    def chat_model(self, *, provider_key_index: int = 0) -> Any:
+        """Build the underlying ``ChatModelBase`` for the AgentScope-agent
+        path (Phase 2): same profile resolution + key selection as
+        ``stream``, without the LLMClient projection wrapper."""
+        model_factory = self._model_factory
+        if model_factory is None:
+            from homemaster.substrate.models import chat_model_from_profile
+
+            model_factory = chat_model_from_profile
+        keyless = self._provider.api_format == "ollama"
+        if not self._provider.api_keys and not keyless:
+            from homemaster.providers.errors import LLMClientError
+
+            raise LLMClientError(
+                error_type="no_keys",
+                message="no API keys configured",
+                cause_code="no_keys",
+            )
+        api_key = (
+            self._provider.api_keys[provider_key_index]
+            if self._provider.api_keys
+            else None
+        )
+        return model_factory(
+            self._provider,
+            api_key=api_key,
+            timeout_s=self._timeout_s,
+        )
+
     async def complete(
         self,
         messages: list[Message],

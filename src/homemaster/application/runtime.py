@@ -516,18 +516,60 @@ class ApplicationRuntime:
                     runtime,
                     generation,
                 )
-                agent = AgentRuntime(
-                    transport=provider,
-                    tool_executor=executor,
-                    max_tool_iterations=request.run_policy.max_tool_iterations,
-                    stop_condition=_stop_condition(request),
-                    context_assembler=assembler,
-                    system_prompt=getattr(assembler, "_system_prompt", ""),
-                    provider_attempt_sink_factory=request.dependencies.get(
-                        "provider_attempt_sink_factory",
-                        ListProviderAttemptSink,
-                    ),
-                )
+                if _is_agentscope_provider(provider):
+                    from homemaster.substrate.runtime import AsAgentRuntime
+                    from homemaster.substrate.toolkit import (
+                        HomeToolAdapter,
+                        RunScope,
+                    )
+
+                    scope = RunScope(
+                        session_id=session_id,
+                        run_id=run_id,
+                        permission_subject=request.permission_subject,
+                        working_directory=self._working_directory,
+                        deadline=executor.deadline,
+                        cancellation=runtime.cancellation,
+                        backend=backend,
+                        domain_observer=request.dependencies.get(
+                            "domain_observer"
+                        ),
+                        services={
+                            **request.dependencies,
+                            "task_state_store": task_state_store,
+                            "run_context": run_context,
+                        },
+                        turn_index=agent_state.turn_index,
+                    )
+                    adapters = [
+                        HomeToolAdapter(tool, executor, scope)
+                        for tool in run_tools
+                    ]
+                    agent = AsAgentRuntime(
+                        model=provider.chat_model(),
+                        system_prompt=getattr(assembler, "_system_prompt", ""),
+                        tools=adapters,
+                        max_tool_iterations=request.run_policy.max_tool_iterations,
+                        stop_condition=_stop_condition(request),
+                        context_assembler=assembler,
+                        provider_attempt_sink_factory=request.dependencies.get(
+                            "provider_attempt_sink_factory",
+                            ListProviderAttemptSink,
+                        ),
+                    )
+                else:
+                    agent = AgentRuntime(
+                        transport=provider,
+                        tool_executor=executor,
+                        max_tool_iterations=request.run_policy.max_tool_iterations,
+                        stop_condition=_stop_condition(request),
+                        context_assembler=assembler,
+                        system_prompt=getattr(assembler, "_system_prompt", ""),
+                        provider_attempt_sink_factory=request.dependencies.get(
+                            "provider_attempt_sink_factory",
+                            ListProviderAttemptSink,
+                        ),
+                    )
 
                 async def rearm_recall_after_compaction(_metrics: Any) -> None:
                     runtime.require_recall_after_compaction(generation)
@@ -548,6 +590,14 @@ class ApplicationRuntime:
                         cancellation_token=runtime.cancellation,
                         deadline=executor.deadline,
                         on_compaction=rearm_recall_after_compaction,
+                        **(
+                            {
+                                "engine_state": runtime.engine_state,
+                                "scope": scope,
+                            }
+                            if _is_agentscope_provider(provider)
+                            else {}
+                        ),
                     )
                 except asyncio.CancelledError:
                     return RunResult(
@@ -563,6 +613,8 @@ class ApplicationRuntime:
                         status=RunStatus.CANCELLED,
                         error_code="stale_generation",
                     )
+                if generic.engine_state is not None:
+                    runtime.engine_state = generic.engine_state
                 if generic.status == "cancelled":
                     return RunResult(
                         run_id=run_id,
@@ -984,6 +1036,12 @@ class ApplicationRuntime:
             if "session backend is not configured" not in str(exc):
                 raise
             return self.session_manager.get(session_id).revision
+
+
+def _is_agentscope_provider(provider: object) -> bool:
+    """True when the provider seam carries a vendored ``ChatModelBase`` —
+    i.e. the Phase-2 AgentScope agent path."""
+    return callable(getattr(provider, "chat_model", None))
 
 
 def _backend_id(backend: object | None, profile: str) -> str:

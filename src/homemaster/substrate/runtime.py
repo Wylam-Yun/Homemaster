@@ -119,6 +119,7 @@ class AsAgentRuntime:
         deadline: Any = None,
         on_compaction: Callable[[Any], Any] | None = None,
         engine_state: Any = None,
+        scope: RunScope | None = None,
     ) -> GenericRunResult:
         """Execute one agent run through the AgentScope reasoning loop."""
         from agentscope.agent import Agent
@@ -184,20 +185,36 @@ class AsAgentRuntime:
         if run_context is not None:
             run_context.deps["task_state_store"] = task_state_store
 
-        scope = RunScope(
-            session_id=session.session_id,
-            run_id=run_id,
-            permission_subject=_resolve_subject(run_context, settings),
-            working_directory=_resolve_workdir(run_context, settings),
-            deadline=deadline,
-            cancellation=cancellation_token or interrupt,
-            backend=(run_context.deps.get("backend") if run_context else None),
-            domain_observer=(
-                run_context.deps.get("domain_observer") if run_context else None
-            ),
-            services=dict(run_context.deps) if run_context else {},
-            turn_index=agent_state.turn_index,
-        )
+        if scope is None:
+            scope = RunScope(
+                session_id=session.session_id,
+                run_id=run_id,
+                permission_subject=_resolve_subject(run_context, settings),
+                working_directory=_resolve_workdir(run_context, settings),
+                deadline=deadline,
+                cancellation=cancellation_token or interrupt,
+                backend=(
+                    run_context.deps.get("backend") if run_context else None
+                ),
+                domain_observer=(
+                    run_context.deps.get("domain_observer")
+                    if run_context
+                    else None
+                ),
+                services=dict(run_context.deps) if run_context else {},
+                turn_index=agent_state.turn_index,
+            )
+        else:
+            scope.run_id = run_id
+            scope.turn_index = agent_state.turn_index
+            if scope.deadline is None:
+                scope.deadline = deadline
+            if scope.cancellation is None:
+                scope.cancellation = cancellation_token or interrupt
+            if run_context is not None:
+                merged = dict(scope.services)
+                merged.update(run_context.deps)
+                scope.services = merged
 
         # Engine state: provided (resume) or seeded from the session mirror.
         # The session mirror is projected from the engine context — never the
@@ -308,6 +325,7 @@ class AsAgentRuntime:
                 persistence=persistence,
                 save_snapshot=save_snapshot,
             )
+            result.engine_state = engine_state
             return result
         finally:
             if signal_registered:

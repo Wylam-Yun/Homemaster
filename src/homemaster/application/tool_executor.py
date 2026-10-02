@@ -112,6 +112,36 @@ class ApplicationToolExecutor:
             messages[index] = self._message(call, result)
         return [message for message in messages if message is not None]
 
+    async def execute_for_substrate(
+        self,
+        call: ToolCall,
+        *,
+        run_context: RunContext | None = None,
+    ) -> ToolExecutionResult | ToolResultMessage:
+        """Single-call entry for the AgentScope substrate path.
+
+        Same funnel as ``dispatch`` (observer terminal short-circuit, context
+        building, evidence registration, completion guard) but returns the
+        raw ``ToolExecutionResult`` so ``HomeToolAdapter`` can carry the
+        machine fields (``backend_attempted``, verification, status) through
+        the ``metadata["hm"]`` pocket unchanged.
+        """
+        observer = self._request.dependencies.get("tool_dispatch_observer")
+        if observer is not None:
+            observer.on_call(call)
+            terminal = observer.terminal_result(call)
+            if terminal is not None:
+                return terminal
+        context = self._context_for(call, run_context=run_context)
+        results = await self._executor.execute_many([(call, context)])
+        result = results[0]
+        result = self._register_environment_memory_evidence(call, context, result)
+        if observer is not None:
+            observer.on_result(call, result)
+        self._completion_guard.record(call.name, result)
+        self._record_evidence(result)
+        return result
+
     def _context_for(
         self,
         call: ToolCall,
