@@ -81,7 +81,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
         # Drive the adapter exactly as ``Toolkit.call_tool`` would.
         from agentscope.message import ToolCallBlock
 
-        token = current_tool_call_id.set("mcp-call-1")
+        token = _current_tool_call_id.set("mcp-call-1")
         try:
             response: Any = None
             async for chunk in adapter.call(
@@ -89,7 +89,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
             ):
                 response = chunk
         finally:
-            current_tool_call_id.reset(token)
+            _current_tool_call_id.reset(token)
 
         assert isinstance(response, ToolResponse)
         payload = json.dumps(
