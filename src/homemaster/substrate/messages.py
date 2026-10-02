@@ -411,13 +411,25 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
                     if isinstance(b, (TextBlock, DataBlock))
                 ]
                 _restore_block_meta(result_meta, output_blocks)
+            # Protocol-fence denials are completed protocol results, not
+            # tool errors — legacy carried status="protocol_blocked" with
+            # is_error=False so error guards never trip on them.
+            result_data = result_meta.get("data")
+            protocol_blocked = (
+                block.state == ToolResultState.DENIED
+                and isinstance(result_data, dict)
+                and result_data.get("status") == "protocol_blocked"
+            )
             out.append(
                 ToolResultMessage(
                     tool_call_id=block.id,
                     name=block.name,
                     content=output_blocks,
-                    is_error=block.state != ToolResultState.SUCCESS,
-                    data=result_meta.get("data"),
+                    is_error=(
+                        block.state != ToolResultState.SUCCESS
+                        and not protocol_blocked
+                    ),
+                    data=result_data,
                     provider_metadata=result_meta.get("provider_metadata")
                     or {},
                 )

@@ -32,3 +32,20 @@
    `tool_result` blocks whose `ToolResultBlock.state` is not `SUCCESS`, so
    denied/interrupted/error results are distinguishable from successful
    ones on the Anthropic wire.
+5. `agent/_agent.py` `_reply_impl` `finally` — when the reply generator is
+   being closed (`aclose()`/GC finalization, `GeneratorExit` propagating),
+   skip the yielding of `end_event`/interruption `AssistantMsg` (yielding
+   during close raises `RuntimeError: async generator ignored
+   GeneratorExit`); the unfinished-tool-call cleanup still runs to keep
+   `state.context` consistent, discarding its events.
+6. `agent/_agent.py` `_execute_concurrent_tool_calls` — added a `finally`
+   that cancels and joins the worker `gather_task` on generator close.
+   Upstream only handled `CancelledError`; on `aclose()` the task kept
+   running detached, mutating `state.context` after the caller's terminal
+   snapshot.
+7. `tool/_toolkit.py` `call_tool` — re-raise exceptions marked with
+   `_hm_propagate` instead of converting them to tool-error chunks.
+   HomeMaster stamps `SessionGenerationError` /
+   `AutomaticRecallRunDeadlineExceeded` with the flag; upstream's blanket
+   `except Exception` would hide the generation fence behind a tool error.
+8. `agent/_agent.py` — `import sys` (required by patch 5).

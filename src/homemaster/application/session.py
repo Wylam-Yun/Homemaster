@@ -36,6 +36,10 @@ class SessionConflictError(SessionError):
 class SessionGenerationError(SessionError):
     """Raised when an old run attempts to write current session state."""
 
+    # Stale-generation errors must surface to the application raw — the AS
+    # toolkit converts bare exceptions into tool error chunks otherwise.
+    _hm_propagate = True
+
 
 @runtime_checkable
 class SessionBackend(Protocol):

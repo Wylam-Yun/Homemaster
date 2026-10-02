@@ -5,6 +5,7 @@ import collections
 import json
 import inspect
 import re
+import sys
 import warnings
 
 from asyncio import Queue
@@ -1281,7 +1282,13 @@ class Agent:
                 raise
 
         finally:
-            if end_event is not None:
+            # VENDORED-PATCH(homemaster): when this generator is being closed
+            # (aclose / GC finalization), ``GeneratorExit`` is propagating —
+            # yielding here raises "async generator ignored GeneratorExit"
+            # and the reply events go nowhere anyway. Still run the tool-call
+            # cleanup so context stays consistent, but discard its events.
+            _closing = sys.exc_info()[0] is GeneratorExit
+            if end_event is not None and not _closing:
                 interrupted_end = (
                     end_event.finished_reason
                     == ReplyFinishedReason.INTERRUPTED
@@ -1302,6 +1309,13 @@ class Agent:
                         usage=self._get_reply_usage(),
                         finished_reason=ReplyFinishedReason.INTERRUPTED,
                     )
+            elif (
+                end_event is not None
+                and end_event.finished_reason
+                == ReplyFinishedReason.INTERRUPTED
+            ):
+                async for _ in self._close_unfinished_tool_calls():
+                    pass
 
     def _get_repeated_tool_error(self) -> tuple[str, int] | None:
         """Detect the same tool call, i.e. the same tool name and arguments,
@@ -2305,6 +2319,18 @@ class Agent:
             # :meth:`_execute_sequential_tool_calls`.
             asyncio.current_task().uncancel()
             return
+        finally:
+            # VENDORED-PATCH(homemaster): aclose()/GC lands here as
+            # GeneratorExit (not CancelledError) — without this, the gather
+            # task and its tool workers keep running detached, mutating
+            # context after the caller's terminal snapshot. Awaiting inside
+            # finally is legal during close (only yielding is not).
+            if not gather_task.done():
+                gather_task.cancel()
+                try:
+                    await gather_task
+                except BaseException:
+                    pass
 
         # All tasks are done at this point; collect and re-raise exceptions.
         results = await gather_task

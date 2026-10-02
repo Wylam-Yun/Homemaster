@@ -1474,3 +1474,390 @@ async def test_as_runtime_provider_attempt_context_binder_fires(
     assert bound["tool_calls"][0].id == "tc1"
     assert bound["tool_calls"][0].arguments == {"x": 1}
     assert bound["frozen"], "frozen request messages must reach the binder"
+
+
+class _SessionEchoAssembler:
+    """Reads the live canonical session into the model request — the
+    black-box probe for session-mirror staleness (the production factory
+    composes settings with no ``observability`` at all)."""
+
+    async def aprepare(
+        self, *, session, agent_state, task_state_store, tools, force_compact
+    ):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            messages=list(session.messages),
+            system_prompt="sys",
+            tools=None,
+            metrics=SimpleNamespace(
+                estimated_input_tokens=11,
+                estimated_tokens=11,
+                compaction_triggered=False,
+                compaction_kind="none",
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_session_mirror_without_observability(
+    tmp_path: Path,
+) -> None:
+    """F1: production settings carry no ``observability`` — the canonical
+    session must still mirror tool results before the next model call,
+    otherwise the assembler rebuilds every request from a frozen mirror."""
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    model = ScriptedModel(
+        [
+            [ToolCallBlock(id="tc1", name="echo", input='{"x": 7}')],
+            [TextBlock(text="done")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        context_assembler=_SessionEchoAssembler(),
+    )
+    session = AgentSession("as-runtime-test")
+    # No observability attribute at all — persistence is disabled, the
+    # in-memory mirror must still stay current.
+    settings = SimpleNamespace(provider_name="stub")
+    result = await runtime.run(session, "hi", settings=settings)
+
+    assert result.status == "replied"
+    assert len(model.calls) == 2
+    second_request = model.calls[1]
+    tool_result_texts = [
+        str(getattr(out, "text", "") or "")
+        for m in second_request
+        for block in getattr(m, "content", []) or []
+        if getattr(block, "type", None) == "tool_result"
+        for out in getattr(block, "output", []) or []
+    ]
+    assert any("echo:7" in t for t in tool_result_texts), (
+        "second model call must carry the round-1 tool result"
+    )
+    assert any(m.role == "tool" for m in session.messages)
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_round_fence_scopes_to_current_round(
+    tmp_path: Path,
+) -> None:
+    """F2: a protocol-denied call from round 1 must not poison round 2 —
+    AgentScope merges both rounds into one reply Msg, so batch fences must
+    see only the calls issued by the latest reasoning round."""
+    executed: list[str] = []
+
+    def _echo_execute(arguments: Any, context: Any) -> ToolExecutionResult:
+        executed.append("echo")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text=f"echo:{arguments.get('x')}",
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool(execute=_echo_execute))
+    registry.register(
+        FunctionTool(
+            name="terminal",
+            description="Run a command.",
+            input_schema={
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+            },
+            execute=lambda a, c: ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCESS, text="ran"
+            ),
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            # Round 1: an allowed name + a terminal allowlist violation —
+            # the whole batch is protocol-denied.
+            [
+                ToolCallBlock(
+                    id="tc-term",
+                    name="terminal",
+                    input='{"command": "rm -rf /"}',
+                ),
+                ToolCallBlock(id="tc-e1", name="echo", input='{"x": 1}'),
+            ],
+            # Round 2: only a clean echo — must execute; the round-1
+            # terminal call is history, not part of this batch.
+            [ToolCallBlock(id="tc-e2", name="echo", input='{"x": 2}')],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    settings = _settings(tmp_path)
+    settings.permissions = SimpleNamespace(
+        allowed_terminal_commands=("ls", "pwd")
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "hi", settings=settings, tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    assert executed == ["echo"], (
+        "round-2 echo must run — the round-1 denied terminal call is out "
+        "of the current-round fence scope"
+    )
+    by_id = {m.tool_call_id: m for m in session.messages if m.role == "tool"}
+    assert "echo:2" in "".join(
+        b.text or "" for b in by_id["tc-e2"].content
+    )
+    # F5 parity: the denied siblings are protocol completions, not errors.
+    assert by_id["tc-e1"].is_error is False
+    assert by_id["tc-e1"].data.get("status") == "protocol_blocked"
+    assert by_id["tc-term"].data.get("status") == "protocol_blocked"
+    failed_ids = {
+        e.tool_call_id
+        for e in result.events
+        if e.type == "tool.call_failed"
+    }
+    assert failed_ids == set(), (
+        "protocol-fence denials must emit call_completed, not call_failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_stale_waiting_user_not_retriggered(
+    tmp_path: Path,
+) -> None:
+    """F6: a persisted ``waiting_user`` marker from an older run must not
+    retrigger stop — the condition evaluates only the current round's
+    results; and a fresh marker must still stop the run."""
+    from homemaster.agent.messages import (
+        AssistantMessage,
+        ContentBlock,
+        ToolCall,
+        ToolResultMessage,
+    )
+    from homemaster.agent.runtime_contracts import RuntimeStopDecision
+
+    async def _stop(session: Any, results: list[Any]) -> Any:
+        for result in results:
+            data = getattr(result, "data", None)
+            if isinstance(data, dict) and data.get("waiting_user") is True:
+                return RuntimeStopDecision(
+                    status="waiting_user",
+                    final_reply=str(data.get("question") or "?"),
+                    payload={},
+                )
+        return None
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="tc-new", name="echo", input='{"x": 5}')],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    runtime._stop_condition = _stop
+
+    session = AgentSession("as-runtime-test")
+    session.append(
+        AssistantMessage(
+            tool_calls=[
+                ToolCall(id="tc-old", name="echo", arguments={"x": 0})
+            ]
+        )
+    )
+    session.append(
+        ToolResultMessage(
+            tool_call_id="tc-old",
+            name="echo",
+            content=[ContentBlock(text="old")],
+            is_error=False,
+            data={"waiting_user": True, "question": "stale?"},
+        )
+    )
+    result = await runtime.run(
+        session, "hi", settings=_settings(tmp_path)
+    )
+    assert result.status == "replied", (
+        "a historical waiting_user marker must not end the new run"
+    )
+    assert result.final_reply == "done"
+
+    # Same marker on the *current* round's result still stops the run.
+    def _ask(arguments: Any, context: Any) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="need input",
+            data={"waiting_user": True, "question": "which room?"},
+        )
+
+    registry2 = ToolRegistry()
+    registry2.register(_echo_tool(execute=_ask))
+    executor2 = ToolExecutor(registry2)
+    runtime2, _model2 = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="tc-q", name="echo", input='{"x": 9}')],
+            [TextBlock(text="done")],
+        ],
+        registry=registry2,
+        executor=executor2,
+    )
+    runtime2._stop_condition = _stop
+    session2 = AgentSession("as-runtime-test-2")
+    result2 = await runtime2.run(
+        session2, "hi", settings=_settings(tmp_path)
+    )
+    assert result2.status == "waiting_user"
+    assert result2.final_reply == "which room?"
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_unlimited_iterations_preserved(
+    tmp_path: Path,
+) -> None:
+    """F7: ``max_tool_iterations=None`` means unlimited — it must not
+    silently collapse to AgentScope's default ``max_iters=50``."""
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    # 55 tool rounds > AS's default cap of 50.
+    script = [
+        [ToolCallBlock(id=f"tc{i}", name="echo", input='{"x": 1}')]
+        for i in range(55)
+    ] + [[TextBlock(text="done")]]
+    model = ScriptedModel(script)
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        max_tool_iterations=None,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied"
+    assert result.final_reply == "done"
+    assert len(model.calls) == 56
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_observation_image_reaches_next_model_call(
+    tmp_path: Path,
+) -> None:
+    """F1+F2: after an observed action, the auto-observe image must be in
+    the canonical session before the follow-up model call assembles — the
+    ToolResultEndEvent sync point fires before post-hooks attach evidence,
+    so the pre-assemble resync is what carries the image through."""
+    import base64
+    import hashlib
+
+    from homemaster.tools.contracts import ResultImage
+
+    calls: list[str] = []
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    model = ScriptedModel(
+        [
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="done")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[
+            HomeToolAdapter(t, executor, scope)
+            for t in registry.list_tools()
+        ],
+        context_assembler=_SessionEchoAssembler(),
+    )
+    session = AgentSession("as-runtime-test")
+    # Production-like settings: no observability.
+    result = await runtime.run(
+        session,
+        "move",
+        settings=SimpleNamespace(provider_name="stub"),
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert calls == ["robot_go_to", "observe"]
+    assert len(model.calls) == 2
+    # The observation image must be inside the follow-up request: the
+    # canonical image block projects to an AS ``data`` block inside the
+    # action's tool_result output (base64 image media).
+    result_outputs = [
+        out
+        for m in model.calls[1]
+        for b in getattr(m, "content", []) or []
+        if getattr(b, "type", None) == "tool_result"
+        for out in getattr(b, "output", []) or []
+    ]
+    image_blocks = [
+        b
+        for b in result_outputs
+        if getattr(b, "type", None) == "data"
+        and str(
+            getattr(getattr(b, "source", None), "media_type", "") or ""
+        ).startswith("image/")
+    ]
+    assert image_blocks, (
+        "the observation image must reach the next model request — the "
+        "pre-assemble session resync carries post-hook attachments"
+    )
+    assert getattr(image_blocks[0].source, "data", "").startswith("iVBOR")

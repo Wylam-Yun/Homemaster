@@ -358,6 +358,13 @@ class Toolkit:
             if isinstance(e, DeveloperOrientedException):
                 raise e from None
 
+            # VENDORED-PATCH(homemaster): HomeMaster surfaces a small set of
+            # exceptions raw to the application (session generation fence,
+            # recall deadline) — they carry ``_hm_propagate`` and must not be
+            # converted into tool error chunks.
+            if getattr(e, "_hm_propagate", False):
+                raise
+
             # The exceptions should be handled by the agent
             chunk = ToolChunk(
                 content=[

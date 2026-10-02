@@ -217,6 +217,12 @@ class ContextAssemblyMiddleware(MiddlewareBase):
 
     async def _assemble(self, input_kwargs: dict) -> tuple[list[Any], Any]:
         handle = self._handle
+        # The session mirror is only as fresh as the last sync — re-sync so
+        # post-tool/post-observation mutations (auto-observe attachments,
+        # barrier clears) reach the assembler's canonical history. No-op
+        # when the runtime did not wire the hook.
+        if callable(handle.sync_session):
+            handle.sync_session()
         force = self._pending_force_compact
         self._pending_force_compact = None
         prepared = await _maybe_async(
@@ -293,6 +299,8 @@ class ContextAssemblyMiddleware(MiddlewareBase):
 
     async def _compact(self) -> Any:
         handle = self._handle
+        if callable(handle.sync_session):
+            handle.sync_session()
         prepared = await _maybe_async(
             _assembler_prepare(self._assembler),
             session=handle.session,
@@ -341,7 +349,7 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         scan, so the permission boundary carries the equivalent.
         ``mindmemos_feedback`` reads the bound context via
         ``run_context.deps`` at call time."""
-        round_calls = _round_tool_calls(agent)
+        round_calls = _round_tool_calls(agent, self._handle)
         if any(c.id not in self._bound_call_ids for c in round_calls):
             self._bound_call_ids.update(
                 getattr(c, "id", "") or "" for c in round_calls
@@ -395,6 +403,12 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
             payload={
                 "attempt": attempt_index,
                 "request_sha256": request_sha,
+                "model": getattr(self._handle, "model_name", ""),
+                "api_format": getattr(self._handle, "model_api_format", ""),
+                "transport": "agentscope",
+                "iteration": self._handle.normal_iterations,
+                "key_index": 0,
+                "stripped_images": False,
             },
         )
         try:
@@ -640,7 +654,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         tool_call = input_kwargs.get("tool_call")
         call_name = getattr(tool_call, "name", "") or ""
         call_id = getattr(tool_call, "id", "") or ""
-        round_calls = _round_tool_calls(agent)
+        round_calls = _round_tool_calls(agent, handle)
 
         if call_id.startswith("auto-observe-"):
             # Runtime-owned automatic observation calls bypass the batch
@@ -843,9 +857,18 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             name=observe_call.name,
             payload={"arguments": dict(observe_call.arguments)},
         )
-        final: Any = None
-        async for chunk in agent.toolkit.call_tool(block, agent.state):
-            final = chunk
+        # Runtime-owned call bypasses the on_acting middleware that binds
+        # ``_current_tool_call_id`` — bind it here so the adapter/executor
+        # attributes results to the observe call id, not a stale model call.
+        from homemaster.substrate.toolkit import _current_tool_call_id
+
+        token = _current_tool_call_id.set(observe_call.id)
+        try:
+            final: Any = None
+            async for chunk in agent.toolkit.call_tool(block, agent.state):
+                final = chunk
+        finally:
+            _current_tool_call_id.reset(token)
         if not isinstance(final, ToolResponse):
             await handle.emit(
                 "tool.call_failed",
@@ -1148,7 +1171,7 @@ class ProtocolFenceMiddleware(MiddlewareBase):
         if call_id.startswith("auto-observe-"):
             return await next_handler()
 
-        round_calls = _round_tool_calls(agent)
+        round_calls = _round_tool_calls(agent, handle)
         if not any(getattr(c, "id", None) == call_id for c in round_calls):
             # Not part of the current model batch (runtime-owned call) —
             # batch fences don't apply.
@@ -1196,6 +1219,10 @@ class ProtocolFenceMiddleware(MiddlewareBase):
                         "unavailable_tools": unavailable,
                     },
                 )
+                # Record the protocol payload by call id — the permission
+                # chain deep-copies the call block, so ``_project_event``
+                # merges this into the result metadata at END.
+                handle.denial_payloads[call_id] = payload
                 return PermissionDecision(
                     behavior=PermissionBehavior.DENY,
                     # Legacy emitted the protocol payload as the result's
@@ -1253,6 +1280,7 @@ class ProtocolFenceMiddleware(MiddlewareBase):
                         "backend_attempted": False,
                     },
                 )
+                handle.denial_payloads[call_id] = payload
                 return PermissionDecision(
                     behavior=PermissionBehavior.DENY,
                     message=json.dumps(
@@ -1289,21 +1317,36 @@ def _backend_attempted(response: Any) -> bool:
     return isinstance(hm, dict) and hm.get("backend_attempted") is True
 
 
-def _round_tool_calls(agent: Any) -> list[Any]:
-    """Tool-call blocks of the current reply round, read from the engine
-    context tail (the assistant Msg produced by the last reasoning)."""
+def _round_tool_calls(agent: Any, handle: Any = None) -> list[Any]:
+    """Tool-call blocks issued by the *latest* reasoning round — whether
+    finished, denied, or still pending.
+
+    AgentScope merges every reasoning-acting round of one reply into a single
+    assistant Msg, so scanning the tail Msg returns the whole reply's calls —
+    a stale observed/unavailable/terminal call from an earlier round would
+    poison later rounds' batch fences, and ``get_unfinished_tool_calls``
+    alone is blind to siblings already decided (atomic-denial needs them).
+    The round boundary is the ``round_floor`` watermark recorded by
+    ``_project_event`` at each ``ModelCallStartEvent``; without it (test
+    doubles, foreign agents) fall back to the whole tail Msg.
+    """
     context = getattr(getattr(agent, "state", None), "context", []) or []
-    for msg in reversed(context):
-        if getattr(msg, "role", "") != "assistant":
-            break
-        calls = [
-            block
-            for block in getattr(msg, "content", []) or []
-            if getattr(block, "type", None) == "tool_call"
-        ]
-        if calls:
-            return calls
-    return []
+    if not context:
+        return []
+    last = context[-1]
+    if getattr(last, "role", "") != "assistant":
+        return []
+    content = list(getattr(last, "content", []) or [])
+    floor = 0
+    if handle is not None:
+        floor_id, floor_len = getattr(handle, "round_floor", ("", 0))
+        if floor_id and floor_id == str(getattr(last, "id", "")):
+            floor = min(floor_len, len(content))
+    return [
+        block
+        for block in content[floor:]
+        if getattr(block, "type", None) == "tool_call"
+    ]
 
 
 def _call_name(call: Any) -> str:

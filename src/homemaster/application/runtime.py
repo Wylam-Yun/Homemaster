@@ -139,6 +139,9 @@ class Deadline:
 class AutomaticRecallRunDeadlineExceeded(TimeoutError):
     """The shared run deadline expired while automatic recall was pending."""
 
+    # Must surface raw to the caller — see SessionGenerationError.
+    _hm_propagate = True
+
 
 class _FencedAgentSession:
     """AgentSession-shaped facade that rejects writes from stale workers."""
@@ -556,6 +559,7 @@ class ApplicationRuntime:
                             "provider_attempt_sink_factory",
                             ListProviderAttemptSink,
                         ),
+                        model_api_format=getattr(provider, "api_format", ""),
                     )
                 else:
                     agent = AgentRuntime(

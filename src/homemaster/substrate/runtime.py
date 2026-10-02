@@ -29,6 +29,7 @@ from homemaster.agent.generic_runtime import (
 )
 from homemaster.agent.interrupt import InterruptController
 from homemaster.agent.messages import (
+    AssistantMessage,
     ContentBlock,
     ToolResultMessage,
     UserMessage,
@@ -84,6 +85,28 @@ class AsRunHandle:
     # alongside each new assistant tool_call batch, matching the legacy
     # ``frozen_messages`` contract.
     last_frozen_messages: list[Any] = field(default_factory=list)
+    # Mirrors the live engine context into the canonical session. Set once
+    # per run by AsAgentRuntime.run — ContextAssemblyMiddleware calls it
+    # before every prepare/compaction so post-tool and post-observation
+    # mutations are visible to the assembler even when persistence is off.
+    sync_session: Callable[[], None] | None = None
+    # Canonical ToolResultMessages appended since the last model call —
+    # stop_condition is evaluated over this batch only (legacy parity:
+    # the condition saw the just-dispatched batch, not all history).
+    round_result_ids: set[str] = field(default_factory=set)
+    # (assistant msg id, content length) watermark recorded at each
+    # model call — blocks appended past the floor are the current
+    # reasoning round's calls; AgentScope merges all rounds into one Msg,
+    # so position is the only reliable round boundary.
+    round_floor: tuple[str, int] = ("", 0)
+    # Protocol-fence denial payloads by call id. The permission chain
+    # deep-copies the call block, so the payload rides the handle and is
+    # merged into the result's hm.data at ToolResultEndEvent.
+    denial_payloads: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Model identity for transport.request_* payload parity with the
+    # legacy LLMClient events.
+    model_name: str = ""
+    model_api_format: str = ""
 
 
 class AsAgentRuntime:
@@ -106,6 +129,7 @@ class AsAgentRuntime:
         stop_condition: StopCondition | None = None,
         context_assembler: Any = None,
         provider_attempt_sink_factory: Callable[[], Any] | None = None,
+        model_api_format: str | None = None,
     ) -> None:
         self._model = model
         self._system_prompt = system_prompt
@@ -115,6 +139,7 @@ class AsAgentRuntime:
         self._stop_condition = stop_condition
         self._context_assembler = context_assembler
         self._provider_attempt_sink_factory = provider_attempt_sink_factory
+        self._model_api_format = model_api_format
 
     async def run(
         self,
@@ -267,12 +292,14 @@ class AsAgentRuntime:
             )
 
         def save_snapshot(status: str | None = None) -> None:
-            if persistence is None:
-                return
             if status is not None:
                 agent_state.status = status  # type: ignore[assignment]
+            # The canonical session mirror must track the engine context on
+            # every boundary — the assembler, stop_condition, and compaction
+            # all read the session. Only disk persistence is optional.
             self._sync_session(session, engine_state)
-            persistence.save_snapshot()
+            if persistence is not None:
+                persistence.save_snapshot()
 
         attempt_sink = (
             self._provider_attempt_sink_factory()
@@ -291,6 +318,9 @@ class AsAgentRuntime:
             all_tool_schemas=_tool_schemas(tool_registry),
             tool_registry=tool_registry,
         )
+        handle.sync_session = lambda: self._sync_session(session, engine_state)
+        handle.model_name = str(getattr(self._model, "model", "") or "")
+        handle.model_api_format = self._model_api_format or ""
 
         middlewares: list[Any] = [RunScopeMiddleware()]
         from homemaster.substrate.middleware_runtime import (
@@ -323,18 +353,24 @@ class AsAgentRuntime:
         # the protocol/observe failure caps). Give AS the HM budget plus that
         # grace headroom — the authoritative budget check still runs in
         # ``_project_event`` via ``normal_iterations``.
-        react_config = None
-        if self._max_tool_iterations is not None:
-            from agentscope.agent import ReActConfig
+        from agentscope.agent import ReActConfig
 
-            react_config = ReActConfig(
-                max_iters=(
+        react_config = ReActConfig(
+            # ``None`` is HM's "unlimited" — AS has no None sentinel (default
+            # would silently clamp at 50). A huge value preserves the
+            # contract; the authoritative budget check stays on
+            # ``normal_iterations`` in ``_project_event``.
+            max_iters=(
+                (
                     self._max_tool_iterations
                     + MAX_PROTOCOL_FAILURES
                     + MAX_OBSERVE_FAILURES
                     + 2
                 )
+                if self._max_tool_iterations is not None
+                else 2**31 - 1
             )
+        )
 
         # HM's ContextAssembler is the single context authority — disarm AS's
         # own context mutators so they cannot silently rewrite the canonical
@@ -461,6 +497,7 @@ class AsAgentRuntime:
                     continue
                 stop = await self._project_event(
                     item,
+                    agent=agent,
                     handle=handle,
                     emit=emit,
                     stream=stream,
@@ -596,10 +633,37 @@ class AsAgentRuntime:
                 events=events,
                 error_code="max_tool_iterations_exceeded",
             )
+        # Legacy parity: finish_reason "length" is a failed turn, not a
+        # normal reply (generic_runtime emits model_output_truncated).
+        if getattr(final_msg, "finish_reason", None) == "length":
+            reply_text = _msg_text(final_msg)
+            handle.agent_state.last_assistant_text = reply_text
+            await emit(
+                "runtime.turn_failed",
+                payload={
+                    "error": "model output truncated",
+                    "error_code": "model_output_truncated",
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                final_reply=reply_text,
+                error_code="model_output_truncated",
+            )
 
         reply_text = _msg_text(final_msg)
         handle.agent_state.last_assistant_text = reply_text
         save_snapshot("replied")
+        # Legacy parity: assistant replies append to messages.jsonl (the
+        # user-facing dialogue log), same as generic_runtime.
+        if persistence is not None and reply_text:
+            persistence.append_message(
+                AssistantMessage(content=[ContentBlock(text=reply_text)])
+            )
         await emit("runtime.turn_completed", payload={"final_reply": reply_text})
         return GenericRunResult(
             run_id=run_id,
@@ -617,6 +681,7 @@ class AsAgentRuntime:
         self,
         item: Any,
         *,
+        agent: Any,
         handle: AsRunHandle,
         emit: Callable[..., Any],
         stream: Any,
@@ -674,7 +739,38 @@ class AsAgentRuntime:
             await self._emit_assistant_events(handle, emit)
             hm = (item.metadata or {}).get("hm") or {}
             data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
-            is_error = item.state in _REASON_ERROR_STATES
+            # Protocol-fence denials carry their payload via the handle (the
+            # permission chain deep-copies the call block) — merge it into
+            # the persisted result block's hm.data so the canonical session
+            # mirror sees status="protocol_blocked", not bare "denied".
+            denial = handle.denial_payloads.pop(item.tool_call_id, None)
+            if denial is not None and item.state == "denied":
+                from homemaster.substrate.middleware_runtime import (
+                    _find_result_block,
+                )
+
+                merged = dict(data)
+                merged.update(denial)
+                data = merged
+                result_block = _find_result_block(agent, item.tool_call_id)
+                if result_block is not None:
+                    block_meta = dict(getattr(result_block, "metadata", {}) or {})
+                    block_hm = dict(block_meta.get("hm") or {})
+                    block_data = dict(block_hm.get("data") or {})
+                    block_data.update(denial)
+                    block_hm["data"] = block_data
+                    block_meta["hm"] = block_hm
+                    result_block.metadata = block_meta
+            # Legacy parity: protocol-fence denials (terminal allowlist /
+            # unknown-tool batch rejects) complete as protocol results —
+            # ``call_completed`` + status "protocol_blocked", never error
+            # state and never counted by the error/no-progress guards.
+            protocol_blocked = item.state == "denied" and str(
+                data.get("status", "")
+            ) == "protocol_blocked"
+            is_error = (
+                item.state in _REASON_ERROR_STATES and not protocol_blocked
+            )
             await emit(
                 "tool.call_failed" if is_error else "tool.call_completed",
                 tool_call_id=item.tool_call_id,
@@ -687,6 +783,7 @@ class AsAgentRuntime:
                     "status": hm.get("status"),
                 },
             )
+            handle.round_result_ids.add(item.tool_call_id)
             agent_state.record_tool_results(
                 [
                     {
@@ -699,29 +796,11 @@ class AsAgentRuntime:
                 ]
             )
             save_snapshot()
-            decision = await self._evaluate_stop(handle)
-            if decision is not None:
-                await stream.aclose()
-                await emit(
-                    "runtime.turn_completed"
-                    if decision.status in {"replied", "waiting_user"}
-                    else "runtime.turn_failed",
-                    payload={
-                        "error_code": decision.error_code,
-                        **decision.payload,
-                    },
-                )
-                save_snapshot(decision.status)
-                return GenericRunResult(
-                    run_id=handle.run_id,
-                    status=decision.status,
-                    session=session,
-                    events=handle.events,
-                    final_reply=decision.final_reply,
-                    error_code=decision.error_code,
-                )
+            # A fatal observation failure outranks stop/guards — the run is
+            # already dead; close sibling calls before the terminal snapshot.
             fatal = getattr(handle, "observation_fatal", None)
             if fatal is not None:
+                await self._close_dangling_tool_calls(handle, emit)
                 await stream.aclose()
                 await emit(
                     "runtime.turn_failed",
@@ -741,8 +820,43 @@ class AsAgentRuntime:
                     events=handle.events,
                     error_code=fatal,
                 )
+            # Stop/guards only evaluate a *complete* current round — legacy
+            # dispatched the whole batch, then evaluated once. A pending
+            # observation barrier (or unconsumed marker) means the model
+            # still owes a mandatory follow-up: neither real progress nor a
+            # legitimate stop point.
+            barrier_open = (
+                agent_state.pending_model_observation is not None
+                or agent_state.unconsumed_observation_tool_call_id
+                is not None
+            )
+            if barrier_open or _unfinished_tool_calls(agent):
+                return None
+            decision = await self._evaluate_stop(handle)
+            if decision is not None:
+                await self._close_dangling_tool_calls(handle, emit)
+                await stream.aclose()
+                await emit(
+                    "runtime.turn_completed"
+                    if decision.status in {"replied", "waiting_user"}
+                    else "runtime.turn_failed",
+                    payload={
+                        "error_code": decision.error_code,
+                        **decision.payload,
+                    },
+                )
+                save_snapshot(decision.status)
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status=decision.status,
+                    session=session,
+                    events=handle.events,
+                    final_reply=decision.final_reply,
+                    error_code=decision.error_code,
+                )
             guard = _check_guards(handle)
             if guard is not None:
+                await self._close_dangling_tool_calls(handle, emit)
                 await stream.aclose()
                 await emit(
                     "runtime.guard_triggered",
@@ -766,6 +880,20 @@ class AsAgentRuntime:
             )
             if not followup:
                 handle.normal_iterations += 1
+            # New reasoning round — stop_condition sees only results
+            # produced since this point (legacy batch semantics).
+            handle.round_result_ids.clear()
+            # Watermark the merged assistant Msg: blocks appended after this
+            # point belong to the round that this model call produces.
+            _ctx = handle_engine_context(handle)
+            _last = _ctx[-1] if _ctx else None
+            if _last is not None and getattr(_last, "role", "") == "assistant":
+                handle.round_floor = (
+                    str(getattr(_last, "id", "")),
+                    len(getattr(_last, "content", []) or []),
+                )
+            else:
+                handle.round_floor = ("", 0)
             if (
                 self._max_tool_iterations is not None
                 and handle.normal_iterations > self._max_tool_iterations
@@ -878,10 +1006,14 @@ class AsAgentRuntime:
     async def _evaluate_stop(self, handle: AsRunHandle) -> Any:
         if self._stop_condition is None:
             return None
+        # Current-round scope only — a persisted waiting_user marker (or any
+        # historical result) must not retrigger on later rounds or resumed
+        # runs; legacy evaluated the just-dispatched batch.
         results = [
             m
             for m in handle.session.messages
             if isinstance(m, ToolResultMessage)
+            and m.tool_call_id in handle.round_result_ids
         ]
         decision = self._stop_condition(handle.session, results)
         if inspect.isawaitable(decision):
@@ -1147,6 +1279,17 @@ def handle_engine_context(handle: AsRunHandle) -> list[Any]:
     """Engine context list — populated by ContextAssemblyMiddleware which
     owns the live ``agent`` reference."""
     return getattr(handle, "engine_context", [])
+
+
+def _unfinished_tool_calls(agent: Any) -> list[Any]:
+    """Current-round tool calls that still lack a result block — the live
+    in-flight set. AgentScope merges all rounds of a reply into one Msg, so
+    ``get_unfinished_tool_calls`` is the only reliable current-round view."""
+    state = getattr(agent, "state", None)
+    get_unfinished = getattr(state, "get_unfinished_tool_calls", None)
+    if callable(get_unfinished):
+        return list(get_unfinished(getattr(agent, "name", "")))
+    return []
 
 
 def _check_guards(handle: AsRunHandle) -> str | None:

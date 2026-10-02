@@ -1,5 +1,36 @@
 # Unreleased
 
+- V3.7 AgentScope-runtime parity round 2 (independent review): the canonical
+  session mirror is now synced on every boundary independent of persistence —
+  production settings without `observability` no longer run a frozen mirror,
+  and a pre-assemble resync carries post-hook observation images into the next
+  model request. Batch fences (unavailable-tool / terminal allowlist /
+  observation barrier) are scoped to the current reasoning round via a
+  per-model-call content watermark, so protocol-denied siblings no longer
+  poison later rounds of a merged reply; denials now complete as
+  `protocol_blocked` results (`call_completed`, non-error) matching legacy
+  guard semantics. `stop_condition` evaluates only the current round's
+  results — a persisted `waiting_user` marker no longer retriggers on later
+  runs — and fatal/guard/stop early-exits close dangling tool calls and
+  cancel concurrent workers before the terminal snapshot. `finish_reason
+  == "length"` maps to `model_output_truncated` (failed turn),
+  `max_tool_iterations=None` stays unlimited instead of collapsing to
+  AgentScope's 50, `_hm_propagate`-marked exceptions (session generation
+  fence, recall deadline) propagate raw through the vendored toolkit, and
+  reply-generator close no longer leaks orphan tasks or GeneratorExit noise.
+  Assistant replies append to `messages.jsonl`; transport request events
+  carry model/api_format/iteration fields for attempt parity. Vendored
+  patches 5-8 recorded in `VENDORED_SOURCE.md`.
+
+- V3.7 Phase-3 pipelines decision: Tier-1 verdict layer —
+  `benchmarking/verdict.py` adds `VerdictVerifier`/`VerdictResult` and
+  `LLMVerdictVerifier` on `AsLLMClient.complete_json` (bounded deadline +
+  one retry, cancellation propagates, no tool path). The vendored
+  `GoalPipeline` is deliberately not adopted (two unbounded loops, dead
+  `max_retries`, cancellation swallowed by `Agent._reply_impl`);
+  `TeamPipeline` deferred. `verdict_provenance` (env/typed/llm) keeps LLM
+  judgments auditable and can never replace environment `won` truth.
+
 - V3.7 Phase-3 memory hardening (C+): repair two shipped AgentScope-path
   regressions and restore parity with the legacy runtime. `context.compaction`
   events and the `on_compaction` callback now fire for every real compaction
