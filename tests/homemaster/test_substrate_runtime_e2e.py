@@ -96,6 +96,60 @@ def _registry() -> ToolRegistry:
     return registry
 
 
+class _ExecutorShim:
+    """Batch ``dispatch`` surface over the real ``ToolExecutor`` (the
+    production shim lives in ``application/tool_executor.py``)."""
+
+    def __init__(self, executor: ToolExecutor) -> None:
+        self._executor = executor
+
+    async def dispatch(self, *, tool_calls: list, run_context: Any = None):
+        from homemaster.agent.messages import ContentBlock, ToolResultMessage
+        from homemaster.tools.contracts import (
+            PermissionSubject,
+            ToolExecutionContext,
+        )
+        from pathlib import Path
+        import tempfile
+
+        out = []
+        for call in tool_calls:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = await self._executor.execute(
+                    call,
+                    ToolExecutionContext(
+                        session_id="as-engine-e2e",
+                        run_id=run_context.run_id if run_context else "run",
+                        turn_index=0,
+                        tool_call_id=call.id,
+                        internal_tool_id=f"homemaster.{call.name}.v1",
+                        permission_subject=PermissionSubject(
+                            subject_id="test",
+                            channel="cli",
+                            roles=(),
+                            tenant_id="test-tenant",
+                            capabilities=("tool.auto",),
+                        ),
+                        backend=None,
+                        deadline=None,
+                        cancellation=None,
+                        domain_observer=None,
+                        working_directory=Path(tmp),
+                    ),
+                )
+            out.append(
+                result.to_message(tool_call_id=call.id, name=call.name)
+                if hasattr(result, "to_message")
+                else ToolResultMessage(
+                    tool_call_id=call.id,
+                    name=call.name,
+                    content=[ContentBlock(text=result.text)],
+                    is_error=result.is_error,
+                )
+            )
+        return out
+
+
 @pytest.mark.asyncio
 async def test_runtime_e2e_agentscope_engine() -> None:
     model = _ScriptedAsModel()
@@ -103,7 +157,7 @@ async def test_runtime_e2e_agentscope_engine() -> None:
         _profile(), model_factory=lambda *a, **kw: model
     )
     session = AgentSession("as-engine-e2e")
-    executor = ToolExecutor(_registry())
+    executor = _ExecutorShim(ToolExecutor(_registry()))
     result = await AgentRuntime(
         transport=client,
         tool_executor=executor,
