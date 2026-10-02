@@ -244,6 +244,152 @@ async def test_as_runtime_permission_denied(tmp_path: Path) -> None:
     assert "tool.call_failed" in event_types
 
 
+def _png_b64() -> str:
+    import base64
+    import io
+
+    from PIL import Image
+
+    img = Image.new("RGB", (2, 2), (255, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_automatic_observation(tmp_path: Path) -> None:
+    """requires_model_observation tool -> runtime-owned observe call runs
+    through the same HM executor; image evidence lands on the action result
+    and the consume event fires on the next model call."""
+    import base64
+    import hashlib
+
+    from homemaster.tools.contracts import ResultImage
+
+    calls: list[str] = []
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    # The auto-observe ran through the same executor funnel.
+    assert calls == ["robot_go_to", "observe"]
+    event_types = [e.type for e in result.events]
+    assert "model_observation.automatic_started" in event_types
+    assert "model_observation.automatic_completed" in event_types
+    assert "model_observation.image_consumed" in event_types
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_resume_from_v2_snapshot(tmp_path: Path) -> None:
+    """Run -> v2 snapshot -> new runtime resumes with the same engine state;
+    the model sees the prior assistant reply in context."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    settings = _settings(tmp_path)
+
+    runtime1, model1 = _runtime(
+        tmp_path,
+        script=[[TextBlock(text="first answer")]],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result1 = await runtime1.run(session, "q1", settings=settings)
+    assert result1.status == "replied"
+    engine_state = result1.engine_state
+    assert engine_state is not None and engine_state.context
+
+    # Simulate a session reload: parse the on-disk snapshot like
+    # ``_runtime_from_snapshot`` does.
+    from homemaster.substrate.snapshot import parse_snapshot_payload
+
+    payload = json.loads(
+        (tmp_path / "sess" / "as-runtime-test" / "session.json").read_text()
+    )
+    parsed = parse_snapshot_payload(payload)
+    session2 = AgentSession(parsed.session_id)
+    session2.replace_messages(list(parsed.messages))
+
+    runtime2, model2 = _runtime(
+        tmp_path,
+        script=[[TextBlock(text="second answer")]],
+        registry=registry,
+        executor=executor,
+    )
+    result2 = await runtime2.run(
+        session2,
+        "q2",
+        settings=settings,
+        engine_state=parsed.engine_state,
+    )
+    assert result2.status == "replied"
+    assert result2.final_reply == "second answer"
+    # Prior turn content survives the engine-state round-trip into the model.
+    joined = json.dumps(
+        [
+            m.model_dump(mode="json")
+            for m in model2.calls[0]
+        ],
+        default=str,
+    )
+    assert "first answer" in joined and "q1" in joined
+
+
 @pytest.mark.asyncio
 async def test_as_runtime_sigint_aborts_model_call(tmp_path: Path) -> None:
     """Real SIGINT mid-model-call: the interrupt shim cancels the pending
