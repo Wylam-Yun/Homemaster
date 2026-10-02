@@ -17,10 +17,9 @@ from agentscope.model._model_usage import ChatUsage
 
 from homemaster.agent.generic_runtime import AgentRuntime
 from homemaster.agent.session import AgentSession
-from homemaster.agent.tool_registry import ToolRegistry
 from homemaster.config.config import ProviderProfileConfig
 from homemaster.substrate.as_llm_client import AsLLMClient
-from homemaster.tools.base import FunctionTool
+from homemaster.tools.base import FunctionTool, ToolRegistry
 from homemaster.tools.contracts import ToolExecutionResult, ToolExecutionStatus
 from homemaster.tools.executor import ToolExecutor
 
