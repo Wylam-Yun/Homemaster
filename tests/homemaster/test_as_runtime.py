@@ -9,6 +9,7 @@ below it is the real chain: AS Agent → Toolkit → ``HomeToolAdapter`` →
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -559,3 +560,568 @@ async def test_as_runtime_cancel_with_deadline(tmp_path: Path) -> None:
     assert snapshot.exists()
     payload = json.loads(snapshot.read_text())
     assert payload["agent_state"]["status"] == "failed"
+
+
+class _FakeAssembler:
+    """Minimal ContextAssembler stand-in: returns canned HM messages and a
+    marker system prompt; every prepare call is recorded."""
+
+    def __init__(self, *, prompt: str = "HM_SYS_MARKER") -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._prompt = prompt
+        self.shrink = False
+
+    async def aprepare(
+        self, *, session, agent_state, task_state_store, tools, force_compact
+    ):
+        from types import SimpleNamespace
+
+        from homemaster.agent.messages import UserMessage
+
+        self.calls.append({"force_compact": force_compact})
+        text = "short" if self.shrink else "filler-filler-filler"
+        return SimpleNamespace(
+            messages=[UserMessage.from_text(f"assembled:{text}")],
+            system_prompt=self._prompt,
+            tools=None,
+            metrics=SimpleNamespace(estimated_input_tokens=11),
+        )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_assembler_wires_system_prompt(tmp_path: Path) -> None:
+    """H1: with an assembler wired, the model input must carry the HM
+    system prompt at messages[0] plus the assembled tail — the AS-side
+    SystemMsg is replaced, not dropped."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    model = ScriptedModel([[TextBlock(text="ok")]])
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        context_assembler=_FakeAssembler(),
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied"
+    first_call = model.calls[0]
+    assert getattr(first_call[0], "role", None) == "system"
+    head = first_call[0]
+    content = getattr(head, "content", "")
+    text = content if isinstance(content, str) else "".join(
+        getattr(b, "text", "") for b in content
+    )
+    assert "HM_SYS_MARKER" in text
+    # The assembled tail follows the system head.
+    tail = " ".join(
+        getattr(b, "text", "")
+        for m in first_call[1:]
+        for b in getattr(m, "content", []) or []
+        if getattr(b, "type", None) == "text"
+    )
+    assert "assembled:" in tail
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_reactive_compaction_sends_fresh_messages(
+    tmp_path: Path,
+) -> None:
+    """H6: a context-length failure on first stream chunk triggers
+    compaction and the retry must carry the *compacted* messages."""
+
+    class FlakyModel(ScriptedModel):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.attempt_inputs: list[list[Msg]] = []
+
+        async def _call_api(self, model_name, messages, tools=None, **kw):
+            # ScriptedModel._call_api records into ``self.calls``; record the
+            # raw attempt inputs separately so failures-before-super still
+            # show up (and don't double-count successes).
+            self.attempt_inputs.append(messages)
+            if len(self.attempt_inputs) == 1:
+                raise ValueError("context length exceeded: 200k > 128k")
+            return await super()._call_api(
+                model_name, messages, tools=tools, **kw
+            )
+
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    assembler = _FakeAssembler()
+    model = FlakyModel([[TextBlock(text="recovered")]])
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        context_assembler=assembler,
+    )
+    session = AgentSession("as-runtime-test")
+    assembler.shrink = False
+    # Compact on the retry: flip after the first prepare ran.
+    original_aprepare = assembler.aprepare
+
+    async def _aprepare(**kw):
+        prepared = await original_aprepare(**kw)
+        if len(assembler.calls) == 1:
+            assembler.shrink = True
+        return prepared
+
+    assembler.aprepare = _aprepare  # type: ignore[method-assign]
+
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied", result.events
+    assert result.final_reply == "recovered"
+    assert len(model.attempt_inputs) == 2
+    assert len(assembler.calls) == 2
+    assert assembler.calls[1]["force_compact"] is True
+    retry = model.attempt_inputs[1]
+    retry_text = json.dumps(
+        [m.model_dump(mode="json") for m in retry], default=str
+    )
+    assert "assembled:short" in retry_text
+    assert "filler-filler-filler" not in retry_text
+    event_types = [e.type for e in result.events]
+    assert "runtime.reactive_compact_started" in event_types
+    assert "context.compaction" in event_types
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_denied_result_carries_hm_data(tmp_path: Path) -> None:
+    """M7/H2: a denied tool call must persist an hm pocket so the canonical
+    ToolResultMessage.data keeps backend_attempted/status instead of None —
+    and the run must not crash evaluating it."""
+    def _boom(arguments: Any, context: Any) -> Any:
+        raise AssertionError("denied tool must not execute")
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool(execute=_boom))
+    store = PermissionStore.open(tmp_path / "perm.sqlite3")
+    checker = PermissionChecker(
+        PermissionSettingsConfig(denied_tools=("echo",)),
+        store=store,
+    )
+    executor = ToolExecutor(registry, permission_checker=checker)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="tc9", name="echo", input='{"x": 9}')],
+            [TextBlock(text="sorry")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "echo", settings=_settings(tmp_path))
+
+    assert result.status == "replied"
+    tool_msgs = [m for m in session.messages if m.role == "tool"]
+    assert len(tool_msgs) == 1
+    data = tool_msgs[0].data or {}
+    assert data.get("backend_attempted") is False
+    assert data.get("status") == "denied"
+    # The result reached the model on the wire (denial text visible).
+    assert model.seen_tool_result_text
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_jsonl_attempt_sink(tmp_path: Path) -> None:
+    """H3: the ProviderObservabilityMiddleware must emit real
+    ProviderAttemptRecords — a JsonlProviderAttemptSink must serialize them
+    without crashing and record response_completed."""
+    from homemaster.providers.attempts import JsonlProviderAttemptSink
+
+    sink_path = tmp_path / "attempts.jsonl"
+
+    def _factory() -> JsonlProviderAttemptSink:
+        return JsonlProviderAttemptSink(sink_path)
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    model = ScriptedModel(
+        [
+            [ToolCallBlock(id="tc1", name="echo", input='{"x": 1}')],
+            [TextBlock(text="done")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        provider_attempt_sink_factory=_factory,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "say hi", settings=_settings(tmp_path)
+    )
+    assert result.status == "replied", result.events
+
+    lines = sink_path.read_text().strip().splitlines()
+    assert len(lines) >= 2  # one record per model call
+    records = [json.loads(line) for line in lines]
+    assert all(r["model_attempt_id"] for r in records)
+    assert all(r["request_sha256"] for r in records)
+    assert all(r["response_completed"] is True for r in records)
+    assert all(r["error_type"] is None for r in records)
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_sigint_during_tool_execution_closes_dangling(
+    tmp_path: Path,
+) -> None:
+    """H7: a cancel landing inside tool execution must not leave an ALLOWED
+    ToolCallBlock without a paired ToolResultBlock — providers reject
+    unpaired tool_use on resume."""
+    import asyncio
+    import os
+    import signal
+
+    started = asyncio.Event()
+
+    async def _hang(arguments: Any, context: Any) -> ToolExecutionResult:
+        started.set()
+        await asyncio.sleep(30)
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="unreachable"
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool(execute=_hang))
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="tc-hang", name="echo", input='{"x": 1}')],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+
+    async def _sigint() -> None:
+        await started.wait()
+        os.kill(os.getpid(), signal.SIGINT)
+
+    task = asyncio.create_task(_sigint())
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+    await task
+
+    assert result.status == "cancelled"
+    # No dangling tool calls in the canonical engine context.
+    engine_context = list(result.engine_state.context)
+    call_ids = set()
+    result_ids = set()
+    for msg in engine_context:
+        for block in getattr(msg, "content", []) or []:
+            btype = getattr(block, "type", None)
+            if btype == "tool_call":
+                call_ids.add(block.id)
+            elif btype == "tool_result":
+                result_ids.add(block.id)
+    assert call_ids == result_ids, (
+        f"dangling tool calls: {call_ids - result_ids}"
+    )
+    # And the paired result is marked interrupted, not successful.
+    from agentscope.message import ToolResultState
+
+    results = [
+        block
+        for msg in engine_context
+        for block in getattr(msg, "content", []) or []
+        if getattr(block, "type", None) == "tool_result"
+    ]
+    assert any(
+        b.state in (ToolResultState.INTERRUPTED, "interrupted")
+        for b in results
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_observation_lands_in_engine_context(
+    tmp_path: Path,
+) -> None:
+    """H4: automatic-observation evidence must reach the persisted
+    ToolResultBlock in engine_state.context (canonical store), not just the
+    transient ToolResponse the middleware saw."""
+    import base64
+    import hashlib
+
+    from homemaster.tools.contracts import ResultImage
+
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+    assert result.status == "replied"
+
+    # The canonical store carries the image + machine evidence.
+    action_block = None
+    for msg in result.engine_state.context:
+        for block in getattr(msg, "content", []) or []:
+            if (
+                getattr(block, "type", None) == "tool_result"
+                and getattr(block, "id", None) == "a1"
+            ):
+                action_block = block
+    assert action_block is not None
+    image_blocks = [
+        b
+        for b in (action_block.output or [])
+        if getattr(b, "type", None) in {"image", "data"}
+    ]
+    assert image_blocks, "observation image missing from canonical result"
+    hm = (action_block.metadata or {}).get("hm") or {}
+    auto = (hm.get("data") or {}).get("automatic_observation") or {}
+    assert auto.get("status") == "success"
+    assert auto.get("source_tool_call_id") == "a1"
+    assert auto.get("content_sha256") == sha
+
+    # The model-facing wire also saw the image (next call's input).
+    second_call = json.dumps(
+        [m.model_dump(mode="json") for m in model.calls[1]], default=str
+    )
+    assert "base64" in second_call or "image" in second_call
+
+
+class _StreamScriptedModel(ScriptedModel):
+    """Streaming variant: ``_call_api`` returns a lazy async generator, so
+    failures surface during consumption — exercising the middleware's
+    stream-wrapping retry rather than the eager ``await`` path."""
+
+    def __init__(
+        self,
+        script: list[list[Any]],
+        *,
+        fail_at: int | None = None,
+        error: str = "context length exceeded: 200k > 128k",
+    ) -> None:
+        super().__init__(script)
+        self._fail_at = fail_at  # 0 = before first chunk, 1 = mid-stream
+        self._error = error
+        self.attempts = 0
+
+    async def _call_api(self, model_name, messages, tools=None, **kw):
+        self.attempts += 1
+        self.calls.append(messages)
+        self.call_tools.append(tools)
+
+        async def _gen():
+            if self._fail_at == 0 and self.attempts == 1:
+                raise ValueError(self._error)
+            blocks = (
+                self._script.pop(0)
+                if self._script
+                else [TextBlock(text="done")]
+            )
+            yield ChatResponse(
+                content=blocks,
+                is_last=False,
+                usage=ChatUsage(input_tokens=7, output_tokens=1, time=0.0),
+            )
+            if self._fail_at == 1:
+                raise ValueError(self._error)
+            yield ChatResponse(
+                content=[],
+                is_last=True,
+                usage=ChatUsage(input_tokens=7, output_tokens=2, time=0.0),
+                metadata={"stop_reason": "end_turn"},
+            )
+
+        return _gen()
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_streaming_pre_chunk_retry_uses_compacted(
+    tmp_path: Path,
+) -> None:
+    """H6 (streaming): a context-length error raised lazily at the first
+    ``__anext__`` triggers compaction and the retry carries fresh messages."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    assembler = _FakeAssembler()
+    model = _StreamScriptedModel(
+        [[TextBlock(text="recovered")]], fail_at=0
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        context_assembler=assembler,
+    )
+    session = AgentSession("as-runtime-test")
+    assembler.shrink = False
+    original_aprepare = assembler.aprepare
+
+    async def _aprepare(**kw):
+        prepared = await original_aprepare(**kw)
+        if len(assembler.calls) == 1:
+            assembler.shrink = True
+        return prepared
+
+    assembler.aprepare = _aprepare  # type: ignore[method-assign]
+
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied", result.events
+    assert model.attempts == 2
+    assert assembler.calls[1]["force_compact"] is True
+    retry_text = json.dumps(
+        [m.model_dump(mode="json") for m in model.calls[-1]], default=str
+    )
+    assert "assembled:short" in retry_text
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_streaming_mid_stream_failure_no_retry(
+    tmp_path: Path,
+) -> None:
+    """A context-length error after the first yielded chunk must NOT retry —
+    deltas already delivered to the consumer cannot be re-emitted safely."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    assembler = _FakeAssembler()
+    model = _StreamScriptedModel(
+        [[TextBlock(text="partial")]], fail_at=1
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        context_assembler=assembler,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert model.attempts == 1, "mid-stream failure must not retry"
+    assert result.status == "failed", (
+        result.status,
+        [(e.type, e.payload) for e in result.events],
+    )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_native_context_transforms_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1: the Agent must be built with native compression / image trimming /
+    runtime-state injection off — HM's assembler is the sole authority."""
+    import agentscope.agent as as_agent
+
+    captured: dict[str, Any] = {}
+    real_agent = as_agent.Agent
+
+    class _SpyAgent(real_agent):  # type: ignore[misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(as_agent, "Agent", _SpyAgent)
+
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    runtime = AsAgentRuntime(
+        model=ScriptedModel([[TextBlock(text="ok")]]),
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=_settings(tmp_path))
+    assert result.status == "replied"
+
+    ctx_cfg = captured.get("context_config")
+    inj_cfg = captured.get("injection_config")
+    assert ctx_cfg is not None, "context_config must be pinned explicitly"
+    assert inj_cfg is not None, "injection_config must be pinned explicitly"
+    assert getattr(ctx_cfg, "compression_tool_enabled", True) is False
+    assert getattr(inj_cfg, "inject_runtime_state", True) is False
+
+
+def test_anthropic_formatter_empty_tool_result_fallback() -> None:
+    """Vendored patch: an empty/error-only tool result must format to a
+    non-empty Anthropic ``tool_result`` content list (Anthropic rejects an
+    empty list or empty text), and the carrying message must be role=user."""
+    from agentscope.formatter import AnthropicChatFormatter
+    from agentscope.message import ToolResultBlock
+
+    fmt = AnthropicChatFormatter()
+    msg = Msg(
+        name="tool",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="tc-empty",
+                name="echo",
+                output=[],
+                state="error",
+            )
+        ],
+    )
+    payload = asyncio.run(fmt.format([msg]))
+    assert payload and payload[0]["role"] == "user"
+    contents = [
+        b for b in payload[0]["content"] if b.get("type") == "tool_result"
+    ]
+    assert len(contents) == 1
+    assert contents[0]["tool_use_id"] == "tc-empty"
+    assert contents[0]["content"], "empty tool_result content must fall back"
+    assert all(
+        b.get("type") != "text" or b.get("text")
+        for b in contents[0]["content"]
+    )

@@ -50,7 +50,7 @@ from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.contracts import PermissionSubject
 
-_REASON_ERROR_STATES = frozenset({"error", "denied"})
+_REASON_ERROR_STATES = frozenset({"error", "denied", "interrupted"})
 
 
 @dataclass
@@ -317,6 +317,20 @@ class AsAgentRuntime:
                 )
             )
 
+        # HM's ContextAssembler is the single context authority — disarm AS's
+        # own context mutators so they cannot silently rewrite the canonical
+        # transcript: no runtime-state HintBlocks, no image dropping, and
+        # compression fails loudly (HM's assembler/reactive path owns it).
+        from agentscope.agent import ContextConfig, InjectionConfig
+
+        context_config = ContextConfig(
+            trigger_ratio=0.9,
+            max_image_num=10000,
+            compression_fallback_to_truncation=False,
+            compression_tool_enabled=False,
+        )
+        injection_config = InjectionConfig(inject_runtime_state=False)
+
         agent = Agent(
             name="homemaster",
             system_prompt=self._system_prompt,
@@ -325,6 +339,8 @@ class AsAgentRuntime:
             middlewares=middlewares,
             state=engine_state,
             react_config=react_config,
+            context_config=context_config,
+            injection_config=injection_config,
         )
 
         await emit(
@@ -432,9 +448,27 @@ class AsAgentRuntime:
                     session=session,
                     save_snapshot=save_snapshot,
                 )
+                if (
+                    stop is None
+                    and getattr(handle, "observation_fatal", None) is not None
+                ):
+                    # The fatal flag is set by the on_acting post-hook, which
+                    # resumes after the action's ToolResultEndEvent — check at
+                    # every event boundary so a text-only final reply cannot
+                    # silently drop it.
+                    stop = await self._fail_observation_fatal(
+                        handle,
+                        session=session,
+                        emit=emit,
+                        stream=stream,
+                        save_snapshot=save_snapshot,
+                    )
                 if stop is not None:
                     return stop
         except TimeoutError:
+            await _close_stream(stream)
+            await self._close_dangling_tool_calls(handle, emit)
+            self._sync_session(session, engine_state)
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -451,6 +485,7 @@ class AsAgentRuntime:
                 error_code="deadline_exceeded",
             )
         except asyncio.CancelledError:
+            await _close_stream(stream)
             return await self._cancel_result(
                 session,
                 run_id,
@@ -462,6 +497,9 @@ class AsAgentRuntime:
                 engine_state=engine_state,
             )
         except Exception as exc:
+            await _close_stream(stream)
+            await self._close_dangling_tool_calls(handle, emit)
+            self._sync_session(session, engine_state)
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -833,6 +871,104 @@ class AsAgentRuntime:
         """Mirror the authoritative engine context into the HM session."""
         session.replace_messages(from_agent_scope(list(engine_state.context)))
 
+    async def _fail_observation_fatal(
+        self,
+        handle: AsRunHandle,
+        *,
+        session: AgentSession,
+        emit: Callable[..., Any],
+        stream: Any,
+        save_snapshot: Callable[..., Any],
+    ) -> GenericRunResult:
+        fatal = handle.observation_fatal
+        await _close_stream(stream)
+        await emit(
+            "runtime.turn_failed",
+            payload={
+                "error": getattr(handle, "observation_fatal_reason", "")
+                or "model observation protocol failed",
+                "error_code": fatal,
+            },
+        )
+        save_snapshot("failed")
+        return GenericRunResult(
+            run_id=handle.run_id,
+            status="failed",
+            session=session,
+            events=handle.events,
+            error_code=fatal,
+        )
+
+    async def _close_dangling_tool_calls(
+        self, handle: AsRunHandle, emit: Callable[..., Any]
+    ) -> None:
+        """Append INTERRUPTED results for tool calls whose result block was
+        never persisted — mirrors ``Agent._close_unfinished_tool_calls``.
+
+        A cancel/deadline that lands inside tool execution (or an aclose that
+        kills the ``finally`` mid-yield) leaves ALLOWED/PENDING
+        ``ToolCallBlock``s without results; an unpaired ``tool_use`` is
+        rejected by provider APIs on resume, so close them before the session
+        mirror/snapshot is taken."""
+        context = list(getattr(handle, "engine_context", []) or [])
+        if not context:
+            return
+        from agentscope.message import (
+            ToolCallBlock,
+            ToolCallState,
+            ToolResultBlock,
+            ToolResultState,
+        )
+
+        last_msg = context[-1]
+        if getattr(last_msg, "role", "") != "assistant":
+            return
+        dangling: dict[str, Any] = {}
+        for block in getattr(last_msg, "content", []) or []:
+            if isinstance(block, ToolCallBlock):
+                dangling[block.id] = block
+            elif isinstance(block, ToolResultBlock):
+                dangling.pop(block.id, None)
+        if not dangling:
+            return
+        reminder = (
+            "<system-reminder>The tool call has been interrupted by "
+            "the user.</system-reminder>"
+        )
+        for block in dangling.values():
+            block.state = ToolCallState.FINISHED
+            last_msg.content.append(
+                ToolResultBlock(
+                    id=block.id,
+                    name=block.name,
+                    output=reminder,
+                    state=ToolResultState.INTERRUPTED,
+                    metadata={
+                        "hm": {
+                            "data": {
+                                "backend_attempted": False,
+                                "status": "interrupted",
+                            }
+                        }
+                    },
+                )
+            )
+            await emit(
+                "tool.call_failed",
+                tool_call_id=block.id,
+                name=block.name,
+                payload={
+                    "is_error": True,
+                    "result": reminder,
+                    "data": {
+                        "backend_attempted": False,
+                        "status": "interrupted",
+                    },
+                    "backend_attempted": False,
+                    "status": "interrupted",
+                },
+            )
+
     async def _cancel_result(
         self,
         session: AgentSession,
@@ -846,7 +982,10 @@ class AsAgentRuntime:
         engine_state: Any = None,
         local_only: bool = False,
     ) -> GenericRunResult:
-        if engine_state is not None:
+        if engine_state is not None and handle is not None:
+            await self._close_dangling_tool_calls(handle, emit)
+            self._sync_session(session, engine_state)
+        elif engine_state is not None:
             self._sync_session(session, engine_state)
         await emit(
             "runtime.cancelled",
@@ -934,6 +1073,21 @@ class AsAgentRuntime:
         )
         manager.engine_state = engine_state
         return manager
+
+
+async def _close_stream(stream: Any) -> None:
+    """Best-effort ``aclose()`` on the reply generator — the deadline path
+    cancels the pending ``__anext__`` task, which leaves the generator
+    suspended (its ``finally`` cleanup never runs) until we close it."""
+    aclose = getattr(stream, "aclose", None)
+    if aclose is None:
+        return
+    try:
+        await aclose()
+    except BaseException:
+        # GeneratorExit ignores, RuntimeError("ignored GeneratorExit"), or a
+        # re-delivery of our own cancellation — all mean "closed enough".
+        pass
 
 
 async def _await_with_deadline(

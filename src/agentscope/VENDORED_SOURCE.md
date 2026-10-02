@@ -16,8 +16,19 @@
    was imported; lazy resolution keeps extras-gated code unloaded until its
    middleware is actually requested. Public API unchanged.
 2. `model/_anthropic/_model.py`, `model/_openai_chat/_model.py`,
-   `model/_utils.py` — preserve provider-native `stop_reason`/`finish_reason`
+   `model/_ollama/_model.py`, `model/_utils.py` — preserve provider-native
+   `stop_reason`/`finish_reason`/`done_reason`
    on `ChatResponse.metadata["stop_reason"]` (stream chunk → accumulator →
    final response; non-stream parsers set it directly). HomeMaster's
    `finish_reason` contract (e.g. `max_tokens` → `length` truncation
    detection) depends on the native value upstream discarded.
+3. `agent/_agent.py` `_handle_error_tool_call` — attach
+   `metadata={"hm": {"data": {"backend_attempted": False, "status": ...}}}`
+   to the `ToolResultBlock` it persists and to the `ToolResultEndEvent` it
+   yields. Upstream built both without metadata, so HomeMaster's canonical
+   `ToolResultMessage.data` (and the projection's `backend_attempted`
+   field) lost the machine pocket on denied/interrupted/error results.
+4. `formatter/_anthropic_formatter.py` — emit `"is_error": true` on
+   `tool_result` blocks whose `ToolResultBlock.state` is not `SUCCESS`, so
+   denied/interrupted/error results are distinguishable from successful
+   ones on the Anthropic wire.

@@ -1081,8 +1081,11 @@ def _stop_condition(request: RunRequest):
 
     async def stop(session, results):
         for result in results:
-            data = getattr(result, "data", {})
-            marker = data.get("data") if isinstance(data.get("data"), Mapping) else data
+            data = getattr(result, "data", None)
+            if not isinstance(data, Mapping):
+                continue
+            inner = data.get("data")
+            marker = inner if isinstance(inner, Mapping) else data
             if marker.get("waiting_user") is True:
                 question = str(marker.get("question") or "Input required")
                 return RuntimeStopDecision(

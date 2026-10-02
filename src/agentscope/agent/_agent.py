@@ -2842,6 +2842,18 @@ class Agent:
             state=state,
         )
 
+        # VENDORED-PATCH(homemaster): carry the machine-readable hm pocket on
+        # denied/interrupted/error results so canonical ToolResultMessage.data
+        # keeps backend_attempted/status (HM contract) instead of data=None.
+        hm_result_meta = {
+            "hm": {
+                "data": {
+                    "backend_attempted": False,
+                    "status": str(state),
+                },
+            },
+        }
+
         # Return the result directly to the agent
         self._save_to_context(
             [
@@ -2850,6 +2862,7 @@ class Agent:
                     name=tool_call.name,
                     output=message,
                     state=state,
+                    metadata=hm_result_meta,
                 ),
             ],
         )
@@ -2864,6 +2877,7 @@ class Agent:
             reply_id=self.state.reply_id,
             tool_call_id=tool_call.id,
             state=state,
+            metadata=hm_result_meta,
         )
 
         self._update_tool_call_state(

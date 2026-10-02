@@ -53,6 +53,19 @@ def _is_context_length_error(error_msg: str) -> bool:
     return any(keyword in lowered for keyword in _CONTEXT_LENGTH_KEYWORDS)
 
 
+def _assembler_prepare(assembler: Any) -> Callable[..., Any]:
+    """Prefer the async ``aprepare`` (its summary path awaits coroutine
+    ``complete``); fall back to sync ``prepare`` for test doubles."""
+    return getattr(assembler, "aprepare", None) or assembler.prepare
+
+
+async def _maybe_async(fn: Callable[..., Any], **kwargs: Any) -> Any:
+    value = fn(**kwargs)
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
 def _stable_msg_view(msg: Any) -> dict[str, Any]:
     """Strip volatile fields so fingerprints are stable across retries."""
     data = msg.model_dump(mode="json") if hasattr(msg, "model_dump") else dict(msg)
@@ -119,41 +132,85 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             return await next_handler()
 
         messages, tools = await self._assemble(input_kwargs)
-        try:
-            return await next_handler(messages=messages, tools=tools)
-        except Exception as exc:
-            if not _is_context_length_error(str(exc)):
-                raise
-            retries = 0
-            while retries < self._max_reactive_retries:
-                retries += 1
-                await self._handle.emit(
-                    "runtime.reactive_compact_started",
-                    payload={"attempt": retries},
-                )
-                metrics = await self._compact()
-                if metrics is None:
+        retries = 0
+        while True:
+            try:
+                resp = await next_handler(messages=messages, tools=tools)
+            except Exception as exc:
+                if (
+                    not _is_context_length_error(str(exc))
+                    or retries >= self._max_reactive_retries
+                ):
                     raise
-                await self._handle.emit(
-                    "context.compaction",
-                    payload={"metrics": _metrics_payload(metrics)},
-                )
-                try:
-                    return await next_handler(messages=messages, tools=tools)
-                except Exception as retry_exc:
-                    if not _is_context_length_error(str(retry_exc)):
-                        raise
-                    if retries >= self._max_reactive_retries:
-                        raise
-            raise
+                retries += 1
+                messages, tools = await self._recompact(input_kwargs, retries)
+                continue
+            break
+        if not hasattr(resp, "__aiter__"):
+            return resp
+        return self._stream_with_reactive_retry(
+            resp, messages, tools, input_kwargs, next_handler, retries
+        )
+
+    async def _stream_with_reactive_retry(
+        self,
+        stream: Any,
+        messages: list[Any],
+        tools: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., AsyncGenerator],
+        retries: int,
+    ) -> AsyncGenerator:
+        """Consume the model stream, retrying a context-length failure that
+        surfaces on the first ``__anext__`` (streaming calls raise lazily).
+        Safe only while zero chunks have been yielded — a mid-stream failure
+        cannot be retried without re-delivering deltas."""
+        while True:
+            first_chunk = True
+            try:
+                async for chunk in stream:
+                    first_chunk = False
+                    yield chunk
+            except Exception as exc:
+                if (
+                    first_chunk
+                    and _is_context_length_error(str(exc))
+                    and retries < self._max_reactive_retries
+                ):
+                    retries += 1
+                    messages, tools = await self._recompact(
+                        input_kwargs, retries
+                    )
+                    stream = await next_handler(
+                        messages=messages, tools=tools
+                    )
+                    continue
+                raise
+            return
+
+    async def _recompact(
+        self, input_kwargs: dict, attempt: int
+    ) -> tuple[list[Any], Any]:
+        await self._handle.emit(
+            "runtime.reactive_compact_started",
+            payload={"attempt": attempt},
+        )
+        prepared = await self._compact()
+        metrics = getattr(prepared, "metrics", None)
+        if metrics is None:
+            raise RuntimeError("reactive compaction produced no metrics")
+        await self._handle.emit(
+            "context.compaction",
+            payload={"metrics": _metrics_payload(metrics)},
+        )
+        return self._render(input_kwargs, prepared)
 
     async def _assemble(self, input_kwargs: dict) -> tuple[list[Any], Any]:
-        from homemaster.substrate.messages import to_agent_scope
-
         handle = self._handle
         force = self._pending_force_compact
         self._pending_force_compact = None
-        prepared = self._assembler.prepare(
+        prepared = await _maybe_async(
+            _assembler_prepare(self._assembler),
             session=handle.session,
             agent_state=handle.agent_state,
             task_state_store=handle.task_state_store,
@@ -163,12 +220,32 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         handle.agent_state.estimated_context_tokens = getattr(
             getattr(prepared, "metrics", None), "estimated_input_tokens", 0
         )
-        as_messages = to_agent_scope(list(prepared.messages))
-        return as_messages, input_kwargs.get("tools")
+        return self._render(input_kwargs, prepared)
+
+    def _render(self, input_kwargs: dict, prepared: Any) -> tuple[list[Any], Any]:
+        """Rebuild the model input: HM system prompt (assembler is the
+        authority — it carries workspace/frozen-memory context the bare AS
+        prompt lacks) + observation-barrier suffix + assembled messages.
+        ``_prepare_model_input``'s messages[0] SystemMsg is replaced because
+        AS's own ``_system_prompt`` is a strict subset."""
+        from agentscope.message import SystemMsg
+        from homemaster.substrate.messages import to_agent_scope
+
+        prompt = getattr(prepared, "system_prompt", "") or ""
+        barrier = self._handle.agent_state.pending_model_observation
+        if barrier is not None:
+            prompt = append_model_observation_prompt(
+                prompt, tool_name=barrier.observe_tool_name
+            )
+        messages = [SystemMsg(name="system", content=prompt)] + to_agent_scope(
+            list(prepared.messages)
+        )
+        return messages, input_kwargs.get("tools")
 
     async def _compact(self) -> Any:
         handle = self._handle
-        prepared = self._assembler.prepare(
+        prepared = await _maybe_async(
+            _assembler_prepare(self._assembler),
             session=handle.session,
             agent_state=handle.agent_state,
             task_state_store=handle.task_state_store,
@@ -179,7 +256,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             result = self._on_compaction(getattr(prepared, "metrics", None))
             if inspect.isawaitable(result):
                 await result
-        return getattr(prepared, "metrics", None)
+        return prepared
 
 
 class ProviderObservabilityMiddleware(MiddlewareBase):
@@ -227,14 +304,12 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
                     "request_sha256": request_sha,
                 },
             )
-            self._record_attempt(
-                request_sha=request_sha,
-                status="failed",
-                latency_ms=(time.perf_counter() - started) * 1000.0,
-                error=str(exc),
-                usage={},
-                output_sha256=None,
-                stream_error=str(exc),
+            await self._record_attempt(
+                attempt_index=attempt_index,
+                request_sha256=request_sha,
+                messages=input_kwargs.get("messages"),
+                response_completed=False,
+                error=exc,
             )
             raise
 
@@ -244,12 +319,14 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
                 attempt_index=attempt_index,
                 request_sha=request_sha,
                 started=started,
+                messages=input_kwargs.get("messages"),
             )
         await self._complete(
             response,
             attempt_index=attempt_index,
             request_sha=request_sha,
             latency_ms=(time.perf_counter() - started) * 1000.0,
+            messages=input_kwargs.get("messages"),
         )
         return response
 
@@ -260,6 +337,7 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         attempt_index: int,
         request_sha: str,
         started: float,
+        messages: Any,
     ) -> AsyncGenerator:
         last_chunk: Any = None
         emitted: list[Any] = []
@@ -278,14 +356,12 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
                     "request_sha256": request_sha,
                 },
             )
-            self._record_attempt(
-                request_sha=request_sha,
-                status="failed",
-                latency_ms=(time.perf_counter() - started) * 1000.0,
-                error=str(exc),
-                usage={},
-                output_sha256=None,
-                stream_error=str(exc),
+            await self._record_attempt(
+                attempt_index=attempt_index,
+                request_sha256=request_sha,
+                messages=messages,
+                response_completed=False,
+                error=exc,
             )
             raise
         usage = _usage_from_chunk(last_chunk)
@@ -299,14 +375,12 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
                 "usage": usage,
             },
         )
-        self._record_attempt(
-            request_sha=request_sha,
-            status="success",
-            latency_ms=(time.perf_counter() - started) * 1000.0,
+        await self._record_attempt(
+            attempt_index=attempt_index,
+            request_sha256=request_sha,
+            messages=messages,
+            response_completed=True,
             error=None,
-            usage=usage,
-            output_sha256=None,
-            stream_error=None,
         )
 
     async def _complete(
@@ -316,6 +390,7 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         attempt_index: int,
         request_sha: str,
         latency_ms: float,
+        messages: Any,
     ) -> None:
         usage = _usage_from_response(response)
         await self._handle.emit(
@@ -328,24 +403,51 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
                 "usage": usage,
             },
         )
-        self._record_attempt(
-            request_sha=request_sha,
-            status="success",
-            latency_ms=latency_ms,
+        await self._record_attempt(
+            attempt_index=attempt_index,
+            request_sha256=request_sha,
+            messages=messages,
+            response_completed=True,
             error=None,
-            usage=usage,
-            output_sha256=_output_sha256(response),
-            stream_error=None,
         )
 
-    def _record_attempt(self, **fields: Any) -> None:
+    async def _record_attempt(
+        self,
+        *,
+        attempt_index: int,
+        request_sha256: str,
+        messages: Any,
+        response_completed: bool,
+        error: Any,
+    ) -> None:
+        """Write a real ``ProviderAttemptRecord`` — the frozen dataclass
+        rejects unknown kwargs, so anything looser would crash the JSONL
+        sink's ``asdict`` and fail every model call."""
         sink = self._attempt_sink
         if sink is None:
             return
-        record = _make_attempt_record(fields)
-        record_attempt = getattr(sink, "record_attempt", None)
-        if callable(record_attempt):
-            record_attempt(record)
+        from homemaster.providers.attempts import ProviderAttemptRecord
+
+        error_type = getattr(error, "error_type", None) or (
+            type(error).__name__ if error is not None else None
+        )
+        cause_code = getattr(error, "cause_code", None)
+        record = ProviderAttemptRecord(
+            model_attempt_id=(
+                f"{self._handle.run_id}:attempt-{attempt_index:04d}"
+            ),
+            request_sha256=request_sha256,
+            outbound_images=_outbound_image_bindings(messages),
+            stripped_images=False,
+            response_completed=response_completed,
+            error_type=error_type,
+            cause_code=cause_code,
+        )
+        arecord = getattr(sink, "arecord_attempt", None)
+        if callable(arecord):
+            await arecord(record)
+        else:
+            sink.record_attempt(record)
 
 
 def _usage_from_chunk(chunk: Any) -> dict[str, int]:
@@ -522,6 +624,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             barrier is None
             and action_requires_model_observation(handle.tool_registry, call_name)
             and _is_success_state(final.state)
+            and _backend_attempted(final)
         ):
             await self._automatic_observe(
                 agent, source_call=tool_call, response=final
@@ -531,7 +634,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             and call_name == barrier.observe_tool_name
         ):
             await self._validate_manual_observe(
-                call_id=call_id, response=final
+                agent, call_id=call_id, response=final
             )
         elif (
             barrier is None
@@ -575,6 +678,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                 failure_reason = str(exc)
             else:
                 self._attach_observation(
+                    agent,
                     response=response,
                     observe_response=observe_response,
                     observe_call_id=observe_call.id,
@@ -607,6 +711,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                 },
             )
         self._mark_observation_failed(
+            agent,
             response,
             source_call_id=source.id,
             reason=failure_reason,
@@ -662,7 +767,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         return final
 
     async def _validate_manual_observe(
-        self, *, call_id: str, response: Any
+        self, agent: Any, *, call_id: str, response: Any
     ) -> None:
         handle = self._handle
         barrier = handle.agent_state.pending_model_observation
@@ -688,7 +793,9 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                     "model observation retry limit reached"
                 )
             return
-        self._stamp_observation_of(response, barrier.source_tool_call_id)
+        self._stamp_observation_of(
+            agent, response, call_id, barrier.source_tool_call_id
+        )
         handle.agent_state.pending_model_observation = None
         handle.agent_state.unconsumed_observation_tool_call_id = call_id
         await handle.emit(
@@ -731,33 +838,46 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         )
 
     @staticmethod
-    def _stamp_observation_of(response: Any, source_tool_call_id: str) -> None:
-        metadata = getattr(response, "metadata", None)
-        if not isinstance(metadata, dict):
-            return
-        hm = dict(metadata.get("hm") or {})
-        data = dict(hm.get("data") or {})
-        data["observation_of_tool_call_id"] = source_tool_call_id
-        hm["data"] = data
-        metadata["hm"] = hm
+    def _stamp_observation_of(
+        agent: Any,
+        response: Any,
+        call_id: str,
+        source_tool_call_id: str,
+    ) -> None:
+        def apply(metadata: Any) -> None:
+            if not isinstance(metadata, dict):
+                return
+            hm = dict(metadata.get("hm") or {})
+            data = dict(hm.get("data") or {})
+            data["observation_of_tool_call_id"] = source_tool_call_id
+            hm["data"] = data
+            metadata["hm"] = hm
+
+        apply(getattr(response, "metadata", None))
+        apply(getattr(_find_result_block(agent, call_id), "metadata", None))
 
     @staticmethod
     def _mark_observation_failed(
-        response: Any, *, source_call_id: str, reason: str
+        agent: Any, response: Any, *, source_call_id: str, reason: str
     ) -> None:
-        metadata = getattr(response, "metadata", None)
-        if not isinstance(metadata, dict):
-            return
-        hm = dict(metadata.get("hm") or {})
-        data = dict(hm.get("data") or {})
-        data["automatic_observation"] = {
+        record = {
             "status": "failed",
             "source_tool_call_id": source_call_id,
             "attempts": MAX_OBSERVE_FAILURES,
             "reason": reason,
         }
-        hm["data"] = data
-        metadata["hm"] = hm
+
+        def apply(metadata: Any) -> None:
+            if not isinstance(metadata, dict):
+                return
+            hm = dict(metadata.get("hm") or {})
+            data = dict(hm.get("data") or {})
+            data["automatic_observation"] = record
+            hm["data"] = data
+            metadata["hm"] = hm
+
+        apply(getattr(response, "metadata", None))
+        apply(getattr(_find_result_block(agent, source_call_id), "metadata", None))
 
     @staticmethod
     def _validate_chunk_as_observation(response: Any) -> Any:
@@ -808,32 +928,57 @@ class ObservationBarrierMiddleware(MiddlewareBase):
 
     @staticmethod
     def _attach_observation(
-        *, response: Any, observe_response: Any, observe_call_id: str,
-        evidence: Any, source_call_id: str,
+        agent: Any,
+        *,
+        response: Any,
+        observe_response: Any,
+        observe_call_id: str,
+        evidence: Any,
+        source_call_id: str,
     ) -> None:
         """Attach the validated observation image + machine fields to the
-        action's ToolResponse — mirrors ``attach_automatic_observation``."""
+        action's result — mirrors ``attach_automatic_observation``.
+
+        The post-hook runs *after* ``_execute_tool_call`` already built and
+        persisted the ``ToolResultBlock``, so we must mutate BOTH the
+        transient ``ToolResponse`` and the stored block in
+        ``agent.state.context`` (canonical store → session mirror → v2
+        snapshot)."""
         images = [
             block
             for block in getattr(observe_response, "content", []) or []
             if getattr(block, "type", None) in {"image", "data"}
         ]
-        if images and hasattr(response, "content"):
-            response.content.extend(images)
-        metadata = dict(getattr(response, "metadata", None) or {})
-        hm = dict(metadata.get("hm") or {})
-        data = dict(hm.get("data") or {})
-        data["automatic_observation"] = {
+        record = {
             "status": "success",
             "source_tool_call_id": source_call_id,
             "observation_tool_call_id": observe_call_id,
             "content_sha256": evidence.content_sha256,
             "pixel_sha256": evidence.pixel_sha256,
         }
-        hm["data"] = data
-        metadata["hm"] = hm
-        if hasattr(response, "metadata"):
-            response.metadata = metadata
+
+        def apply(target: Any) -> None:
+            if target is None:
+                return
+            content = getattr(target, "content", None)
+            output = getattr(target, "output", None)
+            sink = (
+                content
+                if isinstance(content, list)
+                else output if isinstance(output, list) else None
+            )
+            if images and sink is not None:
+                sink.extend(images)
+            metadata = getattr(target, "metadata", None)
+            if isinstance(metadata, dict):
+                hm = dict(metadata.get("hm") or {})
+                data = dict(hm.get("data") or {})
+                data["automatic_observation"] = record
+                hm["data"] = data
+                metadata["hm"] = hm
+
+        apply(response)
+        apply(_find_result_block(agent, source_call_id))
 
     def _observe_name(self, schemas: list[Any]) -> str:
         names = {
@@ -846,6 +991,30 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         raise RuntimeError(
             "model observation barrier requires an observation tool"
         )
+
+
+def _find_result_block(agent: Any, tool_call_id: str) -> Any:
+    """Locate the persisted ``ToolResultBlock`` for ``tool_call_id`` in the
+    engine context (``agent.state.context``) — the canonical store mirrored
+    into the HM session."""
+    context = getattr(getattr(agent, "state", None), "context", []) or []
+    for msg in reversed(context):
+        for block in getattr(msg, "content", []) or []:
+            if (
+                getattr(block, "type", None) == "tool_result"
+                and getattr(block, "id", None) == tool_call_id
+            ):
+                return block
+    return None
+
+
+def _backend_attempted(response: Any) -> bool:
+    """Legacy gate: only a result whose backend actually ran may trigger
+    automatic observation (``generic_runtime`` requires
+    ``data.backend_attempted is True``)."""
+    metadata = getattr(response, "metadata", None)
+    hm = metadata.get("hm") if isinstance(metadata, dict) else None
+    return isinstance(hm, dict) and hm.get("backend_attempted") is True
 
 
 def _round_tool_calls(agent: Any) -> list[Any]:
@@ -930,13 +1099,40 @@ def _output_sha256(response: Any) -> str | None:
         return None
 
 
-def _make_attempt_record(fields: dict[str, Any]) -> Any:
-    try:
-        from homemaster.providers.attempts import ProviderAttemptRecord
+def _outbound_image_bindings(messages: Any) -> tuple[Any, ...]:
+    """Locate base64 image blocks in the outbound AS messages; mirrors
+    ``llm_client._attempt_record``'s binding semantics for the middleware
+    layer, which sees AS ``Msg``s rather than HM messages + request body."""
+    import base64
 
-        return ProviderAttemptRecord(**fields)
-    except Exception:
-        return dict(fields)
+    from agentscope.message import DataBlock
+    from homemaster.providers.attempts import OutboundImageBinding
+
+    bindings: list[Any] = []
+    for message_index, msg in enumerate(messages or []):
+        for block_index, block in enumerate(
+            getattr(msg, "content", []) or []
+        ):
+            if not isinstance(block, DataBlock):
+                continue
+            source = getattr(block, "source", None)
+            if getattr(source, "type", None) != "base64":
+                continue
+            data = getattr(source, "data", None)
+            if not isinstance(data, str) or not data:
+                continue
+            try:
+                content = base64.b64decode(data, validate=True)
+            except ValueError:
+                content = data.encode("ascii", errors="replace")
+            bindings.append(
+                OutboundImageBinding(
+                    message_index=message_index,
+                    block_index=block_index,
+                    content_sha256=hashlib.sha256(content).hexdigest(),
+                )
+            )
+    return tuple(bindings)
 
 
 def _metrics_payload(metrics: Any) -> dict[str, Any]:

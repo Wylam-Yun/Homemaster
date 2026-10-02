@@ -66,3 +66,58 @@ scripts` 全过——assistant 分段还原抽出为模块级
 TYPE_CHECKING 注解，其余为机械 import/注解修复。lint 后定点回归：
 远端 substrate+application 236/236 绿，本地含 permissions/agent
 全套 355/355 绿，`guard_no_legacy_terms` exit=0。
+
+## 独立 review 加固轮（export 后追加）
+
+实现完成后以**全新上下文**跑了一轮独立 code review（runtime /
+middleware / 持久化 / 接线四面），报出 7 项 HIGH。逐条真机核实后
+全部修复——每一条都能在真实序列化信封/引擎上下文上复现，不是风格
+问题：
+
+| # | 发现 | 修法 |
+|---|---|---|
+| H1 | `messages[0]` SystemMsg 被整体替换丢弃——HM system prompt 在生产路径丢失 | `ContextAssemblyMiddleware._render` 保留 assembler 的 system prompt 为 head，AS 自身 prompt 仅作子集 |
+| H2 | `ApplicationRuntime._stop_condition` 遇 `data=None` 崩 | None/Mapping 守卫 |
+| H3 | attempt record 字段与 `ProviderAttemptRecord` 契约不符 → JSONL sink 每次调用必炸 | `_record_attempt` 用真实契约构造；新增 `test_as_runtime_jsonl_attempt_sink` 黑盒断言 |
+| H4 | auto-observe 证据只写在 transient `ToolResponse`，进不了 canonical context | post-hook 双写：`agent.state.context` 里已持久化的 `ToolResultBlock` + 瞬态响应；`test_as_runtime_observation_lands_in_engine_context` 断言引擎终态 |
+| H5 | 汇编用 `prepare()` 会丢弃 coroutine（assembler 是 async） | 统一 `_maybe_async` 走 `aprepare()` |
+| H6 | 反应式压缩重试在流式下是死代码：`_call_api` 返回惰性 asyncgen，异常推迟到首个 `__anext__`；且重试复用了旧 messages | 拆两段：eager `await next_handler()` 捕获 + `_stream_with_reactive_retry` 包装消费——**只在首 chunk 之前**重试，mid-stream 失败直接失败不重放 |
+| H7 | 取消/deadline 在 tool 执行中炸会留悬空 `tool_call`（无配对 `tool_result`）→ 快照恢复后 provider 拒未配对 tool_use | `runtime.py` 加 `_close_stream`/`_close_dangling_tool_calls`/`_fail_observation_fatal`；SIGINT-during-tool 测试断言引擎上下文内 call_ids==result_ids 且 state=interrupted |
+
+另补：
+
+- `ToolResultState.INTERRUPTED` 计入 runtime 错误态分类（原只认
+  error/denied）。
+- vendored `_agent.py` 给 denied/interrupted 结果块持久化 `hm` 袋
+  （`backend_attempted=False`、`status`），`ToolResultEndEvent` 同步带
+  上——否则 canonical `ToolResultMessage.data` 退化为 None。
+- vendored `_anthropic_formatter.py`：空/仅错误的 tool_result 落
+  `(empty tool output)` 占位（Anthropic 拒空 content），非 success
+  态标 `is_error`，含 tool_result 的消息强制 `role=user`。
+- `SessionPersistenceManager` v2 分支补 `created_at` 与
+  `preserve_image_tool_call_ids`（快照往返丢字段会让屏障恢复后图片
+  被剥）。
+- `result_to_chunk` 的 `hm.data` 对齐 `ApplicationToolExecutor._message`
+  合并语义（`status`/`backend_attempted`/`error_code` 并入
+  canonical data，冲突时 `domain_status` 让位）。
+- Agent 构造显式钉 `ContextConfig(compression_tool_enabled=False,
+  compression_fallback_to_truncation=False)` +
+  `InjectionConfig(inject_runtime_state=False)`——关掉 AS 原生压缩/
+  图片裁剪/runtime-state 注入，HM assembler 是唯一上下文权威
+  （`test_as_runtime_native_context_transforms_disabled` spy 构造参数）。
+
+新增对抗测试（`test_as_runtime.py`，+7 项）：assembler 接线断言
+system prompt 落 messages[0]、eager/惰性流式两条压缩重试路径、
+mid-stream 失败不重试、denied 结果 canonical data、JSONL attempt
+sink 端到端、SIGINT 打中 tool 执行时无悬空 tool_call、观察证据落
+engine context、native transform 关闭断言、Anthropic 空结果格式化。
+
+加固后定点回归：`tests/homemaster/test_substrate_* +
+test_as_runtime + application/` 211/211 绿，ruff 全过。
+
+## 待办
+
+- 第二个独立 review subagent（针对本轮修复的复核）仍在后台跑，结论
+  未出；若再报新缺陷按同一纪律处理。
+- Phase 3：删除 `generic_runtime.py` 回退位、CLI/Web 面改造、
+  MindMemOS 深度集成——见 `implementation-plan.md`。

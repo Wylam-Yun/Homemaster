@@ -128,6 +128,14 @@ def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
         )
     if not content:
         content.append(TextBlock(text=""))
+    data = dict(result.data)
+    existing_status = data.get("status")
+    if existing_status is not None and existing_status != result.status.value:
+        data.setdefault("domain_status", existing_status)
+    data["status"] = result.status.value
+    data["backend_attempted"] = result.backend_attempted
+    if result.error is not None:
+        data.setdefault("error_code", result.error.code)
     return ToolChunk(
         content=content,
         state=_STATUS_TO_AS[result.status],
@@ -135,7 +143,7 @@ def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
         metadata={
             "hm": {
                 "status": result.status.value,
-                "data": dict(result.data),
+                "data": data,
                 "backend_attempted": result.backend_attempted,
                 "outcome_certainty": result.outcome_certainty.value,
                 "retryable": result.retryable,
