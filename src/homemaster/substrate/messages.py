@@ -103,10 +103,10 @@ def _block_from_as(block) -> ContentBlock:
             }
         else:
             raise MessageConversionError(f"unsupported data source: {type(src)!r}")
-        metadata = {}
-        if block.name:
-            metadata["name"] = block.name
-        return ContentBlock(type="image", source=source, metadata=metadata)
+        # DataBlock.name is a derived display field (basename of the original
+        # path); it must not flow back into HM metadata or round-trips gain a
+        # phantom "name" key.
+        return ContentBlock(type="image", source=source, metadata={})
     raise MessageConversionError(f"unsupported AS block type: {type(block).__name__!r}")
 
 

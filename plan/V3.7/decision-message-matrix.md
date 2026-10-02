@@ -34,7 +34,7 @@ Msg(role=user) → Msg(role=assistant, content=[TextBlock, ThinkingBlock,
 | `type="text"`, `text` | `TextBlock.text` | 无损 | 直接搬运 |
 | `type="image"`, `source={type:base64, media_type, data}` | `DataBlock(source=Base64Source{data, media_type})` | 无损 | base64 直搬 |
 | `source={type:url, url, media_type}`（HM 未产出但 schema 允许） | `DataBlock(source=URLSource{url, media_type})` | 无损 | AnyUrl 校验失败 → fail closed |
-| `metadata.path`（image 的磁盘路径，见 `from_image_path`） | `DataBlock.name` | 转换 | name ← basename(path)；完整 path 进 `metadata["hm"]["source_path"]` |
+| `metadata.path`（image 的磁盘路径，见 `from_image_path`） | `DataBlock.name` | 转换 | name ← basename(path)（单向派生显示字段）；完整 path 留在原 `metadata` 里经 block_meta 侧袋回流 |
 | `metadata` 其余键 | `ToolResultBlock.metadata["hm"]["block_meta"][i]` / 所在 Msg `metadata["hm"]["block_meta"][i]` | 转换 | 按 block 序号存侧袋，HM→AS→HM 还原 |
 | —（HM 不存在） | `ThinkingBlock.thinking` | 转换 | AS→HM：并入 `AssistantMessage.reasoning_content`（多块 join `\n`）；redacted_thinking extras 进 provider_metadata |
 | —（HM 不存在） | `HintBlock` | 不映射 | hint 是 AS 运行时注入物，不进 canonical 历史；转换遇 hint → **跳过 + 计数告警** |
