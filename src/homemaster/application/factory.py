@@ -174,13 +174,24 @@ def create_application(
 def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
     def build(request: RunRequest, run_id: str) -> ResourceBinding:
         profile = _resolve_chat_provider(config, request)
-        return ResourceBinding.owned(
-            f"provider:{run_id}",
-            LLMClient(
+        if config.provider_client.engine == "agentscope":
+            # Phase 1 dual-run: vendored AgentScope ChatModelBase backend.
+            from homemaster.substrate.as_llm_client import AsLLMClient
+
+            client = AsLLMClient(
                 profile,
                 timeout_s=config.provider_client.timeout_s,
                 run_id=run_id,
-            ),
+            )
+        else:
+            client = LLMClient(
+                profile,
+                timeout_s=config.provider_client.timeout_s,
+                run_id=run_id,
+            )
+        return ResourceBinding.owned(
+            f"provider:{run_id}",
+            client,
             lifetime=ResourceLifetime.RUN,
         )
 

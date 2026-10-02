@@ -221,6 +221,11 @@ class _StreamAccumulator:
         self.finished_reason: FinishedReason = FinishedReason.COMPLETED
         """The finished reason to report in ``build``."""
 
+        # HOMEMASTER PATCH: collect chunk-level metadata (e.g. provider
+        # stop_reason captured by the anthropic/openai stream parsers) so
+        # ``build`` can expose it on the final response.
+        self.metadata: dict = {}
+
     def append_chat_response(self, chat_response: ChatResponse) -> Self:
         """Collect one delta chunk in constant time per block.
 
@@ -263,6 +268,9 @@ class _StreamAccumulator:
         if chat_response.usage:
             self.usage = chat_response.usage
 
+        if chat_response.metadata:
+            self.metadata.update(chat_response.metadata)
+
         return self
 
     def build(self) -> ChatResponse:
@@ -270,6 +278,8 @@ class _StreamAccumulator:
         kwargs: dict[str, Any] = {}
         if self.id is not None:
             kwargs["id"] = self.id
+        if self.metadata:
+            kwargs["metadata"] = dict(self.metadata)
 
         return ChatResponse(
             content=[_.build() for _ in self._blocks.values()],

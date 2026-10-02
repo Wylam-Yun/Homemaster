@@ -226,6 +226,7 @@ class ProviderClientConfig(BaseModel):
 
     timeout_s: float = 60.0
     max_retries: int = 2
+    engine: Literal["homemaster", "agentscope"] = "homemaster"
 
 
 class RuntimeDefaultsConfig(BaseModel):

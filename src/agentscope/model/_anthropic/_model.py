@@ -409,6 +409,11 @@ class AnthropicChatModel(ChatModelBase):
         response_id = getattr(response, "id", None)
         if response_id:
             resp_kwargs["id"] = response_id
+        # HOMEMASTER PATCH: preserve provider-native stop_reason for
+        # HomeMaster finish_reason semantics (truncation detection).
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason:
+            resp_kwargs["metadata"] = {"stop_reason": stop_reason}
 
         return ChatResponse(**resp_kwargs)
 
@@ -546,6 +551,11 @@ class AnthropicChatModel(ChatModelBase):
                 elif event.type == "message_delta":
                     if event.usage and usage:
                         usage.output_tokens = event.usage.output_tokens
+                    # HOMEMASTER PATCH: carry the native stop_reason in
+                    # chunk metadata so the final response can expose it.
+                    stop_reason = getattr(event.delta, "stop_reason", None)
+                    if stop_reason:
+                        delta_res.metadata["stop_reason"] = stop_reason
 
                 if delta_res.content:
                     delta_res.usage = usage

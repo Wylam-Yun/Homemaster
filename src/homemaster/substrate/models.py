@@ -21,12 +21,17 @@ def chat_model_from_profile(
     profile: ProviderProfileConfig,
     *,
     stream: bool = True,
+    api_key: str | None = None,
+    timeout_s: float | None = None,
 ) -> "ChatModelBase":
     """Build an AgentScope chat model from a HomeMaster provider profile.
 
     Provider classes are imported lazily so importing ``homemaster.substrate``
     does not pull the whole ``agentscope.model`` tree (which transitively
     loads tts/classifier subpackages).
+
+    ``api_key`` overrides ``profile.api_keys[0]`` (multi-key rotation picks
+    the key per attempt). ``timeout_s`` maps to the SDK client's timeout.
     """
     from agentscope.credential import AnthropicCredential, OpenAICredential
     from agentscope.model import AnthropicChatModel, OpenAIChatModel
@@ -36,17 +41,20 @@ def chat_model_from_profile(
             f"provider {profile.name!r} has kind={profile.kind!r}; "
             "only chat providers can back a ChatModelBase"
         )
-    if not profile.api_keys:
+    raw_key = api_key or (profile.api_keys[0] if profile.api_keys else None)
+    if not raw_key:
         raise ValueError(
             f"provider {profile.name!r} has no api_key configured"
         )
-    api_key = SecretStr(profile.api_keys[0])
+    key = SecretStr(raw_key)
     if profile.api_format == "anthropic":
-        credential = AnthropicCredential(api_key=api_key, base_url=profile.base_url)
+        credential = AnthropicCredential(api_key=key, base_url=profile.base_url)
         client_kwargs: dict = {}
         if profile.auth_type == "auth_token":
             # AsyncAnthropic accepts auth_token; keep HM's auth axis.
-            client_kwargs["auth_token"] = profile.api_keys[0]
+            client_kwargs["auth_token"] = raw_key
+        if timeout_s is not None:
+            client_kwargs["timeout"] = timeout_s
         parameters = AnthropicChatModel.Parameters(
             max_tokens=profile.max_output_tokens,
         )
@@ -64,7 +72,8 @@ def chat_model_from_profile(
                 f"provider {profile.name!r}: auth_token is not supported by "
                 "the OpenAI-compatible AS model"
             )
-        credential = OpenAICredential(api_key=api_key, base_url=profile.base_url)
+        credential = OpenAICredential(api_key=key, base_url=profile.base_url)
+        client_kwargs = {"timeout": timeout_s} if timeout_s is not None else None
         parameters = OpenAIChatModel.Parameters(
             max_tokens=profile.max_output_tokens,
         )
@@ -74,6 +83,7 @@ def chat_model_from_profile(
             parameters=parameters,
             stream=stream,
             context_size=profile.context_window_tokens,
+            client_kwargs=client_kwargs,
         )
     raise ValueError(
         f"provider {profile.name!r}: unsupported api_format "

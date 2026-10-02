@@ -5,6 +5,7 @@ Everything outside must consume canonical HomeMaster contracts
 (``homemaster.agent.messages``, ``homemaster.tools.contracts``).
 """
 
+from homemaster.substrate.as_llm_client import AsLLMClient
 from homemaster.substrate.messages import (
     MessageConversionError,
     assert_semantic_equal,
@@ -27,6 +28,7 @@ from homemaster.substrate.toolkit import (
 )
 
 __all__ = [
+    "AsLLMClient",
     "HomeToolAdapter",
     "MessageConversionError",
     "ParsedSnapshot",

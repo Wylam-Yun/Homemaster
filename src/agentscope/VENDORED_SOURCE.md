@@ -15,3 +15,9 @@
    subpackages whenever `agentscope.middleware` (or just `MiddlewareBase`)
    was imported; lazy resolution keeps extras-gated code unloaded until its
    middleware is actually requested. Public API unchanged.
+2. `model/_anthropic/_model.py`, `model/_openai_chat/_model.py`,
+   `model/_utils.py` — preserve provider-native `stop_reason`/`finish_reason`
+   on `ChatResponse.metadata["stop_reason"]` (stream chunk → accumulator →
+   final response; non-stream parsers set it directly). HomeMaster's
+   `finish_reason` contract (e.g. `max_tokens` → `length` truncation
+   detection) depends on the native value upstream discarded.

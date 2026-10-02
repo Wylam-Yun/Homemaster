@@ -371,6 +371,11 @@ class OpenAIChatModel(ChatModelBase):
                 choice = chunk.choices[0]
                 delta = choice.delta
 
+                # HOMEMASTER PATCH: preserve the native finish_reason in
+                # chunk metadata so the final response can expose it.
+                if getattr(choice, "finish_reason", None):
+                    delta_res.metadata["stop_reason"] = choice.finish_reason
+
                 # Thinking
                 delta_thinking = getattr(delta, "reasoning_content", None)
                 if not isinstance(delta_thinking, str):
@@ -450,7 +455,9 @@ class OpenAIChatModel(ChatModelBase):
                         input=delta_args or "",
                     )
 
-                if delta_res.content or usage:
+                # HOMEMASTER PATCH: yield metadata-carrying chunks (e.g.
+                # finish_reason-only final deltas) even without content.
+                if delta_res.content or delta_res.metadata:
                     delta_res.usage = usage
                     yield delta_res
 
@@ -548,6 +555,12 @@ class OpenAIChatModel(ChatModelBase):
         response_id = getattr(response, "id", None)
         if response_id:
             resp_kwargs["id"] = response_id
+        # HOMEMASTER PATCH: preserve provider-native finish_reason for
+        # HomeMaster finish_reason semantics (truncation detection).
+        if response.choices:
+            finish_reason = getattr(response.choices[0], "finish_reason", None)
+            if finish_reason:
+                resp_kwargs["metadata"] = {"stop_reason": finish_reason}
 
         return ChatResponse(**resp_kwargs)
 
