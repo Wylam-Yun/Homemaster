@@ -221,6 +221,12 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
             for blk in message.content:
                 output.extend(_block_to_as(blk))
             metadata = {"hm": {}}
+            if any(b.metadata for b in message.content):
+                metadata["hm"]["block_meta"] = {
+                    str(i): b.metadata
+                    for i, b in enumerate(message.content)
+                    if b.metadata
+                }
             if message.data:
                 metadata["hm"]["data"] = dict(message.data)
             if message.provider_metadata:
@@ -317,6 +323,7 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                             for b in block.output
                             if isinstance(b, (TextBlock, DataBlock))
                         ]
+                        _restore_block_meta(result_meta, output_blocks)
                     tool_results.append(
                         ToolResultMessage(
                             tool_call_id=block.id,
