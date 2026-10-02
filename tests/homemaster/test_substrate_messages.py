@@ -101,9 +101,13 @@ def test_assistant_with_tool_calls_and_results_round_trip() -> None:
     assert result_blocks[1].state == ToolResultState.ERROR
     assert result_blocks[1].metadata["hm"]["data"]["backend_attempted"] is True
     assert isinstance(reply.content[0], ThinkingBlock)
-    assert reply.metadata["hm"]["finish_reason"] == "tool_calls"
+    assert reply.metadata["hm"]["segments"][0]["finish_reason"] == "tool_calls"
     assert reply.usage.input_tokens == 11
-    assert reply.metadata["hm"]["usage_extra"] == {"total_tokens": 18}
+    assert reply.metadata["hm"]["segments"][0]["usage"] == {
+        "input_tokens": 11,
+        "output_tokens": 7,
+        "total_tokens": 18,
+    }
 
     back = from_agent_scope(converted)
     assert back == original

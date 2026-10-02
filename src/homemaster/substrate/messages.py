@@ -169,20 +169,24 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                         state=ToolCallState.PENDING,
                     )
                 )
-            metadata = {"hm": {}}
+            # One HM segment per merged AssistantMessage: per-message fields
+            # survive the reply-level merge losslessly.
+            seg: dict = {}
             if message.finish_reason is not None:
-                metadata["hm"]["finish_reason"] = message.finish_reason
+                seg["finish_reason"] = message.finish_reason
             if message.provider_metadata:
-                metadata["hm"]["provider_metadata"] = dict(message.provider_metadata)
+                seg["provider_metadata"] = dict(message.provider_metadata)
+            if message.usage:
+                seg["usage"] = dict(message.usage)
             if any(b.metadata for b in message.content):
-                metadata["hm"]["block_meta"] = {
+                seg["block_meta"] = {
                     str(i): b.metadata
                     for i, b in enumerate(message.content)
                     if b.metadata
                 }
-            usage = None
+            seg_usage = None
             if message.usage:
-                usage = Usage(
+                seg_usage = Usage(
                     input_tokens=int(message.usage.get("input_tokens", 0)),
                     output_tokens=int(message.usage.get("output_tokens", 0)),
                     cache_input_tokens=int(message.usage.get("cache_input_tokens", 0)),
@@ -190,28 +194,32 @@ def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
                         message.usage.get("cache_creation_input_tokens", 0)
                     ),
                 )
-                extra = {
-                    k: v
-                    for k, v in message.usage.items()
-                    if k
-                    not in {
-                        "input_tokens",
-                        "output_tokens",
-                        "cache_input_tokens",
-                        "cache_creation_input_tokens",
-                    }
-                }
-                if extra:
-                    metadata["hm"]["usage_extra"] = extra
-            msg = Msg(
-                role="assistant",
-                name=_ASSISTANT_NAME,
-                content=blocks,
-                metadata=metadata,
-                usage=usage,
-            )
-            out.append(msg)
-            current_reply = msg
+            if current_reply is not None:
+                current_reply.content.extend(blocks)
+                hm_md = current_reply.metadata.setdefault("hm", {})
+                hm_md.setdefault("segments", []).append(seg)
+                if seg_usage is not None:
+                    if current_reply.usage is None:
+                        current_reply.usage = seg_usage
+                    else:
+                        current_reply.usage.input_tokens += seg_usage.input_tokens
+                        current_reply.usage.output_tokens += seg_usage.output_tokens
+                        current_reply.usage.cache_input_tokens += (
+                            seg_usage.cache_input_tokens
+                        )
+                        current_reply.usage.cache_creation_input_tokens += (
+                            seg_usage.cache_creation_input_tokens
+                        )
+            else:
+                msg = Msg(
+                    role="assistant",
+                    name=_ASSISTANT_NAME,
+                    content=blocks,
+                    metadata={"hm": {"segments": [seg]}},
+                    usage=seg_usage,
+                )
+                out.append(msg)
+                current_reply = msg
         elif isinstance(message, ToolResultMessage):
             if current_reply is None:
                 raise MessageConversionError(
@@ -281,16 +289,57 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
             _restore_block_meta(hm, converted)
             out.append(UserMessage(content=converted))
         elif msg.role == "assistant":
-            content: list[ContentBlock] = []
-            reasoning_parts: list[str] = []
-            tool_calls: list[ToolCall] = []
-            tool_results: list[ToolResultMessage] = []
+            segs = hm.get("segments")
+            if isinstance(segs, list):
+                seg_list = [s if isinstance(s, dict) else {} for s in segs]
+            else:
+                seg = dict(hm)
+                if msg.usage is not None:
+                    usage = {
+                        "input_tokens": msg.usage.input_tokens,
+                        "output_tokens": msg.usage.output_tokens,
+                    }
+                    if msg.usage.cache_input_tokens:
+                        usage["cache_input_tokens"] = msg.usage.cache_input_tokens
+                    if msg.usage.cache_creation_input_tokens:
+                        usage["cache_creation_input_tokens"] = (
+                            msg.usage.cache_creation_input_tokens
+                        )
+                    usage.update(hm.get("usage_extra") or {})
+                    seg["usage"] = usage
+                seg_list = [seg]
+            seg_idx = 0
+            pending_content: list[ContentBlock] = []
+            pending_reasoning: list[str] = []
+            pending_calls: list[ToolCall] = []
+
+            def flush() -> None:
+                nonlocal seg_idx, pending_content, pending_reasoning, pending_calls
+                if not pending_content and not pending_reasoning and not pending_calls:
+                    return
+                seg = seg_list[seg_idx] if seg_idx < len(seg_list) else {}
+                seg_idx += 1
+                _restore_block_meta(seg, pending_content)
+                out.append(
+                    AssistantMessage(
+                        content=pending_content,
+                        reasoning_content=(
+                            "\n".join(pending_reasoning) if pending_reasoning else None
+                        ),
+                        tool_calls=pending_calls,
+                        finish_reason=seg.get("finish_reason"),
+                        usage=seg.get("usage"),
+                        provider_metadata=seg.get("provider_metadata") or {},
+                    )
+                )
+                pending_content, pending_reasoning, pending_calls = [], [], []
+
             for block in msg.content:
                 if isinstance(block, ThinkingBlock):
                     if block.thinking:
-                        reasoning_parts.append(block.thinking)
+                        pending_reasoning.append(block.thinking)
                 elif isinstance(block, (TextBlock, DataBlock)):
-                    content.append(_block_from_as(block))
+                    pending_content.append(_block_from_as(block))
                 elif isinstance(block, ToolCallBlock):
                     try:
                         arguments = json.loads(block.input or "{}")
@@ -302,10 +351,11 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                         raise MessageConversionError(
                             f"tool_call {block.id!r} input is not a JSON object"
                         )
-                    tool_calls.append(
+                    pending_calls.append(
                         ToolCall(id=block.id, name=block.name, arguments=arguments)
                     )
                 elif isinstance(block, ToolResultBlock):
+                    flush()
                     result_meta = (
                         block.metadata.get("hm", {})
                         if isinstance(block.metadata, dict)
@@ -324,7 +374,7 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                             if isinstance(b, (TextBlock, DataBlock))
                         ]
                         _restore_block_meta(result_meta, output_blocks)
-                    tool_results.append(
+                    out.append(
                         ToolResultMessage(
                             tool_call_id=block.id,
                             name=block.name,
@@ -342,33 +392,7 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                         "dropped non-canonical block %s from assistant Msg",
                         type(block).__name__,
                     )
-            _restore_block_meta(hm, content)
-            usage = None
-            if msg.usage is not None:
-                usage = {
-                    "input_tokens": msg.usage.input_tokens,
-                    "output_tokens": msg.usage.output_tokens,
-                }
-                if msg.usage.cache_input_tokens:
-                    usage["cache_input_tokens"] = msg.usage.cache_input_tokens
-                if msg.usage.cache_creation_input_tokens:
-                    usage["cache_creation_input_tokens"] = (
-                        msg.usage.cache_creation_input_tokens
-                    )
-                usage.update(hm.get("usage_extra") or {})
-            out.append(
-                AssistantMessage(
-                    content=content,
-                    reasoning_content=(
-                        "\n".join(reasoning_parts) if reasoning_parts else None
-                    ),
-                    tool_calls=tool_calls,
-                    finish_reason=hm.get("finish_reason"),
-                    usage=usage,
-                    provider_metadata=hm.get("provider_metadata") or {},
-                )
-            )
-            out.extend(tool_results)
+            flush()
         else:
             raise MessageConversionError(f"unsupported Msg role: {msg.role!r}")
     return out
