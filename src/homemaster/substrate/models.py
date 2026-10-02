@@ -7,20 +7,30 @@ model layer replaces HM transports wholesale — that is the migration.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pydantic import SecretStr
 
-from agentscope.credential import AnthropicCredential, OpenAICredential
-from agentscope.model import AnthropicChatModel, ChatModelBase, OpenAIChatModel
-
 from homemaster.config.config import ProviderProfileConfig
+
+if TYPE_CHECKING:
+    from agentscope.model import ChatModelBase
 
 
 def chat_model_from_profile(
     profile: ProviderProfileConfig,
     *,
     stream: bool = True,
-) -> ChatModelBase:
-    """Build an AgentScope chat model from a HomeMaster provider profile."""
+) -> "ChatModelBase":
+    """Build an AgentScope chat model from a HomeMaster provider profile.
+
+    Provider classes are imported lazily so importing ``homemaster.substrate``
+    does not pull the whole ``agentscope.model`` tree (which transitively
+    loads tts/classifier subpackages).
+    """
+    from agentscope.credential import AnthropicCredential, OpenAICredential
+    from agentscope.model import AnthropicChatModel, OpenAIChatModel
+
     if profile.kind != "chat":
         raise ValueError(
             f"provider {profile.name!r} has kind={profile.kind!r}; "
