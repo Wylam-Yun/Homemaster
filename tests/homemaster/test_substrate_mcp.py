@@ -91,12 +91,17 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
         finally:
             _current_tool_call_id.reset(token)
 
-        assert isinstance(response, ToolResponse)
+        from agentscope.tool import ToolChunk
+
+        assert isinstance(response, ToolChunk)
         payload = json.dumps(
             [b.model_dump(mode="json") for b in response.content],
             default=str,
         )
-        assert "accepted" in payload
-        assert response.metadata.get("hm", {}).get("backend_attempted") is True
+        # The real MCP server echoed the nested arguments back.
+        assert '"accepted": true' in payload or "accepted" in payload
+        assert '"mode": "safe"' in payload
+        hm = (getattr(response, "metadata", None) or {}).get("hm") or {}
+        assert hm.get("backend_attempted") is True
     finally:
         await manager.aclose()
