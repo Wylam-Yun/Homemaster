@@ -227,7 +227,7 @@ async def test_app_runtime_agentscope_engine_tool_call(tmp_path: Path) -> None:
             subject_id="operator",
             channel="cli",
             tenant_id="tenant-x",
-            capabilities=("tool.auto",),
+            capabilities=("tool.auto", "tool.read", "tool.mutate"),
         ),
     )
     result = await app.run(request)

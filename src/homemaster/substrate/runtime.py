@@ -580,6 +580,7 @@ class AsAgentRuntime:
         elif isinstance(item, ToolResultTextDeltaEvent):
             pass  # result text rides on the metadata "hm" pocket at END
         elif isinstance(item, ToolResultEndEvent):
+            await self._emit_assistant_events(handle, emit)
             hm = (item.metadata or {}).get("hm") or {}
             data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
             is_error = item.state in _REASON_ERROR_STATES
@@ -678,6 +679,10 @@ class AsAgentRuntime:
             )
             await self._emit_assistant_events(handle, emit)
         elif isinstance(item, ReplyEndEvent):
+            # The assistant Msg lands in the engine context possibly after
+            # MODEL_CALL_END — rescan the tail so no round loses its
+            # assistant.reply projection.
+            await self._emit_assistant_events(handle, emit)
             handle.reply_finished_reason = (
                 item.finished_reason.value
                 if hasattr(item.finished_reason, "value")
@@ -689,43 +694,63 @@ class AsAgentRuntime:
     async def _emit_assistant_events(
         self, handle: AsRunHandle, emit: Callable[..., Any]
     ) -> None:
-        """Emit assistant.thinking / assistant.reply for the just-finished
-        model call, reading the assembled assistant Msg from the engine
-        context (authoritative, same data the model produced)."""
+        """Emit assistant.thinking / assistant.reply for every assistant Msg
+        in the engine-context tail past the announced watermark. Ordering is
+        event-agnostic: AS appends the Msg around MODEL_CALL_END and both
+        sides may race, so we scan at multiple boundaries."""
         context = handle_engine_context(handle)
-        msg = context[-1] if context else None
-        if msg is None or getattr(msg, "role", "") != "assistant":
+        announced = getattr(handle, "assistant_watermark", 0)
+        pending: list[Any] = []
+        assistant_count = 0
+        for msg in context:
+            if getattr(msg, "role", "") == "assistant":
+                assistant_count += 1
+                if assistant_count > announced:
+                    pending.append(msg)
+        if not pending:
             return
-        thinking = "".join(
-            getattr(block, "thinking", "") or ""
-            for block in getattr(msg, "content", []) or []
-            if getattr(block, "type", None) == "thinking"
-        )
-        text = "".join(
-            getattr(block, "text", "") or ""
-            for block in getattr(msg, "content", []) or []
-            if getattr(block, "type", None) == "text"
-        )
-        tool_calls = [
-            {
-                "id": getattr(block, "id", ""),
-                "name": getattr(block, "name", ""),
-                "arguments": getattr(block, "input", {}) or {},
-            }
-            for block in getattr(msg, "content", []) or []
-            if getattr(block, "type", None) == "tool_call"
-        ]
-        if thinking:
-            await emit("assistant.thinking", payload={"thinking": thinking})
-        await emit(
-            "assistant.reply",
-            payload={
-                "reply": text,
-                "finish_reason": getattr(msg, "finish_reason", None) or "",
-                "usage": {},
-                "tool_calls": tool_calls,
-            },
-        )
+        handle.assistant_watermark = assistant_count
+        for msg in pending:
+            thinking = "".join(
+                getattr(block, "thinking", "") or ""
+                for block in getattr(msg, "content", []) or []
+                if getattr(block, "type", None) == "thinking"
+            )
+            text = "".join(
+                getattr(block, "text", "") or ""
+                for block in getattr(msg, "content", []) or []
+                if getattr(block, "type", None) == "text"
+            )
+            tool_calls = []
+            for block in getattr(msg, "content", []) or []:
+                if getattr(block, "type", None) != "tool_call":
+                    continue
+                raw = getattr(block, "input", "")
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw) if raw else {}
+                    except json.JSONDecodeError:
+                        raw = {"_raw": raw}
+                tool_calls.append(
+                    {
+                        "id": getattr(block, "id", ""),
+                        "name": getattr(block, "name", ""),
+                        "arguments": raw if isinstance(raw, dict) else {},
+                    }
+                )
+            if thinking:
+                await emit(
+                    "assistant.thinking", payload={"thinking": thinking}
+                )
+            await emit(
+                "assistant.reply",
+                payload={
+                    "reply": text,
+                    "finish_reason": getattr(msg, "finish_reason", None) or "",
+                    "usage": {},
+                    "tool_calls": tool_calls,
+                },
+            )
 
     async def _evaluate_stop(self, handle: AsRunHandle) -> Any:
         if self._stop_condition is None:
