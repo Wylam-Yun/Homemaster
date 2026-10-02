@@ -247,9 +247,8 @@ class SessionPersistenceManager:
             from homemaster.substrate.snapshot import build_snapshot_payload
 
             payload = build_snapshot_payload(
-                session=self.session,
                 engine_state=self.engine_state,
-                agent_state=self.agent_state,
+                run_state=self.agent_state,
                 task_state_store=self.task_state_store,
                 model=self.model,
                 system_prompt=self.system_prompt,
