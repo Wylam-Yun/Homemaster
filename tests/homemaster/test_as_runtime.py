@@ -22,6 +22,7 @@ from agentscope.model import ChatModelBase, ChatResponse
 from agentscope.model._model_usage import ChatUsage
 
 from homemaster.agent.session import AgentSession
+from homemaster.agent.state import AgentState
 from homemaster.config.observability import ObservabilityConfig
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.permissions.store import PermissionStore
