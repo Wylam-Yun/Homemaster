@@ -1,0 +1,399 @@
+"""Canonical message conversion: HomeMaster <-> AgentScope.
+
+Implements plan/V3.7/decision-message-matrix.md. Structural difference:
+AgentScope packs a whole reply (text/thinking/tool_call/tool_result) into one
+assistant ``Msg``; HomeMaster models them as separate messages. Conversion is
+grouped (H->A) and split (A->H), not 1:1.
+
+Private HomeMaster semantics ride in ``metadata["hm"]`` side-pockets; AS block
+ids/timestamps regenerate on H->A and are exempt from round-trip equality.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Sequence
+
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolCallState,
+    ToolResultBlock,
+    ToolResultState,
+    URLSource,
+    Usage,
+)
+
+from homemaster.agent.messages import (
+    AssistantMessage,
+    ContentBlock,
+    Message,
+    ToolCall,
+    ToolResultMessage,
+    UserMessage,
+)
+
+log = logging.getLogger(__name__)
+
+_ASSISTANT_NAME = "homemaster"
+_USER_NAME = "user"
+
+
+class MessageConversionError(ValueError):
+    """Raised when a message cannot be converted without loss or ambiguity."""
+
+
+# ---------------------------------------------------------------------------
+# Block-level helpers
+# ---------------------------------------------------------------------------
+
+
+def _block_to_as(block: ContentBlock) -> list:
+    """Convert one HM ContentBlock into AS blocks."""
+    if block.type == "text":
+        out: list = [TextBlock(text=block.text)]
+    elif block.type == "image":
+        source = block.source or {}
+        source_type = source.get("type")
+        if source_type == "base64":
+            src = Base64Source(
+                data=str(source.get("data", "")),
+                media_type=str(source.get("media_type", "image/png")),
+            )
+        elif source_type == "url":
+            src = URLSource(
+                url=str(source.get("url", "")),
+                media_type=str(source.get("media_type", "image/png")),
+            )
+        else:
+            raise MessageConversionError(
+                f"unsupported image source type: {source_type!r}"
+            )
+        name = None
+        path = block.metadata.get("path")
+        if isinstance(path, str) and path:
+            name = path.rsplit("/", 1)[-1]
+        out = [DataBlock(source=src, name=name)]
+    else:
+        raise MessageConversionError(f"unsupported content block type: {block.type!r}")
+    return out
+
+
+def _block_from_as(block) -> ContentBlock:
+    if isinstance(block, TextBlock):
+        return ContentBlock(type="text", text=block.text)
+    if isinstance(block, DataBlock):
+        src = block.source
+        if isinstance(src, Base64Source):
+            if not src.media_type.startswith("image/"):
+                raise MessageConversionError(
+                    f"unsupported data media_type for HM image block: {src.media_type!r}"
+                )
+            source = {"type": "base64", "media_type": src.media_type, "data": src.data}
+        elif isinstance(src, URLSource):
+            source = {
+                "type": "url",
+                "media_type": src.media_type,
+                "url": str(src.url),
+            }
+        else:
+            raise MessageConversionError(f"unsupported data source: {type(src)!r}")
+        metadata = {}
+        if block.name:
+            metadata["name"] = block.name
+        return ContentBlock(type="image", source=source, metadata=metadata)
+    raise MessageConversionError(f"unsupported AS block type: {type(block).__name__!r}")
+
+
+def _restore_block_meta(meta: dict, converted: list[ContentBlock]) -> None:
+    block_meta = meta.get("block_meta")
+    if not isinstance(block_meta, dict):
+        return
+    for index_str, extra in block_meta.items():
+        try:
+            index = int(index_str)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(converted) and isinstance(extra, dict):
+            converted[index].metadata.update(extra)
+
+
+# ---------------------------------------------------------------------------
+# H -> A
+# ---------------------------------------------------------------------------
+
+
+def to_agent_scope(messages: Sequence[Message]) -> list[Msg]:
+    """Convert canonical HM messages into AS ``Msg`` list (grouped)."""
+    out: list[Msg] = []
+    current_reply: Msg | None = None
+    for message in messages:
+        if isinstance(message, UserMessage):
+            blocks = [
+                b
+                for i, blk in enumerate(message.content)
+                for b in _block_to_as(blk)
+            ]
+            metadata: dict = {}
+            if any(b.metadata for b in message.content):
+                metadata["hm"] = {
+                    "block_meta": {
+                        str(i): b.metadata
+                        for i, b in enumerate(message.content)
+                        if b.metadata
+                    }
+                }
+            out.append(
+                Msg(role="user", name=_USER_NAME, content=blocks, metadata=metadata)
+            )
+            current_reply = None
+        elif isinstance(message, AssistantMessage):
+            blocks: list = []
+            if message.reasoning_content:
+                blocks.append(ThinkingBlock(thinking=message.reasoning_content))
+            for blk in message.content:
+                blocks.extend(_block_to_as(blk))
+            for call in message.tool_calls:
+                blocks.append(
+                    ToolCallBlock(
+                        id=call.id,
+                        name=call.name,
+                        input=json.dumps(
+                            call.arguments, ensure_ascii=False, sort_keys=True
+                        ),
+                        state=ToolCallState.PENDING,
+                    )
+                )
+            metadata = {"hm": {}}
+            if message.finish_reason is not None:
+                metadata["hm"]["finish_reason"] = message.finish_reason
+            if message.provider_metadata:
+                metadata["hm"]["provider_metadata"] = dict(message.provider_metadata)
+            if any(b.metadata for b in message.content):
+                metadata["hm"]["block_meta"] = {
+                    str(i): b.metadata
+                    for i, b in enumerate(message.content)
+                    if b.metadata
+                }
+            usage = None
+            if message.usage:
+                usage = Usage(
+                    input_tokens=int(message.usage.get("input_tokens", 0)),
+                    output_tokens=int(message.usage.get("output_tokens", 0)),
+                    cache_input_tokens=int(message.usage.get("cache_input_tokens", 0)),
+                    cache_creation_input_tokens=int(
+                        message.usage.get("cache_creation_input_tokens", 0)
+                    ),
+                )
+                extra = {
+                    k: v
+                    for k, v in message.usage.items()
+                    if k
+                    not in {
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_input_tokens",
+                        "cache_creation_input_tokens",
+                    }
+                }
+                if extra:
+                    metadata["hm"]["usage_extra"] = extra
+            msg = Msg(
+                role="assistant",
+                name=_ASSISTANT_NAME,
+                content=blocks,
+                metadata=metadata,
+                usage=usage,
+            )
+            out.append(msg)
+            current_reply = msg
+        elif isinstance(message, ToolResultMessage):
+            if current_reply is None:
+                raise MessageConversionError(
+                    f"tool result {message.tool_call_id!r} has no assistant message"
+                )
+            output: list = []
+            for blk in message.content:
+                output.extend(_block_to_as(blk))
+            metadata = {"hm": {}}
+            if message.data:
+                metadata["hm"]["data"] = dict(message.data)
+            if message.provider_metadata:
+                metadata["hm"]["provider_metadata"] = dict(message.provider_metadata)
+            current_reply.content.append(
+                ToolResultBlock(
+                    id=message.tool_call_id,
+                    name=message.name,
+                    output=output,
+                    state=(
+                        ToolResultState.ERROR
+                        if message.is_error
+                        else ToolResultState.SUCCESS
+                    ),
+                    metadata=metadata,
+                )
+            )
+            for block in current_reply.content:
+                if (
+                    isinstance(block, ToolCallBlock)
+                    and block.id == message.tool_call_id
+                ):
+                    block.state = ToolCallState.FINISHED
+        else:
+            raise MessageConversionError(f"unsupported message: {type(message)!r}")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# A -> H
+# ---------------------------------------------------------------------------
+
+
+def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
+    """Convert AS ``Msg`` list into canonical HM messages (split)."""
+    out: list[Message] = []
+    for msg in messages:
+        hm = msg.metadata.get("hm", {}) if isinstance(msg.metadata, dict) else {}
+        if msg.role == "system":
+            raise MessageConversionError(
+                "system role Msg cannot enter canonical history"
+            )
+        if msg.role == "user":
+            converted = [
+                _block_from_as(b)
+                for b in msg.content
+                if isinstance(b, (TextBlock, DataBlock))
+            ]
+            skipped = len(msg.content) - len(converted)
+            if skipped:
+                log.warning("dropped %d non text/data blocks from user Msg", skipped)
+            _restore_block_meta(hm, converted)
+            out.append(UserMessage(content=converted))
+        elif msg.role == "assistant":
+            content: list[ContentBlock] = []
+            reasoning_parts: list[str] = []
+            tool_calls: list[ToolCall] = []
+            tool_results: list[ToolResultMessage] = []
+            for block in msg.content:
+                if isinstance(block, ThinkingBlock):
+                    if block.thinking:
+                        reasoning_parts.append(block.thinking)
+                elif isinstance(block, (TextBlock, DataBlock)):
+                    content.append(_block_from_as(block))
+                elif isinstance(block, ToolCallBlock):
+                    try:
+                        arguments = json.loads(block.input or "{}")
+                    except ValueError as exc:
+                        raise MessageConversionError(
+                            f"tool_call {block.id!r} input is not valid JSON"
+                        ) from exc
+                    if not isinstance(arguments, dict):
+                        raise MessageConversionError(
+                            f"tool_call {block.id!r} input is not a JSON object"
+                        )
+                    tool_calls.append(
+                        ToolCall(id=block.id, name=block.name, arguments=arguments)
+                    )
+                elif isinstance(block, ToolResultBlock):
+                    result_meta = (
+                        block.metadata.get("hm", {})
+                        if isinstance(block.metadata, dict)
+                        else {}
+                    )
+                    output_blocks: list[ContentBlock] = []
+                    if isinstance(block.output, str):
+                        if block.output:
+                            output_blocks.append(
+                                ContentBlock(type="text", text=block.output)
+                            )
+                    else:
+                        output_blocks = [
+                            _block_from_as(b)
+                            for b in block.output
+                            if isinstance(b, (TextBlock, DataBlock))
+                        ]
+                    tool_results.append(
+                        ToolResultMessage(
+                            tool_call_id=block.id,
+                            name=block.name,
+                            content=output_blocks,
+                            is_error=block.state != ToolResultState.SUCCESS,
+                            data=result_meta.get("data"),
+                            provider_metadata=result_meta.get("provider_metadata")
+                            or {},
+                        )
+                    )
+                else:
+                    # HintBlock and any future AS-internal block: not canonical
+                    # content; skip with a count rather than fail the load.
+                    log.warning(
+                        "dropped non-canonical block %s from assistant Msg",
+                        type(block).__name__,
+                    )
+            _restore_block_meta(hm, content)
+            usage = None
+            if msg.usage is not None:
+                usage = {
+                    "input_tokens": msg.usage.input_tokens,
+                    "output_tokens": msg.usage.output_tokens,
+                }
+                if msg.usage.cache_input_tokens:
+                    usage["cache_input_tokens"] = msg.usage.cache_input_tokens
+                if msg.usage.cache_creation_input_tokens:
+                    usage["cache_creation_input_tokens"] = (
+                        msg.usage.cache_creation_input_tokens
+                    )
+                usage.update(hm.get("usage_extra") or {})
+            out.append(
+                AssistantMessage(
+                    content=content,
+                    reasoning_content=(
+                        "\n".join(reasoning_parts) if reasoning_parts else None
+                    ),
+                    tool_calls=tool_calls,
+                    finish_reason=hm.get("finish_reason"),
+                    usage=usage,
+                    provider_metadata=hm.get("provider_metadata") or {},
+                )
+            )
+            out.extend(tool_results)
+        else:
+            raise MessageConversionError(f"unsupported Msg role: {msg.role!r}")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Test helper
+# ---------------------------------------------------------------------------
+
+
+def assert_semantic_equal(a: Msg, b: Msg) -> None:
+    """Field-level equality for A->H->A checks; exempt regenerated fields."""
+    assert a.role == b.role, f"role {a.role!r} != {b.role!r}"
+    assert a.name == b.name, f"name {a.name!r} != {b.name!r}"
+    assert len(a.content) == len(b.content), (
+        f"block count {len(a.content)} != {len(b.content)}"
+    )
+    for ba, bb in zip(a.content, b.content):
+        assert type(ba) is type(bb), f"{type(ba)} != {type(bb)}"
+        da = ba.model_dump(exclude={"id", "created_at", "finished_at"})
+        db = bb.model_dump(exclude={"id", "created_at", "finished_at"})
+        if isinstance(ba, ToolCallBlock):
+            da["input"] = json.loads(da["input"] or "{}")
+            db["input"] = json.loads(db["input"] or "{}")
+            da.pop("suggested_rules", None)
+            db.pop("suggested_rules", None)
+        assert da == db, f"block payload mismatch: {da} != {db}"
+
+
+__all__ = [
+    "MessageConversionError",
+    "assert_semantic_equal",
+    "from_agent_scope",
+    "to_agent_scope",
+]
