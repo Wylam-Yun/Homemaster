@@ -60,7 +60,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
         registry = ToolRegistry()
         register_mcp_tools_atomically(registry, registered)
         names = {tool.name for tool in registry.list_tools()}
-        assert "stdio_fixture__nested_query" in names
+        assert "mcp__stdio_fixture__nested_query" in names
 
         executor = ToolExecutor(registry)
         scope = RunScope(
@@ -75,7 +75,7 @@ async def test_mcp_tool_calls_through_home_tool_adapter(tmp_path: Path) -> None:
             working_directory=tmp_path,
         )
         adapter = HomeToolAdapter(
-            registry.get("stdio_fixture__nested_query"), executor, scope
+            registry.get("mcp__stdio_fixture__nested_query"), executor, scope
         )
 
         # Drive the adapter exactly as ``Toolkit.call_tool`` would.
