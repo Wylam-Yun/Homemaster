@@ -407,9 +407,11 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                         )
                     )
                 else:
-                    # HintBlock and any future AS-internal block: not canonical
-                    # content; skip with a count rather than fail the load.
-                    log.warning(
+                    # HintBlock and any future AS-internal block: engine-side
+                    # runtime-state annotations regenerated per iteration, not
+                    # canonical content — drop at DEBUG so steady-state logs
+                    # stay clean while the projection loss stays traceable.
+                    log.debug(
                         "dropped non-canonical block %s from assistant Msg",
                         type(block).__name__,
                     )
