@@ -52,6 +52,7 @@ SKIP_DIRS = frozenset(
         "docs/superpowers/specs/",
         "plan/",
         # Vendored third-party code and archived historical reports are not product copy.
+        "src/agentscope/",
         "src/homemaster/browser/vendor/",
         "story/",
         "src/homemaster/benchmarking/browser_demo/",

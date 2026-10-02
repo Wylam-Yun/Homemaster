@@ -1,6 +1,6 @@
 """Phase-1 dual-run gate: same input through LLMClient vs AsLLMClient.
 
-The same provider scenario is replayed against the legacy transport path
+The same provider exchange is replayed against the legacy transport path
 (fake anthropic SDK stream) and the AgentScope path (scripted ChatResponse
 chunks). The aggregated ``AssistantMessage`` must be equivalent per field —
 not merely similar.
