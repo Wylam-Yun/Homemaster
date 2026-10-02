@@ -77,6 +77,12 @@ class ApplicationToolExecutor:
             dict.fromkeys((*runtime.canonical_evidence_refs, *initial_memory_evidence_refs))
         )
 
+    @property
+    def permission_checker(self) -> Any:
+        """Delegate to the inner executor's checker — the substrate adapter
+        (``HomeToolAdapter.check_permissions``) evaluates through it."""
+        return getattr(self._executor, "permission_checker", None)
+
     async def dispatch(
         self,
         *,
