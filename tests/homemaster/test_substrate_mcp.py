@@ -26,7 +26,7 @@ from homemaster.mcp.types import McpStdioServerConfig
 from homemaster.substrate.toolkit import (
     HomeToolAdapter,
     RunScope,
-    current_tool_call_id,
+    _current_tool_call_id,
 )
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import PermissionSubject
