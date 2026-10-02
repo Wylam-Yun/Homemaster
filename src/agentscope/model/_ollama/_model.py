@@ -290,6 +290,11 @@ class OllamaChatModel(ChatModelBase):
                 output_tokens=getattr(chunk, "eval_count", 0) or 0,
                 time=current_time,
             )
+            # HOMEMASTER PATCH: carry the native done_reason so the
+            # accumulated final response preserves the stop signal.
+            done_reason = getattr(chunk, "done_reason", None)
+            if done_reason:
+                delta_res.metadata["stop_reason"] = done_reason
 
             yield delta_res
 
@@ -341,9 +346,12 @@ class OllamaChatModel(ChatModelBase):
                 time=(datetime.now() - start_datetime).total_seconds(),
             )
 
+        # HOMEMASTER PATCH: preserve native done_reason for HM finish_reason.
+        done_reason = getattr(response, "done_reason", None)
         return ChatResponse(
             id=getattr(response, "id", None) or _generate_id(),
             content=content_blocks,
             is_last=True,
             usage=usage,
+            metadata={"stop_reason": done_reason} if done_reason else {},
         )
