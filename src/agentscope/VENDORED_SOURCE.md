@@ -62,3 +62,16 @@
     when the worker is later cancelled it saves a second interrupted
     result for the same id. Duplicate tool_result ids are rejected by
     provider APIs on resume — the first result wins.
+11. `_utils/_common.py` `_json_loads_with_repair` — when `json_repair` is
+    unavailable, return the already-parsed dict instead of falling through
+    to `ToolJSONDecodeError`; also treat any `repair_json` call failure
+    (not just `ValueError`) as best-effort. Upstream reported a bogus
+    "Failed to parse your tool arguments" to the model for perfectly valid
+    JSON whenever the optional repair path was unavailable — masking a
+    missing-dependency environment fault as repeated model errors.
+12. `tool/_toolkit.py` `call_tool` — skip the closing
+    `yield tool_response` under `GeneratorExit` (aclose()/GC
+    finalization), mirroring patch 5. Yielding during close raised
+    `RuntimeError: async generator ignored GeneratorExit` at asyncio
+    shutdown; the accumulated chunks were already delivered/persisted.
+    Also `import sys` (required by this patch).

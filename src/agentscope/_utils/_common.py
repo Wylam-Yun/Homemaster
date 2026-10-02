@@ -144,7 +144,16 @@ def _json_loads_with_repair(
 
     try:
         # Try to repair with json_repair
-        from json_repair import repair_json
+        try:
+            from json_repair import repair_json
+        except ImportError:
+            # VENDORED-PATCH(homemaster): json_repair is optional in
+            # degraded environments. A valid dict payload is still usable —
+            # return it instead of reporting a bogus "failed to parse your
+            # tool arguments" to the model for perfectly valid JSON.
+            if isinstance(parsed, dict):
+                return parsed
+            raise
 
         try:
             res = repair_json(
@@ -153,10 +162,12 @@ def _json_loads_with_repair(
                 schema=schema,
                 return_objects=True,
             )
-        except ValueError:
+        except Exception:
             # The repair is best-effort. Leave arguments that it cannot fix
             # to the caller's schema validation, whose error message is more
-            # helpful for the agent.
+            # helpful for the agent. VENDORED-PATCH(homemaster): widened
+            # from ValueError — an incompatible/broken json_repair build
+            # must not masquerade as a model JSON error.
             res = parsed
 
         if isinstance(res, dict):

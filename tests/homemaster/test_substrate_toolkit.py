@@ -364,3 +364,37 @@ async def test_on_acting_reset_survives_cross_context_aclose() -> None:
 
 
 import asyncio  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_call_tool_aclose_skips_final_yield(tmp_path: Path) -> None:
+    """Vendored ``Toolkit.call_tool`` appends ``yield tool_response`` in a
+    bare ``finally`` — closing the generator mid-iteration (early-exit
+    cleanup, GC finalization at asyncio shutdown) injects GeneratorExit and
+    the yield blows up with ``async generator ignored GeneratorExit``. The
+    vendored patch must skip the closing yield under GeneratorExit."""
+    from agentscope.message import ToolCallBlock
+    from agentscope.state import AgentState as EngineState
+    from agentscope.tool import Toolkit
+
+    executor = _executor(
+        FunctionTool(
+            name="echo",
+            description="echo",
+            input_schema={"type": "object", "properties": {}},
+            execute=_ok,
+        )
+    )
+    adapter = HomeToolAdapter(
+        executor.registry.get("echo"), executor, _scope(tmp_path)
+    )
+    toolkit = Toolkit(tools=[adapter])
+    state = EngineState(session_id="s1", context=[])
+    block = ToolCallBlock(id="c1", name="echo", input="{}")
+
+    gen = toolkit.call_tool(block, state)
+    first = await gen.__anext__()
+    assert first is not None
+    # Suspended at a yield; aclose injects GeneratorExit — must not raise
+    # RuntimeError("async generator ignored GeneratorExit").
+    await gen.aclose()

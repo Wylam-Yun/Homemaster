@@ -43,6 +43,17 @@
   the real cross-context aclose path.
 
 
+- V3.7 live-e2e catch (ALFWorld, degraded env): upstream
+  `_json_loads_with_repair` reported "Failed to parse your tool arguments"
+  to the model for EVERY call — including valid `{}` — whenever
+  `json_repair` was missing/broken (stale offline venv), misattributing an
+  environment fault as repeated model errors until
+  `max_consecutive_tool_errors` fired. Vendored patch 11: missing
+  `json_repair` or any repair failure now returns the already-parsed dict
+  (repair stays best-effort). Patch 12: `Toolkit.call_tool` skips its
+  closing `yield tool_response` under GeneratorExit, silencing the
+  `async generator ignored GeneratorExit` noise at shutdown.
+
 - V3.7 live-e2e catch (web/alfworld smoke): frozen canonical
   `ToolExecutionResult.data` (MappingProxyType/tuple tree from
   `_freeze_json`) leaked into AgentScope `ToolResultBlock.metadata["hm"]`

@@ -2,6 +2,7 @@
 """The toolkit class for tool calls in AgentScope."""
 import asyncio
 import inspect
+import sys
 from collections import OrderedDict
 from typing import (
     AsyncGenerator,
@@ -395,8 +396,14 @@ class Toolkit:
             tool_response.append_chunk(chunk)
 
         finally:
-            # Finally, yield the complete tool response
-            yield tool_response
+            # Finally, yield the complete tool response.
+            # VENDORED-PATCH(homemaster): when this generator is being
+            # closed (aclose()/GC, GeneratorExit injected at the last
+            # yield), yielding here raises "async generator ignored
+            # GeneratorExit" — the consumer is gone anyway, so skip the
+            # closing yield. Chunk appends above already persisted state.
+            if sys.exc_info()[0] is not GeneratorExit:
+                yield tool_response
 
     async def _get_available_skills(
         self,
