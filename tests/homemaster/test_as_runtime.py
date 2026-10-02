@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from conftest import FakeClock
 
 from agentscope.credential import OpenAICredential
 from agentscope.formatter import OpenAIChatFormatter
@@ -221,13 +220,10 @@ async def test_as_runtime_permission_denied(tmp_path: Path) -> None:
 
     registry = ToolRegistry()
     registry.register(_echo_tool(execute=_boom))
-    store = PermissionStore.open(
-        tmp_path / "perm.sqlite3", clock=FakeClock()
-    )
+    store = PermissionStore.open(tmp_path / "perm.sqlite3")
     checker = PermissionChecker(
         PermissionSettingsConfig(denied_tools=("echo",)),
         store=store,
-        clock=FakeClock(),
     )
     executor = ToolExecutor(registry, permission_checker=checker)
     runtime, model = _runtime(
