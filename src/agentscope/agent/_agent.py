@@ -1030,6 +1030,17 @@ class Agent:
                     name=last_msg.content[index].name,
                     output=interruption_message,
                     state=ToolResultState.INTERRUPTED,
+                    # VENDORED-PATCH(homemaster): machine-field parity with
+                    # the HM-side dangling-close path — canonical mirrors read
+                    # metadata["hm"]["data"] for status/backend_attempted.
+                    metadata={
+                        "hm": {
+                            "data": {
+                                "backend_attempted": False,
+                                "status": "interrupted",
+                            }
+                        }
+                    },
                 ),
             )
 
@@ -3509,6 +3520,29 @@ class Agent:
                 and b.source.media_type.startswith("audio/")
             )
         ]
+
+        # VENDORED-PATCH(homemaster): drop duplicate tool_result blocks.
+        # Early-exit cleanup (HM ``_close_dangling_tool_calls``) can append an
+        # INTERRUPTED result for an in-flight call while its worker task is
+        # still alive; when the worker is later cancelled it saves its own
+        # interrupted result for the same id. A duplicate tool_result id is
+        # rejected by provider APIs on resume — keep the first result only.
+        if persisted_blocks and self.state.context:
+            tail = self.state.context[-1]
+            if tail.role == "assistant":
+                finished = {
+                    b.id
+                    for b in tail.content
+                    if isinstance(b, ToolResultBlock)
+                }
+                persisted_blocks = [
+                    b
+                    for b in persisted_blocks
+                    if not (
+                        isinstance(b, ToolResultBlock) and b.id in finished
+                    )
+                ]
+
         if not persisted_blocks and msg_usage is None:
             return
 

@@ -14,6 +14,11 @@ Discipline red lines (CLAUDE.md benchmark-goal rules):
   LLM verdict NEVER maps onto it.
 - ``CancelledError`` propagates to the caller; a cancelled verdict is not
   a "fail"/"impossible" outcome.
+
+Known limitation (accepted): the rendered transcript is interpolated raw
+into the verdict prompt, so a crafted transcript could bias the LLM judge
+(prompt-injection surface). Impact is bounded — the verdict is audit-only
+metadata and can never set environment truth.
 """
 
 from __future__ import annotations
@@ -129,7 +134,9 @@ class LLMVerdictVerifier:
                     message=str(payload.get("message", "")),
                     verdict_provenance="llm",
                 )
-            except (KeyError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
+                # TypeError covers a non-mapping json_payload from a stub or
+                # custom client (complete_json is dict-guaranteed in prod).
                 last_error = f"malformed verdict payload: {exc}"
                 continue
         return VerdictResult(

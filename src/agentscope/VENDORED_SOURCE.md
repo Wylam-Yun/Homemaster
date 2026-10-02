@@ -49,3 +49,16 @@
    `AutomaticRecallRunDeadlineExceeded` with the flag; upstream's blanket
    `except Exception` would hide the generation fence behind a tool error.
 8. `agent/_agent.py` — `import sys` (required by patch 5).
+9. `agent/_agent.py` `_close_unfinished_tool_calls` — attach
+   `metadata={"hm": {"data": {"backend_attempted": False, "status":
+   "interrupted"}}}` to the interruption `ToolResultBlock` it appends.
+   Machine-field parity with HomeMaster's own dangling-close path:
+   canonical `ToolResultMessage.data` consumers read `metadata["hm"]
+   ["data"]`, and upstream's bare block would surface as `data=None`.
+10. `agent/_agent.py` `_save_to_context` — drop `ToolResultBlock`s whose id
+    already has a result on the tail assistant Msg. Early-exit cleanup
+    (HomeMaster `_close_dangling_tool_calls`) can append an INTERRUPTED
+    result for an in-flight call while its worker task is still alive;
+    when the worker is later cancelled it saves a second interrupted
+    result for the same id. Duplicate tool_result ids are rejected by
+    provider APIs on resume — the first result wins.

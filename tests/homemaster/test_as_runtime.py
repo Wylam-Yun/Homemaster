@@ -1861,3 +1861,277 @@ async def test_as_runtime_observation_image_reaches_next_model_call(
         "pre-assemble session resync carries post-hook attachments"
     )
     assert getattr(image_blocks[0].source, "data", "").startswith("iVBOR")
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_propagate_exceptions_inside_tool_body(
+    tmp_path: Path,
+) -> None:
+    """Review round-3 HIGH-1: a ``_hm_propagate``-marked exception raised
+    inside a tool body travels through ``_execute_concurrent_tool_calls``
+    where ``asyncio.gather`` wraps it in ``ExceptionGroup`` — the driver must
+    unwind the group and re-raise the marked member raw, not classify the
+    group as ``transport_error`` (session-generation fencing relies on it)."""
+    class _Fence(RuntimeError):
+        _hm_propagate = True
+
+    registry = ToolRegistry()
+
+    async def _boom(arguments: Any, context: Any) -> Any:
+        raise _Fence("stale generation inside tool")
+
+    registry.register(_echo_tool(execute=_boom))
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    runtime = AsAgentRuntime(
+        model=ScriptedModel(
+            [
+                [ToolCallBlock(id="tc1", name="echo", input='{"x": 1}')],
+                [TextBlock(text="unreachable")],
+            ]
+        ),
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+    )
+    session = AgentSession("as-runtime-test")
+    with pytest.raises(_Fence, match="stale generation"):
+        await runtime.run(
+            session,
+            "hi",
+            settings=_settings(tmp_path),
+            propagate_exceptions=(_Fence,),
+        )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_propagate_group_keeps_other_member_terminal_state(
+    tmp_path: Path,
+) -> None:
+    """ExceptionGroup unwinding must not mask the group member's context:
+    a group mixing a marked member with an ordinary error still re-raises
+    the marked member (the run is stale either way)."""
+    class _Fence(RuntimeError):
+        _hm_propagate = True
+
+    registry = ToolRegistry()
+
+    async def _boom(arguments: Any, context: Any) -> Any:
+        raise _Fence("stale")
+
+    async def _ordinary(arguments: Any, context: Any) -> Any:
+        raise ValueError("ordinary tool error")
+
+    registry.register(_echo_tool(execute=_boom))
+    registry.register(
+        FunctionTool(
+            name="plain",
+            description="plain",
+            input_schema={"type": "object", "properties": {}},
+            execute=_ordinary,
+        )
+    )
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    runtime = AsAgentRuntime(
+        model=ScriptedModel(
+            [
+                [
+                    ToolCallBlock(id="tc1", name="echo", input='{"x": 1}'),
+                    ToolCallBlock(id="tc2", name="plain", input="{}"),
+                ],
+                [TextBlock(text="unreachable")],
+            ]
+        ),
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+    )
+    session = AgentSession("as-runtime-test")
+    with pytest.raises(_Fence):
+        await runtime.run(
+            session,
+            "hi",
+            settings=_settings(tmp_path),
+            propagate_exceptions=(_Fence,),
+        )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_observe_defers_stop_condition(
+    tmp_path: Path,
+) -> None:
+    """An action result carrying ``waiting_user`` while its automatic
+    observation is still in-flight must NOT trigger stop — legacy runs the
+    post-hook observe first. The run proceeds to the next reasoning round."""
+    import base64
+    import hashlib
+
+    from homemaster.agent.runtime_contracts import RuntimeStopDecision
+    from homemaster.tools.contracts import ResultImage
+
+    calls: list[str] = []
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+            data={"waiting_user": True, "question": "premature?"},
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    async def _stop(session: Any, results: list[Any]) -> Any:
+        for result in results:
+            data = getattr(result, "data", None)
+            if isinstance(data, dict) and data.get("waiting_user") is True:
+                return RuntimeStopDecision(
+                    status="waiting_user",
+                    final_reply="premature?",
+                    payload={},
+                )
+        return None
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, _model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    runtime._stop_condition = _stop
+
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+    assert result.status == "replied", (
+        "stop must not fire while the automatic observation post-hook is "
+        "still in-flight — the observe result is not yet part of the round"
+    )
+    assert calls == ["robot_go_to", "observe"]
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_per_round_assistant_reply_events(
+    tmp_path: Path,
+) -> None:
+    """AS merges all reasoning rounds into ONE Msg — the projection must
+    still emit one assistant.reply per round (block-count watermark), not
+    only the first."""
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    runtime, _model = _runtime(
+        tmp_path,
+        script=[
+            [
+                TextBlock(text="working on it"),
+                ToolCallBlock(id="t1", name="echo", input='{"x": 1}'),
+            ],
+            [TextBlock(text="all done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "hi", settings=_settings(tmp_path)
+    )
+    assert result.status == "replied"
+    replies = [
+        e for e in result.events if e.type == "assistant.reply"
+    ]
+    assert len(replies) >= 2, (
+        "each reasoning round must project its own assistant.reply"
+    )
+    assert replies[-1].payload["reply"] == "all done"
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_interrupted_result_dedup(
+    tmp_path: Path,
+) -> None:
+    """A tool call closed twice (HM ``_close_dangling_tool_calls`` while a
+    worker is in-flight, then the worker's own interrupted result) must
+    leave exactly ONE tool_result block per id in the engine context."""
+    from agentscope.agent import Agent
+    from agentscope.message import ToolResultBlock
+    from agentscope.state import AgentState as EngineState
+    from agentscope.tool import Toolkit
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    model = ScriptedModel([[TextBlock(text="x")]])
+    engine_state = EngineState(session_id="s1", context=[])
+    agent = Agent(
+        name="t",
+        system_prompt="sys",
+        model=model,
+        toolkit=Toolkit(tools=[]),
+        state=engine_state,
+    )
+    agent._save_to_context(
+        [
+            ToolCallBlock(id="c1", name="echo", input="{}"),
+        ]
+    )
+    first = ToolResultBlock(
+        id="c1",
+        name="echo",
+        output="interrupted-1",
+        state="interrupted",
+    )
+    second = ToolResultBlock(
+        id="c1",
+        name="echo",
+        output="interrupted-2",
+        state="interrupted",
+    )
+    agent._save_to_context([first])
+    agent._save_to_context([second])
+    results = [
+        b
+        for msg in engine_state.context
+        for b in getattr(msg, "content", []) or []
+        if getattr(b, "type", None) == "tool_result"
+        and getattr(b, "id", "") == "c1"
+    ]
+    assert len(results) == 1, (
+        "duplicate tool_result ids are rejected by providers on resume"
+    )

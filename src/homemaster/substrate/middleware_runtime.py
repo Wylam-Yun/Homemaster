@@ -15,6 +15,7 @@ Three middlewares port the HomeMaster runtime contract onto AS hooks:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -139,8 +140,10 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         input_kwargs: dict,
         next_handler: Callable[..., AsyncGenerator],
     ) -> Any:
-        # Live engine-context reference for the shell's assistant-event
-        # projection (the assembled Msg lands in agent.state.context).
+        # Live engine-state/context references for the shell's projections
+        # (the assembled Msg lands in agent.state.context). Keep both: state
+        # survives `state.context` rebinding, the list is the fast path.
+        self._handle.engine_state = agent.state
         self._handle.engine_context = agent.state.context
 
         if self._assembler is None:
@@ -784,6 +787,18 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         )
         failure_reason = "automatic observation did not run"
         for attempt in range(1, MAX_OBSERVE_FAILURES + 1):
+            # Detached-worker fence: if the run terminated (cancel/aclose)
+            # while this post-hook was in-flight, the owning task carries a
+            # pending cancellation — the absorbed CancelledError inside
+            # call_tool does not clear `cancelling()`. `handle.terminated`
+            # additionally covers the path where the driver finished without
+            # cancelling the gather (e.g. stream closed by the caller). A
+            # terminated run must not keep issuing real observe calls
+            # post-snapshot.
+            task = asyncio.current_task()
+            if handle.terminated or (task is not None and task.cancelling() > 0):
+                failure_reason = "run terminated during automatic observation"
+                break
             observe_call = automatic_observation_call(
                 source, attempt, tool_name=observe_name
             )
@@ -796,6 +811,12 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             except Exception as exc:
                 failure_reason = str(exc)
             else:
+                # An observe that finished after terminal state must not
+                # mutate persisted blocks or re-arm the unconsumed marker —
+                # the snapshot is already taken; a late image would be
+                # invisible on resume anyway.
+                if handle.terminated:
+                    return
                 self._attach_observation(
                     agent,
                     response=response,

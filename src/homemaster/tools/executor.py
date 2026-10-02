@@ -320,6 +320,11 @@ class ToolExecutor:
                 return _cancelled_result(backend_attempted=True)
             raise
         except Exception as exc:
+            # ``_hm_propagate`` marks lifecycle exceptions (session generation
+            # fence, recall deadline) that must surface raw to the run driver —
+            # an error result would let a doomed run continue.
+            if getattr(exc, "_hm_propagate", False):
+                raise
             manager_error = _resource_manager_error(exc)
             if manager_error is not None:
                 return manager_error

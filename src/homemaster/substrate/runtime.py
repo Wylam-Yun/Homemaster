@@ -38,6 +38,7 @@ from homemaster.agent.messages import (
 from homemaster.agent.model_observation import (
     MAX_OBSERVE_FAILURES,
     MAX_PROTOCOL_FAILURES,
+    action_requires_model_observation,
 )
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.session import AgentSession
@@ -73,6 +74,10 @@ class AsRunHandle:
     reply_error: Any = None
     tool_registry: Any = None
     engine_context: list[Any] = field(default_factory=list)
+    # Live AgentState reference — preferred over `engine_context` because
+    # ``state.context`` may be rebound (e.g. native compression); resolve
+    # through it fresh via ``handle_engine_context``.
+    engine_state: Any = None
     observation_fatal: str | None = None
     observation_fatal_reason: str = ""
     normal_iterations: int = 0
@@ -107,6 +112,10 @@ class AsRunHandle:
     # legacy LLMClient events.
     model_name: str = ""
     model_api_format: str = ""
+    # Set once the driver has committed to a terminal state (or taken the
+    # stream down); detached post-hook workers (automatic observe) check it
+    # before issuing further real tool calls or mutating persisted blocks.
+    terminated: bool = False
 
 
 class AsAgentRuntime:
@@ -525,9 +534,10 @@ class AsAgentRuntime:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
             self._sync_session(session, engine_state)
-            if isinstance(exc, self._propagate_exceptions):
+            propagatable = _find_propagatable(exc, self._propagate_exceptions)
+            if propagatable is not None:
                 save_snapshot("failed")
-                raise
+                raise propagatable from None
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -559,9 +569,10 @@ class AsAgentRuntime:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
             self._sync_session(session, engine_state)
-            if isinstance(exc, self._propagate_exceptions):
+            propagatable = _find_propagatable(exc, self._propagate_exceptions)
+            if propagatable is not None:
                 save_snapshot("failed")
-                raise
+                raise propagatable from None
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -579,6 +590,9 @@ class AsAgentRuntime:
             )
         finally:
             interrupt.clear_stream()
+            # Post-loop: every exit path (terminal, exception, cancel) means
+            # detached post-hook workers must stop issuing real calls.
+            handle.terminated = True
 
         self._sync_session(session, engine_state)
         reason = handle.reply_finished_reason
@@ -653,6 +667,30 @@ class AsAgentRuntime:
                 events=events,
                 final_reply=reply_text,
                 error_code="model_output_truncated",
+            )
+
+        # The automatic-observe post-hook runs detached inside the tool worker
+        # and may set `observation_fatal` after the last event was projected —
+        # re-check at the reply boundary so a late fatal cannot be masked by
+        # a text-only final reply.
+        late_fatal = getattr(handle, "observation_fatal", None)
+        if late_fatal is not None:
+            await self._close_dangling_tool_calls(handle, emit)
+            await emit(
+                "runtime.turn_failed",
+                payload={
+                    "error": getattr(handle, "observation_fatal_reason", "")
+                    or "model observation protocol failed",
+                    "error_code": late_fatal,
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code=late_fatal,
             )
 
         reply_text = _msg_text(final_msg)
@@ -822,13 +860,26 @@ class AsAgentRuntime:
                 )
             # Stop/guards only evaluate a *complete* current round — legacy
             # dispatched the whole batch, then evaluated once. A pending
-            # observation barrier (or unconsumed marker) means the model
-            # still owes a mandatory follow-up: neither real progress nor a
-            # legitimate stop point.
+            # observation barrier means the model still owes a mandatory
+            # follow-up: neither real progress nor a legitimate stop point.
+            # The automatic-observe post-hook runs *after* this END event in
+            # the worker task, so its `unconsumed` marker isn't visible yet —
+            # predict it from the just-completed call instead (requires
+            # observation + succeeded + backend attempted). `unconsumed` is
+            # intentionally NOT a stop gate: legacy gates stop only on the
+            # pending barrier (review MED-3/MED-4).
+            call_name = handle.tool_call_names.get(item.tool_call_id) or ""
+            auto_observe_will_follow = (
+                not is_error
+                and agent_state.pending_model_observation is None
+                and bool(hm.get("backend_attempted"))
+                and action_requires_model_observation(
+                    handle.tool_registry, call_name
+                )
+            )
             barrier_open = (
                 agent_state.pending_model_observation is not None
-                or agent_state.unconsumed_observation_tool_call_id
-                is not None
+                or auto_observe_will_follow
             )
             if barrier_open or _unfinished_tool_calls(agent):
                 return None
@@ -945,59 +996,75 @@ class AsAgentRuntime:
     async def _emit_assistant_events(
         self, handle: AsRunHandle, emit: Callable[..., Any]
     ) -> None:
-        """Emit assistant.thinking / assistant.reply for every assistant Msg
-        in the engine-context tail past the announced watermark. Ordering is
-        event-agnostic: AS appends the Msg around MODEL_CALL_END and both
-        sides may race, so we scan at multiple boundaries."""
+        """Emit assistant.thinking / assistant.reply per reasoning round.
+
+        AgentScope merges all rounds of a reply into ONE Msg (``reply_id``),
+        so a message-count watermark can never see rounds 2+. Watermark by
+        (msg id, content length) instead and project only the blocks appended
+        since the last announcement — one assistant.reply per reasoning
+        round, matching legacy's per-iteration emission. Ordering is
+        event-agnostic: we rescan at MODEL_CALL_END / TOOL_RESULT_END /
+        REPLY_END boundaries."""
         context = handle_engine_context(handle)
-        announced = getattr(handle, "assistant_watermark", 0)
-        pending: list[Any] = []
-        assistant_count = 0
-        for msg in context:
-            if getattr(msg, "role", "") == "assistant":
-                assistant_count += 1
-                if assistant_count > announced:
-                    pending.append(msg)
-        if not pending:
+        announced_id, announced_len = getattr(
+            handle, "assistant_watermark", ("", 0)
+        )
+        # Only the tail assistant Msg can grow in place; earlier assistant
+        # Msgs are complete rounds already announced (or pre-existing).
+        tail = next(
+            (
+                m
+                for m in reversed(context)
+                if getattr(m, "role", "") == "assistant"
+            ),
+            None,
+        )
+        if tail is None:
             return
-        handle.assistant_watermark = assistant_count
-        for msg in pending:
-            thinking = "".join(
-                getattr(block, "thinking", "") or ""
-                for block in getattr(msg, "content", []) or []
-                if getattr(block, "type", None) == "thinking"
+        if tail.id != announced_id:
+            announced_len = 0
+        blocks = list(getattr(tail, "content", []) or [])
+        if len(blocks) <= announced_len:
+            return
+        new_blocks = blocks[announced_len:]
+        handle.assistant_watermark = (tail.id, len(blocks))
+
+        thinking = "".join(
+            getattr(block, "thinking", "") or ""
+            for block in new_blocks
+            if getattr(block, "type", None) == "thinking"
+        )
+        text = "".join(
+            getattr(block, "text", "") or ""
+            for block in new_blocks
+            if getattr(block, "type", None) == "text"
+        )
+        tool_calls = []
+        for block in new_blocks:
+            if getattr(block, "type", None) != "tool_call":
+                continue
+            raw = getattr(block, "input", "")
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw) if raw else {}
+                except json.JSONDecodeError:
+                    raw = {"_raw": raw}
+            tool_calls.append(
+                {
+                    "id": getattr(block, "id", ""),
+                    "name": getattr(block, "name", ""),
+                    "arguments": raw if isinstance(raw, dict) else {},
+                }
             )
-            text = "".join(
-                getattr(block, "text", "") or ""
-                for block in getattr(msg, "content", []) or []
-                if getattr(block, "type", None) == "text"
-            )
-            tool_calls = []
-            for block in getattr(msg, "content", []) or []:
-                if getattr(block, "type", None) != "tool_call":
-                    continue
-                raw = getattr(block, "input", "")
-                if isinstance(raw, str):
-                    try:
-                        raw = json.loads(raw) if raw else {}
-                    except json.JSONDecodeError:
-                        raw = {"_raw": raw}
-                tool_calls.append(
-                    {
-                        "id": getattr(block, "id", ""),
-                        "name": getattr(block, "name", ""),
-                        "arguments": raw if isinstance(raw, dict) else {},
-                    }
-                )
-            if thinking:
-                await emit(
-                    "assistant.thinking", payload={"thinking": thinking}
-                )
+        if thinking:
+            await emit("assistant.thinking", payload={"thinking": thinking})
+        if text or tool_calls:
             await emit(
                 "assistant.reply",
                 payload={
                     "reply": text,
-                    "finish_reason": getattr(msg, "finish_reason", None) or "",
+                    "finish_reason": getattr(tail, "finish_reason", None)
+                    or "",
                     "usage": {},
                     "tool_calls": tool_calls,
                 },
@@ -1067,7 +1134,7 @@ class AsAgentRuntime:
         ``ToolCallBlock``s without results; an unpaired ``tool_use`` is
         rejected by provider APIs on resume, so close them before the session
         mirror/snapshot is taken."""
-        context = list(getattr(handle, "engine_context", []) or [])
+        context = list(handle_engine_context(handle) or [])
         if not context:
             return
         from agentscope.message import (
@@ -1092,7 +1159,18 @@ class AsAgentRuntime:
             "<system-reminder>The tool call has been interrupted by "
             "the user.</system-reminder>"
         )
+        existing_result_ids = {
+            b.id
+            for b in getattr(last_msg, "content", []) or []
+            if isinstance(b, ToolResultBlock)
+        }
         for block in dangling.values():
+            # A still-alive concurrent worker can land its own interrupted
+            # result between the scan above and this append (the emit awaits
+            # below are yield points) — re-check per call so a tool_use never
+            # ends up with two tool_result blocks.
+            if block.id in existing_result_ids:
+                continue
             block.state = ToolCallState.FINISHED
             last_msg.content.append(
                 ToolResultBlock(
@@ -1125,6 +1203,7 @@ class AsAgentRuntime:
                     "status": "interrupted",
                 },
             )
+            existing_result_ids.add(block.id)
 
     async def _cancel_result(
         self,
@@ -1276,8 +1355,14 @@ async def _await_with_deadline(
 
 
 def handle_engine_context(handle: AsRunHandle) -> list[Any]:
-    """Engine context list — populated by ContextAssemblyMiddleware which
-    owns the live ``agent`` reference."""
+    """Live engine context — resolved fresh through ``engine_state`` so a
+    rebound ``state.context`` (e.g. native compression) can never leave the
+    cached list stale. ``engine_context`` remains the fallback for tests that
+    only seed the list."""
+    state = getattr(handle, "engine_state", None)
+    context = getattr(state, "context", None)
+    if context is not None:
+        return context
     return getattr(handle, "engine_context", [])
 
 
@@ -1341,6 +1426,32 @@ def _tool_schemas(tool_registry: Any) -> list[dict[str, Any]]:
         return []
     to_api_schema = getattr(tool_registry, "to_api_schema", None)
     return list(to_api_schema()) if callable(to_api_schema) else []
+
+
+def _find_propagatable(
+    exc: BaseException,
+    types: tuple[type[BaseException], ...],
+) -> BaseException | None:
+    """Find a propagate-listed member inside (possibly) an ExceptionGroup.
+
+    ``_execute_concurrent_tool_calls`` collects worker exceptions via
+    ``gather(return_exceptions=True)`` and re-raises them as an
+    ``ExceptionGroup`` — a ``_hm_propagate`` exception raised inside a tool
+    body (nearly all tools run on this path; ``concurrency_policy`` defaults
+    to ``parallel``) would otherwise land here misclassified as
+    ``transport_error``, defeating session-generation fencing and
+    recall-deadline propagation. Re-raise the marked member raw so the
+    caller sees the same exception the driver path produces.
+    """
+    if isinstance(exc, types):
+        return exc
+    children = getattr(exc, "exceptions", None)
+    if children:
+        for member in children:
+            found = _find_propagatable(member, types)
+            if found is not None:
+                return found
+    return None
 
 
 def _flatten_error(exc: BaseException) -> str:

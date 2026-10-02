@@ -1,5 +1,36 @@
 # Unreleased
 
+- V3.7 review-round-3 fixes (independent review findings, AS path):
+
+  - HIGH-1: `_hm_propagate`-marked exceptions (session generation fence,
+    recall deadline) now propagate end-to-end. `ToolExecutor` no longer
+    converts them into ordinary `tool_error` results, and
+    `AsAgentRuntime._drive_reply` recursively unwraps `ExceptionGroup`s
+    (the default `parallel` tool strategy wraps worker failures via
+    `asyncio.gather`) so marked leaves re-raise raw instead of degrading
+    to `transport_error`.
+  - MED-1: duplicate `tool_result` blocks for one call id are dropped at
+    the vendored `_save_to_context` sink, and `_close_dangling_tool_calls`
+    re-checks for a landed result before appending its own INTERRUPTED
+    close — a cancelled in-flight worker can no longer double-close a
+    call (providers reject duplicate tool_result ids on resume).
+  - MED-2/3: automatic-observation post-hooks are fenced on run
+    termination (new `AsRunHandle.terminated`, set in the driver
+    `finally`) and worker cancellation, and `ToolResultEndEvent`
+    stop-condition evaluation is deferred while a required auto-observe
+    is still in-flight — matching legacy "observe first, then judge"
+    ordering. A fatal observation failure on a text-only final message
+    still fails the run instead of being masked as a clean reply.
+  - LOW: engine-context reads resolve the live `agent.state.context`
+    instead of a cached list reference (compaction can rebind it);
+    vendored `_close_unfinished_tool_calls` interruption blocks now carry
+    the `hm` metadata pocket (`backend_attempted`/`status`);
+    `assistant.reply` events watermark by (msg id, block count) so every
+    reasoning round of the merged AS reply Msg projects its own event —
+    previously rounds 2+ were silently swallowed; `LLMVerdictVerifier`
+    treats non-mapping JSON payloads as retryable malformed verdicts
+    instead of leaking `TypeError`.
+
 - V3.7 live-e2e catch (ALFWorld): `RunScopeMiddleware.on_acting` and the
   automatic-observe binding reset `_current_tool_call_id` with a raw
   `ContextVar.reset(token)`; when the acting generator's `finally` runs
