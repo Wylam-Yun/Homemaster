@@ -557,7 +557,10 @@ class AnthropicChatModel(ChatModelBase):
                     if stop_reason:
                         delta_res.metadata["stop_reason"] = stop_reason
 
-                if delta_res.content:
+                # HOMEMASTER PATCH: also yield metadata-only chunks (e.g.
+                # message_delta carrying stop_reason) so the accumulated
+                # final response preserves the native stop reason.
+                if delta_res.content or delta_res.metadata:
                     delta_res.usage = usage
                     yield delta_res
 
