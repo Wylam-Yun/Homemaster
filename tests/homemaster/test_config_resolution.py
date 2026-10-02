@@ -635,3 +635,33 @@ def test_removed_or_unknown_configuration_fails_closed(
 
     with pytest.raises(Exception, match="Extra inputs are not permitted"):
         load_config(path)
+
+
+def test_provider_client_engine_defaults_to_agentscope(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Step-7 default switch: AgentScope is the default engine; the
+    ``homemaster`` literal remains reachable via config or the
+    HOMEMASTER_ENGINE env hatch, and invalid env values fail closed."""
+    monkeypatch.delenv("HOMEMASTER_ENGINE", raising=False)
+    path = tmp_path / "homemaster.yaml"
+    path.write_text("providers:\n  items: []\n", encoding="utf-8")
+
+    config = load_config(path)
+    assert config.provider_client.engine == "agentscope"
+
+    path.write_text(
+        "provider_client:\n  engine: homemaster\nproviders:\n  items: []\n",
+        encoding="utf-8",
+    )
+    config = load_config(path)
+    assert config.provider_client.engine == "homemaster"
+
+    monkeypatch.setenv("HOMEMASTER_ENGINE", "agentscope")
+    config = load_config(path)
+    assert config.provider_client.engine == "agentscope"
+    assert config._provenance.get("provider_client.engine") == "env"
+
+    monkeypatch.setenv("HOMEMASTER_ENGINE", "bogus")
+    with pytest.raises(Exception, match="HOMEMASTER_ENGINE"):
+        load_config(path)

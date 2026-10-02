@@ -1,5 +1,16 @@
 # Unreleased
 
+- V3.7 Phase-3 step 7: AgentScope is now the default provider engine.
+  `ProviderClientConfig.engine` defaults to `"agentscope"`; the legacy
+  HomeMaster path remains available for one compatibility period via
+  `HOMEMASTER_ENGINE=homemaster` or `provider_client.engine: homemaster`
+  in config (env wins over file). Invalid engine values fail closed
+  through config validation. `config/homemaster.example.yaml` documents
+  the new default. `test_factory`'s
+  `test_skill_model_rejection_precedes_provider_client_construction` now
+  also patches `AsLLMClient` (lazily imported inside the factory build)
+  so the no-construction guard holds under either engine.
+
 - V3.7 review-round-3 fixes (independent review findings, AS path):
 
   - HIGH-1: `_hm_propagate`-marked exceptions (session generation fence,

@@ -157,6 +157,11 @@ def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch
         raise AssertionError("provider client must not be constructed")
 
     monkeypatch.setattr("homemaster.application.factory.LLMClient", forbidden_client)
+    # AsLLMClient is lazily imported inside the factory build; patch its
+    # defining module so the guard holds under the default agentscope engine.
+    monkeypatch.setattr(
+        "homemaster.substrate.as_llm_client.AsLLMClient", forbidden_client
+    )
     build = _provider_factory(_model_override_config())
 
     with pytest.raises(ValueError, match="must map to exactly one"):

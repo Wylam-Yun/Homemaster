@@ -243,7 +243,10 @@ class ProviderClientConfig(BaseModel):
 
     timeout_s: float = 60.0
     max_retries: int = 2
-    engine: Literal["homemaster", "agentscope"] = "homemaster"
+    # AgentScope is the default engine; "homemaster" is the escape hatch
+    # (also reachable via the HOMEMASTER_ENGINE env override) and is
+    # scheduled for removal once the deprecation window closes.
+    engine: Literal["homemaster", "agentscope"] = "agentscope"
 
 
 class RuntimeDefaultsConfig(BaseModel):
@@ -845,6 +848,25 @@ def _apply_env_overrides(
             providers.append(ProviderProfileConfig.model_validate(merged))
         else:
             providers.append(provider)
+
+    engine_override = (os.environ.get("HOMEMASTER_ENGINE") or "").strip().lower()
+    if engine_override:
+        if engine_override not in ("homemaster", "agentscope"):
+            raise ConfigError(
+                f"invalid HOMEMASTER_ENGINE value: {engine_override!r} "
+                "(expected 'homemaster' or 'agentscope')"
+            )
+        config = config.model_copy(
+            update={
+                "provider_client": config.provider_client.model_copy(
+                    update={"engine": engine_override}
+                )
+            }
+        )
+        config._provenance = {
+            **config._provenance,
+            "provider_client.engine": "env",
+        }
 
     if not providers:
         return config

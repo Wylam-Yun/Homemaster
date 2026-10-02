@@ -59,6 +59,9 @@ prompts:
 provider_client:
   timeout_s: 60.0
   max_retries: 2
+  # engine: agentscope is the default. engine: homemaster (or
+  # HOMEMASTER_ENGINE=homemaster) is the temporary legacy rollback hatch.
+  # engine: agentscope
 
 runtime_defaults:
   default_provider_name: Mimo
