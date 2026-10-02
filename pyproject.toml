@@ -36,6 +36,28 @@ dependencies = [
   "typer>=0.12",
   "traced>=0.1.5",
   "uvicorn>=0.47.0",
+  # vendored agentscope (src/agentscope/) core import closure —
+  # upstream core deps not already covered above
+  "aiofiles",
+  "aioitertools",
+  "dashscope",
+  "docstring_parser",
+  "filetype",
+  "jinja2",
+  "json5",
+  "json_repair[schema]>=0.63.4",
+  "mcp>=1.0,<2",
+  "opentelemetry-semantic-conventions>=0.60b0",
+  "pypdf",
+  "python-datauri",
+  "python-frontmatter",
+  "python-socketio",
+  "requests>=2.32",
+  "shortuuid",
+  "tree_sitter",
+  "tree_sitter_bash",
+  "typing-extensions>=4.10",
+  "tzdata",
   "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
@@ -67,7 +89,7 @@ build-backend = "setuptools.build_meta:__legacy__"
 
 [tool.setuptools.packages.find]
 where = ["src", "third_party/MindMemOS/src/mindmemos"]
-include = ["homemaster*", "mindmemos*"]
+include = ["homemaster*", "mindmemos*", "agentscope*"]
 exclude = [
   "homemaster.cli.benchmark_alfworld",
 ]
@@ -101,6 +123,16 @@ homemaster = [
   "browser/vendor/opencli_1_8_7/dist/src/browser/__fixtures__/**/*",
   "browser/generated/opencli_1_8_7/*",
 ]
+agentscope = [
+  "py.typed",
+  "LICENSE",
+  "VENDORED_SOURCE.md",
+  "**/_models/*.yaml",
+  "**/_cosyvoice_models/*.yaml",
+  "**/_audio_models/*.yaml",
+  "**/Dockerfile*.template",
+  "**/_alembic/*",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
@@ -116,7 +148,7 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-exclude = ["third_party/MindMemOS"]
+exclude = ["third_party/MindMemOS", "src/agentscope"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
