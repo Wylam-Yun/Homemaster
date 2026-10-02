@@ -404,10 +404,16 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             await handle.emit(
                 "model_observation.image_consumed",
                 tool_call_id=consumed,
-                name=observe_name if barrier is not None else None,
+                name=self._safe_observe_name(),
                 payload={"tool_call_id": consumed},
             )
         return await next_handler(tools=tools)
+
+    def _safe_observe_name(self) -> str | None:
+        try:
+            return observation_tool_name(self._handle.all_tool_schemas or [])
+        except RuntimeError:
+            return None
 
     async def on_system_prompt(self, agent: Any, current_prompt: str) -> str:
         barrier = self._handle.agent_state.pending_model_observation
@@ -427,6 +433,12 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         tool_call = input_kwargs.get("tool_call")
         call_name = getattr(tool_call, "name", "") or ""
         round_calls = _round_tool_calls(agent)
+
+        if call_id.startswith("auto-observe-"):
+            # Runtime-owned automatic observation calls bypass the batch
+            # fences — they are dispatched by the middleware itself, not
+            # chosen by the model inside the current round.
+            return await next_handler()
 
         barrier = handle.agent_state.pending_model_observation
         if barrier is not None:
@@ -497,7 +509,11 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             final = item
             yield item
 
-        if final is None or getattr(final, "state", None) is None:
+        if (
+            final is None
+            or getattr(final, "state", None) is None
+            or call_id.startswith("auto-observe-")
+        ):
             return
         barrier = handle.agent_state.pending_model_observation
 
@@ -512,82 +528,136 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         elif (
             barrier is not None
             and call_name == barrier.observe_tool_name
+        ):
+            await self._validate_manual_observe(
+                call_id=call_id, response=final
+            )
+        elif (
+            barrier is None
+            and call_name in self._OBSERVE_NAMES
             and _is_success_state(final.state)
         ):
-            await self._validate_manual_observe(call_id=call_id, response=final)
+            await self._record_manual_observe(call_id=call_id, response=final)
 
     async def _automatic_observe(
         self, agent: Any, *, source_call: Any, response: Any
     ) -> None:
+        """Runtime-owned observation after an observed action — mirrors the
+        ``MAX_OBSERVE_FAILURES`` retry loop of the legacy runtime. Events are
+        attributed to the *source* action call, and the consumed-image marker
+        records the source id, matching ``generic_runtime``."""
         handle = self._handle
-        observe_name = self._observe_name(_round_schemas(handle))
+        observe_name = observation_tool_name(handle.all_tool_schemas or [])
         source = ToolCall(
             id=getattr(source_call, "id", "") or "",
             name=getattr(source_call, "name", "") or "",
-            arguments=dict(getattr(source_call, "input", {}) or {}),
-        )
-        observe_call = automatic_observation_call(
-            source, attempt=1, tool_name=observe_name
+            arguments=_call_arguments(source_call),
         )
         await handle.emit(
             "model_observation.automatic_started",
-            tool_call_id=observe_call.id,
-            name=observe_name,
+            tool_call_id=source.id,
+            name=source.name,
             payload={"source_tool_call_id": source.id},
         )
-        try:
-            observe_response = await self._run_observe_tool(
-                agent, observe_call
+        failure_reason = "automatic observation did not run"
+        for attempt in range(1, MAX_OBSERVE_FAILURES + 1):
+            observe_call = automatic_observation_call(
+                source, attempt, tool_name=observe_name
             )
-            evidence = self._validate_chunk_as_observation(observe_response)
-        except Exception as exc:
+            observe_response: Any = None
+            try:
+                observe_response = await self._run_observe_tool(
+                    agent, observe_call
+                )
+                evidence = self._validate_chunk_as_observation(observe_response)
+            except Exception as exc:
+                failure_reason = str(exc)
+            else:
+                self._attach_observation(
+                    response=response,
+                    observe_response=observe_response,
+                    observe_call_id=observe_call.id,
+                    evidence=evidence,
+                    source_call_id=source.id,
+                )
+                handle.agent_state.unconsumed_observation_tool_call_id = (
+                    source.id
+                )
+                await handle.emit(
+                    "model_observation.automatic_completed",
+                    tool_call_id=source.id,
+                    name=source.name,
+                    payload={
+                        "attempt": attempt,
+                        "content_sha256": evidence.content_sha256,
+                        "pixel_sha256": evidence.pixel_sha256,
+                        "source_tool_call_id": source.id,
+                    },
+                )
+                return
             await handle.emit(
-                "model_observation.automatic_failed",
-                tool_call_id=observe_call.id,
-                name=observe_name,
+                "model_observation.automatic_attempt_failed",
+                tool_call_id=source.id,
+                name=source.name,
                 payload={
-                    "error": str(exc),
-                    "error_code": "automatic_observation_failed",
+                    "attempt": attempt,
+                    "reason": failure_reason,
                     "source_tool_call_id": source.id,
                 },
             )
-            handle.observation_fatal = "automatic_observation_failed"
-            return
-        self._attach_observation(
-            response=response,
-            observe_response=observe_response,
-            observe_call_id=observe_call.id,
-            evidence=evidence,
+        self._mark_observation_failed(
+            response,
             source_call_id=source.id,
+            reason=failure_reason,
         )
-        handle.agent_state.unconsumed_observation_tool_call_id = observe_call.id
-        await handle.emit(
-            "model_observation.automatic_completed",
-            tool_call_id=observe_call.id,
-            name=observe_name,
-            payload={
-                "source_tool_call_id": source.id,
-                "content_sha256": evidence.content_sha256,
-                "pixel_sha256": evidence.pixel_sha256,
-            },
-        )
+        handle.observation_fatal = "automatic_observation_failed"
+        handle.observation_fatal_reason = failure_reason
 
     async def _run_observe_tool(self, agent: Any, observe_call: Any) -> Any:
         """Execute the observe tool through the same adapter path (real HM
-        executor) rather than asking the model — runtime-owned call."""
+        executor) rather than asking the model — runtime-owned call. Emits the
+        same tool.call_* lifecycle events a model-selected call would."""
         from agentscope.message import ToolCallBlock
         from agentscope.tool import ToolResponse
 
+        handle = self._handle
         block = ToolCallBlock(
             id=observe_call.id,
             name=observe_call.name,
             input=dict(observe_call.arguments),
         )
+        await handle.emit(
+            "tool.call_started",
+            tool_call_id=observe_call.id,
+            name=observe_call.name,
+            payload={"arguments": dict(observe_call.arguments)},
+        )
         final: Any = None
         async for chunk in agent.toolkit.call_tool(block, agent.state):
             final = chunk
         if not isinstance(final, ToolResponse):
+            await handle.emit(
+                "tool.call_failed",
+                tool_call_id=observe_call.id,
+                name=observe_call.name,
+                payload={"is_error": True, "result": "", "data": {}},
+            )
             raise RuntimeError("automatic observe produced no response")
+        hm = (getattr(final, "metadata", None) or {}).get("hm") or {}
+        data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
+        is_error = not _is_success_state(getattr(final, "state", None))
+        await handle.emit(
+            "tool.call_failed" if is_error else "tool.call_completed",
+            tool_call_id=observe_call.id,
+            name=observe_call.name,
+            payload={
+                "is_error": is_error,
+                "result": data.get("text", ""),
+                "data": data,
+                "backend_attempted": hm.get("backend_attempted"),
+                "status": hm.get("status"),
+            },
+        )
         return final
 
     async def _validate_manual_observe(
@@ -607,13 +677,17 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                 name=barrier.observe_tool_name,
                 payload={
                     "observe_failures": barrier.observe_failures,
+                    "reason": str(exc),
                     "source_tool_call_id": barrier.source_tool_call_id,
-                    "error": str(exc),
                 },
             )
             if barrier.observe_failures >= MAX_OBSERVE_FAILURES:
                 handle.observation_fatal = "model_observation_failed"
+                handle.observation_fatal_reason = (
+                    "model observation retry limit reached"
+                )
             return
+        self._stamp_observation_of(response, barrier.source_tool_call_id)
         handle.agent_state.pending_model_observation = None
         handle.agent_state.unconsumed_observation_tool_call_id = call_id
         await handle.emit(
@@ -621,11 +695,68 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             tool_call_id=call_id,
             name=barrier.observe_tool_name,
             payload={
+                "content_sha256": evidence.content_sha256,
+                "pixel_sha256": evidence.pixel_sha256,
                 "source_tool_call_id": barrier.source_tool_call_id,
+            },
+        )
+
+    async def _record_manual_observe(
+        self, *, call_id: str, response: Any
+    ) -> None:
+        """Model-initiated observe with no pending barrier — validate and
+        record the consumed-image marker (``manual_completed``/``manual_failed``),
+        matching the legacy runtime's post-batch manual-observation pass."""
+        handle = self._handle
+        try:
+            evidence = self._validate_chunk_as_observation(response)
+        except Exception as exc:
+            await handle.emit(
+                "model_observation.manual_failed",
+                tool_call_id=call_id,
+                name="observe",
+                payload={"reason": str(exc)},
+            )
+            return
+        handle.agent_state.unconsumed_observation_tool_call_id = call_id
+        await handle.emit(
+            "model_observation.manual_completed",
+            tool_call_id=call_id,
+            name="observe",
+            payload={
                 "content_sha256": evidence.content_sha256,
                 "pixel_sha256": evidence.pixel_sha256,
             },
         )
+
+    @staticmethod
+    def _stamp_observation_of(response: Any, source_tool_call_id: str) -> None:
+        metadata = getattr(response, "metadata", None)
+        if not isinstance(metadata, dict):
+            return
+        hm = dict(metadata.get("hm") or {})
+        data = dict(hm.get("data") or {})
+        data["observation_of_tool_call_id"] = source_tool_call_id
+        hm["data"] = data
+        metadata["hm"] = hm
+
+    @staticmethod
+    def _mark_observation_failed(
+        response: Any, *, source_call_id: str, reason: str
+    ) -> None:
+        metadata = getattr(response, "metadata", None)
+        if not isinstance(metadata, dict):
+            return
+        hm = dict(metadata.get("hm") or {})
+        data = dict(hm.get("data") or {})
+        data["automatic_observation"] = {
+            "status": "failed",
+            "source_tool_call_id": source_call_id,
+            "attempts": MAX_OBSERVE_FAILURES,
+            "reason": reason,
+        }
+        hm["data"] = data
+        metadata["hm"] = hm
 
     @staticmethod
     def _validate_chunk_as_observation(response: Any) -> Any:
@@ -735,6 +866,19 @@ def _round_tool_calls(agent: Any) -> list[Any]:
 
 def _call_name(call: Any) -> str:
     return getattr(call, "name", "") or ""
+
+
+def _call_arguments(call: Any) -> dict[str, Any]:
+    raw = getattr(call, "input", None)
+    if isinstance(raw, dict):
+        return dict(raw)
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
 
 
 def _schema_name(schema: Any) -> str:

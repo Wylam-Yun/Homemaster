@@ -48,6 +48,7 @@ class ScriptedModel(ChatModelBase):
         self.formatter = OpenAIChatFormatter()
         self._script = list(script)
         self.calls: list[list[Msg]] = []
+        self.call_tools: list[list[dict] | None] = []
         self.seen_tool_result_text = ""
 
     async def _call_api(
@@ -59,6 +60,7 @@ class ScriptedModel(ChatModelBase):
         **kwargs: Any,
     ) -> ChatResponse:
         self.calls.append(messages)
+        self.call_tools.append(tools)
         for msg in messages:
             for block in getattr(msg, "content", ()) or ():
                 if getattr(block, "type", None) == "tool_result":
@@ -331,6 +333,98 @@ async def test_as_runtime_automatic_observation(tmp_path: Path) -> None:
     event_types = [e.type for e in result.events]
     assert "model_observation.automatic_started" in event_types
     assert "model_observation.automatic_completed" in event_types
+    assert "model_observation.image_consumed" in event_types
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_pending_barrier_resume(tmp_path: Path) -> None:
+    """A restored pending ModelObservationBarrier restricts the model to the
+    observe tool, validates the image, clears the barrier and records the
+    consumed marker — mirroring the legacy runtime's resume semantics."""
+    import base64
+    import hashlib
+
+    from homemaster.agent.state import ModelObservationBarrier
+    from homemaster.tools.contracts import ResultImage
+
+    calls: list[str] = []
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    def _read(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("read_state")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS, text="state"
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="read_state",
+            description="Read.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_read,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="o1", name="observe", input="{}")],
+            [TextBlock(text="cleared")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    agent_state = AgentState(
+        run_id="resume",
+        session_id="as-runtime-test",
+        pending_model_observation=ModelObservationBarrier(
+            source_tool_name="robot_go_to",
+            source_tool_call_id="action-1",
+            source_status="success",
+            observe_tool_name="observe",
+        ),
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session,
+        "continue",
+        settings=_settings(tmp_path),
+        agent_state=agent_state,
+        tool_registry=registry,
+    )
+
+    assert result.status == "replied"
+    assert calls == ["observe"]
+    # While the barrier was pending the model could only see `observe`.
+    tools_seen = model.call_tools[0] or []
+    names = {(s.get("function") or s).get("name") for s in tools_seen}
+    assert names == {"observe"}
+    event_types = [e.type for e in result.events]
+    assert "model_observation.barrier_cleared" in event_types
     assert "model_observation.image_consumed" in event_types
 
 

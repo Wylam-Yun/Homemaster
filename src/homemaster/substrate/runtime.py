@@ -34,6 +34,10 @@ from homemaster.agent.messages import (
     UserMessage,
     normalize_content,
 )
+from homemaster.agent.model_observation import (
+    MAX_OBSERVE_FAILURES,
+    MAX_PROTOCOL_FAILURES,
+)
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
@@ -69,6 +73,8 @@ class AsRunHandle:
     tool_registry: Any = None
     engine_context: list[Any] = field(default_factory=list)
     observation_fatal: str | None = None
+    observation_fatal_reason: str = ""
+    normal_iterations: int = 0
 
 
 class AsAgentRuntime:
@@ -293,6 +299,24 @@ class AsAgentRuntime:
         )
         middlewares.extend(self._extra_middlewares)
 
+        # AS counts every reasoning iteration toward max_iters; HM only counts
+        # "normal" ones and grants free observation follow-up turns (bounded by
+        # the protocol/observe failure caps). Give AS the HM budget plus that
+        # grace headroom — the authoritative budget check still runs in
+        # ``_project_event`` via ``normal_iterations``.
+        react_config = None
+        if self._max_tool_iterations is not None:
+            from agentscope.agent import ReActConfig
+
+            react_config = ReActConfig(
+                max_iters=(
+                    self._max_tool_iterations
+                    + MAX_PROTOCOL_FAILURES
+                    + MAX_OBSERVE_FAILURES
+                    + 2
+                )
+            )
+
         agent = Agent(
             name="homemaster",
             system_prompt=self._system_prompt,
@@ -300,6 +324,7 @@ class AsAgentRuntime:
             toolkit=Toolkit(tools=list(self._tools)),
             middlewares=middlewares,
             state=engine_state,
+            react_config=react_config,
         )
 
         await emit(
@@ -635,7 +660,10 @@ class AsAgentRuntime:
                 await emit(
                     "runtime.turn_failed",
                     payload={
-                        "error": "model observation protocol failed",
+                        "error": getattr(
+                            handle, "observation_fatal_reason", ""
+                        )
+                        or "model observation protocol failed",
                         "error_code": fatal,
                     },
                 )
@@ -663,6 +691,35 @@ class AsAgentRuntime:
                     error_code=guard,
                 )
         elif isinstance(item, ModelCallStartEvent):
+            # HM normal-iteration accounting: observation follow-up turns
+            # (pending barrier or unconsumed image marker) do not consume the
+            # max_tool_iterations budget — matching the legacy loop condition.
+            followup = (
+                agent_state.pending_model_observation is not None
+                or agent_state.unconsumed_observation_tool_call_id is not None
+            )
+            if not followup:
+                handle.normal_iterations += 1
+            if (
+                self._max_tool_iterations is not None
+                and handle.normal_iterations > self._max_tool_iterations
+            ):
+                await stream.aclose()
+                await emit(
+                    "runtime.budget_exhausted",
+                    payload={
+                        "max_tool_iterations": self._max_tool_iterations,
+                        "error_code": "max_tool_iterations_exceeded",
+                    },
+                )
+                save_snapshot("failed")
+                return GenericRunResult(
+                    run_id=handle.run_id,
+                    status="failed",
+                    session=session,
+                    events=handle.events,
+                    error_code="max_tool_iterations_exceeded",
+                )
             agent_state.begin_iteration(agent_state.iteration_index + 1)
         elif isinstance(item, ModelCallEndEvent):
             await self._record_usage(
