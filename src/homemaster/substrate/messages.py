@@ -315,9 +315,12 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
 
             def flush() -> None:
                 nonlocal seg_idx, pending_content, pending_reasoning, pending_calls
-                if not pending_content and not pending_reasoning and not pending_calls:
+                has_seg = seg_idx < len(seg_list)
+                if not (
+                    pending_content or pending_reasoning or pending_calls or has_seg
+                ):
                     return
-                seg = seg_list[seg_idx] if seg_idx < len(seg_list) else {}
+                seg = seg_list[seg_idx] if has_seg else {}
                 seg_idx += 1
                 _restore_block_meta(seg, pending_content)
                 out.append(
@@ -392,7 +395,10 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
                         "dropped non-canonical block %s from assistant Msg",
                         type(block).__name__,
                     )
-            flush()
+            while pending_content or pending_reasoning or pending_calls or seg_idx < len(
+                seg_list
+            ):
+                flush()
         else:
             raise MessageConversionError(f"unsupported Msg role: {msg.role!r}")
     return out
