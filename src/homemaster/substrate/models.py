@@ -30,64 +30,42 @@ def _openai_family_model(
     stream: bool,
     timeout_s: float | None,
 ) -> "ChatModelBase":
-    """Build an OpenAI-wire AS model for the given api_format."""
-    from agentscope import credential as cred
-    from agentscope import model as as_model
+    """Build an OpenAI-wire AS model for the given api_format.
 
-    # api_format -> (credential class, model class, credential kwargs).
-    table: dict[str, tuple[type, type, dict[str, Any]]] = {
-        "openai": (
-            cred.OpenAICredential,
-            as_model.OpenAIChatModel,
-            {"base_url": profile.base_url},
-        ),
-        "dashscope": (
-            cred.DashScopeCredential,
-            as_model.DashScopeChatModel,
-            {"base_url": profile.base_url},
-        ),
-        "deepseek": (
-            cred.DeepSeekCredential,
-            as_model.DeepSeekChatModel,
-            {"base_url": profile.base_url},
-        ),
-        "moonshot": (
-            cred.MoonshotCredential,
-            as_model.MoonshotChatModel,
-            {"base_url": profile.base_url},
-        ),
-        "volcengine": (
-            cred.VolcengineCredential,
-            as_model.VolcengineChatModel,
-            {"base_url": profile.base_url},
-        ),
-        "ollama": (
-            cred.OllamaCredential,
-            as_model.OllamaChatModel,
-            # OllamaCredential takes ``host`` (scheme URL), not base_url.
-            {"host": profile.base_url},
-        ),
-    }
-    entry = table.get(profile.api_format)
-    if entry is None:
-        raise ValueError(
-            f"provider {profile.name!r}: unsupported openai-wire api_format "
-            f"{profile.api_format!r}"
-        )
-    credential_cls, model_cls, cred_kwargs = entry
-    if profile.api_format == "ollama":
-        # OllamaCredential carries only ``host`` — local servers are keyless.
-        credential = credential_cls(**cred_kwargs)
-    else:
-        credential = credential_cls(api_key=key, **cred_kwargs)
+    All OpenAI-compatible formats (openai/dashscope/deepseek/moonshot/
+    volcengine) share ``OpenAIChatModel`` + ``OpenAICredential``: the
+    dedicated provider classes add only provider quirks (audio, adaptive
+    thinking) that sit outside HM's canonical contract, while the shared
+    parser already handles ``reasoning_content`` and carries the vendored
+    ``finish_reason``-preservation patch. ``ollama`` keeps its native
+    class — it speaks Ollama's own wire, not the OpenAI chat protocol.
+    """
+    from agentscope.credential import OllamaCredential, OpenAICredential
+    from agentscope.model import OllamaChatModel, OpenAIChatModel
+
     client_kwargs: dict[str, Any] = {}
     if timeout_s is not None:
         client_kwargs["timeout"] = timeout_s
-    parameters = model_cls.Parameters(max_tokens=profile.max_output_tokens)
-    return model_cls(
+    if profile.api_format == "ollama":
+        # OllamaCredential carries only ``host`` — local servers are keyless.
+        credential = OllamaCredential(host=profile.base_url)
+        return OllamaChatModel(
+            credential=credential,
+            model=profile.model,
+            parameters=OllamaChatModel.Parameters(
+                max_tokens=profile.max_output_tokens
+            ),
+            stream=stream,
+            context_size=profile.context_window_tokens,
+            client_kwargs=client_kwargs or None,
+        )
+    credential = OpenAICredential(api_key=key, base_url=profile.base_url)
+    return OpenAIChatModel(
         credential=credential,
         model=profile.model,
-        parameters=parameters,
+        parameters=OpenAIChatModel.Parameters(
+            max_tokens=profile.max_output_tokens
+        ),
         stream=stream,
         context_size=profile.context_window_tokens,
         client_kwargs=client_kwargs or None,
@@ -110,8 +88,8 @@ def chat_model_from_profile(
     ``api_key`` overrides ``profile.api_keys[0]`` (multi-key rotation picks
     the key per attempt). ``timeout_s`` maps to the SDK client's timeout.
     """
-    from agentscope.credential import AnthropicCredential, MiniMaxCredential
-    from agentscope.model import AnthropicChatModel, MiniMaxChatModel
+    from agentscope.credential import AnthropicCredential
+    from agentscope.model import AnthropicChatModel
 
     if profile.kind != "chat":
         raise ValueError(
@@ -144,18 +122,16 @@ def chat_model_from_profile(
             client_kwargs=client_kwargs or None,
         )
     if profile.api_format == "minimax":
-        if profile.auth_type == "auth_token":
-            raise ValueError(
-                f"provider {profile.name!r}: auth_token is not supported by "
-                "the MiniMax AS model"
-            )
-        credential = MiniMaxCredential(api_key=key, base_url=profile.base_url)
+        # MiniMax's Anthropic-compatible endpoint: shared AnthropicChatModel
+        # keeps the vendored stop_reason-preservation patch; the dedicated
+        # MiniMaxChatModel only adds adaptive-thinking quirks outside HM's
+        # canonical contract.
+        credential = AnthropicCredential(api_key=key, base_url=profile.base_url)
         client_kwargs = {"timeout": timeout_s} if timeout_s is not None else None
-        # MiniMax is AnthropicChatModel subclass; parameters take max_tokens.
-        parameters = MiniMaxChatModel.Parameters(
+        parameters = AnthropicChatModel.Parameters(
             max_tokens=profile.max_output_tokens,
         )
-        return MiniMaxChatModel(
+        return AnthropicChatModel(
             credential=credential,
             model=profile.model,
             parameters=parameters,
