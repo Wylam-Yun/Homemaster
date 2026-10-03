@@ -424,6 +424,32 @@ def _estimate_bytes(tokens: int) -> int:
     return int(tokens * 4)
 
 
+def _asyncgen_closing() -> bool:
+    """True while this async generator is unwinding due to aclose()/athrow
+    (``GeneratorExit``), so it must not ``yield`` again.
+
+    ``sys.exc_info()`` alone is not enough: the event-loop asyncgen
+    finalizer drives ``agen.athrow(GeneratorExit)`` on a dedicated task,
+    and when that task is itself cancelled (task-cancellation sweeps or
+    ``asyncio.run`` shutdown) the generator receives ``CancelledError``
+    instead — yet any ``yield`` still raises
+    ``RuntimeError("async generator ignored GeneratorExit")``. Running on
+    the ``async_generator_athrow`` task is what distinguishes a cancelled
+    close from a normal business cancellation, where yielding is legal.
+    """
+    import asyncio
+    import sys
+
+    if sys.exc_info()[0] is GeneratorExit:
+        return True
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return False
+    coro = task.get_coro() if task is not None else None
+    return type(coro).__name__ == "async_generator_athrow"
+
+
 def _describe_exception(error: BaseException) -> str:
     """Render an exception as something a person can act on.
 

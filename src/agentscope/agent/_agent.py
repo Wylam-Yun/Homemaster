@@ -5,7 +5,6 @@ import collections
 import json
 import inspect
 import re
-import sys
 import warnings
 
 from asyncio import Queue
@@ -33,6 +32,7 @@ from .._utils._common import (
     _generate_id,
     _json_loads_with_repair,
     _execute_async_or_sync_func,
+    _asyncgen_closing,
 )
 from ..event import (
     AgentEvent,
@@ -1294,11 +1294,12 @@ class Agent:
 
         finally:
             # VENDORED-PATCH(homemaster): when this generator is being closed
-            # (aclose / GC finalization), ``GeneratorExit`` is propagating —
+            # (aclose / GC finalization, or a cancelled athrow task that
+            # delivers ``CancelledError`` instead of ``GeneratorExit``),
             # yielding here raises "async generator ignored GeneratorExit"
             # and the reply events go nowhere anyway. Still run the tool-call
             # cleanup so context stays consistent, but discard its events.
-            _closing = sys.exc_info()[0] is GeneratorExit
+            _closing = _asyncgen_closing()
             if end_event is not None and not _closing:
                 interrupted_end = (
                     end_event.finished_reason

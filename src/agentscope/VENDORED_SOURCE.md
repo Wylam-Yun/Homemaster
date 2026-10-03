@@ -48,7 +48,8 @@
    HomeMaster stamps `SessionGenerationError` /
    `AutomaticRecallRunDeadlineExceeded` with the flag; upstream's blanket
    `except Exception` would hide the generation fence behind a tool error.
-8. `agent/_agent.py` — `import sys` (required by patch 5).
+8. `agent/_agent.py` — `import sys` (required by patch 5; removed again by
+   patch 13, which replaced the direct `sys.exc_info()` guard).
 9. `agent/_agent.py` `_close_unfinished_tool_calls` — attach
    `metadata={"hm": {"data": {"backend_attempted": False, "status":
    "interrupted"}}}` to the interruption `ToolResultBlock` it appends.
@@ -74,4 +75,14 @@
     finalization), mirroring patch 5. Yielding during close raised
     `RuntimeError: async generator ignored GeneratorExit` at asyncio
     shutdown; the accumulated chunks were already delivered/persisted.
-    Also `import sys` (required by this patch).
+    (Guard rewritten by patch 13; `import sys` removed again.)
+13. `_utils/_common.py` `_asyncgen_closing` + patch-5/patch-12 guards —
+    the original `sys.exc_info()[0] is GeneratorExit` checks missed the
+    *cancelled-athrow* race: the loop's asyncgen finalizer drives
+    `agen.athrow(GeneratorExit)` on a dedicated task, and when that task
+    is itself cancelled (task-cancellation sweeps, `asyncio.run`
+    shutdown) the generator receives `CancelledError` instead — any
+    `yield` then still raises `RuntimeError: async generator ignored
+    GeneratorExit`. The helper additionally detects "running on an
+    `async_generator_athrow` task", preserving normal business
+    cancellation (where yielding from `except`/`finally` remains legal).

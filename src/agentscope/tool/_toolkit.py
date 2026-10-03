@@ -2,7 +2,6 @@
 """The toolkit class for tool calls in AgentScope."""
 import asyncio
 import inspect
-import sys
 from collections import OrderedDict
 from typing import (
     AsyncGenerator,
@@ -24,7 +23,11 @@ from ._base import ToolBase
 from ._response import ToolResponse, ToolChunk
 from ..skill import SkillLoaderBase, Skill
 from ._types import RegisteredTool
-from .._utils._common import _describe_exception, _json_loads_with_repair
+from .._utils._common import (
+    _describe_exception,
+    _json_loads_with_repair,
+    _asyncgen_closing,
+)
 from ..exception import (
     DeveloperOrientedException,
     ToolNotFoundError,
@@ -398,11 +401,12 @@ class Toolkit:
         finally:
             # Finally, yield the complete tool response.
             # VENDORED-PATCH(homemaster): when this generator is being
-            # closed (aclose()/GC, GeneratorExit injected at the last
-            # yield), yielding here raises "async generator ignored
-            # GeneratorExit" — the consumer is gone anyway, so skip the
-            # closing yield. Chunk appends above already persisted state.
-            if sys.exc_info()[0] is not GeneratorExit:
+            # closed (aclose()/GC — or a cancelled athrow task that
+            # delivers ``CancelledError`` instead of ``GeneratorExit``),
+            # yielding here raises "async generator ignored GeneratorExit"
+            # — the consumer is gone anyway, so skip the closing yield.
+            # Chunk appends above already persisted state.
+            if not _asyncgen_closing():
                 yield tool_response
 
     async def _get_available_skills(
