@@ -74,6 +74,18 @@
     stream end never becomes a task-stored exception. Regression test
     `test_completed_run_does_not_retain_borrowed_request_objects`
     asserts the borrowed environment is collectable right after a run.
+  - Asyncgen shutdown noise root-caused and fixed (vendored patch 13):
+    parked reply/tool generators were being GC'd mid-run, and the loop
+    finalizer's `agen.athrow(GeneratorExit)` task could itself be
+    cancelled — delivering `CancelledError` where the patches' guards
+    expected `GeneratorExit`, so `_reply_impl`/`call_tool` `finally`
+    blocks still yielded and produced `RuntimeError: async generator
+    ignored GeneratorExit` at every e2e shutdown. New
+    `_asyncgen_closing()` detects the athrow-task context, keeping the
+    yield ban for real closes only. Verified in the live run:
+    `as-e2e-v37fix-133114` finished `success_rate=1.000`,
+    `goal_condition_success_rate=1.0`, `runtime_status=replied` with a
+    completely clean stderr.
 
 - V3.7 Phase-3 step 7: AgentScope is now the default provider engine.
   `ProviderClientConfig.engine` defaults to `"agentscope"`; the legacy

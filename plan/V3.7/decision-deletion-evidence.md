@@ -193,3 +193,24 @@ web confirmations/permissions、openharness bash 进程组、mindmemos/neo4j
   `_next_reply_item` 改为值返回（`(item, ok)`），单次 `gc.collect()`
   即可释放 borrowed 对象。`test_completed_run_does_not_retain_borrowed_
   request_objects` 钉死。
+
+## 远端复验门（b3a90e5 → f0198ab9，hkust4 Homemaster-v35）
+
+- `.venv` 全量回归：**32 failed / 1611 passed**（19min）。与 6020b54
+  基线（34 败）逐项 diff：新清单是基线的**严格子集**——基线上 2 个
+  `test_feedback_dreaming_integration` 转绿，**零新增失败**。残留 32
+  败全为环境/陈旧基线（cli_streaming 黑盒、v19 ports、web
+  confirmations/permissions 的 `ToolExecutionContext(metadata=)` 陈旧
+  签名、openharness 进程组、mindmemos/neo4j 依赖段、playwright）。
+- ALFWorld e2e 复验 `as-e2e-v37fix-133114`：
+  `success_rate=1.000`、`goal_condition_success_rate=1.0`（环境权威
+  won=true）、`runtime_status=replied`、`invalid_actions=0`、4 步完成；
+  stderr **完全干净**（15 行纯 headline，0 条 traceback/警告）。
+- asyncgen 噪音根治（vendored patch 13，`f0198ab9`）：诊断 hook
+  捕获到 `_reply`/`_reply_impl`/`_execute_sequential_tool_calls` 被
+  GC 中途 athrow——`async_generator_athrow` task 自身被取消时投递的是
+  `CancelledError` 而非 `GeneratorExit`，原 `sys.exc_info()` 守卫失效
+  导致 finally 继续 yield。`_asyncgen_closing()` 经
+  `current_task().get_coro()` 类型名识别 athrow 上下文；本地复现
+  脚本验证两种关闭路径均正确抑制 yield，正常业务 cancel 的
+  `except`/`finally` yield 语义不受影响。
