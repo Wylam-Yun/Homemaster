@@ -15,7 +15,6 @@ from homemaster.agent.messages import (
     Message,
     ToolCall,
     ToolResultMessage,
-    UserMessage,
 )
 from homemaster.agent.session import AgentSession
 from homemaster.alfworld.benchmark import runner as runner_module
@@ -41,7 +40,8 @@ from homemaster.providers.attempts import (
     OutboundImageBinding,
     ProviderAttemptRecord,
 )
-from homemaster.providers.transports import TransportDelta
+from homemaster.providers.types import TransportDelta
+from tests.homemaster.as_testkit import as_provider, schema_name
 
 
 def _record_provider_attempt(
@@ -156,7 +156,9 @@ class FakeTransport:
         iteration: int | None = None,
         attempt_sink: Any = None,
         model_attempt_id: str = "attempt",
+        **kwargs: Any,
     ) -> AsyncIterator[TransportDelta]:
+        del kwargs
         self.seen_tools.append(tools or [])
         self.seen_system_prompts.append(system_prompt)
         self.seen_messages.append(messages)
@@ -193,7 +195,9 @@ class RepeatingNavigateTransport:
         iteration: int | None = None,
         attempt_sink: Any = None,
         model_attempt_id: str = "attempt",
+        **kwargs: Any,
     ) -> AsyncIterator[TransportDelta]:
+        del kwargs
         self.call_count += 1
         if attempt_sink is not None:
             _record_provider_attempt(
@@ -572,28 +576,42 @@ def test_runner_uses_application_runtime_and_marks_success_on_env_won(
     )
     runner = AlfworldBenchmarkRunner(
         config=config,
-        transport_factory=lambda: transport,
+        transport_factory=lambda: as_provider(transport),
         adapter_factory=lambda _config: adapter,
     )
 
     summary = runner.run()
+
+    def _has_image(message: Any) -> bool:
+        for block in getattr(message, "content", ()) or ():
+            if getattr(block, "type", None) == "image":
+                return True
+            for out in getattr(block, "output", ()) or ():
+                if type(out).__name__ == "DataBlock":
+                    return True
+        return False
 
     assert summary.success_rate == 1.0
     assert summary.episodes[0].success is True
     assert summary.episodes[0].steps == 3
     assert transport.call_count == 6
     assert counts["screenshot"] == 3
-    assert all(block.type != "image" for block in transport.seen_messages[0][0].content)
+    # AS shape: screenshots ride inside a ToolResultBlock's DataBlock output on
+    # the merged assistant Msg — the first request has none, the second carries
+    # the observed frame.
+    assert not any(_has_image(message) for message in transport.seen_messages[0])
+    assert any(_has_image(message) for message in transport.seen_messages[1])
+    assert transport.seen_messages[0][0].role == "system"
     assert any(
-        block.type == "image" for message in transport.seen_messages[1] for block in message.content
+        getattr(block, "text", "")
+        for block in transport.seen_messages[0][0].content
     )
-    assert transport.seen_system_prompts[0]
     assert any(
-        isinstance(message, UserMessage)
-        and any("runtime_budget_status" in block.text for block in message.content)
+        message.role == "user"
+        and any("runtime_budget_status" in getattr(block, "text", "") for block in message.content)
         for message in transport.seen_messages[0]
     )
-    tool_names = {tool["name"] for tool in transport.seen_tools[0]}
+    tool_names = {schema_name(tool) for tool in transport.seen_tools[0]}
     assert "robot_go_to" in tool_names
     assert "robot_go_to" in tool_names
     assert "robot_inspect_view" not in tool_names
@@ -664,7 +682,7 @@ def test_consecutive_explicit_observes_send_the_same_current_frame_each_time(
             max_tool_iterations=3,
             provider_config=_provider_config(tmp_path),
         ),
-        transport_factory=lambda: transport,
+        transport_factory=lambda: as_provider(transport),
         adapter_factory=lambda _config: adapter,
     )
 
@@ -729,7 +747,7 @@ def test_same_response_observe_plus_mutation_is_rejected_without_side_effects(
             max_tool_iterations=3,
             provider_config=_provider_config(tmp_path),
         ),
-        transport_factory=lambda: transport,
+        transport_factory=lambda: as_provider(transport),
         adapter_factory=lambda _config: adapter,
     )
 
@@ -738,14 +756,18 @@ def test_same_response_observe_plus_mutation_is_rejected_without_side_effects(
     assert summary.episodes[0].success is False
     assert env.step_count == 0
     assert counts["screenshot"] == 0
+    # AS shape: the rejected batch's tool result rides as a ToolResultBlock
+    # inside the merged assistant Msg; canonical data lands in metadata["hm"].
     action_result = next(
-        message
+        block
         for message in transport.seen_messages[1]
-        if isinstance(message, ToolResultMessage) and message.tool_call_id == "action-batch"
+        for block in getattr(message, "content", ()) or ()
+        if getattr(block, "type", None) == "tool_result" and block.id == "action-batch"
     )
-    assert action_result.is_error is True
-    assert action_result.data is not None
-    assert action_result.data["error_code"] == "model_observation_batch_rejected"
+    assert getattr(action_result, "state", None) == "error"
+    hm_data = (action_result.metadata or {}).get("hm", {}).get("data")
+    assert hm_data is not None
+    assert hm_data["error_code"] == "model_observation_batch_rejected"
 
 
 def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correlation(
@@ -926,7 +948,7 @@ def test_continuous_taskset_shares_session_but_isolates_attempt_and_view_correla
             run_id="taskset-entry-sharing",
             tasksets=(taskset,),
         ),
-        transport_factory=lambda: transport,
+        transport_factory=lambda: as_provider(transport),
     )
     monkeypatch.setattr(
         runner_module,
@@ -980,7 +1002,7 @@ def test_runner_stops_at_environment_step_limit(tmp_path: Path, monkeypatch: Any
     )
     runner = AlfworldBenchmarkRunner(
         config=config,
-        transport_factory=lambda: transport,
+        transport_factory=lambda: as_provider(transport),
         adapter_factory=lambda _config: adapter,
     )
 

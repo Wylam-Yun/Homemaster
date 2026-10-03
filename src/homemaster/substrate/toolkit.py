@@ -10,6 +10,7 @@ chain stays inside the tool body; AS sees an ordinary local tool. Per-call
 from __future__ import annotations
 
 import contextvars
+import json
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,7 @@ from homemaster.tools.base import BaseTool
 if TYPE_CHECKING:
     from homemaster.agent.messages import ToolResultMessage
 from homemaster.tools.contracts import (
+    MEMORY_TOOL_NAMES,
     CancellationHandle,
     DeadlineHandle,
     PermissionSubject,
@@ -125,35 +127,63 @@ _STATUS_TO_AS: dict[ToolExecutionStatus, ToolResultState] = {
 }
 
 
-def result_to_chunk(result: ToolExecutionResult) -> ToolChunk:
+def result_to_chunk(result: ToolExecutionResult, tool_name: str = "") -> ToolChunk:
     """Project a canonical ``ToolExecutionResult`` into one terminal chunk.
 
     Model-visible content = text + images only; every machine field rides in
     ``metadata["hm"]`` so ``backend_attempted``/``outcome_unknown`` survive on
     the serialized ``ToolResultBlock`` (CLAUDE.md machine-field discipline).
     """
-    content: list[TextBlock | DataBlock] = []
-    if result.text:
-        content.append(TextBlock(text=result.text))
-    for image in result.images:
-        content.append(
-            DataBlock(
-                source=Base64Source(
-                    data=image.data_base64,
-                    media_type=image.media_type,
-                ),
-            )
-        )
-    if not content:
-        content.append(TextBlock(text=""))
     data = cast(dict[str, object], thaw_json(result.data))
+    # Mirror ``application/tool_executor._message``: execution status wins
+    # ``data["status"]`` with the domain value preserved under
+    # ``domain_status`` — except task-state tools whose domain status is the
+    # canonical reading.
     existing_status = data.get("status")
     if existing_status is not None and existing_status != result.status.value:
         data.setdefault("domain_status", existing_status)
     data["status"] = result.status.value
+    if tool_name in {"task_planner", "task_progress_check"}:
+        domain_status = data.get("domain_status")
+        if isinstance(domain_status, str):
+            data["status"] = domain_status
+            data.pop("domain_status", None)
     data["backend_attempted"] = result.backend_attempted
     if result.error is not None:
         data.setdefault("error_code", result.error.code)
+    content: list[TextBlock | DataBlock]
+    if tool_name in MEMORY_TOOL_NAMES and data:
+        # Mirror ``application/tool_executor._message``: memory tools project
+        # the full payload as model-visible JSON so the model can read
+        # record values — plain ``result.text`` is only a human summary.
+        model_payload = dict(data)
+        if result.text:
+            model_payload.setdefault("text", result.text)
+        content = [
+            TextBlock(
+                text=json.dumps(
+                    model_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+        ]
+    else:
+        content = []
+        if result.text:
+            content.append(TextBlock(text=result.text))
+        for image in result.images:
+            content.append(
+                DataBlock(
+                    source=Base64Source(
+                        data=image.data_base64,
+                        media_type=image.media_type,
+                    ),
+                )
+            )
+        if not content:
+            content.append(TextBlock(text=""))
     return ToolChunk(
         content=content,
         state=_STATUS_TO_AS[result.status],
@@ -268,13 +298,15 @@ class HomeToolAdapter(ToolBase):
             arguments=arguments.model_dump(mode="json"),
             context=self._build_context(),
         )
-        if not decision.allowed:
+        if not decision.allowed and not getattr(decision, "requires_confirmation", False):
             return PermissionDecision(
                 behavior=PermissionBehavior.DENY,
                 message=decision.reason or "denied by HomeMaster permission",
             )
         # HM's own confirmation channel handles requires_confirmation inside
-        # the tool body; AS-level ASK is intentionally unused (decision ③ §2).
+        # the tool body (``allowed=False`` + ``requires_confirmation=True``
+        # means "ask first", not "deny"); AS-level ASK is intentionally
+        # unused (decision ③ §2).
         return PermissionDecision(
             behavior=PermissionBehavior.ALLOW,
             message=decision.reason or "allowed",
@@ -306,10 +338,10 @@ class HomeToolAdapter(ToolBase):
             if isinstance(outcome, ToolResultMessage):
                 yield message_to_chunk(outcome)
             else:
-                yield result_to_chunk(outcome)
+                yield result_to_chunk(outcome, self._tool.name)
             return
         result = await self._executor.execute(call, self._build_context())
-        yield result_to_chunk(result)
+        yield result_to_chunk(result, self._tool.name)
 
     def _validate(self, tool_input: dict[str, Any]) -> BaseModel:
         return self._tool.input_model.model_validate(tool_input)

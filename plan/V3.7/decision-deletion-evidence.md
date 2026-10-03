@@ -165,3 +165,31 @@ web confirmations/permissions、openharness bash 进程组、mindmemos/neo4j
 依赖段均为环境归因；基线上的 `test_system_prompt_delivered_to_model`
 本次转绿（F1 session 镜像修复的直接外部证据）。零新增失败 →
 删除清单步骤 7-9 的远端回归门满足（smoke 门另计）。
+
+## 步骤 8-9 执行记录（本提交）
+
+前置门复核：①共享契约已抽 `runtime_contracts`/`providers/_shared`/
+`providers/types`（步骤 1-4 done）；②默认引擎已切 AS（cd8b9c4）；
+③`engine=homemaster` 逃生门按用户裁决"立即全删"——门随实现一同消失，
+`provider_client.engine` 字段与 `HOMEMASTER_ENGINE` env 一并移除。
+
+- `agent/generic_runtime.py`、`providers/llm_client.py`、
+  `providers/transports/`（4 文件）删除；`ApplicationRuntime` else 分支、
+  `factory.py` LLMClient 分支、两个 `__init__` re-export、
+  `success_path.py` TYPE_CHECKING 注解全量下线/重指。
+- 测试审计：14 个纯 legacy 文件退役；混合文件改指
+  `providers.types`/`providers._shared`/`memory.feedback_context`/
+  vendored formatter/AS provider fake。`test_application_runtime.py`
+  全量移植（`_DeltaModel` 适配层保住 delta 脚本语料），
+  新增 barrier-gate/bounded-retry/reply-grace 三个 AS 路径安全语义
+  回归后原 legacy 文件才退役。
+- 移植暴露并修复的 AS parity 缺陷：confirmation 被 AS 围栏短路、
+  task 工具 domain status 被执行态覆写、`execute_for_substrate` 漏
+  artifact publication、cancel 后已落结果缺事件投影（dangling
+  sweep 补投 + `tool_event_emitted_ids` 去重）、cancel 自触发
+  generation 围栏吞掉 `_cancel_result`、run-scope request 引用残留。
+- 引用滞留根治：`__anext__` task 以 `StopAsyncIteration` 结束会把
+  traceback→帧→整个 run 图锚到 loop done-callback drain 为止；
+  `_next_reply_item` 改为值返回（`(item, ok)`），单次 `gc.collect()`
+  即可释放 borrowed 对象。`test_completed_run_does_not_retain_borrowed_
+  request_objects` 钉死。

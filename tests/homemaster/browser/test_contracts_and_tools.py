@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -11,7 +12,7 @@ from homemaster.browser.contracts import BrowserSession, BrowserSessionError
 from homemaster.browser.playwright_session import PlaywrightBrowserSession
 from homemaster.browser.policy import BrowserPolicy
 from homemaster.browser.tools import build_browser_registered_tools, build_browser_run_registry
-from homemaster.providers.transports.openai_chat import OpenAIChatTransport
+from homemaster.substrate.toolkit import HomeToolAdapter, RunScope
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry, ToolRegistryError
 from homemaster.tools.browser import registry as browser_registry
@@ -217,13 +218,26 @@ def test_browser_registered_tools_lock_v31_surface_and_eval_gate() -> None:
     assert all(not tool.definition.requires_model_observation for tool in safe)
 
 
-def test_provider_serialized_browser_contract_is_exact() -> None:
+def test_provider_serialized_browser_contract_is_exact(tmp_path) -> None:
+    from agentscope.tool import Toolkit
+    from homemaster.tools.contracts import PermissionSubject
+
     registered = build_browser_registered_tools(_session(eval_allowed=True))
-    normalized = [from_registered_tool(tool).to_api_schema() for tool in registered]
-    request = OpenAIChatTransport().build_create_kwargs(
-        model="contract-model", messages=[], tools=normalized
+    scope = RunScope(
+        session_id="schema",
+        run_id="schema",
+        permission_subject=PermissionSubject(
+            subject_id="test", channel="pytest"
+        ),
+        working_directory=tmp_path,
     )
-    functions = [item["function"] for item in request["tools"]]
+    adapters = [
+        HomeToolAdapter(from_registered_tool(tool), None, scope)
+        for tool in registered
+    ]
+    toolkit = Toolkit(tools=adapters)
+    schemas = asyncio.run(toolkit.get_tool_schemas())
+    functions = [item["function"] for item in schemas]
     assert tuple(item["name"] for item in functions) == (*SAFE_NAMES, "browser_eval")
     assert all(set(item) == {"name", "description", "parameters"} for item in functions)
     assert {

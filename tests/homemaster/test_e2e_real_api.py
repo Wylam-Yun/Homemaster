@@ -12,7 +12,7 @@ from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.config import ContextPolicyConfig, ProviderProfileConfig, load_config
 from homemaster.prompts.loader import PromptId, load_prompt
-from homemaster.providers.llm_client import LLMClient
+from homemaster.substrate.as_llm_client import AsLLMClient
 from homemaster.task_state.store import TaskStateStore
 
 
@@ -26,7 +26,7 @@ def provider_config():
 
 @pytest.fixture
 def transport(provider_config):
-    return LLMClient(provider_config)
+    return AsLLMClient(provider_config)
 
 
 @pytest.fixture

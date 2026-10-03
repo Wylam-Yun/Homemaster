@@ -22,6 +22,18 @@ from pydantic import BaseModel
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
 
+MEMORY_TOOL_NAMES = frozenset(
+    {
+        "context_memory",
+        "mindmemos_add",
+        "mindmemos_search",
+        "mindmemos_history",
+        "mindmemos_update",
+        "mindmemos_delete",
+        "mindmemos_feedback",
+    }
+)
+
 _INTERNAL_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
 _MODEL_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _TOKEN_RE = re.compile(r"^[a-z][a-z0-9_.:/@+-]*$")

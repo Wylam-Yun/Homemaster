@@ -5,28 +5,65 @@ import json
 import pytest
 
 from homemaster.agent.context import ContextAssembler
-from homemaster.agent.messages import ToolCall
+from homemaster.agent.messages import AssistantMessage, ToolCall
 from homemaster.agent.session import AgentSession
 from homemaster.agent.state import AgentState
 from homemaster.application.contracts import RunRequest, RunStatus
 from homemaster.application.factory import create_application
 from homemaster.application.tool_executor import ApplicationToolExecutor
 from homemaster.config import ContextPolicyConfig, HomeMasterConfig
-from homemaster.providers.transports import AnthropicTransport, OpenAIChatTransport, TransportDelta
 from homemaster.tools.adapters import from_registered_tool
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.bash import build_terminal_tool
 from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext
 
 
-class _RecordingTransport:
+class _RecordingChatModel:
+    """Duck-typed AgentScope provider: captures the system-role Msg that the
+    vendored agent prepends from ``AsAgentRuntime.system_prompt``."""
+
     def __init__(self) -> None:
         self.system_prompts: list[str] = []
+        self.api_format = "openai"
 
-    async def stream(self, messages, *, system_prompt="", **kwargs):
-        del messages, kwargs
-        self.system_prompts.append(system_prompt)
-        yield TransportDelta(type="text", text_delta="done", finish_reason="stop")
+    def chat_model(self, **_kwargs):
+        from agentscope.credential import OpenAICredential
+        from agentscope.message import Msg, TextBlock
+        from agentscope.model import ChatModelBase, ChatResponse
+        from agentscope.model._model_usage import ChatUsage
+
+        outer = self
+
+        class _Model(ChatModelBase):
+            def __init__(self) -> None:
+                super().__init__(
+                    credential=OpenAICredential(api_key="sk-stub"),
+                    model="stub-model",
+                    parameters=ChatModelBase.Parameters(),
+                )
+                from agentscope.formatter import OpenAIChatFormatter
+
+                self.formatter = OpenAIChatFormatter()
+
+            async def _call_api(
+                self,
+                model_name: str,
+                messages: list[Msg],
+                **_kwargs,
+            ) -> ChatResponse:
+                for msg in messages:
+                    if msg.role == "system":
+                        outer.system_prompts.append(
+                            "".join(b.text or "" for b in msg.content)
+                        )
+                return ChatResponse(
+                    content=[TextBlock(text="done")],
+                    is_last=True,
+                    usage=ChatUsage(input_tokens=1, output_tokens=1, time=0.0),
+                    metadata={"stop_reason": "end_turn"},
+                )
+
+        return _Model()
 
 
 def _provider_config(tmp_path) -> HomeMasterConfig:
@@ -94,18 +131,18 @@ async def test_default_runtime_sends_authoritative_workspace_in_system_prompt(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    transport = _RecordingTransport()
+    provider = _RecordingChatModel()
     application = create_application(
         config=_provider_config(tmp_path),
         registry=ToolRegistry(),
-        provider_factory=lambda request, run_id: transport,
+        provider_factory=lambda request, run_id: provider,
     )
 
     result = await application.run(RunRequest(text="Where am I?", profile="home"))
 
     assert result.status is RunStatus.REPLIED
-    assert len(transport.system_prompts) == 1
-    system_prompt = transport.system_prompts[0]
+    assert len(provider.system_prompts) == 1
+    system_prompt = provider.system_prompts[0]
     assert f'Current workspace: {json.dumps(str(tmp_path))}.' in system_prompt
     assert "Relative paths passed to terminal and file tools resolve from this workspace" in (
         system_prompt
@@ -120,14 +157,28 @@ def _projector() -> ApplicationToolExecutor:
     return projector
 
 
-def _anthropic_tool_payload(message) -> dict:
-    request = AnthropicTransport().build_create_kwargs(model="model", messages=[message])
-    return json.loads(request["messages"][0]["content"][0]["content"])
+async def _anthropic_tool_payload(assistant, message) -> dict:
+    from agentscope.formatter import AnthropicChatFormatter
+    from homemaster.substrate.messages import to_agent_scope
+
+    msgs = to_agent_scope([assistant, message])
+    blocks = await AnthropicChatFormatter().format(msgs)
+    tool_result = next(
+        block["content"][0]
+        for block in blocks
+        if block["role"] == "user" and block["content"][0]["type"] == "tool_result"
+    )
+    return json.loads(tool_result["content"][0]["text"])
 
 
-def _openai_tool_payload(message) -> dict:
-    request = OpenAIChatTransport().build_create_kwargs(model="model", messages=[message])
-    return json.loads(request["messages"][0]["content"])
+async def _openai_tool_payload(assistant, message) -> dict:
+    from agentscope.formatter import OpenAIChatFormatter
+    from homemaster.substrate.messages import to_agent_scope
+
+    msgs = to_agent_scope([assistant, message])
+    blocks = await OpenAIChatFormatter().format(msgs)
+    tool_msg = next(block for block in blocks if block["role"] == "tool")
+    return json.loads(tool_msg["content"])
 
 
 @pytest.mark.asyncio
@@ -159,12 +210,16 @@ async def test_terminal_receipt_survives_actual_provider_serialization(
             working_directory=tmp_path,
         ),
     )
-    message = _projector()._message(
-        ToolCall(id="terminal-call", name="terminal", arguments={"command": command}),
-        normalized,
+    tool_call = ToolCall(
+        id="terminal-call", name="terminal", arguments={"command": command}
     )
+    message = _projector()._message(tool_call, normalized)
+    assistant = AssistantMessage(content=[], tool_calls=[tool_call])
 
-    for payload in (_anthropic_tool_payload(message), _openai_tool_payload(message)):
+    for payload in (
+        await _anthropic_tool_payload(assistant, message),
+        await _openai_tool_payload(assistant, message),
+    ):
         assert payload["status"] == expected_status
         assert payload["data"]["cwd"] == str(tmp_path)
         assert payload["data"]["returncode"] == expected_returncode

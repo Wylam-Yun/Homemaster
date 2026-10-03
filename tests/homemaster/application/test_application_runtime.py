@@ -107,6 +107,37 @@ from homemaster.tools.contracts import (
 from homemaster.tools.executor import PermissionDecision, ToolExecutor
 from homemaster.tools.memory_tools import build_memory_tools
 from homemaster.tools.observe import ScreenshotTool
+from tests.homemaster.as_testkit import (
+    as_provider as _as_provider,
+)
+from tests.homemaster.as_testkit import (
+    result_text,
+    tool_result_blocks,
+)
+from tests.homemaster.as_testkit import (
+    schema_name as _kit_schema_name,
+)
+
+
+def _schema_name(schema: Any) -> str:
+    return _kit_schema_name(schema)
+
+
+def _request_text_as(messages: Any) -> str:
+    """``_request_text`` for ``list[Msg]``: joins text blocks plus
+    ``tool_result.output`` text so assertion helpers see the same surface
+    canonical ``Message`` lists exposed."""
+    parts: list[str] = []
+    for message in messages:
+        for block in getattr(message, "content", ()) or ():
+            text = getattr(block, "text", None)
+            if text:
+                parts.append(text)
+            for out in getattr(block, "output", ()) or ():
+                out_text = getattr(out, "text", None)
+                if out_text:
+                    parts.append(out_text)
+    return "\n".join(parts)
 
 
 class _FakeTransport:
@@ -407,12 +438,8 @@ class _MemoryRecallTransport:
             ):
                 yield delta
             return
-        tool_message = next(
-            message
-            for message in messages
-            if message.role == "tool" and message.name == "mindmemos_search"
-        )
-        payload = json.loads(tool_message.content[0].text)
+        tool_message = tool_result_blocks(messages, name="mindmemos_search")[0]
+        payload = json.loads(result_text(tool_message))
         assert payload["records"][0]["memory_id"] == "memory-recall-1"
         assert payload["records"][0]["record"]["value"] == {"container": "玄关抽屉"}
         for delta in _text("钥匙在玄关抽屉"):
@@ -463,7 +490,7 @@ class _MemoryHistoryTransport:
         self.calls.append({"messages": messages, "tools": tools})
         if len(self.calls) == 1:
             names = {
-                tool.get("name") if isinstance(tool, dict) else getattr(tool, "model_alias", None)
+                _schema_name(tool) if isinstance(tool, dict) else getattr(tool, "model_alias", "")
                 for tool in tools
             }
             assert "mindmemos_history" in names
@@ -474,12 +501,8 @@ class _MemoryHistoryTransport:
             ):
                 yield delta
             return
-        tool_message = next(
-            message
-            for message in messages
-            if message.role == "tool" and message.name == "mindmemos_history"
-        )
-        payload = json.loads(tool_message.content[0].text)
+        tool_message = tool_result_blocks(messages, name="mindmemos_history")[0]
+        payload = json.loads(result_text(tool_message))
         assert [version["record"]["value"] for version in payload["versions"]] == [
             "uv",
             "conda",
@@ -512,7 +535,10 @@ class _ProcedureEvidenceTransport:
             return
         if len(self.calls) == 2:
             visible_text = "\n".join(
-                block.text for message in messages for block in message.content if block.text
+                text
+                for message in messages
+                for block in message.content
+                if (text := getattr(block, "text", None))
             )
             assert re.search(r"memory-evidence-[0-9a-f]{32}", visible_text) is None
             assert "evidence_refs" not in json.dumps(tools, ensure_ascii=False)
@@ -763,7 +789,7 @@ def _tool(call_id: str, name: str, arguments: dict[str, Any]) -> list[TransportD
 
 
 def _request_text(messages) -> str:
-    return "\n".join(block.text for message in messages for block in message.content if block.text)
+    return _request_text_as(messages)
 
 
 class _AskingChecker:
@@ -784,9 +810,7 @@ class _AskingChecker:
         context,
     ):
         del tool_name, is_read_only, required_capabilities, arguments, context
-        return PermissionDecision(
-            False, requires_confirmation=True, reason="test gate"
-        )
+        return PermissionDecision(False, requires_confirmation=True, reason="test gate")
 
 
 class _LegacyConfirmHandler:
@@ -888,8 +912,8 @@ def _application(
     def provider_factory(request, run_id):
         del run_id
         if request.text == "internal compact control":
-            return next(iter(transports.values()))
-        return transports[request.text]
+            return _as_provider(next(iter(transports.values())))
+        return _as_provider(transports[request.text])
 
     tool_executor = ToolExecutor(
         registry,
@@ -984,9 +1008,7 @@ async def test_runtime_confirmation_controls_real_mutation_and_emits_events(
     assert event_types.count("permission.confirmation_requested") == 1
     assert event_types.count("permission.confirmation_completed") == 1
     completed = next(
-        event
-        for event in app.event_bus.events
-        if event.type == "permission.confirmation_completed"
+        event for event in app.event_bus.events if event.type == "permission.confirmation_completed"
     )
     assert completed.tool_call_id == "call-confirm"
     assert completed.payload["approved"] is approved
@@ -1413,12 +1435,8 @@ async def test_runtime_registers_user_evidence_and_dispatches_memory_write(tmp_p
     first_messages = transport.calls[0]["messages"]
     assert first_messages[-1].content[0].text == "钥匙在玄关抽屉"
     assert "memory-evidence-" not in first_messages[-1].content[0].text
-    add_result = next(
-        message
-        for message in transport.calls[1]["messages"]
-        if message.role == "tool" and message.name == "mindmemos_add"
-    )
-    add_payload = json.loads(add_result.content[0].text)
+    add_result = tool_result_blocks(transport.calls[1]["messages"], name="mindmemos_add")[0]
+    add_payload = json.loads(result_text(add_result))
     assert add_payload["operation"] == "add"
     assert add_payload["status"] == "success"
     assert add_payload["domain_status"] == "stored"
@@ -1456,11 +1474,7 @@ async def test_runtime_projects_memory_search_records_into_model_tool_content(
     assert store.search_calls[0][1]["filters"] is None
     assert store.search_calls[0][1]["top_k"] == 5
     assert store.search_calls[1][1]["filters"] == {"mem_type": "fact"}
-    tool_results = [
-        message
-        for message in transport.calls[1]["messages"]
-        if message.role == "tool" and message.name == "mindmemos_search"
-    ]
+    tool_results = tool_result_blocks(transport.calls[1]["messages"], name="mindmemos_search")
     assert len(tool_results) == 1
     await app.aclose()
 
@@ -1562,12 +1576,15 @@ async def test_waiting_user_result_persists_and_resumes_with_answer_in_history(t
     assert second.status is RunStatus.REPLIED
     assert second.final_reply == "I will use the kitchen."
     messages = answer_transport.calls[0]["messages"]
-    assert [message.role for message in messages[-4:]] == [
+    # AS merges a tool call + its result into one assistant Msg, so the
+    # canonical [user, assistant, tool] tail reads [user, assistant] here.
+    assert [message.role for message in messages[-3:]] == [
         "user",
         "assistant",
-        "tool",
         "user",
     ]
+    block_types = [type(b).__name__ for b in messages[-2].content]
+    assert block_types == ["ToolCallBlock", "ToolResultBlock"]
     assert messages[-1].content[0].text == "kitchen"
     await app.aclose()
 
@@ -1826,7 +1843,7 @@ async def test_profile_and_request_tool_ids_do_not_filter_registry(tmp_path) -> 
     )
 
     assert result.status is RunStatus.REPLIED
-    assert {tool["name"] for tool in transport.calls[0]["tools"]} == {
+    assert {_schema_name(tool) for tool in transport.calls[0]["tools"]} == {
         "echo",
         "other",
     }
@@ -1848,7 +1865,7 @@ async def test_fake_entry_runs_pipeline_persists_and_keeps_backend_borrowed(tmp_
     assert result.status is RunStatus.REPLIED
     assert result.final_reply == "done"
     assert backend.close_count == 0
-    assert transport.calls[0]["tools"][0]["name"] == "echo"
+    assert _schema_name(transport.calls[0]["tools"][0]) == "echo"
     status = app.status(result.session_id)
     assert status.active is False
     assert status.revision == 2
@@ -2228,18 +2245,25 @@ async def test_screenshot_does_not_authorize_or_block_the_next_action(tmp_path) 
     assert len(observe_result.content) == 1
     assert observe_result.content[0].type == "image"
     next_request = transport.calls[1]["messages"]
-    outbound_observe = next(
-        message for message in next_request if message.role == "tool" and message.name == "observe"
+    # AS shape: the observe tool result rides as a ToolResultBlock inside the
+    # merged assistant Msg; its output carries a base64 DataBlock image.
+    observe_block = next(
+        block
+        for message in next_request
+        for block in getattr(message, "content", ()) or ()
+        if type(block).__name__ == "ToolResultBlock" and block.name == "observe"
     )
-    assert len(outbound_observe.content) == 1
-    assert outbound_observe.content[0].type == "image"
-    image_bytes = base64.b64decode(outbound_observe.content[0].source["data"], validate=True)
+    image_outputs = [block for block in observe_block.output if type(block).__name__ == "DataBlock"]
+    assert len(image_outputs) == 1
+    image_source = image_outputs[0].source
+    image_b64 = image_source["data"] if isinstance(image_source, dict) else image_source.data
+    image_bytes = base64.b64decode(image_b64, validate=True)
     completed = next(
         event
         for event in app.event_bus.events
         if event.type == "tool.call_completed" and event.name == "observe"
     )
-    assert outbound_observe.content[0].source["data"] not in repr(completed.payload)
+    assert image_b64 not in repr(completed.payload)
     artifact = completed.payload["data"]["artifacts"][0]
     assert (
         store.read(
@@ -2304,8 +2328,8 @@ async def test_different_sessions_isolate_view_backend_and_cancellation(tmp_path
 
     assert first_result.status is RunStatus.CANCELLED
     assert second_result.status is RunStatus.REPLIED
-    assert [tool["name"] for tool in first_transport.calls[0]["tools"]] == ["echo", "second"]
-    assert [tool["name"] for tool in second_transport.calls[0]["tools"]] == ["echo", "second"]
+    assert [_schema_name(tool) for tool in first_transport.calls[0]["tools"]] == ["echo", "second"]
+    assert [_schema_name(tool) for tool in second_transport.calls[0]["tools"]] == ["echo", "second"]
     assert first_backend.close_count == second_backend.close_count == 0
     assert [
         message.role for message in app.session_manager.get("session-first").session.messages

@@ -96,8 +96,7 @@ def _tool_envelope(tool: dict[str, Any]) -> dict[str, Any]:
         "function": {
             "name": tool["name"],
             "description": tool.get("description", ""),
-            "parameters": tool.get("input_schema")
-            or {"type": "object", "properties": {}},
+            "parameters": tool.get("input_schema") or {"type": "object", "properties": {}},
         },
     }
 
@@ -151,11 +150,7 @@ class AsLLMClient:
                 message="no API keys configured",
                 cause_code="no_keys",
             )
-        api_key = (
-            self._provider.api_keys[provider_key_index]
-            if self._provider.api_keys
-            else None
-        )
+        api_key = self._provider.api_keys[provider_key_index] if self._provider.api_keys else None
         return model_factory(
             self._provider,
             api_key=api_key,
@@ -232,11 +227,7 @@ class AsLLMClient:
             max(provider_key_index, 0), max(len(self._provider.api_keys) - 1, 0)
         )
         key_index = selected_key_index + 1
-        api_key = (
-            self._provider.api_keys[selected_key_index]
-            if self._provider.api_keys
-            else None
-        )
+        api_key = self._provider.api_keys[selected_key_index] if self._provider.api_keys else None
 
         request_hash = ""
         recorded = False
@@ -256,9 +247,7 @@ class AsLLMClient:
             call_kwargs: dict[str, Any] = {}
             if temperature is not None:
                 call_kwargs["temperature"] = temperature
-            effective_max_tokens = (
-                max_output_tokens or self._provider.max_output_tokens
-            )
+            effective_max_tokens = max_output_tokens or self._provider.max_output_tokens
             if effective_max_tokens is not None:
                 token_key = (
                     "max_tokens"
@@ -299,9 +288,7 @@ class AsLLMClient:
             streamed_text = ""
             streamed_thinking = ""
             try:
-                stream = await model(
-                    as_messages, tools=as_tools, **call_kwargs
-                )
+                stream = await model(as_messages, tools=as_tools, **call_kwargs)
             except Exception as exc:
                 raise map_sdk_error(exc) from exc
             if not hasattr(stream, "__aiter__"):
@@ -319,9 +306,7 @@ class AsLLMClient:
                         thinking = getattr(block, "thinking", None)
                         if text:
                             streamed_text += text
-                            yield TransportDelta(
-                                type="transport.delta", text_delta=text
-                            )
+                            yield TransportDelta(type="transport.delta", text_delta=text)
                         elif thinking:
                             streamed_thinking += thinking
                             yield TransportDelta(
@@ -341,24 +326,18 @@ class AsLLMClient:
                 # only the text/thinking suffix not already streamed, so
                 # non-incremental (stream=False) replies are not dropped
                 # and cumulative streams are not duplicated.
-                tail_text = "".join(
-                    getattr(block, "text", "") or ""
-                    for block in last.content
-                )
+                tail_text = "".join(getattr(block, "text", "") or "" for block in last.content)
                 if tail_text:
                     if tail_text.startswith(streamed_text):
-                        tail_text = tail_text[len(streamed_text):]
+                        tail_text = tail_text[len(streamed_text) :]
                     if tail_text:
-                        yield TransportDelta(
-                            type="transport.delta", text_delta=tail_text
-                        )
+                        yield TransportDelta(type="transport.delta", text_delta=tail_text)
                 tail_thinking = "".join(
-                    getattr(block, "thinking", "") or ""
-                    for block in last.content
+                    getattr(block, "thinking", "") or "" for block in last.content
                 )
                 if tail_thinking:
                     if tail_thinking.startswith(streamed_thinking):
-                        tail_thinking = tail_thinking[len(streamed_thinking):]
+                        tail_thinking = tail_thinking[len(streamed_thinking) :]
                     if tail_thinking:
                         yield TransportDelta(
                             type="transport.delta",
@@ -382,11 +361,7 @@ class AsLLMClient:
                         type="transport.delta",
                         finish_reason=finish_reason,
                         usage=usage,
-                        provider_metadata=(
-                            {"raw_stop_reason": stop_reason}
-                            if stop_reason
-                            else {}
-                        ),
+                        provider_metadata=({"raw_stop_reason": stop_reason} if stop_reason else {}),
                     )
             await emit_event(
                 sink,
@@ -462,10 +437,7 @@ class AsLLMClient:
                         response_completed=False,
                         error=LLMProviderError(
                             error_type="stream_aborted",
-                            message=(
-                                "provider stream ended before a complete "
-                                "response"
-                            ),
+                            message=("provider stream ended before a complete response"),
                             cause_code="stream_aborted",
                         ),
                     )
@@ -478,9 +450,7 @@ class AsLLMClient:
         temperature: float = 0.0,
     ) -> LLMJsonResponse:
         started = time.perf_counter()
-        message = await self.complete(
-            [UserMessage.from_text(prompt)], temperature=temperature
-        )
+        message = await self.complete([UserMessage.from_text(prompt)], temperature=temperature)
         content = message.text
         if message.finish_reason == "length":
             raw_content = content or message.reasoning_content

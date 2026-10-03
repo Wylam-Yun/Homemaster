@@ -22,11 +22,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from homemaster.agent.generic_runtime import (
-    GenericRunResult,
-    StopCondition,
-    _cancelled,
-)
 from homemaster.agent.interrupt import InterruptController
 from homemaster.agent.messages import (
     AssistantMessage,
@@ -41,10 +36,16 @@ from homemaster.agent.model_observation import (
     action_requires_model_observation,
 )
 from homemaster.agent.normalized import RunContext
+from homemaster.agent.runtime_contracts import (
+    GenericRunResult,
+    StopCondition,
+    _cancelled,
+)
 from homemaster.agent.session import AgentSession
 from homemaster.agent.session_persistence import SessionPersistenceManager
 from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events import FanoutEventSink
+from homemaster.events.bus import EventBusClosedError
 from homemaster.events.runtime_events import RuntimeEvent
 from homemaster.substrate.messages import from_agent_scope, to_agent_scope
 from homemaster.substrate.toolkit import RunScope, RunScopeMiddleware
@@ -99,6 +100,10 @@ class AsRunHandle:
     # stop_condition is evaluated over this batch only (legacy parity:
     # the condition saw the just-dispatched batch, not all history).
     round_result_ids: set[str] = field(default_factory=set)
+    # Tool calls whose result event was already projected — results that
+    # land inside a closing stream skip ``_project_event`` entirely, so the
+    # teardown sweep reconciles them against this set.
+    tool_event_emitted_ids: set[str] = field(default_factory=set)
     # (assistant msg id, content length) watermark recorded at each
     # model call — blocks appended past the floor are the current
     # reasoning round's calls; AgentScope merges all rounds into one Msg,
@@ -186,17 +191,13 @@ class AsAgentRuntime:
         events: list[RuntimeEvent] = []
         observability = getattr(settings, "observability", None)
         interrupt = InterruptController(
-            abort_llm_stream=bool(
-                getattr(observability, "interrupt_abort_llm_stream", True)
-            )
+            abort_llm_stream=bool(getattr(observability, "interrupt_abort_llm_stream", True))
         )
         old_sigint_handler: Any = None
         signal_registered = False
         if bool(getattr(observability, "interrupt_enabled", True)):
             try:
-                old_sigint_handler = signal.signal(
-                    signal.SIGINT, interrupt.handle_sigint
-                )
+                old_sigint_handler = signal.signal(signal.SIGINT, interrupt.handle_sigint)
                 signal_registered = True
             except ValueError:
                 signal_registered = False
@@ -216,12 +217,18 @@ class AsAgentRuntime:
             events.append(event)
             if event_sink is not None and not local_only:
                 aemit = getattr(event_sink, "aemit", None)
-                if callable(aemit):
-                    await aemit(event)
-                else:
-                    value = event_sink.emit(event)
-                    if inspect.isawaitable(value):
-                        await value
+                try:
+                    if callable(aemit):
+                        await aemit(event)
+                    else:
+                        value = event_sink.emit(event)
+                        if inspect.isawaitable(value):
+                            await value
+                except EventBusClosedError:
+                    # The bus only closes at application ``aclose()``, which
+                    # already cancelled the runs — every later emit is teardown.
+                    # The local ``events`` record above kept the event.
+                    pass
 
         initial_content = user_content or normalize_content(user_text)
         session.append(UserMessage(content=initial_content))
@@ -250,14 +257,8 @@ class AsAgentRuntime:
                 working_directory=_resolve_workdir(run_context, settings),
                 deadline=deadline,
                 cancellation=cancellation_token or interrupt,
-                backend=(
-                    run_context.deps.get("backend") if run_context else None
-                ),
-                domain_observer=(
-                    run_context.deps.get("domain_observer")
-                    if run_context
-                    else None
-                ),
+                backend=(run_context.deps.get("backend") if run_context else None),
+                domain_observer=(run_context.deps.get("domain_observer") if run_context else None),
                 services=dict(run_context.deps) if run_context else {},
                 turn_index=agent_state.turn_index,
             )
@@ -295,9 +296,7 @@ class AsAgentRuntime:
         if persistence is not None:
             persistence.append_message(session.messages[-1])
             event_sink = (
-                persistence
-                if event_sink is None
-                else FanoutEventSink([event_sink, persistence])
+                persistence if event_sink is None else FanoutEventSink([event_sink, persistence])
             )
 
         def save_snapshot(status: str | None = None) -> None:
@@ -337,6 +336,7 @@ class AsAgentRuntime:
             ObservationBarrierMiddleware,
             ProtocolFenceMiddleware,
             ProviderObservabilityMiddleware,
+            ProviderRetryMiddleware,
         )
 
         middlewares.append(
@@ -349,6 +349,12 @@ class AsAgentRuntime:
         )
         middlewares.append(ObservationBarrierMiddleware(handle=handle))
         middlewares.append(ProtocolFenceMiddleware(handle=handle))
+        middlewares.append(
+            ProviderRetryMiddleware(
+                handle=handle,
+                attempt_sink=attempt_sink,
+            )
+        )
         middlewares.append(
             ProviderObservabilityMiddleware(
                 handle=handle,
@@ -370,12 +376,7 @@ class AsAgentRuntime:
             # contract; the authoritative budget check stays on
             # ``normal_iterations`` in ``_project_event``.
             max_iters=(
-                (
-                    self._max_tool_iterations
-                    + MAX_PROTOCOL_FAILURES
-                    + MAX_OBSERVE_FAILURES
-                    + 2
-                )
+                (self._max_tool_iterations + MAX_PROTOCOL_FAILURES + MAX_OBSERVE_FAILURES + 2)
                 if self._max_tool_iterations is not None
                 else 2**31 - 1
             )
@@ -435,6 +436,14 @@ class AsAgentRuntime:
         finally:
             if signal_registered:
                 signal.signal(signal.SIGINT, old_sigint_handler)
+            # Request-owned references must not outlive the run: adapters,
+            # the toolkit and any suspended middleware asyncgens all hold
+            # ``scope``, and an unclosed asyncgen pins the whole object graph
+            # past cyclic GC. The scope object itself may be caller-reused,
+            # so only its request-scoped payload is dropped.
+            scope.backend = None
+            scope.domain_observer = None
+            scope.services = {}
 
     # ------------------------------------------------------------------
     # Reply driver
@@ -473,6 +482,19 @@ class AsAgentRuntime:
                 if task is not None and not task.done():
                     task.cancel()
 
+        async def _next_reply_item() -> tuple[Any, bool]:
+            """Yield ``(item, True)`` — or ``(None, False)`` at stream end.
+
+            A StopAsyncIteration stored on a completed Task keeps its
+            traceback (and through it every suspended frame and the whole
+            run graph) reachable until the event loop drains the task's
+            done-callback handles. Returning a value instead lets one
+            ``gc.collect()`` free a finished run."""
+            try:
+                return await stream.__anext__(), True
+            except StopAsyncIteration:
+                return None, False
+
         interrupt.set_stream(_StreamAbortShim())
         final_msg: Any = None
         try:
@@ -489,18 +511,18 @@ class AsAgentRuntime:
                         persistence=persistence,
                         engine_state=engine_state,
                     )
-                task = asyncio.ensure_future(stream.__anext__())
+                task = asyncio.ensure_future(_next_reply_item())
                 pending_anext[0] = task
                 try:
-                    item = await _await_with_deadline(
+                    item, more = await _await_with_deadline(
                         task,
                         deadline=deadline,
                         operation="agentscope reply",
                     )
-                except StopAsyncIteration:
-                    break
                 finally:
                     pending_anext[0] = None
+                if not more:
+                    break
                 if isinstance(item, Msg):
                     final_msg = item
                     continue
@@ -513,10 +535,7 @@ class AsAgentRuntime:
                     session=session,
                     save_snapshot=save_snapshot,
                 )
-                if (
-                    stop is None
-                    and getattr(handle, "observation_fatal", None) is not None
-                ):
+                if stop is None and getattr(handle, "observation_fatal", None) is not None:
                     # The fatal flag is set by the on_acting post-hook, which
                     # resumes after the action's ToolResultEndEvent — check at
                     # every event boundary so a text-only final reply cannot
@@ -593,6 +612,17 @@ class AsAgentRuntime:
             # Post-loop: every exit path (terminal, exception, cancel) means
             # detached post-hook workers must stop issuing real calls.
             handle.terminated = True
+            # A never-aclosed reply asyncgen stays in ``loop._asyncgens`` and
+            # anchors the whole run graph (frames → tasks → agent → scope),
+            # leaking request-owned objects past cyclic GC. Error paths close
+            # it inline; normal completion must close it here.
+            await _close_stream(stream)
+            # The last ``__anext__`` task keeps its exception (e.g.
+            # StopAsyncIteration) whose traceback holds this frame — and this
+            # frame holds the task: a self-referential cycle that survives a
+            # single gc.collect(). Break the frame→task edge.
+            pending_anext[0] = None
+            task = None
 
         self._sync_session(session, engine_state)
         reason = handle.reply_finished_reason
@@ -610,9 +640,7 @@ class AsAgentRuntime:
         if reason == ReplyFinishedReason.ERROR or reason == "error":
             error_text = ""
             if handle.reply_error is not None:
-                error_text = str(
-                    getattr(handle.reply_error, "message", handle.reply_error)
-                )
+                error_text = str(getattr(handle.reply_error, "message", handle.reply_error))
             await emit(
                 "runtime.turn_failed",
                 payload={
@@ -628,10 +656,7 @@ class AsAgentRuntime:
                 events=events,
                 error_code="reply_error",
             )
-        if (
-            reason == ReplyFinishedReason.EXCEED_MAX_ITERS
-            or reason == "exceed_max_iters"
-        ):
+        if reason == ReplyFinishedReason.EXCEED_MAX_ITERS or reason == "exceed_max_iters":
             await emit(
                 "runtime.budget_exhausted",
                 payload={
@@ -699,9 +724,7 @@ class AsAgentRuntime:
         # Legacy parity: assistant replies append to messages.jsonl (the
         # user-facing dialogue log), same as generic_runtime.
         if persistence is not None and reply_text:
-            persistence.append_message(
-                AssistantMessage(content=[ContentBlock(text=reply_text)])
-            )
+            persistence.append_message(AssistantMessage(content=[ContentBlock(text=reply_text)]))
         await emit("runtime.turn_completed", payload={"final_reply": reply_text})
         return GenericRunResult(
             run_id=run_id,
@@ -747,9 +770,7 @@ class AsAgentRuntime:
         if isinstance(item, TextBlockDeltaEvent):
             await emit("transport.delta", payload={"text_delta": item.delta})
         elif isinstance(item, ThinkingBlockDeltaEvent):
-            await emit(
-                "transport.delta", payload={"reasoning_delta": item.delta}
-            )
+            await emit("transport.delta", payload={"reasoning_delta": item.delta})
         elif isinstance(item, ToolCallStartEvent):
             handle.tool_call_names[item.tool_call_id] = item.tool_call_name
             handle.pending_args[item.tool_call_id] = ""
@@ -803,12 +824,10 @@ class AsAgentRuntime:
             # unknown-tool batch rejects) complete as protocol results —
             # ``call_completed`` + status "protocol_blocked", never error
             # state and never counted by the error/no-progress guards.
-            protocol_blocked = item.state == "denied" and str(
-                data.get("status", "")
-            ) == "protocol_blocked"
-            is_error = (
-                item.state in _REASON_ERROR_STATES and not protocol_blocked
+            protocol_blocked = (
+                item.state == "denied" and str(data.get("status", "")) == "protocol_blocked"
             )
+            is_error = item.state in _REASON_ERROR_STATES and not protocol_blocked
             await emit(
                 "tool.call_failed" if is_error else "tool.call_completed",
                 tool_call_id=item.tool_call_id,
@@ -822,12 +841,12 @@ class AsAgentRuntime:
                 },
             )
             handle.round_result_ids.add(item.tool_call_id)
+            handle.tool_event_emitted_ids.add(item.tool_call_id)
             agent_state.record_tool_results(
                 [
                     {
                         "tool_call_id": item.tool_call_id,
-                        "name": handle.tool_call_names.get(item.tool_call_id)
-                        or "",
+                        "name": handle.tool_call_names.get(item.tool_call_id) or "",
                         "is_error": is_error,
                         "text": str(data.get("text", "")),
                     }
@@ -843,9 +862,7 @@ class AsAgentRuntime:
                 await emit(
                     "runtime.turn_failed",
                     payload={
-                        "error": getattr(
-                            handle, "observation_fatal_reason", ""
-                        )
+                        "error": getattr(handle, "observation_fatal_reason", "")
                         or "model observation protocol failed",
                         "error_code": fatal,
                     },
@@ -873,13 +890,10 @@ class AsAgentRuntime:
                 not is_error
                 and agent_state.pending_model_observation is None
                 and bool(hm.get("backend_attempted"))
-                and action_requires_model_observation(
-                    handle.tool_registry, call_name
-                )
+                and action_requires_model_observation(handle.tool_registry, call_name)
             )
             barrier_open = (
-                agent_state.pending_model_observation is not None
-                or auto_observe_will_follow
+                agent_state.pending_model_observation is not None or auto_observe_will_follow
             )
             if barrier_open or _unfinished_tool_calls(agent):
                 return None
@@ -973,9 +987,7 @@ class AsAgentRuntime:
                     "input_tokens": item.input_tokens,
                     "output_tokens": item.output_tokens,
                     "cache_read_input_tokens": item.cache_input_tokens,
-                    "cache_creation_input_tokens": (
-                        item.cache_creation_input_tokens
-                    ),
+                    "cache_creation_input_tokens": (item.cache_creation_input_tokens),
                 },
                 emit=emit,
             )
@@ -993,9 +1005,7 @@ class AsAgentRuntime:
             handle.reply_error = item.error
         return None
 
-    async def _emit_assistant_events(
-        self, handle: AsRunHandle, emit: Callable[..., Any]
-    ) -> None:
+    async def _emit_assistant_events(self, handle: AsRunHandle, emit: Callable[..., Any]) -> None:
         """Emit assistant.thinking / assistant.reply per reasoning round.
 
         AgentScope merges all rounds of a reply into ONE Msg (``reply_id``),
@@ -1006,17 +1016,11 @@ class AsAgentRuntime:
         event-agnostic: we rescan at MODEL_CALL_END / TOOL_RESULT_END /
         REPLY_END boundaries."""
         context = handle_engine_context(handle)
-        announced_id, announced_len = getattr(
-            handle, "assistant_watermark", ("", 0)
-        )
+        announced_id, announced_len = getattr(handle, "assistant_watermark", ("", 0))
         # Only the tail assistant Msg can grow in place; earlier assistant
         # Msgs are complete rounds already announced (or pre-existing).
         tail = next(
-            (
-                m
-                for m in reversed(context)
-                if getattr(m, "role", "") == "assistant"
-            ),
+            (m for m in reversed(context) if getattr(m, "role", "") == "assistant"),
             None,
         )
         if tail is None:
@@ -1063,8 +1067,7 @@ class AsAgentRuntime:
                 "assistant.reply",
                 payload={
                     "reply": text,
-                    "finish_reason": getattr(tail, "finish_reason", None)
-                    or "",
+                    "finish_reason": getattr(tail, "finish_reason", None) or "",
                     "usage": {},
                     "tool_calls": tool_calls,
                 },
@@ -1079,8 +1082,7 @@ class AsAgentRuntime:
         results = [
             m
             for m in handle.session.messages
-            if isinstance(m, ToolResultMessage)
-            and m.tool_call_id in handle.round_result_ids
+            if isinstance(m, ToolResultMessage) and m.tool_call_id in handle.round_result_ids
         ]
         decision = self._stop_condition(handle.session, results)
         if inspect.isawaitable(decision):
@@ -1153,16 +1155,48 @@ class AsAgentRuntime:
                 dangling[block.id] = block
             elif isinstance(block, ToolResultBlock):
                 dangling.pop(block.id, None)
+        # Results persisted inside a closing stream never reached
+        # ``_project_event`` — reconcile them so teardown produces the same
+        # tool.call_* events a live projection would have.
+        for block in getattr(last_msg, "content", []) or []:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            if block.id in handle.tool_event_emitted_ids:
+                continue
+            handle.tool_event_emitted_ids.add(block.id)
+            hm = dict((getattr(block, "metadata", None) or {}).get("hm") or {})
+            block_data = dict(hm.get("data") or {})
+            is_error = block.state in {
+                ToolResultState.ERROR,
+                ToolResultState.DENIED,
+                ToolResultState.INTERRUPTED,
+            }
+            output = block.output
+            result_text = ""
+            if isinstance(output, str):
+                result_text = output
+            elif isinstance(output, list):
+                result_text = "".join(getattr(b, "text", "") or "" for b in output)
+            payload_data = {"text": result_text, **block_data}
+            await emit(
+                "tool.call_failed" if is_error else "tool.call_completed",
+                tool_call_id=block.id,
+                name=handle.tool_call_names.get(block.id) or getattr(block, "name", None),
+                payload={
+                    "is_error": is_error,
+                    "result": result_text,
+                    "data": payload_data,
+                    "backend_attempted": hm.get("backend_attempted"),
+                    "status": hm.get("status"),
+                },
+            )
         if not dangling:
             return
         reminder = (
-            "<system-reminder>The tool call has been interrupted by "
-            "the user.</system-reminder>"
+            "<system-reminder>The tool call has been interrupted by the user.</system-reminder>"
         )
         existing_result_ids = {
-            b.id
-            for b in getattr(last_msg, "content", []) or []
-            if isinstance(b, ToolResultBlock)
+            b.id for b in getattr(last_msg, "content", []) or [] if isinstance(b, ToolResultBlock)
         }
         for block in dangling.values():
             # A still-alive concurrent worker can land its own interrupted
@@ -1204,6 +1238,7 @@ class AsAgentRuntime:
                 },
             )
             existing_result_ids.add(block.id)
+            handle.tool_event_emitted_ids.add(block.id)
 
     async def _cancel_result(
         self,
@@ -1218,23 +1253,42 @@ class AsAgentRuntime:
         engine_state: Any = None,
         local_only: bool = False,
     ) -> GenericRunResult:
-        if engine_state is not None and handle is not None:
-            await self._close_dangling_tool_calls(handle, emit)
-            self._sync_session(session, engine_state)
-        elif engine_state is not None:
-            self._sync_session(session, engine_state)
-        await emit(
-            "runtime.cancelled",
-            payload={"phase": phase},
-            local_only=local_only,
-        )
+        # The session generation may already have been bumped by the cancel
+        # itself (``SessionRuntime._cancel_locked``) — fenced session/snapshot
+        # writes then refuse with the propagate-listed generation error by
+        # design. That must not abort the cancel teardown or swallow the
+        # already-emitted events: the run is terminal either way.
+        try:
+            if engine_state is not None and handle is not None:
+                await self._close_dangling_tool_calls(handle, emit)
+                self._sync_session(session, engine_state)
+            elif engine_state is not None:
+                self._sync_session(session, engine_state)
+        except BaseException as exc:
+            if _find_propagatable(exc, self._propagate_exceptions) is None:
+                raise
+        try:
+            await emit(
+                "runtime.cancelled",
+                payload={"phase": phase},
+                local_only=local_only,
+            )
+        except BaseException as exc:
+            # The fanned-out persistence sink can hit the same generation
+            # fence — the local events list already recorded the event.
+            if _find_propagatable(exc, self._propagate_exceptions) is None:
+                raise
         if handle is not None:
             snapshot = getattr(handle.task_state_store, "snapshot", None)
             if snapshot is not None and snapshot.status == TaskStatus.ACTIVE:
                 handle.task_state_store.update_status(TaskStatus.PAUSED)
             handle.agent_state.status = "cancelled"
         if persistence is not None:
-            persistence.save_snapshot()
+            try:
+                persistence.save_snapshot()
+            except BaseException as exc:
+                if _find_propagatable(exc, self._propagate_exceptions) is None:
+                    raise
         return GenericRunResult(
             run_id=run_id,
             status="cancelled",
@@ -1291,21 +1345,11 @@ class AsAgentRuntime:
             session=session,
             agent_state=agent_state,
             task_state_store=task_state_store,
-            session_root=Path(
-                str(
-                    getattr(
-                        observability, "session_dir", "~/.homemaster/sessions"
-                    )
-                )
-            ),
+            session_root=Path(str(getattr(observability, "session_dir", "~/.homemaster/sessions"))),
             model=str(getattr(settings, "provider_name", "")),
             system_prompt=self._system_prompt,
-            strip_images=bool(
-                getattr(observability, "strip_images_in_snapshot", True)
-            ),
-            trace_rotation_max_mb=int(
-                getattr(observability, "trace_rotation_max_mb", 100)
-            ),
+            strip_images=bool(getattr(observability, "strip_images_in_snapshot", True)),
+            trace_rotation_max_mb=int(getattr(observability, "trace_rotation_max_mb", 100)),
         )
         manager.engine_state = engine_state
         return manager
@@ -1338,20 +1382,27 @@ async def _await_with_deadline(
     if remaining is None:
         return await awaitable
     task = asyncio.ensure_future(awaitable)
-    if remaining > 0:
-        try:
-            done, _ = await asyncio.wait({task}, timeout=remaining)
-        except asyncio.CancelledError:
-            if not task.done():
-                task.cancel()
+    try:
+        if remaining > 0:
+            try:
+                done, _ = await asyncio.wait({task}, timeout=remaining)
+            except asyncio.CancelledError:
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise
+            if task in done:
+                return task.result()
+        if not task.done():
+            task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            raise
-        if task in done:
-            return task.result()
-    if not task.done():
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-    raise TimeoutError(f"{operation} exceeded the run deadline")
+        raise TimeoutError(f"{operation} exceeded the run deadline")
+    finally:
+        # A completed task keeps its exception; that exception's traceback
+        # references this frame, which references the task (directly and via
+        # the ``done`` set) — a cycle a single gc.collect() cannot break.
+        task = None
+        done = None
 
 
 def handle_engine_context(handle: AsRunHandle) -> list[Any]:
@@ -1393,9 +1444,7 @@ def _check_guards(handle: AsRunHandle) -> str | None:
     return None
 
 
-def _resolve_subject(
-    run_context: RunContext | None, settings: Any
-) -> PermissionSubject:
+def _resolve_subject(run_context: RunContext | None, settings: Any) -> PermissionSubject:
     subject = None
     if run_context is not None:
         subject = run_context.deps.get("permission_subject")
@@ -1468,9 +1517,7 @@ def _flatten_error(exc: BaseException) -> str:
             leaves.append(current)
     if not leaves:
         return str(exc)
-    return "; ".join(
-        f"{type(leaf).__name__}: {leaf}" for leaf in leaves[:3]
-    )
+    return "; ".join(f"{type(leaf).__name__}: {leaf}" for leaf in leaves[:3])
 
 
 def _msg_text(msg: Any) -> str:

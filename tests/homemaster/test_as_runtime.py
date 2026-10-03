@@ -2135,3 +2135,208 @@ async def test_as_runtime_interrupted_result_dedup(
     assert len(results) == 1, (
         "duplicate tool_result ids are rejected by providers on resume"
     )
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_no_backend_attempt_no_barrier(tmp_path: Path) -> None:
+    """Ported barrier-gate: a ``requires_model_observation`` tool whose
+    result reports ``backend_attempted=False`` must not trigger the
+    automatic observe (nothing touched the device) nor arm a barrier."""
+    calls: list[str] = []
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="planned only",
+            backend_attempted=False,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="done")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    assert calls == ["robot_go_to"]
+    event_types = [e.type for e in result.events]
+    assert "model_observation.automatic_started" not in event_types
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_invalid_observe_fails_closed_after_retries(
+    tmp_path: Path,
+) -> None:
+    """Ported bounded-retry fence: an automatic observe that returns no image
+    evidence is retried ``MAX_OBSERVE_FAILURES`` times, then the run fails
+    closed with ``automatic_observation_failed`` — never silently continued."""
+    from homemaster.agent.model_observation import MAX_OBSERVE_FAILURES
+
+    calls: list[str] = []
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="no image captured",
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    runtime, _model = _runtime(
+        tmp_path,
+        script=[
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="unreachable")],
+        ],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+
+    assert result.status == "failed"
+    assert result.error_code == "automatic_observation_failed"
+    assert calls == ["robot_go_to"] + ["observe"] * MAX_OBSERVE_FAILURES
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_observation_followup_turn_is_free(
+    tmp_path: Path,
+) -> None:
+    """Ported grace-iteration parity: with ``max_tool_iterations=1`` the
+    observation follow-up turn (unconsumed image) does not consume the
+    normal-iteration budget — the model still replies after observing."""
+    import base64
+    import hashlib
+
+    from homemaster.tools.contracts import ResultImage
+
+    calls: list[str] = []
+    png = _png_b64()
+    sha = hashlib.sha256(base64.b64decode(png)).hexdigest()
+
+    def _action(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("robot_go_to")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="moved",
+            backend_attempted=True,
+        )
+
+    def _observe(arguments: Any, context: Any) -> ToolExecutionResult:
+        calls.append("observe")
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.SUCCESS,
+            text="shot",
+            images=[
+                ResultImage(
+                    media_type="image/png",
+                    data_base64=png,
+                    content_sha256=sha,
+                )
+            ],
+        )
+
+    registry = ToolRegistry()
+    registry.register(
+        FunctionTool(
+            name="robot_go_to",
+            description="Move.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_action,
+            requires_model_observation=True,
+        )
+    )
+    registry.register(
+        FunctionTool(
+            name="observe",
+            description="Observe.",
+            input_schema={"type": "object", "properties": {}},
+            execute=_observe,
+        )
+    )
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    model = ScriptedModel(
+        [
+            [ToolCallBlock(id="a1", name="robot_go_to", input="{}")],
+            [TextBlock(text="visually confirmed")],
+        ]
+    )
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=[HomeToolAdapter(t, executor, scope) for t in registry.list_tools()],
+        max_tool_iterations=1,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(
+        session, "move", settings=_settings(tmp_path), tool_registry=registry
+    )
+
+    assert result.status == "replied"
+    assert result.final_reply == "visually confirmed"
+    assert calls == ["robot_go_to", "observe"]

@@ -28,6 +28,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 from homemaster.tools.observe import ScreenshotTool
+from tests.homemaster.as_testkit import as_provider, schema_name
 
 
 class _Transport:
@@ -280,7 +281,7 @@ def _application(
             assert factory.sessions, "browser must exist before provider creation"
         if request.text == "provider-failure":
             raise RuntimeError("provider construction failed")
-        return transports[request.text]
+        return as_provider(transports[request.text])
 
     def context_factory(request, provider):
         del request
@@ -331,8 +332,8 @@ async def test_enabled_and_disabled_runs_use_isolated_immutable_tool_views(tmp_p
 
     assert enabled.status is RunStatus.REPLIED
     assert disabled.status is RunStatus.REPLIED
-    enabled_names = tuple(item["name"] for item in transports["enabled"].tools or [])
-    disabled_names = tuple(item["name"] for item in transports["disabled"].tools or [])
+    enabled_names = tuple(schema_name(item) for item in transports["enabled"].tools or [])
+    disabled_names = tuple(schema_name(item) for item in transports["disabled"].tools or [])
     assert set(enabled_names) - set(disabled_names) == {
         "browser_analyze",
         "browser_backfill",

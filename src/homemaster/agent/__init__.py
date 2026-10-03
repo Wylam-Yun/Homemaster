@@ -1,7 +1,7 @@
 """Agent — generic message/tool-call/tool-result runtime.
 
-Contains AgentRuntime, AgentSession,
-normalized message types, context composition, and the turn loop.
+Contains AgentSession, normalized message types, context composition,
+and shared run contracts. The AgentScope engine drives the model loop.
 No home-domain schemas or domain logic.
 """
 
@@ -26,10 +26,8 @@ from homemaster.agent.context import (
     estimate_text_tokens,
     estimate_tools_tokens,
 )
-from homemaster.agent.generic_runtime import AgentRuntime
 
 __all__ = [
-    "AgentRuntime",
     "BudgetDecision",
     "ComposedContext",
     "ContextAssembler",

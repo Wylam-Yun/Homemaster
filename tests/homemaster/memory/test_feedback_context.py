@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-from homemaster.agent.generic_runtime import _bind_provider_attempt_contexts
 from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage, UserMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.memory.feedback_context import (
@@ -58,7 +57,7 @@ def test_snapshot_deep_copies_non_pydantic_recalled_memory() -> None:
     assert snapshot.recalled_memories[0].memory == "memory raw-1"
 
 
-def test_generic_runtime_binds_exact_visible_records_to_feedback_call() -> None:
+def test_binder_freezes_exact_visible_records_to_feedback_call() -> None:
     from mindmemos.typing import MemorySearchItem
 
     source = UserMessage.from_text("Use uv, not conda.")
@@ -104,10 +103,12 @@ def test_generic_runtime_binds_exact_visible_records_to_feedback_call() -> None:
         },
     )
 
-    _bind_provider_attempt_contexts(
-        [ToolCall(id="feedback-call", name="mindmemos_feedback", arguments={})],
-        frozen_messages,
-        run_context,
+    bind_feedback_contexts(
+        tool_calls=[
+            ToolCall(id="feedback-call", name="mindmemos_feedback", arguments={})
+        ],
+        frozen_messages=frozen_messages,
+        deps=run_context.deps,
     )
     source.content[0].text = "changed after binding"
 

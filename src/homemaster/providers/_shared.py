@@ -137,26 +137,22 @@ def attempt_record(
     candidates: list[tuple[str, OutboundImageBinding]] = []
     for message_index, message in enumerate(messages):
         for block_index, block in enumerate(message.content):
-            if block.type != "image" or not isinstance(block.source, dict):
-                continue
-            data = block.source.get("data")
-            if not isinstance(data, str):
-                continue
-            try:
-                content = base64.b64decode(data, validate=True)
-            except ValueError:
-                content = data.encode("ascii", errors="replace")
-            content_sha256 = hashlib.sha256(content).hexdigest()
-            candidates.append(
-                (
-                    content_sha256,
-                    OutboundImageBinding(
-                        message_index=message_index,
-                        block_index=block_index,
-                        content_sha256=content_sha256,
-                    ),
+            for data in _block_image_payloads(block):
+                try:
+                    content = base64.b64decode(data, validate=True)
+                except ValueError:
+                    content = data.encode("ascii", errors="replace")
+                content_sha256 = hashlib.sha256(content).hexdigest()
+                candidates.append(
+                    (
+                        content_sha256,
+                        OutboundImageBinding(
+                            message_index=message_index,
+                            block_index=block_index,
+                            content_sha256=content_sha256,
+                        ),
+                    )
                 )
-            )
     serialized_counts = Counter(
         hashlib.sha256(content).hexdigest() for content in _serialized_image_contents(request_body)
     )
@@ -178,6 +174,32 @@ def attempt_record(
     )
 
 
+def _block_image_payloads(block: Any) -> list[str]:
+    """Base64 payloads a canonical or AgentScope block carries.
+
+    Canonical ``Message`` history marks images as ``type == "image"`` blocks
+    with a ``source`` mapping. AgentScope ``Msg`` content carries them as
+    ``type == "data"`` ``DataBlock``s (``source`` is a typed ``Base64Source``)
+    — including nested inside a ``ToolResultBlock.output``. ``block_index`` in
+    the returned binding keeps pointing at the enclosing content block.
+    """
+    block_type = getattr(block, "type", None)
+    source = getattr(block, "source", None)
+    payloads: list[str] = []
+    if block_type == "image" and isinstance(source, dict):
+        data = source.get("data")
+        if isinstance(data, str):
+            payloads.append(data)
+    elif block_type in {"image", "data"} and source is not None:
+        if getattr(source, "type", None) == "base64":
+            data = getattr(source, "data", None)
+            if isinstance(data, str):
+                payloads.append(data)
+    for item in getattr(block, "output", ()) or ():
+        payloads.extend(_block_image_payloads(item))
+    return payloads
+
+
 def _serialized_image_contents(value: Any) -> list[bytes]:
     contents: list[bytes] = []
     if isinstance(value, dict):
@@ -188,7 +210,7 @@ def _serialized_image_contents(value: Any) -> list[bytes]:
                 contents.append(_image_bytes(url.split(";base64,", 1)[1]))
                 return contents
         source = value.get("source")
-        if value.get("type") == "image" and isinstance(source, dict):
+        if value.get("type") in {"image", "data"} and isinstance(source, dict):
             data = source.get("data")
             if isinstance(data, str):
                 contents.append(_image_bytes(data))

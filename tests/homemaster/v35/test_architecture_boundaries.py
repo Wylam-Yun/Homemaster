@@ -28,7 +28,7 @@ def test_non_cli_modules_do_not_import_cli_composition() -> None:
 def test_application_and_agent_runtime_are_domain_agnostic() -> None:
     runtime_files = (
         SRC_ROOT / "application" / "runtime.py",
-        SRC_ROOT / "agent" / "generic_runtime.py",
+        SRC_ROOT / "substrate" / "runtime.py",
     )
     forbidden_terms = ("homemaster.alfworld", "AlfredThorEnv", "objectId", "scorer")
     offenders = {

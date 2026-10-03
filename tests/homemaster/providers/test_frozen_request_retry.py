@@ -4,8 +4,7 @@ import base64
 import hashlib
 
 from homemaster.agent.messages import ContentBlock, UserMessage
-from homemaster.providers.llm_client import _attempt_record
-from homemaster.providers.transports.anthropic import AnthropicTransport
+from homemaster.providers._shared import attempt_record
 
 
 def test_provider_attempt_tracks_generic_screenshot_bytes_without_observation_binding() -> None:
@@ -17,7 +16,7 @@ def test_provider_attempt_tracks_generic_screenshot_bytes_without_observation_bi
         metadata={"content_sha256": hashlib.sha256(png).hexdigest()},
     )
 
-    attempt = _attempt_record(
+    attempt = attempt_record(
         messages=[UserMessage(content=[block])],
         request_body={
             "messages": [
@@ -58,12 +57,27 @@ def test_provider_attempt_omits_images_dropped_by_transport() -> None:
         ),
     ]
 
-    request_body = AnthropicTransport().build_create_kwargs(
-        model="test-model",
-        messages=messages,
-        tools=None,
-    )
-    attempt = _attempt_record(
+    # Emulate the formatter's serialized body keeping only the newest frame —
+    # attempt_record must surface the dropped image as stripped.
+    request_body = {
+        "model": "test-model",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": second_encoded,
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    attempt = attempt_record(
         messages=messages,
         request_body=request_body,
         model_attempt_id="attempt-2",

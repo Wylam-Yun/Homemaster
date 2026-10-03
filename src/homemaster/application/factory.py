@@ -30,7 +30,6 @@ from homemaster.extensions.hook_runner import HookRunner
 from homemaster.permissions import PermissionChecker, PermissionSettingsConfig
 from homemaster.permissions.store import PermissionStore, resolve_store_path
 from homemaster.prompts.loader import load_prompt
-from homemaster.providers.llm_client import LLMClient
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.executor import PhysicalGateOwner, ToolExecutor
 
@@ -110,9 +109,7 @@ def create_application(
     )
     resolved_tool_executor = tool_executor or ToolExecutor(
         registry,
-        permission_checker=PermissionChecker(
-            effective_permissions, store=resolved_store
-        ),
+        permission_checker=PermissionChecker(effective_permissions, store=resolved_store),
         confirmation_handler=confirmation_handler,
         resource_manager=resource_manager,
         permission_store=resolved_store,
@@ -174,21 +171,13 @@ def create_application(
 def _provider_factory(config: HomeMasterConfig) -> ProviderFactory:
     def build(request: RunRequest, run_id: str) -> ResourceBinding:
         profile = _resolve_chat_provider(config, request)
-        if config.provider_client.engine == "agentscope":
-            # Phase 1 dual-run: vendored AgentScope ChatModelBase backend.
-            from homemaster.substrate.as_llm_client import AsLLMClient
+        from homemaster.substrate.as_llm_client import AsLLMClient
 
-            client = AsLLMClient(
-                profile,
-                timeout_s=config.provider_client.timeout_s,
-                run_id=run_id,
-            )
-        else:
-            client = LLMClient(
-                profile,
-                timeout_s=config.provider_client.timeout_s,
-                run_id=run_id,
-            )
+        client = AsLLMClient(
+            profile,
+            timeout_s=config.provider_client.timeout_s,
+            run_id=run_id,
+        )
         return ResourceBinding.owned(
             f"provider:{run_id}",
             client,

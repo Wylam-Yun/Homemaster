@@ -637,13 +637,13 @@ def test_removed_or_unknown_configuration_fails_closed(
         load_config(path)
 
 
-def test_provider_client_engine_defaults_to_agentscope(
+def test_provider_client_engine_is_locked_to_agentscope(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """Step-7 default switch: AgentScope is the default engine; the
-    ``homemaster`` literal remains reachable via config or the
-    HOMEMASTER_ENGINE env hatch, and invalid env values fail closed."""
-    monkeypatch.delenv("HOMEMASTER_ENGINE", raising=False)
+    """Steps 8-9: the legacy engine and its hatch are gone. ``engine`` is a
+    Literal pinned to ``agentscope`` — any other config value fails closed,
+    and the removed ``HOMEMASTER_ENGINE`` env var is ignored."""
+    monkeypatch.setenv("HOMEMASTER_ENGINE", "homemaster")
     path = tmp_path / "homemaster.yaml"
     path.write_text("providers:\n  items: []\n", encoding="utf-8")
 
@@ -654,14 +654,12 @@ def test_provider_client_engine_defaults_to_agentscope(
         "provider_client:\n  engine: homemaster\nproviders:\n  items: []\n",
         encoding="utf-8",
     )
-    config = load_config(path)
-    assert config.provider_client.engine == "homemaster"
+    with pytest.raises(Exception, match="engine"):
+        load_config(path)
 
-    monkeypatch.setenv("HOMEMASTER_ENGINE", "agentscope")
+    path.write_text(
+        "provider_client:\n  engine: agentscope\nproviders:\n  items: []\n",
+        encoding="utf-8",
+    )
     config = load_config(path)
     assert config.provider_client.engine == "agentscope"
-    assert config._provenance.get("provider_client.engine") == "env"
-
-    monkeypatch.setenv("HOMEMASTER_ENGINE", "bogus")
-    with pytest.raises(Exception, match="HOMEMASTER_ENGINE"):
-        load_config(path)

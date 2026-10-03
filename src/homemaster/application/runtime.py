@@ -15,9 +15,9 @@ from typing import Any, Protocol
 
 from homemaster.agent.compact import strip_old_images
 from homemaster.agent.context import ComposedContext, ContextAssembler
-from homemaster.agent.generic_runtime import AgentRuntime, GenericRunResult
 from homemaster.agent.messages import Message
 from homemaster.agent.normalized import RunContext
+from homemaster.agent.runtime_contracts import GenericRunResult
 from homemaster.agent.state import AgentState
 from homemaster.application.contracts import (
     ResourceBinding,
@@ -519,61 +519,46 @@ class ApplicationRuntime:
                     runtime,
                     generation,
                 )
-                if _is_agentscope_provider(provider):
-                    from homemaster.substrate.runtime import AsAgentRuntime
-                    from homemaster.substrate.toolkit import (
-                        HomeToolAdapter,
-                        RunScope,
+                if not _is_agentscope_provider(provider):
+                    raise TypeError(
+                        "provider must expose the AgentScope chat model interface (chat_model())"
                     )
+                from homemaster.substrate.runtime import AsAgentRuntime
+                from homemaster.substrate.toolkit import (
+                    HomeToolAdapter,
+                    RunScope,
+                )
 
-                    scope = RunScope(
-                        session_id=session_id,
-                        run_id=run_id,
-                        permission_subject=request.permission_subject,
-                        working_directory=self._working_directory,
-                        deadline=executor.deadline,
-                        cancellation=runtime.cancellation,
-                        backend=backend,
-                        domain_observer=request.dependencies.get(
-                            "domain_observer"
-                        ),
-                        services={
-                            **request.dependencies,
-                            "task_state_store": task_state_store,
-                            "run_context": run_context,
-                        },
-                        turn_index=agent_state.turn_index,
-                    )
-                    adapters = [
-                        HomeToolAdapter(tool, executor, scope)
-                        for tool in run_tools
-                    ]
-                    agent = AsAgentRuntime(
-                        model=provider.chat_model(),
-                        system_prompt=getattr(assembler, "_system_prompt", ""),
-                        tools=adapters,
-                        max_tool_iterations=request.run_policy.max_tool_iterations,
-                        stop_condition=_stop_condition(request),
-                        context_assembler=assembler,
-                        provider_attempt_sink_factory=request.dependencies.get(
-                            "provider_attempt_sink_factory",
-                            ListProviderAttemptSink,
-                        ),
-                        model_api_format=getattr(provider, "api_format", ""),
-                    )
-                else:
-                    agent = AgentRuntime(
-                        transport=provider,
-                        tool_executor=executor,
-                        max_tool_iterations=request.run_policy.max_tool_iterations,
-                        stop_condition=_stop_condition(request),
-                        context_assembler=assembler,
-                        system_prompt=getattr(assembler, "_system_prompt", ""),
-                        provider_attempt_sink_factory=request.dependencies.get(
-                            "provider_attempt_sink_factory",
-                            ListProviderAttemptSink,
-                        ),
-                    )
+                scope = RunScope(
+                    session_id=session_id,
+                    run_id=run_id,
+                    permission_subject=request.permission_subject,
+                    working_directory=self._working_directory,
+                    deadline=executor.deadline,
+                    cancellation=runtime.cancellation,
+                    backend=backend,
+                    domain_observer=request.dependencies.get("domain_observer"),
+                    services={
+                        **request.dependencies,
+                        "task_state_store": task_state_store,
+                        "run_context": run_context,
+                    },
+                    turn_index=agent_state.turn_index,
+                )
+                adapters = [HomeToolAdapter(tool, executor, scope) for tool in run_tools]
+                agent = AsAgentRuntime(
+                    model=provider.chat_model(),
+                    system_prompt=getattr(assembler, "_system_prompt", ""),
+                    tools=adapters,
+                    max_tool_iterations=request.run_policy.max_tool_iterations,
+                    stop_condition=_stop_condition(request),
+                    context_assembler=assembler,
+                    provider_attempt_sink_factory=request.dependencies.get(
+                        "provider_attempt_sink_factory",
+                        ListProviderAttemptSink,
+                    ),
+                    model_api_format=getattr(provider, "api_format", ""),
+                )
 
                 async def rearm_recall_after_compaction(_metrics: Any) -> None:
                     # C+ (design-phase3 review): re-arm the generation-fenced
@@ -596,19 +581,13 @@ class ApplicationRuntime:
                         deadline=executor.deadline,
                     )
                     if post_memory_context:
-                        rebind_context = getattr(
-                            assembler, "bind_automatic_memory_context", None
-                        )
+                        rebind_context = getattr(assembler, "bind_automatic_memory_context", None)
                         if callable(rebind_context):
                             rebind_context(post_memory_context)
-                    rebind_recalled = getattr(
-                        assembler, "bind_automatic_recalled_memories", None
-                    )
+                    rebind_recalled = getattr(assembler, "bind_automatic_recalled_memories", None)
                     if callable(rebind_recalled):
                         rebind_recalled(post_recalled)
-                    run_context.deps["automatic_recalled_memories"] = (
-                        post_recalled
-                    )
+                    run_context.deps["automatic_recalled_memories"] = post_recalled
                     if recall_attempted:
                         await self._save_if_configured(session_id, generation)
 
@@ -627,21 +606,14 @@ class ApplicationRuntime:
                         cancellation_token=runtime.cancellation,
                         deadline=executor.deadline,
                         on_compaction=rearm_recall_after_compaction,
-                        **(
-                            {
-                                "engine_state": runtime.engine_state,
-                                "scope": scope,
-                                # Keep the session fence and recall deadline
-                                # surfacing raw — same contract as the legacy
-                                # engine (stale_generation → CANCELLED; recall
-                                # deadline raises to the caller).
-                                "propagate_exceptions": (
-                                    SessionGenerationError,
-                                    AutomaticRecallRunDeadlineExceeded,
-                                ),
-                            }
-                            if _is_agentscope_provider(provider)
-                            else {}
+                        engine_state=runtime.engine_state,
+                        scope=scope,
+                        # Keep the session fence and recall deadline
+                        # surfacing raw (stale_generation → CANCELLED; recall
+                        # deadline raises to the caller).
+                        propagate_exceptions=(
+                            SessionGenerationError,
+                            AutomaticRecallRunDeadlineExceeded,
                         ),
                     )
                 except asyncio.CancelledError:
@@ -814,12 +786,8 @@ class ApplicationRuntime:
                     permission_checker=self.tool_executor.permission_checker,
                     confirmation_handler=self.tool_executor.confirmation_handler,
                     resource_manager=self.tool_executor.resource_manager,
-                    permission_store=getattr(
-                        self.tool_executor, "permission_store", None
-                    ),
-                    physical_owner=getattr(
-                        self.tool_executor, "physical_owner", None
-                    ),
+                    permission_store=getattr(self.tool_executor, "permission_store", None),
+                    physical_owner=getattr(self.tool_executor, "physical_owner", None),
                 )
                 yield registry, executor
         finally:

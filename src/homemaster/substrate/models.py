@@ -52,9 +52,7 @@ def _openai_family_model(
         return OllamaChatModel(
             credential=credential,
             model=profile.model,
-            parameters=OllamaChatModel.Parameters(
-                max_tokens=profile.max_output_tokens
-            ),
+            parameters=OllamaChatModel.Parameters(max_tokens=profile.max_output_tokens),
             stream=stream,
             context_size=profile.context_window_tokens,
             client_kwargs=client_kwargs or None,
@@ -63,9 +61,7 @@ def _openai_family_model(
     return OpenAIChatModel(
         credential=credential,
         model=profile.model,
-        parameters=OpenAIChatModel.Parameters(
-            max_tokens=profile.max_output_tokens
-        ),
+        parameters=OpenAIChatModel.Parameters(max_tokens=profile.max_output_tokens),
         stream=stream,
         context_size=profile.context_window_tokens,
         client_kwargs=client_kwargs or None,
@@ -98,9 +94,7 @@ def chat_model_from_profile(
         )
     raw_key = api_key or (profile.api_keys[0] if profile.api_keys else None)
     if not raw_key and profile.api_format != "ollama":
-        raise ValueError(
-            f"provider {profile.name!r} has no api_key configured"
-        )
+        raise ValueError(f"provider {profile.name!r} has no api_key configured")
     key = SecretStr(raw_key or "ollama")
     if profile.api_format == "anthropic":
         credential = AnthropicCredential(api_key=key, base_url=profile.base_url)
@@ -145,13 +139,8 @@ def chat_model_from_profile(
                 f"provider {profile.name!r}: auth_token is not supported by "
                 "the OpenAI-compatible AS model"
             )
-        return _openai_family_model(
-            profile, key=key, stream=stream, timeout_s=timeout_s
-        )
-    raise ValueError(
-        f"provider {profile.name!r}: unsupported api_format "
-        f"{profile.api_format!r}"
-    )
+        return _openai_family_model(profile, key=key, stream=stream, timeout_s=timeout_s)
+    raise ValueError(f"provider {profile.name!r}: unsupported api_format {profile.api_format!r}")
 
 
 __all__ = ["chat_model_from_profile"]

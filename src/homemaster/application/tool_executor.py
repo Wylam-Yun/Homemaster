@@ -12,6 +12,7 @@ from homemaster.agent.messages import ContentBlock, ToolCall, ToolResultMessage
 from homemaster.agent.normalized import RunContext
 from homemaster.tools.base import ToolRegistry
 from homemaster.tools.contracts import (
+    MEMORY_TOOL_NAMES,
     ToolExecutionContext,
     ToolExecutionError,
     ToolExecutionResult,
@@ -21,17 +22,7 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 
-_MEMORY_TOOL_NAMES = frozenset(
-    {
-        "context_memory",
-        "mindmemos_add",
-        "mindmemos_search",
-        "mindmemos_history",
-        "mindmemos_update",
-        "mindmemos_delete",
-        "mindmemos_feedback",
-    }
-)
+_MEMORY_TOOL_NAMES = MEMORY_TOOL_NAMES
 
 
 class ApplicationToolExecutor:
@@ -146,6 +137,21 @@ class ApplicationToolExecutor:
             observer.on_result(call, result)
         self._completion_guard.record(call.name, result)
         self._record_evidence(result)
+        # Artifact publication mirrors ``_message`` — the substrate path
+        # returns the raw result (no message projection), so publish into
+        # ``result.data`` here or attachments never reach the store and
+        # ``data.artifacts`` vanishes from projected events.
+        if self._artifact_publisher is not None:
+            artifacts = self._artifact_publisher.publish(
+                result,
+                tenant_id=self._request.permission_subject.tenant_id,
+                session_id=self._runtime.session.session_id,
+                run_id=self._run_id,
+            )
+            if artifacts:
+                data = dict(result.data)
+                data["artifacts"] = [dict(item) for item in artifacts]
+                result = replace(result, data=data)
         return result
 
     def _context_for(

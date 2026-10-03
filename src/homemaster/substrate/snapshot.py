@@ -34,9 +34,7 @@ SNAPSHOT_SCHEMA_VERSION = 2
 
 
 def _is_image_block(block: Any) -> bool:
-    return isinstance(block, DataBlock) and block.source.media_type.startswith(
-        "image/"
-    )
+    return isinstance(block, DataBlock) and block.source.media_type.startswith("image/")
 
 
 def _image_placeholder(tool_name: str, index: int) -> TextBlock:
@@ -62,9 +60,7 @@ def _strip_context_images(
     for index, msg in enumerate(context):
         msg = msg.model_copy(deep=True)
         msg.content = [
-            _image_placeholder(msg.name or msg.role, index)
-            if _is_image_block(block)
-            else block
+            _image_placeholder(msg.name or msg.role, index) if _is_image_block(block) else block
             for block in msg.content
         ]
         for block in msg.content:
@@ -74,9 +70,7 @@ def _strip_context_images(
                 and block.id not in preserve_tool_call_ids
             ):
                 block.output = [
-                    _image_placeholder(block.name, index)
-                    if _is_image_block(item)
-                    else item
+                    _image_placeholder(block.name, index) if _is_image_block(item) else item
                     for item in block.output
                 ]
         stripped.append(msg)
@@ -167,9 +161,7 @@ def parse_snapshot_payload(payload: dict[str, Any]) -> ParsedSnapshot:
         messages=messages,
         run_state=run_state,
         task_state=task_state,
-        canonical_evidence_refs=list(
-            payload.get("canonical_evidence_refs") or []
-        ),
+        canonical_evidence_refs=list(payload.get("canonical_evidence_refs") or []),
         require_recall=bool(payload.get("require_recall") or False),
         migrated_from_v1=migrated,
     )

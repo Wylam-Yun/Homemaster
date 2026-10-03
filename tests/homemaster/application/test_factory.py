@@ -42,6 +42,7 @@ from homemaster.tools.contracts import (
     VerificationPolicy,
 )
 from homemaster.tools.executor import ToolExecutor
+from tests.homemaster.as_testkit import as_provider
 
 
 class _Executor:
@@ -156,9 +157,8 @@ def test_skill_model_rejection_precedes_provider_client_construction(monkeypatch
         constructor_calls += 1
         raise AssertionError("provider client must not be constructed")
 
-    monkeypatch.setattr("homemaster.application.factory.LLMClient", forbidden_client)
     # AsLLMClient is lazily imported inside the factory build; patch its
-    # defining module so the guard holds under the default agentscope engine.
+    # defining module so the guard holds.
     monkeypatch.setattr(
         "homemaster.substrate.as_llm_client.AsLLMClient", forbidden_client
     )
@@ -322,7 +322,7 @@ async def test_factory_runtime_pins_borrowed_backend_to_first_tenant(tmp_path) -
 
     def provider_factory(request, run_id):
         del run_id
-        return transports[request.text]
+        return as_provider(transports[request.text])
 
     def context_factory(request, provider):
         del request

@@ -29,6 +29,7 @@ FORBIDDEN_CONSTRUCTORS = {
 }
 
 REMOVED_DEAD_PATHS = (
+    "src/homemaster/agent/generic_runtime.py",
     "src/homemaster/alfworld/registry.py",
     "src/homemaster/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/browser_demo/trajectory.py",
@@ -38,6 +39,11 @@ REMOVED_DEAD_PATHS = (
     "src/homemaster/domain/contracts.py",
     "src/homemaster/domain/tool_registry.py",
     "src/homemaster/memory/bm25_preflight.py",
+    "src/homemaster/providers/llm_client.py",
+    "src/homemaster/providers/transports/__init__.py",
+    "src/homemaster/providers/transports/anthropic.py",
+    "src/homemaster/providers/transports/base.py",
+    "src/homemaster/providers/transports/openai_chat.py",
     "src/homemaster/memory/index.py",
     "src/homemaster/memory/outbound_policy.py",
     "src/homemaster/memory/retrieval.py",
@@ -87,19 +93,6 @@ def test_profiles_use_only_the_universal_registry_builder() -> None:
     } & (imported | called)
 
 
-def test_agent_has_no_private_run_context_or_runtime_tool_spec() -> None:
-    runtime = _tree("src/homemaster/agent/generic_runtime.py")
-
-    assert not any(
-        isinstance(node, ast.ClassDef) and node.name == "ToolDefinition"
-        for node in ast.walk(runtime)
-    )
-    assert not any(
-        isinstance(node, ast.Attribute) and node.attr == "_run_context"
-        for node in ast.walk(runtime)
-    )
-
-
 @pytest.mark.parametrize("relative", REMOVED_DEAD_PATHS)
 def test_migrated_dead_path_is_absent_from_distribution_source(relative: str) -> None:
     assert not (REPO_ROOT / relative).exists(), relative
@@ -107,6 +100,7 @@ def test_migrated_dead_path_is_absent_from_distribution_source(relative: str) ->
 
 def test_removed_execution_modules_are_absent_from_production() -> None:
     removed_modules = {
+        "homemaster.agent.generic_runtime",
         "homemaster.alfworld.registry",
         "homemaster.alfworld.runtime_contract",
         "homemaster.benchmarking.browser_demo.trajectory",
@@ -120,6 +114,11 @@ def test_removed_execution_modules_are_absent_from_production() -> None:
         "homemaster.memory.outbound_policy",
         "homemaster.memory.retrieval",
         "homemaster.memory.tokenizer",
+        "homemaster.providers.llm_client",
+        "homemaster.providers.transports",
+        "homemaster.providers.transports.anthropic",
+        "homemaster.providers.transports.base",
+        "homemaster.providers.transports.openai_chat",
         "homemaster.tools.catalog",
         "homemaster.tools.dispatcher",
         "homemaster.tools.pipeline",

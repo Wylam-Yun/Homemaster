@@ -14,7 +14,8 @@ from homemaster.application import RunRequest, RunStatus
 from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.browser.application import BrowserApplication
 from homemaster.config import BrowserGatewayConfig, HomeMasterConfig
-from homemaster.providers.transports import TransportDelta
+from homemaster.providers.types import TransportDelta
+from tests.homemaster.as_testkit import as_provider
 
 
 class FakeTransport:
@@ -61,7 +62,7 @@ def _config(tmp_path: Path):
                         "api_keys": ["test-key"],
                     }
                 ],
-            }
+            },
         }
     )
     observability = config.observability.model_copy(
@@ -119,7 +120,7 @@ def test_home_outer_composition_runs_one_typed_request_and_closes_owned_provider
 ) -> None:
     bundle = compose_application(config=_config(tmp_path), run_label="one-shot")
     provider = FakeTransport(["hello"])
-    bundle.application.provider_factory = lambda request, run_id: provider
+    bundle.application.provider_factory = lambda request, run_id: as_provider(provider)
 
     async def execute():
         result = await bundle.application.run(
@@ -146,7 +147,7 @@ def test_home_application_injects_skill_registry_without_entry_specific_dependen
 ) -> None:
     bundle = compose_application(config=_config(tmp_path), run_label="gateway-entry")
     provider = FakeTransport(["hello"])
-    bundle.application.provider_factory = lambda request, run_id: provider
+    bundle.application.provider_factory = lambda request, run_id: as_provider(provider)
     original_factory = bundle.application.context_assembler_factory
     captured = {}
 
@@ -207,7 +208,9 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
 ) -> None:
     config = _config(tmp_path)
     first = compose_application(config=config, run_label="first-process")
-    first.application.provider_factory = lambda request, run_id: FakeTransport(["first"])
+    first.application.provider_factory = lambda request, run_id: as_provider(
+        FakeTransport(["first"])
+    )
 
     async def first_process():
         initial = await first.application.run(
@@ -224,7 +227,9 @@ def test_compact_persists_revision_then_process_rebuild_resumes_same_session(
 
     initial, compact = asyncio.run(first_process())
     second = compose_application(config=config, run_label="second-process")
-    second.application.provider_factory = lambda request, run_id: FakeTransport(["second"])
+    second.application.provider_factory = lambda request, run_id: as_provider(
+        FakeTransport(["second"])
+    )
 
     async def second_process():
         resumed = await second.application.run(

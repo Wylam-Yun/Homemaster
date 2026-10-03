@@ -30,7 +30,7 @@ def test_guard_skips_non_product_state_and_domain_specific_vocabulary(path: str)
     [
         "docs/product/runtime.md",
         "docs/superpowers/runtime.md",
-        "src/homemaster/agent/generic_runtime.py",
+        "src/homemaster/substrate/runtime.py",
     ],
 )
 def test_guard_still_scans_product_files_outside_skip_directories(path: str) -> None:

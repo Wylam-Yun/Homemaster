@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from homemaster.memory.models import ProcedureRecord
 
 if TYPE_CHECKING:
-    from homemaster.providers.llm_client import LLMClient
+    from homemaster.substrate.as_llm_client import AsLLMClient
 _FAILED_DROP = {"browser_find", "browser_inspect", "browser_wait", "browser_scroll"}
 _ALWAYS_DROP = {"browser_inspect", "browser_scroll"}
 _KEEP_ARG_KEYS = ("target", "name", "text", "role", "label", "value", "url", "command")
@@ -97,9 +97,7 @@ def _compact_result(payload: Mapping[str, Any]) -> str:
         target = data.get("target")
         if isinstance(target, Mapping):
             useful["target"] = {
-                key: target[key]
-                for key in ("role", "name", "control_type")
-                if target.get(key)
+                key: target[key] for key in ("role", "name", "control_type") if target.get(key)
             }
         if useful:
             return json.dumps(useful, ensure_ascii=False)[:_MAX_RESULT_CHARS]
@@ -196,9 +194,9 @@ def ticket_slots(ticket: Mapping[str, Any]) -> dict[str, Any]:
                         "operate_description": _strip_html(
                             str(step.get("operate_description") or "")
                         )[:1200],
-                        "operate_verified": _strip_html(
-                            str(step.get("operate_verified") or "")
-                        )[:1200],
+                        "operate_verified": _strip_html(str(step.get("operate_verified") or ""))[
+                            :1200
+                        ],
                     }
                 )
     return {
@@ -252,9 +250,7 @@ _PHASE_ENTRY = {
 }
 
 
-def _involved_for_phase(
-    ticket_summary: Mapping[str, Any], phase: str
-) -> dict[str, Any] | None:
+def _involved_for_phase(ticket_summary: Mapping[str, Any], phase: str) -> dict[str, Any] | None:
     wanted = _PHASE_TO_SOP.get(phase)
     for step in ticket_summary.get("involved_steps") or []:
         if not isinstance(step, Mapping):
@@ -378,7 +374,7 @@ def _coerce_expect(payload: dict[str, Any]) -> dict[str, Any]:
 
 async def compile_success_path(
     *,
-    client: LLMClient,
+    client: AsLLMClient,
     trace_path: Path,
     session_id: str,
     ticket: Mapping[str, Any],

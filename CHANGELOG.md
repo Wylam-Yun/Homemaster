@@ -1,5 +1,80 @@
 # Unreleased
 
+- V3.7 Phase-3 steps 8-9: legacy provider engine deleted; AgentScope is
+  the only runtime path.
+
+  - Removed `agent/generic_runtime.py`, `providers/llm_client.py` and
+    `providers/transports/` (base/anthropic/openai_chat); the
+    `HOMEMASTER_ENGINE` escape hatch and `provider_client.engine` config
+    option went with them — there is exactly one engine now.
+    `ApplicationRuntime` lost its legacy else-branch, `factory.py`
+    always builds `AsLLMClient`, `substrate/runtime` reads shared
+    contracts from `runtime_contracts`, `success_path` annotations
+    re-point at `AsLLMClient`, and both package `__init__` re-export
+    lists were cleaned. `agent/context_projection` dropped
+    `unavailable_tool_protocol_results`,
+    `terminal_command_protocol_results` and `project_model_tool_schemas`
+    — all `generic_runtime`-only consumers (the AS equivalents live in
+    `ProtocolFenceMiddleware`) — leaving `project_model_tool_context` as
+    the file's single surviving projection.
+  - Test audit: 14 legacy-only test files retired
+    (`test_llm_client`, `test_generic_agent_runtime`,
+    `test_provider_transports`, `test_substrate_dual_run`,
+    `test_anthropic_transport`, `test_async_provider`,
+    `test_substrate_runtime_e2e`, `test_agent_runtime_tool_view`,
+    `test_model_observation_barrier`, `test_streaming_sanitizer`, ...).
+    `test_application_runtime.py` migrated wholesale via a
+    `_DeltaModel`/`_as_provider` adapter that folds the existing
+    `TransportDelta` scripts into AgentScope `ChatResponse`s, keeping
+    every scripted scenario on the AS path; three safety semantics
+    (observation barrier gate, bounded tool-error retry, reply-grace)
+    gained dedicated AS-path regression tests before their legacy
+    covers were retired. Import-boundary guards now pin the removed
+    modules in `REMOVED_DEAD_PATHS`.
+  - AS-path parity fixes surfaced by the migration:
+    `HomeToolAdapter.check_permissions` only vetoes real policy denials —
+    `allowed=False` + household confirmation still reaches the tool-body
+    confirmation channel instead of short-circuiting at the AS fence;
+    `result_to_chunk` preserves domain `status` for `task_planner`/
+    `task_progress_check` (execution status stays authoritative in
+    `hm.status`); `execute_for_substrate` now publishes artifacts the
+    same way `_message` did; `_close_dangling_tool_calls` backfills
+    `tool.call_failed`/completion events for results that landed in
+    engine context but were never projected, deduped via
+    `AsRunHandle.tool_event_emitted_ids`; `_cancel_result` and late
+    `runtime.cancelled` emission tolerate the session generation fence
+    that cancellation itself raised; run-scope request references
+    (`environment`/`domain_observer`/services) are released in the
+    driver `finally`.
+  - Two further parity gaps surfaced once the MindMemOS-enabled tests ran
+    on the AS path:
+    - `result_to_chunk` now mirrors `tool_executor._message` for
+      `MEMORY_TOOL_NAMES`: memory tools project the full result payload
+      (data + text summary) as model-visible JSON, not just the human
+      `result.text` — otherwise the model lost the memory records it had
+      just fetched. `MEMORY_TOOL_NAMES` moved to `tools/contracts` so
+      both layers share one definition.
+    - New `ProviderRetryMiddleware` ports the legacy
+      `_provider_retry_allowed` contract onto `on_model_call`: up to 8
+      attempts of the same frozen call while every failure stayed
+      pre-commit (`response_completed=False` on the recorded attempt,
+      matching error signature, reasoning-only stream chunks at most),
+      with `transport.request_retrying` events, deadline-aware
+      exponential backoff, and no retry for `_hm_propagate`/deadline/
+      context-length failures (the last belongs to the outer
+      reactive-compaction retry). It sits between
+      `ContextAssemblyMiddleware` and `ProviderObservabilityMiddleware`
+      so each attempt still gets its own attempt record.
+  - Retention root cause: a reply-stream `__anext__` Task that finished
+    via `StopAsyncIteration` kept its traceback → suspended frames →
+    the whole run graph (adapters → RunScope → backend) reachable until
+    the loop drained the task's done-callback handles, so one
+    `gc.collect()` could not free a completed run. `_drive_reply` now
+    awaits `_next_reply_item()` which returns `(item, ok)` as a value —
+    stream end never becomes a task-stored exception. Regression test
+    `test_completed_run_does_not_retain_borrowed_request_objects`
+    asserts the borrowed environment is collectable right after a run.
+
 - V3.7 Phase-3 step 7: AgentScope is now the default provider engine.
   `ProviderClientConfig.engine` defaults to `"agentscope"`; the legacy
   HomeMaster path remains available for one compatibility period via

@@ -36,6 +36,9 @@ from homemaster.agent.model_observation import (
     validate_observation_result,
 )
 
+_PROVIDER_MAX_ATTEMPTS = 8
+_PROVIDER_RETRY_BASE_DELAY_S = 3.0
+
 _CONTEXT_LENGTH_KEYWORDS = (
     "context length",
     "context_length",
@@ -155,10 +158,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             try:
                 resp = await next_handler(messages=messages, tools=tools)
             except Exception as exc:
-                if (
-                    not _is_context_length_error(str(exc))
-                    or retries >= self._max_reactive_retries
-                ):
+                if not _is_context_length_error(str(exc)) or retries >= self._max_reactive_retries:
                     raise
                 retries += 1
                 messages, tools = await self._recompact(input_kwargs, retries)
@@ -196,19 +196,13 @@ class ContextAssemblyMiddleware(MiddlewareBase):
                     and retries < self._max_reactive_retries
                 ):
                     retries += 1
-                    messages, tools = await self._recompact(
-                        input_kwargs, retries
-                    )
-                    stream = await next_handler(
-                        messages=messages, tools=tools
-                    )
+                    messages, tools = await self._recompact(input_kwargs, retries)
+                    stream = await next_handler(messages=messages, tools=tools)
                     continue
                 raise
             return
 
-    async def _recompact(
-        self, input_kwargs: dict, attempt: int
-    ) -> tuple[list[Any], Any]:
+    async def _recompact(self, input_kwargs: dict, attempt: int) -> tuple[list[Any], Any]:
         await self._handle.emit(
             "runtime.reactive_compact_started",
             payload={"attempt": attempt},
@@ -244,9 +238,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         # every compaction kind — same-parity requirement, otherwise
         # ``require_recall`` is silently never re-armed on the AS path.
         metrics = getattr(prepared, "metrics", None)
-        if metrics is not None and getattr(
-            metrics, "compaction_triggered", False
-        ):
+        if metrics is not None and getattr(metrics, "compaction_triggered", False):
             await self._notify_compaction(metrics)
         return self._render(input_kwargs, prepared)
 
@@ -286,15 +278,11 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         prompt = getattr(prepared, "system_prompt", "") or ""
         barrier = self._handle.agent_state.pending_model_observation
         if barrier is not None:
-            prompt = append_model_observation_prompt(
-                prompt, tool_name=barrier.observe_tool_name
-            )
+            prompt = append_model_observation_prompt(prompt, tool_name=barrier.observe_tool_name)
         # Frozen copy of the canonical request messages — consumed by the
         # provider_attempt_context_binder (mindmemos_feedback) exactly like
         # legacy's ``frozen_messages`` snapshot before dispatch.
-        self._handle.last_frozen_messages = [
-            m.model_copy(deep=True) for m in prepared.messages
-        ]
+        self._handle.last_frozen_messages = [m.model_copy(deep=True) for m in prepared.messages]
         messages = [SystemMsg(name="system", content=prompt)] + to_agent_scope(
             list(prepared.messages)
         )
@@ -317,9 +305,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             force_compact="aggressive",
         )
         metrics = getattr(prepared, "metrics", None)
-        if metrics is not None and getattr(
-            metrics, "compaction_triggered", False
-        ):
+        if metrics is not None and getattr(metrics, "compaction_triggered", False):
             await self._notify_compaction(metrics)
         return prepared
 
@@ -354,23 +340,13 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         ``run_context.deps`` at call time."""
         round_calls = _round_tool_calls(agent, self._handle)
         if any(c.id not in self._bound_call_ids for c in round_calls):
-            self._bound_call_ids.update(
-                getattr(c, "id", "") or "" for c in round_calls
-            )
+            self._bound_call_ids.update(getattr(c, "id", "") or "" for c in round_calls)
             handle = self._handle
             scope = getattr(handle, "scope", None)
             services = getattr(scope, "services", None)
-            run_context = (
-                services.get("run_context")
-                if hasattr(services, "get")
-                else None
-            )
+            run_context = services.get("run_context") if hasattr(services, "get") else None
             deps = getattr(run_context, "deps", None)
-            binder = (
-                deps.get("provider_attempt_context_binder")
-                if hasattr(deps, "get")
-                else None
-            )
+            binder = deps.get("provider_attempt_context_binder") if hasattr(deps, "get") else None
             if callable(binder):
                 binder(
                     tool_calls=[
@@ -555,9 +531,7 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
         )
         cause_code = getattr(error, "cause_code", None)
         record = ProviderAttemptRecord(
-            model_attempt_id=(
-                f"{self._handle.run_id}:attempt-{attempt_index:04d}"
-            ),
+            model_attempt_id=(f"{self._handle.run_id}:attempt-{attempt_index:04d}"),
             request_sha256=request_sha256,
             outbound_images=_outbound_image_bindings(messages),
             stripped_images=False,
@@ -570,6 +544,179 @@ class ProviderObservabilityMiddleware(MiddlewareBase):
             await arecord(record)
         else:
             sink.record_attempt(record)
+
+
+class ProviderRetryMiddleware(MiddlewareBase):
+    """Ports the legacy engine's pre-commit provider retry onto
+    ``on_model_call``: the frozen call is retried only while every attempt
+    failed before the response committed — ``response_completed=False`` on
+    the recorded attempt, a matching error signature, and at most
+    reasoning-only stream chunks observed. Ordering: this middleware must
+    sit *outside* ``ProviderObservabilityMiddleware`` so every attempt gets
+    its own ``transport.request_*`` event pair + ``ProviderAttemptRecord``,
+    and *inside* ``ContextAssemblyMiddleware`` so a context-length failure
+    propagates outward to the reactive-compaction retry instead of being
+    re-issued against the same oversized request."""
+
+    def __init__(self, *, handle: Any, attempt_sink: Any = None) -> None:
+        self._handle = handle
+        self._attempt_sink = attempt_sink
+        self._first_attempt_id: str | None = None
+
+    async def on_model_call(
+        self,
+        agent: Any,
+        input_kwargs: dict,
+        next_handler: Callable[..., Any],
+    ) -> Any:
+        self._first_attempt_id = None
+        attempt_index = 0
+        while True:
+            try:
+                response = await next_handler()
+            except Exception as exc:
+                if attempt_index < _PROVIDER_MAX_ATTEMPTS - 1 and self._retry_allowed(exc):
+                    delay_s = self._delay(attempt_index)
+                    attempt_index += 1
+                    await self._emit_retrying(attempt_index, delay_s)
+                    await self._sleep(delay_s)
+                    continue
+                raise
+            if hasattr(response, "__aiter__"):
+                return self._stream_with_retry(
+                    response,
+                    next_handler,
+                    attempt_index,
+                )
+            return response
+
+    async def _stream_with_retry(
+        self,
+        stream: Any,
+        next_handler: Callable[..., Any],
+        attempt_index: int,
+    ) -> AsyncGenerator:
+        """Consume the model stream; a failure after only reasoning chunks
+        is still pre-commit (nothing user-visible landed) and may retry with
+        the same frozen call — mirroring the legacy ``_reasoning_only_delta``
+        guard."""
+        while True:
+            reasoning_only = True
+            try:
+                async for chunk in stream:
+                    if not _reasoning_only_chunk(chunk):
+                        reasoning_only = False
+                    yield chunk
+            except Exception as exc:
+                if (
+                    reasoning_only
+                    and attempt_index < _PROVIDER_MAX_ATTEMPTS - 1
+                    and self._retry_allowed(exc)
+                ):
+                    delay_s = self._delay(attempt_index)
+                    attempt_index += 1
+                    await self._emit_retrying(attempt_index, delay_s)
+                    await self._sleep(delay_s)
+                    stream = await next_handler()
+                    continue
+                raise
+            return
+
+    def _retry_allowed(self, error: Exception) -> bool:
+        # Marked ``_hm_propagate`` failures (session fences, teardown errors)
+        # and run-deadline expiries must never be retried; context-length
+        # errors belong to the outer reactive-compaction retry.
+        if getattr(error, "_hm_propagate", False):
+            return False
+        if isinstance(error, (asyncio.CancelledError, TimeoutError)):
+            return False
+        if _is_context_length_error(str(error)):
+            return False
+        # Legacy gated on ``isinstance(error, LLMClientError)`` — transports
+        # mapped raw SDK failures before raising. Under AS the model raises
+        # raw SDK exceptions, so normalize first: typed provider errors keep
+        # their legacy retry scope; raw exceptions retry only when they map
+        # to a transient class (network/rate-limit), never programming bugs.
+        from homemaster.providers._shared import map_sdk_error
+        from homemaster.providers.errors import (
+            LLMClientError,
+            LLMNetworkError,
+            LLMRateLimitError,
+        )
+
+        if not (
+            isinstance(error, LLMClientError)
+            or isinstance(map_sdk_error(error), (LLMNetworkError, LLMRateLimitError))
+        ):
+            return False
+        attempt = _last_provider_attempt(self._attempt_sink)
+        if attempt is None or attempt.response_completed:
+            return False
+        # The recorded attempt must describe this failure — a stale or
+        # mismatched record means the failure happened outside the provider
+        # call boundary (middleware/tool chain), where retry is unsafe.
+        error_type = getattr(error, "error_type", None) or type(error).__name__
+        cause_code = getattr(error, "cause_code", None)
+        if (attempt.error_type, attempt.cause_code) != (error_type, cause_code):
+            return False
+        if self._first_attempt_id is None:
+            self._first_attempt_id = attempt.model_attempt_id
+        return True
+
+    async def _emit_retrying(self, attempt_index: int, delay_s: float) -> None:
+        await self._handle.emit(
+            "transport.request_retrying",
+            payload={
+                "attempt": attempt_index + 1,
+                "max_attempts": _PROVIDER_MAX_ATTEMPTS,
+                "delay_seconds": delay_s,
+                "cause_code": (
+                    getattr(
+                        _last_provider_attempt(self._attempt_sink),
+                        "cause_code",
+                        None,
+                    )
+                ),
+                "first_model_attempt_id": self._first_attempt_id,
+            },
+        )
+
+    @staticmethod
+    def _delay(attempt_index: int) -> float:
+        if attempt_index <= 0:
+            return 0.0
+        return _PROVIDER_RETRY_BASE_DELAY_S * (2 ** (attempt_index - 1))
+
+    async def _sleep(self, delay_s: float) -> None:
+        deadline = getattr(getattr(self._handle, "scope", None), "deadline", None)
+        remaining = deadline.remaining_s() if deadline is not None else None
+        if remaining is None:
+            await asyncio.sleep(delay_s)
+            return
+        if remaining <= 0:
+            raise TimeoutError("provider retry deadline expired")
+        await asyncio.sleep(min(delay_s, remaining))
+
+
+def _reasoning_only_chunk(chunk: Any) -> bool:
+    """``ChatResponse`` chunk carrying nothing but thinking blocks — the AS
+    analogue of the legacy ``_reasoning_only_delta`` guard (a finish chunk
+    or any text/tool block commits the response)."""
+    content = getattr(chunk, "content", None) or []
+    if getattr(chunk, "is_last", False):
+        return False
+    if getattr(chunk, "metadata", None) and chunk.metadata.get("stop_reason"):
+        return False
+    return all(getattr(block, "type", None) == "thinking" for block in content)
+
+
+def _last_provider_attempt(sink: Any) -> Any:
+    if sink is None:
+        return None
+    from homemaster.providers.attempts import ProviderAttemptRecord
+
+    record = getattr(sink, "last_record", None)
+    return record if isinstance(record, ProviderAttemptRecord) else None
 
 
 def _usage_from_chunk(chunk: Any) -> dict[str, int]:
@@ -616,12 +763,8 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         barrier = handle.agent_state.pending_model_observation
         tools = input_kwargs.get("tools")
         if barrier is not None and isinstance(tools, list):
-            observe_name = barrier.observe_tool_name or self._observe_name(
-                tools
-            )
-            tools = [
-                schema for schema in tools if _schema_name(schema) == observe_name
-            ]
+            observe_name = barrier.observe_tool_name or self._observe_name(tools)
+            tools = [schema for schema in tools if _schema_name(schema) == observe_name]
         consumed = handle.agent_state.unconsumed_observation_tool_call_id
         if consumed is not None:
             handle.agent_state.unconsumed_observation_tool_call_id = None
@@ -643,9 +786,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         barrier = self._handle.agent_state.pending_model_observation
         if barrier is None:
             return current_prompt
-        return append_model_observation_prompt(
-            current_prompt, tool_name=barrier.observe_tool_name
-        )
+        return append_model_observation_prompt(current_prompt, tool_name=barrier.observe_tool_name)
 
     async def on_check_permission(
         self,
@@ -671,8 +812,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             if len(round_calls) != 1 or call_name != barrier.observe_tool_name:
                 violation = (
                     "model_observation_protocol_rejected",
-                    "A pending environment action must be followed by one "
-                    "observe call.",
+                    "A pending environment action must be followed by one observe call.",
                 )
             if violation is not None:
                 barrier.protocol_failures += 1
@@ -710,12 +850,17 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                 name=call_name,
                 payload={"error_code": "model_observation_batch_rejected"},
             )
+            # Machine parity: the canonical result data carried the
+            # rejection code — merge it into the denied block's hm pocket
+            # (keeping status "denied" so it stays an error state).
+            handle.denial_payloads[call_id] = {
+                "backend_attempted": False,
+                "error_code": "model_observation_batch_rejected",
+                "rejected_tool": call_name,
+            }
             return PermissionDecision(
                 behavior=PermissionBehavior.DENY,
-                message=(
-                    "A state-changing environment action must be the only "
-                    "call in its batch."
-                ),
+                message=("A state-changing environment action must be the only call in its batch."),
             )
         return await next_handler()
 
@@ -748,26 +893,15 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             and _is_success_state(final.state)
             and _backend_attempted(final)
         ):
-            await self._automatic_observe(
-                agent, source_call=tool_call, response=final
-            )
+            await self._automatic_observe(agent, source_call=tool_call, response=final)
+        elif barrier is not None and call_name == barrier.observe_tool_name:
+            await self._validate_manual_observe(agent, call_id=call_id, response=final)
         elif (
-            barrier is not None
-            and call_name == barrier.observe_tool_name
-        ):
-            await self._validate_manual_observe(
-                agent, call_id=call_id, response=final
-            )
-        elif (
-            barrier is None
-            and call_name in self._OBSERVE_NAMES
-            and _is_success_state(final.state)
+            barrier is None and call_name in self._OBSERVE_NAMES and _is_success_state(final.state)
         ):
             await self._record_manual_observe(call_id=call_id, response=final)
 
-    async def _automatic_observe(
-        self, agent: Any, *, source_call: Any, response: Any
-    ) -> None:
+    async def _automatic_observe(self, agent: Any, *, source_call: Any, response: Any) -> None:
         """Runtime-owned observation after an observed action — mirrors the
         ``MAX_OBSERVE_FAILURES`` retry loop of the legacy runtime. Events are
         attributed to the *source* action call, and the consumed-image marker
@@ -799,14 +933,10 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             if handle.terminated or (task is not None and task.cancelling() > 0):
                 failure_reason = "run terminated during automatic observation"
                 break
-            observe_call = automatic_observation_call(
-                source, attempt, tool_name=observe_name
-            )
+            observe_call = automatic_observation_call(source, attempt, tool_name=observe_name)
             observe_response: Any = None
             try:
-                observe_response = await self._run_observe_tool(
-                    agent, observe_call
-                )
+                observe_response = await self._run_observe_tool(agent, observe_call)
                 evidence = self._validate_chunk_as_observation(observe_response)
             except Exception as exc:
                 failure_reason = str(exc)
@@ -825,9 +955,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                     evidence=evidence,
                     source_call_id=source.id,
                 )
-                handle.agent_state.unconsumed_observation_tool_call_id = (
-                    source.id
-                )
+                handle.agent_state.unconsumed_observation_tool_call_id = source.id
                 await handle.emit(
                     "model_observation.automatic_completed",
                     tool_call_id=source.id,
@@ -918,9 +1046,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         )
         return final
 
-    async def _validate_manual_observe(
-        self, agent: Any, *, call_id: str, response: Any
-    ) -> None:
+    async def _validate_manual_observe(self, agent: Any, *, call_id: str, response: Any) -> None:
         handle = self._handle
         barrier = handle.agent_state.pending_model_observation
         if barrier is None:
@@ -941,13 +1067,9 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             )
             if barrier.observe_failures >= MAX_OBSERVE_FAILURES:
                 handle.observation_fatal = "model_observation_failed"
-                handle.observation_fatal_reason = (
-                    "model observation retry limit reached"
-                )
+                handle.observation_fatal_reason = "model observation retry limit reached"
             return
-        self._stamp_observation_of(
-            agent, response, call_id, barrier.source_tool_call_id
-        )
+        self._stamp_observation_of(agent, response, call_id, barrier.source_tool_call_id)
         handle.agent_state.pending_model_observation = None
         handle.agent_state.unconsumed_observation_tool_call_id = call_id
         await handle.emit(
@@ -961,9 +1083,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             },
         )
 
-    async def _record_manual_observe(
-        self, *, call_id: str, response: Any
-    ) -> None:
+    async def _record_manual_observe(self, *, call_id: str, response: Any) -> None:
         """Model-initiated observe with no pending barrier — validate and
         record the consumed-image marker (``manual_completed``/``manual_failed``),
         matching the legacy runtime's post-batch manual-observation pass."""
@@ -1044,9 +1164,7 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         for block in getattr(response, "content", []) or []:
             btype = getattr(block, "type", None)
             if btype == "text":
-                content.append(
-                    ContentBlock(type="text", text=getattr(block, "text", ""))
-                )
+                content.append(ContentBlock(type="text", text=getattr(block, "text", "")))
             elif btype in {"image", "data"}:
                 source = getattr(block, "source", None)
                 content.append(
@@ -1060,20 +1178,18 @@ class ObservationBarrierMiddleware(MiddlewareBase):
                     )
                 )
         state = getattr(response, "state", None)
-        is_error = state in {"error", "denied", "interrupted"} or getattr(
-            state, "value", ""
-        ) in {"error", "denied", "interrupted"}
+        is_error = state in {"error", "denied", "interrupted"} or getattr(state, "value", "") in {
+            "error",
+            "denied",
+            "interrupted",
+        }
         result = ToolResultMessage(
             tool_call_id=getattr(response, "id", "") or "",
             name="observe",
             content=content,
             is_error=is_error,
-            data=(getattr(response, "metadata", None) or {}).get("hm", {}).get(
-                "data", {}
-            )
-            if isinstance(
-                (getattr(response, "metadata", None) or {}).get("hm"), dict
-            )
+            data=(getattr(response, "metadata", None) or {}).get("hm", {}).get("data", {})
+            if isinstance((getattr(response, "metadata", None) or {}).get("hm"), dict)
             else {},
         )
         return validate_observation_result(result)
@@ -1117,7 +1233,9 @@ class ObservationBarrierMiddleware(MiddlewareBase):
             sink = (
                 content
                 if isinstance(content, list)
-                else output if isinstance(output, list) else None
+                else output
+                if isinstance(output, list)
+                else None
             )
             if images and sink is not None:
                 sink.extend(images)
@@ -1133,16 +1251,12 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         apply(_find_result_block(agent, source_call_id))
 
     def _observe_name(self, schemas: list[Any]) -> str:
-        names = {
-            _schema_name(schema) for schema in schemas or [] if _schema_name(schema)
-        }
+        names = {_schema_name(schema) for schema in schemas or [] if _schema_name(schema)}
         if "browser_screenshot" in names:
             return "browser_screenshot"
         if "observe" in names:
             return "observe"
-        raise RuntimeError(
-            "model observation barrier requires an observation tool"
-        )
+        raise RuntimeError("model observation barrier requires an observation tool")
 
 
 class ProtocolFenceMiddleware(MiddlewareBase):
@@ -1175,9 +1289,7 @@ class ProtocolFenceMiddleware(MiddlewareBase):
     ) -> Any:
         tools = input_kwargs.get("tools")
         self._handle.offered_tool_names = (
-            frozenset(_schema_name(schema) for schema in tools)
-            if isinstance(tools, list)
-            else None
+            frozenset(_schema_name(schema) for schema in tools) if isinstance(tools, list) else None
         )
         return await next_handler()
 
@@ -1204,11 +1316,7 @@ class ProtocolFenceMiddleware(MiddlewareBase):
         offered = handle.offered_tool_names
         if offered is not None:
             unavailable = sorted(
-                {
-                    _call_name(call)
-                    for call in round_calls
-                    if _call_name(call) not in offered
-                }
+                {_call_name(call) for call in round_calls if _call_name(call) not in offered}
             )
             if unavailable:
                 code = (
@@ -1260,9 +1368,7 @@ class ProtocolFenceMiddleware(MiddlewareBase):
                 )
 
         permissions = getattr(handle.settings, "permissions", None)
-        allowed_commands = tuple(
-            getattr(permissions, "allowed_terminal_commands", ()) or ()
-        )
+        allowed_commands = tuple(getattr(permissions, "allowed_terminal_commands", ()) or ())
         if allowed_commands:
             allowed = frozenset(allowed_commands)
             violating = {
@@ -1366,11 +1472,7 @@ def _round_tool_calls(agent: Any, handle: Any = None) -> list[Any]:
         floor_id, floor_len = getattr(handle, "round_floor", ("", 0))
         if floor_id and floor_id == str(getattr(last, "id", "")):
             floor = min(floor_len, len(content))
-    return [
-        block
-        for block in content[floor:]
-        if getattr(block, "type", None) == "tool_call"
-    ]
+    return [block for block in content[floor:] if getattr(block, "type", None) == "tool_call"]
 
 
 def _call_name(call: Any) -> str:
@@ -1426,8 +1528,7 @@ def _output_sha256(response: Any) -> str | None:
     try:
         chunks = getattr(response, "chunks", None) or []
         payload = [
-            c.model_dump(mode="json") if hasattr(c, "model_dump") else str(c)
-            for c in chunks
+            c.model_dump(mode="json") if hasattr(c, "model_dump") else str(c) for c in chunks
         ]
         if not payload:
             return None
@@ -1447,30 +1548,31 @@ def _outbound_image_bindings(messages: Any) -> tuple[Any, ...]:
     from agentscope.message import DataBlock
     from homemaster.providers.attempts import OutboundImageBinding
 
+    def _payloads(block: Any) -> Any:
+        if isinstance(block, DataBlock):
+            source = getattr(block, "source", None)
+            if getattr(source, "type", None) == "base64":
+                data = getattr(source, "data", None)
+                if isinstance(data, str) and data:
+                    yield data
+        for item in getattr(block, "output", ()) or ():
+            yield from _payloads(item)
+
     bindings: list[Any] = []
     for message_index, msg in enumerate(messages or []):
-        for block_index, block in enumerate(
-            getattr(msg, "content", []) or []
-        ):
-            if not isinstance(block, DataBlock):
-                continue
-            source = getattr(block, "source", None)
-            if getattr(source, "type", None) != "base64":
-                continue
-            data = getattr(source, "data", None)
-            if not isinstance(data, str) or not data:
-                continue
-            try:
-                content = base64.b64decode(data, validate=True)
-            except ValueError:
-                content = data.encode("ascii", errors="replace")
-            bindings.append(
-                OutboundImageBinding(
-                    message_index=message_index,
-                    block_index=block_index,
-                    content_sha256=hashlib.sha256(content).hexdigest(),
+        for block_index, block in enumerate(getattr(msg, "content", []) or []):
+            for data in _payloads(block):
+                try:
+                    content = base64.b64decode(data, validate=True)
+                except ValueError:
+                    content = data.encode("ascii", errors="replace")
+                bindings.append(
+                    OutboundImageBinding(
+                        message_index=message_index,
+                        block_index=block_index,
+                        content_sha256=hashlib.sha256(content).hexdigest(),
+                    )
                 )
-            )
     return tuple(bindings)
 
 

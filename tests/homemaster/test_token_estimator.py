@@ -4,11 +4,11 @@ import base64
 
 from homemaster.agent.messages import ContentBlock, UserMessage
 from homemaster.config import ProviderProfileConfig
-from homemaster.providers.llm_client import LLMClient
 from homemaster.providers.token_estimator import (
     MimoTokenEstimator,
     decode_image_dimensions,
 )
+from homemaster.substrate.as_llm_client import AsLLMClient
 
 
 def _png_base64(width: int, height: int) -> str:
@@ -59,6 +59,6 @@ def test_mimo_estimator_counts_images_and_cache_read_usage() -> None:
 
 
 def test_llm_client_exposes_provider_token_estimator() -> None:
-    client = LLMClient(_provider())
+    client = AsLLMClient(_provider())
 
     assert isinstance(client.token_estimator, MimoTokenEstimator)
