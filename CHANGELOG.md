@@ -1,5 +1,28 @@
 # Unreleased
 
+- Stale composition tests repaired after the "lock local neo4j"
+  contract (Sep-3 `1006c51`) made managed Neo4j unconditional whenever
+  memory is enabled. Three tests were still written against the removed
+  `mode="external"` default / model_dump round-trip and had been
+  deterministically failing (masked inside the env-failure bucket):
+  - `test_application_start_migrates_before_opening_owned_stores` now
+    isolates the full application-owned external resource closure
+    (stub `ManagedNeo4jRuntime`/`EmbeddedMindMemOS` start+close, fake
+    `mindmemos`/`mindmemos.typing` modules) and gains a real ordering
+    assertion: migration → file_store → evidence → neo4j → mindmemos.
+  - `test_managed_neo4j_composition.py` gets an autouse fixture faking
+    `mindmemos.typing` for the lazy import in `start_file_memory`.
+  - `test_application_integration.py` gets the same backend-isolation
+    fixture, and its `model_dump` round-trip drops the explicit
+    `neo4j.mode` block (re-validation requires real credentials for an
+    explicit `managed_local` mapping; the test uses the all-empty
+    default anyway).
+  - `ManagedNeo4jRuntime._validate_installation` now raises typed
+    `ManagedNeo4jError` naming the missing `memory.neo4j.home`/
+    `java_home` config keys instead of a bare `AssertionError`.
+  - Dead helper `composition/memory.py` (`memory_runtime_is_configured`,
+    zero callers since introduction) deleted.
+
 - Web event surface locked to the AS `reply_stream` source and a real
   parity gap fixed. `AsAgentRuntime` drives `agent.reply_stream()`
   internally and projects `AgentEvent` items into `RuntimeEvent`s on the

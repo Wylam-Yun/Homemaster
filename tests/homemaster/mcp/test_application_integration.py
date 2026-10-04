@@ -1,15 +1,71 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+import types
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+import homemaster.application.composition.base as composition
 from homemaster.application.composition import compose_application
 from homemaster.config import HomeMasterConfig
 from homemaster.mcp.client import McpConnection
 from homemaster.tools.base import ToolRegistryError
+
+
+@pytest.fixture(autouse=True)
+def _isolate_memory_backends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """application.start() also boots memory services; stub the managed
+    Neo4j process and MindMemOS backends so these tests exercise MCP wiring
+    without a live installation."""
+
+    class _FakeManagedNeo4jRuntime:
+        def __init__(self, _memory_config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+    class _FakeEmbeddedMindMemOS:
+        available = True
+        unavailable_cause = None
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def start(self) -> None:
+            pass
+
+        async def close(self) -> None:
+            pass
+
+    @dataclass
+    class _MemoryRequestContext:
+        request_id: str
+        account_id: str
+        project_id: str
+        api_key_uuid: str
+        user_id: str
+        app_id: str
+        session_id: str | None
+        agent_id: str
+
+    mindmemos_pkg = types.ModuleType("mindmemos")
+    mindmemos_typing = types.ModuleType("mindmemos.typing")
+    mindmemos_typing.MemoryRequestContext = _MemoryRequestContext  # type: ignore[attr-defined]
+    mindmemos_pkg.typing = mindmemos_typing  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mindmemos", mindmemos_pkg)
+    monkeypatch.setitem(sys.modules, "mindmemos.typing", mindmemos_typing)
+    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", _FakeManagedNeo4jRuntime)
+    monkeypatch.setattr(composition, "EmbeddedMindMemOS", _FakeEmbeddedMindMemOS)
 
 
 @dataclass
@@ -163,6 +219,9 @@ async def test_alias_conflict_rolls_back_connected_manager_without_registry_muta
 
     payload = _config(tmp_path).model_dump(mode="python")
     payload["mcp"]["servers"] = {"demo": payload["mcp"]["servers"]["demo"]}
+    # Re-validating a dumped managed_local block fails the explicit-mode
+    # credential check; the test uses the all-empty default anyway.
+    del payload["memory"]["neo4j"]
     config = HomeMasterConfig.model_validate(payload)
     bundle = compose_application(config=config, mcp_connector=connector)
     before = bundle.application.registry.list_tools()

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -10,12 +13,16 @@ from typer.testing import CliRunner
 from homemaster.application.composition import compose_application
 from homemaster.cli.app import app
 from homemaster.config import HomeMasterConfig, MemoryConfig
+from homemaster.memory.evidence import MemoryEvidenceLedger
+from homemaster.memory.file_store import FileMemoryStore
+from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
 from homemaster.memory.migration import (
     LEGACY_MIGRATION_SCHEMA,
     MIGRATION_SCHEMA,
     MemoryMigrationCoordinator,
     MemoryMigrationError,
 )
+from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 
 
 def _legacy_files(path: Path, marker: str = "legacy") -> None:
@@ -277,6 +284,69 @@ async def test_application_start_migrates_before_opening_owned_stores(
             "observability": {"session_dir": str(tmp_path / "sessions")},
         }
     )
+
+    # The contract under test is ordering — migration completes before owned
+    # stores open — so isolate the full application-owned external resource
+    # closure (managed Neo4j process, MindMemOS backends, mindmemos imports)
+    # rather than requiring a live installation.
+    @dataclasses.dataclass
+    class _MemoryRequestContext:
+        request_id: str
+        account_id: str
+        project_id: str
+        api_key_uuid: str
+        user_id: str
+        app_id: str
+        session_id: str | None
+        agent_id: str
+
+    mindmemos_pkg = types.ModuleType("mindmemos")
+    mindmemos_typing = types.ModuleType("mindmemos.typing")
+    mindmemos_typing.MemoryRequestContext = _MemoryRequestContext  # type: ignore[attr-defined]
+    mindmemos_pkg.typing = mindmemos_typing  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mindmemos", mindmemos_pkg)
+    monkeypatch.setitem(sys.modules, "mindmemos.typing", mindmemos_typing)
+
+    opened: list[str] = []
+    real_ensure_ready = MemoryMigrationCoordinator.ensure_ready
+    real_file_start = FileMemoryStore.start
+    real_evidence_start = MemoryEvidenceLedger.start
+
+    def _recording_ensure_ready(
+        self: MemoryMigrationCoordinator, *, auto_migrate: bool = True
+    ) -> dict:
+        result = real_ensure_ready(self, auto_migrate=auto_migrate)
+        opened.append("migration")
+        return result
+
+    def _recording_file_start(self: FileMemoryStore) -> None:
+        opened.append("file_store")
+        real_file_start(self)
+
+    def _recording_evidence_start(self: MemoryEvidenceLedger) -> None:
+        opened.append("evidence")
+        real_evidence_start(self)
+
+    async def _recording_neo4j_start(self: ManagedNeo4jRuntime) -> None:
+        opened.append("neo4j")
+
+    async def _recording_mindmemos_start(self: EmbeddedMindMemOS) -> None:
+        opened.append("mindmemos")
+        self._qdrant = object()
+
+    async def _noop_close(self: object) -> None:
+        return None
+
+    monkeypatch.setattr(
+        MemoryMigrationCoordinator, "ensure_ready", _recording_ensure_ready
+    )
+    monkeypatch.setattr(FileMemoryStore, "start", _recording_file_start)
+    monkeypatch.setattr(MemoryEvidenceLedger, "start", _recording_evidence_start)
+    monkeypatch.setattr(ManagedNeo4jRuntime, "start", _recording_neo4j_start)
+    monkeypatch.setattr(ManagedNeo4jRuntime, "close", _noop_close)
+    monkeypatch.setattr(EmbeddedMindMemOS, "start", _recording_mindmemos_start)
+    monkeypatch.setattr(EmbeddedMindMemOS, "close", _noop_close)
+
     bundle = compose_application(config=config, run_label="migration-entry")
 
     await bundle.application.start()
@@ -285,5 +355,7 @@ async def test_application_start_migrates_before_opening_owned_stores(
         assert config.memory.evidence_db_path.is_file()
         migration = bundle.application.settings.application_services["memory_migration"]
         assert migration.inspect().status == "ready"
+        assert opened[:4] == ["migration", "file_store", "evidence", "neo4j"]
+        assert opened.index("mindmemos") > opened.index("neo4j")
     finally:
         await bundle.application.aclose()

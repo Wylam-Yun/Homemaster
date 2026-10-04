@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -7,6 +10,30 @@ import pytest
 import homemaster.application.composition.base as composition
 from homemaster.config import HomeMasterConfig
 from homemaster.experience import FinalizeResult
+
+
+@pytest.fixture(autouse=True)
+def _fake_mindmemos_typing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """start_file_memory lazily imports mindmemos.typing; isolate it so these
+    tests exercise composition ordering without a real MindMemOS install."""
+
+    @dataclasses.dataclass
+    class _MemoryRequestContext:
+        request_id: str
+        account_id: str
+        project_id: str
+        api_key_uuid: str
+        user_id: str
+        app_id: str
+        session_id: str | None
+        agent_id: str
+
+    mindmemos_pkg = types.ModuleType("mindmemos")
+    mindmemos_typing = types.ModuleType("mindmemos.typing")
+    mindmemos_typing.MemoryRequestContext = _MemoryRequestContext  # type: ignore[attr-defined]
+    mindmemos_pkg.typing = mindmemos_typing  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mindmemos", mindmemos_pkg)
+    monkeypatch.setitem(sys.modules, "mindmemos.typing", mindmemos_typing)
 
 
 def _config(tmp_path: Path) -> HomeMasterConfig:

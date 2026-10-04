@@ -135,8 +135,12 @@ class ManagedNeo4jRuntime:
             self._started = False
 
     def _validate_installation(self) -> None:
-        assert self._neo4j.home is not None
-        assert self._neo4j.java_home is not None
+        if self._neo4j.home is None or self._neo4j.java_home is None:
+            raise ManagedNeo4jError(
+                "managed_local Neo4j requires memory.neo4j.home and "
+                "memory.neo4j.java_home; configure the installation paths or "
+                "run the bundled setup before starting memory services"
+            )
         neo4j_binary = self._neo4j.home / "bin" / "neo4j"
         java_binary = self._neo4j.java_home / "bin" / "java"
         if not neo4j_binary.is_file():
