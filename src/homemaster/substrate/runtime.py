@@ -71,6 +71,7 @@ class AsRunHandle:
     all_tool_schemas: list[dict[str, Any]] = field(default_factory=list)
     tool_call_names: dict[str, str] = field(default_factory=dict)
     pending_args: dict[str, str] = field(default_factory=dict)
+    tool_call_args: dict[str, Any] = field(default_factory=dict)
     reply_finished_reason: str | None = None
     reply_error: Any = None
     tool_registry: Any = None
@@ -784,6 +785,7 @@ class AsAgentRuntime:
                 arguments = json.loads(raw) if raw else {}
             except json.JSONDecodeError:
                 arguments = {"_raw": raw}
+            handle.tool_call_args[item.tool_call_id] = arguments
             await emit(
                 "tool.call_started",
                 tool_call_id=item.tool_call_id,
@@ -795,6 +797,8 @@ class AsAgentRuntime:
         elif isinstance(item, ToolResultTextDeltaEvent):
             pass  # result text rides on the metadata "hm" pocket at END
         elif isinstance(item, ToolResultEndEvent):
+            from homemaster.substrate.middleware_runtime import _find_result_block
+
             await self._emit_assistant_events(handle, emit)
             hm = (item.metadata or {}).get("hm") or {}
             data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
@@ -803,15 +807,11 @@ class AsAgentRuntime:
             # the persisted result block's hm.data so the canonical session
             # mirror sees status="protocol_blocked", not bare "denied".
             denial = handle.denial_payloads.pop(item.tool_call_id, None)
+            result_block = _find_result_block(agent, item.tool_call_id)
             if denial is not None and item.state == "denied":
-                from homemaster.substrate.middleware_runtime import (
-                    _find_result_block,
-                )
-
                 merged = dict(data)
                 merged.update(denial)
                 data = merged
-                result_block = _find_result_block(agent, item.tool_call_id)
                 if result_block is not None:
                     block_meta = dict(getattr(result_block, "metadata", {}) or {})
                     block_hm = dict(block_meta.get("hm") or {})
@@ -828,13 +828,30 @@ class AsAgentRuntime:
                 item.state == "denied" and str(data.get("status", "")) == "protocol_blocked"
             )
             is_error = item.state in _REASON_ERROR_STATES and not protocol_blocked
+            # Legacy parity: ``result`` is the model-visible text of the
+            # persisted ToolResultBlock — ``hm.data`` deliberately stays
+            # the canonical machine pocket.
+            block_output = getattr(result_block, "output", None)
+            if isinstance(block_output, str):
+                result_text = block_output
+            else:
+                result_text = "\n".join(
+                    str(getattr(block, "text", "") or "")
+                    for block in (block_output or [])
+                    if getattr(block, "type", None) == "text"
+                    and getattr(block, "text", None)
+                )
             await emit(
                 "tool.call_failed" if is_error else "tool.call_completed",
                 tool_call_id=item.tool_call_id,
-                name=handle.tool_call_names.get(item.tool_call_id),
+                name=(
+                    handle.tool_call_names.get(item.tool_call_id)
+                    or getattr(result_block, "name", None)
+                ),
                 payload={
                     "is_error": is_error,
-                    "result": data.get("text", ""),
+                    "args": handle.tool_call_args.get(item.tool_call_id, {}),
+                    "result": result_text,
                     "data": data,
                     "backend_attempted": hm.get("backend_attempted"),
                     "status": hm.get("status"),
@@ -848,7 +865,7 @@ class AsAgentRuntime:
                         "tool_call_id": item.tool_call_id,
                         "name": handle.tool_call_names.get(item.tool_call_id) or "",
                         "is_error": is_error,
-                        "text": str(data.get("text", "")),
+                        "text": result_text,
                     }
                 ]
             )

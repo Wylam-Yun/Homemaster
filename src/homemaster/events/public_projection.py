@@ -177,7 +177,17 @@ class PublicEventProjection:
             "runtime.cancelled",
             "transport.request_failed",
         }:
-            return str(payload.get("error_code") or event_type)
+            # error text (verbatim) -> typed code -> fixed phrase; the
+            # internal event type name is never user-visible fallback text.
+            message = payload.get("error") or payload.get("error_code")
+            if not message:
+                message = {
+                    "runtime.turn_failed": "run failed",
+                    "runtime.budget_exhausted": "budget exhausted",
+                    "runtime.cancelled": "run cancelled",
+                    "transport.request_failed": "request failed",
+                }[event_type]
+            return str(message)
         if event_type == "tool.call_completed":
             return _tool_progress(tool_name, payload)
         if event_type == "tool.call_failed":

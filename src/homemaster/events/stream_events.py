@@ -158,7 +158,9 @@ def project_stream_event(event: RuntimeEvent) -> StreamEvent | None:
         "runtime.turn_failed",
         "runtime.budget_exhausted",
     }:
-        message = payload.get("error") or payload.get("error_code") or event.type
+        message = payload.get("error") or payload.get("error_code")
+        if not message:
+            return None
         return ErrorEvent(
             message=str(message),
             recoverable=event.type != "runtime.budget_exhausted",

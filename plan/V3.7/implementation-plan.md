@@ -38,7 +38,7 @@
 - [x] `substrate/models.py` 落地：`ProviderProfileConfig`→`ChatModelBase`（anthropic→`AnthropicChatModel`、openai→`OpenAIChatModel`，顺带免费获得 dashscope/gemini/ollama/…）；多 key 轮询（`provider_key_index`）经 `ModelConfig` 或薄封装保留，指明封装位置与 per-key attempt 归属。
 - [x] `substrate/messages.py` 接入 `ContextAssembler` 出口：发往模型前 `list[Message]`→`list[Msg]`，响应 `ChatResponse`→`AssistantMessage`。**HM canonical `agent/messages.py` 保留**（持久化/compact/投影/ALFWorld receipt 共基座），substrate 只做边界双向转换——不删。
 - [x] **provider 不变量落点（硬验收门，非事后记录）**：冻结 `request_sha256`（`on_model_call` 拿到的是格式化前 `Msg`，逐字节 SHA 要在 formatter/`ChatModelBase` 子类做）、`ProviderAttemptRecord`/`AttemptCommitState` 三相 commit、delta 可见性门控重试、`transport.request_retrying` 事件、`provider_attempt_sink_factory` 注入（ALFWorld 审计用）——逐条列不变量→落点→验证方法（真实 envelope 断言、retry body SHA 逐字节相等、commit 后禁重试）。
-- [ ] `cli/interactive_shell.py` **换引擎不退役壳**：REPL/斜杠命令/逐项确认卡/SIGINT+清理所有权保留，内层 run 换 `reply_stream()` 消费；`/compact`→`compress_context()`、`/new`→原地清理（无 `reset()` 方法，整换 state 会泄漏 permission_context）、`/status`→`agent.state`；`turn.py` 单轮入口归宿写明；`launch_console`/`launch_tui` 仅可选演示。
+- [x] `cli/interactive_shell.py` **换引擎不退役壳**（已完成）：REPL/斜杠命令/逐项确认卡/SIGINT+清理所有权保留；内层 run 经 `application.run()` 驱动 AS `reply_stream`（run() 封装为最终形态，CLI 不直接消费引擎流）；`/compact`→`application.compact()`、`/new`→session 轮换、`/status`→`application.status()`；`turn.py` 已删；`launch_console`/`launch_tui` 保持可选演示。
 
 验收门：
 
@@ -57,8 +57,8 @@
 - [x] **RunScope/DomainBridge per-call 桥接对象**（`deps`/`services` dict 清零的承接载体）：每调用合成 task_state_store/completion_guard/current_tool_call_id/backend/alfworld_env/tool_registry/run_context/gateway_generation/memory_feedback/internal_tool_id/permission_subject/deadline/cancellation/domain_observer——`AgentState` 是跨调用共享态装不下 per-call 键，ALFWorld 三工具端到端跑通为验收。
 - [ ] `ApplicationRuntime` 瘦身 → `SessionOrchestrator`：只留 generation fencing/cancel/turn 生命周期；dedup/registry/terminal/取消/清理逐项指派给保留 Web 层对象（运行所有权表）；`compose_application` 拆 per-domain composer + 资源图（谁拥有什么、关闭顺序）。
 - [x] 持久化按 Phase 0 裁决落地：`SessionSnapshot` 唯一权威快照、`AgentState.model_dump` 为子树、`SessionFileBackend` CAS 为真源；`SessionPersistenceManager` 按裁决拆分；含 pending 观察屏障的会话 save→kill→load 后 `unconsumed_observation_tool_call_id` 与图片完整的回归。
-- [ ] `web/app.py` 引擎切 `reply_stream`（两层拆分）：(a) 事件源适配 `AgentEvent`→`RuntimeEvent`/`StreamEvent`/`PublicStreamEvent`（allowlist 投影函数签名不变 + 投影等价 golden 测试集 + 负向用例：thinking/usage/raw 不外泄、无用户语义丢弃、generation 失配丢弃、无重复 final）；(b) dedup reserve/commit/rollback、approval 跨请求唤醒、WS idle disconnect、terminal final 唯一逐项断言。顺手修 `KNOWN_EVENT_TYPES` 陈旧清单与 `stream_events.py` fallback 文本。
-- [ ] `substrate/toolkit.py` 过渡适配器在本阶段末删除（工具已全部原生 `ToolBase`）。
+- [x] `web/app.py` 引擎切 `reply_stream`（已完成）：事件源为 `AsAgentRuntime` 内驱动的 `reply_stream` → `RuntimeEvent` → bus → `WebEventHub`；allowlist 投影函数签名不变。(a) `tests/homemaster/web/test_web_surface_golden.py` 用真实 AS run 事件序列锁定 web 输出面 + 负向用例（thinking/usage/raw 不外泄、空 reply 无 snapshot、generation 不入 payload、单一 run.completed）；(b) dedup 重投、approval 跨请求唤醒、WS idle disconnect、terminal final 唯一由既有 `test_app.py`/`test_run_registry.py`/`test_confirmations.py`/`test_runtime_stress.py` 逐项覆盖。修复：`KNOWN_EVENT_TYPES` 同步 +2/−2（新守卫测试 `test_known_event_types.py` 双向断言防再腐化）；`stream_events.py` 内部 event-type fallback 改为丢弃；**顺带抓到真回归**（独立评审复核后修复）：`tool.call_completed` 的 `result` 恒空（应为 model-visible 结果文本）+ `args` 丢失、`record_tool_results` 签名塌缩致 no-progress 误判、`public_projection` 同型内部-type fallback——均已按 legacy parity 修复。
+- [ ] `substrate/toolkit.py` 过渡适配器删除——**已裁决：挪后续版本做原生工具迁移**（适配器现承载 permission 判定/RunScope 桥接/tool_call_id contextvar，属永久职责层，删除以工具全量原生 `ToolBase` 为前提，V3.7 不阻塞）。
 
 验收门：
 

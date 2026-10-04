@@ -1,5 +1,45 @@
 # Unreleased
 
+- Web event surface locked to the AS `reply_stream` source and a real
+  parity gap fixed. `AsAgentRuntime` drives `agent.reply_stream()`
+  internally and projects `AgentEvent` items into `RuntimeEvent`s on the
+  bus; `web/app.py` keeps consuming the bus (the composed final form —
+  the web layer does not drive the engine stream directly).
+  - **Parity fix**: `tool.call_completed`/`tool.call_failed` events now
+    carry `result` = the model-visible text of the persisted
+    `ToolResultBlock` (was `data.get("text","")` — always empty, so
+    browser `tool.completed.output` went blank) and restore the
+    `args` field (stashed from `ToolCallEndEvent` via
+    `handle.tool_call_args`). The automatic-observe emit path gets the
+    same result-text extraction from `final.content`.
+  - `KNOWN_EVENT_TYPES` synced to reality: added
+    `tool.execution_published` and `permission.grant_changed` (both
+    emitted but unlisted); removed dead `context.length_error` and
+    `model_observation.automatic_failed` (zero emit sites).
+  - `stream_events.project_stream_event`: a `runtime.turn_failed`/
+    `budget_exhausted` with no `error`/`error_code` is now dropped
+    instead of leaking the internal event type name as user-visible
+    fallback text.
+  - `public_projection._content` same-class fix: `runtime.turn_failed`/
+    `budget_exhausted`/`cancelled`/`transport.request_failed` now project
+    verbatim `error` → `error_code` → fixed phrase (was `error_code or
+    event_type` — every transport failure rendered literally as
+    "transport.request_failed").
+  - `agent_state.record_tool_results` now receives the real result text:
+    the no-progress signature `(name, is_error, text[:300])` was fed
+    `data.get("text","")` — always empty, so consecutive same-name calls
+    compared equal regardless of output and inflated
+    `no_progress_iterations` toward `runtime.guard_triggered`.
+  - New guard `tests/homemaster/events/test_known_event_types.py`:
+    AST-scans `src/` for emit-family call sites and asserts both
+    directions — every emitted literal type is listed and every listed
+    type is still referenced (prevents the list rotting again).
+  - New golden `tests/homemaster/web/test_web_surface_golden.py`: runs
+    the canonical tool-call round-trip through the real AS chain and
+    locks the entire projected `WebEvent` sequence (ordering, allowlist
+    fields, private-event drops, exactly one `run.completed`) plus the
+    `project_stream_event` surface and no-internal-type-fallback cases.
+
 - `ApplicationRuntime` slimmed into a session orchestrator
   (`plan/V3.7/design-session-orchestrator.md`). `application/runtime.py`
   (1212 → ~510 lines) now owns only the turn/generation fence, the

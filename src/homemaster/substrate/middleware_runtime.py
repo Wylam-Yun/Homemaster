@@ -1032,13 +1032,18 @@ class ObservationBarrierMiddleware(MiddlewareBase):
         hm = (getattr(final, "metadata", None) or {}).get("hm") or {}
         data = hm.get("data") if isinstance(hm.get("data"), dict) else {}
         is_error = not _is_success_state(getattr(final, "state", None))
+        result_text = "\n".join(
+            str(getattr(block, "text", "") or "")
+            for block in (getattr(final, "content", None) or [])
+            if getattr(block, "type", None) == "text" and getattr(block, "text", None)
+        )
         await handle.emit(
             "tool.call_failed" if is_error else "tool.call_completed",
             tool_call_id=observe_call.id,
             name=observe_call.name,
             payload={
                 "is_error": is_error,
-                "result": data.get("text", ""),
+                "result": result_text,
                 "data": data,
                 "backend_attempted": hm.get("backend_attempted"),
                 "status": hm.get("status"),
