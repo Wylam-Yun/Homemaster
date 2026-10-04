@@ -32,6 +32,13 @@
     full local regression 1581 passed / 55 failures all in known
     environmental baselines (playwright/Neo4j/lark/cli_streaming/
     web-stale-signature/subprocess), zero failures on the refactor surface.
+    Remote `.venv` regression 1609 passed / 34 failed vs the b3a90e5
+    baseline — the one real new failure (`cleanup_guard` flagging
+    `search_pipeline=` in the moved recall code) is fixed in eb97024;
+    the other delta is a load-flaky process-group test green 3/3 in
+    isolation. ALFWorld e2e `as-e2e-v37split-111350`: success_rate=1.000,
+    env-authoritative goal_condition=1.0, `replied`, 0 invalid actions,
+    completely clean stderr.
 
 - V3.7 Phase-3 steps 8-9: legacy provider engine deleted; AgentScope is
   the only runtime path.
