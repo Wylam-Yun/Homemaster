@@ -58,10 +58,14 @@ def _execute_harness(
     if harness is None:
         return None
     feedback = harness.execute(AlfworldActionRequest(tool_name=tool_name, arguments=arguments))
+    evidence_refs = _record_harness_step(
+        run_context, tool_name=tool_name, arguments=arguments, feedback=feedback
+    )
     data = {
         "action": feedback.action,
         "success": feedback.success,
         "failure_reason": feedback.classification,
+        "classification": feedback.classification,
         "external_return_code": feedback.external_return_code,
         "backend_attempted": feedback.backend_attempted,
         "terminal": feedback.terminal,
@@ -75,9 +79,64 @@ def _execute_harness(
         data=data,
         failure_reason=feedback.classification,
         is_error=feedback.terminal,
-        evidence_refs=feedback.evidence_refs,
+        evidence_refs=evidence_refs,
         backend_attempted=feedback.backend_attempted,
     )
+
+
+def _record_harness_step(
+    run_context: RunContext,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    feedback: Any,
+) -> tuple[str, ...]:
+    outcome = run_context.deps.get("alfworld_episode_outcome")
+    if outcome is not None and feedback.backend_attempted:
+        outcome.backend_action_count += 1
+    evidence_refs = tuple(feedback.evidence_refs)
+    trace = run_context.deps.get("alfworld_trace")
+    if trace is None:
+        return evidence_refs
+    event = {
+        "action": _harness_trace_action(tool_name, arguments, feedback),
+        "tool_name": tool_name,
+        "tool_args": dict(arguments),
+        "translated_command": None,
+        "debug_feedback": None,
+        "tool_success": feedback.success,
+        "backend_action_count": int(bool(feedback.backend_attempted)),
+        "success": feedback.success,
+        "object": arguments.get("object"),
+        "target": arguments.get("target") or arguments.get("target_receptacle"),
+        "inventory": None,
+        "inventory_status": "not_applicable",
+        "object_state": None,
+        "object_state_status": "not_applicable",
+        "target_state": None,
+        "target_state_status": "not_applicable",
+        "state_changed": feedback.state_before != feedback.state_after,
+        "state_read_status": "ok",
+        "error": feedback.classification,
+        "terminal": feedback.terminal,
+        "classification": feedback.classification,
+        "score_eligible": bool(feedback.success or not feedback.terminal),
+        "detail": None,
+        "won": feedback.won,
+        "external_return_code": feedback.external_return_code,
+        "backend_attempted": bool(feedback.backend_attempted),
+        "action_source": "harness",
+    }
+    return (*evidence_refs, trace.write_event(event))
+
+
+def _harness_trace_action(tool_name: str, arguments: dict[str, Any], feedback: Any) -> str:
+    if tool_name == "robot_go_to":
+        return "navigate"
+    if tool_name == "robot_verify":
+        return "verify"
+    action = str(arguments.get("action") or getattr(feedback, "action", "") or "")
+    return action.strip().lower()
 
 
 def _current_subtask(run_context: RunContext) -> Any:

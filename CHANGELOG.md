@@ -1,5 +1,28 @@
 # Unreleased
 
+- ALFWorld harness path now persists trajectory steps again. Since the
+  Oracle Harness landed (`2d265dc`), `_execute_harness` short-circuited
+  every `robot_go_to`/`robot_manipulate`/`robot_verify` call and never
+  reached `_write_trace` or the `EpisodeOutcome` backend-action
+  counters — every THOR benchmark run wrote zero action lines to
+  `trace.jsonl`, so trajectory records carried `steps: []`, summaries
+  reported `backend_action_count: 0`, and memory compilation failed
+  with "successful trajectory has no compilable steps".
+  `_record_harness_step` now writes an action-bearing trace event in
+  the same schema as `AlfworldStepResult.to_trace_event()` (canonical
+  action name, tool args, object/target labels, error/classification,
+  `won`, authoritative `state_changed`), increments
+  `alfworld_episode_outcome.backend_action_count` when the backend was
+  actually attempted, and appends the trace digest ref to the result
+  `evidence_refs`. The result `data` also gains `classification` so
+  `AlfworldToolDispatchObserver.mark_terminal` records the real
+  classification instead of falling back to
+  `unclassified_execution_failure`. Focused tests cover all three
+  tools, the failure/no-attempt paths, and the no-trace-dependency
+  case; verified end-to-end through the runner's step extraction and
+  `compile_alfworld_trajectory` (derived procedure produced from
+  harness-only trace events).
+
 - Stale composition tests repaired after the "lock local neo4j"
   contract (Sep-3 `1006c51`) made managed Neo4j unconditional whenever
   memory is enabled. Three tests were still written against the removed

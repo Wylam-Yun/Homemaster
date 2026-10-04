@@ -8,6 +8,7 @@ from typing import Any
 
 from homemaster.agent.normalized import RunContext
 from homemaster.alfworld.benchmark.translator import create_translator
+from homemaster.alfworld.outcomes import AlfworldExecutionFeedback as HarnessFeedback
 from homemaster.alfworld.tools import (
     _write_trace,
     make_alfworld_robot_go_to,
@@ -18,6 +19,7 @@ from homemaster.alfworld.types import (
     AlfworldBenchmarkConfig,
     AlfworldEnvState,
     AlfworldStepResult,
+    EpisodeOutcome,
     make_execution_feedback,
 )
 from homemaster.tools.contracts import PermissionSubject, ToolExecutionContext, ToolExecutionStatus
@@ -226,11 +228,15 @@ def test_thor_go_to_uses_oracle_adapter_boundary() -> None:
 
 def test_typed_payload_is_the_only_model_projection() -> None:
     adapter = FakeAdapter()
-    result = _execute(make_alfworld_robot_go_to(), {
+    result = _execute(
+        make_alfworld_robot_go_to(),
+        {
             "target": "remote control",
             "object_id": "RemoteControl|0",
             "requested_pose": {"x": 1.0},
-        }, _context(adapter, env_type="AlfredThorEnv"))
+        },
+        _context(adapter, env_type="AlfredThorEnv"),
+    )
 
     payload = _payload(result)
     assert payload == {
@@ -293,6 +299,161 @@ def test_verify_uses_typed_nonterminal_result_until_environment_wins() -> None:
     completed = _execute(spec, {}, _context(adapter))
     assert _payload(completed)["success"] is True
     assert _payload(completed)["error"] is None
+
+
+class _FakeHarness:
+    def __init__(self, feedback: Any) -> None:
+        self.feedback = feedback
+        self.requests: list[Any] = []
+
+    def execute(self, request: Any) -> Any:
+        self.requests.append(request)
+        return self.feedback
+
+
+class _FakeTrace:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def write_event(self, event: dict[str, Any]) -> str:
+        self.events.append(dict(event))
+        return "trace.jsonl#sha256=fake"
+
+
+def _harness_context(
+    adapter: FakeAdapter,
+    *,
+    feedback: Any,
+    trace: _FakeTrace | None = None,
+    outcome: EpisodeOutcome | None = None,
+) -> RunContext:
+    context = _context(adapter)
+    context.deps["alfworld_harness"] = _FakeHarness(feedback)
+    if trace is not None:
+        context.deps["alfworld_trace"] = trace
+    if outcome is not None:
+        context.deps["alfworld_episode_outcome"] = outcome
+    return context
+
+
+def _success_feedback(**overrides: Any) -> HarnessFeedback:
+    values: dict[str, Any] = {
+        "action": "robot_go_to",
+        "success": True,
+        "classification": None,
+        "external_return_code": 0,
+        "backend_attempted": True,
+        "terminal": False,
+        "won": False,
+        "evidence_refs": ("worker:1:state-2",),
+        "state_before": {"agent": "a"},
+        "state_after": {"agent": "b"},
+    }
+    values.update(overrides)
+    return HarnessFeedback(**values)
+
+
+def test_harness_go_to_writes_action_trace_and_counts_backend_action() -> None:
+    adapter = FakeAdapter()
+    trace = _FakeTrace()
+    outcome = EpisodeOutcome()
+    context = _harness_context(
+        adapter,
+        feedback=_success_feedback(),
+        trace=trace,
+        outcome=outcome,
+    )
+
+    result = _execute(make_alfworld_robot_go_to(), {"target": "desk 1"}, context)
+
+    assert adapter.go_to_calls == []
+    assert len(trace.events) == 1
+    event = trace.events[0]
+    assert event["action"] == "navigate"
+    assert event["tool_name"] == "robot_go_to"
+    assert event["tool_args"] == {"target": "desk 1"}
+    assert event["success"] is True
+    assert event["tool_success"] is True
+    assert event["target"] == "desk 1"
+    assert event["error"] is None
+    assert event["backend_action_count"] == 1
+    assert outcome.backend_action_count == 1
+    assert result.evidence_refs == ("worker:1:state-2", "trace.jsonl#sha256=fake")
+
+
+def test_harness_manipulate_trace_uses_canonical_action_and_targets() -> None:
+    adapter = FakeAdapter()
+    trace = _FakeTrace()
+    context = _harness_context(
+        adapter,
+        feedback=_success_feedback(action="take"),
+        trace=trace,
+    )
+    _execute(
+        make_alfworld_robot_manipulate(),
+        {"action": "take", "object": "mug 1", "target_receptacle": "desk 1"},
+        context,
+    )
+
+    assert len(trace.events) == 1
+    event = trace.events[0]
+    assert event["action"] == "take"
+    assert event["tool_name"] == "robot_manipulate"
+    assert event["object"] == "mug 1"
+    assert event["target"] == "desk 1"
+
+
+def test_harness_verify_writes_verify_step() -> None:
+    adapter = FakeAdapter()
+    trace = _FakeTrace()
+    context = _harness_context(
+        adapter,
+        feedback=_success_feedback(action="robot_verify", backend_attempted=False, won=True),
+        trace=trace,
+    )
+    _execute(make_alfworld_robot_verify(), {}, context)
+
+    assert len(trace.events) == 1
+    event = trace.events[0]
+    assert event["action"] == "verify"
+    assert event["won"] is True
+    assert event["backend_action_count"] == 0
+
+
+def test_harness_failure_records_error_and_skips_unattempted_count() -> None:
+    adapter = FakeAdapter()
+    trace = _FakeTrace()
+    outcome = EpisodeOutcome()
+    context = _harness_context(
+        adapter,
+        feedback=_success_feedback(
+            success=False,
+            classification="harness_operation_failure",
+            backend_attempted=False,
+            terminal=True,
+        ),
+        trace=trace,
+        outcome=outcome,
+    )
+    _execute(make_alfworld_robot_go_to(), {"target": "desk 1"}, context)
+
+    assert len(trace.events) == 1
+    event = trace.events[0]
+    assert event["error"] == "harness_operation_failure"
+    assert event["classification"] == "harness_operation_failure"
+    assert event["score_eligible"] is False
+    assert outcome.backend_action_count == 0
+
+
+def test_harness_trace_absent_still_counts_outcome_and_keeps_refs() -> None:
+    adapter = FakeAdapter()
+    outcome = EpisodeOutcome()
+    context = _harness_context(adapter, feedback=_success_feedback(), outcome=outcome)
+
+    result = _execute(make_alfworld_robot_go_to(), {"target": "desk 1"}, context)
+
+    assert outcome.backend_action_count == 1
+    assert result.evidence_refs == ("worker:1:state-2",)
 
 
 def test_trace_keeps_internal_evidence_while_model_projection_stays_safe() -> None:
