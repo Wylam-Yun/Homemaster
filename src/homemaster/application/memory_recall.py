@@ -1,4 +1,4 @@
-"""Automatic memory recall pipeline for application runs.
+"""Automatic memory recall path for application runs.
 
 Owns the mindmemos automatic-recall path: consume_recall gating, query
 construction, deadline-bounded search, recall event emission, and user

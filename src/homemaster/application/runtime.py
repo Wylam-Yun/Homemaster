@@ -5,7 +5,7 @@ generation fence, the cancel/status/compact control plane, application
 resource ownership and the final commit+save policy. Per-run assembly and
 execution live in :mod:`homemaster.application.run_driver` (``RunDriver``),
 extension hooks in :mod:`homemaster.application.extension_lifecycle`
-(``ExtensionLifecycle``), and the automatic recall pipeline in
+(``ExtensionLifecycle``), and the automatic recall path in
 :mod:`homemaster.application.memory_recall` (``AutomaticRecallService``).
 """
 

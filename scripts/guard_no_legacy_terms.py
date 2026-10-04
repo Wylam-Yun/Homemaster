@@ -84,6 +84,8 @@ SKIP_FILES = frozenset(
         "src/homemaster/memory/mindmemos_runtime.py",
         "src/homemaster/tools/memory_tools.py",
         "src/homemaster/application/runtime.py",
+        # MindMemOS `search_pipeline=` is a real external API kwarg.
+        "src/homemaster/application/memory_recall.py",
         "src/homemaster/tools/legacy_adapter.py",
         "src/homemaster/tools/pipeline.py",
         "tests/homemaster/permissions/test_policy.py",
