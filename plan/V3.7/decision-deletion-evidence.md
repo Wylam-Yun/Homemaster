@@ -206,6 +206,20 @@ web confirmations/permissions、openharness bash 进程组、mindmemos/neo4j
   `success_rate=1.000`、`goal_condition_success_rate=1.0`（环境权威
   won=true）、`runtime_status=replied`、`invalid_actions=0`、4 步完成；
   stderr **完全干净**（15 行纯 headline，0 条 traceback/警告）。
+## 远端复验门（`3d48040` web reply_stream 收口，hkust4 Homemaster-v35）
+
+- `.venv` 全量回归：**33 failed / 1616 passed**（20min）。对照
+  f0198ab9 基线（32 败）名义 +1，逐项归因：`test_migration` 卡
+  `managed_neo4j._validate_installation`（远端 neo4j 安装缺失，
+  环境项）；`test_feedback_dreaming_integration` 隔离复跑即绿
+  （满载 flaky，非回归）。其余 32 项与既有环境/陈旧段一致，
+  **零代码回归**。
+- 事件面 parity 修复覆盖：`tool.call_completed` 的 `result`/`args`
+  恢复 legacy 语义（golden 测试 `test_web_surface_golden.py` 锁全
+  序列）；`record_tool_results` 签名不再塌缩；`KNOWN_EVENT_TYPES`
+  +2/−2 并配 AST 守卫测试；`stream_events`/`public_projection`
+  内部-type fallback 泄漏关闭。
+
 - asyncgen 噪音根治（vendored patch 13，`f0198ab9`）：诊断 hook
   捕获到 `_reply`/`_reply_impl`/`_execute_sequential_tool_calls` 被
   GC 中途 athrow——`async_generator_athrow` task 自身被取消时投递的是
