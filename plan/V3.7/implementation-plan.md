@@ -72,11 +72,13 @@
 
 任务清单：
 
-- [ ] `GoalPipeline` 接 benchmark goal 判定：verifier 用**无工具 Agent + `structured_schema`**（防判定伴随副作用污染 benchmark 隔离）；`max_retries` 存而未用、内层 while 无上界——外置迭代上限包住；`TeamPipeline(leader, members, reset_members=True)` 承载"管家 leader + 设备/记忆/日程 member"分工（无 max_retries 参数，成员上下文保留语义按 `reset_members` 裁决）。
-- [ ] 双轨 middleware 全量上线：`file_memory.py`+`mindmemos.py` 接管 `context_service`/`automatic_recall`/`finalizer` 的注入与写回时序。
-- [ ] 删除清单（每项附 owner→consumer 逐符号证据表，"grep 无引用"不足以批准）：`providers/llm_client.py`+`providers/transports/`、`tools/executor.py` **仅通用执行部分**（物理链/许可链切割线在 Phase 0 落点表裁决前不许删）、`agent/generic_runtime.py`、`mcp/client.py`（**待 Phase 0 验收矩阵裁决**）、`agent/turn.py`（需先定归宿）、substrate 适配器。**保留不删**：`agent/messages.py`（canonical schema）、`events/bus.py`（背压/关停/generation 原子校验载体）、`events/` 投影壳。预计净减 ~15-20K 行。
-- [ ] 清理 `RunContext.deps` 残留、`terminal_command_protocol_results` 等字符串路由——改为 `ToolBase` 元数据判断；`terminal_policy` 无运行时消费点（仅 contract 校验+前端静态），删除前注明此发现。
-- [ ] 每 Phase 加"旧入口反向 import 审计"测试：从仍受支持的运行入口反向枚举完整依赖所有权。
+- [x] `GoalPipeline` 接 benchmark goal 判定：按裁决走**候选 A（Tier-1）**——不直接采用 vendored `GoalPipeline`，HM 自有 `benchmarking/verdict.py`：`AsLLMClient.complete_json` + typed `VerdictVerifier` 协议，verdict `pass|fail|impossible`+provenance（`env`/`typed`/`llm`），LLM 永不覆写环境权威 `won=true`，cancel/deadline 守护 + 有界重试（commit `786881b`）。
+- [ ] `TeamPipeline` 多 Agent 分工：**用户裁决记入 backlog**——"管家 leader + 设备/记忆/日程 member"为后续版本立项项，V3.7 不做。
+- [x] 双轨 middleware：评审定稿 **C+ 不建** `file_memory.py`/`mindmemos.py` middleware——file 轨注入本就在 assembler，recall 时机经 `rearm_recall_after_compaction` 内联（见 design-phase3-memory-middleware.md）。
+- [x] 删除清单：`providers/llm_client.py`+`providers/transports/`、`agent/generic_runtime.py`、`agent/turn.py` 已删（步骤 8-9，`b3a90e5`）；`HOMEMASTER_ENGINE`/`provider_client.engine` 一并移除。`tools/executor.py` 整体保留（HomeToolAdapter 消费，AS 无等价物）；`mcp/client.py` 按 Phase-0 矩阵裁决保留自有 client。**substrate 适配器：用户裁决"排期做原生迁移"**——HM 工具迁 AS 原生 `ToolBase` + `RunContext.deps` per-call 桥随适配器一同下线，列为后续版本项（见裁决记录）。
+- [x] 清理 `terminal_command_protocol_results` 等字符串路由（context_projection 已裁至仅 `project_model_tool_context`）；`RunContext.deps` 残留清理并入原生迁移项。
+- [x] 反向 import 审计：`scripts/guard_no_legacy_terms.py` + 架构边界测试钉住 `REMOVED_DEAD_PATHS`。
+- [x] `ApplicationRuntime` → `SessionOrchestrator` 瘦身：runtime.py 1212→~510 行，职责切分为 `runtime.py`（turn/generation fence/cancel/status/compact/aclose 所有权关闭序/最终 commit+save）、`run_driver.py`（per-run `RunDriver`：tool view→provider→assembler→executor→AS agent→recall 装配，`commit_fn`/`save_fn` 回调保持 fence 与 scope 内排序）、`extension_lifecycle.py`（`ExtensionLifecycle`）、`memory_recall.py`（`AutomaticRecallService`）。per-run 构造保公开属性重绑契约；`_browser_run_scopes` 留 runtime 持关闭序；`_FencedAgentSession`/`AutomaticRecallRunDeadlineExceeded` re-export 兼容。死代码 `Deadline`/`_backend_generation`/未读 registry 预计算一并删（见 design-session-orchestrator.md）。
 
 验收门：
 

@@ -1,5 +1,38 @@
 # Unreleased
 
+- `ApplicationRuntime` slimmed into a session orchestrator
+  (`plan/V3.7/design-session-orchestrator.md`). `application/runtime.py`
+  (1212 → ~510 lines) now owns only the turn/generation fence, the
+  cancel/status/compact control plane, resource-ownership shutdown order,
+  and the final fenced commit+save policy. Three collaborators own the
+  rest: `application/run_driver.py` (`RunDriver` — per-run assembly and
+  execution: tool view → provider scope → assembler → tool executor →
+  AgentScope agent → automatic recall), `application/extension_lifecycle.py`
+  (`ExtensionLifecycle` — APPLICATION_START/STOP + RUN_START/RUN_END hooks,
+  quiesce→close with `extension.cleanup_completed`), and
+  `application/memory_recall.py` (`AutomaticRecallService` +
+  `AutomaticRecallRunDeadlineExceeded` + recall helpers).
+  - Behavior-preserving: the driver is constructed *per run* from the
+    runtime's current public attributes (tests/production rebind
+    `provider_factory`/`context_assembler_factory`/`settings`/
+    `artifact_publisher` between runs); `_browser_run_scopes` stays on the
+    runtime so `aclose()` keeps closing in-flight browser scopes before
+    `resource_scope`; the generation-fenced commit+save remains
+    orchestrator-owned and is invoked through an injected `commit_fn` at
+    its original position *inside* the provider/tool-view scopes, so
+    cleanup failures still attach to in-flight commit errors.
+  - Compatibility re-exports preserved (`_FencedAgentSession`,
+    `AutomaticRecallRunDeadlineExceeded`, `ProviderFactory`,
+    `ContextAssemblerFactory`); `extension_runner` is now a read-only
+    lifecycle-backed property. Dead code deleted: `Deadline` class,
+    `_backend_generation`, and the never-read per-registry
+    `_completion_requires_external_owner`/`_verification_required_tool_names`
+    precomputation.
+  - Verified: `tests/homemaster/application/` 131/131 unmodified-green;
+    full local regression 1581 passed / 55 failures all in known
+    environmental baselines (playwright/Neo4j/lark/cli_streaming/
+    web-stale-signature/subprocess), zero failures on the refactor surface.
+
 - V3.7 Phase-3 steps 8-9: legacy provider engine deleted; AgentScope is
   the only runtime path.
 
