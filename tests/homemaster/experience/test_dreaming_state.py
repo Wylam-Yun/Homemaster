@@ -1,11 +1,44 @@
 import asyncio
 import multiprocessing
+import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from homemaster.experience.dreaming_state import DreamingCoordinator, DreamingStateStore
+
+
+@pytest.fixture(autouse=True)
+def _fake_mindmemos_typing(monkeypatch):
+    try:
+        import mindmemos.typing  # noqa: F401
+
+        return
+    except ModuleNotFoundError:
+        pass
+    module = types.ModuleType("mindmemos.typing")
+
+    class MemoryRequestContext:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    class DreamingPipelineResult(SimpleNamespace):
+        def __init__(self, **kwargs):
+            kwargs.setdefault("message", None)
+            kwargs.setdefault("outcome", "no_action")
+            kwargs.setdefault("scopes", 0)
+            kwargs.setdefault("clusters", 0)
+            kwargs.setdefault("actions", [])
+            kwargs.setdefault("reviewed_add_record_ids", [])
+            kwargs.setdefault("completed_add_record_ids", [])
+            kwargs.setdefault("errors", [])
+            super().__init__(**kwargs)
+
+    module.MemoryRequestContext = MemoryRequestContext
+    module.DreamingPipelineResult = DreamingPipelineResult
+    monkeypatch.setitem(sys.modules, "mindmemos.typing", module)
 
 
 class RecordingEventSink:

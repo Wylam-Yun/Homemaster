@@ -405,7 +405,7 @@ async def test_finalizer_retries_implicit_without_repeating_add(tmp_path: Path) 
         async def feedback_implicit(self, context):
             del context
             self.implicit_calls += 1
-            if self.implicit_calls == 1:
+            if self.implicit_calls <= 3:
                 return SimpleNamespace(status="error", message="provider rejected", actions=[])
             return SimpleNamespace(status="ok", message=None, actions=[])
 
@@ -424,7 +424,7 @@ async def test_finalizer_retries_implicit_without_repeating_add(tmp_path: Path) 
     assert failed.status == "failed"
     assert completed.status == "completed"
     assert len(mindmemos.calls) == 1
-    assert mindmemos.implicit_calls == 2
+    assert mindmemos.implicit_calls == 4
     assert [event.type for event in event_sink.events] == [
         "memory.feedback.implicit.started",
         "memory.feedback.implicit.failed",
@@ -468,3 +468,76 @@ async def test_finalizer_persists_failed_phase_and_typed_event(tmp_path: Path) -
     assert failed_event.payload["project_id"] == "local"
     assert failed_event.payload["user_id"] == "local"
     assert "planner rejected" in failed_event.payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_finalizer_retries_implicit_feedback_then_completes(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+
+    class FlakyImplicit(FakeMindMemOS):
+        def __init__(self) -> None:
+            super().__init__()
+            self.implicit_calls = 0
+
+        async def feedback_implicit(self, context):
+            del context
+            self.implicit_calls += 1
+            if self.implicit_calls <= 2:
+                raise RuntimeError("transient implicit feedback failure")
+            return SimpleNamespace(status="ok", message=None, actions=[])
+
+    mindmemos = FlakyImplicit()
+    result = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=mindmemos,
+        event_sink=RecordingEventSink(),
+    ).finalize("s1", "user_exit")
+
+    assert result.status == "completed"
+    assert mindmemos.implicit_calls == 3
+    jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
+    job = json.loads(jobs[0].read_text(encoding="utf-8"))
+    assert job["status"] == "completed"
+    assert job["implicit_feedback"]["status"] == "completed"
+    assert job["implicit_feedback"]["attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_finalizer_feeds_dreaming_despite_implicit_failure(tmp_path: Path) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+
+    class FailingImplicit(FakeMindMemOS):
+        async def feedback_implicit(self, context):
+            del context
+            return SimpleNamespace(status="error", message="planner rejected", actions=[])
+
+    class RecordingCoordinator:
+        def __init__(self) -> None:
+            self.registered = []
+
+        async def register_and_run(self, *, context, add_record_id, memory_ids):
+            del context
+            self.registered.append((add_record_id, tuple(memory_ids)))
+            return "no_action"
+
+    coordinator = RecordingCoordinator()
+    result = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=FailingImplicit(),
+        dreaming_coordinator=coordinator,
+        event_sink=RecordingEventSink(),
+    ).finalize("s1", "user_exit")
+
+    assert result.status == "failed"
+    assert coordinator.registered == [("add-record-1", ("memory-1",))]
+    jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
+    job = json.loads(jobs[0].read_text(encoding="utf-8"))
+    assert job["status"] == "failed"
+    assert job["failed_phase"] == "implicit_feedback"
+    assert job["implicit_feedback"]["attempts_allowed"] == 3
+    assert job["dreaming_counter"]["status"] == "completed"
+    assert job["dreaming"]["status"] == "no_action"

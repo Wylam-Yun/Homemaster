@@ -1,5 +1,18 @@
 # Unreleased
 
+- Dreaming registration is decoupled from implicit-feedback health, and the
+  feedback phase now retries boundedly like schema `add`. Observed on a live
+  5-episode THOR run: implicit feedback failed 5/5 inside MindMemOS's
+  `feedback.implicit.rewrite_search_query` (empty LLM content → JSONDecodeError),
+  and because `register_and_run` ran strictly after feedback, every completed
+  `add` was silently excluded from the dreaming counter — `pending_add_records`
+  stayed empty and dreaming could never trigger. The finalizer now (a) retries
+  `feedback_implicit` up to 3 attempts with linear backoff, persisting
+  `attempt`/`attempts_allowed`/`error` into `job["implicit_feedback"]`, and
+  (b) always reaches the dreaming phase — if feedback still exhausts, the job
+  reports `failed_phase: implicit_feedback` *after* dreaming registration, so
+  the episode's memories are no longer orphaned from the consolidation queue.
+
 - Session finalizer now retries the MindMemOS schema `add` phase up to 3
   attempts with linear backoff before declaring an episode's memory write
   lost. Schema extraction is LLM-stochastic and a malformed candidate fails

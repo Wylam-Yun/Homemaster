@@ -23,6 +23,8 @@ _EXTRACTOR_VERSION = "schema-episode-v1:prompts-v1"
 # re-enters MindMemOS idempotently with a fresh extraction sample.
 _SCHEMA_ADD_ATTEMPTS = 3
 _SCHEMA_ADD_BACKOFF_S = 0.5
+_IMPLICIT_FEEDBACK_ATTEMPTS = 3
+_IMPLICIT_FEEDBACK_BACKOFF_S = 0.5
 
 
 @dataclass(frozen=True)
@@ -224,6 +226,7 @@ class SessionFinalizer:
                 )
                 for item in job["add"].get("operations", [])
             )
+            feedback_failure: Exception | None = None
             if job["implicit_feedback"]["status"] != "completed":
                 current_phase = "implicit_feedback"
                 feedback_started = time.monotonic()
@@ -237,27 +240,44 @@ class SessionFinalizer:
                         "user_id": context.user_id,
                     },
                 )
-                implicit = await self._mindmemos.feedback_implicit(context)
-                await self._verify_feedback_result(implicit, context)
-                actions = [action.model_dump(mode="json") for action in implicit.actions]
-                job["implicit_feedback"] = {
-                    "status": "completed",
-                    "actions": actions,
-                }
-                self._write_json(job_path, job)
-                await self._emit(
-                    "memory.feedback.implicit.completed",
-                    session_id=session_id,
-                    run_id=job_id,
-                    payload={
-                        "request_id": job_id,
-                        "project_id": context.project_id,
-                        "user_id": context.user_id,
-                        "duration_ms": (time.monotonic() - feedback_started) * 1000,
-                        "action_count": len(actions),
+                for feedback_attempt in range(1, _IMPLICIT_FEEDBACK_ATTEMPTS + 1):
+                    try:
+                        implicit = await self._mindmemos.feedback_implicit(context)
+                        await self._verify_feedback_result(implicit, context)
+                    except Exception as exc:
+                        job["implicit_feedback"] = {
+                            "status": "failed",
+                            "attempt": feedback_attempt,
+                            "attempts_allowed": _IMPLICIT_FEEDBACK_ATTEMPTS,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                        self._write_json(job_path, job)
+                        if feedback_attempt >= _IMPLICIT_FEEDBACK_ATTEMPTS:
+                            feedback_failure = exc
+                            break
+                        await asyncio.sleep(_IMPLICIT_FEEDBACK_BACKOFF_S * feedback_attempt)
+                        continue
+                    actions = [action.model_dump(mode="json") for action in implicit.actions]
+                    job["implicit_feedback"] = {
+                        "status": "completed",
                         "actions": actions,
-                    },
-                )
+                        "attempts": feedback_attempt,
+                    }
+                    self._write_json(job_path, job)
+                    await self._emit(
+                        "memory.feedback.implicit.completed",
+                        session_id=session_id,
+                        run_id=job_id,
+                        payload={
+                            "request_id": job_id,
+                            "project_id": context.project_id,
+                            "user_id": context.user_id,
+                            "duration_ms": (time.monotonic() - feedback_started) * 1000,
+                            "action_count": len(actions),
+                            "actions": actions,
+                        },
+                    )
+                    break
             if job["dreaming_counter"]["status"] != "completed":
                 current_phase = "dreaming_counter"
                 if self._dreaming_coordinator is None:
@@ -285,6 +305,9 @@ class SessionFinalizer:
             if job["dreaming"].get("status") == "failed":
                 current_phase = "dreaming"
                 raise RuntimeError("dreaming remains pending after a failed attempt")
+            if feedback_failure is not None:
+                current_phase = "implicit_feedback"
+                raise feedback_failure
             job["status"] = "completed"
             job.pop("failed_phase", None)
             self._write_json(job_path, job)
