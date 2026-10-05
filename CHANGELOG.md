@@ -1,5 +1,16 @@
 # Unreleased
 
+- Vendored MindMemOS: implicit-feedback supplemental memory recall is now
+  non-fatal. `_supplemental_search_memories` rewrote each session's recorded
+  search query through an LLM step whose contract assumes a short user-typed
+  question; HomeMaster's automatic-recall records the full instruction-sized
+  recall query instead, and the reasoning model's off-contract replies
+  (task-format JSON, empty content) raised out of `collect()` and killed the
+  entire implicit-feedback run before signal detection ever executed.
+  Rewrite/search failures in that enrichment step now log a warning and skip
+  supplemental recall, so conversation-signal detection (the actual job of
+  implicit feedback) always runs.
+
 - Dreaming registration is decoupled from implicit-feedback health, and the
   feedback phase now retries boundedly like schema `add`. Observed on a live
   5-episode THOR run: implicit feedback failed 5/5 inside MindMemOS's

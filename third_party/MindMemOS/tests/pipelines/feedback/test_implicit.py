@@ -371,6 +371,32 @@ async def test_implicit_collector_groups_session_messages_and_dedupes_memories()
     assert [item.search_pipeline for item in search_pipeline.inputs] == ["vanilla", "vanilla"]
 
 
+@pytest.mark.asyncio
+async def test_implicit_collector_skips_supplemental_when_rewrite_fails() -> None:
+    class FailingQueryRewriter:
+        async def rewrite(self, original_query: str) -> SupplementalSearchQuery:
+            del original_query
+            raise RuntimeError("rewriter returned unparseable content")
+
+    clients = FakeDatabaseClients()
+    memory_reader = FakeMemoryReader(clients=clients)
+    search_pipeline = FakeSearchPipeline()
+    sessions = await ImplicitFeedbackRecordCollector(
+        memory_reader=memory_reader,
+        memory_writer=FakeMemoryWriter(clients=clients),
+        query_rewriter=FailingQueryRewriter(),
+        search_pipeline=search_pipeline,
+    ).collect(make_context())
+
+    assert len(sessions) == 1
+    material = sessions[0]
+    assert material.session_id == "session-1"
+    assert len(material.rounds) == 1
+    assert material.source_add_record_ids == ["add-1", "add-2"]
+    assert [memory.id for memory in material.memories] == ["mem-added-1", "mem-1"]
+    assert search_pipeline.inputs == []
+
+
 def _filter_keys(filter_) -> set[str]:
     return {condition.key for condition in filter_.must}
 

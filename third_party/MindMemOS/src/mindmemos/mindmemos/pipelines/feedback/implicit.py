@@ -302,17 +302,24 @@ class ImplicitFeedbackRecordCollector:
         original_query = event.query
         if not isinstance(original_query, str) or not original_query.strip():
             return []
-        rewritten = await self._query_rewriter.rewrite(original_query)
-        if not rewritten.query.strip():
+        try:
+            rewritten = await self._query_rewriter.rewrite(original_query)
+            if not rewritten.query.strip():
+                return []
+            result = await self._search_pipeline.search(
+                SearchPipelineInput(
+                    query=rewritten.query,
+                    filters=_supplemental_search_filters(context),
+                    search_pipeline="vanilla",
+                ),
+                context,
+            )
+        except Exception as exc:
+            get_logger(__name__).warning(
+                "feedback.implicit.supplemental_search_skipped",
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return []
-        result = await self._search_pipeline.search(
-            SearchPipelineInput(
-                query=rewritten.query,
-                filters=_supplemental_search_filters(context),
-                search_pipeline="vanilla",
-            ),
-            context,
-        )
         return result.memories
 
 
