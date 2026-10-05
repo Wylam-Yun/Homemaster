@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -16,6 +17,12 @@ from typing import Any
 logger = logging.getLogger("homemaster.experience")
 
 _EXTRACTOR_VERSION = "schema-episode-v1:prompts-v1"
+# Schema extraction is stochastic (LLM output): a malformed candidate fails the
+# whole batch by design, so retry the add a bounded number of times before
+# declaring the episode lost. The job/add record ids are stable, so each retry
+# re-enters MindMemOS idempotently with a fresh extraction sample.
+_SCHEMA_ADD_ATTEMPTS = 3
+_SCHEMA_ADD_BACKOFF_S = 0.5
 
 
 @dataclass(frozen=True)
@@ -133,64 +140,80 @@ class SessionFinalizer:
             )
             if job["add"]["status"] != "completed":
                 current_phase = "add"
-                recorded = await self._mindmemos.add_schema_episode(
-                    episode,
-                    context,
-                    metadata={
-                        "source_type": "homemaster_schema_episode",
-                        "source_session_id": session_id,
-                        "input_hash": input_hash,
-                        "extractor_version": _EXTRACTOR_VERSION,
-                        "domain_schema_version": episode["schema_version"],
-                    },
-                )
-                add_record_id = getattr(recorded, "add_record_id", None)
-                add_result = getattr(recorded, "result", None)
-                if not add_record_id or add_result is None or add_result.status != "ok":
-                    raise RuntimeError(
-                        "MindMemOS schema add returned no successful record receipt"
-                    )
-                schema_receipt = getattr(add_result, "schema_episode", None)
-                if schema_receipt is None:
-                    raise RuntimeError("MindMemOS schema add returned no episode receipt")
-                type_receipts = {
-                    key: value.model_dump(mode="json")
-                    for key, value in schema_receipt.types.items()
-                }
-                failed_types = [
-                    key
-                    for key, value in type_receipts.items()
-                    if value.get("status") in {"failed", "cancelled"}
-                ]
-                if failed_types or schema_receipt.write_status == "failed":
-                    raise RuntimeError(
-                        f"MindMemOS schema add failed for types: {failed_types}"
-                    )
-                operations = tuple(
-                    ExperienceOperation(
-                        operation=str(item.operation),
-                        memory_id=item.memory_id,
-                        memory_type=item.mem_type,
-                        content=str(item.content or ""),
-                        related_memory_ids=tuple(item.related_memory_ids),
-                    )
-                    for item in add_result.memories
-                )
-                active_memory_ids = await self._verified_schema_episode(
-                    operations, type_receipts, context
-                )
-                job["add"] = {
-                    "status": "completed",
-                    "ingress": "episode",
-                    "algorithm": "schema_add_v1",
-                    "add_record_id": add_record_id,
-                    "episode_id": schema_receipt.episode_id,
-                    "write_status": schema_receipt.write_status,
-                    "types": type_receipts,
-                    "operations": [asdict(item) for item in operations],
-                    "active_memory_ids": list(active_memory_ids),
-                }
-                self._write_json(job_path, job)
+                for add_attempt in range(1, _SCHEMA_ADD_ATTEMPTS + 1):
+                    try:
+                        recorded = await self._mindmemos.add_schema_episode(
+                            episode,
+                            context,
+                            metadata={
+                                "source_type": "homemaster_schema_episode",
+                                "source_session_id": session_id,
+                                "input_hash": input_hash,
+                                "extractor_version": _EXTRACTOR_VERSION,
+                                "domain_schema_version": episode["schema_version"],
+                            },
+                        )
+                        add_record_id = getattr(recorded, "add_record_id", None)
+                        add_result = getattr(recorded, "result", None)
+                        if not add_record_id or add_result is None or add_result.status != "ok":
+                            raise RuntimeError(
+                                "MindMemOS schema add returned no successful record receipt"
+                            )
+                        schema_receipt = getattr(add_result, "schema_episode", None)
+                        if schema_receipt is None:
+                            raise RuntimeError("MindMemOS schema add returned no episode receipt")
+                        type_receipts = {
+                            key: value.model_dump(mode="json")
+                            for key, value in schema_receipt.types.items()
+                        }
+                        failed_types = [
+                            key
+                            for key, value in type_receipts.items()
+                            if value.get("status") in {"failed", "cancelled"}
+                        ]
+                        if failed_types or schema_receipt.write_status == "failed":
+                            raise RuntimeError(
+                                f"MindMemOS schema add failed for types: {failed_types}"
+                            )
+                        operations = tuple(
+                            ExperienceOperation(
+                                operation=str(item.operation),
+                                memory_id=item.memory_id,
+                                memory_type=item.mem_type,
+                                content=str(item.content or ""),
+                                related_memory_ids=tuple(item.related_memory_ids),
+                            )
+                            for item in add_result.memories
+                        )
+                        active_memory_ids = await self._verified_schema_episode(
+                            operations, type_receipts, context
+                        )
+                    except Exception as exc:
+                        job["add"] = {
+                            "status": "failed",
+                            "attempt": add_attempt,
+                            "attempts_allowed": _SCHEMA_ADD_ATTEMPTS,
+                            "error": f"{type(exc).__name__}: {exc}",
+                        }
+                        if add_attempt >= _SCHEMA_ADD_ATTEMPTS:
+                            raise
+                        self._write_json(job_path, job)
+                        await asyncio.sleep(_SCHEMA_ADD_BACKOFF_S * add_attempt)
+                        continue
+                    job["add"] = {
+                        "status": "completed",
+                        "ingress": "episode",
+                        "algorithm": "schema_add_v1",
+                        "add_record_id": add_record_id,
+                        "episode_id": schema_receipt.episode_id,
+                        "write_status": schema_receipt.write_status,
+                        "types": type_receipts,
+                        "operations": [asdict(item) for item in operations],
+                        "active_memory_ids": list(active_memory_ids),
+                        "attempts": add_attempt,
+                    }
+                    self._write_json(job_path, job)
+                    break
             operations = tuple(
                 ExperienceOperation(
                     operation=item["operation"],
@@ -216,9 +239,7 @@ class SessionFinalizer:
                 )
                 implicit = await self._mindmemos.feedback_implicit(context)
                 await self._verify_feedback_result(implicit, context)
-                actions = [
-                    action.model_dump(mode="json") for action in implicit.actions
-                ]
+                actions = [action.model_dump(mode="json") for action in implicit.actions]
                 job["implicit_feedback"] = {
                     "status": "completed",
                     "actions": actions,
@@ -251,8 +272,7 @@ class SessionFinalizer:
                 job["dreaming"] = {"status": dreaming_outcome}
                 self._write_json(job_path, job)
             elif (
-                self._dreaming_coordinator is not None
-                and job["dreaming"].get("status") == "failed"
+                self._dreaming_coordinator is not None and job["dreaming"].get("status") == "failed"
             ):
                 current_phase = "dreaming"
                 outcome = await self._dreaming_coordinator.retry_pending(
@@ -380,9 +400,7 @@ class SessionFinalizer:
                 or getattr(raw, "status", None) != "active"
                 or getattr(raw, "mem_type", None) != expected_native[domain]
             ):
-                raise RuntimeError(
-                    f"schema add raw memory verification failed: {memory_id}"
-                )
+                raise RuntimeError(f"schema add raw memory verification failed: {memory_id}")
             try:
                 record = json.loads(str(getattr(raw, "content", "")))
             except json.JSONDecodeError as exc:
@@ -405,23 +423,17 @@ class SessionFinalizer:
             ):
                 current = await self._mindmemos.get_raw(new_memory_id, context)
                 if current is None or getattr(current, "status", None) != "active":
-                    raise RuntimeError(
-                        f"schema add updated memory is not active: {new_memory_id}"
-                    )
+                    raise RuntimeError(f"schema add updated memory is not active: {new_memory_id}")
                 predecessor = await self._mindmemos.get_raw(predecessor_id, context)
                 if predecessor is None or getattr(predecessor, "status", None) != "archived":
-                    raise RuntimeError(
-                        f"schema add predecessor was not archived: {predecessor_id}"
-                    )
+                    raise RuntimeError(f"schema add predecessor was not archived: {predecessor_id}")
                 if not await self._mindmemos.has_memory_lineage(
                     source_memory_id=new_memory_id,
                     target_memory_id=predecessor_id,
                     relationship="DERIVED_FROM",
                     context=context,
                 ):
-                    raise RuntimeError(
-                        f"schema add lineage verification failed: {new_memory_id}"
-                    )
+                    raise RuntimeError(f"schema add lineage verification failed: {new_memory_id}")
         return tuple(dict.fromkeys(memory_ids))
 
     async def _verify_feedback_result(self, result: Any, context: Any) -> None:
@@ -537,8 +549,7 @@ class SessionFinalizer:
                 parts = [f"tool: {name}", f"status: {status}"]
                 if arguments not in (None, {}, ""):
                     parts.append(
-                        "arguments: "
-                        + json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+                        "arguments: " + json.dumps(arguments, ensure_ascii=False, sort_keys=True)
                     )
                 if result not in (None, ""):
                     parts.append(f"result:\n{result}")

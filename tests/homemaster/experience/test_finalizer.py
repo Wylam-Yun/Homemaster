@@ -1,12 +1,32 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from homemaster.experience import SessionFinalizer
+
+
+@pytest.fixture(autouse=True)
+def _fake_mindmemos_typing(monkeypatch):
+    try:
+        import mindmemos.typing  # noqa: F401
+
+        return
+    except ModuleNotFoundError:
+        pass
+    module = types.ModuleType("mindmemos.typing")
+
+    class MemoryRequestContext:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    module.MemoryRequestContext = MemoryRequestContext
+    monkeypatch.setitem(sys.modules, "mindmemos.typing", module)
 
 
 class RecordingEventSink:
@@ -23,11 +43,13 @@ class FakeMindMemOS:
 
     async def add_schema_episode(self, episode, context, *, metadata):
         self.calls.append((episode, context, metadata))
+
         def type_result(**values: object) -> SimpleNamespace:
             return SimpleNamespace(
                 model_dump=lambda **_kwargs: values,
                 **values,
             )
+
         return SimpleNamespace(
             add_record_id="add-record-1",
             result=SimpleNamespace(
@@ -284,6 +306,74 @@ async def test_finalizer_collects_session_and_persists_schema_result(tmp_path: P
 
 
 @pytest.mark.asyncio
+async def test_finalizer_retries_transient_add_failure_then_completes(
+    tmp_path: Path,
+) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+
+    class FlakyMindMemOS(FakeMindMemOS):
+        def __init__(self) -> None:
+            super().__init__()
+            self.add_attempts = 0
+
+        async def add_schema_episode(self, episode, context, *, metadata):
+            self.add_attempts += 1
+            if self.add_attempts < 3:
+                raise RuntimeError("transient extraction failure")
+            return await super().add_schema_episode(episode, context, metadata=metadata)
+
+    mindmemos = FlakyMindMemOS()
+    result = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=mindmemos,
+    ).finalize("s1", "user_exit")
+
+    assert result.status == "completed"
+    assert mindmemos.add_attempts == 3
+    jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
+    job = json.loads(jobs[0].read_text(encoding="utf-8"))
+    assert job["status"] == "completed"
+    assert job["add"]["status"] == "completed"
+    assert job["add"]["attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_finalizer_add_retry_is_bounded_and_records_attempts(
+    tmp_path: Path,
+) -> None:
+    trace = tmp_path / "runtime_events.jsonl"
+    _write_events(trace)
+
+    class AlwaysFailingMindMemOS(FakeMindMemOS):
+        def __init__(self) -> None:
+            super().__init__()
+            self.add_attempts = 0
+
+        async def add_schema_episode(self, *args, **kwargs):
+            self.add_attempts += 1
+            raise RuntimeError("provider permanently unavailable")
+
+    mindmemos = AlwaysFailingMindMemOS()
+    result = await SessionFinalizer(
+        trace_path=trace,
+        data_root=tmp_path / "memory",
+        mindmemos=mindmemos,
+    ).finalize("s1", "eof")
+
+    assert result.status == "failed"
+    assert mindmemos.add_attempts == 3
+    assert "provider permanently unavailable" in result.error
+    jobs = list((tmp_path / "memory" / "experience_jobs").glob("*/job.json"))
+    job = json.loads(jobs[0].read_text(encoding="utf-8"))
+    assert job["status"] == "failed"
+    assert job["failed_phase"] == "add"
+    assert job["add"]["status"] == "failed"
+    assert job["add"]["attempts_allowed"] == 3
+
+
+@pytest.mark.asyncio
 async def test_finalizer_failure_does_not_raise(tmp_path: Path) -> None:
     trace = tmp_path / "runtime_events.jsonl"
     _write_events(trace)
@@ -316,9 +406,7 @@ async def test_finalizer_retries_implicit_without_repeating_add(tmp_path: Path) 
             del context
             self.implicit_calls += 1
             if self.implicit_calls == 1:
-                return SimpleNamespace(
-                    status="error", message="provider rejected", actions=[]
-                )
+                return SimpleNamespace(status="error", message="provider rejected", actions=[])
             return SimpleNamespace(status="ok", message=None, actions=[])
 
     mindmemos = RetryMindMemOS()
@@ -357,9 +445,7 @@ async def test_finalizer_persists_failed_phase_and_typed_event(tmp_path: Path) -
     class FailingImplicit(FakeMindMemOS):
         async def feedback_implicit(self, context):
             del context
-            return SimpleNamespace(
-                status="error", message="planner rejected", actions=[]
-            )
+            return SimpleNamespace(status="error", message="planner rejected", actions=[])
 
     event_sink = RecordingEventSink()
     result = await SessionFinalizer(

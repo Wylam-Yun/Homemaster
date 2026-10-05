@@ -1,5 +1,17 @@
 # Unreleased
 
+- Session finalizer now retries the MindMemOS schema `add` phase up to 3
+  attempts with linear backoff before declaring an episode's memory write
+  lost. Schema extraction is LLM-stochastic and a malformed candidate fails
+  the whole batch by design; previously one transient extraction failure
+  permanently dropped the episode's schema memories (job stayed `pending`
+  with no re-entry trigger). The stable `job_id`/`add_record_id` make each
+  retry idempotent — MindMemOS re-enters via `mark_add_processing` with a
+  fresh extraction sample. Per-attempt evidence (`attempt`,
+  `attempts_allowed`, last `error`) is persisted into `job["add"]`, and the
+  completed receipt records how many attempts it took. Batch fail-closed
+  semantics are unchanged per attempt.
+
 - ALFWorld harness path now persists trajectory steps again. Since the
   Oracle Harness landed (`2d265dc`), `_execute_harness` short-circuited
   every `robot_go_to`/`robot_manipulate`/`robot_verify` call and never
