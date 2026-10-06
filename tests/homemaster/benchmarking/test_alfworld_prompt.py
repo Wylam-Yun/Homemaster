@@ -33,14 +33,17 @@ def test_episode_prompt_requires_tools_and_omits_admissible_commands() -> None:
     )
 
     assert "must use tools" in prompt.lower()
-    assert "raw ALFWorld commands" in prompt
+    assert "raw environment commands" in prompt
     assert "move {object} to {target_receptacle}" in prompt
     assert "go to countertop 1" not in prompt
     assert "admissible_commands" not in prompt
-    assert "Embedded MindMemOS is available" in prompt
-    assert "automatic recall" in prompt
+    assert "recalled automatically" in prompt
+    assert "memory tools may be used" in prompt
     assert "Memory tools are not available" not in prompt
-    assert "50 ALFWorld environment action steps" in prompt
+    assert "50 environment action steps" in prompt
+    # Deployment names must not leak into model-visible prompt text.
+    assert "ALFWorld" not in prompt
+    assert "MindMemOS" not in prompt
     assert "stand at the microwave while holding the object" in prompt
     assert "Do not open, put into, close, or use the microwave" in prompt
     assert "stand at the fridge while holding the object" in prompt
@@ -77,11 +80,15 @@ def test_visual_eval_prompt_omits_text_observation_and_scores() -> None:
     )
 
     assert "Use the explicit observe tool" in prompt
-    assert "Action results provide receipts and minimal execution status" in prompt
-    assert "Call observe after actions" in prompt
+    # Observation/verify/progress rules live in the deployment system prompt,
+    # not duplicated in the benchmark episode message.
+    assert "Action results provide receipts" not in prompt
+    assert "Call observe after actions" not in prompt
     assert "robot_inspect_view" not in prompt
-    assert "task_progress_check only to record progress judgments" in prompt
-    assert "robot_verify only to ask whether ALFWorld reports" in prompt
+    assert "task_progress_check" not in prompt
+    assert "robot_verify" not in prompt
+    assert "ALFWorld" not in prompt
+    assert "MindMemOS" not in prompt
     assert "Your task is to: look at mug under the desklamp" in prompt
     assert "hold the target object in inventory" in prompt
     assert "turn on the named lamp while still holding the object" in prompt

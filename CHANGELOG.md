@@ -1,5 +1,22 @@
 # Unreleased
 
+- Prompt layer decoupled: deployment/implementation names no longer leak
+  into model-visible text. The benchmark episode prompt said "inside
+  ALFWorld", "Embedded MindMemOS is available", and "ALFWorld
+  won=true/navigation names" — names the model cannot act on and which
+  break the general-agent contract. Episode text now describes the
+  capability ("simulated household environment", "the environment's
+  won=true verdict", "environment action steps") and memory support as
+  "relevant memories may be recalled automatically". The observe/verify/
+  progress rules that were duplicated in both the system prompt and the
+  episode prompt now live only in the system prompt (with the
+  "observing is not required after every action" nuance merged in). The
+  `agent_system_prompt.md` "ALFWorld navigation names" leak and the
+  cross-profile browser reference are removed. Stored skill names/page
+  (`alfworld_compiler`) and the model-visible "ALFWorld tool requires..."
+  error message are scrubbed too. Regression guard: the episode prompt
+  test asserts `ALFWorld`/`MindMemOS` never appear.
+
 - MindMemOS teardown now closes LiteLLM's async HTTP clients
   (`close_llm_clients()`), not just the router cache. The aiohttp
   `ClientSession`s litellm creates for feedback/dreaming calls were being

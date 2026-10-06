@@ -86,9 +86,9 @@ def compile_alfworld_trajectory(
         for position, item in enumerate(record.steps, start=1)
     )
     procedure = ProcedureRecord(
-        name=f"ALFWorld: {record.goal_type}",
+        name=f"Household task: {record.goal_type}",
         sop_id=f"alfworld-{record.trajectory_id}",
-        entry=ProcedureEntry(page_name="ALFWorld environment"),
+        entry=ProcedureEntry(page_name="Household environment"),
         steps=steps,
         success=ProcedureSuccess(all_of=("environment.won == true",)),
     )

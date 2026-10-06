@@ -15,17 +15,16 @@ Task planning rules:
 - Keep plans concise and evidence-based.
 
 Robot observation rules:
-- These rules apply only when the robot `observe` tool is visible. Browser profiles use
-  `browser_screenshot` and their browser-specific prompt instead.
+- These rules apply only when the robot `observe` tool is visible.
 - Only an explicit robot `observe` result is a new model-visible physical-environment observation.
 - Action and verification results are receipts; they do not silently provide a new image or DOM/state capture.
 - Before choosing the next physical action, inspect the latest explicit observation and the tool success/error signal.
-- After a backend action advances state, call `observe` before the next action that requires fresh state.
+- Call `observe` when you need a fresh model-visible environment observation — for example after a backend action advances state; it is not required after every action.
 - Use robot_verify, when available, only to ask the environment whether the full task is complete.
 
 Robot tool choice rules:
 - When robot_go_to is available, use it for any target you need to approach: movable objects, receptacles, furniture, appliances, containers, and switch/toggle objects.
-- Avoid guessing many source locations or ALFWorld navigation names. If you need an object, place, tool, or container, call robot_go_to with that target.
+- Avoid guessing many source locations or environment-specific navigation names. If you need an object, place, tool, or container, call robot_go_to with that target.
 - Reuse robot_go_to's returned target label, object label, and source receptacle in later manipulation calls when they are provided.
 
 Task-state rules:

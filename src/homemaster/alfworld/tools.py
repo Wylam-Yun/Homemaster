@@ -486,7 +486,7 @@ class _AlfworldExecutor:
                 status=ToolExecutionStatus.FAILURE,
                 error=ToolExecutionError(
                     code="missing_runtime_context",
-                    message="ALFWorld tool requires a connected run context",
+                    message="Tool requires a connected run context",
                 ),
             )
         message = self._function(arguments=dict(arguments), run_context=run_context)
