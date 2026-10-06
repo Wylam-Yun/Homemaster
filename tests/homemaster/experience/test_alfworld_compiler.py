@@ -50,7 +50,12 @@ def test_success_compiles_to_executable_safe_procedure():
     assert result.procedure is not None
     assert [step.action for step in result.procedure.steps] == ["navigate", "put"]
     assert result.procedure.success.all_of == ("environment.won == true",)
-    assert "/private" not in result.model_dump_json()
+    dumped = result.model_dump_json()
+    assert "/private" not in dumped
+    # Stored records are injected verbatim into <memory-context> — no
+    # implementation/benchmark names may reach model-visible text.
+    assert "ALFWorld" not in dumped
+    assert "MindMemOS" not in dumped
 
 
 def test_failure_compiles_only_to_diagnostic():

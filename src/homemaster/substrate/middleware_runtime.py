@@ -255,7 +255,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
     def _render(self, input_kwargs: dict, prepared: Any) -> tuple[list[Any], Any]:
         """Rebuild the model input: HM system prompt (assembler is the
         authority — it carries workspace/frozen-memory context the bare AS
-        prompt lacks) + observation-barrier suffix + assembled messages.
+        prompt lacks) + assembled messages.
         ``_prepare_model_input``'s messages[0] SystemMsg is replaced because
         AS's own ``_system_prompt`` is a strict subset."""
         from agentscope.message import SystemMsg

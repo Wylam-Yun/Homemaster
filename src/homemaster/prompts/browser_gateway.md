@@ -14,7 +14,7 @@ read-only. Actions require exact or explicitly indexed semantic targets.
 
 Every browser write or interaction must be the only tool call in its model response. Never batch
 it with task-state updates, reads, waits, navigation, or another write. Browser actions do not
-force an observe or screenshot round trip. Call `browser_screenshot` explicitly when layout,
+force a screenshot round trip. Call `browser_screenshot` explicitly when layout,
 charts, canvas, images, or visual obstruction matter. A screenshot does not by itself prove
 business completion or grant an action reference.
 

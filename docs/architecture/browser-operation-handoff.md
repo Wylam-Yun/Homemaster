@@ -377,7 +377,7 @@ session.append(UserMessage)
 几个开发时必须知道的分支：
 
 - provider stream 失败时，只有在没有提交 assistant/tool/external action 的情况下才允许 retry；retry 使用同一份 frozen request body。
-- tool call 中包含需要 model observation 的动作时，必须是该 batch 唯一调用，否则返回 `model_observation_batch_rejected`，不进入 backend。
+- browser write/interaction 的 batch 唯一性由 prompt 层约束（browser_gateway.md），runtime 不再做 model-observation 批闸。
 - tool result 的 ID 集合必须与 assistant tool call ID 集合完全相等；缺 ID 直接 `tool_result_id_mismatch` 结束 run。
 - cancellation 发生在 LLM 或工具执行中时，先发布已有结果，再返回 cancelled；不能把取消伪装成正常 final。
 

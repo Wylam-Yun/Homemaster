@@ -206,7 +206,7 @@ class AlfworldPermissionAdapter:
         ):
             if not callable(getattr(candidate, attr, None)):
                 raise TargetUnresolved(
-                    "no ALFWorld backend is wired for the permission adapter"
+                    "no environment backend is wired for the permission adapter"
                 )
         return candidate  # type: ignore[return-value]
 
@@ -330,7 +330,7 @@ class AlfworldPermissionAdapter:
                 primary_allowed=_GROUNDING_ROLES["object"]
                 | _GROUNDING_ROLES["target_receptacle"],
             )
-        raise TargetUnresolved(f"action {spelling!r} has no ALFWorld mapping")
+        raise TargetUnresolved(f"action {spelling!r} has no environment mapping")
 
     def _plan_use(
         self, args: dict[str, Any], backend: AlfworldBackend
@@ -672,7 +672,7 @@ def _receipt_from_step(step_result: Any) -> BackendReceipt:
     feedback = getattr(step_result, "feedback", "")
     return BackendReceipt(
         ok=bool(ok) if isinstance(ok, bool) else None,
-        backend_code=str(failure) if failure else "thor-ok",
+        backend_code=str(failure) if failure else "ok",
         detail=str(feedback or ""),
     )
 
@@ -736,14 +736,14 @@ def _result_for_receipt(op: _StepOp, receipt: BackendReceipt) -> ToolExecutionRe
     if receipt.ok is True:
         return ToolExecutionResult(
             status=ToolExecutionStatus.SUCCESS,
-            text=f"alfworld {op.call.kind} completed ({receipt.backend_code})",
+            text=f"{op.call.kind} completed ({receipt.backend_code})",
             data=metadata,
             backend_attempted=True,
         )
     if receipt.ok is None:
         return ToolExecutionResult(
             status=ToolExecutionStatus.OUTCOME_UNKNOWN,
-            text=f"alfworld {op.call.kind} outcome is unknown ({receipt.backend_code})",
+            text=f"{op.call.kind} outcome is unknown ({receipt.backend_code})",
             data=metadata,
             error=ToolExecutionError("execution_unknown", "backend outcome is unknown"),
             backend_attempted=True,
@@ -751,7 +751,7 @@ def _result_for_receipt(op: _StepOp, receipt: BackendReceipt) -> ToolExecutionRe
         )
     return ToolExecutionResult(
         status=ToolExecutionStatus.FAILURE,
-        text=f"alfworld {op.call.kind} failed ({receipt.backend_code})",
+        text=f"{op.call.kind} failed ({receipt.backend_code})",
         data=metadata,
         error=ToolExecutionError("execution_failed", "backend reported failure"),
         backend_attempted=True,

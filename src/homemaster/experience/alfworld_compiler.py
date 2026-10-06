@@ -112,7 +112,7 @@ def _compile_step(step: Any, *, order: int) -> ProcedureStep:
     if target_value is not None and safe_target is None:
         raise ValueError("unsupported internal ALFWorld target")
     target = SemanticTarget(
-        page_name="ALFWorld environment",
+        page_name="Household environment",
         name=safe_target or action,
     )
     raw_expect = payload.get("expect")
@@ -125,7 +125,7 @@ def _compile_step(step: Any, *, order: int) -> ProcedureStep:
         action=action,
         target=target,
         expect=expect,
-        note="Compiled from a verified ALFWorld trajectory.",
+        note="Compiled from a verified trajectory.",
     )
 
 

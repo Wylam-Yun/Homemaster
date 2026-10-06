@@ -89,7 +89,7 @@ def test_memory_definitions_lock_names_permissions_and_model_prohibitions() -> N
 
     search_description = by_name["mindmemos_search"].definition.description
     assert "Search long-term memory by meaning" in search_description
-    assert "native MindMemOS types" in search_description
+    assert "memory types" in search_description
     assert "tool traces" in search_description
     assert "Search again" in search_description
     feedback = by_name["mindmemos_feedback"]

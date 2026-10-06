@@ -1,5 +1,18 @@
 # Unreleased
 
+- Second scrub pass after independent review: model-visible text in
+  `alfworld/tools.py` descriptions and error fallbacks,
+  `alfworld_compiler.py` per-step `page_name`/`note` (verbatim-injected
+  into `<memory-context>` on recall), `memory_tools.py` descriptions and
+  rejection messages, and `alfworld/permission_adapter.py` result text /
+  `backend_code` no longer name ALFWorld, MindMemOS, or the thor backend.
+  New regression sweep asserts every composed tool profile's
+  provider-visible descriptions contain no implementation names, and the
+  compiler's serialized output is asserted name-free. Stale docstrings
+  and the browser-operation handoff doc were updated to match the
+  removed batch-fence semantics; the deleted module/prompt files are now
+  pinned in `REMOVED_DEAD_PATHS`.
+
 - Forced model-observation machinery removed. The runtime carried a full
   coercion layer — `ObservationBarrierMiddleware`, automatic post-action
   `observe` calls, a pending-barrier stop gate, "observe+mutation in one

@@ -130,7 +130,7 @@ class SearchMemoriesInput(_MemoryToolInput):
     memory_type: NativeMemoryType | None = Field(
         default=None,
         description=(
-            "Optional native MindMemOS type: profile, fact, experience, episodic, "
+            "Optional memory type filter: profile, fact, experience, episodic, "
             "tool_trace, skill_candidate, or file_knowledge. Omit to search all types."
         ),
     )
@@ -887,7 +887,7 @@ class UpdateMemoryExecutor:
         if result.status != "ok" or not isinstance(result.memory_id, str):
             return _failure(
                 "memory_backend_rejected",
-                result.message or "MindMemOS versioned update was rejected",
+                result.message or "Memory versioned update was rejected",
                 attempted=True,
             )
         old = await store.get_raw(current.memory_id, memory_context)
@@ -944,7 +944,7 @@ class UpdateMemoryExecutor:
         if result.status != "ok":
             return _failure(
                 "memory_backend_rejected",
-                result.message or "MindMemOS update was rejected",
+                result.message or "Memory update was rejected",
                 attempted=True,
             )
         updated = await store.get_raw(current.memory_id, memory_context)
@@ -1321,7 +1321,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "context_memory",
-                "Save compact, high-signal notes that are injected into future sessions. Use target='user' for the user's identity, preferences, communication style, and stable habits. Use target='memory' for recent decisions, results, and unfinished work that should carry across sessions. Do not use this for searchable external facts, procedures, or past task experiences; use the MindMemOS tools for those.",
+                "Save compact, high-signal notes that are injected into future sessions. Use target='user' for the user's identity, preferences, communication style, and stable habits. Use target='memory' for recent decisions, results, and unfinished work that should carry across sessions. Do not use this for searchable external facts, procedures, or past task experiences; use the memory search/add tools for those.",
                 FileMemoryInput,
                 mutating=True,
             ),
@@ -1339,7 +1339,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "mindmemos_search",
-                "Search long-term memory by meaning across native MindMemOS types: profiles, facts, experiences, episodes, tool traces, skill candidates, and file knowledge. Use it when the current request may benefit from prior knowledge, previous attempts, or reusable tool behavior. Search again with different wording or follow-up queries when earlier results reveal useful clues.",
+                "Search long-term memory by meaning across memory types: profiles, facts, experiences, episodes, tool traces, skill candidates, and file knowledge. Use it when the current request may benefit from prior knowledge, previous attempts, or reusable tool behavior. Search again with different wording or follow-up queries when earlier results reveal useful clues.",
                 SearchMemoriesInput,
             ),
             MemoryAuditExecutor("mindmemos_search", SearchMemoriesExecutor(), SearchMemoriesInput),
@@ -1377,7 +1377,7 @@ def build_memory_tools() -> tuple[RegisteredTool, ...]:
         RegisteredTool(
             _definition(
                 "mindmemos_feedback",
-                "Review concrete user feedback about long-term memory and let MindMemOS decide whether to add a new memory, create a corrected version of an existing memory, archive an incorrect memory, or leave memory unchanged. Use this when the user has corrected a fact, changed the scope of a preference or procedure, or said that remembered information is outdated, but the correct memory action is not already determined by one exact memory ID and one complete replacement record. Pass the user's concrete correction, scope change, or instruction. Do not use this when you already have an exact memory ID and a complete replacement record; use mindmemos_update instead. Do not use this when the user explicitly asks to forget one exact memory; use mindmemos_delete instead. Do not use it for a vague complaint with no correction, ordinary task failure, or praise with no requested memory change.",
+                "Review concrete user feedback about long-term memory and let the memory backend decide whether to add a new memory, create a corrected version of an existing memory, archive an incorrect memory, or leave memory unchanged. Use this when the user has corrected a fact, changed the scope of a preference or procedure, or said that remembered information is outdated, but the correct memory action is not already determined by one exact memory ID and one complete replacement record. Pass the user's concrete correction, scope change, or instruction. Do not use this when you already have an exact memory ID and a complete replacement record; use mindmemos_update instead. Do not use this when the user explicitly asks to forget one exact memory; use mindmemos_delete instead. Do not use it for a vague complaint with no correction, ordinary task failure, or praise with no requested memory change.",
                 FeedbackMemoryInput,
                 mutating=True,
             ),

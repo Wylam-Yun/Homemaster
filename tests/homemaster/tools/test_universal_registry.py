@@ -172,6 +172,42 @@ def test_every_composed_tool_implements_the_complete_public_contract() -> None:
         assert callable(tool.validate_identity), tool.name
 
 
+def test_model_visible_tool_text_contains_no_implementation_names() -> None:
+    """Provider-visible tool prose must not leak implementation/benchmark
+    names — the model has no concept of ALFWorld or MindMemOS. Scans
+    descriptions (tool + schema fields), not tool names: `mindmemos_*`
+    tool aliases are the deployment's legitimate interface."""
+    from homemaster.adapters.profiles import build_tool_registry
+
+    banned = ("ALFWorld", "alfworld", "AlfredThor", "ThorEnv", "MindMemOS", "mindmemos")
+
+    def _prose(node: object) -> list[str]:
+        texts: list[str] = []
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key == "description" and isinstance(value, str):
+                    texts.append(value)
+                else:
+                    texts.extend(_prose(value))
+        elif isinstance(node, list):
+            for item in node:
+                texts.extend(_prose(item))
+        return texts
+
+    for environment in ("local_robot", "alfworld", "browser"):
+        registry = build_tool_registry(environment=environment)
+        for tool in registry.list_tools():
+            definition = getattr(tool, "definition", None)
+            if definition is None:
+                continue
+            texts = [definition.description]
+            texts += _prose(definition.input_schema)
+            texts += _prose(definition.output_schema)
+            for text in texts:
+                for name in banned:
+                    assert name not in text, (environment, tool.name, name)
+
+
 def test_model_observation_flag_removed_from_tool_contract() -> None:
     """``requires_model_observation`` was deleted from the tool contract —
     observation is a deployment capability, not a per-tool coercion. Guard

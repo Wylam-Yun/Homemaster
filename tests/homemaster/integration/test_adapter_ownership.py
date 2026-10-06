@@ -30,6 +30,8 @@ FORBIDDEN_CONSTRUCTORS = {
 
 REMOVED_DEAD_PATHS = (
     "src/homemaster/agent/generic_runtime.py",
+    "src/homemaster/agent/model_observation.py",
+    "src/homemaster/prompts/model_observation_required.txt",
     "src/homemaster/alfworld/registry.py",
     "src/homemaster/alfworld/runtime_contract.py",
     "src/homemaster/benchmarking/browser_demo/trajectory.py",

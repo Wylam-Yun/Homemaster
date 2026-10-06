@@ -505,7 +505,7 @@ class _AlfworldExecutor:
                 evidence_refs=evidence_refs,
                 backend_attempted=attempted,
             )
-        reason = str(data.get("failure_reason") or data.get("error") or "ALFWorld action failed")
+        reason = str(data.get("failure_reason") or data.get("error") or "Environment action failed")
         error_code = str(data.get("error_code") or data.get("error") or "alfworld_action_failed")
         status = (
             ToolExecutionStatus.INVALID
@@ -544,7 +544,7 @@ def _registered(
 def make_alfworld_robot_go_to() -> RegisteredTool:
     return _registered(
         "robot_go_to",
-        "Move directly to a named ALFWorld target using the navigation backend.",
+        "Move directly to a named navigation target.",
         {
             "type": "object",
             "properties": {"target": {"type": "string"}},
@@ -557,7 +557,7 @@ def make_alfworld_robot_go_to() -> RegisteredTool:
 def make_alfworld_robot_manipulate() -> RegisteredTool:
     return _registered(
         "robot_manipulate",
-        "Execute one high-level ALFWorld manipulation action.",
+        "Execute one high-level manipulation action.",
         {
             "type": "object",
             "properties": {
@@ -589,7 +589,7 @@ def make_alfworld_robot_manipulate() -> RegisteredTool:
 def make_alfworld_robot_verify() -> RegisteredTool:
     return _registered(
         "robot_verify",
-        "Check whether ALFWorld reports the task as won.",
+        "Check whether the environment reports the task as won.",
         {
             "type": "object",
             "properties": {"expected_done": {"type": "string"}},
