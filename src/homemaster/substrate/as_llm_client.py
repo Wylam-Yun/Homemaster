@@ -21,6 +21,7 @@ Invariants preserved (Phase-1 hard gates):
 
 from __future__ import annotations
 
+import inspect
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -121,6 +122,11 @@ class AsLLMClient:
         # defaults to ``chat_model_from_profile``.
         self._model_factory = model_factory
         self._token_estimator = make_default_estimator(provider)
+        # Chat models (and their SDK/httpx clients) are run-scoped: cache
+        # one per provider key so every call reuses the same connection
+        # pool, and ``aclose()`` can shut them down deterministically
+        # inside the event loop instead of leaking them to post-loop GC.
+        self._models: dict[int, Any] = {}
 
     @property
     def token_estimator(self) -> TokenEstimator:
@@ -150,12 +156,17 @@ class AsLLMClient:
                 message="no API keys configured",
                 cause_code="no_keys",
             )
+        cached = self._models.get(provider_key_index)
+        if cached is not None:
+            return cached
         api_key = self._provider.api_keys[provider_key_index] if self._provider.api_keys else None
-        return model_factory(
+        model = model_factory(
             self._provider,
             api_key=api_key,
             timeout_s=self._timeout_s,
         )
+        self._models[provider_key_index] = model
+        return model
 
     async def complete(
         self,
@@ -208,12 +219,6 @@ class AsLLMClient:
         from agentscope.message import Msg, TextBlock
         from agentscope.model import FinishedReason
 
-        model_factory = self._model_factory
-        if model_factory is None:
-            from homemaster.substrate.models import chat_model_from_profile
-
-            model_factory = chat_model_from_profile
-
         sink = event_sink or self._event_sink
         effective_run_id = run_id or self._run_id
         keyless = self._provider.api_format == "ollama"
@@ -227,7 +232,6 @@ class AsLLMClient:
             max(provider_key_index, 0), max(len(self._provider.api_keys) - 1, 0)
         )
         key_index = selected_key_index + 1
-        api_key = self._provider.api_keys[selected_key_index] if self._provider.api_keys else None
 
         request_hash = ""
         recorded = False
@@ -255,11 +259,7 @@ class AsLLMClient:
                     else "max_completion_tokens"
                 )
                 call_kwargs[token_key] = effective_max_tokens
-            model = model_factory(
-                self._provider,
-                api_key=api_key,
-                timeout_s=self._timeout_s,
-            )
+            model = self.chat_model(provider_key_index=selected_key_index)
             request_body = {
                 "model": self._provider.model,
                 "messages": [_stable_msg_view(m) for m in as_messages],
@@ -478,7 +478,23 @@ class AsLLMClient:
         )
 
     async def aclose(self) -> None:
-        """SDK clients are scoped per call; no persistent handle to close."""
+        """Close every cached model's SDK client while the loop is alive.
+
+        ``AsyncAnthropic``/``AsyncOpenAI`` own an ``httpx.AsyncClient``; left
+        to GC they close after the event loop is gone and spam stderr with
+        ``Event loop is closed``. The resource scope invokes this before
+        loop teardown, so the pool shuts down deterministically here.
+        """
+        models = list(self._models.values())
+        self._models.clear()
+        for model in models:
+            client = getattr(model, "client", None)
+            close = getattr(client, "close", None)
+            if close is None:
+                continue
+            result = close()
+            if inspect.isawaitable(result):
+                await result
 
 
 async def _one_shot(response: Any) -> AsyncIterator[Any]:

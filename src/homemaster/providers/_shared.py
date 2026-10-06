@@ -57,6 +57,24 @@ class LLMJsonResponse:
 def map_sdk_error(exc: Exception) -> LLMClientError:
     if isinstance(exc, LLMClientError):
         return exc
+    import httpx
+
+    # Raw httpx transport failures can escape the SDK's own exception mapping
+    # mid-stream (e.g. ``RemoteProtocolError`` on an incomplete chunked read).
+    # The class name carries none of the heuristic tokens below, so without
+    # this branch the retry gate misclassifies them as opaque provider errors.
+    # Only the transient family maps here — ``LocalProtocolError``/
+    # ``ProxyError``/``UnsupportedProtocol`` are deterministic config or
+    # client bugs where retry is waste.
+    if isinstance(
+        exc,
+        (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError),
+    ):
+        return LLMNetworkError(
+            error_type="network_error",
+            message=_extract_error_message(exc),
+            cause_code="transient_network",
+        )
     name = type(exc).__name__.lower()
     message = _extract_error_message(exc)
     if "authentication" in name or "permission" in name or "unauthorized" in message.lower():

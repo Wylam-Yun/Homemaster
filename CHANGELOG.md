@@ -1,5 +1,26 @@
 # Unreleased
 
+- Provider retry now covers mid-stream transport drops. A live 100-episode
+  ALFWorld run surfaced `RemoteProtocolError: peer closed connection
+  without sending complete message body` killing an episode with no retry:
+  `map_sdk_error` classified raw httpx exceptions by class-name substring
+  ("timeout"/"network"/"connection"), which `RemoteProtocolError` never
+  matches, so the pre-commit retry gate saw a generic `provider_error` and
+  refused. `httpx.TimeoutException`/`NetworkError`/`RemoteProtocolError`
+  now map to `transient_network`; deterministic transport bugs
+  (`LocalProtocolError`/`ProxyError`/`UnsupportedProtocol`) stay
+  non-retryable. The existing pre-commit boundary is unchanged — a drop is
+  only retried while nothing but reasoning chunks has been emitted.
+
+- `AsLLMClient` now caches one `ChatModelBase` per provider key for the
+  client's lifetime and `aclose()` shuts down each model's SDK client
+  (`AsyncAnthropic`/`AsyncOpenAI` → `httpx.AsyncClient`) inside the event
+  loop. Previously every `chat_model()`/`stream()` call built a fresh model
+  whose httpx pool was never closed, so ~1 client per run was reclaimed by
+  GC after loop teardown and spammed `Task exception was never retrieved:
+  Event loop is closed` (~90 lines over a 100-episode run). Caching also
+  restores connection reuse across calls in a run.
+
 - Vendored MindMemOS: implicit-feedback supplemental memory recall is now
   non-fatal. `_supplemental_search_memories` rewrote each session's recorded
   search query through an LLM step whose contract assumes a short user-typed

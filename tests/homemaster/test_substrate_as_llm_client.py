@@ -229,3 +229,93 @@ async def test_interrupted_stream_raises_typed_error() -> None:
     with pytest.raises(LLMClientError):
         async for _ in _client(model).stream([UserMessage.from_text("hi")]):
             pass
+
+
+class _FakeSdkClient:
+    """Stands in for ``AsyncAnthropic``/``AsyncOpenAI`` on ``model.client``."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
+def _model_with_client(chunks: list[Any] | None = None) -> FakeModel:
+    model = FakeModel(chunks or [])
+    model.client = _FakeSdkClient()
+    return model
+
+
+def test_chat_model_caches_per_key_index() -> None:
+    built: list[FakeModel] = []
+
+    def _factory(profile, *, api_key=None, timeout_s=None):
+        model = _model_with_client()
+        built.append(model)
+        return model
+
+    client = AsLLMClient(_profile(), model_factory=_factory)
+    first = client.chat_model()
+    assert client.chat_model() is first
+    other = client.chat_model(provider_key_index=1)
+    assert other is not first
+    assert len(built) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_reuses_cached_model() -> None:
+    built: list[FakeModel] = []
+
+    def _factory(profile, *, api_key=None, timeout_s=None):
+        model = _model_with_client(
+            [_chunks(ChatResponse(content=[], is_last=True))]
+        )
+        built.append(model)
+        return model
+
+    client = AsLLMClient(_profile(), model_factory=_factory)
+    for _ in range(3):
+        async for _delta in client.stream([UserMessage.from_text("hi")]):
+            pass
+    assert len(built) == 1
+
+
+@pytest.mark.asyncio
+async def test_aclose_closes_every_cached_model_client_once() -> None:
+    built: list[FakeModel] = []
+
+    def _factory(profile, *, api_key=None, timeout_s=None):
+        model = _model_with_client(
+            [_chunks(ChatResponse(content=[], is_last=True))]
+        )
+        built.append(model)
+        return model
+
+    client = AsLLMClient(_profile(), model_factory=_factory)
+    agent_model = client.chat_model()
+    async for _delta in client.stream([UserMessage.from_text("hi")]):
+        pass
+    async for _delta in client.stream(
+        [UserMessage.from_text("hi")], provider_key_index=1
+    ):
+        pass
+
+    await client.aclose()
+    assert [m.client.close_calls for m in built] == [1, 1]
+    assert agent_model.client.close_calls == 1
+
+    # Idempotent; models built after close are a fresh generation.
+    await client.aclose()
+    assert [m.client.close_calls for m in built] == [1, 1]
+    replacement = client.chat_model()
+    assert replacement is not agent_model
+
+
+@pytest.mark.asyncio
+async def test_aclose_tolerates_models_without_sdk_client() -> None:
+    client = AsLLMClient(
+        _profile(), model_factory=lambda *a, **kw: FakeModel([])
+    )
+    client.chat_model()
+    await client.aclose()
