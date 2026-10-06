@@ -170,18 +170,21 @@ def test_every_composed_tool_implements_the_complete_public_contract() -> None:
         assert callable(tool.is_read_only), tool.name
         assert callable(tool.to_api_schema), tool.name
         assert callable(tool.validate_identity), tool.name
-        assert isinstance(tool.requires_model_observation, bool), tool.name
 
 
-def test_only_alfworld_state_changing_tools_require_model_observation() -> None:
+def test_model_observation_flag_removed_from_tool_contract() -> None:
+    """``requires_model_observation`` was deleted from the tool contract —
+    observation is a deployment capability, not a per-tool coercion. Guard
+    against it leaking back into definitions or provider-facing schemas."""
     from homemaster.adapters.profiles import build_tool_registry
 
     registry = build_tool_registry(environment="alfworld")
 
-    assert registry.get("robot_go_to").requires_model_observation is False
-    assert registry.get("robot_manipulate").requires_model_observation is False
-    for name in set(registry.all_names()) - {"robot_go_to", "robot_manipulate"}:
-        assert registry.get(name).requires_model_observation is False
+    for tool in registry.list_tools():
+        assert not hasattr(tool, "requires_model_observation"), tool.name
+        definition = getattr(tool, "definition", None)
+        if definition is not None:
+            assert "requires_model_observation" not in definition.to_dict()
     for schema in registry.to_api_schema():
         assert "requires_model_observation" not in schema
 

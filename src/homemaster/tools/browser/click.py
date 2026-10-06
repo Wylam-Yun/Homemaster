@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Click one exact button, link, tab, option, date cell, or other non-editing target and "
             "verify the resulting browser or element state. Use a more specific tool for text entry, "

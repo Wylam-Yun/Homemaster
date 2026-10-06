@@ -738,7 +738,6 @@ def _snapshot_payload(
     model: str,
     system_prompt: str,
 ) -> dict[str, Any]:
-    unconsumed_call_id = runtime.agent_state.unconsumed_observation_tool_call_id
     if runtime.engine_state is not None:
         from homemaster.substrate.snapshot import build_snapshot_payload
 
@@ -748,11 +747,6 @@ def _snapshot_payload(
             task_state_store=runtime.task_state_store,
             model=model,
             system_prompt=system_prompt,
-            preserve_image_tool_call_ids=(
-                frozenset({unconsumed_call_id})
-                if unconsumed_call_id is not None
-                else frozenset()
-            ),
         )
     else:
         payload = runtime.session.to_snapshot_dict(
@@ -760,9 +754,6 @@ def _snapshot_payload(
             task_state_store=runtime.task_state_store,
             model=model,
             system_prompt=system_prompt,
-            preserve_image_tool_call_ids=(
-                frozenset({unconsumed_call_id}) if unconsumed_call_id is not None else frozenset()
-            ),
         )
     payload.update(
         {

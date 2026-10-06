@@ -120,13 +120,6 @@ def test_definition_is_deeply_immutable_serializable_and_manifest_is_derived() -
     )
 
 
-def test_model_observation_flag_is_canonical_but_not_provider_visible() -> None:
-    definition = _definition(requires_model_observation=True)
-
-    assert definition.to_dict()["requires_model_observation"] is True
-    assert "requires_model_observation" not in definition.to_model_manifest()
-
-
 def test_registered_tool_keeps_capabilities_out_of_definition_snapshot() -> None:
     executor = Executor()
     verifier = Verifier()
@@ -167,7 +160,6 @@ def test_registered_tool_keeps_capabilities_out_of_definition_snapshot() -> None
         ({"state_effects": ("robot.move", "robot.move")}, "unique"),
         ({"state_effects": "robot.move"}, "sequence of tokens"),
         ({"resource_key": "robot:one"}, "requires concurrency_policy"),
-        ({"requires_model_observation": "yes"}, "must be a boolean"),
         (
             {"concurrency_policy": ConcurrencyPolicy.RESOURCE_KEY},
             "resource_key must be",

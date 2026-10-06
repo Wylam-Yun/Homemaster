@@ -29,7 +29,6 @@ def build(session: object):
         effects=("browser.navigate",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "List, create, select, or close tabs owned by the current HomeMaster browser session. "
             "Use this when work must continue in a separate tab or a click opened a popup; use "

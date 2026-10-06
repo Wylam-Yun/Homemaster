@@ -338,23 +338,6 @@ def test_gateway_projection_drops_internal_telemetry_and_raw_tool_events() -> No
     assert (
         projection.project(
             _event(
-                "tool.call_failed",
-                name="robot_manipulate",
-                payload={
-                    "result": "must observe first",
-                    "data": {
-                        "status": "invalid",
-                        "error_code": "model_observation_protocol_rejected",
-                        "backend_attempted": False,
-                    },
-                },
-            )
-        )
-        is None
-    )
-    assert (
-        projection.project(
-            _event(
                 "tool.call_completed",
                 name="unrelated_tool",
                 payload={"result": "raw", "data": {"success": True}},

@@ -66,7 +66,6 @@ class _DeterministicBrowserTransport:
         self.manifests: list[tuple[str, ...]] = []
         self.tool_calls: list[str] = []
         self.request_image_counts: list[int] = []
-        self.automatic_observations: list[dict[str, object]] = []
         self.independent_dom: dict[str, str] = {}
         self.independent_console = ""
         self.independent_command = ""
@@ -89,11 +88,6 @@ class _DeterministicBrowserTransport:
         self.request_image_counts.append(
             sum(block.type == "image" for block in messages[-1].content)
         )
-        automatic_observation = getattr(messages[-1], "data", None) or {}
-        if "automatic_observation" in automatic_observation:
-            self.automatic_observations.append(
-                dict(automatic_observation["automatic_observation"])
-            )
         if attempt_sink is not None:
             attempt_sink.record_attempt(
                 ProviderAttemptRecord(
@@ -321,7 +315,6 @@ async def test_feishu_gateway_runtime_completes_real_ant_automation(tmp_path: Pa
     assert "执行状态：SUCCESS (exitCode=0)" in transport.independent_console
     assert all(value in transport.independent_command for value in VALUES.values())
     assert transport.request_image_counts == [0] * 17
-    assert transport.automatic_observations == []
     assert transport.backfill_confirmed is True
     assert transport.backfill_receipt_sha256 == transport.backfill_preview_sha256
     assert transport.tool_calls == [

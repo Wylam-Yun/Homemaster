@@ -349,7 +349,6 @@ def _configured_tool(
         ),
         resource_key=f"{environment}:backend" if state_effects else None,
         required_capabilities=required_capabilities,
-        requires_model_observation=False,
     )
     verifier = None
     if policy.execution_proof is not ExecutionProof.NONE:

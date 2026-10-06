@@ -80,11 +80,6 @@ def save_snapshot(
         model=model,
         system_prompt=system_prompt,
         strip_images=strip_images,
-        preserve_image_tool_call_ids=(
-            frozenset({agent_state.unconsumed_observation_tool_call_id})
-            if agent_state.unconsumed_observation_tool_call_id is not None
-            else frozenset()
-        ),
     )
     atomic_write_json(path, payload)
 
@@ -246,7 +241,6 @@ class SessionPersistenceManager:
         if self.engine_state is not None:
             from homemaster.substrate.snapshot import build_snapshot_payload
 
-            unconsumed = self.agent_state.unconsumed_observation_tool_call_id
             payload = build_snapshot_payload(
                 engine_state=self.engine_state,
                 run_state=self.agent_state,
@@ -255,11 +249,6 @@ class SessionPersistenceManager:
                 system_prompt=self.system_prompt,
                 created_at=getattr(self.session, "_created_at", None),
                 strip_images=self.strip_images,
-                preserve_image_tool_call_ids=(
-                    frozenset({unconsumed})
-                    if unconsumed is not None
-                    else frozenset()
-                ),
             )
             atomic_write_json(self.snapshot_path, payload)
             return

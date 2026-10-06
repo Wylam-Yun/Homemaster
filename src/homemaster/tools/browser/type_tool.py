@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Focus one editable target and enter text through real browser input events. Use "
             "`mode=replace` to select the current content before typing, matching OpenCLI `type`, or "

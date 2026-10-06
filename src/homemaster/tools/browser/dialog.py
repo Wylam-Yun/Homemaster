@@ -16,7 +16,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Accept or dismiss a JavaScript alert, confirm, or prompt and report its type and "
             "message. When an action is expected to open a blocking dialog, provide that action as "

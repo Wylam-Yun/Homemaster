@@ -16,7 +16,6 @@ def build(session: object):
         effects=("browser.download",),
         capabilities=("device.control",),
         proof=ExecutionProof.EXTERNAL_STATE,
-        observe=False,
         description=(
             "Arm browser download observation, perform one exact trigger action, and persist the "
             "completed download as an approved artifact. Use this when HomeMaster must initiate and "

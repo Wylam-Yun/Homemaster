@@ -215,7 +215,10 @@ def test_browser_registered_tools_lock_v31_surface_and_eval_gate() -> None:
             "target_ref",
         }
         assert "snapshot_id" not in definitions[name].input_schema["properties"]
-    assert all(not tool.definition.requires_model_observation for tool in safe)
+    assert all(
+        "requires_model_observation" not in tool.definition.to_dict()
+        for tool in safe
+    )
 
 
 def test_provider_serialized_browser_contract_is_exact(tmp_path) -> None:

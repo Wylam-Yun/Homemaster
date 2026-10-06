@@ -30,11 +30,6 @@ from homemaster.agent.messages import (
     UserMessage,
     normalize_content,
 )
-from homemaster.agent.model_observation import (
-    MAX_OBSERVE_FAILURES,
-    MAX_PROTOCOL_FAILURES,
-    action_requires_model_observation,
-)
 from homemaster.agent.normalized import RunContext
 from homemaster.agent.runtime_contracts import (
     GenericRunResult,
@@ -80,8 +75,6 @@ class AsRunHandle:
     # ``state.context`` may be rebound (e.g. native compression); resolve
     # through it fresh via ``handle_engine_context``.
     engine_state: Any = None
-    observation_fatal: str | None = None
-    observation_fatal_reason: str = ""
     normal_iterations: int = 0
     # Tool names offered to the model on the current reasoning round —
     # ProtocolFenceMiddleware records them in on_model_call and rejects
@@ -119,8 +112,8 @@ class AsRunHandle:
     model_name: str = ""
     model_api_format: str = ""
     # Set once the driver has committed to a terminal state (or taken the
-    # stream down); detached post-hook workers (automatic observe) check it
-    # before issuing further real tool calls or mutating persisted blocks.
+    # stream down); detached post-hook workers check it before issuing
+    # further real tool calls or mutating persisted blocks.
     terminated: bool = False
 
 
@@ -334,7 +327,6 @@ class AsAgentRuntime:
         middlewares: list[Any] = [RunScopeMiddleware()]
         from homemaster.substrate.middleware_runtime import (
             ContextAssemblyMiddleware,
-            ObservationBarrierMiddleware,
             ProtocolFenceMiddleware,
             ProviderObservabilityMiddleware,
             ProviderRetryMiddleware,
@@ -348,7 +340,6 @@ class AsAgentRuntime:
                 on_compaction=on_compaction,
             )
         )
-        middlewares.append(ObservationBarrierMiddleware(handle=handle))
         middlewares.append(ProtocolFenceMiddleware(handle=handle))
         middlewares.append(
             ProviderRetryMiddleware(
@@ -364,11 +355,9 @@ class AsAgentRuntime:
         )
         middlewares.extend(self._extra_middlewares)
 
-        # AS counts every reasoning iteration toward max_iters; HM only counts
-        # "normal" ones and grants free observation follow-up turns (bounded by
-        # the protocol/observe failure caps). Give AS the HM budget plus that
-        # grace headroom — the authoritative budget check still runs in
-        # ``_project_event`` via ``normal_iterations``.
+        # AS counts every reasoning iteration toward max_iters; give AS the
+        # HM budget plus small headroom — the authoritative budget check
+        # stays on ``normal_iterations`` in ``_project_event``.
         from agentscope.agent import ReActConfig
 
         react_config = ReActConfig(
@@ -377,7 +366,7 @@ class AsAgentRuntime:
             # contract; the authoritative budget check stays on
             # ``normal_iterations`` in ``_project_event``.
             max_iters=(
-                (self._max_tool_iterations + MAX_PROTOCOL_FAILURES + MAX_OBSERVE_FAILURES + 2)
+                (self._max_tool_iterations + 2)
                 if self._max_tool_iterations is not None
                 else 2**31 - 1
             )
@@ -536,18 +525,6 @@ class AsAgentRuntime:
                     session=session,
                     save_snapshot=save_snapshot,
                 )
-                if stop is None and getattr(handle, "observation_fatal", None) is not None:
-                    # The fatal flag is set by the on_acting post-hook, which
-                    # resumes after the action's ToolResultEndEvent — check at
-                    # every event boundary so a text-only final reply cannot
-                    # silently drop it.
-                    stop = await self._fail_observation_fatal(
-                        handle,
-                        session=session,
-                        emit=emit,
-                        stream=stream,
-                        save_snapshot=save_snapshot,
-                    )
                 if stop is not None:
                     return stop
         except TimeoutError as exc:
@@ -693,30 +670,6 @@ class AsAgentRuntime:
                 events=events,
                 final_reply=reply_text,
                 error_code="model_output_truncated",
-            )
-
-        # The automatic-observe post-hook runs detached inside the tool worker
-        # and may set `observation_fatal` after the last event was projected —
-        # re-check at the reply boundary so a late fatal cannot be masked by
-        # a text-only final reply.
-        late_fatal = getattr(handle, "observation_fatal", None)
-        if late_fatal is not None:
-            await self._close_dangling_tool_calls(handle, emit)
-            await emit(
-                "runtime.turn_failed",
-                payload={
-                    "error": getattr(handle, "observation_fatal_reason", "")
-                    or "model observation protocol failed",
-                    "error_code": late_fatal,
-                },
-            )
-            save_snapshot("failed")
-            return GenericRunResult(
-                run_id=run_id,
-                status="failed",
-                session=session,
-                events=events,
-                error_code=late_fatal,
             )
 
         reply_text = _msg_text(final_msg)
@@ -870,49 +823,9 @@ class AsAgentRuntime:
                 ]
             )
             save_snapshot()
-            # A fatal observation failure outranks stop/guards — the run is
-            # already dead; close sibling calls before the terminal snapshot.
-            fatal = getattr(handle, "observation_fatal", None)
-            if fatal is not None:
-                await self._close_dangling_tool_calls(handle, emit)
-                await stream.aclose()
-                await emit(
-                    "runtime.turn_failed",
-                    payload={
-                        "error": getattr(handle, "observation_fatal_reason", "")
-                        or "model observation protocol failed",
-                        "error_code": fatal,
-                    },
-                )
-                save_snapshot("failed")
-                return GenericRunResult(
-                    run_id=handle.run_id,
-                    status="failed",
-                    session=session,
-                    events=handle.events,
-                    error_code=fatal,
-                )
             # Stop/guards only evaluate a *complete* current round — legacy
-            # dispatched the whole batch, then evaluated once. A pending
-            # observation barrier means the model still owes a mandatory
-            # follow-up: neither real progress nor a legitimate stop point.
-            # The automatic-observe post-hook runs *after* this END event in
-            # the worker task, so its `unconsumed` marker isn't visible yet —
-            # predict it from the just-completed call instead (requires
-            # observation + succeeded + backend attempted). `unconsumed` is
-            # intentionally NOT a stop gate: legacy gates stop only on the
-            # pending barrier (review MED-3/MED-4).
-            call_name = handle.tool_call_names.get(item.tool_call_id) or ""
-            auto_observe_will_follow = (
-                not is_error
-                and agent_state.pending_model_observation is None
-                and bool(hm.get("backend_attempted"))
-                and action_requires_model_observation(handle.tool_registry, call_name)
-            )
-            barrier_open = (
-                agent_state.pending_model_observation is not None or auto_observe_will_follow
-            )
-            if barrier_open or _unfinished_tool_calls(agent):
+            # dispatched the whole batch, then evaluated once.
+            if _unfinished_tool_calls(agent):
                 return None
             decision = await self._evaluate_stop(handle)
             if decision is not None:
@@ -953,15 +866,7 @@ class AsAgentRuntime:
                     error_code=guard,
                 )
         elif isinstance(item, ModelCallStartEvent):
-            # HM normal-iteration accounting: observation follow-up turns
-            # (pending barrier or unconsumed image marker) do not consume the
-            # max_tool_iterations budget — matching the legacy loop condition.
-            followup = (
-                agent_state.pending_model_observation is not None
-                or agent_state.unconsumed_observation_tool_call_id is not None
-            )
-            if not followup:
-                handle.normal_iterations += 1
+            handle.normal_iterations += 1
             # New reasoning round — stop_condition sees only results
             # produced since this point (legacy batch semantics).
             handle.round_result_ids.clear()
@@ -1113,34 +1018,6 @@ class AsAgentRuntime:
     def _sync_session(self, session: AgentSession, engine_state: Any) -> None:
         """Mirror the authoritative engine context into the HM session."""
         session.replace_messages(from_agent_scope(list(engine_state.context)))
-
-    async def _fail_observation_fatal(
-        self,
-        handle: AsRunHandle,
-        *,
-        session: AgentSession,
-        emit: Callable[..., Any],
-        stream: Any,
-        save_snapshot: Callable[..., Any],
-    ) -> GenericRunResult:
-        fatal = handle.observation_fatal
-        await _close_stream(stream)
-        await emit(
-            "runtime.turn_failed",
-            payload={
-                "error": getattr(handle, "observation_fatal_reason", "")
-                or "model observation protocol failed",
-                "error_code": fatal,
-            },
-        )
-        save_snapshot("failed")
-        return GenericRunResult(
-            run_id=handle.run_id,
-            status="failed",
-            session=session,
-            events=handle.events,
-            error_code=fatal,
-        )
 
     async def _close_dangling_tool_calls(
         self, handle: AsRunHandle, emit: Callable[..., Any]

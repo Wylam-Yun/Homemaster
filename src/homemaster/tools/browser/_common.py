@@ -372,7 +372,6 @@ def registered(
     effects: tuple[str, ...],
     capabilities: tuple[str, ...],
     proof: ExecutionProof,
-    observe: bool = False,
 ) -> RegisteredTool:
     definition = ToolDefinition(
         internal_id=f"homemaster.{name}.v1",
@@ -387,7 +386,6 @@ def registered(
         resource_key="browser:backend",
         state_effects=effects,
         required_capabilities=capabilities,
-        requires_model_observation=observe,
     )
     return RegisteredTool(
         definition=definition,

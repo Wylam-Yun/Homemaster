@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Capture the current browser page as a PNG and paste those exact image bytes into one "
             "editable image-backfill control that explicitly accepts clipboard images. Use this "

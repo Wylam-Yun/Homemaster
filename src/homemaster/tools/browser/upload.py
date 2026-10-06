@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Attach one or more approved artifacts to an exact file input and verify the "
             "page-visible file state. Use this for ordinary file upload; it reads only "

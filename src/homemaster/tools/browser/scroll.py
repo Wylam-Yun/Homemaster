@@ -51,7 +51,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Scroll the page or one scrollable container, bring one target into view, or perform a "
             "bounded auto-scroll for lazy-loaded content. Use `mode=by` with direction and pixels, "

@@ -29,7 +29,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Select one exact option in a native select or a supported ARIA combobox/listbox and "
             "verify the selected value and visible label. Use this instead of manually clicking a "

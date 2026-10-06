@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Set one editable input, textarea, contenteditable, or supported date/time control to "
             "an exact value and verify the final DOM value. Use this when the final value matters "

@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Focus one exact element without clicking or entering text. Use this before keyboard "
             "shortcuts or when the page behavior depends on focus; use `browser_type` when text "

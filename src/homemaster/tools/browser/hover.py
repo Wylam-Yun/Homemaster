@@ -16,7 +16,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Move the browser pointer over one exact target to reveal hover-dependent UI such as a "
             "tooltip, menu, or action region. Use this only when hover itself is required; it does "

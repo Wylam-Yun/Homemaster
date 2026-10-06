@@ -97,13 +97,6 @@ class PublicEventProjection:
         }
         if event.name and event.type.startswith("tool.call_"):
             metadata["tool_name"] = _copy_value(event.name)
-        data = payload.get("data")
-        if (
-            event.name == "observe"
-            and isinstance(data, Mapping)
-            and isinstance(data.get("observation_of_tool_call_id"), str)
-        ):
-            metadata["observation_of_tool_call_id"] = str(data["observation_of_tool_call_id"])
         return PublicGatewayEvent(
             event_type=event.type,
             session_id=event.session_id,
@@ -232,13 +225,6 @@ def _tool_progress(tool_name: str | None, payload: Mapping[str, object]) -> str 
 
 def _tool_failure(tool_name: str | None, payload: Mapping[str, object]) -> str | None:
     if tool_name not in {"robot_go_to", "robot_manipulate", "robot_verify", "task_planner"}:
-        return None
-    data = payload.get("data")
-    if (
-        isinstance(data, Mapping)
-        and data.get("backend_attempted") is False
-        and str(data.get("error_code") or "").startswith("model_observation_")
-    ):
         return None
     error = str(payload.get("error_code") or payload.get("status") or "执行失败")
     return f"操作失败：{error}"

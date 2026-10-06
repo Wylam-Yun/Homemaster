@@ -106,7 +106,6 @@ def _registered(name: str = "probe_tool") -> Any:
                 execution_proof=SimpleNamespace(value="none"),
                 terminal_rule=SimpleNamespace(value="none"),
             ),
-            requires_model_observation=False,
             concurrency_policy=SimpleNamespace(value="parallel"),
             resource_key=None,
         ),

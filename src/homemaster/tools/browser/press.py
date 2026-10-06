@@ -16,7 +16,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Press one browser key or key combination such as Enter, Escape, Tab, ArrowDown, or "
             "Control+A. Provide a target when the shortcut must start from a specific element; "

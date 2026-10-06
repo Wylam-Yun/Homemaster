@@ -1,5 +1,18 @@
 # Unreleased
 
+- Forced model-observation machinery removed. The runtime carried a full
+  coercion layer — `ObservationBarrierMiddleware`, automatic post-action
+  `observe` calls, a pending-barrier stop gate, "observe+mutation in one
+  batch" rejection, free observation follow-up turns, and the
+  `requires_model_observation` tool-contract field — all keyed on the
+  hard-coded names `observe`/`browser_screenshot`. In production it was
+  already inert (no profile set the flag, no barrier was ever armed), and
+  it coupled the generic runtime to two deployment-specific tool names.
+  `observe`/`browser_screenshot` are now ordinary tools the model calls
+  when it decides to; the contract field, barrier state, persistence of
+  unconsumed-observation markers, `model_observation.*` event types, and
+  the public-projection special-casing are gone with their tests.
+
 - Prompt layer decoupled: deployment/implementation names no longer leak
   into model-visible text. The benchmark episode prompt said "inside
   ALFWorld", "Embedded MindMemOS is available", and "ALFWorld

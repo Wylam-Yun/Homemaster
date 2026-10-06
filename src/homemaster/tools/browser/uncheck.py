@@ -11,7 +11,6 @@ def build(session: object):
         effects=("browser.dom_write",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Ensure one checkbox, switch, or supported aria-checked control ends unselected. Use "
             "this idempotent state action instead of clicking and guessing: an already unselected "

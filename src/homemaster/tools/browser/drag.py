@@ -17,7 +17,6 @@ def build(session: object):
         effects=("browser.interact",),
         capabilities=("device.control",),
         proof=ExecutionProof.STRUCTURED_RECEIPT,
-        observe=False,
         description=(
             "Drag one exact DOM target to another exact target and verify the resulting order, "
             "position, or page state. Use this for sortable lists, boards, sliders with DOM handles, "
