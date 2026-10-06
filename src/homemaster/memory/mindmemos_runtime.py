@@ -470,7 +470,7 @@ class EmbeddedMindMemOS:
                 SkillVersionRepository,
             )
             from mindmemos.llm import get_embed_client, get_llm_client
-            from mindmemos.llm.router import clear_router_cache
+            from mindmemos.llm.registry import close_llm_clients
             from mindmemos.pipelines import create_pipeline
             from mindmemos.pipelines.dreaming.default import DefaultDreamingPipeline
             from mindmemos.pipelines.feedback.executor import FeedbackActionExecutor
@@ -643,7 +643,7 @@ class EmbeddedMindMemOS:
                 await neo4j.close()
             finally:
                 await store.close()
-                clear_router_cache()
+                await close_llm_clients()
                 reset_config()
             self._unavailable_cause = f"{type(exc).__name__}: {exc}"
             return
@@ -1931,7 +1931,7 @@ class EmbeddedMindMemOS:
 
     async def close(self) -> None:
         from mindmemos.config import reset_config
-        from mindmemos.llm.router import clear_router_cache
+        from mindmemos.llm.registry import close_llm_clients
 
         store = self._qdrant
         neo4j = self._neo4j
@@ -1961,7 +1961,7 @@ class EmbeddedMindMemOS:
         finally:
             if store is not None:
                 await store.close()
-            clear_router_cache()
+            await close_llm_clients()
             reset_config()
 
 

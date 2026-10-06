@@ -1,5 +1,12 @@
 # Unreleased
 
+- MindMemOS teardown now closes LiteLLM's async HTTP clients
+  (`close_llm_clients()`), not just the router cache. The aiohttp
+  `ClientSession`s litellm creates for feedback/dreaming calls were being
+  dropped to GC, producing `Unclosed client session` stderr warnings at
+  process exit — same disease as the just-fixed httpx leak, different
+  vendor library.
+
 - Provider retry now covers mid-stream transport drops. A live 100-episode
   ALFWorld run surfaced `RemoteProtocolError: peer closed connection
   without sending complete message body` killing an episode with no retry:

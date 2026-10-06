@@ -1233,3 +1233,35 @@ async def test_list_raw_memories_rejects_repeated_cursor() -> None:
 
     with pytest.raises(RuntimeError, match="cursor repeated"):
         await runtime.list_raw_memories(object())
+
+
+@pytest.mark.asyncio
+async def test_close_shuts_down_litellm_async_clients(monkeypatch) -> None:
+    """``EmbeddedMindMemOS.close()`` must tear down litellm's aiohttp
+    sessions, not just drop router objects — bare ``clear_router_cache``
+    leaves ``ClientSession``s for GC, which is the "Unclosed client
+    session" stderr noise seen on live runs."""
+    import importlib
+    import sys
+    import types
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+
+    calls: list[str] = []
+    fake_registry = types.ModuleType("mindmemos.llm.registry")
+
+    async def _close_llm_clients() -> None:
+        calls.append("close_llm_clients")
+
+    fake_registry.close_llm_clients = _close_llm_clients  # type: ignore[attr-defined]
+    fake_config = types.ModuleType("mindmemos.config")
+    fake_config.reset_config = lambda: calls.append("reset_config")  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "mindmemos.llm.registry", fake_registry)
+    monkeypatch.setitem(sys.modules, "mindmemos.config", fake_config)
+
+    runtime = object.__new__(module.EmbeddedMindMemOS)
+    runtime._qdrant = None
+    runtime._neo4j = None
+    await runtime.close()
+
+    assert calls == ["close_llm_clients", "reset_config"]
