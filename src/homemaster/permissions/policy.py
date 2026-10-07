@@ -32,10 +32,26 @@ _SENSITIVE_PATH_PATTERNS = (
     "*/.kube/config",
     "*/.homemaster/credentials*",
     "*/config/homemaster.yaml",
+    "*/.env",
+    "*/.env.*",
+    "*/.netrc",
+    "*/.git-credentials",
+    "*/.pgpass",
+    "/etc/shadow",
+    "/etc/master.passwd",
+    "/etc/sudoers",
+    "/etc/sudoers.d/*",
+    "/private/etc/shadow",
+    "/private/etc/master.passwd",
+    "/private/etc/sudoers",
+    "/private/etc/sudoers.d/*",
 )
 _PATH_ARGUMENTS = (
     "path",
     "file_path",
+    "filepath",
+    "file",
+    "filename",
     "root",
     "attachment_path",
     "cwd",
@@ -44,6 +60,16 @@ _PATH_ARGUMENTS = (
     "mask_path",
     "output_path",
     "output_dir",
+    "input_path",
+    "target",
+    "source",
+    "src",
+    "dest",
+    "destination",
+    "dst",
+    "dir",
+    "directory",
+    "folder",
 )
 
 
@@ -85,6 +111,9 @@ class PermissionChecker:
                         False,
                         reason=f"access denied: command matches deny rule {pattern}",
                     )
+            command_denial = self._command_denial(command, context)
+            if command_denial:
+                return UniversalPermissionDecision(False, reason=command_denial)
             if (
                 tool_name == "terminal"
                 and self._settings.allowed_terminal_commands
@@ -233,6 +262,70 @@ class PermissionChecker:
         scope = frozenset(item.key for item in request.requirements)
         self._denied_scopes.add((session_id, scope))
 
+    def _path_value_denial(
+        self,
+        value: str,
+        context: UniversalToolExecutionContext,
+    ) -> str:
+        """Denial reason for one path-like string, or ``""`` when clean.
+
+        Both the unresolved (absolute, tilde-expanded) and resolved forms are
+        matched so a user deny rule written for ``/etc/*`` still applies where
+        the filesystem canonicalizes to ``/private/etc/*``, and vice versa.
+        Matching is case-insensitive because the deployment filesystems this
+        protects (APFS, Windows NTFS) resolve case-variant spellings to the
+        same credential file.
+        """
+        try:
+            candidate_path = Path(value).expanduser()
+            if not candidate_path.is_absolute():
+                candidate_path = context.working_directory / candidate_path
+            unresolved = str(candidate_path)
+            resolved = str(candidate_path.resolve(strict=False))
+        except (OSError, ValueError):
+            # An unparseable path (e.g. embedded NUL) can never match an
+            # allow rule — fail closed with a denial reason.
+            return "access denied: path is not a valid filesystem path"
+        candidates = (
+            unresolved.rstrip("/"),
+            resolved.rstrip("/"),
+            resolved.rstrip("/") + "/",
+        )
+        for candidate in candidates:
+            folded = candidate.casefold()
+            for pattern in _SENSITIVE_PATH_PATTERNS:
+                if fnmatch.fnmatchcase(folded, pattern.casefold()):
+                    return f"access denied: path matches protected pattern {pattern}"
+            for rule in self._settings.path_rules:
+                if not rule.allow and fnmatch.fnmatchcase(folded, rule.pattern.casefold()):
+                    return f"access denied: path matches deny rule {rule.pattern}"
+        return ""
+
+    def _command_denial(
+        self,
+        command: str,
+        context: UniversalToolExecutionContext,
+    ) -> str:
+        """Deny shell commands whose tokens address protected paths.
+
+        ``command`` is free-form text, so ``_path_denial`` never sees it —
+        ``cat ~/.ssh/id_rsa`` would otherwise bypass every path rule.
+        """
+        import shlex
+
+        try:
+            tokens = shlex.split(command, posix=True)
+        except ValueError:
+            tokens = command.split()
+        for token in tokens:
+            token = token.lstrip("<>").lstrip("0123456789").lstrip("<>")
+            if not token or token.startswith("-"):
+                continue
+            denial = self._path_value_denial(token, context)
+            if denial:
+                return denial
+        return ""
+
     def _path_denial(
         self,
         arguments: dict[str, Any],
@@ -244,23 +337,9 @@ class PermissionChecker:
             for item in values:
                 if not isinstance(item, str) or not item.strip():
                     continue
-                try:
-                    candidate_path = Path(item).expanduser()
-                    if not candidate_path.is_absolute():
-                        candidate_path = context.working_directory / candidate_path
-                    path = str(candidate_path.resolve(strict=False))
-                except (OSError, ValueError):
-                    # An unparseable path (e.g. embedded NUL) can never match an
-                    # allow rule — fail closed with a denial reason.
-                    return "access denied: path is not a valid filesystem path"
-                candidates = (path.rstrip("/"), path.rstrip("/") + "/")
-                for candidate in candidates:
-                    for pattern in _SENSITIVE_PATH_PATTERNS:
-                        if fnmatch.fnmatch(candidate, pattern):
-                            return f"access denied: path matches protected pattern {pattern}"
-                    for rule in self._settings.path_rules:
-                        if fnmatch.fnmatch(candidate, rule.pattern) and not rule.allow:
-                            return f"access denied: path matches deny rule {rule.pattern}"
+                denial = self._path_value_denial(item, context)
+                if denial:
+                    return denial
         return ""
 
 

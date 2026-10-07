@@ -199,3 +199,78 @@ def test_start_on_blocked_data_root_raises_typed(tmp_path: Path) -> None:
     store = FileMemoryStore(config)
     with pytest.raises(FileMemoryError):
         store.start()
+
+
+def _decision_for(arguments: dict[str, Any], tmp_path: Path, **kw: Any) -> Any:
+    settings = PermissionSettingsConfig(
+        mode=PermissionMode.FULL_AUTO, **kw
+    )
+    return PermissionChecker(settings).evaluate_tool(
+        tool_name="terminal",
+        is_read_only=False,
+        required_capabilities=(),
+        arguments=arguments,
+        context=ToolExecutionContext(tmp_path),
+    )
+
+
+def test_command_string_tokenizing_reaches_sensitive_paths(tmp_path: Path) -> None:
+    """``cat ~/.ssh/id_rsa`` as a shell ``command`` must not bypass path
+    rules — the command argument is free text, so tokens are scanned."""
+    home_ssh = str(Path.home() / ".ssh" / "id_rsa")
+    decision = _decision_for({"command": f"cat {home_ssh}"}, tmp_path)
+    assert not decision.allowed
+    assert "protected pattern" in (decision.reason or "")
+
+
+def test_command_shell_metasyntax_still_scanned(tmp_path: Path) -> None:
+    """Quoting and redirections cannot launder a sensitive path."""
+    home_ssh = str(Path.home() / ".ssh" / "id_rsa")
+    for command in (
+        f'cat "{home_ssh}"',
+        f"cat < {home_ssh}",
+        f"tee {home_ssh} < /dev/null",
+    ):
+        decision = _decision_for({"command": command}, tmp_path)
+        assert not decision.allowed, command
+
+
+def test_env_and_shadow_paths_are_sensitive(tmp_path: Path) -> None:
+    """``.env``/``/etc/shadow``-class credential files are protected."""
+    assert not _decision_for({"path": ".env"}, tmp_path).allowed
+    assert not _decision_for({"path": "/etc/shadow"}, tmp_path).allowed
+
+
+def test_case_variant_sensitive_path_denied(tmp_path: Path) -> None:
+    """macOS APFS resolves ``~/.SSH/ID_RSA`` to the real key file — deny it."""
+    variant = str(Path.home() / ".SSH" / "ID_RSA")
+    decision = _decision_for({"path": variant}, tmp_path)
+    assert not decision.allowed
+
+
+def test_user_deny_rule_matches_unresolved_path_form(tmp_path: Path) -> None:
+    """A deny rule for ``/etc/*`` must still match on macOS where ``/etc``
+    canonicalizes to ``/private/etc`` — match the unresolved form too."""
+    from homemaster.permissions.config import PathRuleConfig
+
+    decision = _decision_for(
+        {"path": "/etc/passwd"},
+        tmp_path,
+        path_rules=(PathRuleConfig(pattern="/etc/*", allow=False),),
+    )
+    assert not decision.allowed
+
+
+def test_broadened_path_argument_names_are_scanned(tmp_path: Path) -> None:
+    """``target``/``source``/``dir``-style argument names are path-scanned,
+    not just the original allowlist."""
+    home_ssh = str(Path.home() / ".ssh" / "id_rsa")
+    for key in ("target", "source", "dir", "file"):
+        decision = _decision_for({key: home_ssh}, tmp_path)
+        assert not decision.allowed, key
+
+
+def test_ordinary_command_and_paths_still_allowed(tmp_path: Path) -> None:
+    """Regression guard: ordinary commands and benign paths are unaffected."""
+    assert _decision_for({"command": "echo hello"}, tmp_path).allowed
+    assert _decision_for({"path": "notes.txt"}, tmp_path).allowed

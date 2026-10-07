@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from homemaster.experience.finalizer import FinalizeResult, SessionFinalizer
 from homemaster.memory.add_queue import MemoryWorkReceipt
+
+logger = logging.getLogger(__name__)
 
 
 class SessionFinalizationController:
@@ -26,6 +29,15 @@ class SessionFinalizationController:
 
     def enqueue(self, session_id: str, exit_reason: str) -> MemoryWorkReceipt | None:
         if not self._queue.started or not self._ready():
+            # Admission denial must be observable — a silently dropped
+            # finalization is an unwritten episode nobody can retry.
+            logger.warning(
+                "session finalization not admitted for %s "
+                "(queue_started=%s, backend_ready=%s)",
+                session_id,
+                self._queue.started,
+                self._ready(),
+            )
             return None
         result_future: concurrent.futures.Future[FinalizeResult] = concurrent.futures.Future()
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 from uuid import uuid4
 
 from homemaster.events.trace import append_jsonl_event
+
+_logger = logging.getLogger(__name__)
 
 _STOP = object()
 
@@ -71,8 +74,8 @@ class MemoryEnrichmentQueue:
     ) -> None:
         if self._sealed or self._closed:
             raise MemoryEnrichmentQueueClosed("memory enrichment queue is closing")
-        if not self._workers:
-            raise RuntimeError("memory enrichment queue is not started")
+        if not self._workers or all(worker.done() for worker in self._workers):
+            raise RuntimeError("memory enrichment queue worker is not running")
         if not memory_id or not content:
             raise ValueError("memory enrichment requires memory_id and content")
         job = _MemoryEnrichmentJob(
@@ -94,10 +97,14 @@ class MemoryEnrichmentQueue:
                 return
             self._sealed = True
             if self._workers:
-                await self._queue.join()
+                # A dead worker strands its queue: joining it would hang
+                # shutdown forever, so only drain while someone can pop items.
+                if not all(worker.done() for worker in self._workers):
+                    await self._queue.join()
                 for _worker in self._workers:
-                    self._queue.put_nowait(_STOP)
-                await asyncio.gather(*self._workers)
+                    if not _worker.done():
+                        self._queue.put_nowait(_STOP)
+                await asyncio.gather(*self._workers, return_exceptions=True)
                 self._workers.clear()
             self._closed = True
 
@@ -142,25 +149,32 @@ class MemoryEnrichmentQueue:
         error: str | None = None,
     ) -> None:
         context = job.context
-        append_jsonl_event(
-            self._audit_path,
-            event="memory_enrichment_job",
-            payload={
-                "job_id": job.job_id,
-                "memory_id": job.memory_id,
-                "status": status,
-                "tenant_id": getattr(context, "account_id", None),
-                "project_id": getattr(context, "project_id", None),
-                "session_id": getattr(context, "session_id", None),
-                "run_id": job.run_id,
-                "request_id": getattr(context, "request_id", None),
-                "duration_ms": (
-                    round(duration_ms, 3) if duration_ms is not None else None
-                ),
-                "entity_ids": entity_ids,
-                "error": error,
-            },
-        )
+        try:
+            append_jsonl_event(
+                self._audit_path,
+                event="memory_enrichment_job",
+                payload={
+                    "job_id": job.job_id,
+                    "memory_id": job.memory_id,
+                    "status": status,
+                    "tenant_id": getattr(context, "account_id", None),
+                    "project_id": getattr(context, "project_id", None),
+                    "session_id": getattr(context, "session_id", None),
+                    "run_id": job.run_id,
+                    "request_id": getattr(context, "request_id", None),
+                    "duration_ms": (
+                        round(duration_ms, 3) if duration_ms is not None else None
+                    ),
+                    "entity_ids": entity_ids,
+                    "error": error,
+                },
+            )
+        except Exception:
+            # Audit sink failure must never kill the worker — a dead worker
+            # strands queued jobs and hangs shutdown.
+            _logger.warning(
+                "memory_enrichment_job audit write failed", exc_info=True
+            )
 
 
 __all__ = [

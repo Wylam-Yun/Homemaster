@@ -337,3 +337,89 @@ async def test_closed_queue_rejects_new_jobs(tmp_path: Path) -> None:
             evidence_kind="user_statement",
             context=_context("request-late"),
         )
+
+
+@pytest.mark.asyncio
+async def test_audit_sink_failure_neither_kills_worker_nor_hangs_aclose(
+    tmp_path: Path,
+) -> None:
+    """If the audit JSONL sink raises (unwritable path), the worker must keep
+    consuming jobs and aclose() must still drain — before the fix the _log
+    call inside the except handler killed the worker, stranding every job and
+    hanging shutdown on queue.join()."""
+
+    class Store:
+        calls = 0
+
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            Store.calls += 1
+            return {"memory_id": f"memory-{Store.calls}"}
+
+    # An audit path nested under a regular file makes every write raise.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x")
+    queue = MemoryAddQueue(Store(), audit_path=blocker / "jobs.jsonl")
+    await queue.start()
+    assert queue.started
+
+    await queue.enqueue(
+        content=_content("apple"),
+        memory_type="fact",
+        provenance_seq=1,
+        evidence_kind="environment_observation",
+        context=_context("request-a"),
+    )
+    # The job is consumed despite every audit write failing.
+    await asyncio.wait_for(queue.wait_idle(), timeout=5.0)
+    assert Store.calls == 1
+    assert queue.started
+
+    await asyncio.wait_for(queue.aclose(), timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_dead_worker_fails_closed_and_aclose_does_not_hang(
+    tmp_path: Path,
+) -> None:
+    """A worker that dies unexpectedly (BaseException, kill signal semantics)
+    must close admission — enqueueing must raise, and aclose must not block
+    on a queue that can never drain."""
+
+    class FatalWorkerError(BaseException):
+        """Simulates a worker killed by a BaseException the loop can contain."""
+
+    class Store:
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            raise FatalWorkerError("worker dies hard")
+
+    queue = MemoryAddQueue(Store(), audit_path=tmp_path / "jobs.jsonl")
+    await queue.start()
+    await queue.enqueue(
+        content=_content("apple"),
+        memory_type="fact",
+        provenance_seq=1,
+        evidence_kind="environment_observation",
+        context=_context("request-a"),
+    )
+    # Let the worker consume the fatal job.
+    for _ in range(100):
+        if queue._worker is not None and queue._worker.done():
+            break
+        await asyncio.sleep(0.01)
+    assert queue._worker is not None and queue._worker.done()
+    assert isinstance(queue._worker.exception(), FatalWorkerError)
+    assert not queue.started
+
+    with pytest.raises(RuntimeError):
+        await queue.enqueue(
+            content=_content("late"),
+            memory_type="fact",
+            provenance_seq=2,
+            evidence_kind="user_statement",
+            context=_context("request-late"),
+        )
+    await asyncio.wait_for(queue.aclose(), timeout=5.0)

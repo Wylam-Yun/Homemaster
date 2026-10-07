@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from uuid import uuid4
 from homemaster.events.trace import append_jsonl_event
 
 _STOP = object()
+
+_logger = logging.getLogger(__name__)
 
 
 class MemoryAddQueueClosed(RuntimeError):
@@ -69,7 +72,11 @@ class MemoryAddQueue:
 
     @property
     def started(self) -> bool:
-        return self._worker is not None and not self._closed
+        return (
+            self._worker is not None
+            and not self._worker.done()
+            and not self._closed
+        )
 
     def _admission_open(self) -> bool:
         """External admission plus worker re-entrancy during shutdown drain.
@@ -86,7 +93,7 @@ class MemoryAddQueue:
             return False
         if not self._sealed:
             return True
-        if self._worker is None:
+        if self._worker is None or self._worker.done():
             return False
         try:
             import asyncio as _asyncio
@@ -113,8 +120,8 @@ class MemoryAddQueue:
     ) -> MemoryAddReceipt:
         if not self._admission_open():
             raise MemoryAddQueueClosed("memory Add queue is closing")
-        if self._worker is None:
-            raise RuntimeError("memory Add queue is not started")
+        if self._worker is None or self._worker.done():
+            raise RuntimeError("memory Add queue worker is not running")
         job = _MemoryAddJob(
             job_id=str(uuid4()),
             content=copy.deepcopy(content),
@@ -137,8 +144,8 @@ class MemoryAddQueue:
     ) -> MemoryWorkReceipt:
         if not self._admission_open():
             raise MemoryAddQueueClosed("memory queue is closing")
-        if self._worker is None:
-            raise RuntimeError("memory queue is not started")
+        if self._worker is None or self._worker.done():
+            raise RuntimeError("memory queue worker is not running")
         if not job_type:
             raise ValueError("job_type must not be empty")
         if not session_id:
@@ -164,10 +171,16 @@ class MemoryAddQueue:
                 return
             self._sealed = True
             worker = self._worker
-            if worker is not None:
+            # A dead worker strands its queue: joining it would hang shutdown
+            # forever, so only drain while someone can still pop items.
+            if worker is not None and not worker.done():
                 await self._queue.join()
                 self._queue.put_nowait(_STOP)
                 await worker
+            elif worker is not None:
+                # Retrieve the dead worker's exception so it does not surface
+                # as an unretrieved-task warning at GC.
+                await asyncio.gather(worker, return_exceptions=True)
             self._closed = True
 
     async def _run(self) -> None:
@@ -233,26 +246,33 @@ class MemoryAddQueue:
         error: str | None = None,
     ) -> None:
         context = job.context
-        append_jsonl_event(
-            self._audit_path,
-            event="memory_add_job",
-            payload={
-                "job_id": job.job_id,
-                "job_type": "flat_add",
-                "memory_type": job.memory_type,
-                "evidence_kind": job.evidence_kind,
-                "provenance_seq": job.provenance_seq,
-                "status": status,
-                "tenant_id": getattr(context, "account_id", None),
-                "project_id": getattr(context, "project_id", None),
-                "session_id": getattr(context, "session_id", None),
-                "run_id": job.run_id,
-                "request_id": getattr(context, "request_id", None),
-                "duration_ms": round(duration_ms, 3) if duration_ms is not None else None,
-                "memory_id": memory_id,
-                "error": error,
-            },
-        )
+        try:
+            append_jsonl_event(
+                self._audit_path,
+                event="memory_add_job",
+                payload={
+                    "job_id": job.job_id,
+                    "job_type": "flat_add",
+                    "memory_type": job.memory_type,
+                    "evidence_kind": job.evidence_kind,
+                    "provenance_seq": job.provenance_seq,
+                    "status": status,
+                    "tenant_id": getattr(context, "account_id", None),
+                    "project_id": getattr(context, "project_id", None),
+                    "session_id": getattr(context, "session_id", None),
+                    "run_id": job.run_id,
+                    "request_id": getattr(context, "request_id", None),
+                    "duration_ms": round(duration_ms, 3)
+                    if duration_ms is not None
+                    else None,
+                    "memory_id": memory_id,
+                    "error": error,
+                },
+            )
+        except Exception:
+            # The audit sink is observability sideband: its failure must never
+            # kill the worker (a dead worker strands jobs and hangs aclose).
+            _logger.warning("memory_add_job audit write failed", exc_info=True)
 
     def _log_work(
         self,
@@ -262,18 +282,23 @@ class MemoryAddQueue:
         duration_ms: float | None = None,
         error: str | None = None,
     ) -> None:
-        append_jsonl_event(
-            self._audit_path,
-            event="memory_work_job",
-            payload={
-                "job_id": job.job_id,
-                "job_type": job.job_type,
-                "status": status,
-                "session_id": job.session_id,
-                "duration_ms": round(duration_ms, 3) if duration_ms is not None else None,
-                "error": error,
-            },
-        )
+        try:
+            append_jsonl_event(
+                self._audit_path,
+                event="memory_work_job",
+                payload={
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                    "status": status,
+                    "session_id": job.session_id,
+                    "duration_ms": round(duration_ms, 3)
+                    if duration_ms is not None
+                    else None,
+                    "error": error,
+                },
+            )
+        except Exception:
+            _logger.warning("memory_work_job audit write failed", exc_info=True)
 
 
 __all__ = [

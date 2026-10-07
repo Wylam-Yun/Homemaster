@@ -1092,6 +1092,8 @@ def _validated_evidence(
                     "procedure evidence must be unique and ordered",
                 )
         return evidence
+    except MemoryToolServiceError as exc:
+        return _store_failure(exc)
     except MemoryEvidenceError as exc:
         return _failure(exc.code, str(exc))
 
@@ -1121,6 +1123,8 @@ def _validated_untyped_evidence(
                 "memory_evidence_missing", "current execution has no current-scope evidence"
             )
         )
+    except MemoryToolServiceError as exc:
+        return _store_failure(exc)
     except MemoryEvidenceError as exc:
         return _failure(exc.code, str(exc))
 
