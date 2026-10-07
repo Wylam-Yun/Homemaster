@@ -735,7 +735,7 @@ def test_session_approvals_lists_only_pending_for_that_session(
     handler = WebConfirmationHandler(store=store, timeout_s=None)
     app = _app(application, config=_config(), store=store, handler=handler)
 
-    async def scenario() -> None:
+    async def exercise() -> None:
         import httpx
 
         handler = app.state.confirmation_handler
@@ -768,7 +768,7 @@ def test_session_approvals_lists_only_pending_for_that_session(
         with pytest.raises(asyncio.CancelledError):
             await waiter
 
-    asyncio.run(scenario())
+    asyncio.run(exercise())
 
 
 def test_skills_resolve_returns_skill_metadata_or_plain() -> None:
@@ -1075,6 +1075,46 @@ def test_cancel_on_persisted_but_unloaded_session_is_not_500(tmp_path: Path) -> 
         status = client.get(f"/api/sessions/{session_id}/status")
         assert status.status_code == 200
         assert status.json()["session_id"] == session_id
+
+
+def test_shutdown_enqueues_finalization_for_active_sessions() -> None:
+    """Web/thin-client sessions never open an ApplicationSession, so
+    ``session.close()`` never fires for them. On server shutdown the app must
+    enqueue finalization for every materialized session instead of silently
+    skipping the episode write — the regression that made web-mode sessions
+    lose memory finalization entirely."""
+    application = _W2Application()
+    enqueued: list[tuple[str, str]] = []
+    application.session_end_handler = lambda sid, reason: enqueued.append(
+        (sid, reason)
+    )
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        created = client.post("/api/sessions", json={})
+        assert created.status_code == 201
+        session_id = created.json()["session_id"]
+    # Leaving the TestClient context runs lifespan teardown.
+
+    assert (session_id, "server_shutdown") in enqueued
+
+
+def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
+    """A raising ``session_end_handler`` must not prevent application
+    teardown — one bad session cannot veto the rest of the shutdown."""
+    application = _W2Application()
+
+    def boom(sid: str, reason: str) -> None:
+        raise RuntimeError("queue sealed")
+
+    application.session_end_handler = boom
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        created = client.post("/api/sessions", json={})
+        assert created.status_code == 201
+
+    assert application.closed
 
 
 __all__ = []

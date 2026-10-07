@@ -313,13 +313,12 @@ benchmark 拥有完整本地能力；远程入口必须由 Bearer credential 映
 roles 和 capabilities，不能从请求 metadata 或 prompt 读取这些字段。
 
 交互式 CLI 把本地审批公开为 `full_auto|confirm|plan` 三个易读选项。默认仍为 `full_auto`，便于自动化测试；
-只有显式运行 `homemaster --permission-mode confirm` 或
-`homemaster shell --permission-mode confirm` 才把内部策略映射为 `default` 并移除本地 principal 的
+只有显式运行 `homemaster shell --local --permission-mode confirm` 才把内部策略映射为 `default` 并移除本地 principal 的
 `tool.auto`。家庭资源权限走逐项确认：每项按 `1`=本次允许、`2`=始终允许、`3`=拒绝回答；非法输入重问
 当前项，EOF/取消终止本次申请。普通工具的通用二次确认已随 V3.4 移除（原有非交互硬拒绝保留）。
 审批拒绝发生在 resource lease 和 backend 调用之前。
 
-`--permission-mode` 仅属于交互式入口，不能与 `-p/--print`、`--dry-run`、`--gateway` 或其他子命令组合。
+`--permission-mode` 仅属于 `shell --local` 交互式入口，不能与远程模式或其他子命令组合。
 非交互入口和配置文件的既有权限行为不变。
 
 常用 capability 为 `tool.read`、`tool.mutate`、`tool.auto`、`device.read`、`device.control`、
@@ -382,11 +381,10 @@ SDK 日志和 `FeishuApiService.__repr__` 的已选字段保持原值；真实�
 派生成员；改名目标只取当前群 route，模型不能传 chat/member id 覆盖。
 
 ```bash
-uv run homemaster --gateway --config config/homemaster.yaml
+uv run homemaster gateway --config config/homemaster.yaml
 ```
 
-`homemaster --gateway` 仅运行飞书/Lark Gateway，不启动交互 shell。兼容入口
-`homemaster gateway --config ...` 保持可用。
+`homemaster gateway` 仅运行飞书/Lark Gateway，不启动交互 shell。
 
 ### 飞书工具确认卡片
 
@@ -434,7 +432,7 @@ browser_gateway:
 ALFWorld 不能同时启用：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --browser \
+PYTHONPATH=src .venv/bin/python -m homemaster.cli gateway --browser \
   --config config/homemaster.yaml
 ```
 

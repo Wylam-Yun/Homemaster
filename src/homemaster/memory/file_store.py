@@ -73,12 +73,17 @@ class FileMemoryStore:
         self._lock_path = config.root / ".memory.lock"
 
     def start(self) -> None:
-        self.config.root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.config.root, 0o700)
-        with self._exclusive_lock():
-            self._create_if_missing(self.config.soul_path, self._soul_template())
-            self._create_if_missing(self.config.user_path, "")
-            self._create_if_missing(self.config.memory_path, "")
+        try:
+            self.config.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(self.config.root, 0o700)
+            with self._exclusive_lock():
+                self._create_if_missing(self.config.soul_path, self._soul_template())
+                self._create_if_missing(self.config.user_path, "")
+                self._create_if_missing(self.config.memory_path, "")
+        except OSError as exc:
+            raise FileMemoryError(
+                "memory_init_failed", f"failed to initialize memory root: {exc}"
+            ) from exc
 
     def close(self) -> None:
         """File store owns no persistent descriptor between calls."""

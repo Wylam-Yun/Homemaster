@@ -168,6 +168,7 @@ _ALLOWED_DEPS_KEYS = frozenset(
         "provider_attempt_context_binder",
         "recalled_memories_by_tool_call_id",
         "run_context",
+        "session_allows",
         "skill_registry",
         "task_completion_guard",
         "task_state_store",

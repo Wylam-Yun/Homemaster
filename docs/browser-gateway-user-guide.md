@@ -2,7 +2,7 @@
 
 ## 用途
 
-`homemaster --gateway --browser` 和 `homemaster serve --browser` 为每个 run 创建独立、origin
+`homemaster gateway --browser` 和 `homemaster serve --browser` 为每个 run 创建独立、origin
 受限的 Playwright 会话，并注册 V3.1 通用浏览器工具。它适合遵循 DOM/ARIA 语义的后台系统、
 表单、表格、菜单、弹窗和常见复合控件；不加载 ALFWorld 环境 owner，也不接管
 用户已有 Chrome profile。
@@ -40,7 +40,7 @@ uv sync --extra dev --extra browser
 飞书入口：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --browser \
+PYTHONPATH=src .venv/bin/python -m homemaster.cli gateway --browser \
   --config config/homemaster.yaml
 ```
 

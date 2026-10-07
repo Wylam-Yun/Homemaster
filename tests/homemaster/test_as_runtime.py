@@ -354,6 +354,99 @@ async def test_as_runtime_sigint_aborts_model_call(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_as_runtime_interrupt_disabled_never_touches_sigint(
+    tmp_path: Path,
+) -> None:
+    """``observability.interrupt_enabled=False`` (server processes: uvicorn,
+    gateway) must leave the process-wide SIGINT handler untouched for the
+    whole run — installing one would hijack the server's own shutdown."""
+    import signal
+
+    class SigintProbeModel(ScriptedModel):
+        def __init__(self, script: list[list[Any]]) -> None:
+            super().__init__(script)
+            self.handler_seen: Any = None
+
+        async def _call_api(self, model_name, messages, tools=None, **kw):
+            self.handler_seen = signal.getsignal(signal.SIGINT)
+            return await super()._call_api(model_name, messages, tools, **kw)
+
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
+    ]
+    model = SigintProbeModel([[TextBlock(text="done")]])
+    runtime = AsAgentRuntime(
+        model=model, system_prompt="sys", tools=tools, max_tool_iterations=4
+    )
+    settings = _settings(tmp_path)
+    settings.observability = settings.observability.model_copy(
+        update={"interrupt_enabled": False}
+    )
+    pre_run_handler = signal.getsignal(signal.SIGINT)
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "hi", settings=settings)
+
+    assert result.status == "replied"
+    assert model.handler_seen == pre_run_handler
+    assert signal.getsignal(signal.SIGINT) == pre_run_handler
+
+
+@pytest.mark.asyncio
+async def test_as_runtime_resumed_session_does_not_reannounce_prior_reply(
+    tmp_path: Path,
+) -> None:
+    """A resumed engine context ends on the previous turn's assistant Msg;
+    its blocks must stay announced — never re-emitted as this run's
+    ``assistant.reply``/``answer.snapshot``."""
+    registry = ToolRegistry()
+    executor = ToolExecutor(registry)
+    settings = _settings(tmp_path)
+
+    runtime1, _ = _runtime(
+        tmp_path,
+        script=[[TextBlock(text="first answer")]],
+        registry=registry,
+        executor=executor,
+    )
+    session = AgentSession("as-runtime-test")
+    result1 = await runtime1.run(session, "q1", settings=settings)
+    assert result1.status == "replied"
+
+    from homemaster.substrate.snapshot import parse_snapshot_payload
+
+    payload = json.loads(
+        (tmp_path / "sess" / "as-runtime-test" / "session.json").read_text()
+    )
+    parsed = parse_snapshot_payload(payload)
+    session2 = AgentSession(parsed.session_id)
+    session2.replace_messages(list(parsed.messages))
+
+    runtime2, _model2 = _runtime(
+        tmp_path,
+        script=[[TextBlock(text="second answer")]],
+        registry=registry,
+        executor=executor,
+    )
+    result2 = await runtime2.run(
+        session2,
+        "q2",
+        settings=settings,
+        engine_state=parsed.engine_state,
+    )
+    assert result2.status == "replied"
+    replies = [
+        e.payload.get("reply", "")
+        for e in result2.events
+        if e.type == "assistant.reply"
+    ]
+    assert "second answer" in replies
+    assert "first answer" not in replies
+
+
+@pytest.mark.asyncio
 async def test_as_runtime_cancel_with_deadline(tmp_path: Path) -> None:
     """Deadline exceeds mid-model-call -> deadline_exceeded, snapshot
     still written."""

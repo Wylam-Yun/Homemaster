@@ -30,6 +30,15 @@ async def serve_gateway(
     api_service = FeishuApiService.from_config(config.gateway.feishu)
     group_operations = FeishuGroupOperations(api_service)
     confirmation_handler = FeishuGatewayConfirmationHandler()
+    # SIGINT/SIGTERM belong to the gateway supervisor's controlled shutdown —
+    # in-process runs must not install their own process-wide SIGINT handler.
+    config = config.model_copy(
+        update={
+            "observability": config.observability.model_copy(
+                update={"interrupt_enabled": False}
+            )
+        }
+    )
     bundle = compose_application(
         config=config,
         progress=False,

@@ -242,7 +242,7 @@ class ToolExecutor:
         tool = self.registry.get(call.name)
         if tool is None:
             return _result(
-                f"unknown tool: {call.name}",
+                f"unknown tool: {call.name!r}",
                 True,
                 {"status": "unknown_tool"},
             )
@@ -251,14 +251,30 @@ class ToolExecutor:
         except ValidationError as exc:
             return _invalid_arguments_result(tool, call, exc)
         normalized_arguments = arguments.model_dump(mode="json")
-        is_read_only = tool.is_read_only(arguments)
-        decision = self.permission_checker.evaluate_tool(
-            tool_name=tool.name,
-            is_read_only=is_read_only,
-            required_capabilities=tool.required_capabilities,
-            arguments=normalized_arguments,
-            context=context,
-        )
+        try:
+            is_read_only = tool.is_read_only(arguments)
+            decision = self.permission_checker.evaluate_tool(
+                tool_name=tool.name,
+                is_read_only=is_read_only,
+                required_capabilities=tool.required_capabilities,
+                arguments=normalized_arguments,
+                context=context,
+            )
+        except Exception as exc:
+            # ``_hm_propagate`` lifecycle exceptions must surface raw to the
+            # run driver; any other checker failure fails closed as a typed
+            # error — the tool does not run.
+            if getattr(exc, "_hm_propagate", False):
+                raise
+            return _result(
+                f"permission check failed: {type(exc).__name__}: {exc}",
+                True,
+                {
+                    "status": "tool_error",
+                    "error_code": "permission_check_error",
+                    "exception_type": type(exc).__name__,
+                },
+            )
         if decision.requires_confirmation and not _is_physical(tool):
             approved = False
             confirm = getattr(self.confirmation_handler, "confirm", None)
@@ -941,6 +957,12 @@ class ToolExecutor:
                     )
                     break
                 except Exception as exc:
+                    # ``_hm_propagate`` lifecycle exceptions (session generation
+                    # fence, recall deadline) must escape the group and surface
+                    # raw to the run driver — converting them to tool_error
+                    # would let a doomed run continue.
+                    if getattr(exc, "_hm_propagate", False):
+                        raise
                     value = exc
                 values.append((index, value))
             return values
@@ -958,6 +980,14 @@ class ToolExecutor:
                 if not task.done():
                     task.cancel()
             batches = await collector
+        except Exception:
+            # A ``_hm_propagate`` lifecycle exception escaped a group — stop the
+            # remaining groups and surface it raw to the run driver.
+            for task in group_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*group_tasks, return_exceptions=True)
+            raise
         ordered: list[ToolExecutionResult | None] = [None] * len(calls)
         for batch in batches:
             for index, value in batch:

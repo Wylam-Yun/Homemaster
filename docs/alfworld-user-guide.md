@@ -45,7 +45,7 @@ Gateway 进程继续运行在 HomeMaster 的项目 `.venv`；ALFWorld、AI2-THOR
 `config/homemaster.example.yaml`），然后运行：
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m homemaster.cli --gateway --alfworld \
+PYTHONPATH=src .venv/bin/python -m homemaster.cli gateway --alfworld \
   --config config/homemaster.yaml
 ```
 

@@ -126,6 +126,29 @@ def create_web_app(
             await run_registry.aclose()
             await pending_questions.aclose()
             await hub.aclose()
+            # Web/thin-client sessions never open an ApplicationSession, so
+            # session_close() hooks never fire for them — enqueue finalization
+            # for every session that had activity before the application-owned
+            # memory queue is sealed by application.aclose().
+            session_end = getattr(application, "session_end_handler", None)
+            if session_end is not None:
+                for session_runtime in application.session_manager.sessions:
+                    session_id = session_runtime.session.session_id
+                    try:
+                        receipt = session_end(session_id, "server_shutdown")
+                    except Exception:
+                        logger.warning(
+                            "session finalization enqueue failed for %s",
+                            session_id,
+                            exc_info=True,
+                        )
+                    else:
+                        if receipt is None:
+                            logger.warning(
+                                "session finalization was not admitted for %s "
+                                "(memory queue not ready)",
+                                session_id,
+                            )
             await application.aclose()
             hub_loop = None
             closed = True
@@ -360,12 +383,21 @@ def create_web_app(
                     run_id = await run_registry.active_run_id(session_id)
                     if run_id is not None:
                         break
+            # The adapter sets ``_current_tool_call_id`` for the dispatching
+            # tool's context, so the suspended prompt can be correlated back
+            # to the exact tool call that asked.
+            try:
+                from homemaster.substrate.toolkit import current_tool_call_id
+
+                tool_call_id = current_tool_call_id()
+            except Exception:
+                tool_call_id = ""
             record = await pending_questions.ask(
                 session_id=session_id,
                 run_id=run_id or "",
                 request_id=body.request_id,
                 question=question,
-                tool_call_id="",
+                tool_call_id=tool_call_id,
             )
             await hub.publish(
                 WebEvent(

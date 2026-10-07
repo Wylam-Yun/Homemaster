@@ -174,7 +174,15 @@ class HomeServerClient:
             raise ApiError(response.status_code, code, message, retryable)
         if not response.content:
             return {}
-        return response.json()
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise ApiError(
+                response.status_code,
+                "invalid_response",
+                f"server returned a malformed JSON body for {method} {path}",
+                False,
+            ) from exc
 
     async def meta(self) -> dict[str, Any]:
         """GET /api/meta — server version, memory mode, environment."""

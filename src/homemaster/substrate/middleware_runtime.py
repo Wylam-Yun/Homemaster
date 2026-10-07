@@ -135,6 +135,27 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         # survives `state.context` rebinding, the list is the fast path.
         self._handle.engine_state = agent.state
         self._handle.engine_context = agent.state.context
+        # On a resumed session the tail assistant Msg predates this run —
+        # seed the announcement watermark here (first point where the seeded
+        # context is visible) so pre-existing content is never re-emitted as
+        # this run's reply.
+        if getattr(self._handle, "assistant_watermark", None) is None:
+            prior_tail = next(
+                (
+                    m
+                    for m in reversed(agent.state.context)
+                    if getattr(m, "role", "") == "assistant"
+                ),
+                None,
+            )
+            self._handle.assistant_watermark = (
+                (
+                    getattr(prior_tail, "id", ""),
+                    len(getattr(prior_tail, "content", []) or []),
+                )
+                if prior_tail is not None
+                else ("", 0)
+            )
 
         if self._assembler is None:
             return await next_handler()

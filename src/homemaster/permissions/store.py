@@ -289,11 +289,15 @@ class PermissionStore:
 
     @staticmethod
     def _connect(path: Path) -> sqlite3.Connection:
-        path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(str(path), check_same_thread=False, timeout=30.0)
         except sqlite3.Error as exc:
             raise PermissionStorageUnavailable(f"cannot open permission store: {exc}") from exc
+        except OSError as exc:
+            raise PermissionStorageUnavailable(
+                f"cannot open permission store at {path}: {exc}"
+            ) from exc
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("PRAGMA foreign_keys = ON")

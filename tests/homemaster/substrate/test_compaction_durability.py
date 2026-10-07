@@ -3,7 +3,7 @@
 Regression coverage for the v35 AgentScope-migration bug: compaction results
 were written to the per-round session mirror and discarded on the next
 ``sync_session()`` overwrite, so every model call past the threshold re-ran
-the full summary pipeline. The durable artifact on ``AgentState`` folds
+the full summary flow. The durable artifact on ``AgentState`` folds
 history once; subsequent prepares project ``head + canonical[fk:]``.
 """
 

@@ -15,7 +15,7 @@ export type ApprovalItem = {
   display_name: string
   location: string
   action_label: string
-  // The approval pipeline may attach extra per-item metadata (tool arguments,
+  // The approval flow may attach extra per-item metadata (tool arguments,
   // resource kind/id, matched grants…); the dialog renders them under
   // <details> minus the internal identity keys.
   [key: string]: unknown

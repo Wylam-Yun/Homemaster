@@ -1,5 +1,44 @@
 # Unreleased
 
+- Final-acceptance hardening: untrusted tool names are now sanitized in
+  error messages (`call.name` is repr-rendered), so a NUL byte can no
+  longer turn an unknown-tool result into a raw `ValueError`;
+  `evaluate_tool` failures fail closed as a typed
+  `permission_check_error` result instead of propagating raw;
+  `_hm_propagate` lifecycle exceptions (session generation fence, recall
+  deadline) now escape `ToolExecutor.execute_many` raw — grouped
+  execution can no longer mute them into ordinary `tool_error` results;
+  unparseable path arguments (e.g. embedded NUL) fail closed as a
+  permission denial instead of raising `ValueError` from `pathlib`;
+  `PermissionStore.open` wraps parent-dir `mkdir` failures in
+  `PermissionStorageUnavailable`; the thin client converts malformed
+  JSON in 2xx responses into a typed `ApiError(invalid_response)`;
+  `FileMemoryStore.start()` reports unusable data roots as
+  `FileMemoryError("memory_init_failed")` like every other store method.
+
+- SIGINT ownership split: `observability.interrupt_enabled` is now wired
+  into the application `settings` namespace (previously dead config —
+  the substrate always defaulted to installing), and server-side
+  compositions (`serve`, `gateway`) disable it so a per-run SIGINT
+  handler can no longer hijack the process's own shutdown or overwrite
+  a concurrent run's saved handler. CLI entry points keep the interrupt
+  behavior.
+
+- Resumed-turn projection fix: the assistant-announce watermark is now
+  seeded from the pre-existing context tail at the first model call, so
+  a resumed session's previous reply is no longer re-emitted as
+  `assistant.reply`/`answer.snapshot` under the new run.
+
+- `question.asked` now carries the real dispatching `tool_call_id` (read
+  from the substrate's call-id contextvar) instead of an empty string.
+
+- Web session finalization: server shutdown now enqueues memory
+  finalization (`server_shutdown`) for every materialized session before
+  the application-owned queue is sealed — web/thin-client sessions never
+  open an `ApplicationSession`, so without this hook their episodes were
+  silently skipped on the full memory tier. Admission denial is now
+  logged instead of silent.
+
 - Server/thin-client architecture (W2): `homemaster serve` is now the
   single runtime; `homemaster shell`, `run`/`-p` and the web UI are all
   thin clients over HTTP + WebSocket. `HOMEMASTER_SERVER` selects the

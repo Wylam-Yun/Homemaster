@@ -244,10 +244,15 @@ class PermissionChecker:
             for item in values:
                 if not isinstance(item, str) or not item.strip():
                     continue
-                candidate_path = Path(item).expanduser()
-                if not candidate_path.is_absolute():
-                    candidate_path = context.working_directory / candidate_path
-                path = str(candidate_path.resolve(strict=False))
+                try:
+                    candidate_path = Path(item).expanduser()
+                    if not candidate_path.is_absolute():
+                        candidate_path = context.working_directory / candidate_path
+                    path = str(candidate_path.resolve(strict=False))
+                except (OSError, ValueError):
+                    # An unparseable path (e.g. embedded NUL) can never match an
+                    # allow rule — fail closed with a denial reason.
+                    return "access denied: path is not a valid filesystem path"
                 candidates = (path.rstrip("/"), path.rstrip("/") + "/")
                 for candidate in candidates:
                     for pattern in _SENSITIVE_PATH_PATTERNS:

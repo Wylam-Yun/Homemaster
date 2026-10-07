@@ -236,7 +236,7 @@ uv run homemaster run --utterance "去厨房找水杯，然后拿给我" --progr
 uv run homemaster shell
 
 # 手动测试家庭资源审批：逐项按 1/2/3 回答
-uv run homemaster shell --permission-mode confirm
+uv run homemaster shell --local --permission-mode confirm
 ```
 
 ## CLI 参考
@@ -307,13 +307,13 @@ uv sync --extra dev --extra gateway
 uv sync --extra browser
 
 # 普通飞书通道：通用工具 + 远程交互
-uv run homemaster --gateway --config config/homemaster.yaml
+uv run homemaster gateway --config config/homemaster.yaml
 
 # ALFWorld 具身模式：固定 episode，每次 backend 动作后强制 observe，画面同步发模型与飞书
-uv run homemaster --gateway --alfworld --config config/homemaster.yaml
+uv run homemaster gateway --alfworld --config config/homemaster.yaml
 
 # 浏览器模式：每个 run 独立、origin 受限的 Playwright 会话 + 通用浏览器工具
-uv run homemaster --gateway --browser --config config/homemaster.yaml
+uv run homemaster gateway --browser --config config/homemaster.yaml
 ```
 
 - Gateway 把所有非 bot sender 映射为固定 `feishu-owner` principal；`app_id/app_secret` 只从

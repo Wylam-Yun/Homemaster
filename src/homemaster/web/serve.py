@@ -7,7 +7,7 @@ import errno
 import ipaddress
 import socket
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import uvicorn
 from fastapi import FastAPI
@@ -74,6 +74,25 @@ def validate_port_available(host: str, port: int) -> int:
     return port
 
 
+def _server_owned_process_config(config: Any) -> Any:
+    """In a server process SIGINT belongs to uvicorn's shutdown, not to any
+    individual run — runs that install their own SIGINT handler would hijack
+    the server's signal and overwrite each other's saved handler."""
+
+    if not hasattr(config, "model_copy"):
+        return config
+    observability = getattr(config, "observability", None)
+    if not hasattr(observability, "model_copy"):
+        return config
+    return config.model_copy(
+        update={
+            "observability": observability.model_copy(
+                update={"interrupt_enabled": False}
+            )
+        }
+    )
+
+
 def create_home_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose one long-lived runtime with capabilities selected by configuration."""
 
@@ -86,6 +105,7 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
             )
         }
     )
+    config = _server_owned_process_config(config)
     bundle = compose_application(
         config=config,
         progress=False,
@@ -120,7 +140,7 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console with the same browser execution profile as other channels."""
 
     confirmation_handler = WebConfirmationHandler()
-    config = load_config(config_path=config_path)
+    config = _server_owned_process_config(load_config(config_path=config_path))
     bundle = compose_application(
         config=config,
         progress=False,
@@ -156,8 +176,9 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console around the existing fixed-episode ALFWorld adapter."""
 
     confirmation_handler = WebConfirmationHandler()
+    loaded = load_config(config_path=config_path) if config_path is not None else load_config()
     bundle = compose_application(
-        config=load_config(config_path=config_path) if config_path is not None else None,
+        config=_server_owned_process_config(loaded),
         progress=False,
         quiet=True,
         console_show_replies=False,
