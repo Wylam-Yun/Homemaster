@@ -1,0 +1,5 @@
+.overlay { position: absolute; top: 4.6rem; right: 1.6rem; z-index: 30; display: flex; align-items: center; gap: .35rem; border: 1px solid var(--border-strong); border-radius: .7rem; padding: .35rem .45rem; background: var(--surface); box-shadow: 0 .8rem 2.4rem rgb(0 0 0 / 45%); }
+.overlay input { width: 13rem; height: 2rem; border: 0; outline: 0; padding: 0 .55rem; color: var(--text); background: var(--surface-2); border-radius: .45rem; font: inherit; font-size: .85rem; }
+.count { min-width: 2.6rem; color: var(--muted-2); font-size: .75rem; text-align: center; }
+.overlay button { display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border: 0; border-radius: .4rem; color: var(--muted); background: transparent; cursor: pointer; }
+.overlay button:hover { color: var(--text); background: var(--surface-hover); }

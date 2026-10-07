@@ -139,6 +139,43 @@ describe('App memory navigation', () => {
     expect(screen.getByText(/区域权限只检查目的地，不限制途经区域/)).toBeVisible()
   })
 
+  it('keeps the composer text and shows a notice when sending fails', async () => {
+    render(<App />)
+    const input = await screen.findByPlaceholderText('Message…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as {
+      sendMessage: ReturnType<typeof vi.fn>
+    }
+    api.sendMessage.mockRejectedValueOnce(new Error('offline'))
+
+    fireEvent.change(input, { target: { value: 'do not lose this' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => { expect(api.sendMessage).toHaveBeenCalledTimes(1) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Message could not be sent.')
+    // The failed send must leave the typed input and out of prompt history.
+    expect((input as HTMLTextAreaElement).value).toBe('do not lose this')
+    expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual([])
+  })
+
+  it('clears the composer text after a successful send', async () => {
+    render(<App />)
+    const input = await screen.findByPlaceholderText('Message…')
+    await waitFor(() => { expect(input).toBeEnabled() })
+
+    const api = mocks.apis[mocks.apis.length - 1]! as unknown as {
+      sendMessage: ReturnType<typeof vi.fn>
+    }
+
+    fireEvent.change(input, { target: { value: 'send me' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => { expect(api.sendMessage).toHaveBeenCalledTimes(1) })
+    await waitFor(() => { expect((input as HTMLTextAreaElement).value).toBe('') })
+    expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual(['send me'])
+  })
+
   it('decides every approval item and submits the structured protocol body', async () => {
     render(<App />)
     expect(await screen.findByPlaceholderText('Message…')).toBeEnabled()
@@ -174,8 +211,8 @@ describe('App memory navigation', () => {
     expect(bodyText).not.toContain('approval-01')
 
     expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
-    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
-    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
     fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
 
     const api = mocks.apis[mocks.apis.length - 1]!
@@ -185,8 +222,8 @@ describe('App memory navigation', () => {
       submission_id: expect.any(String),
       request_revision: 3,
       decisions: [
-        { item_id: 'item-cup-a', choice: 'allow_always' },
-        { item_id: 'item-enter-b', choice: 'allow_once' },
+        { item_id: 'item-cup-a', choice: 'allow_once' },
+        { item_id: 'item-enter-b', choice: 'reject' },
       ],
     })
 

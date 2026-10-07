@@ -18,5 +18,12 @@
 .location { margin: .25rem 0 .5rem; color: var(--muted); font-size: .82rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
 .choice { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+.choice[data-disabled] { color: var(--muted-2); cursor: not-allowed; }
 .choice input { accent-color: var(--accent); }
+.command { margin: .25rem 0 .5rem; border-radius: .5rem; padding: .5rem .65rem; background: #080b0f; color: var(--accent); font-size: .8rem; font-family: "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+.file { margin: .25rem 0 .5rem; }
+.path { display: inline-block; border-radius: .4rem; padding: .15rem .45rem; background: var(--surface-2); font-size: .8rem; font-family: "SFMono-Regular", Consolas, monospace; word-break: break-all; }
+.more { margin-top: .35rem; color: var(--muted); font-size: .78rem; }
+.more summary { cursor: pointer; }
+.more pre { margin: .4rem 0 0; padding: .5rem; border-radius: .5rem; background: var(--surface-2); font-size: .75rem; white-space: pre-wrap; }
 .dialog .error { margin: .7rem 1.1rem 0; color: #ff9d9d; font-size: .85rem; }

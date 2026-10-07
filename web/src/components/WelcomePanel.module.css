@@ -1,0 +1,16 @@
+.welcome { display: grid; min-height: 70%; place-content: center; justify-items: center; gap: .4rem; padding: 1rem 0; color: var(--muted); text-align: center; }
+.spark { color: var(--accent); font-size: 2rem; }
+.welcome h1 { margin: .7rem 0 .3rem; color: var(--text); font-size: clamp(1.5rem, 4vw, 2.35rem); }
+.welcome p { max-width: 34rem; margin: 0; line-height: 1.6; }
+.suggestions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: 1.6rem; width: min(100%, 46rem); }
+.suggestion { display: flex; flex-direction: column; gap: .35rem; border: 1px solid var(--border); border-radius: .8rem; padding: .85rem 1rem; color: var(--muted); background: var(--surface); text-align: left; cursor: pointer; }
+.suggestion:hover { border-color: var(--border-strong); color: var(--text); background: var(--surface-hover); }
+.suggestion strong { color: var(--text); font-size: .9rem; }
+.suggestion span { font-size: .8rem; line-height: 1.5; }
+.recent { margin-top: 1.8rem; width: min(100%, 30rem); }
+.recent h2 { margin: 0 0 .5rem; color: var(--muted-2); font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-align: left; }
+.recentRow { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; border: 1px solid transparent; border-radius: .6rem; padding: .6rem .75rem; color: var(--muted); background: transparent; text-align: left; cursor: pointer; }
+.recentRow:hover { border-color: var(--border); color: var(--text); background: var(--surface-hover); }
+.recentRow span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recentRow small { flex: none; color: var(--accent); }
+@media (max-width: 720px) { .suggestions { grid-template-columns: 1fr; } }

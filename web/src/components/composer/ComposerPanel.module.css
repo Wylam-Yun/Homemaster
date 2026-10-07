@@ -1,0 +1,23 @@
+.composer { position: relative; width: min(calc(100% - 2rem), 50rem); margin: 0 auto 1rem; }
+.editor { position: relative; border: 1px solid var(--border-strong); border-radius: 1rem; padding: .65rem 3.6rem 1.55rem .85rem; background: var(--surface); box-shadow: 0 1.2rem 4rem rgb(0 0 0 / 25%); }
+.editor textarea { display: block; width: 100%; min-height: 2.2rem; max-height: 9rem; resize: none; border: 0; padding: 0; color: var(--text); background: transparent; line-height: 1.5; overflow-y: auto; }
+.editor textarea:focus { outline: 0; }
+.editor textarea::placeholder { color: var(--muted-2); }
+.editor textarea:disabled { opacity: .6; }
+.send, .stop { position: absolute; right: .7rem; top: .65rem; display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 0; border-radius: .65rem; cursor: pointer; }
+.send { color: #062118; background: var(--accent); }
+.send:disabled { opacity: .35; cursor: not-allowed; }
+.stop { color: white; background: var(--danger); }
+.hint { position: absolute; bottom: .45rem; left: .85rem; color: var(--muted-2); font-size: .68rem; }
+.popover { position: absolute; z-index: 60; right: 0; bottom: calc(100% + .4rem); left: 0; }
+.menu { max-height: 16rem; overflow-y: auto; border: 1px solid var(--border-strong); border-radius: .75rem; padding: .35rem; background: var(--surface); box-shadow: 0 1rem 3rem rgb(0 0 0 / 45%); }
+.groupLabel { padding: .35rem .5rem .15rem; color: var(--muted-2); font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.option { display: flex; align-items: baseline; gap: .6rem; border-radius: .45rem; padding: .45rem .55rem; cursor: pointer; }
+.option[data-active] { background: var(--surface-hover); }
+.optionName { flex: none; color: var(--text); font-size: .82rem; font-weight: 600; }
+.optionHint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-2); font-size: .78rem; }
+.empty { padding: .5rem .55rem; color: var(--muted-2); font-size: .8rem; }
+.notice { margin-top: .5rem; border: 1px solid var(--warning); border-radius: .6rem; padding: .5rem .7rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); font-size: .8rem; }
+.dropOverlay { position: fixed; z-index: 180; inset: 0; display: grid; place-items: center; background: rgb(5 8 12 / 70%); backdrop-filter: blur(4px); pointer-events: none; }
+.dropBox { border: 2px dashed var(--accent); border-radius: 1rem; padding: 2rem 3rem; color: var(--accent); background: var(--surface); font-size: 1rem; }
+@media (max-width: 720px) { .composer { width: calc(100% - 1rem); margin-bottom: .5rem; } }

@@ -37,3 +37,28 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent);
 .shell[data-recording] .assistant-row { max-width: none; }
 .shell[data-recording] .body, .shell[data-recording] .card pre { font-size: .95rem; line-height: 1.55; }
 @media (max-width: 720px) { .shell { grid-template-columns: 1fr; }.sidebar { position: fixed; z-index: 50; inset: 0 auto 0 0; display: flex; width: min(18rem, 86vw); transform: translateX(-105%); box-shadow: 1rem 0 4rem rgb(0 0 0 / 45%); transition: transform .2s ease; }.sidebar[data-open] { transform: translateX(0); }.mobile-menu { display: block; padding: .4rem; cursor: pointer; }.topbar { justify-content: flex-start; gap: .8rem; padding-inline: .6rem 1rem; }.connection { margin-left: auto; }.conversation { padding: 1rem; }.composer { width: calc(100% - 1rem); margin-bottom: .5rem; }.user-row > div { max-width: 90%; } }
+
+/* A2/A4/A5 render-layer additions */
+.workspace { position: relative; }
+.conversation-inner { min-height: 0; }
+.session-item { position: relative; display: flex; align-items: center; gap: .2rem; border-radius: .6rem; }
+.session-item[data-active] { background: var(--surface-hover); }
+.session-item .session-open { flex: 1; min-width: 0; padding-right: 3rem; }
+.sidebar nav .session-actions { position: absolute; right: .35rem; top: 50%; display: flex; gap: .15rem; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.sidebar nav .session-item:hover .session-actions, .sidebar nav .session-item:focus-within .session-actions { opacity: 1; pointer-events: auto; }
+.sidebar nav .session-actions button { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 0; border-radius: .4rem; padding: 0; color: var(--muted-2); background: var(--surface-2); font-size: .72rem; cursor: pointer; }
+.sidebar nav .session-actions button:hover:not(:disabled) { color: var(--text); background: var(--border-strong); }
+.sidebar nav .session-actions button:disabled { cursor: default; opacity: .4; }
+.session-dot { flex: none; width: .5rem; height: .5rem; margin-left: .3rem; border-radius: 50%; }
+.session-dot[data-status='running'] { background: #6aa8ff; animation: session-pulse 1.4s ease-in-out infinite; }
+.session-dot[data-status='awaiting'] { background: var(--warning); }
+.session-dot[data-status='done'] { background: var(--success); }
+@keyframes session-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .session-dot[data-status='running'] { animation: none; } }
+.session-rename { min-width: 0; flex: 1; margin: .25rem 0; border: 1px solid var(--accent-soft); border-radius: .45rem; padding: .35rem .5rem; color: var(--text); background: var(--surface-2); font: inherit; font-size: .85rem; }
+.sidebar nav .session-restore { margin-top: .4rem; border: 0; border-radius: .5rem; padding: .45rem .75rem; color: var(--muted-2); background: transparent; font-size: .75rem; text-align: left; cursor: pointer; }
+.sidebar nav .session-restore:hover { color: var(--text); background: var(--surface-hover); }
+.to-bottom { position: absolute; left: 50%; bottom: 7.5rem; z-index: 20; transform: translateX(-50%); border: 1px solid var(--border-strong); border-radius: 999px; padding: .45rem 1rem; color: var(--text); background: var(--surface); box-shadow: 0 .6rem 1.8rem rgb(0 0 0 / 40%); font-size: .8rem; cursor: pointer; }
+.to-bottom:hover { background: var(--surface-hover); }
+.conversation [data-search-hit] { border-radius: .4rem; outline: 2px solid var(--warning); outline-offset: 2px; }
+.session-item[data-active] .session-open, .session-item[data-active] .session-open span { color: var(--text); }

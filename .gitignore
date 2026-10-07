@@ -36,6 +36,7 @@ var/alfworld_smoke/
 report/
 log/
 web/node_modules/
+web/src/node_modules/
 web/.vite/
 web/*.tsbuildinfo
 

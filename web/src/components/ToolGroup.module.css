@@ -1,0 +1,15 @@
+.group { margin: .5rem 0 .75rem; overflow: hidden; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-2); }
+.item + .item { border-top: 1px solid var(--border); }
+.row { display: flex; align-items: center; gap: .6rem; width: 100%; border: 0; padding: .55rem .85rem; color: var(--muted); background: transparent; text-align: left; cursor: pointer; }
+.row:hover { color: var(--text); background: var(--surface-hover); }
+.status { width: 1rem; text-align: center; font-size: .7rem; }
+.status[data-state='running'] { color: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.status[data-state='completed'] { color: var(--success); }
+.status[data-state='failed'] { color: var(--danger); }
+.name { font-weight: 600; color: var(--text); }
+.summary { min-width: 0; flex: 1; overflow: hidden; color: var(--muted-2); font-family: "SFMono-Regular", Consolas, monospace; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.chevron { margin-left: auto; color: var(--muted-2); }
+.detail { padding: 0 .6rem .6rem; }
+.detail > article { margin: 0; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .status[data-state='running'] { animation: none; } }

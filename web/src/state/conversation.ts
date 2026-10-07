@@ -21,6 +21,11 @@ export type ApprovalState = {
   requestStatus: string
 }
 
+export type TurnSegment =
+  | { kind: 'thinking'; text: string }
+  | { kind: 'answer'; text: string }
+  | { kind: 'tool'; toolCallId: string }
+
 export type TurnState = {
   requestId: string
   sessionId: string
@@ -28,6 +33,7 @@ export type TurnState = {
   thinking: string
   answer: string
   tools: Record<string, ToolCallState>
+  segments: TurnSegment[]
   approval: ApprovalState | null
   usage: Usage | null
   status: TurnStatus
@@ -59,11 +65,28 @@ function emptyTurn(event: WebEvent): TurnState {
     thinking: '',
     answer: '',
     tools: {},
+    segments: [],
     approval: null,
     usage: null,
     status: 'pending',
     error: null,
   }
+}
+
+function appendDelta(segments: TurnSegment[], kind: 'thinking' | 'answer', text: string): TurnSegment[] {
+  const last = segments.at(-1)
+  if (last?.kind === kind) {
+    return [...segments.slice(0, -1), { kind, text: last.text + text }]
+  }
+  return [...segments, { kind, text }]
+}
+
+function applyTextSnapshot(segments: TurnSegment[], kind: 'thinking' | 'answer', text: string): TurnSegment[] {
+  const firstIndex = segments.findIndex(segment => segment.kind === kind)
+  if (firstIndex === -1) return [...segments, { kind, text }]
+  const kept = segments.filter(segment => segment.kind !== kind)
+  const before = segments.slice(0, firstIndex).filter(segment => segment.kind !== kind).length
+  return [...kept.slice(0, before), { kind, text }, ...kept.slice(before)]
 }
 
 export function reduceWebEvent(state: ConversationState, event: WebEvent): ConversationState {
@@ -91,19 +114,36 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
       turn = { ...current, runId: event.run_id, status: 'running' }
       break
     case 'thinking.delta':
-      turn = { ...current, thinking: current.thinking + event.payload.text }
+      turn = {
+        ...current,
+        thinking: current.thinking + event.payload.text,
+        segments: appendDelta(current.segments, 'thinking', event.payload.text),
+      }
       break
     case 'thinking.snapshot':
-      turn = { ...current, thinking: event.payload.text }
+      turn = {
+        ...current,
+        thinking: event.payload.text,
+        segments: applyTextSnapshot(current.segments, 'thinking', event.payload.text),
+      }
       break
     case 'answer.delta':
-      turn = { ...current, answer: current.answer + event.payload.text }
+      turn = {
+        ...current,
+        answer: current.answer + event.payload.text,
+        segments: appendDelta(current.segments, 'answer', event.payload.text),
+      }
       break
     case 'answer.snapshot':
-      turn = { ...current, answer: event.payload.text }
+      turn = {
+        ...current,
+        answer: event.payload.text,
+        segments: applyTextSnapshot(current.segments, 'answer', event.payload.text),
+      }
       break
     case 'tool.started': {
       const id = event.payload.tool_call_id
+      const hasSegment = current.segments.some(segment => segment.kind === 'tool' && segment.toolCallId === id)
       turn = {
         ...current,
         tools: { ...current.tools, [id]: {
@@ -114,6 +154,7 @@ export function reduceWebEvent(state: ConversationState, event: WebEvent): Conve
           output: '',
           artifacts: [],
         } },
+        segments: hasSegment ? current.segments : [...current.segments, { kind: 'tool', toolCallId: id }],
       }
       break
     }

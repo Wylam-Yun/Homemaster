@@ -163,46 +163,91 @@ describe('ApprovalDialog', () => {
     expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
   })
 
-  it('submits one always plus one once choice with the exact item ids', () => {
+  it('keeps 始终允许 as a disabled placeholder pending server support', () => {
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+
+    for (const radio of screen.getAllByRole('radio', { name: '始终允许' })) {
+      expect(radio).toBeDisabled()
+      expect(radio.closest('label')).toHaveAttribute('title', 'requires server support')
+    }
+  })
+
+  it('submits once plus reject choices with the exact item ids', () => {
     const submit = vi.fn()
     render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
-    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
     fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
 
     expect(submit).toHaveBeenCalledTimes(1)
     expect(submit.mock.calls[0]![0]).toEqual({
-      'item-cup-a': 'allow_always',
-      'item-enter-b': 'allow_once',
+      'item-cup-a': 'allow_once',
+      'item-enter-b': 'reject',
     })
     expect(typeof submit.mock.calls[0]![1]).toBe('string')
   })
 
-  it('locks a new submission id after the user changes a choice', () => {
+  it('latches all controls after the first submit click so double-clicks cannot resubmit', () => {
     const submit = vi.fn()
     render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
 
-    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
-    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
-    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
-    const firstId = submit.mock.calls[0]![1] as string
-
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[0]!)
     fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
     fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
-    const secondId = submit.mock.calls[1]![1] as string
+    expect(submit).toHaveBeenCalledTimes(1)
 
-    expect(submit.mock.calls[1]![0]).toEqual({
-      'item-cup-a': 'allow_always',
-      'item-enter-b': 'reject',
-    })
-    expect(secondId).not.toBe(firstId)
+    expect(screen.getByRole('button', { name: '提交中…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '关闭' })).toBeDisabled()
+    for (const radio of screen.getAllByRole('radio', { name: '本次允许' })) {
+      expect(radio).toBeDisabled()
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: '提交中…' }))
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[0]!)
+    expect(submit).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the latch after a failed submission so the user can retry', () => {
+    const submit = vi.fn()
+    const { rerender } = render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '本次允许' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+    expect(screen.getByRole('button', { name: '提交中…' })).toBeDisabled()
+
+    rerender(<ApprovalDialog approval={cardApproval} busy onSubmit={submit} onClose={vi.fn()} />)
+    rerender(<ApprovalDialog approval={cardApproval} busy={false} error="network down" onSubmit={submit} onClose={vi.fn()} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('network down')
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+    expect(submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('formats shell-like items as a mono $ command and file-like items path-first', () => {
+    const shellApproval: ApprovalState = {
+      ...cardApproval,
+      items: [
+        { item_id: 'item-shell', display_name: 'ls -la /tmp', location: 'ls -la /tmp', action_label: 'shell_exec' },
+        { item_id: 'item-file', display_name: 'config.yaml', location: '/etc/config.yaml', action_label: 'write_file' },
+      ],
+    }
+    render(<ApprovalDialog approval={shellApproval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+
+    expect(screen.getByText('$ ls -la /tmp')).toBeVisible()
+    const path = screen.getByText('/etc/config.yaml')
+    expect(path.tagName).toBe('CODE')
+    const details = path.closest('div')!.querySelector('details')
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute('open')
   })
 
   it('treats Escape and the close button as cancellation without submitting', () => {
     const submit = vi.fn()
     const close = vi.fn()
-    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={close} />)
+    const { rerender } = render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={close} />)
 
     expect(screen.getByRole('button', { name: '关闭' })).toHaveFocus()
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -210,6 +255,11 @@ describe('ApprovalDialog', () => {
     expect(typeof close.mock.calls[0]![0]).toBe('string')
     expect(submit).not.toHaveBeenCalled()
 
+    // The cancel click latched the dialog — a follow-up click cannot re-fire.
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(close).toHaveBeenCalledTimes(1)
+
+    rerender(<ApprovalDialog approval={{ ...cardApproval, approvalId: 'approval-02' }} busy={false} onSubmit={submit} onClose={close} />)
     fireEvent.click(screen.getByRole('button', { name: '关闭' }))
     expect(close).toHaveBeenCalledTimes(2)
     expect(submit).not.toHaveBeenCalled()
