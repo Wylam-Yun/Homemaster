@@ -1,5 +1,18 @@
 # Unreleased
 
+- Code-quality pass (final review round): `assert_semantic_equal` now
+  actually compares normalized block payloads (previously it built the
+  payloads and returned — a vacuous round-trip gate); leading
+  originally-empty assistant segments keep positional metadata instead
+  of being swallowed by the next segment; the permission command-token
+  scan inspects option payloads (`--exclude=~/.ssh/x`, `-o/etc/shadow`)
+  and strips fd-redirect prefixes via regex; jobs stranded behind a dead
+  queue worker are audit-logged as `dropped` on close instead of
+  vanishing silently; shared artifact/token/sha256 validators moved to
+  `events/token_patterns.py` so the web and gateway public projections
+  cannot drift; dead code removed (duplicate `is_interactive_event`,
+  redundant aliases).
+
 - Final-acceptance hardening: untrusted tool names are now sanitized in
   error messages (`call.name` is repr-rendered), so a NUL byte can no
   longer turn an unknown-tool result into a raw `ValueError`;
