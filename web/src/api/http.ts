@@ -12,7 +12,7 @@ export type HistoryMessage = {
   name?: string
 }
 
-export type ItemChoice = 'allow_once' | 'allow_always' | 'reject'
+export type ItemChoice = 'allow_once' | 'allow_session' | 'allow_always' | 'reject'
 
 export type ApprovalDecision = {
   item_id: string
@@ -141,6 +141,70 @@ export type MemorySnapshot = { stats: MemoryStats; groups: MemoryGroup[] }
 export type MemoryHistory = { memory_id: string; versions: ManagedMemory[] }
 export type CompileJob = { job_id: string; status: string; memory_id?: string; derived_memory_id?: string; error?: string }
 
+export type UiMode = 'plan' | 'act'
+
+export type ProviderInfo = {
+  name: string
+  kind: string
+  model: string | null
+  api_key_configured: boolean
+}
+
+export type MetaInfo = {
+  version: string
+  memory_mode: string
+  environment: string | null
+}
+
+export type SessionStatusInfo = {
+  session_id: string
+  generation: number
+  revision: number
+  status: string
+  active: boolean
+  cancellation_requested: boolean
+  task_status: string | null
+  environment_ref: string | null
+  ui_mode?: UiMode | null
+}
+
+export type CompactResult = {
+  session_id: string
+  generation: number
+  revision: number
+  triggered: boolean
+  kind: string
+}
+
+export type SendMessageOptions = {
+  provider_name?: string
+  model?: string
+}
+
+/**
+ * Pending approval as returned by GET /api/sessions/{id}/approvals. The list
+ * mirrors the approval.requested payload; `deadline_at` is accepted as an
+ * alias of `expires_at`, and items may carry extra tool metadata.
+ */
+export type PendingApprovalRequest = {
+  approval_id: string
+  request_id?: string
+  revision?: number
+  intent_summary?: string
+  items?: Array<Record<string, unknown>>
+  expires_at?: string
+  deadline_at?: string
+  request_status?: string
+}
+
+export type PendingQuestion = {
+  question_id: string
+  question: string
+  tool_call_id?: string | null
+  request_id?: string | null
+  run_id?: string | null
+}
+
 export class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -185,10 +249,53 @@ export class HomeMasterApi {
     return this.request(`/api/memory-compilations/${encodeURIComponent(jobId)}`)
   }
 
-  sendMessage(sessionId: string, requestId: string, text: string): Promise<{ accepted: boolean }> {
+  providers(): Promise<{ providers: ProviderInfo[] }> {
+    return this.request('/api/providers')
+  }
+
+  meta(): Promise<MetaInfo> {
+    return this.request('/api/meta')
+  }
+
+  sessionStatus(sessionId: string): Promise<SessionStatusInfo> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/status`)
+  }
+
+  compactSession(sessionId: string): Promise<CompactResult> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, { method: 'POST' })
+  }
+
+  setUiMode(sessionId: string, uiMode: UiMode): Promise<{ session_id: string; ui_mode: UiMode }> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
+      method: 'POST',
+      body: JSON.stringify({ ui_mode: uiMode }),
+    })
+  }
+
+  pendingApprovals(sessionId: string): Promise<{ approvals: PendingApprovalRequest[] }> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/approvals`)
+  }
+
+  pendingQuestions(sessionId: string): Promise<{ questions: PendingQuestion[] }> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/questions`)
+  }
+
+  answerQuestion(sessionId: string, questionId: string, text: string): Promise<{ question_id: string; accepted?: boolean }> {
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/questions/${encodeURIComponent(questionId)}/answer`,
+      { method: 'POST', body: JSON.stringify({ text }) },
+    )
+  }
+
+  sendMessage(sessionId: string, requestId: string, text: string, options: SendMessageOptions = {}): Promise<{ accepted: boolean }> {
+    const body: Record<string, string> = { request_id: requestId, text }
+    // Per-message provider/model pass-through: an in-flight turn keeps its
+    // starting model; the override takes effect from the next turn.
+    if (options.provider_name !== undefined && options.provider_name !== '') body.provider_name = options.provider_name
+    if (options.model !== undefined && options.model !== '') body.model = options.model
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ request_id: requestId, text }),
+      body: JSON.stringify(body),
     })
   }
 

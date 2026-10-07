@@ -8,11 +8,17 @@ export type ArtifactRef = {
 
 export type Usage = Record<string, number>
 
+export type UiMode = 'plan' | 'act'
+
 export type ApprovalItem = {
   item_id: string
   display_name: string
   location: string
   action_label: string
+  // The approval pipeline may attach extra per-item metadata (tool arguments,
+  // resource kind/id, matched grants…); the dialog renders them under
+  // <details> minus the internal identity keys.
+  [key: string]: unknown
 }
 
 export type ApprovalResolvedItem = {
@@ -29,7 +35,10 @@ type Envelope<T extends string, P> = {
 }
 
 export type WebEvent =
-  | Envelope<'request.accepted' | 'run.started' | 'run.completed' | 'run.cancelled', Record<string, never>>
+  | Envelope<'request.accepted' | 'run.started' | 'run.cancelled', Record<string, never>>
+  // status/final_reply let a (re)connected client settle the terminal reply
+  // without a history reload.
+  | Envelope<'run.completed', { status?: string; final_reply?: string }>
   | Envelope<'thinking.delta' | 'thinking.snapshot' | 'answer.delta' | 'answer.snapshot', { text: string }>
   | Envelope<'run.failed', { code: string; message: string; retryable: boolean }>
   | Envelope<'tool.started', {
@@ -74,6 +83,21 @@ export type WebEvent =
       before_tokens?: number
       after_tokens?: number
     }>
+  | Envelope<'question.asked', {
+      question_id: string
+      question: string
+      tool_call_id?: string | null
+    }>
+  | Envelope<'question.answered', {
+      question_id: string
+      answer?: string
+    }>
+  // Emitted once per pending question when its run ends or is cancelled
+  // (app.py run teardown); payload carries only the question id.
+  | Envelope<'question.cancelled', {
+      question_id: string
+    }>
+  | Envelope<'session.mode_changed', { ui_mode: UiMode }>
 
 const EVENT_TYPES = new Set<WebEvent['type']>([
   'request.accepted', 'run.started', 'run.completed', 'run.failed', 'run.cancelled',
@@ -81,6 +105,7 @@ const EVENT_TYPES = new Set<WebEvent['type']>([
   'tool.started', 'tool.completed', 'tool.failed',
   'approval.requested', 'approval.resolved', 'permission.grants_changed',
   'usage.updated', 'context.compacted',
+  'question.asked', 'question.answered', 'question.cancelled', 'session.mode_changed',
 ])
 
 export function isWebEvent(value: unknown): value is WebEvent {

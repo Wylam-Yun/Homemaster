@@ -1,4 +1,5 @@
 import { act, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ToastProvider, useToast } from '../toast'
@@ -348,6 +349,122 @@ describe('ComposerPanel', () => {
 
     rerender(<ComposerPanel {...otherProps} sessionId="s1" />)
     expect(composerInput().value).toBe('one')
+  })
+})
+
+describe('ComposerPanel batch-2 surfaces', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  const providers = [
+    { name: 'primary', kind: 'anthropic', model: 'claude-sonnet-4', api_key_configured: true },
+  ]
+  const question = {
+    questionId: 'q-1', sessionId: 'session-01', requestId: 'request-01',
+    question: '要继续吗？', toolCallId: 'call-1',
+  }
+
+  it('enqueues instead of sending while busy and shows the queue button', () => {
+    const props = renderComposer({ busy: true, onEnqueue: vi.fn() })
+    const input = composerInput()
+
+    fireEvent.change(input, { target: { value: '排队消息' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(props.onSubmit).not.toHaveBeenCalled()
+    expect(props.onEnqueue).toHaveBeenCalledWith('排队消息')
+    expect(input.value).toBe('')
+    expect(JSON.parse(localStorage.getItem('hm.promptHistory') ?? '[]')).toEqual(['排队消息'])
+    expect(screen.getByRole('button', { name: '排队发送' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop run' })).toBeVisible()
+  })
+
+  it('keeps busy submissions blocked when no enqueue callback exists', () => {
+    const props = renderComposer({ busy: true })
+    fireEvent.change(composerInput(), { target: { value: 'nowhere' } })
+    fireEvent.keyDown(composerInput(), { key: 'Enter' })
+    expect(props.onSubmit).not.toHaveBeenCalled()
+    expect(composerInput().value).toBe('nowhere')
+  })
+
+  it('injects an edit-draft via the injectDraft prop', async () => {
+    function Harness() {
+      const [signal, setSignal] = useState<{ seq: number; text: string } | null>(null)
+      return (
+        <>
+          <button type="button" onClick={() => { setSignal({ seq: 1, text: 'edited text' }) }}>inject</button>
+          <ComposerPanel
+            sessionId="session-01" busy={false} onSubmit={vi.fn()} onCancel={vi.fn()}
+            slashCommands={COMMANDS} resolveMentions={noMentions}
+            injectDraft={signal}
+          />
+        </>
+      )
+    }
+    render(<Harness />)
+    fireEvent.change(composerInput(), { target: { value: 'existing draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'inject' }))
+    expect(composerInput().value).toBe('existing draft\nedited text')
+    // persistDraft is debounced (300ms) — wait for the write to land.
+    await waitFor(() => {
+      expect(localStorage.getItem('hm.draft.session-01')).toBe('existing draft\nedited text')
+    })
+  })
+
+  it('swaps the editor for a question card while a question is pending and restores the draft after', async () => {
+    const onAnswer = vi.fn(async () => true)
+    const { rerender } = render(<ComposerPanel
+      sessionId="session-01" busy={true} onSubmit={vi.fn()} onCancel={vi.fn()}
+      slashCommands={COMMANDS} resolveMentions={noMentions}
+      pendingQuestion={null} onAnswerQuestion={onAnswer}
+    />)
+    fireEvent.change(composerInput(), { target: { value: '挂起的草稿' } })
+
+    rerender(<ComposerPanel
+      sessionId="session-01" busy={true} onSubmit={vi.fn()} onCancel={vi.fn()}
+      slashCommands={COMMANDS} resolveMentions={noMentions}
+      pendingQuestion={question} onAnswerQuestion={onAnswer}
+    />)
+    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull()
+    expect(screen.getByText('要继续吗？')).toBeVisible()
+
+    fireEvent.change(screen.getByRole('textbox', { name: '回答 Agent 的问题' }), { target: { value: '继续' } })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '回答 Agent 的问题' }), { key: 'Enter' })
+    await waitFor(() => { expect(onAnswer).toHaveBeenCalledWith('q-1', '继续') })
+
+    rerender(<ComposerPanel
+      sessionId="session-01" busy={false} onSubmit={vi.fn()} onCancel={vi.fn()}
+      slashCommands={COMMANDS} resolveMentions={noMentions}
+      pendingQuestion={null} onAnswerQuestion={onAnswer}
+    />)
+    expect(composerInput().value).toBe('挂起的草稿')
+  })
+
+  it('shows the approval-waiting takeover when an approval is pending', () => {
+    renderComposer({
+      pendingApproval: {
+        approvalId: 'a1', requestId: 'r1', revision: 1, intentSummary: 'x',
+        items: [
+          { item_id: 'i1', display_name: 'd', location: 'l', action_label: 'a' },
+          { item_id: 'i2', display_name: 'd2', location: 'l2', action_label: 'a2' },
+        ],
+        expiresAt: '', requestStatus: 'awaiting_approval',
+      },
+    })
+    expect(screen.getByText('等待审批')).toBeVisible()
+    expect(screen.queryByRole('textbox', { name: 'Message' })).toBeNull()
+  })
+
+  it('renders the toolbar chrome and switches placeholder in plan mode', () => {
+    const props = renderComposer({ providers, mode: 'plan', onModeChange: vi.fn(), onCompact: vi.fn() })
+    expect(screen.getByRole('combobox', { name: 'Provider' })).toBeVisible()
+    expect(screen.getByPlaceholderText(/规划模式/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /规划/ }))
+    expect(props.onModeChange).toHaveBeenCalledWith('act')
+    fireEvent.click(screen.getByRole('button', { name: '压缩上下文' }))
+    expect(props.onCompact).toHaveBeenCalledTimes(1)
   })
 })
 

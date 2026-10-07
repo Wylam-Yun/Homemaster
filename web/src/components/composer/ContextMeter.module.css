@@ -1,0 +1,10 @@
+.meter { display: inline-flex; align-items: center; gap: .35rem; }
+.ring { width: 1.35rem; height: 1.35rem; transform: rotate(-90deg); }
+.ringTrack { fill: none; stroke: var(--border); stroke-width: 2.4; }
+.ringFill { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; transition: stroke-dashoffset .25s ease; }
+.ringFill[data-level='mid'] { stroke: var(--warning); }
+.ringFill[data-level='high'] { stroke: var(--danger); }
+.readout { color: var(--muted-2); font-size: .72rem; font-variant-numeric: tabular-nums; }
+.compact { display: inline-grid; width: 1.5rem; height: 1.5rem; place-items: center; border: 1px solid var(--border); border-radius: .45rem; color: var(--muted); background: transparent; font-size: .78rem; cursor: pointer; }
+.compact:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.compact:disabled { opacity: .5; cursor: default; }

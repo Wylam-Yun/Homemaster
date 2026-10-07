@@ -1,3 +1,4 @@
+import type { Usage } from '../protocol/events'
 import type { ApprovalState, ConversationState, ToolCallState, TurnState, TurnStatus } from './conversation'
 
 export type ToolRecord = {
@@ -25,6 +26,7 @@ export type Turn = {
   status: TurnStatus
   userText: string | null
   approval: ApprovalState | null
+  usage: Usage | null
   steps: Step[]
 }
 
@@ -127,6 +129,7 @@ export function projectTurn(turn: TurnState, userText: string | null = null): Tu
     status: turn.status,
     userText,
     approval: turn.approval,
+    usage: turn.usage,
     steps,
   }
 }

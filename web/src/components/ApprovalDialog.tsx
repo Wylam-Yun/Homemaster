@@ -8,13 +8,17 @@ import styles from './ApprovalDialog.module.css'
 
 export type ApprovalDecisions = Record<string, ItemChoice>
 
-// once/deny are the only wired choices this batch; always stays as a disabled
-// placeholder until the server protocol supports persistent grants here.
-const CHOICES: ReadonlyArray<{ value: ItemChoice; label: string; disabled?: boolean; hint?: string }> = [
+// 审批卡 2.0：once/session/always/deny 四档。always 需要二次确认后才写入决定；
+// session 走协议扩展出的 allow_session 值（服务端 grant 语义按其范围执行）。
+const CHOICES: ReadonlyArray<{ value: ItemChoice; label: string; hint?: string }> = [
   { value: 'allow_once', label: '本次允许' },
-  { value: 'allow_always', label: '始终允许', disabled: true, hint: 'requires server support' },
+  { value: 'allow_session', label: '本会话允许', hint: '当前会话内对同一申请不再询问' },
+  { value: 'allow_always', label: '始终允许', hint: '写入长期授权，需二次确认' },
   { value: 'reject', label: '拒绝' },
 ]
+
+/** Keys that are identity/routing data, never shown in the metadata block. */
+const INTERNAL_ITEM_KEYS = new Set(['item_id', 'approval_id', 'request_id', 'session_id', 'run_id'])
 
 function newSubmissionId(): string {
   return crypto.randomUUID()
@@ -44,6 +48,34 @@ export function summarizeApprovalItem(item: ApprovalItem): ApprovalItemSummary {
   return { kind: 'generic' }
 }
 
+/** Full per-item metadata minus internal identity keys, for the <details> block. */
+export function approvalItemMetadata(item: ApprovalItem): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(item).filter(([key]) => !INTERNAL_ITEM_KEYS.has(key)))
+}
+
+function formatCountdown(seconds: number): string {
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return `${minutes}:${String(rest).padStart(2, '0')}`
+}
+
+/** Seconds until the approval deadline; null when the timestamp is missing/invalid. */
+function useApprovalCountdown(expiresAt: string): number | null {
+  const target = Date.parse(expiresAt)
+  const read = (): number | null =>
+    Number.isNaN(target) ? null : Math.max(0, Math.round((target - Date.now()) / 1000))
+  const [left, setLeft] = useState<number | null>(read)
+  useEffect(() => {
+    if (Number.isNaN(target)) {
+      setLeft(null)
+      return
+    }
+    const timer = setInterval(() => { setLeft(read()) }, 1000)
+    return () => { clearInterval(timer) }
+  }, [expiresAt])
+  return left
+}
+
 export function ApprovalDialog({
   approval,
   busy,
@@ -64,15 +96,20 @@ export function ApprovalDialog({
   // the parent's busy cycle completes (retry stays possible after a failure)
   // or when a different approval request arrives.
   const [latched, setLatched] = useState(false)
+  // 始终允许 二次确认：第一次选择只 arm（radio 呈现选中态但不写入决定），
+  // 行内确认条确认后才落 decision；选别的档或取消都会解除 arm。
+  const [alwaysArmed, setAlwaysArmed] = useState<string | null>(null)
   const sawBusyRef = useRef(false)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   const locked = busy || latched
+  const countdown = useApprovalCountdown(approval.expiresAt)
 
   useEffect(() => {
     setDecisions({})
     setSubmissionId(newSubmissionId())
     setLatched(false)
+    setAlwaysArmed(null)
     sawBusyRef.current = false
   }, [approval.approvalId])
 
@@ -117,7 +154,20 @@ export function ApprovalDialog({
 
   const choose = (itemId: string, choice: ItemChoice): void => {
     if (locked) return
+    if (choice === 'allow_always' && decisions[itemId] !== 'allow_always') {
+      // First click arms the confirmation strip instead of writing the decision.
+      setAlwaysArmed(itemId)
+      return
+    }
+    setAlwaysArmed(previous => (previous === itemId ? null : previous))
     setDecisions(previous => ({ ...previous, [itemId]: choice }))
+    setSubmissionId(newSubmissionId())
+  }
+
+  const confirmAlways = (itemId: string): void => {
+    if (locked) return
+    setAlwaysArmed(null)
+    setDecisions(previous => ({ ...previous, [itemId]: 'allow_always' }))
     setSubmissionId(newSubmissionId())
   }
 
@@ -141,12 +191,20 @@ export function ApprovalDialog({
           <div>
             <h2 id="approval-title">权限申请</h2>
             <p>{approval.intentSummary}</p>
-            <p className={styles.hint}>仅针对本次调用；逐项决定后提交。</p>
+            <p className={styles.hint}>
+              逐项决定后提交；「本会话」在当前会话内复用，「始终允许」写入长期授权。
+              {countdown !== null && (
+                countdown > 0
+                  ? <span className={styles.countdown}>剩余 {formatCountdown(countdown)}</span>
+                  : <span className={styles.countdown} data-expired>等待服务端到期回收…</span>
+              )}
+            </p>
           </div>
         </header>
         <ul className={styles.items}>
           {approval.items.map((item, index) => {
             const summary = summarizeApprovalItem(item)
+            const metadata = approvalItemMetadata(item)
             return (
             <li key={item.item_id} className={styles.item}>
               <fieldset>
@@ -157,34 +215,45 @@ export function ApprovalDialog({
                 {summary.kind === 'file' && (
                   <div className={styles.file}>
                     <code className={styles.path}>{summary.path}</code>
-                    <details className={styles.more}>
-                      <summary>更多参数</summary>
-                      <pre>{JSON.stringify(summary.rest, null, 2)}</pre>
-                    </details>
                   </div>
                 )}
                 {summary.kind === 'generic' && (
                   <div className={styles.location}>{item.location}</div>
                 )}
+                <details className={styles.meta}>
+                  <summary>参数详情</summary>
+                  <pre>{JSON.stringify(metadata, null, 2)}</pre>
+                </details>
                 <div className={styles.choices} role="radiogroup" aria-label={`${item.display_name}${item.action_label}`}>
                   {CHOICES.map(choice => (
                     <label
                       key={choice.value}
                       className={styles.choice}
-                      data-disabled={choice.disabled || undefined}
                       title={choice.hint}
                     >
                       <input
                         type="radio"
                         name={`approval-item-${index}`}
-                        checked={decisions[item.item_id] === choice.value}
-                        disabled={locked || choice.disabled}
+                        checked={
+                          decisions[item.item_id] === choice.value
+                          || (choice.value === 'allow_always' && alwaysArmed === item.item_id)
+                        }
+                        disabled={locked}
                         onChange={() => { choose(item.item_id, choice.value) }}
                       />
                       {choice.label}
                     </label>
                   ))}
                 </div>
+                {alwaysArmed === item.item_id && (
+                  <div className={styles.alwaysConfirm}>
+                    <span>将长期记住「{item.display_name}」的「{item.action_label}」权限？</span>
+                    <button type="button" className={styles.confirmAlways} onClick={() => { confirmAlways(item.item_id) }}>
+                      确认始终允许
+                    </button>
+                    <button type="button" onClick={() => { setAlwaysArmed(null) }}>取消</button>
+                  </div>
+                )}
               </fieldset>
             </li>
             )

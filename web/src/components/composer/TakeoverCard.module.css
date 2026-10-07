@@ -1,0 +1,11 @@
+.takeover { border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border)); border-radius: 1rem; padding: .8rem .9rem; background: var(--surface); box-shadow: 0 1.2rem 4rem rgb(0 0 0 / 25%); }
+.takeover[data-takeover='question'] { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.takeoverLabel { color: var(--muted-2); font-size: .68rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.questionText { margin: .4rem 0 .6rem; color: var(--text); line-height: 1.55; white-space: pre-wrap; }
+.answerRow { display: flex; gap: .5rem; }
+.answerInput { flex: 1; min-width: 0; border: 1px solid var(--border-strong); border-radius: .6rem; padding: .45rem .65rem; color: var(--text); background: var(--surface-2); font: inherit; }
+.answerInput:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.answerInput:disabled { opacity: .6; }
+.answerSubmit { border: 0; border-radius: .6rem; padding: .45rem .95rem; color: #062118; background: var(--accent); font-weight: 600; cursor: pointer; }
+.answerSubmit:disabled { opacity: .4; cursor: not-allowed; }
+.takeoverHint { display: block; margin-top: .45rem; color: var(--muted-2); font-size: .68rem; }

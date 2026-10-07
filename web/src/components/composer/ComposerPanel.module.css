@@ -1,10 +1,18 @@
 .composer { position: relative; width: min(calc(100% - 2rem), 50rem); margin: 0 auto 1rem; }
+.toolbar { display: flex; align-items: center; gap: .6rem; margin-bottom: .45rem; padding: 0 .15rem; }
+.toolbarSpacer { flex: 1; }
+/* plan 模式：紫色调 + 只读感，配合 placeholder/hint 文案切换（cline uiMode 三处同步的裁剪版） */
+.composer[data-mode='plan'] .editor { border-color: #6c5ce7; }
+.composer[data-mode='plan'] .send { background: #b9a9ff; color: #1b1440; }
 .editor { position: relative; border: 1px solid var(--border-strong); border-radius: 1rem; padding: .65rem 3.6rem 1.55rem .85rem; background: var(--surface); box-shadow: 0 1.2rem 4rem rgb(0 0 0 / 25%); }
 .editor textarea { display: block; width: 100%; min-height: 2.2rem; max-height: 9rem; resize: none; border: 0; padding: 0; color: var(--text); background: transparent; line-height: 1.5; overflow-y: auto; }
 .editor textarea:focus { outline: 0; }
 .editor textarea::placeholder { color: var(--muted-2); }
 .editor textarea:disabled { opacity: .6; }
 .send, .stop { position: absolute; right: .7rem; top: .65rem; display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 0; border-radius: .65rem; cursor: pointer; }
+.queue { position: absolute; right: 3.3rem; top: .65rem; display: grid; width: 2.2rem; height: 2.2rem; place-items: center; border: 1px solid var(--border-strong); border-radius: .65rem; color: var(--muted); background: var(--surface-2); cursor: pointer; }
+.queue:disabled { opacity: .4; cursor: not-allowed; }
+.queue:hover:not(:disabled) { color: var(--text); border-color: var(--accent-soft); }
 .send { color: #062118; background: var(--accent); }
 .send:disabled { opacity: .35; cursor: not-allowed; }
 .stop { color: white; background: var(--danger); }

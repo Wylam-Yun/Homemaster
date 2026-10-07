@@ -3,10 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { EventConnection, type ConnectionState } from './api/connection'
-import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type SessionSummary } from './api/http'
+import { HomeMasterApi, HttpError, type HistoryMessage, type ItemChoice, type MemorySnapshot, type MetaInfo, type ProviderInfo, type SessionStatusInfo, type SessionSummary, type UiMode } from './api/http'
 import type { ApprovalDecisions } from './components/ApprovalDialog'
 import { ApprovalDialog } from './components/ApprovalDialog'
-import { ComposerPanel } from './components/composer/ComposerPanel'
+import { ComposerPanel, type ModelSelection } from './components/composer/ComposerPanel'
+import { QueueDock, type QueuedPrompt } from './components/composer/QueueDock'
 import { MemoryPage } from './components/MemoryPage'
 import { PermissionsPage } from './components/PermissionsPage'
 import { ReasoningRow } from './components/ReasoningRow'
@@ -17,7 +18,7 @@ import { TranscriptSearch, type TranscriptSearchEntry } from './components/Trans
 import { WelcomePanel } from './components/WelcomePanel'
 import { useScrollFollow } from './hooks/useScrollFollow'
 import type { WebEvent } from './protocol/events'
-import { initialConversationState, reduceWebEvent } from './state/conversation'
+import { initialConversationState, reduceConversation } from './state/conversation'
 import { projectSessionTurns, type Turn } from './state/projection'
 
 const api = new HomeMasterApi()
@@ -90,7 +91,7 @@ function AppShell() {
   const [sessionQuery, setSessionQuery] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [history, setHistory] = useState<HistoryMessage[]>([])
-  const [state, dispatch] = useReducer(reduceWebEvent, initialConversationState)
+  const [state, dispatch] = useReducer(reduceConversation, initialConversationState)
   const [connectionState, setConnectionState] = useState<ConnectionState>('offline')
   const [submitted, setSubmitted] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | null>(null)
@@ -114,6 +115,13 @@ function AppShell() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [meta, setMeta] = useState<MetaInfo | null>(null)
+  const [sessionStatus, setSessionStatus] = useState<SessionStatusInfo | null>(null)
+  const [modelSelection, setModelSelection] = useState<ModelSelection>({})
+  const [queued, setQueued] = useState<QueuedPrompt[]>([])
+  const [draftSignal, setDraftSignal] = useState<{ seq: number; text: string } | null>(null)
+  const [contextLimit, setContextLimit] = useState<number | null>(null)
   const connectionRef = useRef<EventConnection | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const newSessionRef = useRef<() => void>(() => {})
@@ -145,10 +153,42 @@ function AppShell() {
 
   // Sent texts are session-scoped; switching sessions drops both the staging
   // map and the rendered-text cache (the target reloads via history()).
+  // Session chrome (queue/status/meter/model pick) is per-session too.
   useEffect(() => {
     userTextsRef.current = {}
     setSubmitted({})
+    setQueued([])
+    setSessionStatus(null)
+    setContextLimit(null)
+    setModelSelection(sessionId === null ? {} : readJson<ModelSelection>(`hm.model.${sessionId}`, {}))
   }, [sessionId])
+
+  // Provider list + meta are session-independent; one fetch at mount is enough.
+  useEffect(() => {
+    void api.providers().then(listed => { setProviders(listed.providers) }).catch(() => {})
+    void api.meta().then(setMeta).catch(() => {})
+  }, [])
+
+  /**
+   * 断连重连后回补：WS 重新 connected 时把 pending approvals/questions 合入
+   * state（REST 结果对该 session 是权威的，hydrate 会清掉已决议的回补项）。
+   */
+  const hydratePending = useCallback(async (sid: string) => {
+    const [status, approvals, questions] = await Promise.all([
+      api.sessionStatus(sid).catch(() => null),
+      api.pendingApprovals(sid).catch(() => null),
+      api.pendingQuestions(sid).catch(() => null),
+    ])
+    if (sessionIdRef.current !== sid) return // stale fetch after a session switch
+    if (status !== null) setSessionStatus(status)
+    dispatch({
+      type: 'session.hydrate_pending',
+      sessionId: sid,
+      approvals: approvals?.approvals ?? [],
+      questions: questions?.questions ?? [],
+      uiMode: status?.ui_mode ?? null,
+    })
+  }, [])
 
   const refreshSessions = useCallback(async () => {
     const listed = await api.listSessions()
@@ -173,6 +213,16 @@ function AppShell() {
   // Session status dots derive locally from the WS events we already receive.
   const handleWebEvent = useCallback((event: WebEvent) => {
     if (event.type === 'permission.grants_changed') setGrantsSignal(value => value + 1)
+    if (event.type === 'context.compacted' && typeof event.payload.before_tokens === 'number') {
+      // The auto-compaction ceiling approximates the real context window.
+      setContextLimit(event.payload.before_tokens)
+    }
+    if (event.type === 'session.mode_changed' && event.payload.ui_mode !== undefined) {
+      const mode = event.payload.ui_mode
+      setSessionStatus(current => current !== null && current.session_id === event.session_id
+        ? { ...current, ui_mode: mode }
+        : current)
+    }
     dispatch(event)
     if (
       event.type === 'run.completed' ||
@@ -195,6 +245,7 @@ function AppShell() {
           next = 'running'
           break
         case 'approval.requested':
+        case 'question.asked':
           next = 'awaiting'
           break
         case 'run.completed':
@@ -233,7 +284,11 @@ function AppShell() {
     }
     const connection = new EventConnection(nextId, undefined, {
       onEvent: handleWebEvent,
-      onStateChange: setConnectionState,
+      onStateChange: next => {
+        setConnectionState(next)
+        // 每次（重）连上都回补 pending 审批/问题/状态——服务端是权威。
+        if (next === 'connected') void hydratePending(nextId)
+      },
       onReject: () => {
         showNotice('该会话在服务端已不存在，已为你新建会话。')
         newSessionRef.current()
@@ -241,7 +296,7 @@ function AppShell() {
     })
     connectionRef.current = connection
     connection.start()
-  }, [handleWebEvent, showNotice])
+  }, [handleWebEvent, hydratePending, showNotice])
 
   const newSession = useCallback(async () => {
     setView('conversation')
@@ -297,6 +352,18 @@ function AppShell() {
   const canSend = connectionState === 'connected' && sessionId !== null && active === undefined
   useFaviconStatus(active !== undefined)
 
+  const pendingQuestion = sessionId === null
+    ? null
+    : Object.values(state.questions).find(question => question.sessionId === sessionId) ?? null
+  const uiMode: UiMode = sessionId !== null ? state.uiModes[sessionId] ?? 'act' : 'act'
+  const latestUsage = useMemo(() => {
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      const usage = turns[index]!.usage
+      if (usage !== null) return usage
+    }
+    return null
+  }, [turns])
+
   const itemCount = useMemo(
     () => history.length + turns.reduce((count, turn) => count + turn.steps.length + (turn.userText === null ? 0 : 1), 0),
     [history, turns],
@@ -311,7 +378,11 @@ function AppShell() {
     userTextsRef.current[requestId] = trimmed
     setSubmitted(items => ({ ...items, [requestId]: trimmed }))
     try {
-      await api.sendMessage(sessionId, requestId, trimmed)
+      // 逐消息透传 provider/model 选择；未选择时不带字段，服务端用默认 provider。
+      await api.sendMessage(sessionId, requestId, trimmed, {
+        provider_name: modelSelection.provider_name,
+        model: modelSelection.model,
+      })
     } catch (error) {
       // The request never reached the server: drop the optimistic entries (no
       // turn will ever arrive for this requestId) and report failure so the
@@ -327,7 +398,98 @@ function AppShell() {
       return false
     }
     return true
-  }, [canSend, sessionId, showNotice])
+  }, [canSend, sessionId, modelSelection, showNotice])
+
+  // QueueDock：busy 时 composer 把消息排进本地队列，回合终态按序自动发送。
+  const enqueue = useCallback((text: string) => {
+    setQueued(list => [...list, { id: crypto.randomUUID(), text }])
+  }, [])
+
+  const flushInflightRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!canSend || queued.length === 0) return
+    const head = queued[0]!
+    if (flushInflightRef.current === head.id) return
+    flushInflightRef.current = head.id
+    void sendText(head.text).then(sent => {
+      // 失败时消息留在队列里，等下一个 canSend 边沿重试（session_busy 等
+      // 409 说明服务端回合其实还没完）。
+      if (sent) setQueued(list => list.filter(item => item.id !== head.id))
+      if (flushInflightRef.current === head.id) flushInflightRef.current = null
+    })
+  }, [canSend, queued, sendText])
+
+  const enqueueOrSend = useCallback((text: string) => {
+    if (canSend) {
+      void sendText(text)
+      return
+    }
+    if (connectionState === 'connected' && sessionId !== null) {
+      enqueue(text)
+      return
+    }
+    showNotice('当前未连接，无法发送。')
+  }, [canSend, connectionState, enqueue, sendText, sessionId, showNotice])
+
+  // Composer 接管：pending question 换成问答卡，answer 走 POST 后乐观移除
+  // （服务端会再广播 question.answered，幂等）。
+  const answerQuestion = useCallback(async (questionId: string, text: string): Promise<boolean> => {
+    if (sessionId === null) return false
+    try {
+      await api.answerQuestion(sessionId, questionId, text)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '回答提交失败。')
+      return false
+    }
+    dispatch({
+      type: 'question.answered',
+      session_id: sessionId,
+      run_id: '',
+      request_id: '',
+      payload: { question_id: questionId },
+    })
+    return true
+  }, [sessionId, showNotice])
+
+  const setUiMode = useCallback(async (next: UiMode) => {
+    if (sessionId === null) return
+    try {
+      await api.setUiMode(sessionId, next)
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '模式切换失败。')
+      return
+    }
+    // 乐观回显；多端同步以服务端广播的 session.mode_changed 为准。
+    dispatch({
+      type: 'session.mode_changed',
+      session_id: sessionId,
+      run_id: '',
+      request_id: '',
+      payload: { ui_mode: next },
+    })
+    setSessionStatus(current => current?.session_id === sessionId ? { ...current, ui_mode: next } : current)
+  }, [sessionId, showNotice])
+
+  const compactNow = useCallback(async () => {
+    if (sessionId === null) return
+    try {
+      const result = await api.compactSession(sessionId)
+      toast.show(result.triggered
+        ? { title: '已触发上下文压缩', description: `kind: ${result.kind}` }
+        : { title: '当前无需压缩', description: `kind: ${result.kind}` })
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '压缩上下文失败。')
+    }
+  }, [sessionId, showNotice, toast])
+
+  const persistModelSelection = useCallback((selection: ModelSelection) => {
+    setModelSelection(selection)
+    if (sessionId !== null) writeJson(`hm.model.${sessionId}`, selection)
+  }, [sessionId])
+
+  const editMessage = useCallback((text: string) => {
+    setDraftSignal(signal => ({ seq: (signal?.seq ?? 0) + 1, text }))
+  }, [])
 
   const submitApproval = async (decisions: ApprovalDecisions, submissionId: string): Promise<void> => {
     const approval = approvalTurn?.approval
@@ -538,7 +700,7 @@ function AppShell() {
           </nav>
         </>}
         {historyCollapsed && <div className="history-spacer" />}
-        <div className="local-note"><span>●</span> Loopback only</div>
+        <div className="local-note"><span>●</span> Loopback only{meta !== null ? ` · v${meta.version}` : ''}</div>
       </aside>
       <main className="workspace">
         <header className="topbar"><button className="mobile-menu" type="button" aria-label="打开侧栏" onClick={() => { setSidebarOpen(value => !value) }}>☰</button><div><strong>{view === 'memories' ? '记忆管理' : view === 'permissions' ? '权限管理' : '对话'}</strong><small>{view === 'memories' ? '只读查看' : view === 'permissions' ? '长期授权可撤销' : (sessionId ?? '正在启动…')}</small></div><div className="connection" data-state={connectionState}><span />{connectionState}</div></header>
@@ -557,8 +719,25 @@ function AppShell() {
         ) : <>
           <section className="conversation" aria-live="polite" ref={follow.containerRef}>
             <div className="conversation-inner" ref={follow.contentRef}>
-            {history.map((message, index) => <HistoryRow key={`${index}:${message.role}`} message={message} searchKey={`h${index}`} defaultExpanded={displayOptions.recording} />)}
-            {turns.map(turn => <TurnView key={turn.requestId} turn={turn} recording={displayOptions.recording} />)}
+            {history.map((message, index) => (
+              <HistoryRow
+                key={`${index}:${message.role}`}
+                message={message}
+                searchKey={`h${index}`}
+                defaultExpanded={displayOptions.recording}
+                onEdit={editMessage}
+                onResend={enqueueOrSend}
+              />
+            ))}
+            {turns.map(turn => (
+              <TurnView
+                key={turn.requestId}
+                turn={turn}
+                recording={displayOptions.recording}
+                onEdit={editMessage}
+                onResend={enqueueOrSend}
+              />
+            ))}
             {history.length === 0 && turns.length === 0 && (
               <WelcomePanel
                 recentSessions={sessions.filter(session => session.session_id !== sessionId && !hiddenSet.has(session.session_id)).slice(0, 3)}
@@ -580,6 +759,11 @@ function AppShell() {
           )}
           <TranscriptSearch open={searchOpen} entries={searchEntries} onClose={() => { setSearchOpen(false) }} />
           {notice && <div className="notice" role="alert"><span>{notice}</span><button type="button" onClick={dismissNotice}>关闭</button></div>}
+          <QueueDock
+            items={queued}
+            onRemove={id => { setQueued(list => list.filter(item => item.id !== id)) }}
+            onClear={() => { setQueued([]) }}
+          />
           <ComposerPanel
             sessionId={sessionId}
             busy={active !== undefined}
@@ -588,6 +772,20 @@ function AppShell() {
             onCancel={() => { if (sessionId) void api.cancel(sessionId) }}
             slashCommands={[]}
             resolveMentions={() => Promise.resolve([])}
+            onEnqueue={enqueue}
+            injectDraft={draftSignal}
+            mode={uiMode}
+            onModeChange={next => { void setUiMode(next) }}
+            providers={providers}
+            modelValue={modelSelection}
+            onModelChange={persistModelSelection}
+            usage={latestUsage}
+            sessionStatus={sessionStatus}
+            contextLimit={contextLimit}
+            onCompact={() => { void compactNow() }}
+            pendingQuestion={pendingQuestion}
+            onAnswerQuestion={answerQuestion}
+            pendingApproval={approvalTurn?.approval ?? null}
           />
         </>}
       </main>
@@ -597,12 +795,43 @@ function AppShell() {
   )
 }
 
-function TurnView({ turn, recording }: { turn: Turn; recording: boolean }) {
+function UserBubble({
+  text,
+  searchKey,
+  onEdit,
+  onResend,
+}: {
+  text: string
+  searchKey?: string
+  onEdit: (text: string) => void
+  onResend: (text: string) => void
+}) {
+  return (
+    <div className="user-row" data-search-key={searchKey}>
+      <div className="user-bubble">
+        <div className="user-text">{text}</div>
+        <div className="user-actions">
+          <button type="button" aria-label="编辑这条消息" title="回到输入框继续编辑（不改历史）" onClick={() => { onEdit(text) }}>编辑</button>
+          <button type="button" aria-label="重发这条消息" title="原样再发一次" onClick={() => { onResend(text) }}>重发</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TurnView({ turn, recording, onEdit, onResend }: {
+  turn: Turn
+  recording: boolean
+  onEdit: (text: string) => void
+  onResend: (text: string) => void
+}) {
   let lastReasoning = -1
   turn.steps.forEach((step, index) => { if (step.kind === 'reasoning') lastReasoning = index })
   return (
     <article className="turn">
-      {turn.userText !== null && <div className="user-row" data-search-key={`${turn.requestId}:user`}><div>{turn.userText}</div></div>}
+      {turn.userText !== null && (
+        <UserBubble text={turn.userText} searchKey={`${turn.requestId}:user`} onEdit={onEdit} onResend={onResend} />
+      )}
       <div className="assistant-row">
         {turn.steps.map((step, index) => {
           const key = `${turn.requestId}:${index}`
@@ -630,7 +859,15 @@ function TurnView({ turn, recording }: { turn: Turn; recording: boolean }) {
   )
 }
 
-function HistoryRow({ message, searchKey, defaultExpanded = false }: { message: HistoryMessage; searchKey?: string; defaultExpanded?: boolean }) {
-  if (message.role === 'user') return <div className="user-row" data-search-key={searchKey}><div>{message.text}</div></div>
+function HistoryRow({ message, searchKey, defaultExpanded = false, onEdit, onResend }: {
+  message: HistoryMessage
+  searchKey?: string
+  defaultExpanded?: boolean
+  onEdit: (text: string) => void
+  onResend: (text: string) => void
+}) {
+  if (message.role === 'user') {
+    return <UserBubble text={message.text} searchKey={searchKey} onEdit={onEdit} onResend={onResend} />
+  }
   return <div className="assistant-row">{message.thinking && <ReasoningRow text={message.thinking} running={false} defaultExpanded={defaultExpanded} searchKey={searchKey} />}{message.text && <div className="markdown" data-search-key={searchKey}><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown></div>}</div>
 }

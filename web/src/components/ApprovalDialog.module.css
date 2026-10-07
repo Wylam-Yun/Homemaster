@@ -23,7 +23,13 @@
 .command { margin: .25rem 0 .5rem; border-radius: .5rem; padding: .5rem .65rem; background: #080b0f; color: var(--accent); font-size: .8rem; font-family: "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
 .file { margin: .25rem 0 .5rem; }
 .path { display: inline-block; border-radius: .4rem; padding: .15rem .45rem; background: var(--surface-2); font-size: .8rem; font-family: "SFMono-Regular", Consolas, monospace; word-break: break-all; }
-.more { margin-top: .35rem; color: var(--muted); font-size: .78rem; }
-.more summary { cursor: pointer; }
-.more pre { margin: .4rem 0 0; padding: .5rem; border-radius: .5rem; background: var(--surface-2); font-size: .75rem; white-space: pre-wrap; }
+.meta { margin: .3rem 0 .55rem; color: var(--muted-2); font-size: .78rem; }
+.meta summary { cursor: pointer; }
+.meta summary:hover { color: var(--muted); }
+.meta pre { margin: .4rem 0 0; max-height: 12rem; overflow: auto; padding: .5rem; border-radius: .5rem; background: var(--surface-2); font-size: .75rem; white-space: pre-wrap; word-break: break-all; }
+.countdown { display: inline-block; margin-left: .5rem; color: var(--warning); font-variant-numeric: tabular-nums; }
+.countdown[data-expired] { color: var(--danger); }
+.alwaysConfirm { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent); border-radius: .55rem; padding: .45rem .6rem; color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); font-size: .8rem; }
+.alwaysConfirm button { min-width: 0; border: 1px solid var(--border-strong); border-radius: .45rem; padding: .3rem .6rem; color: var(--text); background: transparent; font-size: .78rem; cursor: pointer; }
+.alwaysConfirm .confirmAlways { border-color: var(--warning); color: #241a04; background: var(--warning); }
 .dialog .error { margin: .7rem 1.1rem 0; color: #ff9d9d; font-size: .85rem; }

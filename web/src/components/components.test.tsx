@@ -155,7 +155,7 @@ describe('ApprovalDialog', () => {
     expect(screen.getByText('白色杯子 · 拿取')).toBeVisible()
     expect(screen.getByText('卧室 · 进入')).toBeVisible()
     const radios = screen.getAllByRole('radio')
-    expect(radios).toHaveLength(6)
+    expect(radios).toHaveLength(8)
     expect(radios.every(radio => !(radio as HTMLInputElement).checked)).toBe(true)
     expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
 
@@ -163,13 +163,61 @@ describe('ApprovalDialog', () => {
     expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
   })
 
-  it('keeps 始终允许 as a disabled placeholder pending server support', () => {
-    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+  it('offers 本会话允许 as a real choice submitted verbatim', () => {
+    const submit = vi.fn()
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
 
-    for (const radio of screen.getAllByRole('radio', { name: '始终允许' })) {
-      expect(radio).toBeDisabled()
-      expect(radio.closest('label')).toHaveAttribute('title', 'requires server support')
+    fireEvent.click(screen.getAllByRole('radio', { name: '本会话允许' })[0]!)
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+
+    expect(submit).toHaveBeenCalledTimes(1)
+    expect(submit.mock.calls[0]![0]).toEqual({
+      'item-cup-a': 'allow_session',
+      'item-enter-b': 'reject',
+    })
+  })
+
+  it('requires a second confirmation before 始终允许 lands as a decision', () => {
+    const submit = vi.fn()
+    render(<ApprovalDialog approval={cardApproval} busy={false} onSubmit={submit} onClose={vi.fn()} />)
+
+    // First click arms the confirmation strip; the decision is not written yet.
+    fireEvent.click(screen.getAllByRole('radio', { name: '始终允许' })[0]!)
+    expect(screen.getByText(/将长期记住「白色杯子」的「拿取」权限/)).toBeVisible()
+    fireEvent.click(screen.getAllByRole('radio', { name: '拒绝' })[1]!)
+    // The armed item still holds no decision → submit stays disabled.
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认始终允许' }))
+    expect(screen.getByRole('button', { name: '提交决定' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '提交决定' }))
+    expect(submit.mock.calls[0]![0]).toEqual({
+      'item-cup-a': 'allow_always',
+      'item-enter-b': 'reject',
+    })
+  })
+
+  it('shows per-item metadata under a collapsed details block without internal ids', () => {
+    const approval: ApprovalState = {
+      ...cardApproval,
+      items: [{
+        item_id: 'item-shell',
+        display_name: 'npm test',
+        location: 'npm test',
+        action_label: 'shell_exec',
+        arguments: { command: 'npm test', cwd: '/repo' },
+      }],
     }
+    render(<ApprovalDialog approval={approval} busy={false} onSubmit={vi.fn()} onClose={vi.fn()} />)
+
+    const summary = screen.getByText('参数详情')
+    const details = summary.closest('details')!
+    expect(details).not.toHaveAttribute('open')
+    expect(details.textContent).toContain('"command": "npm test"')
+    // Internal identity keys never render, even inside metadata.
+    expect(document.body.textContent).not.toContain('item-shell')
+    expect(document.body.textContent).not.toContain('approval-01')
   })
 
   it('submits once plus reject choices with the exact item ids', () => {
@@ -239,7 +287,8 @@ describe('ApprovalDialog', () => {
     expect(screen.getByText('$ ls -la /tmp')).toBeVisible()
     const path = screen.getByText('/etc/config.yaml')
     expect(path.tagName).toBe('CODE')
-    const details = path.closest('div')!.querySelector('details')
+    // The metadata block lives at item level (fieldset), collapsed by default.
+    const details = path.closest('fieldset')!.querySelector('details')
     expect(details).not.toBeNull()
     expect(details).not.toHaveAttribute('open')
   })

@@ -73,6 +73,73 @@ describe('HomeMasterApi', () => {
     }))
   })
 
+  it('sends provider/model pass-through fields only when set', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accepted: true }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accepted: true }), { status: 202 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ accepted: true }), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HomeMasterApi()
+
+    await api.sendMessage('s1', 'r1', 'plain')
+    await api.sendMessage('s1', 'r2', 'picked', { provider_name: 'primary' })
+    await api.sendMessage('s1', 'r3', 'custom', { provider_name: 'backup', model: 'gpt-5-pro' })
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sessions/s1/messages', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'r1', text: 'plain' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sessions/s1/messages', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'r2', text: 'picked', provider_name: 'primary' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sessions/s1/messages', expect.objectContaining({
+      body: JSON.stringify({ request_id: 'r3', text: 'custom', provider_name: 'backup', model: 'gpt-5-pro' }),
+    }))
+  })
+
+  it('reads providers, meta, session status and pending queues', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ providers: [{ name: 'p', kind: 'k', model: 'm', api_key_configured: true }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ version: '35', memory_mode: 'files', environment: null }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ session_id: 's1', generation: 1, revision: 2, status: 'idle', active: false, cancellation_requested: false, task_status: null, environment_ref: null, ui_mode: 'plan' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ approvals: [{ approval_id: 'a1' }] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ questions: [{ question_id: 'q1', question: 'q?' }] }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HomeMasterApi()
+
+    await api.providers()
+    await api.meta()
+    await api.sessionStatus('s/1')
+    await api.pendingApprovals('s1')
+    await api.pendingQuestions('s1')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/providers', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/meta', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sessions/s%2F1/status', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/sessions/s1/approvals', expect.anything())
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/sessions/s1/questions', expect.anything())
+  })
+
+  it('posts compact, mode and question answers to the session endpoints', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ session_id: 's1', generation: 1, revision: 2, triggered: true, kind: 'manual' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ session_id: 's1', ui_mode: 'plan' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ question_id: 'q9', accepted: true }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HomeMasterApi()
+
+    await api.compactSession('s1')
+    await api.setUiMode('s1', 'plan')
+    await api.answerQuestion('s1', 'q/9', '蓝色')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/sessions/s1/compact', expect.objectContaining({ method: 'POST' }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/sessions/s1/mode', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ ui_mode: 'plan' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/sessions/s1/questions/q%2F9/answer', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ text: '蓝色' }),
+    }))
+  })
+
   it('raises stable typed errors for non-success responses', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       code: 'session_busy', message: 'busy', retryable: true,

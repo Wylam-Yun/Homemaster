@@ -10,12 +10,20 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 
+import type { ProviderInfo, SessionStatusInfo } from '../../api/http'
+import type { UiMode, Usage } from '../../protocol/events'
+import type { ApprovalState, PendingQuestionState } from '../../state/conversation'
 import { useToastOptional } from '../toast'
 import { AttachmentRail, type AttachmentDraft } from './AttachmentRail'
+import { ContextMeter } from './ContextMeter'
+import { ModeBadge } from './ModeBadge'
+import { ModelPicker, type ModelSelection } from './ModelPicker'
+import { ApprovalWaitingCard, QuestionCard } from './TakeoverCard'
 import { usePromptHistory } from './usePromptHistory'
 import styles from './ComposerPanel.module.css'
 
 export type { AttachmentDraft } from './AttachmentRail'
+export type { ModelSelection } from './ModelPicker'
 
 export interface SlashCommand {
   name: string
@@ -34,13 +42,33 @@ export interface MentionItem {
 
 export interface ComposerPanelProps {
   sessionId: string | null
-  busy: boolean                  // run 进行中 → 显示 Stop 按钮位（回调交给父级）
+  busy: boolean                  // run 进行中 → 显示 Stop 按钮位 + Enter 走 onEnqueue
   disabled?: boolean
   // Resolves true once the text was accepted for send; false/rejection keeps the input.
   onSubmit(text: string, attachments: AttachmentDraft[]): void | Promise<boolean>
   onCancel(): void               // Stop 按钮
   slashCommands: SlashCommand[]  // 由父级注入 [{name, description}]
   resolveMentions(query: string): Promise<MentionItem[]>  // @ 候选（本期父级传空数组即可）
+  // busy 时提交 → 进本地队列 dock，由父级在回合终态按序发送。
+  onEnqueue?(text: string): void
+  /** Parent-driven draft injection (消息编辑): each {seq,text} appends to the draft once. */
+  injectDraft?: { seq: number; text: string } | null
+  /** Plan/act mode badge + composer styling; onModeChange POSTs /{id}/mode upstream. */
+  mode?: UiMode
+  onModeChange?(mode: UiMode): void
+  /** Provider 下拉 + 自定义 model id；选择逐消息透传给 sendMessage。 */
+  providers?: ProviderInfo[]
+  modelValue?: ModelSelection
+  onModelChange?(selection: ModelSelection): void
+  /** 上下文用量环：最近回合 usage + session status 明细 + compact 按钮。 */
+  usage?: Usage | null
+  sessionStatus?: SessionStatusInfo | null
+  contextLimit?: number | null
+  onCompact?(): void
+  /** Composer 接管：pending question 换成问答卡；pending approval 显示等待态。 */
+  pendingQuestion?: PendingQuestionState | null
+  onAnswerQuestion?(questionId: string, text: string): Promise<boolean> | boolean
+  pendingApproval?: ApprovalState | null
 }
 
 const MAX_TEXTAREA_HEIGHT_PX = 144 // ~6 rows at line-height 1.5
@@ -76,6 +104,20 @@ export function ComposerPanel({
   onCancel,
   slashCommands,
   resolveMentions,
+  onEnqueue,
+  injectDraft,
+  mode = 'act',
+  onModeChange,
+  providers,
+  modelValue,
+  onModelChange,
+  usage,
+  sessionStatus,
+  contextLimit,
+  onCompact,
+  pendingQuestion,
+  onAnswerQuestion,
+  pendingApproval,
 }: ComposerPanelProps) {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
@@ -120,6 +162,19 @@ export function ComposerPanel({
   useEffect(() => () => {
     for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.blobUrl)
   }, [])
+
+  // 消息编辑：外部注入文本进入草稿（有草稿时换行追加，不覆盖用户输入）。
+  const lastInjectSeqRef = useRef(0)
+  useEffect(() => {
+    if (injectDraft === undefined || injectDraft === null || injectDraft.seq === lastInjectSeqRef.current) return
+    lastInjectSeqRef.current = injectDraft.seq
+    const base = textareaRef.current?.value ?? text
+    const next = base.length === 0 ? injectDraft.text : `${base}\n${injectDraft.text}`
+    pendingCaretRef.current = next.length
+    setText(next)
+    history.persistDraft(next)
+    history.reset()
+  }, [injectDraft, text, history])
 
   const addFiles = useCallback((files: Iterable<File>) => {
     const drafts = filesToDrafts(files)
@@ -288,12 +343,23 @@ export function ComposerPanel({
   }
 
   const submit = (): void => {
-    if (disabled || busy) return
+    if (disabled) return
     const trimmed = text.trim()
     if (trimmed.length === 0 && attachments.length === 0) return
     // No upload channel exists yet: keep the draft, never drop attachments silently.
     if (attachments.length > 0) {
       notifyUnsupported(ATTACHMENTS_UNSUPPORTED)
+      return
+    }
+    // busy 时 Enter/发送按钮把消息排进本地队列——输入不丢，回合终态自动按序发出。
+    if (busy) {
+      if (onEnqueue === undefined) return
+      onEnqueue(trimmed)
+      history.record(trimmed)
+      setText('')
+      history.clearDraft()
+      closeMenu()
+      textareaRef.current?.focus()
       return
     }
     // Only a confirmed send clears the input; a failed/rejected send keeps the
@@ -451,16 +517,58 @@ export function ComposerPanel({
     )
   }
 
+  const showChrome = providers !== undefined
+    || onModeChange !== undefined
+    || onCompact !== undefined
+    || sessionStatus !== undefined
+    || usage !== undefined
+  const canEnqueue = !disabled && onEnqueue !== undefined && text.trim().length > 0 && attachments.length === 0
+  const placeholder = disabled
+    ? 'Waiting for connection…'
+    : mode === 'plan'
+      ? '规划模式：描述目标，先讨论计划再执行…'
+      : 'Message…'
+
   return (
-    <div className={styles.composer}>
+    <div className={styles.composer} data-mode={mode}>
+      {showChrome && (
+        <div className={styles.toolbar}>
+          {providers !== undefined && (
+            <ModelPicker
+              providers={providers}
+              value={modelValue ?? {}}
+              disabled={disabled}
+              onChange={selection => { onModelChange?.(selection) }}
+            />
+          )}
+          <span className={styles.toolbarSpacer} />
+          <ContextMeter
+            usage={usage ?? null}
+            status={sessionStatus ?? null}
+            contextLimit={contextLimit}
+            disabled={disabled}
+            onCompact={onCompact}
+          />
+          <ModeBadge mode={mode} disabled={disabled || onModeChange === undefined} onToggle={next => { onModeChange?.(next) }} />
+        </div>
+      )}
       <AttachmentRail attachments={attachments} onRemove={removeAttachment} />
+      {pendingQuestion !== undefined && pendingQuestion !== null ? (
+        <QuestionCard
+          question={pendingQuestion}
+          disabled={disabled || onAnswerQuestion === undefined}
+          onSubmit={(questionId, text) => onAnswerQuestion?.(questionId, text) ?? false}
+        />
+      ) : pendingApproval !== undefined && pendingApproval !== null ? (
+        <ApprovalWaitingCard itemCount={pendingApproval.items.length} />
+      ) : (
       <div className={styles.editor}>
         <textarea
           ref={textareaRef}
           rows={1}
           value={text}
           disabled={disabled}
-          placeholder={disabled ? 'Waiting for connection…' : 'Message…'}
+          placeholder={placeholder}
           aria-label="Message"
           aria-expanded={menu !== null || undefined}
           aria-controls={menu !== null ? listboxId : undefined}
@@ -512,7 +620,21 @@ export function ComposerPanel({
           </div>
         )}
         {busy ? (
-          <button className={styles.stop} type="button" onClick={onCancel} aria-label="Stop run">■</button>
+          <>
+            {onEnqueue !== undefined && (
+              <button
+                className={styles.queue}
+                type="button"
+                disabled={!canEnqueue}
+                aria-label="排队发送"
+                title="加入队列，当前回合结束后自动发送"
+                onClick={submit}
+              >
+                ⇥
+              </button>
+            )}
+            <button className={styles.stop} type="button" onClick={onCancel} aria-label="Stop run">■</button>
+          </>
         ) : (
           <button
             className={styles.send}
@@ -524,8 +646,11 @@ export function ComposerPanel({
             ↑
           </button>
         )}
-        <small className={styles.hint}>Enter to send · Shift+Enter for a new line</small>
+        <small className={styles.hint}>
+          {busy && onEnqueue !== undefined ? 'Enter 加入队列 · Esc 中断运行' : 'Enter to send · Shift+Enter for a new line'}
+        </small>
       </div>
+      )}
       {notice !== null && <div className={styles.notice} role="alert">{notice}</div>}
       {dragging && (
         <div className={styles.dropOverlay} role="presentation">
