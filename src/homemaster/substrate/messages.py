@@ -326,11 +326,7 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
         # Segments whose "n" is 0 were originally-empty AssistantMessages;
         # they emit positionally before the next segment's blocks.
         nonlocal seg_idx
-        while (
-            not (pending_content or pending_reasoning or pending_calls)
-            and seg_idx < len(seg_list)
-            and seg_list[seg_idx].get("n", 1) == 0
-        ):
+        while seg_idx < len(seg_list) and seg_list[seg_idx].get("n", 1) == 0:
             seg = seg_list[seg_idx]
             seg_idx += 1
             out.append(
@@ -441,6 +437,22 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
 # ---------------------------------------------------------------------------
 
 
+_REGENERATED_KEYS = frozenset({"id", "created_at", "finished_at"})
+
+
+def _scrub_regenerated(value: object) -> object:
+    """Drop regenerated id/timestamp fields from nested block payloads."""
+    if isinstance(value, dict):
+        return {
+            k: _scrub_regenerated(v)
+            for k, v in value.items()
+            if k not in _REGENERATED_KEYS
+        }
+    if isinstance(value, list):
+        return [_scrub_regenerated(v) for v in value]
+    return value
+
+
 def assert_semantic_equal(a: Msg, b: Msg) -> None:
     """Field-level equality for A->H->A checks; exempt regenerated fields."""
     assert a.role == b.role, f"role {a.role!r} != {b.role!r}"
@@ -448,8 +460,8 @@ def assert_semantic_equal(a: Msg, b: Msg) -> None:
     assert len(a.content) == len(b.content), f"block count {len(a.content)} != {len(b.content)}"
     for ba, bb in zip(a.content, b.content, strict=True):
         assert type(ba) is type(bb), f"{type(ba)} != {type(bb)}"
-        da = ba.model_dump(exclude={"id", "created_at", "finished_at"})
-        db = bb.model_dump(exclude={"id", "created_at", "finished_at"})
+        da = _scrub_regenerated(ba.model_dump())
+        db = _scrub_regenerated(bb.model_dump())
         if isinstance(ba, ToolCallBlock):
             da["input"] = json.loads(da["input"] or "{}")
             db["input"] = json.loads(db["input"] or "{}")
@@ -462,6 +474,7 @@ def assert_semantic_equal(a: Msg, b: Msg) -> None:
             # HM expresses only is_error; DENIED/INTERRUPTED collapse to ERROR
             da["state"] = "ok" if da["state"] == ToolResultState.SUCCESS else "err"
             db["state"] = "ok" if db["state"] == ToolResultState.SUCCESS else "err"
+        assert da == db, f"block payload {da!r} != {db!r}"
 
 
 __all__ = [

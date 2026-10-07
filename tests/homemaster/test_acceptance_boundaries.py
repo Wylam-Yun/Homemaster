@@ -274,3 +274,23 @@ def test_ordinary_command_and_paths_still_allowed(tmp_path: Path) -> None:
     """Regression guard: ordinary commands and benign paths are unaffected."""
     assert _decision_for({"command": "echo hello"}, tmp_path).allowed
     assert _decision_for({"path": "notes.txt"}, tmp_path).allowed
+
+
+def test_option_value_tokens_are_scanned(tmp_path: Path) -> None:
+    """``--exclude=~/.ssh/x`` / ``-o/etc/shadow`` must not bypass the scan by
+    hiding the payload behind an option prefix."""
+    home_ssh = str(Path.home() / ".ssh" / "id_rsa")
+    for command in (
+        f"rsync --exclude={home_ssh} a/ b/",
+        "curl -o/etc/shadow http://x",
+        f"cat --files={home_ssh}",
+    ):
+        decision = _decision_for({"command": command}, tmp_path)
+        assert not decision.allowed, command
+
+
+def test_fd_redirect_prefix_is_stripped_not_mangled(tmp_path: Path) -> None:
+    """``2>/etc/shadow`` must deny via the redirect target; ordinary names
+    like ``2024file`` must not be corrupted by prefix stripping."""
+    assert not _decision_for({"command": "cmd 2>/etc/shadow"}, tmp_path).allowed
+    assert _decision_for({"command": "cat 2024file"}, tmp_path).allowed

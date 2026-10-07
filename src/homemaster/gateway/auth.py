@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import re
 from dataclasses import dataclass
 
+from homemaster.events.token_patterns import SHA256_RE as _SHA256_RE
 from homemaster.tools.contracts import PermissionSubject
-
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class AuthenticationError(RuntimeError):

@@ -11,11 +11,11 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 
+from homemaster.events.token_patterns import SHA256_RE as _SHA256_RE
 from homemaster.tools.contracts import RegisteredTool
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
 _SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _CAPABILITY_RE = re.compile(r"^[a-z][a-z0-9_.:-]*$")
 
 

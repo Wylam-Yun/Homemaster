@@ -96,9 +96,7 @@ class MemoryAddQueue:
         if self._worker is None or self._worker.done():
             return False
         try:
-            import asyncio as _asyncio
-
-            return _asyncio.current_task() is self._worker
+            return asyncio.current_task() is self._worker
         except RuntimeError:
             return False
 
@@ -120,7 +118,9 @@ class MemoryAddQueue:
     ) -> MemoryAddReceipt:
         if not self._admission_open():
             raise MemoryAddQueueClosed("memory Add queue is closing")
-        if self._worker is None or self._worker.done():
+        if self._worker is None:
+            raise RuntimeError("memory Add queue worker is not started")
+        if self._worker.done():
             raise RuntimeError("memory Add queue worker is not running")
         job = _MemoryAddJob(
             job_id=str(uuid4()),
@@ -144,7 +144,9 @@ class MemoryAddQueue:
     ) -> MemoryWorkReceipt:
         if not self._admission_open():
             raise MemoryAddQueueClosed("memory queue is closing")
-        if self._worker is None or self._worker.done():
+        if self._worker is None:
+            raise RuntimeError("memory queue worker is not started")
+        if self._worker.done():
             raise RuntimeError("memory queue worker is not running")
         if not job_type:
             raise ValueError("job_type must not be empty")
@@ -181,7 +183,26 @@ class MemoryAddQueue:
                 # Retrieve the dead worker's exception so it does not surface
                 # as an unretrieved-task warning at GC.
                 await asyncio.gather(worker, return_exceptions=True)
+                self._audit_dropped()
             self._closed = True
+
+    def _audit_dropped(self) -> None:
+        """Mark jobs stranded behind a dead worker as dropped in the audit log."""
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                if item is _STOP:
+                    continue
+                if isinstance(item, _MemoryAddJob):
+                    self._log(item, status="dropped", error="worker died before processing")
+                else:
+                    assert isinstance(item, _MemoryWorkJob)
+                    self._log_work(item, status="dropped", error="worker died before processing")
+            finally:
+                self._queue.task_done()
 
     async def _run(self) -> None:
         while True:

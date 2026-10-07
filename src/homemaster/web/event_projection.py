@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 
 from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.events.token_patterns import (
+    ARTIFACT_HANDLE_RE as _ARTIFACT_HANDLE_RE,
+)
+from homemaster.events.token_patterns import (
+    OPAQUE_TOKEN_RE as _RUN_ID_RE,
+)
+from homemaster.events.token_patterns import (
+    SHA256_RE as _SHA256_RE,
+)
 from homemaster.web.schemas import WebEvent
 
-_ARTIFACT_HANDLE_RE = re.compile(r"^hm-artifact:[A-Za-z0-9_-]{32,128}$")
-_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _USAGE_KEYS = frozenset(
     {
         "input_tokens",

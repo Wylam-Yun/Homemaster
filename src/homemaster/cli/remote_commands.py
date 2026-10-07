@@ -611,10 +611,6 @@ async def handle_question_event(
         ctx.decided_interactions.add(("question", question_id, None))
 
 
-def is_interactive_event(event: dict[str, Any]) -> bool:
-    return event.get("type") in {"approval.requested", "question.asked"}
-
-
 # ---------------------------------------------------------------------------
 # Reconnect-resync hydration (shared by the shell pump and `run`)
 # ---------------------------------------------------------------------------

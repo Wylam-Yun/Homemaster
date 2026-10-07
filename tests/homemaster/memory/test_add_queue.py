@@ -423,3 +423,59 @@ async def test_dead_worker_fails_closed_and_aclose_does_not_hang(
             context=_context("request-late"),
         )
     await asyncio.wait_for(queue.aclose(), timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_stranded_job_is_audited_as_dropped_on_aclose(
+    tmp_path: Path,
+) -> None:
+    """A job still queued when the worker dies must not vanish silently —
+    aclose() marks it 'dropped' in the audit log so the loss is traceable."""
+
+    class FatalWorkerError(BaseException):
+        """Simulates a worker killed by a BaseException the loop can contain."""
+
+    gate = asyncio.Event()
+
+    class Store:
+        async def add_flat(
+            self, content, memory_type, *, provenance_seq, evidence_kind, context
+        ):
+            await gate.wait()
+            raise FatalWorkerError("worker dies hard")
+
+    audit_path = tmp_path / "jobs.jsonl"
+    queue = MemoryAddQueue(Store(), audit_path=audit_path)
+    await queue.start()
+    await queue.enqueue(
+        content=_content("first"),
+        memory_type="fact",
+        provenance_seq=1,
+        evidence_kind="environment_observation",
+        context=_context("request-a"),
+    )
+    await queue.enqueue(
+        content=_content("stranded"),
+        memory_type="fact",
+        provenance_seq=2,
+        evidence_kind="environment_observation",
+        context=_context("request-b"),
+    )
+    gate.set()
+    for _ in range(100):
+        if queue._worker is not None and queue._worker.done():
+            break
+        await asyncio.sleep(0.01)
+    assert queue._worker is not None and queue._worker.done()
+    await asyncio.wait_for(queue.aclose(), timeout=5.0)
+
+    import json
+
+    rows = [json.loads(line) for line in audit_path.read_text().splitlines()]
+    dropped = [
+        r for r in rows
+        if r["event"] == "memory_add_job" and r["payload"]["status"] == "dropped"
+    ]
+    assert len(dropped) == 1
+    assert dropped[0]["payload"]["provenance_seq"] == 2
+    assert "worker died" in dropped[0]["payload"]["error"]

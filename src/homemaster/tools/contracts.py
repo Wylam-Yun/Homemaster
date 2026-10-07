@@ -21,6 +21,7 @@ from jsonschema import Draft202012Validator, SchemaError
 from pydantic import BaseModel
 
 from homemaster.agent.messages import ContentBlock, ToolResultMessage
+from homemaster.events.token_patterns import SHA256_RE
 
 MEMORY_TOOL_NAMES = frozenset(
     {
@@ -38,7 +39,7 @@ _INTERNAL_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
 _MODEL_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _TOKEN_RE = re.compile(r"^[a-z][a-z0-9_.:/@+-]*$")
 _VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SHA256_RE = SHA256_RE
 
 
 class ExecutionProof(StrEnum):

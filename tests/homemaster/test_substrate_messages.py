@@ -126,7 +126,10 @@ def test_from_agent_scope_rejects_system_role() -> None:
         from_agent_scope([msg])
 
 
-def test_from_agent_scope_rejects_unparseable_tool_input() -> None:
+def test_from_agent_scope_tolerates_unparseable_tool_input() -> None:
+    # A malformed provider frame must not abort the session mirror: the call
+    # identity survives with empty arguments (its paired result block records
+    # the real failure).
     msg = Msg(
         role="assistant",
         name="a",
@@ -134,21 +137,23 @@ def test_from_agent_scope_rejects_unparseable_tool_input() -> None:
             ToolCallBlock(id="c1", name="t", input='{"broken": '),
         ],
     )
-    with pytest.raises(MessageConversionError):
-        from_agent_scope([msg])
+    converted = from_agent_scope([msg])
+    assert len(converted) == 1
+    assert converted[0].tool_calls[0].id == "c1"
+    assert converted[0].tool_calls[0].arguments == {}
 
 
-def test_from_agent_scope_rejects_non_dict_tool_input() -> None:
+def test_from_agent_scope_tolerates_non_dict_tool_input() -> None:
     msg = Msg(
         role="assistant",
         name="a",
         content=[ToolCallBlock(id="c1", name="t", input='[1, 2]')],
     )
-    with pytest.raises(MessageConversionError):
-        from_agent_scope([msg])
+    converted = from_agent_scope([msg])
+    assert converted[0].tool_calls[0].arguments == {}
 
 
-def test_from_agent_scope_rejects_non_image_data_block() -> None:
+def test_from_agent_scope_tolerates_non_image_data_block() -> None:
     msg = Msg(
         role="assistant",
         name="a",
@@ -162,8 +167,10 @@ def test_from_agent_scope_rejects_non_image_data_block() -> None:
             )
         ],
     )
-    with pytest.raises(MessageConversionError):
-        from_agent_scope([msg])
+    converted = from_agent_scope([msg])
+    assert len(converted) == 1
+    assert "unconvertible" in converted[0].content[0].text
+    assert converted[0].content[0].metadata["hm_unconvertible"] == "DataBlock"
 
 
 def test_to_agent_scope_rejects_unknown_source_type() -> None:
@@ -221,3 +228,29 @@ def test_empty_history_and_empty_content() -> None:
     original = [AssistantMessage()]
     back = from_agent_scope(to_agent_scope(original))
     assert back == original
+
+
+def test_assert_semantic_equal_detects_payload_drift() -> None:
+    a = Msg(role="assistant", name="a", content=[TextBlock(text="one")])
+    b = Msg(role="assistant", name="a", content=[TextBlock(text="two")])
+    with pytest.raises(AssertionError, match="block payload"):
+        assert_semantic_equal(a, b)
+
+
+def test_leading_empty_segment_keeps_positional_metadata() -> None:
+    # Segments with n=0 are originally-empty AssistantMessages; a leading one
+    # must emit its own message instead of being consumed by the next
+    # segment's text (which previously swallowed its metadata record).
+    original = [
+        AssistantMessage(provider_metadata={"kind": "empty-lead"}),
+        AssistantMessage(
+            content=[ContentBlock(text="real answer")],
+            provider_metadata={"kind": "text-seg"},
+        ),
+    ]
+    back = from_agent_scope(to_agent_scope(original))
+    assert len(back) == 2
+    assert not back[0].content
+    assert back[0].provider_metadata.get("kind") == "empty-lead"
+    assert back[1].content[0].text == "real answer"
+    assert back[1].provider_metadata.get("kind") == "text-seg"

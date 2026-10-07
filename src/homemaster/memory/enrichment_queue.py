@@ -74,7 +74,9 @@ class MemoryEnrichmentQueue:
     ) -> None:
         if self._sealed or self._closed:
             raise MemoryEnrichmentQueueClosed("memory enrichment queue is closing")
-        if not self._workers or all(worker.done() for worker in self._workers):
+        if not self._workers:
+            raise RuntimeError("memory enrichment queue worker is not started")
+        if all(worker.done() for worker in self._workers):
             raise RuntimeError("memory enrichment queue worker is not running")
         if not memory_id or not content:
             raise ValueError("memory enrichment requires memory_id and content")
@@ -106,7 +108,23 @@ class MemoryEnrichmentQueue:
                         self._queue.put_nowait(_STOP)
                 await asyncio.gather(*self._workers, return_exceptions=True)
                 self._workers.clear()
+            self._audit_dropped()
             self._closed = True
+
+    def _audit_dropped(self) -> None:
+        """Mark jobs stranded behind dead workers as dropped in the audit log."""
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return
+            try:
+                if item is _STOP:
+                    continue
+                assert isinstance(item, _MemoryEnrichmentJob)
+                self._log(item, status="dropped", error="worker died before processing")
+            finally:
+                self._queue.task_done()
 
     async def _run(self) -> None:
         while True:

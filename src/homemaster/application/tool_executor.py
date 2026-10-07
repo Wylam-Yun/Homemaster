@@ -22,8 +22,6 @@ from homemaster.tools.contracts import (
 )
 from homemaster.tools.executor import ToolExecutor
 
-_MEMORY_TOOL_NAMES = MEMORY_TOOL_NAMES
-
 
 class ApplicationToolExecutor:
     def __init__(
@@ -239,7 +237,7 @@ class ApplicationToolExecutor:
             if isinstance(domain_status, str):
                 data["status"] = domain_status
                 data.pop("domain_status", None)
-        if call.name in _MEMORY_TOOL_NAMES and data:
+        if call.name in MEMORY_TOOL_NAMES and data:
             model_payload = dict(data)
             if result.text:
                 model_payload.setdefault("text", result.text)

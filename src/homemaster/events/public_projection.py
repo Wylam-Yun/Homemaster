@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from homemaster.events.runtime_events import RuntimeEvent
+from homemaster.events.token_patterns import (
+    ARTIFACT_HANDLE_RE,
+    OPAQUE_TOKEN_RE,
+    SHA256_RE,
+)
 
 if TYPE_CHECKING:
     from homemaster.events.bus import EventBus
@@ -48,9 +52,9 @@ _SAFE_METADATA_KEYS = frozenset(
         "status",
     }
 )
-_ARTIFACT_HANDLE_RE = re.compile(r"^hm-artifact:[A-Za-z0-9_-]{32,128}$")
-_ARTIFACT_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@+-]{0,255}$")
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_ARTIFACT_HANDLE_RE = ARTIFACT_HANDLE_RE
+_ARTIFACT_TOKEN_RE = OPAQUE_TOKEN_RE
+_SHA256_RE = SHA256_RE
 
 
 @dataclass(frozen=True)

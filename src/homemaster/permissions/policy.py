@@ -8,6 +8,7 @@ typed tenant principals and device/MCP capabilities.
 from __future__ import annotations
 
 import fnmatch
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -318,8 +319,30 @@ class PermissionChecker:
         except ValueError:
             tokens = command.split()
         for token in tokens:
-            token = token.lstrip("<>").lstrip("0123456789").lstrip("<>")
-            if not token or token.startswith("-"):
+            # Strip fd-redirection prefixes: 2>/etc/shadow -> /etc/shadow.
+            redirect = re.match(r"^\d*[<>]+(.*)$", token)
+            if redirect:
+                token = redirect.group(1)
+            if not token:
+                continue
+            if token.startswith("-"):
+                # Option tokens can still carry path payloads: --exclude=~/.ssh/x
+                # or the glued short-option form -o/etc/shadow.
+                if "=" in token:
+                    value = token.split("=", 1)[1]
+                elif (
+                    len(token) > 2
+                    and not token.startswith("--")
+                    and token[2:3] in {"/", "~", "."}
+                ):
+                    value = token[2:]
+                else:
+                    continue
+                if not value:
+                    continue
+                denial = self._path_value_denial(value, context)
+                if denial:
+                    return denial
                 continue
             denial = self._path_value_denial(token, context)
             if denial:
