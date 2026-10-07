@@ -61,6 +61,23 @@ class WebEventProjection:
             return ()
         if event.type == "runtime.turn_completed":
             question = payload.get("question")
+            final_reply = payload.get("final_reply")
+            status_value = payload.get("status")
+            if isinstance(status_value, str) and status_value:
+                status = status_value
+            elif isinstance(question, str) and question:
+                status = "waiting_user"
+            else:
+                status = "replied"
+            completed = self._web_event(
+                event,
+                request_id,
+                "run.completed",
+                {
+                    "status": status,
+                    "final_reply": final_reply if isinstance(final_reply, str) else "",
+                },
+            )
             if isinstance(question, str) and question:
                 return (
                     self._web_event(
@@ -69,9 +86,9 @@ class WebEventProjection:
                         "answer.snapshot",
                         {"text": question},
                     ),
-                    self._web_event(event, request_id, "run.completed", {}),
+                    completed,
                 )
-            return (self._web_event(event, request_id, "run.completed", {}),)
+            return (completed,)
         if event.type in {"runtime.turn_failed", "runtime.budget_exhausted"}:
             code = str(payload.get("error_code") or "run_failed")
             message = str(payload.get("error") or code)

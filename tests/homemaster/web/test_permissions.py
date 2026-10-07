@@ -466,7 +466,7 @@ async def test_real_http_submit_matches_raw_sqlite(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_disconnect_cancels_pending(tmp_path: Path) -> None:
+async def test_explicit_deny_session_cancels_pending(tmp_path: Path) -> None:
     clock = FakeClock()
     store = _open(tmp_path, clock)
     sink = EventSink()
@@ -550,6 +550,79 @@ async def test_grants_carry_display_snapshot(tmp_path: Path) -> None:
         assert by_action["pick_up"]["display_name"] == "蓝色杯子"
         assert by_action["pick_up"]["location"] == "卧室书桌"
         assert by_action["pick_up"]["action_label"] == "拿取"
+    finally:
+        await client.aclose()
+        store.close()
+
+
+
+@pytest.mark.asyncio
+async def test_allow_session_covers_same_session_only(tmp_path: Path) -> None:
+    """`allow_session` records a session-scoped in-memory allow — the same
+    resource skips approval for that session but never gets a durable grant,
+    and a different session is unaffected."""
+    import asyncio
+
+    from homemaster.permissions.config import PermissionSettingsConfig
+    from homemaster.permissions.policy import PermissionChecker
+    from homemaster.tools.runtime_services import SessionGrantService
+
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    sink = EventSink()
+    session_allows = SessionGrantService()
+    handler = WebConfirmationHandler(store=store, timeout_s=5)
+    client, _, _ = build_app(store, handler)
+    try:
+        request = make_request(clock, "http-session-allow")
+        store.create_request(request)
+        item_id = request.requirements[0].item_id
+        context = make_context(
+            tmp_path, sink, request.session_id,
+            extra_services={"session_allows": session_allows},
+        )
+        waiter = asyncio.create_task(handler.confirm(request, [item_id], context))
+        await wait_pending(handler)
+        response = await client.post(
+            f"/api/approvals/{request.approval_id}",
+            json=submission_body(request, {item_id: "allow_session"}),
+        )
+        assert response.status_code == 200
+        assert response.json()["request_status"] == "ready"
+        await waiter
+
+        key = request.requirements[0].key
+        key4 = (key.environment_id, key.resource_kind, key.resource_id, key.action)
+        assert session_allows.covers(request.session_id, key4)
+        # No durable grant was written.
+        grants = await client.get("/api/permissions/grants", params={"status": "active"})
+        assert grants.json()["grants"] == []
+
+        # A new prepared request for the same resource key is covered when the
+        # evaluating context is in the same session — no approval re-asked.
+        checker = PermissionChecker(
+            PermissionSettingsConfig.model_validate({"mode": "default"}),
+            store=store,
+            clock=clock,
+        )
+        followup = make_request(clock, "http-session-followup")
+        store.create_request(followup)
+        same_session_ctx = make_context(
+            tmp_path, sink, request.session_id,
+            extra_services={"session_allows": session_allows},
+        )
+        verdict = checker.evaluate_physical(request=followup, context=same_session_ctx)
+        assert verdict.allowed
+        assert verdict.missing_item_ids == ()
+
+        # A different session is not covered and must ask again.
+        other_ctx = make_context(
+            tmp_path, sink, "session-other",
+            extra_services={"session_allows": session_allows},
+        )
+        verdict_other = checker.evaluate_physical(request=followup, context=other_ctx)
+        assert not verdict_other.allowed
+        assert verdict_other.missing_item_ids == (followup.requirements[0].item_id,)
     finally:
         await client.aclose()
         store.close()

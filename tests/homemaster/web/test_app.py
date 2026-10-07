@@ -20,7 +20,6 @@ from homemaster.memory.management import (
     MemoryStats,
 )
 from homemaster.web.app import (
-    _deny_approvals_without_subscriber,
     _run_and_report_prestart_failure,
     _stream_events,
     create_web_app,
@@ -205,25 +204,6 @@ async def test_prestart_adapter_failure_is_stable_public_terminal_event() -> Non
 
 
 @pytest.mark.asyncio
-async def test_disconnect_denies_approvals_only_after_last_subscriber_leaves() -> None:
-    denied: list[tuple[str, str]] = []
-    handler = SimpleNamespace(
-        deny_session=lambda session_id: _record_denial(denied, session_id, "disconnected")
-    )
-    subscribed_hub = SimpleNamespace(has_subscriber=lambda session_id: _true())
-    empty_hub = SimpleNamespace(has_subscriber=lambda session_id: _false())
-
-    await _deny_approvals_without_subscriber(
-        "session-01", hub=subscribed_hub, confirmation_handler=handler
-    )
-    await _deny_approvals_without_subscriber(
-        "session-01", hub=empty_hub, confirmation_handler=handler
-    )
-
-    assert denied == [("session-01", "disconnected")]
-
-
-@pytest.mark.asyncio
 async def test_public_web_close_hook_is_idempotent() -> None:
     application = _FakeApplication()
     app = create_web_app(
@@ -288,19 +268,6 @@ async def _unexpected_send() -> None:
     raise AssertionError("an idle disconnect must not send an event")
 
 
-async def _record_denial(items, session_id: str, outcome: str) -> int:
-    items.append((session_id, outcome))
-    return 1
-
-
-async def _true() -> bool:
-    return True
-
-
-async def _false() -> bool:
-    return False
-
-
 def test_http_command_and_websocket_event_flow_share_one_request_id() -> None:
     application = _FakeApplication()
     app = create_web_app(
@@ -337,8 +304,12 @@ def test_http_command_and_websocket_event_flow_share_one_request_id() -> None:
             "run.completed",
         ]
         assert {frame["request_id"] for frame in frames} == {"request-01"}
-        assert frames[-1]["payload"] == {}
-        assert "must not duplicate" not in str(frames[-1])
+        assert frames[-1]["payload"] == {
+            "status": "replied",
+            "final_reply": "must not duplicate",
+        }
+        assert frames[3]["payload"] == {"text": "answer"}
+        assert frames[5]["payload"] == {"text": "full answer"}
 
         duplicate = client.post(
             f"/api/sessions/{session_id}/messages",

@@ -62,6 +62,7 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset(
         "permission.grant_changed",
         "extension.hook_completed",
         "extension.cleanup_completed",
+        "web.run_finished",
     }
 )
 

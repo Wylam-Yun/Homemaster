@@ -233,7 +233,7 @@ class PreparedPhysicalRequest(FrozenDTO):
 
 class ItemDecision(FrozenDTO):
     item_id: str = Field(min_length=1)
-    choice: Literal["allow_once", "allow_always", "reject"] = Field()
+    choice: Literal["allow_once", "allow_always", "allow_session", "reject"] = Field()
 
     @field_validator("item_id")
     @classmethod

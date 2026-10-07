@@ -677,6 +677,7 @@ def _finish_home_application(
             "cron_store": tool_services.cron,
             "team_registry": tool_services.teams,
             "plan_mode": tool_services.plan_mode,
+            "session_allows": tool_services.session_allows,
             "home_config": tool_services.config,
             **(
                 {

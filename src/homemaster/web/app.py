@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib.metadata
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -24,12 +26,15 @@ from homemaster.permissions.models import (
     ItemDecision,
     PermissionStorageUnavailable,
 )
+from homemaster.skills.commands import resolve_skill_command
 from homemaster.tools.contracts import PermissionSubject
 from homemaster.web.confirmations import WebConfirmationHandler
 from homemaster.web.event_hub import WebEventHub
 from homemaster.web.event_projection import WebEventProjection
+from homemaster.web.pending_questions import PendingQuestionRegistry
 from homemaster.web.run_registry import SessionBusyError, WebRunRegistry
 from homemaster.web.schemas import (
+    AnswerQuestionRequest,
     ApprovalSubmissionRequest,
     CancelApprovalRequest,
     CreateSessionRequest,
@@ -37,6 +42,8 @@ from homemaster.web.schemas import (
     MemorySnapshotResponse,
     RevokeGrantRequest,
     SendMessageRequest,
+    SetSessionModeRequest,
+    SkillResolveRequest,
     WebEvent,
 )
 from homemaster.web.static import mount_web_static
@@ -61,10 +68,16 @@ def create_web_app(
     memory_management_service: MemoryManagementService | None = None,
     alfworld_compile_jobs: Any | None = None,
     permission_store: Any | None = None,
+    config: Any | None = None,
+    environment: str | None = None,
 ) -> FastAPI:
     """Build a Web adapter around one long-lived ApplicationRuntime."""
 
     run_registry = WebRunRegistry()
+    pending_questions = PendingQuestionRegistry()
+    environment_label = (
+        environment if isinstance(environment, str) and environment.strip() else "home"
+    )
     hub = WebEventHub(
         application.event_bus,
         run_registry,
@@ -72,24 +85,59 @@ def create_web_app(
     )
     close_lock = asyncio.Lock()
     closed = False
+    # Loop the hub lives on, captured once lifespan startup runs on it; the
+    # plan-mode listener schedules publishes here so tool-driven set() calls
+    # stay safe from any thread (mirrors the remote-shell coroutine bridge).
+    hub_loop: asyncio.AbstractEventLoop | None = None
+
+    def _on_plan_mode_change(session_id: str, enabled: bool) -> None:
+        """Broadcast a plan-mode transition once over the session event stream."""
+
+        loop = hub_loop
+        if loop is None or not loop.is_running():
+            return
+        publish = hub.publish(
+            WebEvent(
+                type="session.mode_changed",
+                session_id=session_id,
+                run_id="",
+                request_id="",
+                payload={"ui_mode": "plan" if enabled else "act"},
+            )
+        )
+        try:
+            future = asyncio.run_coroutine_threadsafe(publish, loop)
+        except RuntimeError:
+            publish.close()
+            return
+        future.add_done_callback(_log_mode_broadcast_failure)
+
+    plan_mode_service = _application_services(application).get("plan_mode")
+    add_mode_listener = getattr(plan_mode_service, "add_listener", None)
+    if callable(add_mode_listener):
+        add_mode_listener(_on_plan_mode_change)
 
     async def close_resources() -> None:
-        nonlocal closed
+        nonlocal closed, hub_loop
         async with close_lock:
             if closed:
                 return
             await confirmation_handler.aclose()
             await run_registry.aclose()
+            await pending_questions.aclose()
             await hub.aclose()
             await application.aclose()
+            hub_loop = None
             closed = True
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         del app
+        nonlocal hub_loop
         try:
             await application.start()
             await hub.start()
+            hub_loop = asyncio.get_running_loop()
             yield
         finally:
             await close_resources()
@@ -99,8 +147,11 @@ def create_web_app(
     app.state.confirmation_handler = confirmation_handler
     app.state.run_registry = run_registry
     app.state.event_hub = hub
+    app.state.pending_questions = pending_questions
     app.state.memory_management_service = memory_management_service
     app.state.alfworld_compile_jobs = alfworld_compile_jobs
+    app.state.config = config
+    app.state.environment = environment_label
     app.state.aclose = close_resources
 
     def _web_store() -> Any | None:
@@ -277,6 +328,13 @@ def create_web_app(
                 "session_id": session_id,
                 "request_id": body.request_id,
             }
+        selection_error = _provider_selection_error(
+            config,
+            provider_name=body.provider_name,
+            model=body.model,
+        )
+        if selection_error is not None:
+            return selection_error
         if not await hub.has_subscriber(session_id):
             return _error(
                 409,
@@ -285,24 +343,102 @@ def create_web_app(
                 retryable=True,
             )
 
+        async def ask_user_prompt(question: str) -> str:
+            """Suspend ``ask_user_question`` until any client answers it.
+
+            The service-tool contract invokes this callable synchronously and
+            awaits the awaitable it returns, so registering the question and
+            publishing ``question.asked`` happen before the run suspends.
+            """
+
+            # The hub pump binds run_id when it correlates turn_started; the
+            # tool call may race ahead of it, so poll briefly before giving up.
+            run_id = await run_registry.active_run_id(session_id)
+            if run_id is None:
+                for _ in range(20):
+                    await asyncio.sleep(0.05)
+                    run_id = await run_registry.active_run_id(session_id)
+                    if run_id is not None:
+                        break
+            record = await pending_questions.ask(
+                session_id=session_id,
+                run_id=run_id or "",
+                request_id=body.request_id,
+                question=question,
+                tool_call_id="",
+            )
+            await hub.publish(
+                WebEvent(
+                    type="question.asked",
+                    session_id=session_id,
+                    run_id=record.run_id,
+                    request_id=record.request_id,
+                    payload={
+                        "question_id": record.question_id,
+                        "question": record.question,
+                        "tool_call_id": record.tool_call_id,
+                    },
+                )
+            )
+            return await record.wait()
+
         start_gate = asyncio.Event()
 
+        def _schedule_run_finished(done_task: asyncio.Task[object]) -> None:
+            """Emit the in-order finish marker once the owned task is done.
+
+            Terminal events correlate asynchronously on the hub pump, so the
+            task's own ``finally`` cannot decide whether one was emitted. The
+            marker lands on the bus strictly after every event the task
+            produced; the pump consumes it only after a real terminal — if
+            any — already correlated, otherwise it publishes an honest
+            ``run.cancelled``/``run.failed`` and releases the session binding.
+            """
+
+            emitter = hub.note_task_finished(session_id, body.request_id, done_task)
+            try:
+                asyncio.get_running_loop().create_task(emitter)
+            except RuntimeError:
+                emitter.close()
+
         async def run_owned() -> object:
+            owned_task = asyncio.current_task()
+            if owned_task is not None:
+                owned_task.add_done_callback(_schedule_run_finished)
             await start_gate.wait()
-            return await _run_and_report_prestart_failure(
-                application=application,
-                request=RunRequest(
-                    text=body.text,
-                    session_id=session_id,
-                    resume=True,
-                    permission_subject=_WEB_PERMISSION_SUBJECT,
-                    run_policy=RunPolicy(max_tool_iterations=100),
-                    metadata={"web_request_id": body.request_id},
-                ),
-                request_id=body.request_id,
-                run_registry=run_registry,
-                hub=hub,
-            )
+            try:
+                return await _run_and_report_prestart_failure(
+                    application=application,
+                    request=RunRequest(
+                        text=body.text,
+                        session_id=session_id,
+                        resume=True,
+                        provider_name=body.provider_name,
+                        model_override=body.model,
+                        permission_subject=_WEB_PERMISSION_SUBJECT,
+                        run_policy=RunPolicy(max_tool_iterations=100),
+                        metadata={"web_request_id": body.request_id},
+                        dependencies={"ask_user_prompt": ask_user_prompt},
+                    ),
+                    request_id=body.request_id,
+                    run_registry=run_registry,
+                    hub=hub,
+                )
+            finally:
+                # A run's questions are only live while the run is; end or
+                # cancellation drops them and broadcasts one terminal event each.
+                for record in await pending_questions.cancel_request(
+                    session_id, body.request_id
+                ):
+                    await hub.publish(
+                        WebEvent(
+                            type="question.cancelled",
+                            session_id=session_id,
+                            run_id=record.run_id,
+                            request_id=record.request_id,
+                            payload={"question_id": record.question_id},
+                        )
+                    )
 
         try:
             acceptance = await run_registry.accept(
@@ -343,10 +479,283 @@ def create_web_app(
                 "The requested session does not exist.",
                 retryable=False,
             )
+        loaded = await _ensure_session_loaded(application.session_manager, session_id)
+        if not loaded:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        try:
+            cancelled = bool(application.cancel(session_id))
+        except KeyError:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
         return {
-            "cancelled": bool(application.cancel(session_id)),
+            "cancelled": cancelled,
             "session_id": session_id,
         }
+
+    @app.get("/api/providers")
+    async def list_providers() -> object:
+        items = getattr(getattr(config, "providers", None), "items", None) or ()
+        return {
+            "providers": [
+                {
+                    "name": provider.name,
+                    "kind": str(getattr(provider, "kind", "chat")),
+                    "model": provider.model,
+                    "api_key_configured": bool(getattr(provider, "api_keys", ())),
+                }
+                for provider in items
+            ]
+        }
+
+    @app.get("/api/meta")
+    async def meta() -> object:
+        try:
+            version = importlib.metadata.version("homemaster")
+        except importlib.metadata.PackageNotFoundError:
+            version = "0.0.0"
+        memory_mode = getattr(getattr(config, "memory", None), "mode", None)
+        return {
+            "version": version,
+            "memory_mode": memory_mode if isinstance(memory_mode, str) else "files",
+            "environment": environment_label,
+        }
+
+    @app.post("/api/skills/resolve")
+    async def resolve_skill(body: SkillResolveRequest) -> object:
+        registry = _application_services(application).get("skill_registry")
+        if registry is None:
+            return _error(
+                503,
+                "skill_registry_unavailable",
+                "The skill registry is unavailable.",
+                retryable=True,
+            )
+        try:
+            resolved = resolve_skill_command(body.text, registry)
+        except ValueError:
+            return _error(
+                422,
+                "skill_not_invocable",
+                "The skill cannot be invoked directly by users.",
+                retryable=False,
+            )
+        if resolved is None:
+            return {"kind": "plain"}
+        name, _, arguments = body.text[1:].partition(" ")
+        return {
+            "kind": "skill",
+            "name": name.strip(),
+            "arguments": arguments.strip(),
+            "prompt": resolved.prompt,
+            "model_override": resolved.model_override,
+        }
+
+    @app.get("/api/sessions/{session_id}/status")
+    async def session_status(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        status_fn = getattr(application, "status", None)
+        if not callable(status_fn):
+            return _error(
+                503,
+                "status_unavailable",
+                "Session status is unavailable.",
+                retryable=True,
+            )
+        loaded = await _ensure_session_loaded(application.session_manager, session_id)
+        if not loaded:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        try:
+            status = status_fn(session_id)
+        except KeyError:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        result = _status_to_dict(status)
+        result["ui_mode"] = _session_ui_mode(application, session_id)
+        return result
+
+    @app.post("/api/sessions/{session_id}/compact")
+    async def compact_session(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        compact_fn = getattr(application, "compact", None)
+        if not callable(compact_fn):
+            return _error(
+                503,
+                "compact_unavailable",
+                "Session compaction is unavailable.",
+                retryable=True,
+            )
+        if await run_registry.is_busy(session_id):
+            return _error(
+                409,
+                "session_busy",
+                "This session already has an active run.",
+                retryable=True,
+            )
+        loaded = await _ensure_session_loaded(application.session_manager, session_id)
+        if not loaded:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        status_fn = getattr(application, "status", None)
+        if callable(status_fn):
+            try:
+                if status_fn(session_id).active:
+                    return _error(
+                        409,
+                        "session_busy",
+                        "This session already has an active run.",
+                        retryable=True,
+                    )
+            except KeyError:
+                pass
+        try:
+            result = await compact_fn(session_id)
+        except KeyError:
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        except Exception:
+            logger.exception("web_compact_failed", extra={"session_id": session_id})
+            return _error(
+                503,
+                "compact_failed",
+                "The session could not be compacted.",
+                retryable=True,
+            )
+        return asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
+
+    @app.post("/api/sessions/{session_id}/mode")
+    async def set_session_mode(session_id: str, body: SetSessionModeRequest) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        plan_mode = _application_services(application).get("plan_mode")
+        set_enabled = getattr(plan_mode, "set", None)
+        if not callable(set_enabled):
+            return _error(
+                503,
+                "plan_mode_unavailable",
+                "Plan mode control is unavailable.",
+                retryable=True,
+            )
+        # The registered plan-mode listener broadcasts session.mode_changed;
+        # publishing here too would emit the event twice per transition.
+        set_enabled(session_id, body.ui_mode == "plan")
+        return {"session_id": session_id, "ui_mode": body.ui_mode}
+
+    @app.get("/api/sessions/{session_id}/approvals")
+    async def list_session_approvals(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        store = _web_store()
+        if store is None:
+            return _error(
+                503,
+                "permission_store_unavailable",
+                "The permission store is unavailable.",
+                retryable=True,
+            )
+        approvals: list[dict[str, Any]] = []
+        for approval_id in await confirmation_handler.pending_approval_ids(session_id):
+            try:
+                approvals.append(_approval_to_dict(store.get_request(approval_id)))
+            except KeyError:
+                continue
+        return {"approvals": approvals}
+
+    @app.get("/api/sessions/{session_id}/questions")
+    async def list_pending_questions(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        records = await pending_questions.pending_for_session(session_id)
+        return {"questions": [record.to_dict() for record in records]}
+
+    @app.post("/api/sessions/{session_id}/questions/{question_id}/answer")
+    async def answer_question(
+        session_id: str,
+        question_id: str,
+        body: AnswerQuestionRequest,
+    ) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        try:
+            record = await pending_questions.answer(
+                session_id=session_id,
+                question_id=question_id,
+                text=body.text,
+            )
+        except KeyError:
+            return _error(
+                404,
+                "question_not_found",
+                "The question is unknown or already resolved.",
+                retryable=False,
+            )
+        await hub.publish(
+            WebEvent(
+                type="question.answered",
+                session_id=session_id,
+                run_id=record.run_id,
+                request_id=record.request_id,
+                payload={"question_id": record.question_id},
+            )
+        )
+        return {"accepted": True}
 
     @app.post("/api/approvals/{approval_id}")
     async def resolve_approval(approval_id: str, body: dict) -> object:
@@ -383,7 +792,7 @@ def create_web_app(
                 422,
                 "invalid_request",
                 "Each decision needs an item_id and one of allow_once,"
-                " allow_always or reject.",
+                " allow_always, allow_session or reject.",
                 retryable=False,
             )
         store = _web_store()
@@ -634,13 +1043,17 @@ def create_web_app(
             await _stream_events(websocket, queue)
         except WebSocketDisconnect:
             pass
+        except asyncio.CancelledError:
+            # The hosting scope (test-client teardown, ASGI shutdown) cancels
+            # the handler right after queueing the disconnect frame; for this
+            # outbound-only stream that is equivalent to a client disconnect.
+            # Pending approvals are durable server-side state and survive.
+            pass
         finally:
-            await hub.unsubscribe(session_id, queue)
-            await _deny_approvals_without_subscriber(
-                session_id,
-                hub=hub,
-                confirmation_handler=confirmation_handler,
-            )
+            try:
+                await hub.unsubscribe(session_id, queue)
+            except asyncio.CancelledError:
+                pass
 
     mount_web_static(app)
     return app
@@ -648,7 +1061,7 @@ def create_web_app(
 
 async def _stream_events(
     websocket: WebSocket,
-    queue: asyncio.Queue[WebEvent],
+    queue: asyncio.Queue[object],
 ) -> None:
     """Forward events while independently observing an idle client disconnect."""
 
@@ -667,6 +1080,10 @@ async def _stream_events(
                 receive_task = asyncio.create_task(websocket.receive())
             if event_task in done:
                 event = event_task.result()
+                if not isinstance(event, WebEvent):
+                    # The hub dropped this subscriber after its bounded queue
+                    # filled up; exit so the client can reconnect and resync.
+                    return
                 await websocket.send_json(event.to_dict())
                 event_task = asyncio.create_task(queue.get())
     finally:
@@ -707,22 +1124,118 @@ async def _run_and_report_prestart_failure(
         return None
 
 
-async def _deny_approvals_without_subscriber(
-    session_id: str,
+def _provider_selection_error(
+    config: Any,
     *,
-    hub: WebEventHub,
-    confirmation_handler: WebConfirmationHandler,
-) -> None:
-    """Fail closed only when the last browser for this session has disconnected."""
+    provider_name: str | None,
+    model: str | None,
+) -> JSONResponse | None:
+    """Mirror the factory's server-side provider/model resolution up front.
 
-    if not await hub.has_subscriber(session_id):
-        await confirmation_handler.deny_session(session_id)
+    ``model`` must match exactly one configured chat provider by name or
+    model id, and must not conflict with an explicit ``provider_name``.
+    """
+
+    if provider_name is None and model is None:
+        return None
+    items = getattr(getattr(config, "providers", None), "items", None) or ()
+    chat_providers = [
+        provider for provider in items if getattr(provider, "kind", None) == "chat"
+    ]
+    if provider_name is not None and not any(
+        provider.name.casefold() == provider_name.casefold() for provider in chat_providers
+    ):
+        return _error(
+            422,
+            "unknown_provider",
+            "The provider is not configured.",
+            retryable=False,
+        )
+    if model is not None:
+        target = model.casefold()
+        matches = {
+            provider.name.casefold(): provider
+            for provider in chat_providers
+            if provider.name.casefold() == target
+            or str(getattr(provider, "model", "")).casefold() == target
+        }
+        if len(matches) != 1:
+            return _error(
+                422,
+                "unknown_model",
+                "The model must match exactly one configured chat provider.",
+                retryable=False,
+            )
+        (matched,) = matches.values()
+        if (
+            provider_name is not None
+            and matched.name.casefold() != provider_name.casefold()
+        ):
+            return _error(
+                422,
+                "unknown_model",
+                "The model conflicts with the selected provider.",
+                retryable=False,
+            )
+    return None
+
+
+def _log_mode_broadcast_failure(future: Any) -> None:
+    """Surface a failed thread-safe mode broadcast instead of dropping it."""
+
+    if future.cancelled():
+        return
+    exc = future.exception()
+    if exc is not None:
+        logger.warning("web_mode_broadcast_failed", exc_info=exc)
+
+
+def _application_services(application: Any) -> Mapping[str, Any]:
+    services = getattr(getattr(application, "settings", None), "application_services", None)
+    return services if isinstance(services, Mapping) else {}
+
+
+def _session_ui_mode(application: Any, session_id: str) -> str:
+    plan_mode = _application_services(application).get("plan_mode")
+    enabled = getattr(plan_mode, "enabled", None)
+    if callable(enabled) and enabled(session_id):
+        return "plan"
+    return "act"
+
+
+def _status_to_dict(status: Any) -> dict[str, Any]:
+    task_status = getattr(status, "task_status", None)
+    return {
+        "session_id": status.session_id,
+        "generation": status.generation,
+        "revision": status.revision,
+        "status": status.status,
+        "active": status.active,
+        "cancellation_requested": status.cancellation_requested,
+        "task_status": getattr(task_status, "value", task_status),
+        "environment_ref": status.environment_ref,
+    }
 
 
 def _session_ids(manager: Any) -> set[str]:
     persisted = set(manager.list_session_ids())
     active = {runtime.session.session_id for runtime in manager.sessions}
     return persisted | active
+
+
+async def _ensure_session_loaded(manager: Any, session_id: str) -> bool:
+    """Materialize a persisted runtime so ``status``/``compact`` can read it."""
+
+    try:
+        manager.get(session_id)
+        return True
+    except KeyError:
+        pass
+    try:
+        await manager.resume(session_id)
+    except (KeyError, ValueError, FileNotFoundError):
+        return False
+    return True
 
 
 def _message_text(message: Any) -> str:

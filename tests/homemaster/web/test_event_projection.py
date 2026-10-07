@@ -69,7 +69,7 @@ def test_projection_maps_snapshots_and_lifecycle_and_rejects_unknown_events() ->
         (
             _event("runtime.turn_completed", payload={"final_reply": "do not duplicate"}),
             "run.completed",
-            {},
+            {"status": "replied", "final_reply": "do not duplicate"},
         ),
         (
             _event(
@@ -142,7 +142,7 @@ def test_turn_completed_projects_question_before_completion() -> None:
             session_id="session-01",
             run_id="run-01",
             request_id="request-01",
-            payload={},
+            payload={"status": "waiting_user", "final_reply": ""},
         ),
     )
     assert WebEventProjection(include_thinking=False).project(

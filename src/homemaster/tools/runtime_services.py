@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -27,6 +29,8 @@ from homemaster.tools.task_runtime import (
     TaskType,
     task_id,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -268,15 +272,51 @@ class HomePlanModeService:
 
     def __init__(self) -> None:
         self._plan_sessions: set[str] = set()
+        self._listeners: list[Callable[[str, bool], None]] = []
+
+    def add_listener(self, listener: Callable[[str, bool], None]) -> None:
+        """Register ``listener(session_id, enabled)`` for real transitions only."""
+
+        self._listeners.append(listener)
 
     def set(self, session_id: str, enabled: bool) -> None:
+        if enabled == self.enabled(session_id):
+            return
         if enabled:
             self._plan_sessions.add(session_id)
         else:
             self._plan_sessions.discard(session_id)
+        for listener in tuple(self._listeners):
+            try:
+                listener(session_id, enabled)
+            except Exception:
+                logger.exception("plan_mode_listener_failed")
 
     def enabled(self, session_id: str) -> bool:
         return session_id in self._plan_sessions
+
+
+class SessionGrantService:
+    """Session-scoped approval allows that never reach the durable grant store.
+
+    An ``allow_session`` decision lets the same resource key skip approval for
+    the rest of that session only — nothing is persisted, so a new session (or
+    a restarted server) asks again. This is the web/CLI approval card's
+    "this session" option, the in-memory counterpart of ``allow_always``.
+    """
+
+    def __init__(self) -> None:
+        self._allowed: dict[str, set[tuple[str, str, str, str]]] = {}
+
+    def allow(self, session_id: str, keys: Iterable[tuple[str, str, str, str]]) -> None:
+        if session_id:
+            self._allowed.setdefault(session_id, set()).update(keys)
+
+    def covers(self, session_id: str, key: tuple[str, str, str, str]) -> bool:
+        return key in self._allowed.get(session_id, ())
+
+    def clear(self, session_id: str) -> None:
+        self._allowed.pop(session_id, None)
 
 
 class HomeConfigService:
@@ -375,6 +415,7 @@ class HomeToolServices:
         self.cron = HomeCronStore(root / "cron")
         self.teams = HomeTeamRegistry(root / "teams")
         self.plan_mode = HomePlanModeService()
+        self.session_allows = SessionGrantService()
         self.config = HomeConfigService(config)
         self.agent_tasks: dict[str, str] = {}
 

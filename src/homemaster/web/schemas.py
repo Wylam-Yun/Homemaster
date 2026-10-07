@@ -25,13 +25,39 @@ class SendMessageRequest(BaseModel):
 
     request_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
+    provider_name: str | None = None
+    model: str | None = None
+
+
+class SetSessionModeRequest(BaseModel):
+    """Switch one session between plan (read-only) and act execution modes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ui_mode: Literal["plan", "act"]
+
+
+class AnswerQuestionRequest(BaseModel):
+    """Resolve one pending ask_user question with the operator's answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
+
+
+class SkillResolveRequest(BaseModel):
+    """Resolve a slash command against the server-side skill registry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1)
 
 
 class ItemChoiceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: str = Field(min_length=1)
-    choice: Literal["allow_once", "allow_always", "reject"]
+    choice: Literal["allow_once", "allow_always", "allow_session", "reject"]
 
 
 class ApprovalSubmissionRequest(BaseModel):
@@ -162,6 +188,7 @@ def _copy_json(value: object) -> object:
 
 
 __all__ = [
+    "AnswerQuestionRequest",
     "ApprovalSubmissionRequest",
     "CancelApprovalRequest",
     "CreateSessionRequest",
@@ -173,5 +200,7 @@ __all__ = [
     "MemoryStatsResponse",
     "RevokeGrantRequest",
     "SendMessageRequest",
+    "SetSessionModeRequest",
+    "SkillResolveRequest",
     "WebEvent",
 ]

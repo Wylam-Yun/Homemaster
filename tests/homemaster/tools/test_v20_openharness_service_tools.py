@@ -18,7 +18,7 @@ from homemaster.events import JsonlTraceSink, RuntimeEvent
 from homemaster.mcp.client import McpClientManager, McpConnection
 from homemaster.permissions import PermissionMode
 from homemaster.tools.contracts import ToolExecutionStatus
-from homemaster.tools.runtime_services import HomeToolServices
+from homemaster.tools.runtime_services import HomePlanModeService, HomeToolServices
 from tests.homemaster.tools.universal_harness import execute, registry
 
 
@@ -654,3 +654,25 @@ async def test_team_registry_and_plan_mode_change_authoritative_home_state(tmp_p
         assert (tmp_path / "plan-mode.txt").read_text(encoding="utf-8") == "allowed"
     finally:
         await services.aclose()
+
+
+def test_plan_mode_listeners_fire_once_per_real_transition() -> None:
+    plan_mode = HomePlanModeService()
+    seen: list[tuple[str, bool]] = []
+    plan_mode.add_listener(lambda sid, enabled: seen.append((sid, enabled)))
+
+    def boom(sid: str, enabled: bool) -> None:
+        raise RuntimeError("listener exploded")
+
+    plan_mode.add_listener(boom)
+
+    plan_mode.set("s1", True)
+    plan_mode.set("s1", True)  # no-op must not notify
+    plan_mode.set("s1", False)
+    plan_mode.set("s1", False)  # no-op must not notify
+    plan_mode.set("s2", True)
+
+    # The exploding listener neither broke set() nor stopped later listeners.
+    assert seen == [("s1", True), ("s1", False), ("s2", True)]
+    assert plan_mode.enabled("s1") is False
+    assert plan_mode.enabled("s2") is True

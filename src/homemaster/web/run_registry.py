@@ -65,6 +65,19 @@ class WebRunRegistry:
         async with self._lock:
             return (session_id, request_id) in self._records
 
+    async def is_busy(self, session_id: str) -> bool:
+        """Return whether the session currently owns an active Web request."""
+
+        async with self._lock:
+            return session_id in self._active_by_session
+
+    async def active_run_id(self, session_id: str) -> str | None:
+        """Return the run id bound to the session's active request, if any."""
+
+        async with self._lock:
+            record = self._active_by_session.get(session_id)
+            return record.run_id if record is not None else None
+
     async def accept(
         self,
         session_id: str,
@@ -124,6 +137,29 @@ class WebRunRegistry:
                 return False
             self._active_by_session.pop(session_id, None)
             return True
+
+    async def release_finished(self, session_id: str, request_id: str) -> str | None:
+        """Release the session binding once its owned task is actually done.
+
+        Returns the bound run id (``""`` when the request never bound to a
+        run) exactly once, on release.  ``None`` means the record is already
+        gone — a real terminal event or ``fail_before_start`` released it — or
+        the owned task is still running, in which case a terminal event may
+        still arrive and must not be pre-empted.
+        """
+
+        async with self._lock:
+            record = self._active_by_session.get(session_id)
+            if (
+                record is None
+                or record.request_id != request_id
+                or not record.task.done()
+            ):
+                return None
+            self._active_by_session.pop(session_id, None)
+            if record.run_id is not None:
+                self._started_by_run.pop(record.run_id, None)
+            return record.run_id or ""
 
     def _bind_started(self, event: RuntimeEvent) -> _OwnedRequest:
         if not event.run_id:

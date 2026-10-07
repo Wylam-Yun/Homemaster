@@ -109,6 +109,8 @@ def create_home_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         memory_management_service=memory_management_service,
         alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
+        config=getattr(bundle, "config", None) or config,
+        environment="home",
     )
     app.state.home_bundle = bundle
     return app
@@ -118,8 +120,9 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
     """Compose the Web Console with the same browser execution profile as other channels."""
 
     confirmation_handler = WebConfirmationHandler()
+    config = load_config(config_path=config_path)
     bundle = compose_application(
-        config=load_config(config_path=config_path),
+        config=config,
         progress=False,
         quiet=True,
         console_show_replies=False,
@@ -142,6 +145,8 @@ def create_browser_web_app(config_path: Path | None = None) -> FastAPI:
         confirmation_handler=confirmation_handler,
         memory_management_service=memory_management_service,
         alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
+        config=getattr(bundle, "config", None) or config,
+        environment="browser",
     )
     app.state.home_bundle = bundle
     return app
@@ -198,6 +203,8 @@ async def create_alfworld_web_app(config_path: Path | None = None) -> FastAPI:
             confirmation_handler=confirmation_handler,
             memory_management_service=memory_management_service,
             alfworld_compile_jobs=getattr(bundle, "alfworld_compile_jobs", None),
+            config=getattr(bundle, "config", None),
+            environment="alfworld",
         )
     except BaseException:
         await confirmation_handler.aclose()

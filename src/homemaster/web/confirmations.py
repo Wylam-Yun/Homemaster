@@ -23,6 +23,22 @@ from homemaster.permissions.models import (
 
 PROTOCOL_VERSION = 2
 
+# Store statuses that mean a browser submission already committed — the
+# waiter must still receive that committed resolution via ``resolve()``, so
+# cancellation paths must not pop the pending entry or fail its future.
+# Anything else (cancelled, expired, interrupted, or an unrecognized status)
+# means no decision will ever arrive, so the waiter is failed closed.
+_COMMITTED_REQUEST_STATUSES = frozenset(
+    {
+        "ready",
+        "blocked",
+        "running",
+        "succeeded",
+        "failed",
+        "outcome_unknown",
+    }
+)
+
 
 @dataclass
 class _PendingApproval:
@@ -142,6 +158,12 @@ class WebConfirmationHandler:
         except asyncio.CancelledError:
             async with self._lock:
                 self._pending.pop(approval_id, None)
+            try:
+                # A dead run must not leave the request submittable — a late
+                # decision could otherwise still write a durable grant for it.
+                store.cancel(request.request_id, "run cancelled")
+            except Exception:
+                pass
             raise
         except ApprovalCancelled:
             async with self._lock:
@@ -204,9 +226,49 @@ class WebConfirmationHandler:
         resolution = self._require_store().submit(approval_id, submission, actor)
         async with self._lock:
             pending = self._pending.pop(approval_id, None)
+        if pending is not None:
+            self._apply_session_allows(approval_id, pending, submission)
         if pending is not None and not pending.future.done():
             pending.future.set_result(resolution)
         return resolution
+
+    def _apply_session_allows(
+        self, approval_id: str, pending: Any, submission: ApprovalSubmission
+    ) -> None:
+        """Record ``allow_session`` choices into the session-scoped allow service.
+
+        These decisions allow the item without writing a durable grant; the
+        in-memory service makes later identical items in the same session skip
+        approval (policy consults it alongside durable grants).
+        """
+
+        session_allows = pending.context.services.get("session_allows")
+        if not callable(getattr(session_allows, "allow", None)):
+            return
+        keys: list[tuple[str, str, str, str]] = []
+        try:
+            stored = self._require_store().get_request(approval_id)
+        except Exception:
+            stored = None
+        if stored is not None:
+            by_item = {item.item_id: item for item in stored.items}
+            for decision in submission.decisions:
+                if decision.choice != "allow_session":
+                    continue
+                item = by_item.get(decision.item_id)
+                if item is None:
+                    continue
+                key = item.key
+                keys.append(
+                    (
+                        key.environment_id,
+                        key.resource_kind,
+                        key.resource_id,
+                        key.action,
+                    )
+                )
+        if keys:
+            session_allows.allow(pending.session_id, keys)
 
     async def cancel_approval(
         self, approval_id: str, submission_id: str, request_revision: int
@@ -221,6 +283,12 @@ class WebConfirmationHandler:
 
             raise ApprovalConflict("request revision changed; reload before cancelling")
         status = store.cancel(stored.request_id, "browser card closed")
+        if status in _COMMITTED_REQUEST_STATUSES:
+            # The decision already committed; leave ``_pending`` so the
+            # in-flight ``resolve()`` still applies session allows and wakes
+            # the waiter with the real resolution.
+            del submission_id
+            return status
         async with self._lock:
             pending = self._pending.pop(approval_id, None)
         if pending is not None and not pending.future.done():
@@ -230,8 +298,27 @@ class WebConfirmationHandler:
         del submission_id
         return status
 
+    async def pending_approval_ids(self, session_id: str) -> tuple[str, ...]:
+        """Approval ids still awaiting a browser decision for one session.
+
+        Pending approvals are durable server-side state; they survive
+        WebSocket disconnects, so reconnecting clients can re-list them.
+        """
+
+        async with self._lock:
+            return tuple(
+                approval_id
+                for approval_id, pending in self._pending.items()
+                if pending.session_id == session_id
+            )
+
     async def deny_session(self, session_id: str) -> int:
-        """Cancel pending approvals for exactly one disconnected session."""
+        """Cancel pending approvals for one session on explicit teardown.
+
+        This is an explicit administrative operation only — the WebSocket
+        disconnect path never calls it, because pending approvals are durable
+        server-side state that reconnecting clients must be able to resume.
+        """
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id must be a non-empty string")
         store = self._store
@@ -241,35 +328,53 @@ class WebConfirmationHandler:
                 for approval_id, pending in self._pending.items()
                 if pending.session_id == session_id
             )
-            for approval_id, _pending in selected:
-                self._pending.pop(approval_id, None)
-        for _approval_id, pending in selected:
+        released = 0
+        for approval_id, pending in selected:
             if store is not None:
                 try:
-                    store.cancel(pending.request_id, "browser disconnected")
+                    status = store.cancel(pending.request_id, "browser disconnected")
                 except Exception:
-                    pass
+                    status = "cancelled"
+                if status in _COMMITTED_REQUEST_STATUSES:
+                    # A decision already committed — keep the pending entry so
+                    # the in-flight ``resolve()`` still completes the waiter.
+                    continue
+            async with self._lock:
+                if self._pending.pop(approval_id, None) is not pending:
+                    continue
             if not pending.future.done():
                 pending.future.set_exception(
                     ApprovalCancelled("browser disconnected")
                 )
-        return len(selected)
+            released += 1
+        return released
 
     async def aclose(self) -> None:
-        """Cancel and release every pending approval exactly once."""
+        """Cancel and release every pending approval exactly once.
+
+        Shutdown still fails every waiter — except one whose store decision
+        already committed: its pending entry stays so the in-flight
+        ``resolve()`` delivers the real resolution instead of a fake cancel.
+        """
         async with self._lock:
             if self._closed:
                 return
             self._closed = True
-            pending = tuple(self._pending.values())
-            self._pending.clear()
+            pending = tuple(self._pending.items())
         store = self._store
-        for item in pending:
+        for approval_id, item in pending:
             if store is not None:
                 try:
-                    store.cancel(item.request_id, "confirmation handler closed")
+                    status = store.cancel(
+                        item.request_id, "confirmation handler closed"
+                    )
                 except Exception:
-                    pass
+                    status = "cancelled"
+                if status in _COMMITTED_REQUEST_STATUSES:
+                    continue
+            async with self._lock:
+                if self._pending.pop(approval_id, None) is not item:
+                    continue
             if not item.future.done():
                 item.future.set_exception(ApprovalCancelled("handler closed"))
 

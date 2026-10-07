@@ -247,6 +247,129 @@ async def test_cancel_approval_pending_and_resolved(tmp_path: Path) -> None:
         store.close()
 
 
+class _SessionAllows:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[tuple[str, str, str, str]]]] = []
+
+    def allow(self, session_id: str, keys) -> None:
+        self.calls.append((session_id, list(keys)))
+
+
+@pytest.mark.asyncio
+async def test_cancel_approval_after_committed_submit_keeps_waiter(
+    tmp_path: Path,
+) -> None:
+    """The exact ``resolve():submit committed / _pending not yet popped``
+    interleaving: the waiter must receive the committed resolution and the
+    ``allow_session`` keys must still be deposited — never failed closed."""
+
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    session_allows = _SessionAllows()
+    handler = WebConfirmationHandler(store=store, timeout_s=None)
+    try:
+        request = make_request(clock, "web-race")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        item_id = request.requirements[0].item_id
+        context = make_context(
+            tmp_path,
+            EventSink(),
+            session_id=request.session_id,
+            extra_services={"session_allows": session_allows},
+        )
+        waiter = asyncio.create_task(handler.confirm(request, [item_id], context))
+        await wait_pending(handler)
+
+        submission = _submission(request, {item_id: "allow_session"}, "sub-race")
+        # Commit the decision directly in the store — the handler wakeup side
+        # of resolve() has not run yet, so ``_pending`` still holds the waiter.
+        committed = store.submit(request.approval_id, submission, "web-operator")
+        assert committed.request_status == "ready"
+
+        status = await handler.cancel_approval(
+            request.approval_id, "cancel-race", request.revision
+        )
+        assert status == "ready"
+        await asyncio.sleep(0)
+        assert waiter.done() is False
+
+        resolution = await handler.resolve(
+            request.approval_id, submission, "web-operator"
+        )
+        assert await waiter == resolution
+        assert resolution.request_status == "ready"
+        assert handler.pending_count == 0
+        assert session_allows.calls == [
+            (request.session_id, [("home", "object", "cup-a", "pick_up")])
+        ]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_deny_session_preserves_committed_resolution(tmp_path: Path) -> None:
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    handler = WebConfirmationHandler(store=store, timeout_s=None)
+    try:
+        request = make_request(clock, "web-deny-race")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        item_id = request.requirements[0].item_id
+        waiter = asyncio.create_task(
+            handler.confirm(
+                request,
+                [item_id],
+                make_context(tmp_path, EventSink(), session_id="gone"),
+            )
+        )
+        await wait_pending(handler)
+        submission = _submission(request, {item_id: "allow_once"}, "sub-deny")
+        store.submit(request.approval_id, submission, "web-operator")
+
+        assert await handler.deny_session("gone") == 0
+        await asyncio.sleep(0)
+        assert waiter.done() is False
+        resolution = await handler.resolve(
+            request.approval_id, submission, "web-operator"
+        )
+        assert await waiter == resolution
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_confirm_cancelled_run_cancels_the_store_request(
+    tmp_path: Path,
+) -> None:
+    """A cancelled confirm() must cancel the durable request too — otherwise a
+    late submit could still write a grant for a run that no longer exists."""
+
+    clock = FakeClock()
+    store = _open(tmp_path, clock)
+    handler = WebConfirmationHandler(store=store, timeout_s=None)
+    try:
+        request = make_request(clock, "web-run-dead")
+        store.create_request(request)
+        store.mark_awaiting_approval(request.request_id)
+        task = asyncio.create_task(
+            handler.confirm(
+                request,
+                [item.item_id for item in request.requirements],
+                make_context(tmp_path, EventSink()),
+            )
+        )
+        await wait_pending(handler)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert handler.pending_count == 0
+        assert store.get_request(request.approval_id).status == "cancelled"
+    finally:
+        store.close()
+
+
 def test_bind_store_rules(tmp_path: Path) -> None:
     clock = FakeClock()
     first = PermissionStore.open(tmp_path / "a.sqlite3", clock=clock)

@@ -136,19 +136,28 @@ def make_request(
 
 
 def make_context(
-    tmp_path: Path, sink: EventSink | None = None, session_id: str = "session-01"
+    tmp_path: Path,
+    sink: EventSink | None = None,
+    session_id: str = "session-01",
+    extra_services: dict[str, Any] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
-        tmp_path,
-        metadata={
-            "session_id": session_id,
-            "run_id": "run-01",
-            "turn_index": 2,
-            "tool_call_id": "call-01",
-            "permission_subject": PermissionSubject(
-                "web-operator", "web", tenant_id="local", capabilities=()
-            ),
+        session_id=session_id,
+        run_id="run-01",
+        turn_index=2,
+        tool_call_id="call-01",
+        internal_tool_id="homemaster.test.web.v1",
+        permission_subject=PermissionSubject(
+            "web-operator", "web", tenant_id="local", capabilities=()
+        ),
+        backend=None,
+        deadline=None,
+        cancellation=None,
+        domain_observer=None,
+        working_directory=tmp_path,
+        services={
             "run_context": SimpleNamespace(event_sink=sink),
+            **(extra_services or {}),
         },
     )
 

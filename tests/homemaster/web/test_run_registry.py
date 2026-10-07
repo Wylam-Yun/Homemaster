@@ -102,3 +102,82 @@ async def test_registry_does_not_use_prestart_failure_for_bound_run() -> None:
 
     release.set()
     await registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_release_finished_only_acts_on_done_owned_task() -> None:
+    registry = WebRunRegistry()
+    gate = asyncio.Event()
+
+    async def run() -> None:
+        await gate.wait()
+
+    await registry.accept("session-01", "request-01", run)
+
+    # A still-running task keeps its binding: a terminal may still arrive.
+    assert await registry.release_finished("session-01", "request-01") is None
+    assert await registry.is_busy("session-01") is True
+
+    gate.set()
+    for _ in range(100):
+        if registry.owned_task_count == 0:
+            break
+        await asyncio.sleep(0.01)
+
+    # An unbound finished task releases with "" and frees the session.
+    assert await registry.release_finished("session-01", "request-01") == ""
+    assert await registry.is_busy("session-01") is False
+    assert await registry.release_finished("session-01", "request-01") is None
+    assert (await registry.accept("session-01", "request-02", run)).created is True
+
+    gate.set()
+    for _ in range(100):
+        if registry.owned_task_count == 0:
+            break
+        await asyncio.sleep(0.01)
+    await registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_release_finished_returns_bound_run_id_once() -> None:
+    registry = WebRunRegistry()
+
+    async def run() -> None:
+        return None
+
+    await registry.accept("session-01", "request-01", run)
+    await registry.correlate(_event("runtime.turn_started"))
+    for _ in range(100):
+        if registry.owned_task_count == 0:
+            break
+        await asyncio.sleep(0.01)
+
+    # Wrong request id must not touch another record.
+    assert await registry.release_finished("session-01", "request-other") is None
+    assert await registry.is_busy("session-01") is True
+
+    assert await registry.release_finished("session-01", "request-01") == "run-01"
+    # After release, a stale late terminal no longer correlates.
+    with pytest.raises(RunCorrelationError):
+        await registry.correlate(_event("runtime.turn_completed"))
+    await registry.aclose()
+
+
+@pytest.mark.asyncio
+async def test_release_finished_noops_after_real_terminal_correlated() -> None:
+    registry = WebRunRegistry()
+
+    async def run() -> None:
+        return None
+
+    await registry.accept("session-01", "request-01", run)
+    await registry.correlate(_event("runtime.turn_started"))
+    assert await registry.correlate(_event("runtime.turn_completed")) == "request-01"
+    for _ in range(100):
+        if registry.owned_task_count == 0:
+            break
+        await asyncio.sleep(0.01)
+
+    # The real terminal already released the record — no synthetic terminal.
+    assert await registry.release_finished("session-01", "request-01") is None
+    await registry.aclose()

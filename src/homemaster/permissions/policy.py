@@ -180,12 +180,32 @@ class PermissionChecker:
         once_live = stored.status in ("ready", "running")
         decisions = {item.item_id: item.decision for item in stored.items}
         grants = self._store.matching_grants([item.key for item in request.requirements])
+        session_allows = context.services.get("session_allows")
+        session_covered = (
+            callable(getattr(session_allows, "covers", None)) and session_allows is not None
+        )
         missing = tuple(
             item.item_id
             for item in request.requirements
             if not (
-                (once_live and decisions.get(item.item_id) in ("allow_once", "allow_always"))
+                (
+                    once_live
+                    and decisions.get(item.item_id)
+                    in ("allow_once", "allow_always", "allow_session")
+                )
                 or item.key in grants
+                or (
+                    session_covered
+                    and session_allows.covers(
+                        session_id,
+                        (
+                            item.key.environment_id,
+                            item.key.resource_kind,
+                            item.key.resource_id,
+                            item.key.action,
+                        ),
+                    )
+                )
             )
         )
         if missing:
