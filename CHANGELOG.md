@@ -1,5 +1,88 @@
 # Unreleased
 
+- Fixed the AgentScope-migration regression where context compaction only
+  ever rewrote the per-round session mirror — `sync_session()` overwrote
+  it from the append-only engine transcript every round, so once the
+  threshold was crossed every model call re-ran the full summary pipeline
+  (extra LLM call + memory recall each round). Compaction now writes a
+  durable artifact on `AgentState` (fold boundary in canonical
+  coordinates, volatile-field-normalized prefix hash, and the complete
+  head segment for the non-contiguous protected prefix); each prepare
+  projects `head + canonical[first_kept:]` after hash validation, keeping
+  `engine_state.context` append-only. Micro-compaction (image stripping /
+  tool-result trimming) is now an ephemeral per-prepare transform that no
+  longer emits `context.compaction` events or re-arms recall; summary
+  failure defaults to a deterministic placeholder fold instead of sending
+  the oversized request raw (`abort_on_summary_failure` now defaults to
+  `False`). Reactive folds now report `context.compaction` trigger
+  `reactive` instead of `auto`. Automatic memory recall queries are built
+  from the projected view so the newest compaction summary still reaches
+  MindMemOS, and stacked heads resolve the newest (not oldest) summary.
+  Snapshot persistence strips image bytes embedded in a compaction head —
+  a head covering images can never hash-match after resume, so the bytes
+  were pure bloat.
+
+- Compaction now follows the reference implementations' boundary and
+  summary-budget behavior. The latest-user protection is a bounded
+  pull-back (hermes `_ensure_last_user_message_in_tail`): it only moves
+  the cut when the newest user message would actually be folded — a user
+  message already inside the protected prefix stays verbatim without
+  blocking the fold, so single-instruction agentic sessions (one
+  instruction + many tool rounds) can finally be summary-compacted
+  instead of relying on micro-trims alone. The summary call now uses a
+  dedicated `summary_max_output_tokens` budget (default 40960, clamped
+  to the provider profile's declared `max_output_tokens` when set — pi's
+  min-with-model-cap rule) instead of inheriting the per-request
+  `output_reserve_tokens` sliver — reasoning-capable models could spend
+  that entirely on thinking and return empty text, killing the summary
+  path. And a summary response whose `finish_reason` is anything other
+  than `stop` — `length`, refusal, content_filter, or a stray tool_calls
+  stop on a tool-free call — is rejected rather than persisted as a
+  partial checkpoint (pi's `stopReason == "length"` rule, tightened),
+  falling back to the deterministic placeholder or aborting per
+  `abort_on_summary_failure`.
+
+- Context token estimation is now usage-anchored (the opencode/pi model)
+  instead of re-running the character heuristic over the whole projected
+  view every prepare. Each prepare records the sent view's coverage on
+  `AgentState.pending_view` (canonical span, fold-artifact identity, tail
+  fingerprint, fixed-share estimate, tool-set fingerprint); when the
+  provider's real `input_tokens` lands, `_record_usage` promotes it to
+  `usage_anchor`. The next prepare then costs `anchor + estimate(canonical
+  delta) + fixed-share delta` — new tail messages and a merged-Msg tail
+  that grew in place are priced exactly, while prelude/system/tool-schema
+  changes adjust or invalidate. A new fold, a changed tool set, or a
+  shrunken canonical span drops the anchor and falls back to the full
+  heuristic, so estimates stay conservative exactly when the anchor can no
+  longer be trusted. Also fixed: the AS middleware read a nonexistent
+  `metrics.estimated_input_tokens` field, leaving
+  `agent_state.estimated_context_tokens` stuck at 0 on that path.
+  Independent-review fixes folded in: `_record_usage` normalizes real
+  input by wire family (OpenAI-family `input_tokens` already includes the
+  cached share — adding `cache_read` double-counted every cache hit in
+  both the anchor and `provider_usage` telemetry; Anthropic-family now
+  also counts `cache_creation`); the reactive-compaction prepare now
+  fingerprints the same wire-tool serialization the retried request sends;
+  `_artifact_key` covers head content; and the dead `token_estimate` field
+  no longer costs an O(history) scan every prepare.
+
+  Precision pass (reference-ported): the anchor now carries
+  `prefix_key` — a per-message fingerprint of the whole covered span
+  except the tail (hermes `base_prefix_fp` equivalent), so any mid-list
+  canonical rewrite (strip, splice, rewind, external edit) fails the
+  anchor closed instead of silently trusting a stale count; the last
+  covered message stays governed by `tail_key` so merged-Msg growth still
+  reprices as a delta rather than a bust. The message estimator now
+  prices the assistant fields that reach the wire but were previously
+  invisible: `reasoning_content` (ThinkingBlock), `tool_calls` id/name/
+  sorted-JSON arguments, and `ToolResultMessage` name/call-id — pi/
+  openclaw parity for tool-heavy deltas. Text estimation moved to the
+  hermes byte-level model: token-dense CJK/Hangul/Kana codepoints count
+  ~1 token each (was chars/2, systematically late on CJK-heavy sessions),
+  remaining non-ASCII prices by UTF-8 bytes/4 (corrects the ~2x
+  under-count on Cyrillic/Greek/Arabic/Hindi that chars/4 produced), and
+  malformed surrogates degrade via `errors="replace"` instead of raising.
+
 - Second scrub pass after independent review: model-visible text in
   `alfworld/tools.py` descriptions and error fallbacks,
   `alfworld_compiler.py` per-step `page_name`/`note` (verbatim-injected

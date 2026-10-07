@@ -123,7 +123,10 @@ def _schema_episode_record(value: Any) -> dict[str, Any] | None:
 
 
 def _newest_compaction_summary(messages: Sequence[Message]) -> str:
-    for message in reversed(messages):
+    # Compaction prepends each new summary — under stacking the FIRST marker
+    # in the list is the newest fold (artifact heads keep absorbed older
+    # summaries behind it), so scan forward rather than from the tail.
+    for message in messages:
         content = getattr(message, "content", ())
         for block in content:
             text = getattr(block, "text", "")

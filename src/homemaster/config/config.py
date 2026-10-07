@@ -192,6 +192,13 @@ class ContextPolicyConfig(BaseModel):
     auto_compact_enabled: bool = True
     compression_threshold_ratio: float = 0.50
     output_reserve_tokens: int = 8192
+    # Dedicated output budget for the compaction summary call, decoupled from
+    # the per-request output reserve (opencode uses a dedicated constant the
+    # same way). Reasoning-capable models can spend the ordinary reserve
+    # entirely on thinking and return an empty/truncated summary, so this is
+    # sized generously; the call site clamps it to the provider's own
+    # max_output_tokens when the profile declares one (pi's min-with-model-cap).
+    summary_max_output_tokens: int = 40960
     token_estimation_padding: float = 4 / 3
     safety_buffer_tokens: int = 13_000
     enabled_providers: tuple[str, ...] = (
@@ -217,7 +224,10 @@ class ContextPolicyConfig(BaseModel):
     )
     default_keep_recent_tool_results: int = 3
     enable_llm_summary: bool = True
-    abort_on_summary_failure: bool = True
+    # True = abort the run when the compaction summary cannot be produced;
+    # False (default) folds behind a deterministic placeholder summary so an
+    # oversized request is never sent raw.
+    abort_on_summary_failure: bool = False
     reactive_compact_max_retries: int = 2
 
 

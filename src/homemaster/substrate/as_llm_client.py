@@ -64,6 +64,9 @@ def _normalize_stop_reason(raw: Any) -> str | None:
         "stop_sequence": "stop",
         "tool_use": "tool_calls",
         "max_tokens": "length",
+        # Anthropic emits this when the requested output would not fit the
+        # remaining context — semantically a length stop, same consumer rule.
+        "model_context_window_exceeded": "length",
     }.get(text, text)
 
 

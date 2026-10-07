@@ -487,7 +487,7 @@ def decode_image_dimensions(base64_data: str) -> tuple[int, int]:
 ### 6.6 MiMo 实现
 
 ```python
-class MimoTokenEstimator(BaseTokenEstimator):
+class AnthropicTokenEstimator(BaseTokenEstimator):
     def estimate_text(self, text: str) -> int:
         cjk = sum(1 for c in text if "一" <= c <= "鿿")
         non_cjk = max(0, len(text) - cjk)
@@ -549,7 +549,7 @@ class BaseTokenEstimator:
         return total
 ```
 
-`MimoTokenEstimator(BaseTokenEstimator)` 继承基类，自动获得 `estimate_messages` 默认实现。
+`AnthropicTokenEstimator(BaseTokenEstimator)` 继承基类，自动获得 `estimate_messages` 默认实现。
 
 ### 6.8 接入点
 
@@ -665,7 +665,7 @@ reactive compaction 触发时：
 7. 最终图像剥离（阶段 4.2）
 8. reactive compaction 激进压缩回退（§3.5）
 9. ProviderUsage 改累加（audit 11.5），累加时包含 `cache_read_input_tokens`
-10. `TokenEstimator` 接口 + `MimoTokenEstimator` 实现（§6.4-6.6）
+10. `TokenEstimator` 接口 + `AnthropicTokenEstimator` 实现（§6.4-6.6）
 11. 图像尺寸解码工具函数 `decode_image_dimensions`（§6.5）
 12. `ContextAssembler` 改用 estimator 替换全局 `estimate_text_tokens`
 13. `LLMClient` 新增 `token_estimator` 属性（V1.6 删除 `LLMTransport` 抽象基类）

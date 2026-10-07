@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homemaster.agent.state import AgentState, CompactionRecord, ProviderUsage
+from homemaster.agent.state import AgentState, CompactionRecord, ProviderUsage, UsageAnchor
 
 
 def test_agent_state_tracks_runtime_counters() -> None:
@@ -74,8 +74,23 @@ def test_record_tool_results_tracks_no_progress_repeated_signature() -> None:
 def test_agent_state_serialization_roundtrip() -> None:
     state = AgentState(run_id="r1", session_id="s1", metadata={"debug": True})
     state.provider_usage = ProviderUsage(input_tokens=100, output_tokens=50, total_tokens=150)
+    state.usage_anchor = UsageAnchor(
+        input_tokens=500,
+        canonical_len=31,
+        artifact_key="8:abc",
+        tail_key="def",
+        fixed_est=120,
+        tools_key="k1",
+        prefix_key="pk1",
+    )
+    state.pending_view = UsageAnchor(canonical_len=32, artifact_key="")
     dumped = state.model_dump(mode="json")
     restored = AgentState.model_validate(dumped)
     assert restored.run_id == "r1"
     assert restored.metadata == {"debug": True}
     assert restored.provider_usage.input_tokens == 100
+    assert restored.usage_anchor is not None
+    assert restored.usage_anchor.input_tokens == 500
+    assert restored.usage_anchor.canonical_len == 31
+    assert restored.pending_view is not None
+    assert restored.pending_view.canonical_len == 32

@@ -372,7 +372,14 @@ def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
     assert summary_client.calls
     assert "LLM SUMMARY: cup found on table" in text
     assert "current request" in text
-    assert len(session.messages) < 9
+    # Canonical mirror stays append-only; the durable fold lives in the
+    # compaction artifact and the sent view is the compacted projection.
+    assert len(session.messages) == 9
+    artifact = agent_state.compaction
+    assert artifact is not None
+    assert artifact.first_kept_index == 8
+    assert len(artifact.head_messages) == 2
+    assert len(context.messages) < 9
 
 
 def test_manual_force_compaction_noops_without_old_history() -> None:
@@ -434,28 +441,25 @@ def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort()
         session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
         session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
 
-    context = assembler.prepare(
-        session=session,
-        agent_state=AgentState(run_id="r1", session_id="s1"),
-        task_state_store=None,
-        tools=[],
-    )
+    # abort_on_summary_failure=True terminates the run instead of sending
+    # the oversized uncompressed history downstream.
+    with pytest.raises(RuntimeError, match="compaction aborted"):
+        assembler.prepare(
+            session=session,
+            agent_state=AgentState(run_id="r1", session_id="s1"),
+            task_state_store=None,
+            tools=[],
+        )
 
     assert summary_client.calls
-    assert context.metrics.compaction_triggered is False
     assert len(session.messages) == 16
-    text = "\n".join(
-        block.text for message in context.messages for block in message.content if block.text
-    )
-    assert "CONTEXT COMPACTION" not in text
 
 
-def test_compaction_without_summary_client_does_not_build_basic_summary() -> None:
+def test_compaction_without_summary_client_uses_deterministic_fallback() -> None:
     policy = ContextPolicyConfig(
         compression_threshold_ratio=0.01,
         protect_first_n=1,
         tail_token_ratio=0.1,
-        abort_on_summary_failure=True,
     )
     assembler = ContextAssembler(
         provider=ProviderProfileConfig(
@@ -476,9 +480,10 @@ def test_compaction_without_summary_client_does_not_build_basic_summary() -> Non
         session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
         session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
 
+    agent_state = AgentState(run_id="r1", session_id="s1")
     context = assembler.prepare(
         session=session,
-        agent_state=AgentState(run_id="r1", session_id="s1"),
+        agent_state=agent_state,
         task_state_store=None,
         tools=[],
     )
@@ -486,9 +491,13 @@ def test_compaction_without_summary_client_does_not_build_basic_summary() -> Non
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
     )
-    assert context.metrics.compaction_triggered is False
-    assert "CONTEXT COMPACTION" not in text
-    assert "Earlier history contained no compactable text" not in text
+    # The deterministic fallback still folds history durably — the oversized
+    # raw transcript is never what gets sent.
+    assert context.metrics.compaction_triggered is True
+    assert "Summary unavailable" in text
+    assert "CONTEXT COMPACTION" in text
+    assert agent_state.compaction is not None
+    assert len(session.messages) == 16
 
 
 def _browser_result(

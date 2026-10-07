@@ -62,9 +62,22 @@ class AutomaticRecallService:
             )
             return True, None, ()
 
+        messages = runtime.session.messages
+        artifact = getattr(getattr(runtime, "agent_state", None), "compaction", None)
+        if artifact is not None and 0 < artifact.first_kept_index <= len(messages):
+            # Summary heads live in the artifact, not the canonical mirror —
+            # project the same view the model sees so the recall query still
+            # carries the newest compaction summary. A corrupt head degrades
+            # to the raw mirror (same fail-open as the assembler projection).
+            try:
+                head = artifact.head_as_messages()
+            except Exception:
+                head = None
+            if head:
+                messages = [*head, *messages[artifact.first_kept_index :]]
         query = build_automatic_recall_query(
             current_user_message=request.text,
-            messages=runtime.session.messages,
+            messages=messages,
             task_state_store=task_state_store,
         )
         context = build_mindmemos_request_context(

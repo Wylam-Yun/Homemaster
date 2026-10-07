@@ -911,6 +911,7 @@ class AsAgentRuntime:
                     "cache_read_input_tokens": item.cache_input_tokens,
                     "cache_creation_input_tokens": (item.cache_creation_input_tokens),
                 },
+                api_format=handle.model_api_format,
                 emit=emit,
             )
             await self._emit_assistant_events(handle, emit)
@@ -1196,10 +1197,19 @@ class AsAgentRuntime:
         agent_state: AgentState,
         usage: dict[str, int],
         *,
+        api_format: str = "",
         emit: Callable[..., Any],
     ) -> None:
+        from homemaster.config.config import OPENAI_WIRE_FORMATS
+
         input_tokens = int(usage.get("input_tokens") or 0)
-        input_tokens += int(usage.get("cache_read_input_tokens") or 0)
+        if api_format not in OPENAI_WIRE_FORMATS:
+            # Anthropic-family input_tokens is the uncached share — the
+            # cache counters are separate line items. OpenAI-family
+            # input_tokens (= prompt_tokens) already includes the cached
+            # share; adding it would double-count every cache hit.
+            input_tokens += int(usage.get("cache_read_input_tokens") or 0)
+            input_tokens += int(usage.get("cache_creation_input_tokens") or 0)
         output_tokens = int(usage.get("output_tokens") or 0)
         if not (input_tokens or output_tokens):
             return
@@ -1209,6 +1219,9 @@ class AsAgentRuntime:
             output_tokens=previous.output_tokens + output_tokens,
             total_tokens=previous.total_tokens + input_tokens + output_tokens,
         )
+        # This call's real input cost lands on the view coverage recorded by
+        # the prepare that built it — promote it into the incremental anchor.
+        agent_state.note_view_usage(input_tokens)
         await emit(
             "usage.update",
             payload={

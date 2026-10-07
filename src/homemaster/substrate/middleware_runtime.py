@@ -194,7 +194,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             "runtime.reactive_compact_started",
             payload={"attempt": attempt},
         )
-        prepared = await self._compact()
+        prepared = await self._compact(tools=input_kwargs.get("tools"))
         if getattr(prepared, "metrics", None) is None:
             raise RuntimeError("reactive compaction produced no metrics")
         return self._render(input_kwargs, prepared)
@@ -217,7 +217,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             force_compact=force,
         )
         handle.agent_state.estimated_context_tokens = getattr(
-            getattr(prepared, "metrics", None), "estimated_input_tokens", 0
+            getattr(prepared, "metrics", None), "estimated_tokens", 0
         )
         # Threshold and manual compactions surface here (the reactive path
         # notifies via ``_compact``). Legacy fires the event + callback for
@@ -236,7 +236,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             "manual"
             if kind.startswith("manual")
             else "reactive"
-            if kind in {"reactive", "emergency"}
+            if kind.startswith(("reactive", "emergency"))
             else "auto"
         )
         await self._handle.emit(
@@ -271,7 +271,7 @@ class ContextAssemblyMiddleware(MiddlewareBase):
         )
         return messages, input_kwargs.get("tools")
 
-    async def _compact(self) -> Any:
+    async def _compact(self, *, tools: Any = None) -> Any:
         handle = self._handle
         if callable(handle.sync_session):
             handle.sync_session()
@@ -280,7 +280,10 @@ class ContextAssemblyMiddleware(MiddlewareBase):
             session=handle.session,
             agent_state=handle.agent_state,
             task_state_store=handle.task_state_store,
-            tools=handle.all_tool_schemas or None,
+            # Same serialization the retried request will send — the
+            # pending view's tools_key must fingerprint the wire tools or
+            # the usage anchor dies on the very next prepare.
+            tools=tools,
             # Legacy passes "aggressive" for reactive compaction
             # (generic_runtime.py: `pending_compaction = "aggressive"`) —
             # a bare True would string-coerce into neither the aggressive

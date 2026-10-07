@@ -54,6 +54,9 @@ class AgentSession:
             )
             for index, message in enumerate(self._messages)
         ]
+        agent_state_dump = agent_state.model_dump(mode="json")
+        if strip_images:
+            _strip_artifact_head_images(agent_state_dump)
         return {
             "schema_version": 1,
             "session_id": self.session_id,
@@ -62,7 +65,7 @@ class AgentSession:
             "model": model,
             "system_prompt": system_prompt,
             "messages": messages,
-            "agent_state": agent_state.model_dump(mode="json"),
+            "agent_state": agent_state_dump,
             "task_state": task_state_store.to_snapshot_dict(),
         }
 
@@ -96,6 +99,39 @@ class AgentSession:
                 f"args={args or {}}. See trace.jsonl for original]"
             ),
         )
+
+
+def _strip_artifact_head_images(agent_state_dump: dict[str, Any]) -> None:
+    """Drop image bytes embedded in a persisted compaction head.
+
+    Snapshots strip images from the canonical transcript, so an artifact
+    whose folded prefix contained images can never hash-match after resume
+    anyway — persisting the bytes is pure bloat. Head messages are already
+    plain dicts (``model_dump`` output), so the strip works on dict shape
+    rather than re-validating ContentBlocks.
+    """
+    compaction = agent_state_dump.get("compaction")
+    if not isinstance(compaction, dict):
+        return
+    for item in compaction.get("head_messages") or []:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        tool_name = item.get("name") or item.get("role") or "unknown"
+        item["content"] = [
+            {
+                "type": "text",
+                "text": (
+                    f"[image stripped - {tool_name} @ compaction head. "
+                    "See trace.jsonl for original]"
+                ),
+            }
+            if isinstance(block, dict) and block.get("type") == "image"
+            else block
+            for block in content
+        ]
 
 
 def _message_to_dict(

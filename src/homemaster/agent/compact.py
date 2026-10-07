@@ -124,20 +124,34 @@ def summarize_tool_result(
 
 
 def repair_tool_pairs(messages: list[Message]) -> list[Message]:
+    repaired, _kept = repair_tool_pairs_indexed(messages)
+    return repaired
+
+
+def repair_tool_pairs_indexed(messages: list[Message]) -> tuple[list[Message], list[int]]:
+    """repair_tool_pairs plus the source index of each kept message.
+
+    The compactor needs the kept-index map to translate split positions on
+    repaired lists back into input-view coordinates — repair drops orphan
+    assistant messages, shifting every later index.
+    """
     result_ids = {
         msg.tool_call_id
         for msg in messages
         if isinstance(msg, ToolResultMessage)
     }
     repaired: list[Message] = []
-    for msg in messages:
+    kept: list[int] = []
+    for index, msg in enumerate(messages):
         if isinstance(msg, AssistantMessage) and msg.tool_calls:
             kept_calls = [tool_call for tool_call in msg.tool_calls if tool_call.id in result_ids]
             if kept_calls or msg.content:
                 repaired.append(msg.model_copy(update={"tool_calls": kept_calls}))
+                kept.append(index)
         else:
             repaired.append(msg)
-    return repaired
+            kept.append(index)
+    return repaired, kept
 
 
 def split_preserving_tool_pairs(
@@ -177,8 +191,13 @@ def split_preserving_recent_context(
         if isinstance(messages[index], UserMessage):
             latest_user_index = index
             break
-    if latest_user_index is not None:
-        split = min(split, latest_user_index)
+    if latest_user_index is not None and protect_first_n <= latest_user_index < split:
+        # Pull the cut back so the newest user turn survives verbatim in the
+        # tail (hermes _ensure_last_user_message_in_tail). A user message
+        # already inside the protected prefix (index < protect_first_n) stays
+        # verbatim regardless — pinning there would only empty `older` and
+        # block folding single-instruction sessions forever.
+        split = latest_user_index
     prefix = list(messages[:protect_first_n])
     older = list(messages[protect_first_n:split])
     recent = prefix + list(messages[split:])
