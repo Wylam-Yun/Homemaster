@@ -27,7 +27,23 @@ def test_help_exposes_only_final_commands() -> None:
     assert "--output-format" in result.stdout
     assert "--resume" in result.stdout
     assert "--continue" in result.stdout
-    assert "--gateway" in result.stdout
+    assert "--local" in result.stdout
+    assert "--server" in result.stdout
+    assert "--no-browser" in result.stdout
+    assert "--config" in result.stdout
+
+
+def test_shell_help_lists_remote_and_local_escape() -> None:
+    result = runner.invoke(app, ["shell", "--help"])
+    assert result.exit_code == 0
+    assert "--local" in result.stdout
+    assert "--server" in result.stdout
+    assert "--resume" in result.stdout
+
+
+def test_serve_help_exposes_environment_and_config() -> None:
+    result = runner.invoke(app, ["serve", "--help"])
+    assert result.exit_code == 0
     assert "--alfworld" in result.stdout
     assert "--browser" in result.stdout
     assert "--config" in result.stdout

@@ -42,7 +42,7 @@ def test_legacy_run_wrapper_preserves_labeled_output(monkeypatch, tmp_path: Path
         lambda **kwargs: _execution(tmp_path, reply="completed"),
     )
 
-    result = CliRunner().invoke(app, ["run", "--utterance", "do it"])
+    result = CliRunner().invoke(app, ["run", "--utterance", "do it", "--local"])
 
     assert result.exit_code == 0
     assert "assistant: completed" in result.stdout
@@ -60,7 +60,7 @@ def test_legacy_wrapper_forwards_progress_verbose_and_quiet(monkeypatch, tmp_pat
     monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
     result = CliRunner().invoke(
         app,
-        ["run", "--utterance", "do it", "--progress", "--verbose", "--quiet"],
+        ["run", "--utterance", "do it", "--local", "--progress", "--verbose", "--quiet"],
     )
 
     assert result.exit_code == 0
@@ -73,7 +73,7 @@ def test_legacy_wrapper_rejects_missing_utterance_and_removed_scenario() -> None
     missing = CliRunner().invoke(app, ["run"])
     removed = CliRunner().invoke(
         app,
-        ["run", "--utterance", "test", "--scenario", "old"],
+        ["run", "--utterance", "test", "--local", "--scenario", "old"],
     )
 
     assert missing.exit_code == 1
@@ -87,11 +87,11 @@ def test_top_level_print_supports_text_json_and_stream_json(monkeypatch, tmp_pat
     )
     runner = CliRunner()
 
-    text = runner.invoke(app, ["-p", "question"])
-    structured = runner.invoke(app, ["-p", "question", "--output-format", "json"])
+    text = runner.invoke(app, ["-p", "question", "--local"])
+    structured = runner.invoke(app, ["-p", "question", "--local", "--output-format", "json"])
     streamed = runner.invoke(
         app,
-        ["-p", "question", "--output-format", "stream-json"],
+        ["-p", "question", "--local", "--output-format", "stream-json"],
     )
 
     assert text.exit_code == structured.exit_code == streamed.exit_code == 0
@@ -116,7 +116,7 @@ def test_live_print_delegates_stdout_to_execution_without_post_run_echo(
 
     monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
 
-    result = CliRunner().invoke(app, ["-p", "question", "--output-format", "text"])
+    result = CliRunner().invoke(app, ["-p", "question", "--local", "--output-format", "text"])
 
     assert result.exit_code == 0
     assert captured.get("output_format") is not None
@@ -132,7 +132,7 @@ def test_stream_json_fatal_error_emits_one_raw_error_and_no_result(monkeypatch) 
 
     result = CliRunner().invoke(
         app,
-        ["-p", "question", "--output-format", "stream-json"],
+        ["-p", "question", "--local", "--output-format", "stream-json"],
     )
 
     assert result.exit_code == 1
@@ -165,7 +165,7 @@ def test_stream_json_composition_error_preserves_bare_configured_literal(monkeyp
 
     result = CliRunner().invoke(
         app,
-        ["-p", "question", "--output-format", "stream-json"],
+        ["-p", "question", "--local", "--output-format", "stream-json"],
     )
 
     assert result.exit_code == 1
@@ -209,7 +209,7 @@ def test_stream_json_close_failure_emits_no_premature_result(monkeypatch, tmp_pa
 
     result = CliRunner().invoke(
         app,
-        ["-p", "question", "--output-format", "stream-json"],
+        ["-p", "question", "--local", "--output-format", "stream-json"],
     )
 
     assert result.exit_code == 1
@@ -233,8 +233,8 @@ def test_top_level_print_forwards_resume_and_continue(monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr("homemaster.cli.run_command.execute_one_shot", execute)
     runner = CliRunner()
-    resumed = runner.invoke(app, ["-p", "next", "--resume", "session-one"])
-    continued = runner.invoke(app, ["-p", "next", "--continue"])
+    resumed = runner.invoke(app, ["-p", "next", "--local", "--resume", "session-one"])
+    continued = runner.invoke(app, ["-p", "next", "--local", "--continue"])
 
     assert resumed.exit_code == continued.exit_code == 0
     assert captured[0]["resume_session_id"] == "session-one"
@@ -255,7 +255,7 @@ def test_top_level_print_forwards_limited_provider_and_model_overrides(
 
     result = CliRunner().invoke(
         app,
-        ["-p", "question", "--provider-name", "Mimo", "--model", "cli-model"],
+        ["-p", "question", "--local", "--provider-name", "Mimo", "--model", "cli-model"],
     )
 
     assert result.exit_code == 0
@@ -398,40 +398,32 @@ def test_global_config_is_rejected_with_a_subcommand(tmp_path: Path) -> None:
     assert "subcommand" in result.output
 
 
-def test_interactive_config_path_pins_default_config(
+def test_bare_config_path_is_forwarded_to_foreground_serve(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """``--config`` for the interactive shell must reach doctor and
-    composition, which resolve the process-wide default config path."""
-
-    import homemaster.cli.doctor as doctor_module
-    import homemaster.config.config as config_impl
+    """Bare ``--config`` now belongs to the serve entrypoint — the config is
+    handed to the foreground web server, not the interactive shell."""
 
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
-    # Register the live values for teardown so the pin cannot leak.
-    monkeypatch.setattr(
-        config_impl, "HOMEMASTER_CONFIG_PATH", config_impl.HOMEMASTER_CONFIG_PATH
-    )
-    monkeypatch.setattr(
-        doctor_module, "HOMEMASTER_CONFIG_PATH", doctor_module.HOMEMASTER_CONFIG_PATH
-    )
-    observed: dict[str, Path] = {}
-
-    def fake_shell(**kwargs):
-        observed["config_default"] = config_impl.HOMEMASTER_CONFIG_PATH
-        observed["doctor_default"] = doctor_module.HOMEMASTER_CONFIG_PATH
-
     app_module = importlib.import_module("homemaster.cli.app")
-    monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
+    captured: dict = {}
+    monkeypatch.setattr(app_module, "probe_server", lambda url: (False, None))
+    monkeypatch.setattr(app_module, "validate_port_available", lambda *a: None)
+    monkeypatch.setattr(
+        app_module, "run_web_server", lambda **kwargs: captured.update(kwargs)
+    )
+    monkeypatch.setattr(app_module, "_open_browser_when_ready", lambda url, **k: None)
+    monkeypatch.delenv("SSH_CONNECTION", raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
 
     result = CliRunner().invoke(app, ["--config", str(config_path)])
 
-    assert result.exit_code == 0, result.stdout
-    assert observed == {"config_default": config_path, "doctor_default": config_path}
+    assert result.exit_code == 0, result.output
+    assert captured.get("config_path") == config_path
 
 
-def test_shell_subcommand_config_path_pins_default_config(
+def test_shell_local_config_path_pins_default_config(
     monkeypatch, tmp_path: Path
 ) -> None:
     import homemaster.cli.doctor as doctor_module
@@ -454,13 +446,45 @@ def test_shell_subcommand_config_path_pins_default_config(
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
 
-    result = CliRunner().invoke(app, ["shell", "--config", str(config_path)])
+    result = CliRunner().invoke(
+        app, ["shell", "--local", "--config", str(config_path)]
+    )
 
     assert result.exit_code == 0, result.stdout
     assert calls == [
-        {"resume_session_id": None, "permission_mode": CliPermissionMode.FULL_AUTO},
+        {
+            "resume_session_id": None,
+            "continue_latest": False,
+            "permission_mode": CliPermissionMode.FULL_AUTO,
+        },
         config_path,
     ]
+
+
+def test_shell_remote_config_is_spawn_config_not_local_pin(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Remote ``shell --config`` feeds the spawned server — it must not mutate
+    the process-wide default config path of the client process."""
+
+    import homemaster.config.config as config_impl
+
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+    original = config_impl.HOMEMASTER_CONFIG_PATH
+    calls = []
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(
+        app_module,
+        "run_remote_shell",
+        lambda **kwargs: calls.append(kwargs) or 0,
+    )
+
+    result = CliRunner().invoke(app, ["shell", "--config", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["config_path"] == config_path
+    assert config_impl.HOMEMASTER_CONFIG_PATH is original
 
 
 def test_home_application_wires_validated_skill_registry_into_run_dependencies(
@@ -523,6 +547,7 @@ def test_browser_print_selects_browser_environment_and_private_config(
     result = CliRunner().invoke(
         app,
         [
+            "--local",
             "--browser",
             "--config",
             str(config_path),
@@ -558,6 +583,7 @@ def test_configured_print_uses_common_capability_resolution_without_browser_flag
     result = CliRunner().invoke(
         app,
         [
+            "--local",
             "--config",
             str(config_path),
             "--run-label",
@@ -573,30 +599,14 @@ def test_configured_print_uses_common_capability_resolution_without_browser_flag
     assert calls[0]["run_label"] == "ops-monitor-real-001"
 
 
-def test_top_level_defaults_to_interactive_shell(monkeypatch) -> None:
+def test_shell_local_permission_mode_is_forwarded(monkeypatch) -> None:
     calls = []
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
 
-    result = CliRunner().invoke(app, [])
-
-    assert result.exit_code == 0
-    assert calls == [
-        {
-            "resume_session_id": None,
-            "continue_latest": False,
-            "debug": False,
-            "permission_mode": CliPermissionMode.FULL_AUTO,
-        }
-    ]
-
-
-def test_top_level_interactive_permission_mode_is_forwarded(monkeypatch) -> None:
-    calls = []
-    app_module = importlib.import_module("homemaster.cli.app")
-    monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
-
-    result = CliRunner().invoke(app, ["--permission-mode", "confirm"])
+    result = CliRunner().invoke(
+        app, ["shell", "--local", "--permission-mode", "confirm"]
+    )
 
     assert result.exit_code == 0
     assert calls[0]["permission_mode"] is CliPermissionMode.CONFIRM
@@ -607,11 +617,17 @@ def test_shell_permission_mode_is_forwarded(monkeypatch) -> None:
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", lambda **kwargs: calls.append(kwargs))
 
-    result = CliRunner().invoke(app, ["shell", "--permission-mode", "plan"])
+    result = CliRunner().invoke(
+        app, ["shell", "--local", "--permission-mode", "plan"]
+    )
 
     assert result.exit_code == 0
     assert calls == [
-        {"resume_session_id": None, "permission_mode": CliPermissionMode.PLAN}
+        {
+            "resume_session_id": None,
+            "continue_latest": False,
+            "permission_mode": CliPermissionMode.PLAN,
+        }
     ]
 
 
@@ -620,11 +636,16 @@ def test_shell_permission_mode_is_forwarded(monkeypatch) -> None:
     [
         ["--permission-mode", "confirm", "-p", "question"],
         ["--permission-mode", "confirm", "--dry-run"],
-        ["--permission-mode", "confirm", "--gateway"],
-        ["--permission-mode", "confirm", "shell"],
+        ["gateway", "--permission-mode", "confirm"],
+        ["shell", "--permission-mode", "plan"],  # remote shell: needs --local
+        ["shell", "--server", "http://x", "--local"],
+        ["-p", "q", "--local", "--server", "http://x"],
+        ["run", "--utterance", "t", "--world", "/tmp/w.json"],
+        ["run", "--utterance", "t", "--memory", "/tmp/m.json"],
+        ["run", "--utterance", "t", "--server", "http://x", "--local"],
     ],
 )
-def test_permission_mode_rejects_noninteractive_or_ambiguous_routes(arguments) -> None:
+def test_ambiguous_or_local_only_routes_are_rejected(arguments) -> None:
     result = CliRunner().invoke(app, arguments)
 
     assert result.exit_code != 0
@@ -636,6 +657,6 @@ def test_result_status_controls_process_exit(monkeypatch, tmp_path: Path) -> Non
         lambda **kwargs: _execution(tmp_path, status=RunStatus.FAILED),
     )
 
-    result = CliRunner().invoke(app, ["-p", "question"])
+    result = CliRunner().invoke(app, ["-p", "question", "--local"])
 
     assert result.exit_code == 1

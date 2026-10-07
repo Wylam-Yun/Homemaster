@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from prompt_toolkit.enums import DEFAULT_BUFFER
-from prompt_toolkit.filters import has_completions, has_focus
+from prompt_toolkit.filters import Condition, has_completions, has_focus
 from prompt_toolkit.key_binding import KeyBindings
 
 # Single source of truth for shell key actions; command code must not scatter
@@ -17,6 +19,7 @@ ACTION_KEYS: dict[str, str | tuple[str, ...]] = {
     "submit": "enter",  # submit the buffer
     "history_prev": "up",  # walk prompt history backwards (restores draft)
     "history_next": "down",  # walk prompt history forwards
+    "toggle_mode": "tab",  # Plan/Act toggle — only on an empty buffer
 }
 
 
@@ -35,9 +38,20 @@ KEY_HELP_LINES = (
     "@<path>: file path completion (Tab / while typing).",
 )
 
+REMOTE_KEY_HELP_LINES = (
+    "Tab on an empty prompt: toggle Plan/Act mode.",
+)
 
-def build_key_bindings() -> KeyBindings:
-    """Return the interactive prompt key bindings driven by ACTION_KEYS."""
+
+def build_key_bindings(
+    *,
+    on_toggle_mode: Callable[[], None] | None = None,
+) -> KeyBindings:
+    """Return the interactive prompt key bindings driven by ACTION_KEYS.
+
+    ``on_toggle_mode`` binds Tab to the Plan/Act toggle, restricted to an
+    empty buffer so Tab keeps its completion-menu meaning while typing.
+    """
 
     bindings = KeyBindings()
 
@@ -63,7 +77,32 @@ def build_key_bindings() -> KeyBindings:
         # inactive, so a real SIGINT still reaches the loop's interrupt handler.
         event.current_buffer.reset()
 
+    if on_toggle_mode is not None:
+        empty_buffer = Condition(lambda: not get_buffer_text())
+
+        @bindings.add(
+            ACTION_KEYS["toggle_mode"],
+            filter=has_focus(DEFAULT_BUFFER) & ~has_completions & empty_buffer,
+        )
+        def toggle_mode(event) -> None:
+            del event
+            on_toggle_mode()
+
     return bindings
 
 
-__all__ = ["ACTION_KEYS", "KEY_HELP_LINES", "build_key_bindings"]
+def get_buffer_text() -> str:
+    from prompt_toolkit.application.current import get_app_or_none
+
+    app = get_app_or_none()
+    if app is None:
+        return ""
+    return app.current_buffer.text
+
+
+__all__ = [
+    "ACTION_KEYS",
+    "KEY_HELP_LINES",
+    "REMOTE_KEY_HELP_LINES",
+    "build_key_bindings",
+]

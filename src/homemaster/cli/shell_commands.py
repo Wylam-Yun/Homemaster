@@ -90,11 +90,14 @@ def slash_command(
     usage: str = "",
     help: str = "",
     arg_completer: ArgCompleter | None = None,
+    registry: list[CommandSpec] | None = None,
 ) -> Callable[[CommandHandler], CommandHandler]:
-    """Register a slash command handler ``fn(ctx, args)`` in REGISTRY."""
+    """Register a slash command handler ``fn(ctx, args)`` in ``registry``."""
+
+    target = REGISTRY if registry is None else registry
 
     def decorator(fn: CommandHandler) -> CommandHandler:
-        REGISTRY.append(
+        target.append(
             CommandSpec(
                 name=name,
                 run=fn,
@@ -109,23 +112,32 @@ def slash_command(
     return decorator
 
 
-def find_command(name: str) -> CommandSpec | None:
-    for spec in REGISTRY:
+def find_command(
+    name: str, registry: Iterable[CommandSpec] | None = None
+) -> CommandSpec | None:
+    for spec in REGISTRY if registry is None else registry:
         if spec.name == name or name in spec.aliases:
             return spec
     return None
 
 
-def suggest_command(name: str) -> str | None:
-    pool = [spec.name for spec in REGISTRY]
-    pool.extend(alias for spec in REGISTRY for alias in spec.aliases)
+def suggest_command(
+    name: str, registry: Iterable[CommandSpec] | None = None
+) -> str | None:
+    specs = REGISTRY if registry is None else registry
+    pool = [spec.name for spec in specs]
+    pool.extend(alias for spec in specs for alias in spec.aliases)
     matches = difflib.get_close_matches(name, pool, n=1, cutoff=0.6)
     return matches[0] if matches else None
 
 
-def render_help() -> str:
+def render_help(
+    registry: Iterable[CommandSpec] | None = None,
+    *,
+    extra_key_lines: Iterable[str] = (),
+) -> str:
     lines = ["Commands:"]
-    for spec in REGISTRY:
+    for spec in REGISTRY if registry is None else registry:
         label = f"/{spec.name}"
         if spec.usage:
             label += f" {spec.usage}"
@@ -136,10 +148,15 @@ def render_help() -> str:
     lines.append("")
     lines.append("Keys:")
     lines.extend(f"  {line}" for line in KEY_HELP_LINES)
+    lines.extend(f"  {line}" for line in extra_key_lines)
     return "\n".join(lines)
 
 
-def dispatch_slash_command(utterance: str, ctx: ShellContext) -> bool:
+def dispatch_slash_command(
+    utterance: str,
+    ctx: ShellContext,
+    registry: Iterable[CommandSpec] | None = None,
+) -> bool:
     """Run a registered ``/`` command.
 
     Returns True when a registry entry handled the line. Returns False when the
@@ -153,15 +170,19 @@ def dispatch_slash_command(utterance: str, ctx: ShellContext) -> bool:
     name = name.strip()
     if not name:
         return False
-    spec = find_command(name)
+    spec = find_command(name, registry)
     if spec is None:
         return False
     spec.run(ctx, args)
     return True
 
 
-def echo_unknown_command_hint(name: str, ctx: ShellContext) -> None:
-    suggestion = suggest_command(name)
+def echo_unknown_command_hint(
+    name: str,
+    ctx: ShellContext,
+    registry: Iterable[CommandSpec] | None = None,
+) -> None:
+    suggestion = suggest_command(name, registry)
     if suggestion is not None:
         ctx.echo(f"Unknown command /{name}. Did you mean /{suggestion}?")
     else:

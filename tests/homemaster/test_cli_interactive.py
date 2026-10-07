@@ -181,7 +181,7 @@ def _install_finalizer(monkeypatch, bundle, finalizer_type=None):
 def test_shell_exits_and_closes_owned_application_once(monkeypatch, tmp_path) -> None:
     application, _ = _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="/exit\n")
 
     assert result.exit_code == 0
     assert application.closed == 1
@@ -190,7 +190,7 @@ def test_shell_exits_and_closes_owned_application_once(monkeypatch, tmp_path) ->
 def test_shell_reuses_one_application_and_session_across_turns(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\nsecond\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     assert [request.text for request in application.requests] == ["first", "second"]
@@ -209,7 +209,7 @@ def test_shell_confirm_mode_injects_handler_and_removes_tool_auto(monkeypatch, t
 
     result = CliRunner().invoke(
         app,
-        ["shell", "--permission-mode", "confirm"],
+        ["shell", "--local", "--permission-mode", "confirm"],
         input="first\n/exit\n",
     )
 
@@ -222,7 +222,7 @@ def test_shell_confirm_mode_injects_handler_and_removes_tool_auto(monkeypatch, t
 def test_shell_full_auto_keeps_default_subject_capabilities(monkeypatch, tmp_path) -> None:
     application, bundle = _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/exit\n")
 
     assert result.exit_code == 0
     assert bundle.composition_kwargs["permission_mode"] is PermissionMode.FULL_AUTO
@@ -238,7 +238,11 @@ def test_shell_sends_json_and_ticket_text_to_normal_agent(monkeypatch, tmp_path)
         "执行这个 ticket 变更单 /tmp/manual_experience_test.json",
     ]
 
-    result = CliRunner().invoke(app, ["shell"], input="\n".join([*utterances, "/exit", ""]))
+    result = CliRunner().invoke(
+        app,
+        ["shell", "--local"],
+        input="\n".join([*utterances, "/exit", ""]),
+    )
 
     assert result.exit_code == 0
     assert [request.text for request in application.requests] == utterances
@@ -253,7 +257,7 @@ def test_shell_compact_and_status_use_typed_application_controls(
 
     result = CliRunner().invoke(
         app,
-        ["shell"],
+        ["shell", "--local"],
         input="first\n/compact\n/status\n/exit\n",
     )
 
@@ -270,7 +274,7 @@ def test_shell_new_resets_resume_policy_without_rebuilding_application(
 ) -> None:
     application, _ = _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/new\nsecond\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     assert application.requests[0].session_id != application.requests[1].session_id
@@ -282,7 +286,7 @@ def test_shell_finalizes_old_and_current_sessions(monkeypatch, tmp_path) -> None
     application, bundle = _install_shell(monkeypatch, tmp_path)
     calls = _install_finalizer(monkeypatch, bundle)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/new\nsecond\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     assert [item[1] for item in calls if item[0] not in {"init", "queue"}] == [
@@ -297,7 +301,7 @@ def test_shell_enqueues_session_finalizer_before_exit_drain(monkeypatch, tmp_pat
     _, bundle = _install_shell(monkeypatch, tmp_path)
     calls = _install_finalizer(monkeypatch, bundle)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/exit\n")
 
     assert result.exit_code == 0
     ordered = [item for item in calls if item[0] != "init"]
@@ -340,7 +344,7 @@ def test_shell_new_runs_next_task_before_old_finalization_completes(monkeypatch,
     bundle.memory_add_queue = RecordingMemoryQueue(events)
     _install_finalizer(monkeypatch, bundle, DelayedFinalizer)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/new\nsecond\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/new\nsecond\n/exit\n")
 
     assert result.exit_code == 0
     names = [event[0] for event in events]
@@ -375,7 +379,7 @@ def test_shell_ignores_sigint_during_session_finalization(monkeypatch, tmp_path)
     bundle.memory_add_queue = RecordingMemoryQueue(events)
     _install_finalizer(monkeypatch, bundle, InterruptingFinalizer)
 
-    result = CliRunner().invoke(app, ["shell"], input="first\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="first\n/exit\n")
 
     assert result.exit_code == 0
     finalizer_events = [event for event in events if len(event) == 3]
@@ -400,7 +404,7 @@ def test_shell_handles_run_cancellation_after_async_finalization(
 
     result = CliRunner().invoke(
         app,
-        ["shell"],
+        ["shell", "--local"],
         input="first\n/new\nsecond\n/exit\n",
     )
 
@@ -422,7 +426,7 @@ def test_shell_ignores_sigint_during_application_close(monkeypatch, tmp_path) ->
 
     application.aclose = interrupting_close
 
-    result = CliRunner().invoke(app, ["shell"], input="/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="/exit\n")
 
     assert result.exit_code == 0
     assert close_events == ["started", "completed"]
@@ -433,7 +437,7 @@ def test_shell_ignores_sigint_during_application_close(monkeypatch, tmp_path) ->
 def test_shell_events_reports_application_trace(monkeypatch, tmp_path) -> None:
     _, bundle = _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="/events\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="/events\n/exit\n")
 
     assert result.exit_code == 0
     assert f"Trace: {bundle.trace_path}" in result.stdout
@@ -442,7 +446,7 @@ def test_shell_events_reports_application_trace(monkeypatch, tmp_path) -> None:
 def test_shell_help_describes_typed_controls(monkeypatch, tmp_path) -> None:
     _install_shell(monkeypatch, tmp_path)
 
-    result = CliRunner().invoke(app, ["shell"], input="/help\n/exit\n")
+    result = CliRunner().invoke(app, ["shell", "--local"], input="/help\n/exit\n")
 
     assert result.exit_code == 0
     assert "/compact: persist an immediate context compaction." in result.stdout

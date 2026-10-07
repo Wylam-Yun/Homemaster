@@ -250,6 +250,7 @@ def _start_cli(base_url: str, output_format: str) -> subprocess.Popen[bytes]:
             "homemaster.cli",
             "-p",
             "say hello",
+            "--local",
             "--output-format",
             output_format,
         ],
@@ -454,6 +455,8 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(
                 sys.executable,
                 "-m",
                 "homemaster.cli",
+                "shell",
+                "--local",
             ]
         )
         try:

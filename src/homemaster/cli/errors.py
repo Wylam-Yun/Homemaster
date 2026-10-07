@@ -6,6 +6,7 @@ import logging
 
 import typer
 
+from homemaster.cli.client import ServerError, ServerUnavailableError
 from homemaster.config import ConfigError
 from homemaster.providers.embedding_client import EmbeddingClientError
 from homemaster.providers.errors import LLMClientError
@@ -22,6 +23,12 @@ def render_error_and_exit(exc: Exception) -> None:
     if isinstance(exc, ConfigError):
         typer.echo(f"config_failed: {exc}", err=True)
         raise typer.Exit(code=2)
+    if isinstance(exc, ServerUnavailableError):
+        typer.echo(f"server_unavailable: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if isinstance(exc, ServerError):
+        typer.echo(f"server_error: {exc}", err=True)
+        raise typer.Exit(code=1)
     if isinstance(exc, (LLMClientError, EmbeddingClientError)):
         typer.echo(f"run_failed: {exc}", err=True)
         raise typer.Exit(code=1)

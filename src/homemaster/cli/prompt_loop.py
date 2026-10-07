@@ -26,6 +26,7 @@ from prompt_toolkit.styles import Style
 from homemaster.cli.keymap import build_key_bindings
 from homemaster.cli.shell_commands import REGISTRY, CommandSpec, find_command
 
+
 def _default_history_path() -> Path:
     """Shell history anchored at ``$HOMEMASTER_HOME`` (default ``~/.homemaster``)."""
 
@@ -181,7 +182,7 @@ class ShellCompleter(Completer):
                         )
             return
         command_name = stripped[1:].split(" ", 1)[0]
-        spec = find_command(command_name)
+        spec = find_command(command_name, self._commands)
         if spec is None or spec.arg_completer is None:
             return
         arg_text = stripped.split(" ", 1)[1]
@@ -203,27 +204,33 @@ class ShellPrompt:
         *,
         model_name: Callable[[], str | None] | str | None = None,
         context_usage: Callable[[], str | None] | str | None = None,
+        ui_mode: Callable[[], str | None] | str | None = None,
+        on_toggle_mode: Callable[[], None] | None = None,
+        commands: Iterable[CommandSpec] = REGISTRY,
         history_path: str | Path | None = None,
         base_path: str | Callable[[], str] = os.getcwd,
     ) -> None:
         self._model_name = model_name
         self._context_usage = context_usage
+        self._ui_mode = ui_mode
         history_path = Path(history_path) if history_path is not None else _default_history_path()
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self._session: PromptSession[str] = PromptSession(
             history=FileHistory(str(history_path)),
-            completer=ShellCompleter(base_path=base_path),
+            completer=ShellCompleter(commands=commands, base_path=base_path),
             complete_while_typing=True,
             auto_suggest=AutoSuggestFromHistory(),
             multiline=True,
             prompt_continuation="… ",
-            key_bindings=build_key_bindings(),
+            key_bindings=build_key_bindings(on_toggle_mode=on_toggle_mode),
             bottom_toolbar=self._render_toolbar,
             style=Style.from_dict(
                 {
                     "prompt": "ansicyan bold",
                     "prompt.bash": "ansigreen bold",
+                    "prompt.plan": "ansiyellow bold",
                     "bottom-toolbar": "bg:#333333 #eeeeee",
+                    "bottom-toolbar.mode": "bg:#5f3300 #ffffff",
                     "completion-menu.completion.current": "bg:#00aaaa #000000",
                 }
             ),
@@ -234,12 +241,25 @@ class ShellPrompt:
         value = source() if callable(source) else source
         return value if value else "--"
 
+    def _mode(self) -> str | None:
+        value = self._ui_mode() if callable(self._ui_mode) else self._ui_mode
+        return value or None
+
     def _prompt_message(self) -> AnyFormattedText:
         app = get_app_or_none()
         text = app.current_buffer.text if app is not None else ""
         if text.lstrip().startswith("!"):
-            return [("class:prompt.bash", "!"), ("class:prompt", "homemaster> ")]
-        return [("class:prompt", "homemaster> ")]
+            return [("class:prompt.bash", "!"), ("class:prompt", self._prompt_label())]
+        style = "class:prompt.plan" if self._mode() == "plan" else "class:prompt"
+        return [(style, self._prompt_label())]
+
+    def _prompt_label(self) -> str:
+        mode = self._mode()
+        if mode == "plan":
+            return "homemaster(plan)> "
+        if mode == "act":
+            return "homemaster(act)> "
+        return "homemaster> "
 
     def _render_toolbar(self) -> AnyFormattedText:
         cwd = os.getcwd()
@@ -247,18 +267,29 @@ class ShellPrompt:
         if cwd == home or cwd.startswith(home + os.sep):
             cwd = "~" + cwd[len(home) :]
         model = self._resolve(self._model_name)
-        # TODO(v35): ctx stays "--" until SessionStatus/ApplicationSession/
-        # RunResult exposes a per-session usage/token field to wire here.
         context_usage = self._resolve(self._context_usage)
-        return [
-            (
-                "class:bottom-toolbar",
-                f" model={model} | ctx={context_usage} | {cwd} ",
-            )
+        mode = self._mode()
+        fragments: list[tuple[str, str]] = [
+            ("class:bottom-toolbar", f" model={model} | ctx={context_usage}"),
         ]
+        if mode:
+            fragments.append(("class:bottom-toolbar.mode", f" {mode.upper()} "))
+        fragments.append(("class:bottom-toolbar", f" | {cwd} "))
+        return fragments
 
     def read(self) -> str:
         return self._session.prompt(self._prompt_message)
+
+    async def read_async(self) -> str:
+        """In-loop prompt for the remote shell — keeps WS/stdout tasks alive.
+
+        ``patch_stdout`` routes prints from other tasks above the prompt.
+        """
+
+        from prompt_toolkit.patch_stdout import patch_stdout
+
+        with patch_stdout():
+            return await self._session.prompt_async(self._prompt_message)
 
 
 __all__ = [
