@@ -25,11 +25,44 @@ from homemaster.config.config import REPO_ROOT
 
 def test_default_config_path_accepts_installed_cli_environment_override(tmp_path: Path) -> None:
     configured = tmp_path / "homemaster.yaml"
+    isolated_home = tmp_path / "home"
 
     assert (
         config_impl._default_config_path({"HOMEMASTER_CONFIG_PATH": str(configured)}) == configured
     )
-    assert config_impl._default_config_path({}) == REPO_ROOT / "config" / "homemaster.yaml"
+    # Without an existing $HOMEMASTER_HOME/config.yaml the repo default wins.
+    assert (
+        config_impl._default_config_path(
+            {"HOMEMASTER_HOME": str(tmp_path / "home-missing"), "HOME": str(isolated_home)}
+        )
+        == REPO_ROOT / "config" / "homemaster.yaml"
+    )
+    assert (
+        config_impl._default_config_path({"HOME": str(isolated_home)})
+        == REPO_ROOT / "config" / "homemaster.yaml"
+    )
+
+
+def test_default_config_path_prefers_homemaster_home_before_repo(tmp_path: Path) -> None:
+    home = tmp_path / "hm-home"
+    home_config = home / "config.yaml"
+    home_config.parent.mkdir(parents=True)
+    home_config.write_text("memory:\n  mode: files\n", encoding="utf-8")
+
+    environ = {"HOMEMASTER_HOME": str(home), "HOME": str(tmp_path / "isolated")}
+    assert config_impl._default_config_path(environ) == home_config
+    # An explicit HOMEMASTER_CONFIG_PATH still wins over the home directory.
+    configured = tmp_path / "elsewhere.yaml"
+    assert (
+        config_impl._default_config_path({**environ, "HOMEMASTER_CONFIG_PATH": str(configured)})
+        == configured
+    )
+    # The default home expands to ~/.homemaster relative to HOME.
+    home_default = tmp_path / "user-home" / ".homemaster"
+    (home_default / "config.yaml").parent.mkdir(parents=True)
+    (home_default / "config.yaml").write_text("{}\n", encoding="utf-8")
+    resolved = config_impl._default_config_path({"HOME": str(tmp_path / "user-home")})
+    assert resolved == home_default / "config.yaml"
 
 
 def test_memory_runtime_paths_are_relative_to_config_file(
@@ -65,11 +98,32 @@ def test_memory_runtime_paths_are_relative_to_config_file(
     assert config.memory.migration_spec.files_source == runtime_root / "memory" / "files"
 
 
-def test_memory_cannot_be_disabled_in_v32(tmp_path: Path) -> None:
+def test_legacy_enabled_false_maps_to_files_mode_with_warning(tmp_path: Path) -> None:
+    """W1: ``enabled: false`` deliberately widens to the files tier (the old
+    V3.2 prohibition is overturned), emitting a deprecation warning."""
+
     path = tmp_path / "homemaster.yaml"
     path.write_text("memory:\n  enabled: false\n", encoding="utf-8")
-    with pytest.raises(Exception, match="memory.enabled cannot be false"):
-        load_config(path)
+    with pytest.warns(DeprecationWarning, match="memory.enabled is deprecated"):
+        config = load_config(path)
+    assert config.memory.mode == "files"
+    assert config.memory.enabled is False
+
+
+def test_homemaster_home_config_resolves_and_anchors_memory_paths(tmp_path: Path) -> None:
+    home = tmp_path / "hm-home"
+    home.mkdir()
+    config_path = home / "config.yaml"
+    config_path.write_text(
+        "memory:\n  mode: files\n  data_root: ./memory-data\n",
+        encoding="utf-8",
+    )
+
+    # Level-3 resolution picks the file up; relative memory paths anchor to it.
+    assert config_impl._default_config_path({"HOMEMASTER_HOME": str(home)}) == config_path
+    config = load_config(config_path)
+    assert config.memory.mode == "files"
+    assert config.memory.data_root == (home / "memory-data").resolve()
 
 
 def test_absolute_memory_runtime_paths_remain_unchanged(tmp_path: Path) -> None:

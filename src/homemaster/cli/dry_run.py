@@ -16,6 +16,7 @@ def build_dry_run_preview(
     *,
     prompt: str | None,
     config: HomeMasterConfig | None = None,
+    config_path: Path | None = None,
     world_path: Path | None = None,
     memory_path: Path | None = None,
     provider_name: str | None = None,
@@ -27,7 +28,7 @@ def build_dry_run_preview(
     overrides = (
         {f"providers.{provider_name or 'default'}.model": model} if model is not None else None
     )
-    resolved = config or load_config(cli_overrides=overrides)
+    resolved = config or load_config(config_path=config_path, cli_overrides=overrides)
     provider_error: str | None = None
     try:
         provider = resolved.get_provider(provider_name, kind="chat")
@@ -50,7 +51,10 @@ def build_dry_run_preview(
         environment="local_robot",
         world_path=world_path,
         memory_path=memory_path,
-        memory_enabled=resolved.memory.enabled,
+        # Mirror compose_application: the files tier is a dependency-free
+        # always-on tier, so memory tools exist whenever it is selected.
+        memory_enabled=resolved.memory.enabled or resolved.memory.mode == "files",
+        memory_tier=resolved.memory.mode,
     )
     skill_registry = load_home_skills(resolved)
     mcp_statuses: list[dict[str, object]] = []

@@ -62,12 +62,35 @@ from homemaster.alfworld.types import (
     TasksetTerminalPhase,
 )
 from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
-from homemaster.config import load_config
+from homemaster.config import ConfigError, load_config
 from homemaster.events.sinks import JsonlEventSink
 from homemaster.providers.attempts import JsonlProviderAttemptSink
 
 TransportFactory = Callable[[], Any]
 AdapterFactory = Callable[[AlfworldBenchmarkConfig], AlfworldEnvAdapter]
+
+
+def _require_full_memory_tier(config: AlfworldBenchmarkConfig) -> None:
+    """Fail fast when benchmark ``memory_mode=full`` runs on the files tier.
+
+    The MindMemOS backend is only composed when ``memory.mode=full``; under
+    ``memory.mode=files`` the six mindmemos_* tools, the trajectory writer and
+    session finalization do not exist, so a ``--memory-mode full`` benchmark
+    must report a configuration error at startup instead of silently degrading.
+    """
+
+    if config.memory_mode != "full":
+        return
+    home_config = load_config(config.provider_config)
+    memory = home_config.memory
+    if memory.mode == "full" and memory.enabled:
+        return
+    raise ConfigError(
+        "benchmark --memory-mode full requires the full memory tier "
+        f"(resolved config has memory.mode={memory.mode!r}); set "
+        "memory.mode: full in the HomeMaster config (and install the 'memory' "
+        "extra), or rerun with --memory-mode readonly/disabled"
+    )
 
 
 # Kept as a test seam while callers migrate to the explicit lifecycle module.
@@ -107,6 +130,7 @@ class AlfworldBenchmarkRunner:
         self._worker_manifest_path: Path | None = None
 
     def run(self) -> AlfworldSummary:
+        _require_full_memory_tier(self.config)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         selections = self._trial_selections()
         if selections is not None and self.config.use_isolated_worker:
@@ -872,6 +896,7 @@ class AlfworldTasksetRunner(AlfworldBenchmarkRunner):
         return path
 
     def run(self) -> TasksetRunSummary:
+        _require_full_memory_tier(self.config)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         results: list[TasksetResult] = []
         for taskset in self.taskset_config.tasksets:

@@ -1,5 +1,67 @@
 # Unreleased
 
+- Memory now comes in two explicit tiers selected by `memory.mode`
+  (`files` | `full`, default `files`). The `files` tier composes only the
+  local file-backed memory store, frozen-context projection and evidence
+  ledger — a fresh `uv tool install` wheel now passes `doctor` out of the
+  box with no Neo4j/Qdrant/spaCy stack, which is also the first tier that
+  works on macOS. The `full` tier layers embedded MindMemOS (migration,
+  Neo4j, memory queues, dreaming) on top and requires the `memory` extra.
+  Legacy `memory.enabled` maps through a one-release deprecation window
+  (`true`→`full`, `false`→`files`, conflicting `mode`+`enabled` rejected).
+  Full-tier composition is split into nested blocks inside
+  `compose_application` instead of one monolithic `if enabled` branch, so
+  the files tier keeps `context_memory` (the only memory tool registered
+  on that tier — its description no longer references the absent
+  `mindmemos_*` tools) while full registers all seven. `doctor` is
+  tier-aware and skips heavy imports/service checks on `files`; the stale
+  `fastembed` check was removed entirely since the dependency is gone.
+  The ALFWorld `--memory-mode disabled` kill-switch now flows through an
+  explicit `memory_off` composition flag so it defeats the files tier too,
+  and full-tier benchmark requests fail fast on files-tier config.
+  `HOMEMASTER_HOME` is now the single root for config, memory data root,
+  skill dirs, Feishu attachments and shell history (default unchanged:
+  `~/.homemaster`); `--config` is accepted by `shell`/dry-run paths and
+  propagated through `run_interactive_shell`/`build_dry_run_preview`
+  instead of being rejected or silently ignored. `homemaster memory`
+  reports the active tier so files-mode output isn't misread as broken.
+
+- Interactive shell rebuilt on `prompt_toolkit`: declarative `CommandSpec`
+  registry (`src/homemaster/cli/shell_commands.py`) generates `/help` and
+  the completion menu, adds did-you-mean suggestions, and dispatches
+  slash commands — no more `utterance == "/help"` chains. `ShellPrompt`
+  (`cli/prompt_loop.py`) provides multiline input, persistent
+  `$HOMEMASTER_HOME/shell_history`, `@`-path file completion and
+  auto-suggest, degrading to plain `input()` on non-TTY. A bottom status
+  bar shows live model name, context usage and cwd/branch; the banner
+  version now comes from package metadata instead of the stale hardcoded
+  `V1.9`. `!cmd` runs a local command inline and `{!cmd}` interpolates
+  command output into the prompt — both bounded by a 30s timeout and a
+  64KB/1000-line output cap with `[timed out]`/`[truncated]` markers, and
+  command text is markup-escaped. Ctrl+C at the prompt clears the buffer
+  (run interruption still works during runs); Ctrl+D or `/exit` exits.
+  `prompt_toolkit` added as a runtime dependency.
+
+- Web UI first-batch rework (feature-borrowing matrix, phase P3):
+  a `state/projection.ts` layer projects events into turn→step→record so
+  reasoning renders collapsed-by-default and consecutive tool calls group
+  per turn under expandable summary rows (`ToolGroup`). The transcript
+  implements the scroll contract — follow tail while streaming, user
+  scroll-up releases ownership with a scroll-to-bottom button, and a new
+  turn re-pins (including when switching to a shorter session). The
+  composer moved to `ComposerPanel`: `/` command and `@` file menus with
+  keyboard navigation and `aria-activedescendant`, prompt history on
+  Up/Down, per-session drafts in localStorage, and IME-composition-safe
+  Enter. A global toast system supports Undo on destructive sidebar
+  actions; the sidebar itself gained running/awaiting/unread status dots,
+  hover rename/delete and local filtering. A `WelcomePanel` offers
+  suggested task cards and recent-session continue. Approval/question
+  cards lock immediately on click with tool-specific parameter summaries,
+  preventing duplicate submissions. `Mod+F` opens transcript search,
+  `Mod+/` a shortcut help dialog backed by a declarative shortcut
+  registry. Send failures now preserve the draft and clean up the
+  orphaned submitted entry instead of silently losing the typed text.
+
 - Wheel distribution is now self-contained for the lightweight tier:
   `mindmemos` is no longer declared as a runtime dependency (the vendored
   package ships inside the wheel via `packages.find`; declaring it made
@@ -13,12 +75,11 @@
   dev environments keep resolving vendored mindmemos through a new
   `[dependency-groups].dev` entry (installed by default `uv sync`, absent
   from wheel metadata). Dead dependencies with zero imports anywhere in
-  `homemaster`/`agentscope`/`mindmemos` removed outright: `posthog`,
-  `traced`, `fastembed`. `websockets` promoted to a formal dependency
-  (required by the upcoming thin-client shell). NOTE: `doctor` still
-  assumes the full memory tier until the `memory.mode` split lands —
-  in a files-tier install its MindMemOS checks are expected to FAIL until
-  then.
+  `homemaster`/`agentscope`/`mindmemos` removed outright: `posthog` and
+  `fastembed`; `traced` moved to the `memory` extra (it is declared by
+  vendored MindMemOS's own metadata even though only its internal
+  relative-import path is used). `websockets` promoted to a formal
+  dependency (required by the upcoming thin-client shell).
 
 - Fixed the AgentScope-migration regression where context compaction only
   ever rewrote the per-round session mirror — `sync_session()` overwrote

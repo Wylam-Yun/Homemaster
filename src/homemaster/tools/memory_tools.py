@@ -48,6 +48,14 @@ from homemaster.tools.contracts import (
 _REFERENCE = "homemaster.tools.memory_tools"
 _READ_CAPABILITY = "tool.read"
 _MUTATE_CAPABILITY = "tool.mutate"
+_CONTEXT_MEMORY_DESCRIPTION = (
+    "Save compact, high-signal notes that are injected into future sessions. "
+    "Use target='user' for the user's identity, preferences, communication "
+    "style, and stable habits. Use target='memory' for recent decisions, "
+    "results, and unfinished work that should carry across sessions. Do not "
+    "use this for searchable external facts, procedures, or past task "
+    "experiences."
+)
 _NonEmptyText = Annotated[str, Field(min_length=1)]
 NativeMemoryType = Literal[
     "profile",
@@ -1316,17 +1324,41 @@ def _inline_local_refs(schema: Mapping[str, object]) -> dict[str, object]:
     return expanded
 
 
-def build_memory_tools() -> tuple[RegisteredTool, ...]:
-    return (
+def build_memory_tools(
+    *,
+    mode: Literal["files", "full"] = "full",
+) -> tuple[RegisteredTool, ...]:
+    """Build the memory tool surface for one configured ``memory.mode``.
+
+    The ``files`` tier registers only ``context_memory``: the file-backed store
+    is the whole memory capability, and exposing the six MindMemOS tools would
+    hand the model calls that can never succeed.  The ``full`` tier keeps the
+    complete surface.
+    """
+
+    if mode not in ("files", "full"):
+        raise ValueError(f"unsupported memory.mode: {mode!r}")
+    # The files tier has no mindmemos_* tools, so the description must not
+    # point the model at a memory search/add surface that does not exist.
+    context_memory_description = _CONTEXT_MEMORY_DESCRIPTION + (
+        " Use the memory search/add tools for those."
+        if mode == "full"
+        else " No separate long-term memory tools exist on this tier."
+    )
+    file_tools = (
         RegisteredTool(
             _definition(
                 "context_memory",
-                "Save compact, high-signal notes that are injected into future sessions. Use target='user' for the user's identity, preferences, communication style, and stable habits. Use target='memory' for recent decisions, results, and unfinished work that should carry across sessions. Do not use this for searchable external facts, procedures, or past task experiences; use the memory search/add tools for those.",
+                context_memory_description,
                 FileMemoryInput,
                 mutating=True,
             ),
             MemoryAuditExecutor("context_memory", FileMemoryExecutor(), FileMemoryInput),
         ),
+    )
+    if mode == "files":
+        return file_tools
+    return file_tools + (
         RegisteredTool(
             _definition(
                 "mindmemos_add",

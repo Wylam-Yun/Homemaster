@@ -95,6 +95,7 @@ def build_tool_registry(
     runtime_memory_root: Path | None = None,
     memory_mode: str = "disabled",
     memory_enabled: bool = True,
+    memory_tier: Literal["files", "full"] = "full",
 ) -> ToolRegistry:
     """Compose common tools with exactly one explicit environment tool set."""
 
@@ -103,6 +104,7 @@ def build_tool_registry(
         memory_path=memory_path,
         runtime_memory_root=runtime_memory_root,
         memory_enabled=memory_enabled,
+        memory_tier=memory_tier,
     )
     robot_names = {"robot_go_to", "robot_manipulate", "robot_verify"}
     sources: dict[str, tuple[RegisteredTool, ...]] = {
@@ -169,12 +171,13 @@ def _home_tools(
     memory_path: Path | None,
     runtime_memory_root: Path | None,
     memory_enabled: bool = True,
+    memory_tier: Literal["files", "full"] = "full",
 ) -> tuple[RegisteredTool, ...]:
     tools = [
         build_terminal_tool(),
         *build_core_tools(),
         *build_file_tools(),
-        *(build_memory_tools() if memory_enabled else ()),
+        *(build_memory_tools(mode=memory_tier) if memory_enabled else ()),
         *build_web_tools(),
         *build_service_tools(),
     ]

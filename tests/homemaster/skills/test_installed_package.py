@@ -21,6 +21,16 @@ def test_homemaster_declares_vendored_mindmemos_runtime_dependencies() -> None:
     declared = {
         _requirement_name(requirement) for requirement in homemaster["project"]["dependencies"]
     }
+    # The vendored MindMemOS external deps live in the `memory` extra — the
+    # wheel bundles the package itself, so `mindmemos` must never appear as a
+    # Requires-Dist (nothing by that name exists on PyPI).
+    declared |= {
+        _requirement_name(requirement)
+        for requirement in homemaster["project"]["optional-dependencies"]["memory"]
+    }
+    assert "mindmemos" not in {
+        _requirement_name(requirement) for requirement in homemaster["project"]["dependencies"]
+    }
     required = {
         _requirement_name(requirement) for requirement in mindmemos["project"]["dependencies"]
     }
@@ -93,25 +103,19 @@ def test_built_wheel_exposes_builtin_skills_outside_source_checkout(tmp_path: Pa
                 "names=set(build_tool_registry(environment='local_robot').all_names()); "
                 "assert tools <= names; "
                 "assert {'skill','skill_view'}.isdisjoint(names); "
-                "import mindmemos; "
-                "assert mindmemos.__file__; "
-                "from mindmemos.pipelines import create_pipeline; "
-                "from mindmemos.typing import (AddPipelineInput, DialogueMessage, "
-                "DreamingActionReceipt, DreamingPipelineInput, DreamingPipelineResult); "
-                "assert callable(create_pipeline); "
-                "assert AddPipelineInput(messages=[DialogueMessage(role='user', content='hi')]); "
-                "assert DreamingPipelineInput(seed_add_record_ids=['add-1']); "
-                "assert DreamingPipelineResult(status='ok', outcome='no_action'); "
-                "assert DreamingActionReceipt(action='archive', status='ok'); "
-                "from homemaster.memory.feedback_context import FeedbackContextSnapshot; "
-                "from homemaster.experience import DreamingStateStore; "
-                "assert FeedbackContextSnapshot(messages=(), recalled_memories=()); "
-                "assert DreamingStateStore; "
+                # The wheel bundles the mindmemos package but the lightweight
+                # tier does not install its external deps, so importing it here
+                # must fail — full-tier behavior is covered by dev-env tests.
+                "import importlib.util; "
+                "assert importlib.util.find_spec('mindmemos') is not None; "
+                "assert importlib.util.find_spec('qdrant_client') is None; "
                 "from homemaster.adapters.profiles import build_tool_registry; "
                 "home_names=build_tool_registry(environment=None).all_names(); "
-                "assert home_names.count('mindmemos_feedback') == 1; "
-                "assert [name for name in home_names if 'feedback' in name] == "
-                "['mindmemos_feedback']; "
+                "assert 'context_memory' in home_names; "
+                "files_names=build_tool_registry(environment=None, "
+                "memory_tier='files').all_names(); "
+                "assert 'context_memory' in files_names; "
+                "assert not any('mindmemos' in n for n in files_names); "
                 "print('PASS')"
             ),
         ],

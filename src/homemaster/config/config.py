@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
@@ -40,12 +41,58 @@ else:
         REPO_ROOT = Path.cwd().resolve()
 logger = logging.getLogger(__name__)
 _WARNED_LEGACY_MEMORY_FIELDS: set[tuple[str, ...]] = set()
+_MISSING = object()
+
+
+def _homemaster_home(environ: Mapping[str, str]) -> Path:
+    """Resolve the installed HomeMaster home directory (default ``~/.homemaster``)."""
+
+    configured = environ.get("HOMEMASTER_HOME", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    # Honor an injected HOME so tests and scripted environments can isolate the
+    # default home directory without mutating the real process environment.
+    home = environ.get("HOME", "").strip()
+    if home:
+        return Path(home) / ".homemaster"
+    return Path("~/.homemaster").expanduser()
+
+
+def _default_memory_data_root() -> Path:
+    """Default memory data root anchored at ``$HOMEMASTER_HOME``."""
+
+    return _homemaster_home(os.environ) / "memory"
+
+
+def _default_skill_user_dirs() -> tuple[Path, ...]:
+    """Default user skill directory anchored at ``$HOMEMASTER_HOME``."""
+
+    return (_homemaster_home(os.environ) / "skills",)
+
+
+def _default_feishu_attachment_root() -> Path:
+    """Default Feishu attachment root anchored at ``$HOMEMASTER_HOME``."""
+
+    return _homemaster_home(os.environ) / "attachments" / "feishu"
 
 
 def _default_config_path(environ: Mapping[str, str] | None = None) -> Path:
+    """Resolve the default config path: env var > $HOMEMASTER_HOME > repo.
+
+    ``HOMEMASTER_CONFIG_PATH`` wins whenever set.  Next, an *existing*
+    ``$HOMEMASTER_HOME/config.yaml`` (``~/.homemaster/config.yaml`` by default)
+    is selected, giving wheel installs a stable per-user home.  The repository
+    ``config/homemaster.yaml`` remains the final dev fallback.
+    """
+
     values = os.environ if environ is None else environ
     configured = values.get("HOMEMASTER_CONFIG_PATH", "").strip()
-    return Path(configured).expanduser() if configured else REPO_ROOT / "config" / "homemaster.yaml"
+    if configured:
+        return Path(configured).expanduser()
+    home_config = _homemaster_home(values) / "config.yaml"
+    if home_config.is_file():
+        return home_config
+    return REPO_ROOT / "config" / "homemaster.yaml"
 
 
 HOMEMASTER_CONFIG_PATH = _default_config_path()
@@ -365,12 +412,30 @@ class MemoryNeo4jConfig(BaseModel):
 
 
 class MemoryConfig(BaseModel):
-    """File memory and embedded MindMemOS configuration."""
+    """File memory and embedded MindMemOS configuration.
+
+    ``mode`` selects the memory tier: ``"files"`` runs purely on the local
+    file memory store (no MindMemOS/Neo4j/Qdrant/spaCy stack), while ``"full"``
+    composes the embedded MindMemOS backend on top of the same file store.
+    The default is ``"files"`` so a lightweight install without the ``memory``
+    extra works out of the box; ``"full"`` must be configured explicitly.
+
+    ``enabled`` is kept for one deprecation cycle: ``true`` maps to
+    ``mode="full"`` and ``false`` maps to ``mode="files"``.  Mapping
+    ``enabled: false`` to the files tier intentionally overturns the former
+    V3.2 prohibition on disabling memory — widening a previously illegal value
+    is backwards compatible.  The field is removed in the next release.
+    """
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    enabled: bool = True
-    data_root: Path = Path("~/.homemaster/memory")
+    mode: Literal["files", "full"] = "files"
+    # Projected view of the configured tier (see the before-validator): true
+    # exactly when the full MindMemOS tier is selected.  The declared default
+    # mirrors the default ``files`` tier; validators recompute it on every
+    # mapping input.
+    enabled: bool = False
+    data_root: Path = Field(default_factory=_default_memory_data_root)
     soul_file: str = "SOUL.md"
     user_file: str = "USER.md"
     memory_file: str = "MEMORY.md"
@@ -382,13 +447,6 @@ class MemoryConfig(BaseModel):
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
-    @field_validator("enabled")
-    @classmethod
-    def _memory_is_required(cls, value: bool) -> bool:
-        if not value:
-            raise ValueError("memory.enabled cannot be false in V3.2")
-        return value
-
     @model_validator(mode="before")
     @classmethod
     def _capture_legacy_paths(cls, value: Any) -> Any:
@@ -397,6 +455,36 @@ class MemoryConfig(BaseModel):
         data = dict(value)
         if "migration_spec" in data:
             raise ValueError("memory.migration_spec is internal")
+        if "enabled" in data:
+            # Deprecated alias: enabled=true -> mode="full"; enabled=false ->
+            # mode="files" (deliberately relaxing the former V3.2 ban on
+            # disabling the memory stack, which is a non-breaking widening).
+            enabled_value = data.pop("enabled")
+            if not isinstance(enabled_value, bool):
+                raise ValueError("memory.enabled must be a boolean")
+            implied_mode: Literal["files", "full"] = "full" if enabled_value else "files"
+            warnings.warn(
+                "memory.enabled is deprecated; use memory.mode="
+                f"{implied_mode!r} instead. The field will be removed in a "
+                "future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            explicit_mode = data.get("mode")
+            if explicit_mode is not None and explicit_mode != implied_mode:
+                raise ValueError(
+                    f"memory.enabled={enabled_value} conflicts with "
+                    f"memory.mode={explicit_mode!r}; remove the deprecated "
+                    "memory.enabled field and keep only memory.mode"
+                )
+            data["mode"] = implied_mode
+        # enabled is retained as a projected view of the selected tier: it is
+        # true exactly when the full MindMemOS tier is active.  Callers that
+        # need the tier read ``memory.mode``; a programmatic kill-switch for
+        # all memory (including the files tier) must go through
+        # ``compose_application(memory_off=True)`` — assigning
+        # ``config.memory.enabled = False`` cannot disable the files tier.
+        data["enabled"] = data.get("mode", cls.model_fields["mode"].default) == "full"
         has_data_root = "data_root" in data
         legacy_fields: list[str] = []
         if "root" in data:
@@ -404,7 +492,9 @@ class MemoryConfig(BaseModel):
         if has_data_root and legacy_fields:
             raise ValueError("memory.data_root cannot be combined with legacy memory path fields")
 
-        data_root = _private_absolute_path(Path(data.get("data_root", "~/.homemaster/memory")))
+        data_root = _private_absolute_path(
+            Path(data.get("data_root", _default_memory_data_root()))
+        )
         files_source = Path(
             data.pop(
                 "root",
@@ -478,7 +568,7 @@ class MemoryConfig(BaseModel):
 class SkillSourcesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_dirs: tuple[Path, ...] = (Path("~/.homemaster/skills"),)
+    user_dirs: tuple[Path, ...] = Field(default_factory=_default_skill_user_dirs)
     project_dirs: tuple[str, ...] = (".homemaster/skills",)
     explicit_dirs: tuple[Path, ...] = ()
     allow_project: bool = True
@@ -510,7 +600,7 @@ class FeishuChannelConfig(BaseModel):
     tenant_id: str = "local"
     domain: Literal["feishu", "lark"] = "feishu"
     react_emoji: str = "EYES"
-    attachment_root: Path = Path("~/.homemaster/attachments/feishu")
+    attachment_root: Path = Field(default_factory=_default_feishu_attachment_root)
 
     @field_validator("app_id")
     @classmethod
@@ -695,7 +785,9 @@ class HomeMasterConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_memory_embedding_provider(self) -> HomeMasterConfig:
-        if not self.memory.enabled or not self.providers.items:
+        # Only the full MindMemOS tier requires the embedding provider binding;
+        # the files tier performs no embedding work.
+        if self.memory.mode != "full" or not self.providers.items:
             return self
         name = self.memory.embedding_provider_name.casefold()
         provider = next(
@@ -824,6 +916,21 @@ def _resolve_config_path(config_path: str | Path | None) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     return path
+
+
+def pin_default_config_path(config_path: str | Path) -> Path:
+    """Rebind the process-wide default config path to an explicit file.
+
+    Entry points that cannot thread ``config_path`` through deeper layers —
+    the interactive shell reaches its config through ``run_doctor`` and
+    ``compose_application``, both of which consult the module-level default —
+    pin the resolved path here so every downstream ``load_config()`` reads
+    the same file.  Returns the resolved absolute path.
+    """
+
+    global HOMEMASTER_CONFIG_PATH
+    HOMEMASTER_CONFIG_PATH = _resolve_config_path(config_path)
+    return HOMEMASTER_CONFIG_PATH
 
 
 def _apply_env_overrides(

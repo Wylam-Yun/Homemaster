@@ -69,7 +69,12 @@ runtime_defaults:
   default_embedding_provider_name: MemoryEmbedding
 
 memory:
-  enabled: true
+  # W1 tiers: "files" runs purely on local file memory with no MindMemOS
+  # backend and is the built-in default for lightweight installs; "full"
+  # composes the embedded MindMemOS stack below and needs the `memory`
+  # install extra.  This example opts into "full"; omit the key for "files".
+  # The legacy `enabled` field is deprecated: true -> "full", false -> "files".
+  mode: full
   dreaming_memory_threshold: 8
   # `scripts/setup_memory_runtime.py setup` writes this portable value and binds
   # the ignored .runtime directory once per server. Do not commit server paths.

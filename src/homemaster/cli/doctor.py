@@ -58,18 +58,24 @@ def run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
 
     checks: list[DoctorCheck] = []
     config_source = _config_source()
+    memory_mode = _configured_memory_mode()
     checks.append(_python_environment_check())
-    checks.extend(_import_checks())
-    checks.append(_mindmemos_blackbox_check())
+    checks.append(_memory_mode_check(memory_mode))
+    checks.extend(_import_checks(memory_mode=memory_mode))
+    if memory_mode == "full":
+        # MindMemOS runtime/backend checks only exist on the full memory tier;
+        # the files tier is dependency-free and skips them entirely.
+        checks.append(_mindmemos_blackbox_check())
     if alfworld:
         checks.append(_alfworld_binding_check())
         checks.append(_worker_protocol_check())
-    checks.append(_config_check(config_source))
-    checks.append(_embedding_endpoint_check())
-    checks.append(_memory_backend_check())
+    checks.append(_config_check(config_source, memory_mode=memory_mode))
+    if memory_mode == "full":
+        checks.append(_embedding_endpoint_check())
+        checks.append(_memory_backend_check())
     checks.append(_ignored_paths_check())
     if live:
-        checks.extend(_live_provider_checks())
+        checks.extend(_live_provider_checks(memory_mode=memory_mode))
     return DoctorReport(live=live, config_source=config_source, checks=checks)
 
 
@@ -106,7 +112,40 @@ def _python_environment_check() -> DoctorCheck:
     )
 
 
-def _import_checks() -> list[DoctorCheck]:
+# Modules that only the full MindMemOS tier needs.  They ship in the
+# ``memory`` optional extra, so the files tier must never require them.
+# ``fastembed`` is no longer a dependency at all: MindMemOS sparse vectors
+# are self-encoded, so it appears on neither tier's import surface.
+_FULL_TIER_IMPORT_MODULES = frozenset(
+    {"jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"}
+)
+
+
+def _configured_memory_mode() -> str:
+    """Best-effort read of ``memory.mode``; fail closed to the full tier."""
+
+    try:
+        mode = load_config(HOMEMASTER_CONFIG_PATH).memory.mode
+    except Exception:
+        return "full"
+    return mode if mode in ("files", "full") else "full"
+
+
+def _memory_mode_check(memory_mode: str) -> DoctorCheck:
+    suffix = (
+        "MindMemOS full-tier checks skipped"
+        if memory_mode == "files"
+        else "full MindMemOS tier"
+    )
+    return DoctorCheck(
+        name="memory_mode",
+        status="PASS",
+        message=f"memory.mode={memory_mode} ({suffix})",
+        details={"memory_mode": memory_mode},
+    )
+
+
+def _import_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
     modules = [
         "homemaster",
         "pydantic",
@@ -114,9 +153,10 @@ def _import_checks() -> list[DoctorCheck]:
         "typer",
         "jieba",
         "mindmemos",
-        "fastembed",
         "qdrant_client",
     ]
+    if memory_mode == "files":
+        modules = [name for name in modules if name not in _FULL_TIER_IMPORT_MODULES]
     checks: list[DoctorCheck] = []
     for module in modules:
         try:
@@ -313,14 +353,20 @@ def _config_source() -> str:
         return str(HOMEMASTER_CONFIG_PATH)
 
 
-def _config_check(config_source: str) -> DoctorCheck:
+def _config_check(config_source: str, *, memory_mode: str = "full") -> DoctorCheck:
     try:
         config = load_config(HOMEMASTER_CONFIG_PATH)
         chat_provider = config.get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
-        embedding_provider = config.get_provider(
-            DEFAULT_EMBEDDING_PROVIDER_NAME,
-            kind="embedding",
-        )
+        # The embedding provider is only a hard requirement on the full tier.
+        embedding_provider = None
+        try:
+            embedding_provider = config.get_provider(
+                DEFAULT_EMBEDDING_PROVIDER_NAME,
+                kind="embedding",
+            )
+        except ConfigError:
+            if memory_mode == "full":
+                raise
     except ConfigError as exc:
         return DoctorCheck(
             name="config_source",
@@ -336,17 +382,26 @@ def _config_check(config_source: str) -> DoctorCheck:
         message="provider config loaded",
         details={
             "config_source": config_source,
+            "memory_mode": memory_mode,
             "chat_provider": chat_provider.public_summary(),
-            "embedding_provider": embedding_provider.public_summary(),
+            "embedding_provider": (
+                embedding_provider.public_summary()
+                if embedding_provider is not None
+                else None
+            ),
             "field_sources": {
                 "default_provider": config.field_source("providers.default"),
                 "chat_model": config.field_source(f"providers.{chat_provider.name}.model"),
                 "chat_auth": config.field_source(f"providers.{chat_provider.name}.api_keys"),
-                "embedding_model": config.field_source(
-                    f"providers.{embedding_provider.name}.model"
+                "embedding_model": (
+                    config.field_source(f"providers.{embedding_provider.name}.model")
+                    if embedding_provider is not None
+                    else None
                 ),
-                "embedding_auth": config.field_source(
-                    f"providers.{embedding_provider.name}.api_keys"
+                "embedding_auth": (
+                    config.field_source(f"providers.{embedding_provider.name}.api_keys")
+                    if embedding_provider is not None
+                    else None
                 ),
             },
         },
@@ -392,14 +447,19 @@ def _memory_backend_check() -> DoctorCheck:
             impact="five structured memory tools are unavailable; file memory remains independent",
             suggestion="Fix the memory and MemoryEmbedding configuration.",
         )
-    if not config.memory.enabled:
+    if config.memory.mode != "full" or not config.memory.enabled:
         return DoctorCheck(
             name="memory_backend",
-            status="FAIL",
-            message="memory system cannot be disabled in V3.2",
-            impact="memory is a required HomeMaster capability",
-            suggestion="Set memory.enabled to true or remove the field.",
-            details={"enabled": False},
+            status="WARN",
+            message=(
+                f"memory.mode={config.memory.mode!r} does not compose the MindMemOS backend"
+            ),
+            impact=(
+                "the six mindmemos_* memory tools are unavailable; "
+                "file memory remains independent"
+            ),
+            suggestion="Set memory.mode to full to use the MindMemOS backend.",
+            details={"memory_mode": config.memory.mode, "enabled": config.memory.enabled},
         )
     migration = MemoryMigrationCoordinator(config.memory).inspect()
     if migration.status != "ready":
@@ -502,10 +562,11 @@ def _git_check_ignore(path: str) -> bool:
     return result.returncode == 0
 
 
-def _live_provider_checks() -> list[DoctorCheck]:
+def _live_provider_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
     checks.append(_live_mimo_smoke())
-    checks.append(_live_embedding_smoke())
+    if memory_mode == "full":
+        checks.append(_live_embedding_smoke())
     return checks
 
 

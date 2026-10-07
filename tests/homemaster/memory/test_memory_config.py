@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from homemaster.config import HomeMasterConfig, ProviderProfileConfig
+from homemaster.config.config import _homemaster_home
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -28,7 +30,10 @@ def _embedding_provider(*, kind: str = "embedding") -> ProviderProfileConfig:
 def test_memory_config_defaults_are_single_backend_and_expand_private_paths() -> None:
     config = HomeMasterConfig(providers={"items": [_embedding_provider()]})
 
-    assert config.memory.enabled is True
+    # B1: the dependency-free files tier is the default; the full MindMemOS
+    # tier must be selected explicitly with ``memory.mode: full``.
+    assert config.memory.mode == "files"
+    assert config.memory.enabled is False
     assert config.memory.data_root.is_absolute()
     assert config.memory.root.is_absolute()
     assert config.memory.root == config.memory.data_root / "files"
@@ -103,19 +108,87 @@ def test_memory_config_rejects_non_positive_dreaming_threshold() -> None:
 
 
 def test_enabled_memory_requires_named_embedding_provider_with_embedding_kind() -> None:
+    # The embedding-provider binding is only required on the full tier, so the
+    # config must select it explicitly now that "files" is the default mode.
     with pytest.raises(ValidationError, match="MemoryEmbedding.*embedding"):
-        HomeMasterConfig(providers={"items": [_embedding_provider(kind="chat")]})
+        HomeMasterConfig(
+            memory={"mode": "full"},
+            providers={"items": [_embedding_provider(kind="chat")]},
+        )
 
 
-def test_disabled_memory_is_rejected_in_v32() -> None:
-    with pytest.raises(ValidationError, match="memory.enabled cannot be false"):
-        HomeMasterConfig(memory={"enabled": False})
+def test_files_mode_does_not_require_embedding_provider_or_neo4j_binding() -> None:
+    config = HomeMasterConfig(
+        memory={"mode": "files"},
+        providers={"items": [_embedding_provider(kind="chat")]},
+    )
+
+    assert config.memory.mode == "files"
+    assert config.memory.enabled is False
+
+
+@pytest.mark.parametrize(
+    ("enabled", "expected_mode"),
+    [(True, "full"), (False, "files")],
+)
+def test_legacy_enabled_maps_to_mode_with_deprecation_warning(
+    enabled: bool, expected_mode: str
+) -> None:
+    with pytest.warns(DeprecationWarning, match="memory.enabled is deprecated"):
+        config = HomeMasterConfig(memory={"enabled": enabled})
+
+    assert config.memory.mode == expected_mode
+    # The stored enabled flag is a projected view of the selected tier.
+    assert config.memory.enabled is (expected_mode == "full")
+
+
+def test_memory_mode_and_legacy_enabled_combination_matrix(
+    recwarn: pytest.WarningsRecorder,
+) -> None:
+    # A plain mode key never warns.
+    assert HomeMasterConfig(memory={"mode": "files"}).memory.mode == "files"
+    assert not [
+        warning
+        for warning in recwarn.list
+        if issubclass(warning.category, DeprecationWarning)
+    ]
+    # A consistent enabled+mode pair still warns once and resolves to files.
+    with pytest.warns(DeprecationWarning):
+        consistent = HomeMasterConfig(memory={"mode": "files", "enabled": False})
+    assert consistent.memory.mode == "files"
+    with pytest.warns(DeprecationWarning):
+        full = HomeMasterConfig(memory={"mode": "full", "enabled": True})
+    assert full.memory.mode == "full"
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"enabled": False, "mode": "full"},
+            "memory.enabled.*conflicts with memory.mode",
+        ),
+        (
+            {"enabled": True, "mode": "files"},
+            "memory.enabled.*conflicts with memory.mode",
+        ),
+        ({"enabled": "yes-i-guess"}, "memory.enabled must be a boolean"),
+        ({"mode": "bogus"}, "Input should be 'files' or 'full'"),
+    ],
+)
+def test_memory_mode_rejects_invalid_combinations(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValidationError, match=message):
+        HomeMasterConfig(memory=payload)
 
 
 def test_memory_config_captures_legacy_file_path_only_as_migration_input(tmp_path: Path) -> None:
     config = HomeMasterConfig(memory={"root": tmp_path / "old-files"})
 
-    assert config.memory.data_root == Path("~/.homemaster/memory").expanduser()
+    # The default data root is anchored at $HOMEMASTER_HOME (~/.homemaster by
+    # default), not a hardcoded literal.
+    assert config.memory.data_root == _homemaster_home(os.environ) / "memory"
     assert config.memory.migration_spec.files_source == tmp_path / "old-files"
     assert config.memory.migration_spec.explicit_legacy_fields == ("memory.root",)
     assert "root" not in config.memory.model_fields_set
@@ -138,16 +211,68 @@ def test_memory_config_rejects_mixed_new_and_legacy_path_fields(tmp_path: Path) 
         HomeMasterConfig(memory={"data_root": tmp_path / "new", "root": tmp_path / "old"})
 
 
-def test_project_locks_memory_search_dependencies_and_spacy_model() -> None:
+def test_project_locks_memory_search_dependencies_in_memory_extra() -> None:
+    """W1 tiering: the MindMemOS dependency stack lives in the ``memory`` extra
+    so a wheel install without it can still run the files tier."""
+
     project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = project["project"]["dependencies"]
+    memory_extra = project["project"]["optional-dependencies"]["memory"]
 
     assert all(not item.startswith("mem0ai") for item in dependencies)
-    assert "qdrant-client==1.18.0" in dependencies
-    assert "spacy==3.8.14" in dependencies
+    # The lightweight core must not require the full-tier external stack.
+    for prefix in (
+        "qdrant-client",
+        "neo4j",
+        "spacy",
+        "en-core-web-sm",
+        "fastembed",
+        "aiokafka",
+        "jieba",
+        "omegaconf",
+        "litellm",
+    ):
+        assert all(
+            not item.startswith(prefix) for item in dependencies
+        ), f"{prefix} must not be a core dependency"
+    assert "qdrant-client==1.18.0" in memory_extra
+    assert "spacy==3.8.14" in memory_extra
     assert (
         "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/"
-        "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" in dependencies
+        "en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" in memory_extra
     )
-    fastembed = [value for value in dependencies if value.startswith("fastembed==")]
-    assert len(fastembed) == 1
+
+
+def test_homemaster_home_anchors_default_memory_skill_and_attachment_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """$HOMEMASTER_HOME must re-root every built-in per-user data default."""
+
+    home = tmp_path / "hm-home"
+    monkeypatch.setenv("HOMEMASTER_HOME", str(home))
+    monkeypatch.setenv("HOME", str(tmp_path / "ignored-home"))
+
+    config = HomeMasterConfig()
+
+    assert config.memory.data_root == home / "memory"
+    assert config.memory.files_root == home / "memory" / "files"
+    assert config.skills.user_dirs == (home / "skills",)
+    assert config.gateway.feishu.attachment_root == home / "attachments" / "feishu"
+
+
+def test_default_roots_track_injected_home_without_homemaster_home(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("HOMEMASTER_HOME", raising=False)
+    isolated_home = tmp_path / "isolated-home"
+    monkeypatch.setenv("HOME", str(isolated_home))
+
+    config = HomeMasterConfig()
+
+    assert config.memory.data_root == isolated_home / ".homemaster" / "memory"
+    assert config.skills.user_dirs == (isolated_home / ".homemaster" / "skills",)
+    assert config.gateway.feishu.attachment_root == (
+        isolated_home / ".homemaster" / "attachments" / "feishu"
+    )

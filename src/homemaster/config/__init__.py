@@ -30,6 +30,7 @@ from homemaster.config.config import (
     SkillSourcesConfig,
     TransportName,
     load_config,
+    pin_default_config_path,
 )
 from homemaster.config.observability import SCHEMA_VERSION, ObservabilityConfig
 
@@ -65,4 +66,5 @@ __all__ = [
     "SCHEMA_VERSION",
     "TransportName",
     "load_config",
+    "pin_default_config_path",
 ]

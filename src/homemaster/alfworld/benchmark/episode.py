@@ -36,13 +36,6 @@ class BenchmarkApplicationLifecycle:
         event_sink: Any,
         disable_memory_for_worker: bool = False,
     ) -> None:
-        if (
-            disable_memory_for_worker
-            and memory_mode == "disabled"
-            and getattr(config, "memory", None) is not None
-        ):
-            config = config.model_copy(deep=True)
-            config.memory.enabled = False
         self.bundle: HomeApplicationBundle = compose_application(
             ApplicationCompositionRequest(
                 config=config,
@@ -53,6 +46,11 @@ class BenchmarkApplicationLifecycle:
                 quiet=True,
                 console_show_replies=False,
                 run_label=runtime_root.name,
+                # ``--memory-mode disabled`` must really compose no memory at
+                # all — clearing ``config.memory.enabled`` cannot switch off
+                # the dependency-free files tier, so the kill-switch is an
+                # explicit composition input instead of a config mutation.
+                memory_off=disable_memory_for_worker and memory_mode == "disabled",
             )
         )
         self.application = self.bundle.application

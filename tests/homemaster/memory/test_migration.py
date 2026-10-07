@@ -243,8 +243,11 @@ def test_memory_migrate_cli_returns_typed_receipt_and_terminal_files(
     result = CliRunner().invoke(app, ["memory", "migrate", "--config", str(config_path)])
 
     assert result.exit_code == 0, result.output
+    # The human-facing mode line lands on stderr; stdout stays pure JSON.
+    assert "memory.mode=full" in result.stderr
     receipt = json.loads(result.stdout)
     assert receipt["status"] == "PASS"
+    assert receipt["memory_mode"] == "full"
     target = tmp_path / ".homemaster" / "memory" / "files" / "MEMORY.md"
     assert target.read_text(encoding="utf-8") == "memory-cli"
 
@@ -263,8 +266,12 @@ def test_memory_migrate_cli_conflict_is_nonzero_and_preserves_old_data(
     result = CliRunner().invoke(app, ["memory", "migrate", "--config", str(config_path)])
 
     assert result.exit_code == 1
-    receipt = json.loads(result.stderr)
+    # stderr carries the human-facing mode line followed by the JSON receipt.
+    stderr_lines = result.stderr.strip().splitlines()
+    assert any("memory.mode=full" in line for line in stderr_lines)
+    receipt = json.loads(stderr_lines[-1])
     assert receipt["status"] == "FAIL"
+    assert receipt["memory_mode"] == "full"
     assert receipt["code"] == "memory_migration_conflict"
     assert source.joinpath("MEMORY.md").read_text(encoding="utf-8") == "memory-source"
     assert target.joinpath("MEMORY.md").read_text(encoding="utf-8") == "memory-target"
@@ -279,7 +286,9 @@ async def test_application_start_migrates_before_opening_owned_stores(
     _legacy_files(source, "application")
     config = HomeMasterConfig.model_validate(
         {
-            "memory": {"root": source},
+            # Migration ordering is exercised on the full tier; "files" is now
+            # the built-in default and skips migration entirely.
+            "memory": {"mode": "full", "root": source},
             "runtime": {"runtime_root": tmp_path / "runs"},
             "observability": {"session_dir": str(tmp_path / "sessions")},
         }

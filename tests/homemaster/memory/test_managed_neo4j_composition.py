@@ -40,6 +40,9 @@ def _config(tmp_path: Path) -> HomeMasterConfig:
     return HomeMasterConfig.model_validate(
         {
             "memory": {
+                # The managed-Neo4j composition under test only exists on the
+                # full tier; "files" is now the built-in default.
+                "mode": "full",
                 "data_root": tmp_path / "memory",
                 "neo4j": {
                     "mode": "managed_local",

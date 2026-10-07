@@ -237,6 +237,28 @@ async def test_public_web_close_hook_is_idempotent() -> None:
     assert application.close_count == 1
 
 
+def test_web_memory_routes_return_503_without_memory_service() -> None:
+    """W1 files tier: serve.py only installs MemoryManagementService when the
+    composed bundle has a MindMemOS backend, so /api/memories* must fail with
+    the typed memory_unavailable error, not an opaque 500."""
+
+    application = _FakeApplication()
+    app = create_web_app(
+        application=application,
+        confirmation_handler=WebConfirmationHandler(timeout_s=None),
+        memory_management_service=None,
+    )
+
+    with TestClient(app) as client:
+        snapshot = client.get("/api/memories")
+        history = client.get("/api/memories/memory-01/history")
+    assert snapshot.status_code == 503
+    assert snapshot.json()["code"] == "memory_unavailable"
+    assert snapshot.json()["retryable"] is True
+    assert history.status_code == 503
+    assert history.json()["code"] == "memory_unavailable"
+
+
 def test_web_lifespan_starts_application_before_serving() -> None:
     application = _FakeApplication()
     app = create_web_app(

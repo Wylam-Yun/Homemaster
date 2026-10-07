@@ -122,7 +122,9 @@ async def test_home_application_owns_third_party_capture_lifecycle(
     tmp_path: Path,
 ) -> None:
     config = HomeMasterConfig(
-        memory={"enabled": False},
+        # W1: enabled=false now maps to the files tier; keep file memory
+        # isolated under tmp_path so the test writes no real ~/.homemaster data.
+        memory={"enabled": False, "data_root": tmp_path / "memory-data"},
         runtime={"runtime_root": tmp_path / "runs"},
     )
     logger = logging.getLogger("neo4j.notifications")

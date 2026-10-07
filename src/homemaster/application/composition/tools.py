@@ -16,6 +16,7 @@ def compose_tool_registry(
     memory_path: Path | None,
     runtime_memory_root: Path,
     memory_enabled: bool,
+    memory_tier: Literal["files", "full"] = "full",
 ) -> ToolRegistry:
     return build_tool_registry(
         environment=environment,
@@ -23,6 +24,7 @@ def compose_tool_registry(
         memory_path=memory_path,
         runtime_memory_root=runtime_memory_root,
         memory_enabled=memory_enabled,
+        memory_tier=memory_tier,
     )
 
 

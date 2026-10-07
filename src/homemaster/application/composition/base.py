@@ -101,6 +101,12 @@ class ApplicationCompositionRequest:
     session_root: Path | None = None
     world_path: Path | None = None
     memory_path: Path | None = None
+    # Hard kill-switch for every memory tier, including the dependency-free
+    # files tier.  ``memory.enabled`` cannot express this: under
+    # ``mode="files"`` it is a projected ``False`` while the tier stays on.
+    # The ALFWorld benchmark's ``--memory-mode disabled`` uses it to compose
+    # no memory services and no memory tools at all.
+    memory_off: bool = False
     memory_tenant_id: str = "local"
     event_sink: Any | None = None
     mcp_connector: Connector | None = None
@@ -179,6 +185,7 @@ def compose_application(
     config: HomeMasterConfig | None = None,
     world_path: Path | None = None,
     memory_path: Path | None = None,
+    memory_off: bool = False,
     run_label: str | None = None,
     progress: bool = False,
     verbose: bool = False,
@@ -202,6 +209,7 @@ def compose_application(
         config = request.config
         world_path = request.world_path
         memory_path = request.memory_path
+        memory_off = request.memory_off
         run_label = request.run_label
         progress = request.progress
         verbose = request.verbose
@@ -247,7 +255,11 @@ def compose_application(
         world_path=world_path,
         memory_path=memory_path,
         runtime_memory_root=run_dir / "memory",
-        memory_enabled=resolved.memory.enabled,
+        memory_enabled=(
+            (resolved.memory.enabled or resolved.memory.mode == "files")
+            and not memory_off
+        ),
+        memory_tier=resolved.memory.mode,
     )
     if feishu_group_operations is not None:
         group_tools = build_feishu_group_tools(feishu_group_operations)
@@ -279,6 +291,7 @@ def compose_application(
             resolved=resolved,
             label=label,
             registry=registry,
+            memory_off=memory_off,
             extension_runner=extension_runner,
             extension_reloader=extension_reloader,
             progress=progress,
@@ -319,6 +332,7 @@ def _finish_home_application(
     resolved: HomeMasterConfig,
     label: str,
     registry: ToolRegistry,
+    memory_off: bool,
     extension_runner: HookRunner | None,
     extension_reloader: ExtensionReloader | None,
     progress: bool,
@@ -434,42 +448,24 @@ def _finish_home_application(
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
     memory_migration: MemoryMigrationCoordinator | None = None
-    if resolved.memory.enabled:
-        memory_migration = MemoryMigrationCoordinator(resolved.memory)
+    # W1 memory tiers: the files tier (mode="files") runs purely on local file
+    # memory — store, frozen prompt context, and the dependency-free evidence
+    # ledger — and never touches MindMemOS/Neo4j/Qdrant/spaCy.  The full tier
+    # (mode="full" + enabled) layers migration, managed Neo4j, embedded
+    # MindMemOS, the add/enrichment queues, and dreaming on top of it.
+    # ``memory_off`` is the explicit kill-switch for both tiers (the ALFWorld
+    # benchmark's --memory-mode disabled): clearing the projected
+    # ``memory.enabled`` flag alone cannot disable the files tier.
+    memory_files_tier = (
+        resolved.memory.mode == "files" or resolved.memory.enabled
+    ) and not memory_off
+    memory_full_tier = (
+        memory_files_tier and resolved.memory.mode == "full" and resolved.memory.enabled
+    )
+    if memory_files_tier:
         file_memory_store = FileMemoryStore(resolved.memory)
         frozen_memory_context = FrozenMemoryContextService(file_memory_store)
         memory_evidence_ledger = MemoryEvidenceLedger(resolved.memory.evidence_db_path)
-        managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
-        mindmemos = EmbeddedMindMemOS(resolved)
-        memory_add_queue = MemoryAddQueue(
-            mindmemos,
-            audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
-        )
-        trajectory_writer = AlfworldTrajectoryWriter(
-            mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
-        )
-        alfworld_compile_jobs = AlfworldCompileJobService(
-            mindmemos,
-            memory_add_queue,
-            jobs_root=resolved.memory.data_root / "alfworld-compilations",
-            event_sink=bus,
-            tenant_id=memory_tenant_id,
-        )
-        trajectory_writer.bind_auto_compile(alfworld_compile_jobs)
-        memory_enrichment_queue = MemoryEnrichmentQueue(
-            mindmemos,
-            audit_path=resolved.memory.data_root / "mindmemos" / "enrichment_jobs.jsonl",
-            concurrency=2,
-        )
-        dreaming_coordinator = DreamingCoordinator(
-            store=DreamingStateStore(
-                resolved.memory.data_root,
-                threshold=resolved.memory.dreaming_memory_threshold,
-            ),
-            mindmemos=mindmemos,
-            event_sink=bus,
-        )
-        mindmemos._third_party_logs = third_party_logs
         scope.bind(
             ResourceBinding.owned(
                 "file-memory-store",
@@ -484,70 +480,107 @@ def _finish_home_application(
                 lifetime=ResourceLifetime.APPLICATION,
             )
         )
-        scope.bind(
-            ResourceBinding.owned(
-                "managed-neo4j",
-                managed_neo4j,
-                lifetime=ResourceLifetime.APPLICATION,
-            )
-        )
-        scope.bind(
-            ResourceBinding.owned(
-                "embedded-mindmemos",
+        if memory_full_tier:
+            memory_migration = MemoryMigrationCoordinator(resolved.memory)
+            managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
+            mindmemos = EmbeddedMindMemOS(resolved)
+            memory_add_queue = MemoryAddQueue(
                 mindmemos,
-                lifetime=ResourceLifetime.APPLICATION,
+                audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
             )
-        )
-        scope.bind(
-            ResourceBinding.owned(
-                "memory-add-queue",
+            trajectory_writer = AlfworldTrajectoryWriter(
+                mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
+            )
+            alfworld_compile_jobs = AlfworldCompileJobService(
+                mindmemos,
                 memory_add_queue,
-                lifetime=ResourceLifetime.APPLICATION,
+                jobs_root=resolved.memory.data_root / "alfworld-compilations",
+                event_sink=bus,
+                tenant_id=memory_tenant_id,
             )
-        )
-        scope.bind(
-            ResourceBinding.owned(
-                "memory-enrichment-queue",
-                memory_enrichment_queue,
-                lifetime=ResourceLifetime.APPLICATION,
+            trajectory_writer.bind_auto_compile(alfworld_compile_jobs)
+            memory_enrichment_queue = MemoryEnrichmentQueue(
+                mindmemos,
+                audit_path=resolved.memory.data_root / "mindmemos" / "enrichment_jobs.jsonl",
+                concurrency=2,
             )
-        )
+            dreaming_coordinator = DreamingCoordinator(
+                store=DreamingStateStore(
+                    resolved.memory.data_root,
+                    threshold=resolved.memory.dreaming_memory_threshold,
+                ),
+                mindmemos=mindmemos,
+                event_sink=bus,
+            )
+            mindmemos._third_party_logs = third_party_logs
+            scope.bind(
+                ResourceBinding.owned(
+                    "managed-neo4j",
+                    managed_neo4j,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
+            scope.bind(
+                ResourceBinding.owned(
+                    "embedded-mindmemos",
+                    mindmemos,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
+            scope.bind(
+                ResourceBinding.owned(
+                    "memory-add-queue",
+                    memory_add_queue,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
+            scope.bind(
+                ResourceBinding.owned(
+                    "memory-enrichment-queue",
+                    memory_enrichment_queue,
+                    lifetime=ResourceLifetime.APPLICATION,
+                )
+            )
 
-        async def start_file_memory(_application: ApplicationRuntime) -> None:
+        async def start_memory_services(_application: ApplicationRuntime) -> None:
             assert file_memory_store is not None
             assert memory_evidence_ledger is not None
-            assert mindmemos is not None
-            assert memory_migration is not None
-            memory_migration.ensure_ready(auto_migrate=True)
+            if memory_full_tier:
+                assert memory_migration is not None
+                memory_migration.ensure_ready(auto_migrate=True)
             file_memory_store.start()
             memory_evidence_ledger.start()
-            await managed_neo4j.start()
-            await mindmemos.start()
-            if not mindmemos.available:
-                cause = mindmemos.unavailable_cause or "unknown startup failure"
-                raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
-            await memory_add_queue.start()
-            assert memory_enrichment_queue is not None
-            await memory_enrichment_queue.start()
-            from mindmemos.typing import MemoryRequestContext
+            if memory_full_tier:
+                assert managed_neo4j is not None
+                assert mindmemos is not None
+                assert memory_add_queue is not None
+                await managed_neo4j.start()
+                await mindmemos.start()
+                if not mindmemos.available:
+                    cause = mindmemos.unavailable_cause or "unknown startup failure"
+                    raise RuntimeError(f"Embedded MindMemOS is unavailable: {cause}")
+                await memory_add_queue.start()
+                assert memory_enrichment_queue is not None
+                await memory_enrichment_queue.start()
+                from mindmemos.typing import MemoryRequestContext
 
-            assert dreaming_coordinator is not None
-            await dreaming_coordinator.retry_pending(
-                project_id="local",
-                user_id="local",
-                context_template=MemoryRequestContext(
-                    request_id="startup-dreaming-recovery",
-                    account_id="local",
+                assert dreaming_coordinator is not None
+                await dreaming_coordinator.retry_pending(
                     project_id="local",
-                    api_key_uuid="embedded-local",
                     user_id="local",
-                    app_id="homemaster",
-                    session_id=None,
-                    agent_id="homemaster",
-                ),
-            )
+                    context_template=MemoryRequestContext(
+                        request_id="startup-dreaming-recovery",
+                        account_id="local",
+                        project_id="local",
+                        api_key_uuid="embedded-local",
+                        user_id="local",
+                        app_id="homemaster",
+                        session_id=None,
+                        agent_id="homemaster",
+                    ),
+                )
 
-        starter_steps.append(start_file_memory)
+        starter_steps.append(start_memory_services)
     if resolved.mcp.servers:
         mcp_audit_path = run_dir / "mcp_audit.jsonl"
         audit_log = McpAuditLog(mcp_audit_path)
@@ -590,6 +623,9 @@ def _finish_home_application(
 
         starter_steps.append(start_mcp)
 
+    # Session finalization and trajectory finalization exist only on the full
+    # MindMemOS tier; files mode leaves them as None (runner.py guards on the
+    # trajectory writer being present before enqueueing).
     finalizer = (
         SessionFinalizer(
             trace_path=session_finalizer_trace_path or run_dir / "runtime_events.jsonl",
@@ -599,7 +635,9 @@ def _finish_home_application(
             dreaming_coordinator=dreaming_coordinator,
             event_sink=bus,
         )
-        if mindmemos is not None and memory_add_queue is not None
+        if resolved.memory.mode == "full"
+        and mindmemos is not None
+        and memory_add_queue is not None
         else None
     )
 
@@ -645,21 +683,29 @@ def _finish_home_application(
                     "file_memory_store": file_memory_store,
                     "frozen_memory_context": frozen_memory_context,
                     "memory_evidence_ledger": memory_evidence_ledger,
-                    "mindmemos": mindmemos,
-                    "memory_add_queue": memory_add_queue,
-                    "trajectory_writer": trajectory_writer,
-                    "alfworld_compile_jobs": alfworld_compile_jobs,
-                    "memory_enrichment_queue": memory_enrichment_queue,
-                    "dreaming_coordinator": dreaming_coordinator,
-                    "memory_migration": memory_migration,
-                    "managed_neo4j": managed_neo4j,
                     "memory_audit_path": Path(resolved.observability.trace_dir).expanduser()
                     / "memory_operations.jsonl",
+                    # The full MindMemOS tier is gated on the configured mode,
+                    # not on MindMemOS being present: files mode exposes the
+                    # file-memory services above without MindMemOS.
+                    **(
+                        {
+                            "mindmemos": mindmemos,
+                            "memory_add_queue": memory_add_queue,
+                            "trajectory_writer": trajectory_writer,
+                            "alfworld_compile_jobs": alfworld_compile_jobs,
+                            "memory_enrichment_queue": memory_enrichment_queue,
+                            "dreaming_coordinator": dreaming_coordinator,
+                            "memory_migration": memory_migration,
+                            "managed_neo4j": managed_neo4j,
+                        }
+                        if resolved.memory.mode == "full" and mindmemos is not None
+                        else {}
+                    ),
                 }
                 if file_memory_store is not None
                 and frozen_memory_context is not None
                 and memory_evidence_ledger is not None
-                and mindmemos is not None
                 else {}
             ),
             **image_provider_services(resolved),

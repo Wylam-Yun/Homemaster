@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from homemaster.cli.app import app
-from homemaster.cli.doctor import run_doctor
+from homemaster.cli.doctor import render_doctor_text, run_doctor
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +37,9 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
               embedding_url: https://embedding.example/v1/embeddings
               api_keys: [doctor-embedding-secret]
         memory:
+          # Explicit full tier: the fixture exercises the MindMemOS check
+          # surface, while the lightweight default tier is "files".
+          mode: full
           data_root: {tmp_path / "memory-data"}
           embedding_dimensions: 8
           neo4j:
@@ -161,6 +164,81 @@ def test_doctor_checks_embedded_mindmemos_import(
 
     assert next(check for check in checks if check.name == "import:mindmemos").status == "PASS"
     assert events == ["import"]
+
+
+def test_doctor_files_tier_reports_mode_and_skips_full_tier_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """files mode must pass on a lightweight install without the memory extra."""
+
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text(
+        f"""
+        providers:
+          default: Mimo
+          items:
+            - name: Mimo
+              kind: chat
+              api_format: anthropic
+              transport: anthropic_sdk
+              base_url: https://mimo.example/anthropic
+              model: mimo-v2.5
+              api_keys: [doctor-chat-secret]
+        memory:
+          mode: files
+          data_root: {tmp_path / "memory-data"}
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path
+    )
+
+    report = run_doctor(live=False)
+
+    names = {check.name for check in report.checks}
+    assert "memory_mode" in names
+    memory_mode = next(check for check in report.checks if check.name == "memory_mode")
+    assert memory_mode.status == "PASS"
+    assert "memory.mode=files" in memory_mode.message
+    # Full-tier checks must not run at all in files mode.
+    assert "mindmemos_runtime" not in names
+    assert "embedding_endpoint" not in names
+    assert "memory_backend" not in names
+    for heavy in ("jieba", "mindmemos", "qdrant_client", "neo4j", "spacy"):
+        assert f"import:{heavy}" not in names
+    assert "import:homemaster" in names
+    # The embedding provider is optional in files mode and must not fail config.
+    assert next(check for check in report.checks if check.name == "config_source").status == "PASS"
+    assert not report.has_failures
+
+
+def test_doctor_files_tier_text_output_names_the_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path
+    )
+
+    report = run_doctor(live=False)
+    text = render_doctor_text(report)
+    assert "memory.mode=files" in text
+
+
+def test_doctor_full_tier_keeps_mindmemos_and_backend_checks() -> None:
+    """The default full tier preserves the existing check surface."""
+
+    report = run_doctor(live=False)
+
+    names = {check.name for check in report.checks}
+    memory_mode = next(check for check in report.checks if check.name == "memory_mode")
+    assert "memory.mode=full" in memory_mode.message
+    assert "mindmemos_runtime" in names
+    assert "memory_backend" in names
+    assert "embedding_endpoint" in names
+    assert "import:mindmemos" in names
 
 
 def test_doctor_default_report_skips_optional_alfworld_checks() -> None:
