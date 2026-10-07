@@ -1,5 +1,71 @@
 # Unreleased
 
+- Server/thin-client architecture (W2): `homemaster serve` is now the
+  single runtime; `homemaster shell`, `run`/`-p` and the web UI are all
+  thin clients over HTTP + WebSocket. `HOMEMASTER_SERVER` selects the
+  endpoint (default `http://127.0.0.1:8000`); when it is unset and the
+  probe fails, the client auto-spawns a temporary `serve` subprocess on
+  a free loopback port and tears it down at exit — an explicitly set
+  `HOMEMASTER_SERVER` is connect-only, never spawn. Bare `homemaster`
+  now means serve + open browser (prints the URL plus an SSH-tunnel
+  hint when no browser is available); `run --local` keeps the in-process
+  composition as an escape hatch. New endpoints: `GET /api/meta`,
+  `GET /api/providers` (name/kind/model/`api_key_configured` only — key
+  material is never serialized), `GET /api/sessions/{id}/approvals`,
+  `GET /api/sessions/{id}/status`, `POST /api/sessions/{id}/compact`,
+  `POST /api/sessions/{id}/mode` (`ui_mode: plan|act`),
+  `POST /api/sessions/{id}/questions/{qid}/answer`, and
+  `POST /api/skills/resolve`. `SendMessageRequest` accepts
+  `provider_name`/`model` which map onto
+  `RunRequest.provider_name`/`model_override`. Pending approvals are now
+  durable server-side: disconnecting the last WebSocket subscriber no
+  longer cancels them, `run.completed` carries the terminal payload, and
+  reconnect resyncs history + approvals + pending questions. `ask_user`
+  finally works outside the local process via a pending-question Future
+  registry answerable from any client. Same-machine assumption: tools
+  execute where the server runs; SSH tunnels expose the UI channel only.
+
+- Plan/Act session mode: `POST /api/sessions/{id}/mode` persists
+  `ui_mode` per session, broadcasts `session.mode` over the event
+  stream, and `status` reports it. `plan` engages the runtime
+  `plan_mode` service so mutating tools are blocked for that session
+  (except `exit_plan_mode`); `act` restores ordinary permission mode.
+
+- Session-scoped approvals: the item decision vocabulary gained
+  `allow_session` — recorded in a per-session `SessionGrantService`
+  keyed by the approval's exact `ResourceKey`, so a repeat call for the
+  same resource in the same session skips the prompt while other
+  sessions still ask, and no durable grant is written. The remote CLI's
+  temporary client-side auto-approve simulation was removed in favor of
+  the real protocol choice.
+
+- Thin-client shell (`homemaster shell`): HTTP+WS client that
+  subscribes before sending, reconnects with generation/backoff and
+  resyncs history/approvals/questions. Remote command registry covers
+  `/new` `/model` `/session` (fuzzy resume) `/compact` `/status` `/mode`
+  (plus Tab toggle) `/cancel` `/events` `/doctor` `/debug` `/help`
+  `/exit`; busy input queues into a dock flushed on run end; approvals
+  render as once/session/always/deny (always requires a second confirm);
+  `question.asked` events prompt `ask>` and POST the answer; streamed
+  thinking/tools/usage/compaction/resync all render in the terminal.
+  `run`/`-p` preserve the local result-envelope semantics and truthful
+  exit codes.
+
+- `homemaster auth`: interactive provider wizard (prompt_toolkit) —
+  pick a template (Anthropic, OpenAI-compatible, …), enter base
+  URL/model/key, writes `$HOMEMASTER_HOME/config.yaml` with chmod 600;
+  `--print-only` prints the YAML snippet instead of writing (headless
+  safe).
+
+- Web UI second batch: full approval card with countdown and
+  once/always/deny metadata, plus a pending question card — both take
+  over the composer (draft preserved and restored afterward). Model
+  picker in the composer lists configured providers and accepts
+  free-text model ids (per-session choice persisted client-side).
+  Context-usage ring with a manual compact action. Plan/Act mode badge
+  with composer placeholder/color shift. Busy sessions queue prompts
+  into a dock that flushes in order. Message edit-and-resend.
+
 - Memory now comes in two explicit tiers selected by `memory.mode`
   (`files` | `full`, default `files`). The `files` tier composes only the
   local file-backed memory store, frozen-context projection and evidence

@@ -132,7 +132,17 @@ Neo4j 运行资产通过 [V3.2 runtime-assets Release](https://github.com/Wylam-
 
 ### 1. 安装
 
-需要 Python 3.11+，推荐使用 [uv](https://docs.astral.sh/uv/)：
+需要 Python 3.11+，推荐使用 [uv](https://docs.astral.sh/uv/)。
+
+**轻量安装（默认 files 记忆档，macOS/Linux 均可用，不需要 Neo4j/Java）：**
+
+```bash
+uv tool install homemaster-<version>-py3-none-any.whl   # 或 GitHub Release 的 wheel URL
+homemaster auth     # 交互式配置 provider，写入 $HOMEMASTER_HOME/config.yaml
+homemaster          # 起 server 并打开浏览器
+```
+
+**源码安装（开发 / 完整 `full` 记忆档）：**
 
 ```bash
 # 若无 uv：curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -252,12 +262,29 @@ scripts/homemaster serve --alfworld --host 127.0.0.1 --port 8765
 和 Web 审批协议，不是另一套前端执行器。完整开发、构建与使用说明见
 [Web Console 用户指南](docs/web-console-user-guide.md)。
 
+### Server / 瘦客户端模型
+
+`serve` 是唯一持有 `ApplicationRuntime` 的进程；`shell`、`run`/`-p`、Web UI 全部通过 HTTP +
+WebSocket 连接同一个 server，因此同一会话可以在终端和浏览器里同时打开、互见事件流与审批。
+
+- `HOMEMASTER_SERVER=http://127.0.0.1:8000`（或 `--server`）选择端点；未设置且探测失败时，
+  客户端自动 spawn 一个临时 `serve` 子进程（空闲 loopback 端口）并在退出时回收；显式设置了
+  `HOMEMASTER_SERVER` 时只连接、不 spawn。`--local` 完全跳过 server，回到进程内执行。
+- **同机假设**：工具在 server 所在机器上执行；SSH tunnel 只暴露 UI 通道，不改变执行位置。
+- 断连不再丢状态：pending 审批/问答是 server 侧 durable 状态，重连后历史 + 审批 + 问题自动回补；
+  `run.completed` 事件直接携带终态 payload。
+- 会话级 `ui_mode`：`plan` 挡下所有 mutating 工具（除 `exit_plan_mode`），`act` 恢复普通权限模式；
+  shell 里 `/mode` 或空输入框按 Tab 切换，Web 上由 composer 旁的徽标控制。
+- 审批四选：once / session（本会话内同资源免再批，不写 durable grant）/ always（需二次确认）/ deny。
+
 | 命令 | 说明 |
 | --- | --- |
-| `homemaster` | 启动交互式 shell；可选 `--permission-mode full_auto\|confirm\|plan`，默认 `full_auto` |
-| `homemaster shell` | 显式启动交互式 shell；支持同一 `--permission-mode` 参数 |
-| `homemaster -p "..."` | 一次性请求并退出；`--output-format text\|json\|stream-json` |
-| `homemaster run --utterance ...` | 单任务运行，`--progress` 向 stderr 流式输出进度 |
+| `homemaster` | 启动 `serve` 并打开浏览器（GUI 环境）；无浏览器时打印 URL 与 SSH tunnel 提示 |
+| `homemaster serve` | 显式常驻 server——唯一的 Runtime；Web、shell、run 都是它的客户端 |
+| `homemaster shell` | 连接 server 的瘦客户端交互 shell（断线重连、审批/问答、`/mode` Plan/Act） |
+| `homemaster -p "..."` | 一次性请求并退出（走 server）；`--output-format text\|json\|stream-json` |
+| `homemaster run --utterance ...` | 单任务运行（走 server），`--progress` 向 stderr 流式输出进度；`--local` 回退进程内执行 |
+| `homemaster auth` | 交互式 provider 配置向导，写入 `$HOMEMASTER_HOME/config.yaml`（chmod 600）；`--print-only` 只打印 |
 | `homemaster --dry-run [-p ...] [--probe]` | 预览 provider/model 解析来源与已加载 Skill，无外部 I/O；`--probe` 才连接 MCP 做 discovery |
 | `homemaster doctor [--live]` | 环境体检；`--live` 追加真实 provider 调用验证 |
 | `homemaster session list\|show\|export\|delete\|clean` | 持久会话管理 |
