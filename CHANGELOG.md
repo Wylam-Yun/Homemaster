@@ -39,6 +39,44 @@
   silently skipped on the full memory tier. Admission denial is now
   logged instead of silent.
 
+- Memory queue resilience: audit-sink failures can no longer kill the
+  `MemoryAddQueue`/`MemoryEnrichmentQueue` workers; a dead worker closes
+  admission (`RuntimeError` on enqueue), is skipped during the drain join
+  so `aclose()` cannot hang, and has its exception retrieved on close.
+
+- Permission policy coverage: shell `command` strings are token-scanned
+  for sensitive paths, all path-like argument names are matched (not just
+  a fixed allowlist), matching is case-normalized and checks both
+  unresolved and resolved path forms, and the sensitive set now covers
+  `.env`/`.netrc`/`.git-credentials`/`.pgpass`, `/etc/shadow`,
+  `/etc/sudoers`, and the macOS `/private/etc` variants.
+
+- Provider-frame hardening: a malformed `ToolCallBlock.input` or an
+  unconvertible data block no longer escapes `run()` raw as
+  `MessageConversionError` — arguments sanitize to `{}` and unconvertible
+  blocks become a placeholder in the canonical mirror, terminal paths
+  tolerate mirror failure and end the run as
+  `failed`/`provider_protocol_error` instead of leaving the session
+  stuck "running".
+
+- Canonical tool error codes: unknown tools and schema-invalid arguments
+  on the substrate path now carry `error_code` `unknown_tool` /
+  `invalid_tool_arguments` in the projected result data instead of a bare
+  AS-level `error`; argument "repairs" that change the type of an
+  already well-formed value (e.g. `12345` → `"12345"`) are rejected so
+  validation reports the real mismatch instead of the backend receiving
+  coerced input.
+
+- Config loading: a directory or otherwise unreadable config path raises
+  `ConfigError("cannot read HomeMaster config")` instead of raw
+  `OSError`; unknown-provider errors now list the configured provider
+  names.
+
+- Cancel labeling: a generation fence tripped by a user cancel reports
+  `user_interrupted` (the cause); `stale_generation` is reserved for a
+  superseding run. Unknown websocket paths close with 4404 instead of
+  hitting the SPA's http-scope assertion.
+
 - Server/thin-client architecture (W2): `homemaster serve` is now the
   single runtime; `homemaster shell`, `run`/`-p` and the web UI are all
   thin clients over HTTP + WebSocket. `HOMEMASTER_SERVER` selects the
