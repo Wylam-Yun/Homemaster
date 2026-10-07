@@ -2058,3 +2058,8 @@ python-telegram-bot 运行时符号等待用户指导的 hkust4 真环境核对�
   离线源码/wheel bundle 入口；缺失锁定资产时显式失败。
 - 修复 setup 在已有 `.venv` 时的幂等重跑，复用现有虚拟环境而不覆盖配置或数据。
 - 修复已有合法 `.runtime/memory` 绑定在 setup 重跑时被误判为冲突，改为校验并复用目标目录。
+
+- Doctor provider resolution now honors `runtime_defaults.default_*`
+  names: previously it probed the hardcoded `Mimo`/`MemoryEmbedding`
+  names, so a valid config with a differently-named default provider
+  reported FAIL while the application itself worked.

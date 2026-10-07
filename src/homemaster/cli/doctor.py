@@ -15,8 +15,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from homemaster.config import (
-    DEFAULT_EMBEDDING_PROVIDER_NAME,
-    DEFAULT_PROVIDER_NAME,
     HOMEMASTER_CONFIG_PATH,
     REPO_ROOT,
     ConfigError,
@@ -356,12 +354,14 @@ def _config_source() -> str:
 def _config_check(config_source: str, *, memory_mode: str = "full") -> DoctorCheck:
     try:
         config = load_config(HOMEMASTER_CONFIG_PATH)
-        chat_provider = config.get_provider(DEFAULT_PROVIDER_NAME, kind="chat")
+        chat_provider = config.get_provider(
+            config.runtime_defaults.default_provider_name, kind="chat"
+        )
         # The embedding provider is only a hard requirement on the full tier.
         embedding_provider = None
         try:
             embedding_provider = config.get_provider(
-                DEFAULT_EMBEDDING_PROVIDER_NAME,
+                config.runtime_defaults.default_embedding_provider_name,
                 kind="embedding",
             )
         except ConfigError:
@@ -410,8 +410,9 @@ def _config_check(config_source: str, *, memory_mode: str = "full") -> DoctorChe
 
 def _embedding_endpoint_check() -> DoctorCheck:
     try:
-        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
-            DEFAULT_EMBEDDING_PROVIDER_NAME,
+        config = load_config(HOMEMASTER_CONFIG_PATH)
+        provider = config.get_provider(
+            config.runtime_defaults.default_embedding_provider_name,
             kind="embedding",
         )
     except ConfigError as exc:
@@ -572,8 +573,9 @@ def _live_provider_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
 
 def _live_mimo_smoke() -> DoctorCheck:
     try:
-        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
-            DEFAULT_PROVIDER_NAME, kind="chat"
+        config = load_config(HOMEMASTER_CONFIG_PATH)
+        provider = config.get_provider(
+            config.runtime_defaults.default_provider_name, kind="chat"
         )
         client = AsLLMClient(provider)
 
@@ -604,8 +606,9 @@ def _live_mimo_smoke() -> DoctorCheck:
 
 def _live_embedding_smoke() -> DoctorCheck:
     try:
-        provider = load_config(HOMEMASTER_CONFIG_PATH).get_provider(
-            DEFAULT_EMBEDDING_PROVIDER_NAME,
+        config = load_config(HOMEMASTER_CONFIG_PATH)
+        provider = config.get_provider(
+            config.runtime_defaults.default_embedding_provider_name,
             kind="embedding",
         )
         client = BGEEmbeddingClient(provider)
