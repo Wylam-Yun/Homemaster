@@ -820,7 +820,13 @@ class HomeMasterConfig(BaseModel):
                 return provider
         label = name or self.providers.default
         suffix = f" with kind {kind!r}" if kind else ""
-        raise ConfigError(f"provider {label!r}{suffix} not found")
+        available = ", ".join(
+            provider.name
+            for provider in self.providers.items
+            if kind is None or provider.kind == kind
+        )
+        hint = f"; available: {available}" if available else ""
+        raise ConfigError(f"provider {label!r}{suffix} not found{hint}")
 
 
 def _http_origin(value: str, *, label: str) -> str:
@@ -853,6 +859,8 @@ def load_config(
         mark = getattr(exc, "problem_mark", None)
         location = f" at line {mark.line + 1}, column {mark.column + 1}" if mark is not None else ""
         raise ConfigError(f"invalid HomeMaster YAML config: {path}{location}") from exc
+    except OSError as exc:
+        raise ConfigError(f"cannot read HomeMaster config: {path} ({exc})") from exc
     if not isinstance(payload, dict):
         raise ConfigError(f"HomeMaster config must be a YAML mapping: {path}")
     payload = _anchor_config_relative_paths(payload, config_dir=path.parent)

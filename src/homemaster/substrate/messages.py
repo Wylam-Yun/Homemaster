@@ -109,6 +109,26 @@ def _block_from_as(block) -> ContentBlock:
     raise MessageConversionError(f"unsupported AS block type: {type(block).__name__!r}")
 
 
+def _block_from_as_tolerant(block) -> ContentBlock:
+    """Convert one text/data block, substituting a marker for content the
+    canonical model cannot represent.
+
+    A single unconvertible provider block (e.g. a non-image DataBlock) must
+    not abort the whole session mirror — the raw block stays in the engine
+    context and snapshot ``agentscope_state``; the canonical face records a
+    placeholder instead.
+    """
+    try:
+        return _block_from_as(block)
+    except MessageConversionError as exc:
+        log.warning("substituting placeholder for unconvertible block: %s", exc)
+        return ContentBlock(
+            type="text",
+            text="[unconvertible provider content omitted]",
+            metadata={"hm_unconvertible": type(block).__name__},
+        )
+
+
 def _restore_block_meta(meta: dict, converted: list[ContentBlock]) -> None:
     block_meta = meta.get("block_meta")
     if not isinstance(block_meta, dict):
@@ -254,7 +274,9 @@ def from_agent_scope(messages: Sequence[Msg]) -> list[Message]:
             raise MessageConversionError("system role Msg cannot enter canonical history")
         if msg.role == "user":
             converted = [
-                _block_from_as(b) for b in msg.content if isinstance(b, (TextBlock, DataBlock))
+                _block_from_as_tolerant(b)
+                for b in msg.content
+                if isinstance(b, (TextBlock, DataBlock))
             ]
             skipped = len(msg.content) - len(converted)
             if skipped:
@@ -344,16 +366,24 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
             if block.thinking:
                 pending_reasoning.append(block.thinking)
         elif isinstance(block, (TextBlock, DataBlock)):
-            pending_content.append(_block_from_as(block))
+            pending_content.append(_block_from_as_tolerant(block))
         elif isinstance(block, ToolCallBlock):
             try:
                 arguments = json.loads(block.input or "{}")
-            except ValueError as exc:
-                raise MessageConversionError(
-                    f"tool_call {block.id!r} input is not valid JSON"
-                ) from exc
+            except ValueError:
+                arguments = None
             if not isinstance(arguments, dict):
-                raise MessageConversionError(f"tool_call {block.id!r} input is not a JSON object")
+                # A malformed provider frame cannot be represented in the
+                # canonical session mirror. Keep the call identity (id/name)
+                # and an empty arguments object — its paired result block
+                # already records the failure — so the mirror stays
+                # consistent instead of poisoning every subsequent sync.
+                log.warning(
+                    "tool_call %r carried malformed JSON arguments; "
+                    "mirroring with empty arguments",
+                    block.id,
+                )
+                arguments = {}
             pending_calls.append(ToolCall(id=block.id, name=block.name, arguments=arguments))
         elif isinstance(block, ToolResultBlock):
             flush()
@@ -364,7 +394,9 @@ def _assistant_from_as(msg: Msg, hm: dict[str, Any], out: list[Message]) -> None
                     output_blocks.append(ContentBlock(type="text", text=block.output))
             else:
                 output_blocks = [
-                    _block_from_as(b) for b in block.output if isinstance(b, (TextBlock, DataBlock))
+                    _block_from_as_tolerant(b)
+                    for b in block.output
+                    if isinstance(b, (TextBlock, DataBlock))
                 ]
                 _restore_block_meta(result_meta, output_blocks)
             # Protocol-fence denials are completed protocol results, not

@@ -370,7 +370,9 @@ class RunDriver:
                         run_id=run_id,
                         session_id=session_id,
                         status=RunStatus.CANCELLED,
-                        error_code="stale_generation",
+                        # A user cancel bumps the generation — report the
+                        # cause, not the fence mechanism that caught it.
+                        error_code=_generation_error_code(runtime),
                     )
                 if generic.engine_state is not None:
                     runtime.engine_state = generic.engine_state
@@ -396,7 +398,7 @@ class RunDriver:
                         run_id=run_id,
                         session_id=session_id,
                         status=RunStatus.CANCELLED,
-                        error_code="stale_generation",
+                        error_code=_generation_error_code(runtime),
                     )
 
     @asynccontextmanager
@@ -482,6 +484,19 @@ async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _generation_error_code(runtime: Any) -> str:
+    """Report why a generation-fenced run ended.
+
+    A user cancel bumps the session generation, so a fence rejection can be
+    either the user's interrupt (cancellation source set) or a newer run
+    superseding this one (stale_generation).
+    """
+    cancellation = getattr(runtime, "cancellation", None)
+    if cancellation is not None and getattr(cancellation, "cancelled", False):
+        return "user_interrupted"
+    return "stale_generation"
 
 
 def _provider_binding(value: Any, *, run_id: str) -> ResourceBinding:

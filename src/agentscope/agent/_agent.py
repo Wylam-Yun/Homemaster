@@ -2522,7 +2522,21 @@ class Agent:
                 tool_call.name,
                 self.state.tool_context.activated_groups,
             )
+        except AgentOrientedException as e:
+            # VENDORED-PATCH(homemaster): distinguish the canonical HM
+            # error code — an unknown/inactive tool is `unknown_tool`,
+            # not a generic error.
+            async for evt in self._handle_error_tool_call(
+                tool_call,
+                e.message,
+                state=ToolResultState.ERROR,
+                error_code="unknown_tool",
+            ):
+                yield evt
 
+            return
+
+        try:
             # Try to parse the input with the tool schema
             parsed_input = _json_loads_with_repair(
                 tool_call.input,
@@ -2540,14 +2554,14 @@ class Agent:
                 ) from e
 
         # The exceptions that
-        #  - cannot found tool
-        #  - tool not available
         #  - input parsing failure
+        #  - input schema validation failure
         except AgentOrientedException as e:
             async for evt in self._handle_error_tool_call(
                 tool_call,
                 e.message,
                 state=ToolResultState.ERROR,
+                error_code="invalid_tool_arguments",
             ):
                 yield evt
 
@@ -2843,6 +2857,7 @@ class Agent:
         tool_call: ToolCallBlock,
         message: str,
         state: ToolResultState,
+        error_code: str | None = None,
     ) -> AsyncGenerator[
         ToolResultStartEvent
         | ToolResultTextDeltaEvent
@@ -2888,6 +2903,7 @@ class Agent:
                 "data": {
                     "backend_attempted": False,
                     "status": str(state),
+                    **({"error_code": error_code} if error_code else {}),
                 },
             },
         }

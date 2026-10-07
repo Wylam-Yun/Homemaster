@@ -92,6 +92,26 @@ def _normalize_local_path(path: str) -> str:
     return os.path.abspath(os.path.expanduser(path))
 
 
+def _same_value_types(original: dict, repaired: dict) -> bool:
+    """True when every shared key keeps the exact value type.
+
+    Only well-formed parsed dicts reach this check; keys added by the
+    repair pass do not disqualify it, and dropped keys are handled by the
+    caller's separate rewrite guard.
+    """
+
+    for key, value in original.items():
+        if key not in repaired:
+            continue
+        other = repaired[key]
+        if isinstance(value, dict) and isinstance(other, dict):
+            if not _same_value_types(value, other):
+                return False
+        elif type(value) is not type(other):
+            return False
+    return True
+
+
 def _json_loads_with_repair(
     json_str: str,
     schema: dict | None = None,
@@ -174,6 +194,16 @@ def _json_loads_with_repair(
             if isinstance(parsed, dict) and parsed.keys() - res.keys():
                 # Dropping arguments, e.g. under `additionalProperties:
                 # false`, is a rewrite rather than a type repair.
+                res = parsed
+            elif isinstance(parsed, dict) and not _same_value_types(
+                parsed, res
+            ):
+                # VENDORED-PATCH(homemaster): a "repair" that changes the
+                # type of an already well-formed value (e.g. int 12345 ->
+                # "12345") silently rewrites the model's arguments before
+                # schema validation. Return the parsed form so downstream
+                # validation reports the real mismatch instead of the
+                # backend receiving mutated input.
                 res = parsed
 
             try:

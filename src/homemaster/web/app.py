@@ -1087,6 +1087,13 @@ def create_web_app(
             except asyncio.CancelledError:
                 pass
 
+    @app.websocket("/{path:path}")
+    async def reject_unknown_websocket(websocket: WebSocket, path: str) -> None:
+        # The StaticFiles SPA mount below asserts http scope; without this
+        # catch-all, a mistyped websocket path crashes into a 500
+        # AssertionError instead of a clean close.
+        await websocket.close(code=4404)
+
     mount_web_static(app)
     return app
 

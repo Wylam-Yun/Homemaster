@@ -2178,7 +2178,9 @@ async def test_provider_that_swallows_cancellation_cannot_publish_late_events(
 
     runtime = app.session_manager.get("late-events")
     assert result.status is RunStatus.CANCELLED
-    assert result.error_code == "stale_generation"
+    # A user-initiated cancel bumps the generation; the terminal label
+    # reports the interrupt cause, not the fence mechanism that caught it.
+    assert result.error_code == "user_interrupted"
     assert tuple(app.event_bus.events) == events_before_cancel
     assert runtime.last_result is None
     assert runtime.revision == 1

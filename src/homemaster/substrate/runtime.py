@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import logging
 import signal
 import uuid
 from collections.abc import Callable
@@ -42,11 +43,17 @@ from homemaster.agent.state import AgentState, ProviderUsage
 from homemaster.events import FanoutEventSink
 from homemaster.events.bus import EventBusClosedError
 from homemaster.events.runtime_events import RuntimeEvent
-from homemaster.substrate.messages import from_agent_scope, to_agent_scope
+from homemaster.substrate.messages import (
+    MessageConversionError,
+    from_agent_scope,
+    to_agent_scope,
+)
 from homemaster.substrate.toolkit import RunScope, RunScopeMiddleware
 from homemaster.task_state.models import TaskStatus
 from homemaster.task_state.store import TaskStateStore
 from homemaster.tools.contracts import PermissionSubject
+
+_logger = logging.getLogger(__name__)
 
 _REASON_ERROR_STATES = frozenset({"error", "denied", "interrupted"})
 
@@ -298,8 +305,11 @@ class AsAgentRuntime:
                 agent_state.status = status  # type: ignore[assignment]
             # The canonical session mirror must track the engine context on
             # every boundary — the assembler, stop_condition, and compaction
-            # all read the session. Only disk persistence is optional.
-            self._sync_session(session, engine_state)
+            # all read the session. Only disk persistence is optional. A
+            # provider frame the mirror cannot represent must not crash this
+            # terminal boundary — keep the last consistent mirror and let the
+            # caller's typed failure path run.
+            self._try_sync_session(session, engine_state)
             if persistence is not None:
                 persistence.save_snapshot()
 
@@ -530,15 +540,21 @@ class AsAgentRuntime:
         except TimeoutError as exc:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
-            self._sync_session(session, engine_state)
+            mirror_error = self._try_sync_session(session, engine_state)
             propagatable = _find_propagatable(exc, self._propagate_exceptions)
             if propagatable is not None:
                 save_snapshot("failed")
                 raise propagatable from None
+            error_text = "agentscope reply exceeded the run deadline"
+            if mirror_error is not None:
+                error_text = (
+                    f"{error_text}; session mirror failed: "
+                    f"{_flatten_error(mirror_error)}"
+                )
             await emit(
                 "runtime.turn_failed",
                 payload={
-                    "error": "agentscope reply exceeded the run deadline",
+                    "error": error_text,
                     "error_code": "deadline_exceeded",
                 },
             )
@@ -565,16 +581,25 @@ class AsAgentRuntime:
         except Exception as exc:
             await _close_stream(stream)
             await self._close_dangling_tool_calls(handle, emit)
-            self._sync_session(session, engine_state)
+            mirror_error = self._try_sync_session(session, engine_state)
             propagatable = _find_propagatable(exc, self._propagate_exceptions)
             if propagatable is not None:
                 save_snapshot("failed")
                 raise propagatable from None
+            error_code = (
+                "provider_protocol_error" if mirror_error is not None else "transport_error"
+            )
+            error_text = _flatten_error(exc)
+            if mirror_error is not None:
+                error_text = (
+                    f"{error_text}; session mirror failed: "
+                    f"{_flatten_error(mirror_error)}"
+                )
             await emit(
                 "runtime.turn_failed",
                 payload={
-                    "error": _flatten_error(exc),
-                    "error_code": "transport_error",
+                    "error": error_text,
+                    "error_code": error_code,
                 },
             )
             save_snapshot("failed")
@@ -583,7 +608,7 @@ class AsAgentRuntime:
                 status="failed",
                 session=session,
                 events=events,
-                error_code="transport_error",
+                error_code=error_code,
             )
         finally:
             interrupt.clear_stream()
@@ -602,7 +627,23 @@ class AsAgentRuntime:
             pending_anext[0] = None
             task = None
 
-        self._sync_session(session, engine_state)
+        mirror_error = self._try_sync_session(session, engine_state)
+        if mirror_error is not None:
+            await emit(
+                "runtime.turn_failed",
+                payload={
+                    "error": f"session mirror failed: {_flatten_error(mirror_error)}",
+                    "error_code": "provider_protocol_error",
+                },
+            )
+            save_snapshot("failed")
+            return GenericRunResult(
+                run_id=run_id,
+                status="failed",
+                session=session,
+                events=events,
+                error_code="provider_protocol_error",
+            )
         reason = handle.reply_finished_reason
         if reason == ReplyFinishedReason.INTERRUPTED or reason == "interrupted":
             return await self._cancel_result(
@@ -1020,6 +1061,23 @@ class AsAgentRuntime:
         """Mirror the authoritative engine context into the HM session."""
         session.replace_messages(from_agent_scope(list(engine_state.context)))
 
+    def _try_sync_session(
+        self, session: AgentSession, engine_state: Any
+    ) -> MessageConversionError | None:
+        """Mirror engine context, tolerating provider protocol defects.
+
+        A malformed ``ToolCallBlock.input`` in engine context makes
+        ``from_agent_scope`` raise ``MessageConversionError``. On a terminal
+        path that failure must not escape in place of the typed result —
+        the session keeps its last consistent mirror and a follow-up run can
+        recover, so the conversion error is returned for reporting instead.
+        """
+        try:
+            self._sync_session(session, engine_state)
+        except MessageConversionError as exc:
+            return exc
+        return None
+
     async def _close_dangling_tool_calls(
         self, handle: AsRunHandle, emit: Callable[..., Any]
     ) -> None:
@@ -1160,8 +1218,15 @@ class AsAgentRuntime:
             elif engine_state is not None:
                 self._sync_session(session, engine_state)
         except BaseException as exc:
-            if _find_propagatable(exc, self._propagate_exceptions) is None:
+            if _find_propagatable(
+                exc, self._propagate_exceptions
+            ) is None and not isinstance(exc, MessageConversionError):
                 raise
+            if isinstance(exc, MessageConversionError):
+                _logger.warning(
+                    "session mirror failed during cancel teardown: %s",
+                    _flatten_error(exc),
+                )
         try:
             await emit(
                 "runtime.cancelled",
