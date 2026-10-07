@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.metadata
 import signal
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 import typer
@@ -18,6 +19,38 @@ from homemaster.skills.commands import resolve_skill_command
 from homemaster.tools.contracts import PermissionSubject
 
 
+def _shell_version() -> str:
+    try:
+        return importlib.metadata.version("homemaster")
+    except importlib.metadata.PackageNotFoundError:
+        return "dev"
+
+
+def _build_prompt_reader(ctx) -> Callable[[], str] | None:
+    """Return the prompt_toolkit reader, or None to keep ``input()`` fallback."""
+
+    from homemaster.cli.prompt_loop import interactive_prompt_supported
+
+    if not interactive_prompt_supported():
+        return None
+    from homemaster.cli.prompt_loop import ShellPrompt
+
+    def model_name() -> str | None:
+        try:
+            return ctx.bundle.config.get_provider().model
+        except Exception:
+            return None
+
+    def context_usage() -> str | None:
+        # TODO(v35): no usage/token field is exposed on SessionStatus,
+        # ApplicationSession, or RunResult yet — wire the toolbar ctx= display
+        # once the session surface publishes per-session context usage.
+        return None
+
+    prompt = ShellPrompt(model_name=model_name, context_usage=context_usage)
+    return prompt.read
+
+
 def run_interactive_shell(
     *,
     resume_session_id: str | None = None,
@@ -25,8 +58,16 @@ def run_interactive_shell(
     debug: bool = False,
     permission_mode: CliPermissionMode = CliPermissionMode.FULL_AUTO,
 ) -> None:
+    from homemaster.cli.shell_commands import (
+        ShellContext,
+        dispatch_slash_command,
+        echo_unknown_command_hint,
+        interpolate_bang_output,
+        run_local_command,
+    )
+
     _enable_line_editing()
-    typer.echo("HomeMaster V1.9")
+    typer.echo(f"HomeMaster {_shell_version()}")
     report = run_doctor(live=False)
     if report.has_failures:
         typer.echo(render_doctor_text(report))
@@ -52,29 +93,36 @@ def run_interactive_shell(
         permission_store = getattr(tool_executor, "permission_store", None)
         if permission_store is not None:
             confirmation_handler.bind_store(permission_store)
-    backend = HomeCliBackend(world_path=None, memory_path=None)
     session_id = resume_session_id or new_session_id()
-    session_open = False
-    last_status = "idle"
-    last_run_id: str | None = None
-    application_session = None
     permission_subject = _interactive_permission_subject(permission_mode)
 
     with asyncio.Runner() as runner:
+        ctx = ShellContext(
+            application=application,
+            runner=runner,
+            bundle=bundle,
+            session_id=session_id,
+        )
+        ctx.backend = HomeCliBackend(world_path=None, memory_path=None)
 
         async def ask_user(question: str) -> str:
             return await asyncio.to_thread(input, f"{question}\nanswer> ")
 
         def end_session(reason: str) -> None:
-            nonlocal application_session
-            if not session_open or application_session is None:
+            if not ctx.session_open or ctx.application_session is None:
                 return
-            receipt = application_session.close(exit_reason=reason)
-            application_session = None
+            receipt = ctx.application_session.close(exit_reason=reason)
+            ctx.application_session = None
             if receipt is not None:
                 typer.echo(
-                    f"[experience] Queued session finalization {session_id} ({receipt.job_id})"
+                    f"[experience] Queued session finalization {ctx.session_id} ({receipt.job_id})"
                 )
+
+        def reset_backend() -> None:
+            ctx.backend = HomeCliBackend(world_path=None, memory_path=None)
+
+        ctx.close_session = end_session
+        ctx.reset_backend = reset_backend
 
         def finalize_for_exit(reason: str) -> None:
             with _ignore_sigint_during_cleanup(
@@ -87,19 +135,24 @@ def run_interactive_shell(
                 session_ids = application.session_manager.list_session_ids()
                 if not session_ids:
                     raise FileNotFoundError("no persisted session is available to continue")
-                session_id = session_ids[0]
+                ctx.session_id = session_ids[0]
             if resume_session_id is not None or continue_latest:
-                runner.run(application.session_manager.resume(session_id))
-                session_open = True
-                application_session = application.session(session_id)
-                typer.echo(f"Resumed session: {session_id}")
+                runner.run(application.session_manager.resume(ctx.session_id))
+                ctx.session_open = True
+                ctx.application_session = application.session(ctx.session_id)
+                typer.echo(f"Resumed session: {ctx.session_id}")
             typer.echo(
                 "Enter a task. Commands: /help, /new, /compact, /status, /events, /doctor, /exit."
             )
 
+            read_prompt = _build_prompt_reader(ctx)
+
             while True:
                 try:
-                    utterance = input("homemaster> ").strip()
+                    if read_prompt is not None:
+                        utterance = read_prompt().strip()
+                    else:
+                        utterance = input("homemaster> ").strip()
                 except EOFError:
                     finalize_for_exit("eof")
                     typer.echo("Goodbye")
@@ -110,72 +163,42 @@ def run_interactive_shell(
                     return
                 if not utterance:
                     continue
-                if utterance == "/exit":
-                    finalize_for_exit("user_exit")
-                    typer.echo("Goodbye")
-                    return
-                if utterance == "/help":
-                    typer.echo(_render_help())
+                if utterance.startswith("!"):
+                    command = utterance[1:].strip()
+                    if command:
+                        run_local_command(command)
                     continue
-                if utterance == "/new":
-                    end_session("new_session")
-                    session_id = new_session_id()
-                    backend = HomeCliBackend(world_path=None, memory_path=None)
-                    session_open = False
-                    last_status = "idle"
-                    last_run_id = None
-                    typer.echo("New session created.")
+                interpolated = interpolate_bang_output(utterance)
+                if interpolated is None:
+                    # A {!cmd} placeholder timed out; stderr already explains.
                     continue
-                if utterance == "/compact":
-                    if not session_open:
-                        typer.echo("Context compaction: no active session.")
-                        continue
-                    try:
-                        compact = runner.run(application.compact(session_id))
-                    except Exception as exc:
-                        last_status = "failed"
-                        typer.echo(f"Context compaction failed: {exc}")
-                        continue
-                    last_status = "compacted" if compact.triggered else "noop"
-                    typer.echo(
-                        "Context compaction: "
-                        f"status={last_status}, kind={compact.kind}, revision={compact.revision}"
-                    )
-                    continue
-                if utterance == "/doctor":
-                    typer.echo(render_doctor_text(run_doctor(live=False)))
-                    continue
-                if utterance == "/status":
-                    if not session_open:
-                        typer.echo("Status: idle")
-                    else:
-                        status = application.status(session_id)
-                        typer.echo(
-                            f"Status: {status.status}; generation={status.generation}; "
-                            f"revision={status.revision}; active={str(status.active).lower()}"
-                        )
-                    continue
-                if utterance == "/debug":
-                    typer.echo(f"Debug: run_id={last_run_id or 'none'}")
-                    continue
-                if utterance == "/events":
-                    typer.echo(f"Trace: {bundle.trace_path}")
+                utterance = interpolated
+                if dispatch_slash_command(utterance, ctx):
+                    if ctx.exit_reason is not None:
+                        finalize_for_exit(ctx.exit_reason)
+                        typer.echo("Goodbye")
+                        return
                     continue
 
                 try:
                     resolved_skill = resolve_skill_command(
                         utterance,
                         bundle.skill_registry,
-                        session_id=session_id,
+                        session_id=ctx.session_id,
                     )
                 except ValueError as exc:
-                    last_status = "failed"
+                    ctx.last_status = "failed"
                     typer.echo(f"Skill invocation failed: {exc}")
                     continue
+                if resolved_skill is None and utterance.startswith("/"):
+                    name = utterance[1:].partition(" ")[0].strip()
+                    if name:
+                        echo_unknown_command_hint(name, ctx)
+                        continue
 
                 try:
-                    if application_session is None:
-                        application_session = application.session(session_id)
+                    if ctx.application_session is None:
+                        ctx.application_session = application.session(ctx.session_id)
                     result = runner.run(
                         application.run(
                             RunRequest(
@@ -184,14 +207,14 @@ def run_interactive_shell(
                                     if resolved_skill is not None
                                     else utterance
                                 ),
-                                session_id=session_id,
+                                session_id=ctx.session_id,
                                 profile="home",
                                 model_override=(
                                     resolved_skill.model_override
                                     if resolved_skill is not None
                                     else None
                                 ),
-                                resume=session_open,
+                                resume=ctx.session_open,
                                 run_policy=RunPolicy(
                                     max_tool_iterations=(bundle.config.runtime.max_tool_iterations),
                                 ),
@@ -200,23 +223,23 @@ def run_interactive_shell(
                                     "skill_registry": bundle.skill_registry,
                                     "ask_user_prompt": ask_user,
                                 },
-                                environment=backend,
+                                environment=ctx.backend,
                             )
                         )
                     )
                 except KeyboardInterrupt:
-                    if session_open:
-                        application.cancel(session_id)
-                    last_status = "cancelled"
+                    if ctx.session_open:
+                        application.cancel(ctx.session_id)
+                    ctx.last_status = "cancelled"
                     typer.echo("Run cancelled.")
                     continue
                 except Exception as exc:
-                    last_status = "failed"
+                    ctx.last_status = "failed"
                     typer.echo(f"Run failed: {exc}")
                     continue
-                session_open = True
-                last_status = str(result.status)
-                last_run_id = result.run_id
+                ctx.session_open = True
+                ctx.last_status = str(result.status)
+                ctx.last_run_id = result.run_id
                 if not getattr(bundle, "live_rendered", False):
                     typer.echo(f"Assistant: {result.final_reply}")
                 if result.status is RunStatus.CANCELLED:
@@ -252,20 +275,6 @@ def _enable_line_editing() -> None:
         import readline  # noqa: F401
     except ImportError:
         return
-
-
-def _render_help() -> str:
-    return "\n".join(
-        [
-            "Commands:",
-            "/new: start a new session.",
-            "/compact: persist an immediate context compaction.",
-            "/status: show typed application session status.",
-            "/events: show the application trace path.",
-            "/doctor: check local configuration and dependencies.",
-            "/exit: close owned application resources and exit.",
-        ]
-    )
 
 
 def _interactive_permission_subject(mode: CliPermissionMode) -> PermissionSubject:

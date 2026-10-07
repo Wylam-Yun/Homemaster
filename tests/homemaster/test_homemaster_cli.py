@@ -102,11 +102,45 @@ def test_gateway_flag_rejects_one_shot_options() -> None:
     assert "--gateway cannot be combined" in result.output
 
 
-def test_config_requires_gateway_flag() -> None:
-    result = CliRunner().invoke(app, ["--config", "config/homemaster.yaml"])
+def test_config_alone_pins_path_and_starts_interactive_shell(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    cli_module = importlib.import_module("homemaster.cli.app")
+    config_module = importlib.import_module("homemaster.config.config")
+    doctor_module = importlib.import_module("homemaster.cli.doctor")
+    config_path = tmp_path / "homemaster.yaml"
+    captured = []
+
+    # The pin mutates module-level path globals; restore them at teardown.
+    monkeypatch.setattr(
+        config_module, "HOMEMASTER_CONFIG_PATH", config_module.HOMEMASTER_CONFIG_PATH
+    )
+    monkeypatch.setattr(
+        doctor_module, "HOMEMASTER_CONFIG_PATH", doctor_module.HOMEMASTER_CONFIG_PATH
+    )
+    monkeypatch.setattr(
+        cli_module,
+        "run_interactive_shell",
+        lambda **kwargs: captured.append(kwargs),
+    )
+
+    result = CliRunner().invoke(app, ["--config", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+    assert captured and captured[0]["permission_mode"] is not None
+    assert config_module.HOMEMASTER_CONFIG_PATH == config_path
+    assert doctor_module.HOMEMASTER_CONFIG_PATH == config_path
+
+
+def test_global_config_is_rejected_with_a_subcommand() -> None:
+    result = CliRunner().invoke(
+        app,
+        ["--config", "config/homemaster.yaml", "doctor"],
+    )
 
     assert result.exit_code != 0
-    assert "--config requires --gateway" in result.output
+    assert "global --config is only valid without a subcommand" in result.output
 
 
 def test_alfworld_requires_gateway_flag() -> None:

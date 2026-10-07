@@ -345,6 +345,124 @@ providers:
     assert preview["external_io"] is False
 
 
+def test_dry_run_with_files_tier_config_exposes_only_context_memory(
+    tmp_path: Path,
+) -> None:
+    """I1 regression: a files-tier ``--config`` must produce the files memory
+    surface (``context_memory``) and none of the MindMemOS tools."""
+
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text(
+        f"memory:\n  mode: files\n  data_root: {tmp_path / 'memory-data'}\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["--config", str(config_path), "--dry-run", "--output-format", "json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    preview = json.loads(result.stdout)
+    tool_names = {tool["name"] for tool in preview["tools"]}
+    assert "context_memory" in tool_names
+    assert not {name for name in tool_names if name.startswith("mindmemos_")}
+
+
+def test_dry_run_with_full_tier_config_keeps_mindmemos_tools(tmp_path: Path) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text(
+        f"memory:\n  mode: full\n  data_root: {tmp_path / 'memory-data'}\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["--config", str(config_path), "--dry-run", "--output-format", "json"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    preview = json.loads(result.stdout)
+    tool_names = {tool["name"] for tool in preview["tools"]}
+    assert "context_memory" in tool_names
+    assert "mindmemos_search" in tool_names
+
+
+def test_global_config_is_rejected_with_a_subcommand(tmp_path: Path) -> None:
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["--config", str(config_path), "doctor"])
+
+    assert result.exit_code != 0
+    assert "subcommand" in result.output
+
+
+def test_interactive_config_path_pins_default_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """``--config`` for the interactive shell must reach doctor and
+    composition, which resolve the process-wide default config path."""
+
+    import homemaster.cli.doctor as doctor_module
+    import homemaster.config.config as config_impl
+
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+    # Register the live values for teardown so the pin cannot leak.
+    monkeypatch.setattr(
+        config_impl, "HOMEMASTER_CONFIG_PATH", config_impl.HOMEMASTER_CONFIG_PATH
+    )
+    monkeypatch.setattr(
+        doctor_module, "HOMEMASTER_CONFIG_PATH", doctor_module.HOMEMASTER_CONFIG_PATH
+    )
+    observed: dict[str, Path] = {}
+
+    def fake_shell(**kwargs):
+        observed["config_default"] = config_impl.HOMEMASTER_CONFIG_PATH
+        observed["doctor_default"] = doctor_module.HOMEMASTER_CONFIG_PATH
+
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
+
+    result = CliRunner().invoke(app, ["--config", str(config_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert observed == {"config_default": config_path, "doctor_default": config_path}
+
+
+def test_shell_subcommand_config_path_pins_default_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    import homemaster.cli.doctor as doctor_module
+    import homemaster.config.config as config_impl
+
+    config_path = tmp_path / "homemaster.yaml"
+    config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
+    monkeypatch.setattr(
+        config_impl, "HOMEMASTER_CONFIG_PATH", config_impl.HOMEMASTER_CONFIG_PATH
+    )
+    monkeypatch.setattr(
+        doctor_module, "HOMEMASTER_CONFIG_PATH", doctor_module.HOMEMASTER_CONFIG_PATH
+    )
+    calls = []
+
+    def fake_shell(**kwargs):
+        calls.append(kwargs)
+        calls.append(config_impl.HOMEMASTER_CONFIG_PATH)
+
+    app_module = importlib.import_module("homemaster.cli.app")
+    monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
+
+    result = CliRunner().invoke(app, ["shell", "--config", str(config_path)])
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == [
+        {"resume_session_id": None, "permission_mode": CliPermissionMode.FULL_AUTO},
+        config_path,
+    ]
+
+
 def test_home_application_wires_validated_skill_registry_into_run_dependencies(
     monkeypatch,
     tmp_path: Path,

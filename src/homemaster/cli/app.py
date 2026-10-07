@@ -8,6 +8,7 @@ from typing import Annotated
 
 import typer
 
+import homemaster.cli.doctor as _doctor_module
 from homemaster.cli.benchmark_locomo import handle_benchmark_locomo
 from homemaster.cli.child_worker import run_child_worker
 from homemaster.cli.confirmation import CliPermissionMode
@@ -21,7 +22,7 @@ from homemaster.cli.memory_command import memory_app
 from homemaster.cli.renderers import parse_output_format, render_dry_run
 from homemaster.cli.run_command import handle_print, handle_run
 from homemaster.cli.session_command import session_app
-from homemaster.config import load_config
+from homemaster.config import load_config, pin_default_config_path
 from homemaster.events.logger import setup_logging
 from homemaster.web.serve import run_web_server
 
@@ -71,7 +72,7 @@ def main_callback(
     ] = False,
     config_path: Annotated[
         Path | None,
-        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+        typer.Option("--config", help="Path to the HomeMaster YAML configuration file."),
     ] = None,
     run_label: Annotated[
         str | None,
@@ -128,6 +129,11 @@ def main_callback(
                 "global --permission-mode is only valid without a subcommand; "
                 "use 'homemaster shell --permission-mode ...'"
             )
+        if config_path is not None:
+            raise typer.BadParameter(
+                "global --config is only valid without a subcommand; "
+                "pass --config to the subcommand directly"
+            )
         return
     try:
         if alfworld and browser:
@@ -163,8 +169,6 @@ def main_callback(
             raise typer.BadParameter("--browser cannot be combined with --dry-run")
         if permission_mode is not None and (print_prompt is not None or dry_run):
             raise typer.BadParameter("--permission-mode is only valid for the interactive shell")
-        if config_path is not None and print_prompt is None:
-            raise typer.BadParameter("--config requires --gateway or --print")
         if run_label is not None and (print_prompt is None or dry_run):
             raise typer.BadParameter("--run-label requires a non-dry-run --print")
         resolved_format = parse_output_format(output_format)
@@ -178,6 +182,7 @@ def main_callback(
                 raise typer.BadParameter("-p/--print requires a non-empty prompt")
             preview = build_dry_run_preview(
                 prompt=prompt,
+                config_path=config_path,
                 probe=probe,
                 provider_name=provider_name,
                 model=model,
@@ -204,6 +209,12 @@ def main_callback(
             raise typer.BadParameter("--provider-name/--model require --print or --dry-run")
         if output_format is not None:
             raise typer.BadParameter("--output-format requires --print or --dry-run")
+        if config_path is not None:
+            # run_interactive_shell resolves its configuration through the
+            # process-wide default path — both run_doctor and
+            # compose_application consult it — so pin the explicit --config
+            # target for this process instead of dropping the option.
+            _doctor_module.HOMEMASTER_CONFIG_PATH = pin_default_config_path(config_path)
         setup_logging(level="DEBUG" if debug else "INFO")
         run_interactive_shell(
             resume_session_id=resume_session_id,
@@ -335,8 +346,17 @@ def shell_command(
             help="Interactive tool policy: full_auto, confirm, or plan.",
         ),
     ] = CliPermissionMode.FULL_AUTO,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Path to the HomeMaster YAML configuration file."),
+    ] = None,
 ) -> None:
     """Launch the interactive HomeMaster shell."""
+    if config_path is not None:
+        # Same pinning contract as the top-level interactive entrypoint: the
+        # shell resolves doctor and composition config through the
+        # process-wide default path.
+        _doctor_module.HOMEMASTER_CONFIG_PATH = pin_default_config_path(config_path)
     run_interactive_shell(
         resume_session_id=resume_session_id,
         permission_mode=permission_mode,
@@ -347,7 +367,7 @@ def shell_command(
 def gateway_command(
     config_path: Annotated[
         Path | None,
-        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+        typer.Option("--config", help="Path to the HomeMaster YAML configuration file."),
     ] = None,
 ) -> None:
     """Run the configured Feishu/Lark WebSocket Gateway."""
@@ -385,7 +405,7 @@ def serve_command(
     ] = False,
     config_path: Annotated[
         Path | None,
-        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+        typer.Option("--config", help="Path to the HomeMaster YAML configuration file."),
     ] = None,
 ) -> None:
     """Run the loopback-only HomeMaster Web Console."""
@@ -573,7 +593,7 @@ def benchmark_locomo_command(
     ] = None,
     config_path: Annotated[
         Path | None,
-        typer.Option("--config", help="Path to the ignored HomeMaster YAML configuration."),
+        typer.Option("--config", help="Path to the HomeMaster YAML configuration file."),
     ] = None,
     provider_name: Annotated[
         str | None,
