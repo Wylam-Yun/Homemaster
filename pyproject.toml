@@ -4,38 +4,28 @@ version = "0.1.0"
 description = "LLM-first generic agent runtime with home-robot domain tools"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-  "aiokafka>=0.14.0",
   "anthropic>=0.40,<1.0",
   "croniter>=2.0.0",
   "fastapi>=0.136.1",
   "httpx>=0.28.1",
-  "jieba>=0.42.1",
   "jsonschema>=4.23,<5",
-  "litellm>=1.85.0",
-  "mindmemos",
-  "neo4j>=6.2.0",
   "numpy>=2.3.5",
-  "omegaconf",
   "openai>=1.90,<3.0",
   "opentelemetry-api>=1.42.0",
   "opentelemetry-exporter-otlp-proto-http>=1.42.0",
   "opentelemetry-sdk>=1.42.0",
   "pillow>=10,<13",
-  "posthog>=7.14.0",
   "protobuf>=5.29.6,<7.0.0",
   "pydantic>=2.7",
   "python-dotenv>=1.2.2",
   "pytz>=2024.1",
-  "qdrant-client==1.18.0",
   "pyyaml>=6.0",
   "rich>=13.7",
-  "fastembed==0.8.0",
-  "spacy==3.8.14",
   "sqlalchemy>=2.0.31",
   "structlog>=25.5.0",
   "typer>=0.12",
-  "traced>=0.1.5",
   "uvicorn>=0.47.0",
+  "websockets>=12",
   # vendored agentscope (src/agentscope/) core import closure —
   # upstream core deps not already covered above
   "aiofiles",
@@ -59,10 +49,22 @@ dependencies = [
   "tree_sitter_bash",
   "typing-extensions>=4.10",
   "tzdata",
-  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
 ]
 
 [project.optional-dependencies]
+# Full memory tier (memory.mode=full): vendored mindmemos' external deps.
+# mindmemos itself ships inside the wheel (see packages.find) and is provided
+# in dev via [dependency-groups]; it must NOT appear in Requires-Dist.
+memory = [
+  "aiokafka>=0.14.0",
+  "jieba>=0.42.1",
+  "litellm>=1.85.0",
+  "neo4j>=6.2.0",
+  "omegaconf",
+  "qdrant-client==1.18.0",
+  "spacy==3.8.14",
+  "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
+]
 dev = [
   "pytest>=8.2,<10",
   "pytest-asyncio>=0.23,<2",
@@ -80,6 +82,13 @@ gateway = [
 
 [project.scripts]
 homemaster = "homemaster.cli.app:app"
+
+# Dev-only dependency group: vendored MindMemOS is needed in the dev
+# environment (uv sync installs the dev group by default) but must never
+# enter wheel Requires-Dist — the package itself is bundled via
+# packages.find below.
+[dependency-groups]
+dev = ["mindmemos"]
 
 [tool.uv.sources]
 mindmemos = { path = "third_party/MindMemOS/src/mindmemos" }

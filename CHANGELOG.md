@@ -1,5 +1,25 @@
 # Unreleased
 
+- Wheel distribution is now self-contained for the lightweight tier:
+  `mindmemos` is no longer declared as a runtime dependency (the vendored
+  package ships inside the wheel via `packages.find`; declaring it made
+  `uv tool install`/`pip install dist/*.whl` fail with `No solution found`
+  since nothing named mindmemos exists on PyPI). Verified end-to-end in a
+  clean venv on macOS arm64: install resolves, `import homemaster` /
+  `import agentscope` / `homemaster --help` all pass, and the heavy memory
+  stack (neo4j/qdrant/spacy) stays uninstalled. MindMemOS's external deps
+  (neo4j, qdrant-client, spacy + en-core-web-sm, jieba, aiokafka,
+  omegaconf, litellm) moved to a new `memory` extra for the full tier;
+  dev environments keep resolving vendored mindmemos through a new
+  `[dependency-groups].dev` entry (installed by default `uv sync`, absent
+  from wheel metadata). Dead dependencies with zero imports anywhere in
+  `homemaster`/`agentscope`/`mindmemos` removed outright: `posthog`,
+  `traced`, `fastembed`. `websockets` promoted to a formal dependency
+  (required by the upcoming thin-client shell). NOTE: `doctor` still
+  assumes the full memory tier until the `memory.mode` split lands —
+  in a files-tier install its MindMemOS checks are expected to FAIL until
+  then.
+
 - Fixed the AgentScope-migration regression where context compaction only
   ever rewrote the per-round session mirror — `sync_session()` overwrote
   it from the append-only engine transcript every round, so once the
