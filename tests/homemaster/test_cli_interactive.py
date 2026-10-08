@@ -136,7 +136,7 @@ def _install_shell(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(
         module,
         "run_doctor",
-        lambda live=False: SimpleNamespace(has_failures=False),
+        lambda live=False, config_path=None: SimpleNamespace(has_failures=False),
     )
     return application, bundle
 
