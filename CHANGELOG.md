@@ -2,6 +2,17 @@
 
 - Architecture-debt cleanup (maintainability round):
 
+  - `EmbeddedMindMemOS` (1976 lines, 31 methods) split into four
+    responsibility mixins under `src/homemaster/memory/` — lifecycle,
+    writes, queries/mutations, and feedback — sharing
+    `_mindmemos_shared.py` for contextvars/helpers. The facade class
+    keeps the identical public API; method bodies moved verbatim.
+    `AlfworldEnvAdapter` (~2275 lines, 45 methods) split the same way
+    under `src/homemaster/alfworld/benchmark/` — internals, lifecycle,
+    navigation, manipulation, state — with `_adapter_shared.py` as the
+    leaf and `adapter.py` reduced to a 192-line facade plus re-exports.
+    No caller or test needed changes.
+
   - `ContextAssembler` no longer carries a sync/async twin. The sync
     `prepare`/`_compact`/`_build_summary` path was dead in production —
     and silently broken: under the real async summary client it produced
