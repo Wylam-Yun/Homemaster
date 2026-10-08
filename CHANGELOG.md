@@ -1,5 +1,14 @@
 # Unreleased
 
+- Full-tier acceptance fixes: structured memory feedback no longer
+  fails when the correcting turn's evidence sequence equals the target
+  memory's provenance sequence — `_execute_structured_feedback_update`
+  clamps the replacement provenance to `current_seq + 1` instead of
+  rejecting equal values (same-turn corrections are now legal);
+  `test_cli_streaming_blackbox` now ships a minimal files-mode config
+  instead of the example file, so the streaming contract gates no longer
+  require a MindMemOS/Neo4j stack the tests never exercise.
+
 - Code-quality pass (final review round): `assert_semantic_equal` now
   actually compares normalized block payloads (previously it built the
   payloads and returned — a vacuous round-trip gate); leading

@@ -1718,7 +1718,11 @@ class EmbeddedMindMemOS:
             )
         current_seq = int(current_metadata.get("provenance_seq", 0))
         provenance_seq = _FEEDBACK_PROVENANCE_SEQ.get()
-        if provenance_seq is None:
+        # The contextvar carries the feedback turn's evidence seq, which can
+        # legitimately equal the record's own seq — e.g. a user correcting a
+        # memory in the same turn that wrote it. Ordering only requires strict
+        # increase, so clamp instead of rejecting.
+        if provenance_seq is None or provenance_seq <= current_seq:
             provenance_seq = current_seq + 1
         current_serialized = serialize_record(current_record, provenance_seq=current_seq)
         replacement = serialize_record(replacement_record, provenance_seq=provenance_seq)
@@ -1726,7 +1730,6 @@ class EmbeddedMindMemOS:
             current_record.memory_type != replacement_record.memory_type
             or current_serialized.dedupe_key != replacement.dedupe_key
             or replacement_record.source != current_record.source
-            or provenance_seq <= current_seq
         ):
             return action.model_copy(
                 update={"result_memory_id": action.target_memory_id, "status": "error"}

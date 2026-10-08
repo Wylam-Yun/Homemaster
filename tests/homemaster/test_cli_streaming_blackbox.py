@@ -20,7 +20,39 @@ from pathlib import Path
 
 import pytest
 
-_EXAMPLE_CONFIG = Path(__file__).resolve().parents[2] / "config" / "homemaster.example.yaml"
+
+def _write_blackbox_config(directory: Path) -> Path:
+    """Minimal files-mode config so the subprocess never needs MindMemOS/Neo4j.
+
+    The shipped example config opts into ``memory.mode: full``, which requires a
+    real embedding provider and managed Neo4j — irrelevant to these streaming
+    contract gates. Provider credentials still arrive via HOMEMASTER_MIMO_* env
+    overrides so that code path stays under test.
+    """
+
+    config_path = directory / "homemaster.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "providers:",
+                "  default: Mimo",
+                "  items:",
+                "    - name: Mimo",
+                "      kind: chat",
+                "      api_format: anthropic",
+                "      auth_type: auth_token",
+                "      base_url: https://provider.example/anthropic",
+                "      model: your-chat-model",
+                "      api_keys:",
+                '        - "<your-api-token>"',
+                "memory:",
+                "  mode: files",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return config_path
 
 
 class _SseState:
@@ -233,13 +265,14 @@ def _blocked_anthropic_server(
 
 def _start_cli(base_url: str, output_format: str) -> subprocess.Popen[bytes]:
     env = os.environ.copy()
+    home = Path(tempfile.mkdtemp(prefix="homemaster-cli-blackbox-"))
     env.update(
         {
-            "HOME": tempfile.mkdtemp(prefix="homemaster-cli-blackbox-"),
+            "HOME": str(home),
             "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
             "HOMEMASTER_MIMO_BASE_URL": base_url,
             "HOMEMASTER_MIMO_MODEL": "blackbox-model",
-            "HOMEMASTER_CONFIG_PATH": str(_EXAMPLE_CONFIG),
+            "HOMEMASTER_CONFIG_PATH": str(_write_blackbox_config(home)),
             "PYTHONUNBUFFERED": "1",
         }
     )
@@ -437,7 +470,7 @@ def test_real_interactive_rich_bash_final_screen_via_tmux(
                 "HOMEMASTER_MIMO_API_KEY": "blackbox-provider-secret",
                 "HOMEMASTER_MIMO_BASE_URL": base_url,
                 "HOMEMASTER_MIMO_MODEL": "blackbox-model",
-                "HOMEMASTER_CONFIG_PATH": str(_EXAMPLE_CONFIG),
+                "HOMEMASTER_CONFIG_PATH": str(_write_blackbox_config(isolated_home)),
                 "TERM": "xterm-256color",
                 "RICH_HIDDEN_BODY": "RICH_RESULT_BODY_MUST_BE_HIDDEN",
             }

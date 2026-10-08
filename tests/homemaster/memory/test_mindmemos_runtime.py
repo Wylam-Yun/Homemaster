@@ -1265,3 +1265,61 @@ async def test_close_shuts_down_litellm_async_clients(monkeypatch) -> None:
     await runtime.close()
 
     assert calls == ["close_llm_clients", "reset_config"]
+
+
+@pytest.mark.asyncio
+async def test_structured_feedback_same_turn_evidence_seq_clamps_up(tmp_path: Path) -> None:
+    """A correction arriving in the same turn that wrote the record has
+    evidence seq == record seq — must clamp to current+1, not reject."""
+    from mindmemos.typing import FeedbackUpdateAction, MemoryRequestContext
+
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    runtime = module.EmbeddedMindMemOS(
+        HomeMasterConfig(memory={"data_root": tmp_path / "memory", "embedding_dimensions": 8})
+    )
+    old_record = {
+        "schema_version": 1,
+        "memory_type": "fact",
+        "subject": {"type": "other", "name": "proj-x", "id": None},
+        "predicate": "package_manager",
+        "value": "uv",
+        "source": "user_statement",
+    }
+    replacement = {**old_record, "value": "uv online; Poetry offline"}
+    current = SimpleNamespace(
+        metadata={
+            "request_metadata": {
+                "record_metadata": [{"record_json": json.dumps(old_record), "provenance_seq": 1}]
+            }
+        }
+    )
+    calls: list[dict[str, Any]] = []
+
+    async def update_versioned(**kwargs: Any):
+        calls.append(kwargs)
+        return SimpleNamespace(status="ok", memory_id="new", message=None)
+
+    runtime.update_versioned = update_versioned  # type: ignore[method-assign]
+    action = FeedbackUpdateAction(
+        target_memory_id="old",
+        before_content='proj-x 的 package_manager 是 "uv"',
+        after_content="planner text",
+        replacement_record=replacement,
+    )
+    context = MemoryRequestContext(
+        request_id="request-1",
+        account_id="account-1",
+        project_id="project-1",
+        api_key_uuid="local",
+        user_id="user-1",
+    )
+
+    # Same-turn feedback: the feedback evidence seq equals the record's seq.
+    token = module._FEEDBACK_PROVENANCE_SEQ.set(1)
+    try:
+        result = await runtime._execute_structured_feedback_update(action, current, context)
+    finally:
+        module._FEEDBACK_PROVENANCE_SEQ.reset(token)
+
+    assert result.status == "ok"
+    assert calls and calls[0]["metadata"]["provenance_seq"] == 2
