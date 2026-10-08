@@ -365,10 +365,8 @@ class ApplicationRuntime:
                     _provider_binding(provider_value, run_id=f"compact-{generation}")
                 ).resource
                 assembler = self.context_assembler_factory(request, provider)
-                aprepare = getattr(assembler, "aprepare", None)
-                prepare = aprepare if callable(aprepare) else assembler.prepare
                 composed: ComposedContext = await _maybe_await(
-                    prepare(
+                    assembler.aprepare(
                         session=runtime.session,
                         agent_state=runtime.agent_state,
                         task_state_store=runtime.task_state_store,

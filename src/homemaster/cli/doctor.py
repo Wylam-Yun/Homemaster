@@ -15,10 +15,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from homemaster.config import (
-    HOMEMASTER_CONFIG_PATH,
     REPO_ROOT,
     ConfigError,
     load_config,
+    resolve_config_path,
 )
 from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.providers.embedding_client import BGEEmbeddingClient, EmbeddingClientError
@@ -51,12 +51,18 @@ class DoctorReport(BaseModel):
         return any(check.status == "FAIL" for check in self.checks)
 
 
-def run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
+def run_doctor(
+    *,
+    live: bool = False,
+    alfworld: bool = False,
+    config_path: str | Path | None = None,
+) -> DoctorReport:
     """Run local checks and optional provider smoke checks with authoritative details."""
 
+    resolved_path = resolve_config_path(config_path)
     checks: list[DoctorCheck] = []
-    config_source = _config_source()
-    memory_mode = _configured_memory_mode()
+    config_source = _config_source(resolved_path)
+    memory_mode = _configured_memory_mode(resolved_path)
     checks.append(_python_environment_check())
     checks.append(_memory_mode_check(memory_mode))
     checks.extend(_import_checks(memory_mode=memory_mode))
@@ -67,13 +73,13 @@ def run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
     if alfworld:
         checks.append(_alfworld_binding_check())
         checks.append(_worker_protocol_check())
-    checks.append(_config_check(config_source, memory_mode=memory_mode))
+    checks.append(_config_check(config_source, memory_mode=memory_mode, path=resolved_path))
     if memory_mode == "full":
-        checks.append(_embedding_endpoint_check())
-        checks.append(_memory_backend_check())
+        checks.append(_embedding_endpoint_check(resolved_path))
+        checks.append(_memory_backend_check(resolved_path))
     checks.append(_ignored_paths_check())
     if live:
-        checks.extend(_live_provider_checks(memory_mode=memory_mode))
+        checks.extend(_live_provider_checks(memory_mode=memory_mode, path=resolved_path))
     return DoctorReport(live=live, config_source=config_source, checks=checks)
 
 
@@ -119,11 +125,11 @@ _FULL_TIER_IMPORT_MODULES = frozenset(
 )
 
 
-def _configured_memory_mode() -> str:
+def _configured_memory_mode(path: Path) -> str:
     """Best-effort read of ``memory.mode``; fail closed to the full tier."""
 
     try:
-        mode = load_config(HOMEMASTER_CONFIG_PATH).memory.mode
+        mode = load_config(path).memory.mode
     except Exception:
         return "full"
     return mode if mode in ("files", "full") else "full"
@@ -344,16 +350,16 @@ def _read_worker_line(stream: Any, *, timeout_s: float) -> dict[str, Any]:
     return value
 
 
-def _config_source() -> str:
+def _config_source(path: Path) -> str:
     try:
-        return str(HOMEMASTER_CONFIG_PATH.relative_to(REPO_ROOT))
+        return str(path.relative_to(REPO_ROOT))
     except ValueError:
-        return str(HOMEMASTER_CONFIG_PATH)
+        return str(path)
 
 
-def _config_check(config_source: str, *, memory_mode: str = "full") -> DoctorCheck:
+def _config_check(config_source: str, *, memory_mode: str = "full", path: Path) -> DoctorCheck:
     try:
-        config = load_config(HOMEMASTER_CONFIG_PATH)
+        config = load_config(path)
         chat_provider = config.get_provider(
             config.runtime_defaults.default_provider_name, kind="chat"
         )
@@ -408,9 +414,9 @@ def _config_check(config_source: str, *, memory_mode: str = "full") -> DoctorChe
     )
 
 
-def _embedding_endpoint_check() -> DoctorCheck:
+def _embedding_endpoint_check(path: Path) -> DoctorCheck:
     try:
-        config = load_config(HOMEMASTER_CONFIG_PATH)
+        config = load_config(path)
         provider = config.get_provider(
             config.runtime_defaults.default_embedding_provider_name,
             kind="embedding",
@@ -437,9 +443,9 @@ def _embedding_endpoint_check() -> DoctorCheck:
     )
 
 
-def _memory_backend_check() -> DoctorCheck:
+def _memory_backend_check(path: Path) -> DoctorCheck:
     try:
-        config = load_config(HOMEMASTER_CONFIG_PATH)
+        config = load_config(path)
     except ConfigError as exc:
         return DoctorCheck(
             name="memory_backend",
@@ -563,17 +569,17 @@ def _git_check_ignore(path: str) -> bool:
     return result.returncode == 0
 
 
-def _live_provider_checks(*, memory_mode: str = "full") -> list[DoctorCheck]:
+def _live_provider_checks(*, memory_mode: str = "full", path: Path) -> list[DoctorCheck]:
     checks: list[DoctorCheck] = []
-    checks.append(_live_mimo_smoke())
+    checks.append(_live_mimo_smoke(path))
     if memory_mode == "full":
-        checks.append(_live_embedding_smoke())
+        checks.append(_live_embedding_smoke(path))
     return checks
 
 
-def _live_mimo_smoke() -> DoctorCheck:
+def _live_mimo_smoke(path: Path) -> DoctorCheck:
     try:
-        config = load_config(HOMEMASTER_CONFIG_PATH)
+        config = load_config(path)
         provider = config.get_provider(
             config.runtime_defaults.default_provider_name, kind="chat"
         )
@@ -604,9 +610,9 @@ def _live_mimo_smoke() -> DoctorCheck:
     )
 
 
-def _live_embedding_smoke() -> DoctorCheck:
+def _live_embedding_smoke(path: Path) -> DoctorCheck:
     try:
-        config = load_config(HOMEMASTER_CONFIG_PATH)
+        config = load_config(path)
         provider = config.get_provider(
             config.runtime_defaults.default_embedding_provider_name,
             kind="embedding",

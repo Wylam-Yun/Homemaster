@@ -919,26 +919,14 @@ def _anchor_path(value: object, *, config_dir: Path) -> Path:
     return path.resolve(strict=False)
 
 
-def _resolve_config_path(config_path: str | Path | None) -> Path:
+def resolve_config_path(config_path: str | Path | None) -> Path:
     path = Path(config_path) if config_path is not None else HOMEMASTER_CONFIG_PATH
     if not path.is_absolute():
         path = REPO_ROOT / path
     return path
 
 
-def pin_default_config_path(config_path: str | Path) -> Path:
-    """Rebind the process-wide default config path to an explicit file.
-
-    Entry points that cannot thread ``config_path`` through deeper layers —
-    the interactive shell reaches its config through ``run_doctor`` and
-    ``compose_application``, both of which consult the module-level default —
-    pin the resolved path here so every downstream ``load_config()`` reads
-    the same file.  Returns the resolved absolute path.
-    """
-
-    global HOMEMASTER_CONFIG_PATH
-    HOMEMASTER_CONFIG_PATH = _resolve_config_path(config_path)
-    return HOMEMASTER_CONFIG_PATH
+_resolve_config_path = resolve_config_path
 
 
 def _apply_env_overrides(

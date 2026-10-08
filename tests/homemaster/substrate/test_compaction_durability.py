@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import asyncio
+
 import pytest
 
 from homemaster.agent.context import ContextAssembler
@@ -105,12 +107,12 @@ def _seed_pairs(
 
 
 def _prepare(assembler: ContextAssembler, session: AgentSession, state: AgentState):
-    return assembler.prepare(
+    return asyncio.run(assembler.aprepare(
         session=session,
         agent_state=state,
         task_state_store=None,
         tools=[],
-    )
+    ))
 
 
 def _text(context) -> str:
@@ -299,12 +301,12 @@ def test_snapshot_round_trip_preserves_artifact() -> None:
     assert restored_state.compaction is not None
     assert restored_state.compaction.first_kept_index == state.compaction.first_kept_index
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=restored_session,
         agent_state=restored_state,
         task_state_store=None,
         tools=[],
-    )
+    ))
     assert summary_client.calls == 1
     assert "summary n1" in _text(context)
 
@@ -354,12 +356,12 @@ def test_snapshot_stripped_image_forces_one_refold() -> None:
     )
     restored_session, restored_state, _ = AgentSession.from_snapshot_dict(snap)
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=restored_session,
         agent_state=restored_state,
         task_state_store=None,
         tools=[],
-    )
+    ))
     assert summary_client.calls == 2  # one refold, not an error loop
     assert restored_state.compaction is not None
     assert context.metrics.compaction_triggered is True
@@ -417,13 +419,13 @@ def test_reactive_aggressive_compaction_writes_artifact() -> None:
     state = AgentState(run_id="r1", session_id="s1")
 
     # Reactive retry path (force_compact="aggressive") folds + persists.
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=state,
         task_state_store=None,
         tools=[],
         force_compact="aggressive",
-    )
+    ))
     assert context.metrics.compaction_triggered is True
     # metrics carries the trigger so _notify_compaction reports "reactive",
     # not "auto".
@@ -510,13 +512,13 @@ def test_head_stubs_are_not_rewrapped_each_round() -> None:
 
     # A second fold must not re-summarize stubs either — neither in the
     # outgoing view nor in the persisted head.
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=state,
         task_state_store=None,
         tools=[],
         force_compact="manual",
-    )
+    ))
     assert "[navigate] [navigate]" not in _text(context)
     head_text = "\n".join(
         block.text
@@ -674,13 +676,13 @@ def test_new_fold_invalidates_anchor() -> None:
     assert anchored > 5000  # sanity: anchored path reports the anchor
 
     # Manual compact → new artifact key → anchor stale → full heuristic.
-    assembler.prepare(
+    asyncio.run(assembler.aprepare(
         session=session,
         agent_state=state,
         task_state_store=None,
         tools=[],
         force_compact="manual",
-    )
+    ))
     fallback = _prepare(assembler, session, state).metrics.estimated_tokens
     assert fallback < 3000  # full heuristic of the small folded view
 
@@ -729,12 +731,12 @@ def test_tools_change_invalidates_anchor() -> None:
             "input_schema": {"type": "object", "properties": {}},
         }
     ]
-    fallback = assembler.prepare(
+    fallback = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=state,
         task_state_store=None,
         tools=tools,
-    ).metrics.estimated_tokens
+    )).metrics.estimated_tokens
     assert fallback < anchored  # full heuristic, not anchored 5000+
 
 
@@ -777,7 +779,12 @@ async def test_record_usage_promotes_pending_view() -> None:
     _seed_pairs(session, pairs=10)
     state = AgentState(run_id="r1", session_id="s1")
 
-    _prepare(assembler, session, state)
+    await assembler.aprepare(
+        session=session,
+        agent_state=state,
+        task_state_store=None,
+        tools=[],
+    )
     assert state.pending_view is not None
     assert state.usage_anchor is None
 
@@ -801,7 +808,12 @@ async def test_record_usage_promotes_pending_view() -> None:
 
     # OpenAI-family: input_tokens already includes the cached share —
     # adding cache_read would double-count every cache hit.
-    _prepare(assembler, session, state)
+    await assembler.aprepare(
+        session=session,
+        agent_state=state,
+        task_state_store=None,
+        tools=[],
+    )
     await AsAgentRuntime._record_usage(
         state,
         {"input_tokens": 300, "cache_read_input_tokens": 200, "output_tokens": 40},

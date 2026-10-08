@@ -50,7 +50,7 @@ async def test_automatic_memory_context_is_prelude_not_history() -> None:
         '<memory-context>\n[{"id":"memory-1"}]\n</memory-context>'
     )
 
-    composed = assembler.prepare(
+    composed = await assembler.aprepare(
         session=runtime.session,
         agent_state=runtime.agent_state,
         task_state_store=runtime.task_state_store,
@@ -82,7 +82,7 @@ async def test_context_reprojects_exact_session_task_store_each_iteration() -> N
     )
     assembler = _assembler()
 
-    first = assembler.prepare(
+    first = await assembler.aprepare(
         session=runtime.session,
         agent_state=runtime.agent_state,
         task_state_store=runtime.task_state_store,
@@ -92,7 +92,7 @@ async def test_context_reprojects_exact_session_task_store_each_iteration() -> N
         goal="goal",
         subtasks=[{"id": "b", "description": "second description"}],
     )
-    second = assembler.prepare(
+    second = await assembler.aprepare(
         session=runtime.session,
         agent_state=runtime.agent_state,
         task_state_store=runtime.task_state_store,
@@ -125,14 +125,14 @@ async def test_one_session_manual_compaction_does_not_leak_to_another() -> None:
         second.session.append(AssistantMessage(content=[ContentBlock(text="y" * 400)]))
     assembler = _assembler()
 
-    first_context = assembler.prepare(
+    first_context = await assembler.aprepare(
         session=first.session,
         agent_state=first.agent_state,
         task_state_store=first.task_state_store,
         tools=[],
         force_compact="manual",
     )
-    second_context = assembler.prepare(
+    second_context = await assembler.aprepare(
         session=second.session,
         agent_state=second.agent_state,
         task_state_store=second.task_state_store,

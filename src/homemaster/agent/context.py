@@ -396,187 +396,6 @@ class ContextAssembler:
             token_estimation_padding=self._policy.token_estimation_padding,
         )
 
-    def prepare(
-        self,
-        *,
-        session: AgentSession,
-        agent_state: AgentState,
-        task_state_store: TaskStateStore | None,
-        tools: list[dict] | None,
-        force_compact: str | bool | None = None,
-    ) -> ComposedContext:
-        system_prompt = self._session_system_prompt(session.session_id)
-        providers = self._build_providers(
-            session=session,
-            agent_state=agent_state,
-            task_state_store=task_state_store,
-        )
-        items = [
-            item
-            for provider in providers
-            for item in provider.collect()
-            if item.placement is not ContextPlacement.TRACE_ONLY
-        ]
-
-        prelude_texts: list[str] = []
-        if self._automatic_memory_context is not None:
-            prelude_texts.append(self._automatic_memory_context)
-        conversation_messages: list[Message] = session.messages
-        for item in items:
-            rendered = item.render(item.mode)
-            if item.placement is ContextPlacement.CONTEXT_PRELUDE and isinstance(rendered, str):
-                prelude_texts.append(rendered)
-            elif item.placement is ContextPlacement.CONVERSATION and isinstance(rendered, list):
-                conversation_messages = rendered
-
-        canonical_messages = session.messages
-        conversation_view, view_offset, view_head_len, coords_ok = (
-            self._projected_conversation_view(
-                agent_state=agent_state,
-                rendered=conversation_messages,
-                canonical=canonical_messages,
-            )
-        )
-        conversation_view, view_kept = repair_tool_pairs_indexed(conversation_view)
-        # repair may drop orphans — the head boundary and fold coordinates
-        # must be expressed in post-repair positions. view_kept maps a
-        # post-repair view index back to the pre-repair view, which
-        # view_offset then maps onto canonical indices.
-        repaired_head_len = bisect_left(view_kept, view_head_len)
-        if repaired_head_len:
-            # Head is the durable verbatim fold output — hygiene applies to
-            # the raw canonical tail only. Re-running micro over the head
-            # would re-summarize already-stubbed tool results (the
-            # summarizers are not idempotent).
-            head_view = conversation_view[:repaired_head_len]
-            tail_view, _ = strip_old_images(
-                conversation_view[repaired_head_len:],
-                keep_recent_images=self._policy.keep_recent_images,
-            )
-            tail_view, _ = microcompact_tool_results_by_type(
-                tail_view,
-                keep_recent_per_type=dict(self._policy.keep_recent_tool_results_per_type),
-                default_keep_recent=self._policy.default_keep_recent_tool_results,
-            )
-            conversation_view = [*head_view, *tail_view]
-        conversation_messages = project_model_tool_context(
-            conversation_view,
-            tools=tools,
-        )
-        fixed_est = (
-            self._estimator.estimate_text(system_prompt)
-            + sum(self._estimator.estimate_text(text) for text in prelude_texts)
-            + estimate_tools_tokens(tools)
-        )
-        estimated = self._estimate_input(
-            agent_state=agent_state,
-            fixed_est=fixed_est,
-            conversation_messages=conversation_messages,
-            canonical_messages=canonical_messages,
-            tools=tools,
-        )
-        budget = self._budget()
-        padded = budget.padded(estimated)
-        agent_state.estimated_context_tokens = padded
-
-        compaction_triggered = False
-        compaction_kind = "none"
-
-        force_requested = bool(force_compact)
-        should_auto_compact = (
-            self._policy.auto_compact_enabled
-            and budget.should_compact(padded) is BudgetDecision.COMPACT
-        )
-        if force_requested or should_auto_compact:
-            before_tokens = padded
-            force_mode = str(force_compact) if force_compact else ""
-            compaction_ran, kind, out_messages, fold_upto, head_len = self._compact(
-                messages=conversation_view,
-                budget=budget,
-                aggressive=force_mode in {"aggressive", "manual"},
-                force_summary=force_mode == "manual",
-                view_head_len=repaired_head_len,
-                view_presanitized=view_head_len > 0,
-            )
-            if compaction_ran:
-                conversation_view = out_messages
-                conversation_messages = project_model_tool_context(
-                    conversation_view,
-                    tools=tools,
-                )
-                compaction_kind = (
-                    f"manual_{kind}"
-                    if force_mode == "manual"
-                    else f"reactive_{kind}"
-                    if force_requested
-                    else kind
-                )
-                after_estimate = estimate_messages_tokens(
-                    conversation_messages,
-                    estimator=self._estimator,
-                )
-                after_estimate += self._estimator.estimate_text(system_prompt)
-                after_estimate += sum(self._estimator.estimate_text(text) for text in prelude_texts)
-                after_estimate += estimate_tools_tokens(tools)
-                after_tokens = budget.padded(after_estimate)
-                padded = after_tokens
-                if kind == "summary" and fold_upto is not None and coords_ok:
-                    first_kept = (
-                        view_kept[fold_upto] + view_offset
-                        if fold_upto < len(view_kept)
-                        else len(canonical_messages)
-                    )
-                    agent_state.compaction = CompactionArtifact(
-                        first_kept_index=first_kept,
-                        prefix_hash=_hash_messages(canonical_messages[:first_kept]),
-                        head_messages=[
-                            m.model_dump(mode="json") for m in out_messages[:head_len]
-                        ],
-                    )
-                    compaction_triggered = True
-                    if force_mode == "manual":
-                        record_kind = "manual"
-                        record_reason = "manual"
-                    elif force_requested:
-                        record_kind = "reactive"
-                        record_reason = "provider_context_length"
-                    else:
-                        record_kind = "summary"
-                        record_reason = "threshold"
-                    agent_state.last_compaction = CompactionRecord(
-                        kind=record_kind,
-                        before_tokens=before_tokens,
-                        after_tokens=after_tokens,
-                        reason=record_reason,
-                    )
-        # The input this prepare built covers the whole canonical span —
-        # record the coverage so the next provider usage landing can anchor
-        # on it (see UsageAnchor / _estimate_input).
-        agent_state.pending_view = UsageAnchor(
-            canonical_len=len(canonical_messages),
-            artifact_key=_artifact_key(agent_state.compaction),
-            tail_key=_tail_key(canonical_messages),
-            fixed_est=fixed_est,
-            tools_key=_tools_key(tools),
-            prefix_key=_prefix_key(canonical_messages),
-        )
-        messages = self._render_messages(
-            prelude_texts=prelude_texts,
-            conversation_messages=conversation_messages,
-        )
-
-        return ComposedContext(
-            messages=messages,
-            system_prompt=system_prompt,
-            tools=tools,
-            metrics=ContextMetrics(
-                estimated_tokens=padded,
-                compaction_triggered=compaction_triggered,
-                compaction_kind=compaction_kind,
-            ),
-            automatic_recalled_memories=self._automatic_recalled_memories,
-        )
-
     async def aprepare(
         self,
         *,
@@ -893,136 +712,6 @@ class ContextAssembler:
         view = [*head, *canonical[first_kept:]]
         return view, first_kept - len(head), len(head), True
 
-    def _compact(
-        self,
-        *,
-        messages: list[Message],
-        budget: ContextBudget,
-        aggressive: bool = False,
-        force_summary: bool = False,
-        view_head_len: int = 0,
-        view_presanitized: bool = False,
-    ) -> tuple[bool, str, list[Message], int | None, int]:
-        """Fold the oldest region of ``messages`` behind a summary head.
-
-        Pure transform — the caller owns persistence (compaction artifact);
-        the session mirror is never written. ``view_head_len`` is the head
-        boundary expressed in ``messages`` coordinates: positions below it
-        came from a prior compaction head, positions at/above it are live
-        canonical tail. ``view_presanitized`` marks that the caller already
-        applied stage-1 hygiene (strip/micro) to this view — the stage is
-        skipped so stub text is never re-summarized. Returns
-        ``(ran, kind, out_messages, fold_upto, head_len)`` where
-        ``fold_upto`` is the ``messages`` index of the first surviving
-        canonical-tail message (``len(messages)`` when the whole tail was
-        dropped by repair) and ``head_len`` is the prefix of
-        ``out_messages`` that forms the durable head segment. Both are
-        meaningful only for ``kind == "summary"``.
-        """
-        view_len = len(messages)
-        stage1_messages = messages
-        stripped_images = 0
-        saved_tool_tokens = 0
-        if not view_presanitized:
-            # The caller pre-sanitizes artifact-projected views — re-running
-            # strip/micro here would double-wrap tool stubs into the durable
-            # head (summarize_tool_result is not idempotent).
-            stage1_messages, stripped_images = strip_old_images(
-                messages,
-                keep_recent_images=self._policy.keep_recent_images,
-            )
-            stage1_messages, saved_tool_tokens = microcompact_tool_results_by_type(
-                stage1_messages,
-                keep_recent_per_type=dict(self._policy.keep_recent_tool_results_per_type),
-                default_keep_recent=self._policy.default_keep_recent_tool_results,
-            )
-        msgs_to_view: list[int] | None = None
-        if stripped_images or saved_tool_tokens:
-            stage1_messages, msgs_to_view = repair_tool_pairs_indexed(stage1_messages)
-            stage1_estimate = estimate_messages_tokens(
-                stage1_messages,
-                estimator=self._estimator,
-            )
-            if (
-                not force_summary
-                and budget.should_compact(budget.padded(stage1_estimate))
-                is not BudgetDecision.COMPACT
-            ):
-                return True, "micro", stage1_messages, None, 0
-            messages = stage1_messages
-
-        tail_ratio = (
-            self._policy.aggressive_tail_token_ratio
-            if aggressive
-            else self._policy.tail_token_ratio
-        )
-        protect_first_n = (
-            self._policy.aggressive_protect_first_n if aggressive else self._policy.protect_first_n
-        )
-        if force_summary:
-            preserve_count = 1
-        else:
-            preserve_count = _tail_message_count_for_budget(
-                messages,
-                tail_token_budget=max(1, int(budget.compaction_threshold_tokens * tail_ratio)),
-                estimator=self._estimator,
-                min_messages=1,
-            )
-        older, recent = split_preserving_recent_context(
-            messages,
-            preserve_recent_messages=preserve_count,
-            protect_first_n=protect_first_n,
-        )
-        if not older:
-            if stripped_images or saved_tool_tokens:
-                return True, "micro", messages, None, 0
-            return False, "none", messages, None, 0
-
-        summary = self._build_summary(older=older, recent=recent)
-        compacted_pre = [build_compaction_summary_message(summary), *recent]
-        compacted_messages, kept = repair_tool_pairs_indexed(compacted_pre)
-        compacted_messages, _stripped_final = strip_old_images(
-            compacted_messages,
-            keep_recent_images=self._policy.keep_recent_images,
-        )
-        split_index = len(messages) - len(recent) + protect_first_n
-        fold_upto, head_len = _fold_geometry(
-            split_index=split_index,
-            msgs_len=len(messages),
-            msgs_to_view=msgs_to_view,
-            view_len=view_len,
-            view_head_len=view_head_len,
-            protect_first_n=protect_first_n,
-            kept=kept,
-            out_len=len(compacted_messages),
-        )
-        return True, "summary", compacted_messages, fold_upto, head_len
-
-    def _build_summary(
-        self,
-        *,
-        older: list[Message],
-        recent: list[Message],
-    ) -> str:
-        fallback = f"[Summary unavailable. {len(older)} messages omitted]"
-        if not self._policy.enable_llm_summary or self._summary_client is None:
-            if self._policy.abort_on_summary_failure:
-                raise RuntimeError("context compaction aborted: summary client unavailable")
-            return fallback
-        try:
-            from homemaster.prompts.loader import PromptId, load_prompt
-
-            prompt = _render_summary_source(older=older, recent=recent)
-            message = self._summary_client_complete(
-                prompt=prompt,
-                system_prompt=load_prompt(PromptId.COMPACT_SUMMARY),
-            )
-        except Exception as exc:
-            if self._policy.abort_on_summary_failure:
-                raise RuntimeError("context compaction aborted: summary failed") from exc
-            return fallback
-        return self._accept_summary(message, fallback=fallback)
-
     def _accept_summary(self, message, *, fallback: str) -> str:
         """A tool-free summary call must end in ``stop`` — anything else
         (length/refusal/content_filter/stray tool_calls) produced a partial
@@ -1052,7 +741,22 @@ class ContextAssembler:
         view_head_len: int = 0,
         view_presanitized: bool = False,
     ) -> tuple[bool, str, list[Message], int | None, int]:
-        """Async variant of ``_compact`` — identical contract."""
+        """Fold the oldest region of ``messages`` behind a summary head.
+
+        Pure transform — the caller owns persistence (compaction artifact);
+        the session mirror is never written. ``view_head_len`` is the head
+        boundary expressed in ``messages`` coordinates: positions below it
+        came from a prior compaction head, positions at/above it are live
+        canonical tail. ``view_presanitized`` marks that the caller already
+        applied stage-1 hygiene (strip/micro) to this view — the stage is
+        skipped so stub text is never re-summarized. Returns
+        ``(ran, kind, out_messages, fold_upto, head_len)`` where
+        ``fold_upto`` is the ``messages`` index of the first surviving
+        canonical-tail message (``len(messages)`` when the whole tail was
+        dropped by repair) and ``head_len`` is the prefix of
+        ``out_messages`` that forms the durable head segment. Both are
+        meaningful only for ``kind == "summary"``.
+        """
         view_len = len(messages)
         stage1_messages = messages
         stripped_images = 0

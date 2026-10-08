@@ -150,13 +150,11 @@ def test_absolute_memory_runtime_paths_remain_unchanged(tmp_path: Path) -> None:
 
 
 def test_doctor_reports_external_config_path_without_repo_relative_assumption(
-    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     configured = tmp_path / "homemaster.yaml"
-    monkeypatch.setattr(doctor_module, "HOMEMASTER_CONFIG_PATH", configured)
 
-    assert doctor_module._config_source() == str(configured)
+    assert doctor_module._config_source(configured) == str(configured)
 
 
 def test_doctor_does_not_fail_gitignore_check_outside_checkout(

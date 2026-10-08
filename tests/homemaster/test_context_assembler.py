@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import asyncio
+
 import pytest
 
 from homemaster.agent.context import ContextAssembler
@@ -68,12 +70,12 @@ def test_assembler_injects_snapshot_without_appending_to_session() -> None:
     )
     assembler = _make_assembler()
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=store,
         tools=[],
-    )
+    ))
 
     assert context.system_prompt == "You are HomeMaster."
     has_snapshot = any(
@@ -90,12 +92,12 @@ def test_assembler_includes_runtime_budget_status() -> None:
     session.append(UserMessage(content=[ContentBlock(text="hello")]))
     assembler = _make_assembler()
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1", max_tool_iterations=99),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     has_budget = any(
         "runtime_budget_status" in block.text
@@ -129,12 +131,12 @@ def test_assembler_lists_skill_summaries_without_inlining_full_instructions() ->
     session = AgentSession(session_id="s1")
     session.append(UserMessage(content=[ContentBlock(text="help")]))
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -150,12 +152,12 @@ def test_assembler_estimates_tokens() -> None:
     session.append(UserMessage(content=[ContentBlock(text="hello world")]))
     assembler = _make_assembler()
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     assert context.metrics.estimated_tokens > 0
 
@@ -170,12 +172,12 @@ def test_assembler_respects_enabled_context_providers() -> None:
     )
     assembler = _make_assembler(policy=ContextPolicyConfig(enabled_providers=("conversation",)))
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=store,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -201,12 +203,12 @@ def test_completed_snapshot_renders_short_summary_not_full_detail() -> None:
     store.mark_completed(final_summary="Medicine was delivered.")
     assembler = _make_assembler()
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=store,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -249,12 +251,12 @@ def test_compaction_preserves_recent_user_turns_and_tool_pairs() -> None:
             )
         )
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -302,12 +304,12 @@ def test_compaction_uses_summary_client_when_available() -> None:
         session.append(UserMessage(content=[ContentBlock(text=f"user turn {index} " + "x" * 80)]))
         session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -351,13 +353,13 @@ def test_manual_force_compaction_summarizes_even_below_threshold() -> None:
     session.append(UserMessage(content=[ContentBlock(text="current request")]))
     agent_state = AgentState(run_id="r1", session_id="s1")
 
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=agent_state,
         task_state_store=None,
         tools=[],
         force_compact="manual",
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -400,13 +402,13 @@ def test_manual_force_compaction_noops_without_old_history() -> None:
     )
     session = AgentSession(session_id="s1")
     session.append(UserMessage(content=[ContentBlock(text="current request")]))
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id="s1"),
         task_state_store=None,
         tools=[],
         force_compact="manual",
-    )
+    ))
 
     assert context.metrics.compaction_triggered is False
     assert context.metrics.compaction_kind == "none"
@@ -444,12 +446,12 @@ def test_compaction_aborts_when_summary_client_fails_and_policy_requires_abort()
     # abort_on_summary_failure=True terminates the run instead of sending
     # the oversized uncompressed history downstream.
     with pytest.raises(RuntimeError, match="compaction aborted"):
-        assembler.prepare(
+        asyncio.run(assembler.aprepare(
             session=session,
             agent_state=AgentState(run_id="r1", session_id="s1"),
             task_state_store=None,
             tools=[],
-        )
+        ))
 
     assert summary_client.calls
     assert len(session.messages) == 16
@@ -481,12 +483,12 @@ def test_compaction_without_summary_client_uses_deterministic_fallback() -> None
         session.append(AssistantMessage(content=[ContentBlock(text="assistant " + "y" * 80)]))
 
     agent_state = AgentState(run_id="r1", session_id="s1")
-    context = assembler.prepare(
+    context = asyncio.run(assembler.aprepare(
         session=session,
         agent_state=agent_state,
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     text = "\n".join(
         block.text for message in context.messages for block in message.content if block.text
@@ -626,12 +628,12 @@ def test_browser_context_preserves_v31_semantic_targets_and_stable_refs() -> Non
     )
     canonical = [message.model_dump(mode="json") for message in session.messages]
 
-    context = _make_assembler().prepare(
+    context = asyncio.run(_make_assembler().aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id=session.session_id),
         task_state_store=None,
         tools=_browser_tools(),
-    )
+    ))
 
     projected_text = "\n".join(
         block.text
@@ -646,8 +648,8 @@ def test_browser_context_preserves_v31_semantic_targets_and_stable_refs() -> Non
 
 
 @pytest.mark.asyncio
-async def test_browser_semantic_context_matches_sync_and_async_assembly() -> None:
-    session = AgentSession(session_id="sync-async-browser-reference")
+async def test_browser_semantic_context_survives_assembly() -> None:
+    session = AgentSession(session_id="browser-reference-assembly")
     _append_browser_pair(
         session,
         tool_call_id="inspect-current",
@@ -658,23 +660,16 @@ async def test_browser_semantic_context_matches_sync_and_async_assembly() -> Non
             "total_matches": 1,
         },
     )
-    assembler = _make_assembler()
-    sync_context = assembler.prepare(
+    context = await _make_assembler().aprepare(
         session=session,
-        agent_state=AgentState(run_id="sync", session_id=session.session_id),
-        task_state_store=None,
-        tools=_browser_tools(),
-    )
-    async_context = await assembler.aprepare(
-        session=session,
-        agent_state=AgentState(run_id="async", session_id=session.session_id),
+        agent_state=AgentState(run_id="r1", session_id=session.session_id),
         task_state_store=None,
         tools=_browser_tools(),
     )
 
-    assert [message.model_dump(mode="json") for message in async_context.messages] == [
-        message.model_dump(mode="json") for message in sync_context.messages
-    ]
+    projected = _context_result(context, "inspect-current")
+    assert projected.data["data"]["elements"][0]["target_ref"] == "ref-current"
+    assert projected.data["data"]["total_matches"] == 1
 
 
 def test_non_browser_context_keeps_tool_results_unchanged() -> None:
@@ -690,12 +685,12 @@ def test_non_browser_context_keeps_tool_results_unchanged() -> None:
         },
     )
 
-    context = _make_assembler().prepare(
+    context = asyncio.run(_make_assembler().aprepare(
         session=session,
         agent_state=AgentState(run_id="r1", session_id=session.session_id),
         task_state_store=None,
         tools=[],
-    )
+    ))
 
     unchanged = _context_result(context, "inspect-old")
     assert unchanged.data["data"]["elements"][0]["target_ref"] == "ref-old"

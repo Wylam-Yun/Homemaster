@@ -45,9 +45,10 @@ def _is_context_length_error(error_msg: str) -> bool:
 
 
 def _assembler_prepare(assembler: Any) -> Callable[..., Any]:
-    """Prefer the async ``aprepare`` (its summary path awaits coroutine
-    ``complete``); fall back to sync ``prepare`` for test doubles."""
-    return getattr(assembler, "aprepare", None) or assembler.prepare
+    """The assembler's sole entry point — ``aprepare``. ``_maybe_async``
+    still tolerates test doubles whose coroutine signature returns a
+    plain value."""
+    return assembler.aprepare
 
 
 async def _maybe_async(fn: Callable[..., Any], **kwargs: Any) -> Any:

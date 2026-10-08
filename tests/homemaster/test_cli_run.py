@@ -423,25 +423,21 @@ def test_bare_config_path_is_forwarded_to_foreground_serve(
     assert captured.get("config_path") == config_path
 
 
-def test_shell_local_config_path_pins_default_config(
+def test_shell_local_config_path_is_passed_through(
     monkeypatch, tmp_path: Path
 ) -> None:
-    import homemaster.cli.doctor as doctor_module
+    """``shell --local --config`` threads the path into the shell — no
+    mutation of the process-wide default config path."""
+
     import homemaster.config.config as config_impl
 
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
-    monkeypatch.setattr(
-        config_impl, "HOMEMASTER_CONFIG_PATH", config_impl.HOMEMASTER_CONFIG_PATH
-    )
-    monkeypatch.setattr(
-        doctor_module, "HOMEMASTER_CONFIG_PATH", doctor_module.HOMEMASTER_CONFIG_PATH
-    )
+    original = config_impl.HOMEMASTER_CONFIG_PATH
     calls = []
 
     def fake_shell(**kwargs):
         calls.append(kwargs)
-        calls.append(config_impl.HOMEMASTER_CONFIG_PATH)
 
     app_module = importlib.import_module("homemaster.cli.app")
     monkeypatch.setattr(app_module, "run_interactive_shell", fake_shell)
@@ -456,9 +452,10 @@ def test_shell_local_config_path_pins_default_config(
             "resume_session_id": None,
             "continue_latest": False,
             "permission_mode": CliPermissionMode.FULL_AUTO,
-        },
-        config_path,
+            "config_path": config_path,
+        }
     ]
+    assert config_impl.HOMEMASTER_CONFIG_PATH is original
 
 
 def test_shell_remote_config_is_spawn_config_not_local_pin(
@@ -627,6 +624,7 @@ def test_shell_permission_mode_is_forwarded(monkeypatch) -> None:
             "resume_session_id": None,
             "continue_latest": False,
             "permission_mode": CliPermissionMode.PLAN,
+            "config_path": None,
         }
     ]
 

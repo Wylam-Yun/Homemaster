@@ -93,7 +93,7 @@ class _FrozenMemory:
 
 
 @pytest.mark.asyncio
-async def test_workspace_precedes_frozen_memory_in_sync_and_async_system_prompt(tmp_path) -> None:
+async def test_workspace_precedes_frozen_memory_in_system_prompt(tmp_path) -> None:
     config = _provider_config(tmp_path)
     assembler = ContextAssembler(
         provider=config.providers.items[0],
@@ -104,25 +104,18 @@ async def test_workspace_precedes_frozen_memory_in_sync_and_async_system_prompt(
     assembler.bind_working_directory(tmp_path)
     session = AgentSession(session_id="context-order")
 
-    sync_context = assembler.prepare(
+    context = await assembler.aprepare(
         session=session,
-        agent_state=AgentState(run_id="sync", session_id=session.session_id),
-        task_state_store=None,
-        tools=[],
-    )
-    async_context = await assembler.aprepare(
-        session=session,
-        agent_state=AgentState(run_id="async", session_id=session.session_id),
+        agent_state=AgentState(run_id="r1", session_id=session.session_id),
         task_state_store=None,
         tools=[],
     )
 
-    assert async_context.system_prompt == sync_context.system_prompt
-    assert sync_context.system_prompt.index("BASE SYSTEM") < sync_context.system_prompt.index(
+    assert context.system_prompt.index("BASE SYSTEM") < context.system_prompt.index(
         "Current workspace:"
     )
-    assert sync_context.system_prompt.index("Current workspace:") < (
-        sync_context.system_prompt.index("# Assistant Identity")
+    assert context.system_prompt.index("Current workspace:") < (
+        context.system_prompt.index("# Assistant Identity")
     )
 
 

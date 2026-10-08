@@ -1,5 +1,24 @@
 # Unreleased
 
+- Architecture-debt cleanup (maintainability round):
+
+  - `ContextAssembler` no longer carries a sync/async twin. The sync
+    `prepare`/`_compact`/`_build_summary` path was dead in production —
+    and silently broken: under the real async summary client it produced
+    degraded `[Summary unavailable]` durable summaries because the
+    coroutine was never awaited. `aprepare` is now the single entry
+    point; the two getattr fallbacks in `middleware_runtime` and
+    `application/runtime` resolve it directly. Tests migrated to
+    `asyncio.run(assembler.aprepare(...))` / `await`.
+
+  - `pin_default_config_path` deleted — no more runtime mutation of the
+    process-global `HOMEMASTER_CONFIG_PATH`. `run_doctor`,
+    `run_interactive_shell`, and `ShellContext` now take an explicit
+    `config_path`; `load_config` is already parameterized so the shell
+    resolves once and passes `config=` into `compose_application`. The
+    `doctor` command gains `--config` (the docs had claimed it for a
+    while — now real). `resolve_config_path` is the public resolver.
+
 - Full-tier acceptance fixes: structured memory feedback no longer
   fails when the correcting turn's evidence sequence equals the target
   memory's provenance sequence — `_execute_structured_feedback_update`

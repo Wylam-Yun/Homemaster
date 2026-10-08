@@ -7,6 +7,7 @@ import importlib.metadata
 import signal
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 
 import typer
 
@@ -15,6 +16,7 @@ from homemaster.application import RunPolicy, RunRequest, RunStatus
 from homemaster.application.composition import HomeCliBackend, compose_application
 from homemaster.cli.confirmation import CliConfirmationHandler, CliPermissionMode
 from homemaster.cli.doctor import render_doctor_text, run_doctor
+from homemaster.config import load_config
 from homemaster.skills.commands import resolve_skill_command
 from homemaster.tools.contracts import PermissionSubject
 
@@ -57,6 +59,7 @@ def run_interactive_shell(
     continue_latest: bool = False,
     debug: bool = False,
     permission_mode: CliPermissionMode = CliPermissionMode.FULL_AUTO,
+    config_path: str | Path | None = None,
 ) -> None:
     from homemaster.cli.shell_commands import (
         ShellContext,
@@ -68,7 +71,7 @@ def run_interactive_shell(
 
     _enable_line_editing()
     typer.echo(f"HomeMaster {_shell_version()}")
-    report = run_doctor(live=False)
+    report = run_doctor(live=False, config_path=config_path)
     if report.has_failures:
         typer.echo(render_doctor_text(report))
         typer.echo("Local checks failed; fix them before starting a task session.")
@@ -82,6 +85,7 @@ def run_interactive_shell(
         CliConfirmationHandler() if permission_mode is CliPermissionMode.CONFIRM else None
     )
     bundle = compose_application(
+        config=load_config(config_path) if config_path is not None else None,
         run_label=f"shell-{new_session_id()}",
         progress=True,
         permission_mode=permission_mode.policy_mode,
@@ -102,6 +106,7 @@ def run_interactive_shell(
             runner=runner,
             bundle=bundle,
             session_id=session_id,
+            config_path=config_path,
         )
         ctx.backend = HomeCliBackend(world_path=None, memory_path=None)
 

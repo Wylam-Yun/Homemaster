@@ -25,7 +25,6 @@ from typing import Annotated
 
 import typer
 
-import homemaster.cli.doctor as _doctor_module
 from homemaster.cli.benchmark_locomo import handle_benchmark_locomo
 from homemaster.cli.child_worker import run_child_worker
 from homemaster.cli.confirmation import CliPermissionMode
@@ -46,7 +45,7 @@ from homemaster.cli.run_command import (
 )
 from homemaster.cli.server_process import probe_server
 from homemaster.cli.session_command import session_app
-from homemaster.config import load_config, pin_default_config_path
+from homemaster.config import load_config
 from homemaster.events.logger import setup_logging
 from homemaster.web.serve import run_web_server, validate_bind_host, validate_port_available
 
@@ -594,11 +593,15 @@ def doctor_command(
         bool,
         typer.Option("--alfworld", help="Check the optional ALFWorld worker binding and IPC."),
     ] = False,
+    config_path: Annotated[
+        Path | None,
+        typer.Option("--config", help="Config file to check instead of the default."),
+    ] = None,
 ) -> None:
     """Check HomeMaster local environment and optional live providers."""
     try:
         setup_logging()
-        report = run_doctor(live=live, alfworld=alfworld)
+        report = run_doctor(live=live, alfworld=alfworld, config_path=config_path)
         if json_output:
             typer.echo(doctor_report_to_json(report))
         else:
@@ -649,12 +652,11 @@ def shell_command(
         raise typer.BadParameter("--server cannot be combined with --local")
     try:
         if local:
-            if config_path is not None:
-                _doctor_module.HOMEMASTER_CONFIG_PATH = pin_default_config_path(config_path)
             run_interactive_shell(
                 resume_session_id=resume_session_id,
                 continue_latest=continue_latest,
                 permission_mode=permission_mode,
+                config_path=config_path,
             )
             return
         code = run_remote_shell(

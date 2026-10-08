@@ -51,6 +51,7 @@ class ShellContext:
         runner: Any,
         bundle: Any,
         session_id: str,
+        config_path: Any = None,
         echo: Callable[[str], None] = typer.echo,
     ) -> None:
         self.application = application
@@ -58,6 +59,7 @@ class ShellContext:
         self.bundle = bundle
         self.echo = echo
         self.session_id = session_id
+        self.config_path = config_path
         self.backend: Any = None
         self.application_session: Any = None
         self.session_open = False
@@ -410,7 +412,7 @@ def _cmd_events(ctx: ShellContext, args: str) -> None:
 @slash_command("doctor", help="check local configuration and dependencies.")
 def _cmd_doctor(ctx: ShellContext, args: str) -> None:
     del args
-    ctx.echo(render_doctor_text(run_doctor(live=False)))
+    ctx.echo(render_doctor_text(run_doctor(live=False, config_path=ctx.config_path)))
 
 
 @slash_command("debug", help="show the last run id.")

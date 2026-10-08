@@ -53,8 +53,12 @@ def _use_test_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """,
         encoding="utf-8",
     )
-    monkeypatch.setattr("homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path)
-    monkeypatch.setattr("homemaster.cli.doctor._config_source", lambda: "config/homemaster.yaml")
+    monkeypatch.setattr(
+        "homemaster.cli.doctor.resolve_config_path", lambda _p=None: config_path
+    )
+    monkeypatch.setattr(
+        "homemaster.cli.doctor._config_source", lambda _path: "config/homemaster.yaml"
+    )
 
 
 def test_doctor_local_report_runs_without_live_api() -> None:
@@ -191,7 +195,7 @@ def test_doctor_files_tier_reports_mode_and_skips_full_tier_checks(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path
+        "homemaster.cli.doctor.resolve_config_path", lambda _p=None: config_path
     )
 
     report = run_doctor(live=False)
@@ -219,7 +223,7 @@ def test_doctor_files_tier_text_output_names_the_mode(
     config_path = tmp_path / "homemaster.yaml"
     config_path.write_text("memory:\n  mode: files\n", encoding="utf-8")
     monkeypatch.setattr(
-        "homemaster.cli.doctor.HOMEMASTER_CONFIG_PATH", config_path
+        "homemaster.cli.doctor.resolve_config_path", lambda _p=None: config_path
     )
 
     report = run_doctor(live=False)
@@ -288,9 +292,12 @@ def test_cli_doctor_alfworld_flag_is_forwarded(monkeypatch: pytest.MonkeyPatch) 
     app_module = importlib.import_module("homemaster.cli.app")
     received: dict[str, bool] = {}
 
-    def fake_run_doctor(*, live: bool = False, alfworld: bool = False) -> DoctorReport:
+    def fake_run_doctor(
+        *, live: bool = False, alfworld: bool = False, config_path=None
+    ) -> DoctorReport:
         received["live"] = live
         received["alfworld"] = alfworld
+        received["config_path"] = config_path
         return DoctorReport(live=live, config_source="test", checks=[])
 
     monkeypatch.setattr(app_module, "run_doctor", fake_run_doctor)
@@ -298,4 +305,31 @@ def test_cli_doctor_alfworld_flag_is_forwarded(monkeypatch: pytest.MonkeyPatch) 
     result = CliRunner().invoke(app, ["doctor", "--alfworld", "--json"])
 
     assert result.exit_code == 0, result.stdout
-    assert received == {"live": False, "alfworld": True}
+    assert received == {"live": False, "alfworld": True, "config_path": None}
+
+
+def test_cli_doctor_config_flag_is_forwarded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import importlib
+
+    from homemaster.cli.doctor import DoctorReport
+
+    app_module = importlib.import_module("homemaster.cli.app")
+    config_path = tmp_path / "homemaster.yaml"
+    received: dict[str, object] = {}
+
+    def fake_run_doctor(
+        *, live: bool = False, alfworld: bool = False, config_path=None
+    ) -> DoctorReport:
+        received["config_path"] = config_path
+        return DoctorReport(live=live, config_source="test", checks=[])
+
+    monkeypatch.setattr(app_module, "run_doctor", fake_run_doctor)
+
+    result = CliRunner().invoke(
+        app, ["doctor", "--config", str(config_path), "--json"]
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert received["config_path"] == config_path

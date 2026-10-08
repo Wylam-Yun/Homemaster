@@ -364,7 +364,7 @@ SessionRuntime.consume_recall(generation)
 
 ```text
 session.append(UserMessage)
-  -> ContextAssembler.prepare/aprepare()
+  -> ContextAssembler.aprepare()
   -> project_model_tool_schemas()
   -> 深拷贝 messages/tools（冻结本轮 provider 输入）
   -> transport.stream()

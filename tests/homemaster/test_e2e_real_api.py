@@ -89,7 +89,7 @@ async def test_context_assembler_with_task_snapshot(transport, provider_profile)
         system_prompt=system_prompt,
     )
 
-    context = assembler.prepare(
+    context = await assembler.aprepare(
         session=session,
         agent_state=AgentState(run_id="e2e-r1", session_id="e2e-ctx"),
         task_state_store=store,
