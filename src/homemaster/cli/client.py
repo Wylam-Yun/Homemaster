@@ -286,6 +286,14 @@ class HomeServerClient:
             await self._request("POST", f"/api/sessions/{sid}/compact", json_body={})
         )
 
+    async def archive(self, session_id: str | None = None) -> dict[str, Any]:
+        sid = session_id or self._session_id
+        if not sid:
+            raise ValueError("archive() requires a session_id")
+        return _coalesce_body(
+            await self._request("POST", f"/api/sessions/{sid}/archive", json_body={})
+        )
+
     async def set_mode(self, ui_mode: str, session_id: str | None = None) -> dict[str, Any]:
         sid = session_id or self._session_id
         if not sid:

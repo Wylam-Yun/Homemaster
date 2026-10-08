@@ -1,5 +1,13 @@
 # Unreleased
 
+- Manual session archival: `POST /api/sessions/{id}/archive` admits the
+  session to the application-owned finalization queue (episode schema
+  add → implicit feedback → dreaming check), returning a job receipt.
+  Web console shows a ⤓ archive button per session (full memory tier
+  only); thin-client and local shells gain `/archive`. Previously the
+  only triggers were `/new`, shell exit, and server shutdown — sessions
+  in a long-running web server never reached memory consolidation.
+
 - `ManagedNeo4jRuntime` readiness no longer retries on credential
   rejection. `AuthError` from the bolt probe is classified as a
   terminal `_Neo4jAuthMismatch` and surfaces immediately as

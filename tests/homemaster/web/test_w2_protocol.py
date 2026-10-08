@@ -1099,6 +1099,55 @@ def test_shutdown_enqueues_finalization_for_active_sessions() -> None:
     assert (session_id, "server_shutdown") in enqueued
 
 
+def test_archive_enqueues_finalization_and_returns_receipt() -> None:
+    """POST /archive admits the session to the application-owned finalization
+    queue — the manual counterpart of the shutdown/`/new` triggers."""
+    application = _W2Application()
+    enqueued: list[tuple[str, str]] = []
+
+    def handler(sid: str, reason: str):
+        enqueued.append((sid, reason))
+        return SimpleNamespace(job_id="job-1", status="accepted")
+
+    application.session_end_handler = handler
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions", json={}).json()["session_id"]
+        archived = client.post(f"/api/sessions/{session_id}/archive")
+        assert archived.status_code == 202
+        assert archived.json() == {
+            "session_id": session_id,
+            "job_id": "job-1",
+            "status": "accepted",
+        }
+        assert enqueued == [(session_id, "archived")]
+
+
+def test_archive_reports_unavailable_without_full_tier() -> None:
+    """files-mode applications have no session_end_handler — the route must
+    say so instead of pretending the session was archived."""
+    application = _W2Application()
+    application.session_end_handler = None
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        session_id = client.post("/api/sessions", json={}).json()["session_id"]
+        archived = client.post(f"/api/sessions/{session_id}/archive")
+        assert archived.status_code == 503
+        assert archived.json()["code"] == "archive_unavailable"
+
+
+def test_archive_rejects_unknown_session() -> None:
+    application = _W2Application()
+    app = _app(application, config=_config())
+
+    with TestClient(app) as client:
+        response = client.post("/api/sessions/no-such-session/archive")
+        assert response.status_code == 404
+        assert response.json()["code"] == "session_not_found"
+
+
 def test_shutdown_finalization_enqueue_failure_does_not_abort_close() -> None:
     """A raising ``session_end_handler`` must not prevent application
     teardown — one bad session cannot veto the rest of the shutdown."""

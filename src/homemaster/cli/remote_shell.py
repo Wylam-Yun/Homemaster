@@ -123,7 +123,7 @@ async def _shell_main(
             ctx.echo(f"HomeMaster {version} — connected to {base_url}")
             ctx.echo(
                 "Enter a task. Commands: /help, /new, /session, /model, /mode, "
-                "/compact, /status, /exit."
+                "/compact, /archive, /status, /exit."
             )
             return await _prompt_loop(ctx, renderer)
         finally:

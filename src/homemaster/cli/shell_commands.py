@@ -390,6 +390,30 @@ def _cmd_compact(ctx: ShellContext, args: str) -> None:
     )
 
 
+@slash_command("archive", help="archive this session into long-term memory.")
+def _cmd_archive(ctx: ShellContext, args: str) -> None:
+    del args
+    if not ctx.session_open:
+        ctx.echo("Archive: no active session.")
+        return
+    handler = getattr(ctx.application, "session_end_handler", None)
+    if not callable(handler):
+        ctx.echo("Archive unavailable: memory.mode is not 'full'.")
+        return
+    try:
+        receipt = handler(ctx.session_id, "archived")
+    except Exception as exc:
+        ctx.echo(f"Archive failed: {exc}")
+        return
+    if receipt is None:
+        ctx.echo("Archive not admitted: memory backend or work queue is not ready.")
+        return
+    ctx.echo(
+        f"Archival queued for session {ctx.session_id} (job {receipt.job_id})"
+        " — memory consolidation runs in the background."
+    )
+
+
 @slash_command("status", help="show typed application session status.")
 def _cmd_status(ctx: ShellContext, args: str) -> None:
     del args

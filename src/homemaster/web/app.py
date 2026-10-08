@@ -692,6 +692,46 @@ def create_web_app(
             )
         return asdict(result) if hasattr(result, "__dataclass_fields__") else dict(result)
 
+    @app.post("/api/sessions/{session_id}/archive", status_code=202)
+    async def archive_session(session_id: str) -> object:
+        if session_id not in _session_ids(application.session_manager):
+            return _error(
+                404,
+                "session_not_found",
+                "The requested session does not exist.",
+                retryable=False,
+            )
+        handler = getattr(application, "session_end_handler", None)
+        if not callable(handler):
+            return _error(
+                503,
+                "archive_unavailable",
+                "Session archival requires memory.mode='full'.",
+                retryable=False,
+            )
+        try:
+            receipt = handler(session_id, "archived")
+        except Exception:
+            logger.exception("web_archive_failed", extra={"session_id": session_id})
+            return _error(
+                503,
+                "archive_failed",
+                "The session could not be queued for archival.",
+                retryable=True,
+            )
+        if receipt is None:
+            return _error(
+                503,
+                "archive_not_admitted",
+                "Session archival was not admitted; the memory backend or work queue is not ready.",
+                retryable=True,
+            )
+        return {
+            "session_id": session_id,
+            "job_id": receipt.job_id,
+            "status": receipt.status,
+        }
+
     @app.post("/api/sessions/{session_id}/mode")
     async def set_session_mode(session_id: str, body: SetSessionModeRequest) -> object:
         if session_id not in _session_ids(application.session_manager):

@@ -482,6 +482,27 @@ function AppShell() {
     }
   }, [sessionId, showNotice, toast])
 
+  const [archivingIds, setArchivingIds] = useState<ReadonlySet<string>>(new Set())
+
+  const archiveSession = useCallback(async (session: SessionSummary) => {
+    setArchivingIds(current => new Set(current).add(session.session_id))
+    try {
+      await api.archiveSession(session.session_id)
+      toast.show({
+        title: `已归档会话 ${displayTitle(session)}`,
+        description: '记忆总结与整理在后台执行',
+      })
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : '归档会话失败。')
+    } finally {
+      setArchivingIds(current => {
+        const next = new Set(current)
+        next.delete(session.session_id)
+        return next
+      })
+    }
+  }, [api, displayTitle, showNotice, toast])
+
   const persistModelSelection = useCallback((selection: ModelSelection) => {
     setModelSelection(selection)
     if (sessionId !== null) writeJson(`hm.model.${sessionId}`, selection)
@@ -634,7 +655,7 @@ function AppShell() {
           <nav aria-label="历史会话">
             {visibleSessions.map(session => {
               const title = displayTitle(session)
-              const meta = [formatRelativeTime(session.updated_at), `${session.message_count} 条`]
+              const itemMeta = [formatRelativeTime(session.updated_at), `${session.message_count} 条`]
                 .filter(part => part.length > 0)
                 .join(' · ')
               const signal = sessionSignals[session.session_id]
@@ -671,10 +692,19 @@ function AppShell() {
                       onClick={() => { setSidebarOpen(false); void selectSession(session.session_id) }}
                     >
                       <span>{title}</span>
-                      <small>{meta.length > 0 ? meta : session.session_id.slice(0, 12)}</small>
+                      <small>{itemMeta.length > 0 ? itemMeta : session.session_id.slice(0, 12)}</small>
                     </button>
                   )}
                   <span className="session-actions">
+                    {meta !== null && meta.memory_mode === 'full' && (
+                      <button
+                        type="button"
+                        aria-label={`归档会话 ${title}`}
+                        title="归档：触发记忆总结与整理"
+                        disabled={archivingIds.has(session.session_id)}
+                        onClick={() => { void archiveSession(session) }}
+                      >{archivingIds.has(session.session_id) ? '…' : '⤓'}</button>
+                    )}
                     <button type="button" aria-label={`重命名会话 ${title}`} onClick={() => { startRename(session) }}>✎</button>
                     <button
                       type="button"

@@ -265,6 +265,10 @@ export class HomeMasterApi {
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/compact`, { method: 'POST' })
   }
 
+  archiveSession(sessionId: string): Promise<{ session_id: string; job_id: string; status: string }> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' })
+  }
+
   setUiMode(sessionId: string, uiMode: UiMode): Promise<{ session_id: string; ui_mode: UiMode }> {
     return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/mode`, {
       method: 'POST',

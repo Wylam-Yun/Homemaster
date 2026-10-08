@@ -238,6 +238,21 @@ async def _cmd_compact(ctx: RemoteShellContext, args: str) -> None:
     ctx.echo(f"Context compaction: {status}" + (f" ({detail})" if detail else ""))
 
 
+@_remote_command("archive", help="archive this session into long-term memory.")
+async def _cmd_archive(ctx: RemoteShellContext, args: str) -> None:
+    del args
+    try:
+        result = await ctx.client.archive(ctx.session_id)
+    except Exception as exc:
+        ctx.echo(f"Archive failed: {exc}")
+        return
+    ctx.echo(
+        f"Archival queued for session {result.get('session_id', ctx.session_id)}"
+        + (f" (job {result['job_id']})" if result.get("job_id") else "")
+        + " — memory consolidation runs in the background."
+    )
+
+
 @_remote_command("status", help="show session status (server).")
 async def _cmd_status(ctx: RemoteShellContext, args: str) -> None:
     del args
