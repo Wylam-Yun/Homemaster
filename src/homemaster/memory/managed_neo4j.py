@@ -26,6 +26,10 @@ class ManagedNeo4jError(RuntimeError):
     """Managed Neo4j could not reach a verified lifecycle state."""
 
 
+class _Neo4jAuthMismatch(Exception):
+    """Neo4j is reachable but rejected the configured credentials."""
+
+
 class ManagedNeo4jRuntime:
     """Share one private Neo4j server across local HomeMaster processes."""
 
@@ -66,7 +70,10 @@ class ManagedNeo4jRuntime:
         self._prepare_runtime_root()
         async with self._locked():
             self._prune_stale_leases()
-            ready = await self._is_ready()
+            try:
+                ready = await self._is_ready()
+            except _Neo4jAuthMismatch as exc:
+                raise self._auth_mismatch_error() from exc
             if not ready:
                 await self._initialize_new_database()
                 owner_token = uuid4().hex
@@ -234,7 +241,11 @@ class ManagedNeo4jRuntime:
     async def _owns_current_service(self, owner: Mapping[str, Any] | None) -> bool:
         if owner is None or owner.get("state") != "owned":
             return False
-        if not self._owner_matches_config(owner) or not await self._is_ready():
+        try:
+            ready = await self._is_ready()
+        except _Neo4jAuthMismatch:
+            ready = False
+        if not self._owner_matches_config(owner) or not ready:
             return False
         service_identity = await self._service_identity()
         return service_identity is not None and owner.get("service_identity") == service_identity
@@ -375,6 +386,7 @@ class ManagedNeo4jRuntime:
         if self._readiness_probe is not None:
             return await self._readiness_probe()
         from neo4j import AsyncGraphDatabase
+        from neo4j.exceptions import AuthError
 
         driver = AsyncGraphDatabase.driver(
             self._neo4j.uri,
@@ -383,6 +395,8 @@ class ManagedNeo4jRuntime:
         try:
             await driver.verify_connectivity()
             return True
+        except AuthError as exc:
+            raise _Neo4jAuthMismatch from exc
         except Exception:
             return False
         finally:
@@ -411,12 +425,26 @@ class ManagedNeo4jRuntime:
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while True:
-            if (await self._is_ready()) is expected:
+            try:
+                ready = await self._is_ready()
+            except _Neo4jAuthMismatch as exc:
+                if expected:
+                    raise self._auth_mismatch_error() from exc
+                ready = True
+            if ready is expected:
                 return
             if loop.time() >= deadline:
                 state = "ready" if expected else "stopped"
                 raise ManagedNeo4jError(f"Neo4j did not become {state} within {timeout:g}s")
             await asyncio.sleep(self._poll_interval_seconds)
+
+    def _auth_mismatch_error(self) -> ManagedNeo4jError:
+        return ManagedNeo4jError(
+            "Neo4j is reachable but rejected the configured credentials "
+            f"(user={self._neo4j.username!r}). The persisted database was "
+            "initialized with a different memory.neo4j.password; align the "
+            "config or reset the persisted Neo4j auth before retrying."
+        )
 
     @staticmethod
     def _write_json(path: Path, payload: Mapping[str, Any]) -> None:

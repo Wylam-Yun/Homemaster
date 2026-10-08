@@ -427,3 +427,86 @@ async def _ready() -> bool:
 
 async def _nothing() -> None:
     return None
+
+
+@pytest.mark.asyncio
+async def test_auth_mismatch_fails_fast_with_actionable_error(tmp_path: Path) -> None:
+    from homemaster.memory.managed_neo4j import _Neo4jAuthMismatch
+
+    config = _config(tmp_path, start_timeout_seconds=30.0)
+    commands: list[str] = []
+
+    async def command_runner(action: str, _env: Mapping[str, str]) -> None:
+        commands.append(action)
+
+    probed = False
+
+    async def readiness_probe() -> bool:
+        nonlocal probed
+        if not probed:
+            probed = True
+            return False
+        raise _Neo4jAuthMismatch
+
+    runtime = ManagedNeo4jRuntime(
+        config.memory,
+        command_runner=command_runner,
+        readiness_probe=readiness_probe,
+        service_identity_probe=lambda: _identity("managed-service"),
+        poll_interval_seconds=0.001,
+    )
+
+    with pytest.raises(ManagedNeo4jError, match="rejected the configured credentials"):
+        await asyncio.wait_for(runtime.start(), timeout=5)
+
+    assert commands == ["start", "stop"]
+
+
+@pytest.mark.asyncio
+async def test_auth_mismatch_on_reuse_precheck_fails_fast(tmp_path: Path) -> None:
+    from homemaster.memory.managed_neo4j import _Neo4jAuthMismatch
+
+    config = _config(tmp_path, start_timeout_seconds=30.0)
+    commands: list[str] = []
+
+    async def command_runner(action: str, _env: Mapping[str, str]) -> None:
+        commands.append(action)
+
+    async def readiness_probe() -> bool:
+        raise _Neo4jAuthMismatch
+
+    runtime = ManagedNeo4jRuntime(
+        config.memory,
+        command_runner=command_runner,
+        readiness_probe=readiness_probe,
+        service_identity_probe=lambda: _identity("managed-service"),
+        poll_interval_seconds=0.001,
+    )
+
+    with pytest.raises(ManagedNeo4jError, match="rejected the configured credentials"):
+        await asyncio.wait_for(runtime.start(), timeout=5)
+
+    assert commands == []
+
+
+@pytest.mark.asyncio
+async def test_auth_mismatch_during_stop_wait_is_not_reported_as_stopped(
+    tmp_path: Path,
+) -> None:
+    from homemaster.memory.managed_neo4j import _Neo4jAuthMismatch
+
+    config = _config(tmp_path)
+
+    async def readiness_probe() -> bool:
+        raise _Neo4jAuthMismatch
+
+    runtime = ManagedNeo4jRuntime(
+        config.memory,
+        command_runner=_nothing,
+        readiness_probe=readiness_probe,
+        service_identity_probe=lambda: _identity("managed-service"),
+        poll_interval_seconds=0.001,
+    )
+
+    with pytest.raises(ManagedNeo4jError, match="did not become stopped"):
+        await runtime._wait_for_ready(expected=False, timeout=0.05)

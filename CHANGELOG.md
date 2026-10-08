@@ -1,5 +1,17 @@
 # Unreleased
 
+- `ManagedNeo4jRuntime` readiness no longer retries on credential
+  rejection. `AuthError` from the bolt probe is classified as a
+  terminal `_Neo4jAuthMismatch` and surfaces immediately as
+  `ManagedNeo4jError("…rejected the configured credentials…")` both
+  on the already-running pre-check and during the start wait — a
+  persisted database initialized with a different password now fails
+  in ~1s with an actionable message instead of burning the full
+  `start_timeout_seconds` hammering bolt with bad credentials.
+  Stop-waits treat the same condition as "still reachable" (never
+  misreports down), and `close()` skips stopping a service whose
+  credentials don't match ours.
+
 - Architecture-debt cleanup (maintainability round):
 
   - `EmbeddedMindMemOS` (1976 lines, 31 methods) split into four
