@@ -81,6 +81,7 @@ class HomeApplicationBundle:
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
     trajectory_writer: AlfworldTrajectoryWriter | None = None
+    robocasa_trajectory_writer: Any | None = None
     alfworld_compile_jobs: AlfworldCompileJobService | None = None
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
@@ -96,7 +97,11 @@ class ApplicationCompositionRequest:
     """
 
     config: HomeMasterConfig | None = None
-    profile: Literal["local_robot", "browser", "alfworld"] = "local_robot"
+    profile: Literal["local_robot", "browser", "alfworld", "robocasa"] = "local_robot"
+    # Benchmark-owned memory tool gating ("disabled" | "readonly" | "full");
+    # threaded into build_tool_registry so environment tool sets can gate
+    # retriever/writer tools.  None keeps the existing default behaviour.
+    tool_memory_mode: str | None = None
     runtime_root: Path | None = None
     session_root: Path | None = None
     world_path: Path | None = None
@@ -194,7 +199,10 @@ def compose_application(
     mcp_connector: Connector | None = None,
     event_sink: Any | None = None,
     feishu_group_operations: FeishuGroupOperations | None = None,
-    tool_environment: Literal["local_robot", "alfworld", "browser"] | None = ("local_robot"),
+    tool_environment: Literal["local_robot", "alfworld", "browser", "robocasa"] | None = (
+        "local_robot"
+    ),
+    tool_memory_mode: str | None = None,
     runtime_root: Path | None = None,
     session_root: Path | None = None,
     memory_tenant_id: str = "local",
@@ -219,6 +227,7 @@ def compose_application(
         event_sink = request.event_sink
         feishu_group_operations = request.feishu_group_operations
         tool_environment = request.profile
+        tool_memory_mode = request.tool_memory_mode
         runtime_root = request.runtime_root
         session_root = request.session_root
         memory_tenant_id = request.memory_tenant_id
@@ -260,6 +269,7 @@ def compose_application(
             and not memory_off
         ),
         memory_tier=resolved.memory.mode,
+        memory_mode=tool_memory_mode,
     )
     if feishu_group_operations is not None:
         group_tools = build_feishu_group_tools(feishu_group_operations)
@@ -444,6 +454,7 @@ def _finish_home_application(
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
     trajectory_writer: AlfworldTrajectoryWriter | None = None
+    robocasa_trajectory_writer: Any | None = None
     alfworld_compile_jobs: AlfworldCompileJobService | None = None
     memory_enrichment_queue: MemoryEnrichmentQueue | None = None
     dreaming_coordinator: DreamingCoordinator | None = None
@@ -489,6 +500,11 @@ def _finish_home_application(
                 audit_path=resolved.memory.data_root / "mindmemos" / "add_jobs.jsonl",
             )
             trajectory_writer = AlfworldTrajectoryWriter(
+                mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
+            )
+            from homemaster.robocasa.trajectory_memory import RoboCasaTrajectoryWriter
+
+            robocasa_trajectory_writer = RoboCasaTrajectoryWriter(
                 mindmemos, memory_add_queue, event_sink=bus, tenant_id=memory_tenant_id
             )
             alfworld_compile_jobs = AlfworldCompileJobService(
@@ -694,6 +710,7 @@ def _finish_home_application(
                             "mindmemos": mindmemos,
                             "memory_add_queue": memory_add_queue,
                             "trajectory_writer": trajectory_writer,
+                            "robocasa_trajectory_writer": robocasa_trajectory_writer,
                             "alfworld_compile_jobs": alfworld_compile_jobs,
                             "memory_enrichment_queue": memory_enrichment_queue,
                             "dreaming_coordinator": dreaming_coordinator,
@@ -731,6 +748,7 @@ def _finish_home_application(
         mindmemos=mindmemos,
         memory_add_queue=memory_add_queue,
         trajectory_writer=trajectory_writer,
+        robocasa_trajectory_writer=robocasa_trajectory_writer,
         alfworld_compile_jobs=alfworld_compile_jobs,
         memory_enrichment_queue=memory_enrichment_queue,
         dreaming_coordinator=dreaming_coordinator,

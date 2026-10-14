@@ -874,6 +874,142 @@ def benchmark_alfworld_command(
         render_error_and_exit(exc)
 
 
+@app.command("benchmark-robocasa")
+def benchmark_robocasa_command(
+    rpent_root: Annotated[
+        Path,
+        typer.Option("--rpent-root", help="Path to the RPent checkout (with .venv-robocasa)."),
+    ],
+    task_manifest: Annotated[
+        Path,
+        typer.Option("--task-manifest", help="RoboCasa task manifest (e.g. target50_v2.json)."),
+    ],
+    trace_root: Annotated[
+        Path,
+        typer.Option("--trace-root", help="Output directory for benchmark traces."),
+    ] = Path("/tmp/homemaster/robocasa"),
+    split: Annotated[
+        str,
+        typer.Option("--split", help="RoboCasa environment split."),
+    ] = "target",
+    episodes: Annotated[
+        int | None,
+        typer.Option("--episodes", help="Limit to the first N selected cells."),
+    ] = None,
+    memory_mode: Annotated[
+        str,
+        typer.Option("--memory-mode", help="disabled, readonly, or full."),
+    ] = "disabled",
+    max_invalid_actions: Annotated[
+        int,
+        typer.Option("--max-invalid-actions", help="Fail after this many invalid actions."),
+    ] = 100,
+    max_tool_iterations: Annotated[
+        int,
+        typer.Option("--max-tool-iterations", help="Maximum HomeMaster tool iterations."),
+    ] = 100,
+    provider_config: Annotated[
+        Path | None,
+        typer.Option("--api-config", help="Optional provider config JSON override."),
+    ] = None,
+    provider_name: Annotated[
+        str | None,
+        typer.Option(
+            "--provider-name",
+            help="Optional provider name override; defaults to the API config default.",
+        ),
+    ] = None,
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", help="Stable benchmark run id."),
+    ] = None,
+    log_level: Annotated[
+        str,
+        typer.Option("--log-level", help="Logging level."),
+    ] = "INFO",
+    rpent_python: Annotated[
+        Path | None,
+        typer.Option(
+            "--rpent-python",
+            help="RPent venv python; defaults to <rpent-root>/.venv-robocasa/bin/python.",
+        ),
+    ] = None,
+    vla_model_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--vla-model-path",
+            help="RLDX checkpoint; defaults to <rpent-root>/checkpoints/rldx-1-ft-rc365.",
+        ),
+    ] = None,
+    cuda_device: Annotated[
+        str | None,
+        typer.Option("--cuda-device", help="CUDA device index for env/vla servers."),
+    ] = None,
+    hi_res: Annotated[
+        bool,
+        typer.Option("--hi-res/--no-hi-res", help="Also capture high-resolution observations."),
+    ] = False,
+    tasks: Annotated[
+        list[str] | None,
+        typer.Option("--tasks", help="Task names to include (repeatable); default all."),
+    ] = None,
+    seeds: Annotated[
+        list[int] | None,
+        typer.Option("--seeds", help="Seeds to include (repeatable); default all."),
+    ] = None,
+    task_splits: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--task-split",
+            help="Manifest split sections to include (repeatable; default all).",
+        ),
+    ] = None,
+) -> None:
+    """Run HomeMaster on RoboCasa benchmark cells via the isolated RPent worker."""
+    try:
+        from homemaster.cli.benchmark_robocasa import handle_benchmark_robocasa
+
+        summary = handle_benchmark_robocasa(
+            rpent_root=rpent_root,
+            task_manifest=task_manifest,
+            trace_root=trace_root,
+            split=split,
+            episodes=episodes,
+            memory_mode=memory_mode,
+            max_invalid_actions=max_invalid_actions,
+            max_tool_iterations=max_tool_iterations,
+            provider_config=provider_config,
+            provider_name=provider_name,
+            run_id=run_id,
+            log_level=log_level,
+            rpent_python=rpent_python,
+            vla_model_path=vla_model_path,
+            cuda_device=cuda_device,
+            hi_res=hi_res,
+            tasks=tuple(tasks or ()),
+            seeds=tuple(seeds or ()),
+            task_splits=tuple(task_splits or ()),
+        )
+        metrics = summary.to_dict()
+        typer.echo(f"run_id: {summary.run_id}")
+        typer.echo(f"cells: {len(summary.cells)}")
+        typer.echo(f"success_rate: {summary.success_rate:.3f}")
+        typer.echo(
+            f"task_weighted_success_rate: {summary.task_weighted_success_rate:.3f}"
+        )
+        typer.echo(f"scored_cells: {metrics['scored_cells']}")
+        typer.echo(f"infrastructure_errors: {metrics['infrastructure_errors']}")
+        typer.echo(f"provider_failures: {metrics['provider_failures']}")
+        typer.echo(f"runtime_failures: {metrics['runtime_failures']}")
+        typer.echo(f"cancelled_cells: {metrics['cancelled_cells']}")
+        typer.echo(
+            f"evaluation_valid_coverage: {float(metrics['evaluation_valid_coverage']):.3f}"
+        )
+        typer.echo(f"trace_root: {summary.config['run_dir']}")
+    except Exception as exc:
+        render_error_and_exit(exc)
+
+
 @app.command("benchmark-locomo")
 def benchmark_locomo_command(
     data_file: Annotated[

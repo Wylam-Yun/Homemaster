@@ -30,6 +30,7 @@ class BenchmarkApplicationLifecycle:
         *,
         config: Any,
         memory_mode: str | None = None,
+        profile: str = "alfworld",
         runtime_root: Path,
         session_root: Path,
         transport_factory: TransportFactory | None,
@@ -39,7 +40,8 @@ class BenchmarkApplicationLifecycle:
         self.bundle: HomeApplicationBundle = compose_application(
             ApplicationCompositionRequest(
                 config=config,
-                profile="alfworld",
+                profile=profile,
+                tool_memory_mode=memory_mode,
                 runtime_root=runtime_root,
                 session_root=session_root,
                 event_sink=event_sink,

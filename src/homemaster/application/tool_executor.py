@@ -330,6 +330,8 @@ def _bind_backend(deps: dict[str, object], profile: str, backend: object | None)
     deps.setdefault("backend", backend)
     if profile == "alfworld":
         deps.setdefault("alfworld_env", backend)
+    elif profile == "robocasa":
+        deps.setdefault("robocasa_env", backend)
 
 
 class _CompletionGuard:

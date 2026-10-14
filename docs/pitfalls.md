@@ -1,3 +1,20 @@
+## 2026-10-14 - Fake worker masked a missing `state` field and leaked success across cells
+
+- 症状：robocasa worker `start`/`reconfigure` 响应不含 `state`，客户端缓存的
+  env state 在 cell-1 为 `None`（任何非 worker 工具先跑就 infra_error），在
+  cell≥2 保留上一 cell 的 `success=true`（新 episode 还没开始就被判成功）。
+  单测和 runner 测试全绿。
+- 根因：fake worker 的 `start` 响应带了 `state`（真实后端没有），FakeAdapter
+  的 `ensure_cell` 永远新造 `success=False` state——两层 fake 各自掩盖了对方
+  对侧的形状，跨 cell 状态泄漏只有真后端+真多 cell 才能暴露。
+- 修法/教训：worker 生命周期响应必须携带权威 `state`；写 fake/fixture 时先对照
+  真后端逐字段核对响应形状，**测试替身不能发明真后端不返回的字段**；凡有跨
+  cell/episode 复用的进程级状态（`_state`、`_invalid_count`、`_artifact_root`），
+  逐个审查"reconfigure 后是否刷新"——生命周期事件不刷新缓存字段 = 状态泄漏。
+- Ref: `workers/robocasa_worker/rpent_backend.py`,
+  `src/homemaster/robocasa/worker_client.py`,
+  `tests/homemaster/robocasa/fake_worker.py`
+
 ## 2026-09-26 - Raw THOR metadata selected the wrong duplicate object
 
 - 症状：`look_at_obj_in_light` 中 `take` 成功，但 `use desklamp` 对两个同名灯具盲取第一个

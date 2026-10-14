@@ -11,12 +11,13 @@ from homemaster.tools.base import ToolRegistry
 
 def compose_tool_registry(
     *,
-    environment: Literal["local_robot", "alfworld", "browser"] | None,
+    environment: Literal["local_robot", "alfworld", "browser", "robocasa"] | None,
     world_path: Path | None,
     memory_path: Path | None,
     runtime_memory_root: Path,
     memory_enabled: bool,
     memory_tier: Literal["files", "full"] = "full",
+    memory_mode: str | None = None,
 ) -> ToolRegistry:
     return build_tool_registry(
         environment=environment,
@@ -25,6 +26,7 @@ def compose_tool_registry(
         runtime_memory_root=runtime_memory_root,
         memory_enabled=memory_enabled,
         memory_tier=memory_tier,
+        memory_mode=memory_mode or "disabled",
     )
 
 

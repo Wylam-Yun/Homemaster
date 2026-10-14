@@ -501,6 +501,65 @@ class MindMemOSWriteMixin:
             raise RuntimeError("trajectory memory metadata terminal state could not be verified")
         return {**result, "trajectory_id": record.trajectory_id, "readback_verified": True}
 
+    async def add_robocasa_trajectory_memory(
+        self,
+        record: Any,
+        *,
+        context: Any,
+    ) -> dict[str, object]:
+        """Persist one validated RoboCasa trajectory as an immutable source memory."""
+
+        from homemaster.robocasa.trajectory_memory import (
+            RoboCasaTrajectoryRecord,
+        )
+
+        if not isinstance(record, RoboCasaTrajectoryRecord):
+            raise TypeError("record must be a RoboCasaTrajectoryRecord")
+        content = json.dumps(
+            record.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        result = await self.add_flat(
+            content,
+            "fact",
+            provenance_seq=record.final_environment_state.step_index or 0,
+            evidence_kind="environment_observation",
+            context=context,
+            metadata_extra={
+                "homemaster_memory_type": "trajectory",
+                "record_kind": record.record_kind,
+                "trajectory_id": record.trajectory_id,
+                "outcome": record.outcome,
+                "classification": record.classification,
+                "failure_reason": record.failure_reason,
+                "source_trace_sha256": record.source_trace_sha256,
+                "source_trace_path": record.source_trace_path,
+                "record_json": content,
+            },
+            source_type="robocasa_trajectory",
+            source_metadata={
+                "trajectory_id": record.trajectory_id,
+                "source_trace_sha256": record.source_trace_sha256,
+                "episode_id": record.episode_id,
+                "task_name": record.task_name,
+                "seed": record.seed,
+            },
+        )
+        raw = await self.get_raw(str(result["memory_id"]), context)
+        metadata = dict(getattr(raw, "metadata", {}) or {}) if raw is not None else {}
+        if (
+            raw is None
+            or getattr(raw, "status", None) != "active"
+            or metadata.get("homemaster_memory_type") != "trajectory"
+            or metadata.get("trajectory_id") != record.trajectory_id
+            or metadata.get("source_trace_sha256") != record.source_trace_sha256
+            or metadata.get("record_json") != content
+        ):
+            raise RuntimeError("trajectory memory metadata terminal state could not be verified")
+        return {**result, "trajectory_id": record.trajectory_id, "readback_verified": True}
+
     async def enrich_flat_memory(
         self,
         *,

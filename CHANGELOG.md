@@ -1,5 +1,24 @@
 # Unreleased
 
+- RoboCasa benchmark integration (RPent stack): a new
+  `benchmark-robocasa` CLI command runs Target50-style cells through an
+  isolated `workers/robocasa_worker/` NDJSON subprocess living in RPent's
+  `.venv-robocasa` — it owns the env_server + vla_server lifecycle while
+  HomeMaster stays free of the GPU stack.  New
+  `src/homemaster/robocasa/` package contributes the worker client,
+  borrowed-environment adapter, 14 `robocasa_*` tools (observe returns
+  real camera frames for Mimo; skill/arm/navigate/motion primitives map
+  to RPent `RoboCasaPrimitives`; verify/check_success are env-authoritative),
+  per-cell trace + result.json (Target50 fields), a benchmark runner with
+  env-only success scoring, task-weighted aggregation, and infra/provider/
+  cancelled/agent classification.  `memory_mode` gains `disabled`,
+  `readonly` (registry strips write tools) and `full` (RoboCasa-domain
+  trajectory memory via `add_robocasa_trajectory_memory` with readback
+  verification) for the planned memory ablation.  Cell reuse keeps the
+  VLA server warm via worker `reconfigure`; env success is the sole
+  completion authority (`task_progress_check` gets the external-owner
+  terminal rule under the robocasa profile).
+
 - Manual session archival: `POST /api/sessions/{id}/archive` admits the
   session to the application-owned finalization queue (episode schema
   add → implicit feedback → dreaming check), returning a job receipt.

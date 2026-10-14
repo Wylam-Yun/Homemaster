@@ -41,6 +41,31 @@ from homemaster.tools.observe import ScreenshotTool
 from homemaster.tools.service_tools import build_service_tools
 from homemaster.tools.web_tools import build_web_tools
 
+_ROBOCASA_MUTATING_TOOLS = frozenset(
+    {
+        "robocasa_skill",
+        "robocasa_arm",
+        "robocasa_navigate",
+        "robocasa_move_to",
+        "robocasa_move_delta",
+        "robocasa_rotate_pitch",
+        "robocasa_set_gripper",
+        "robocasa_release",
+        "robocasa_scripted_grasp",
+        "robocasa_move_base",
+    }
+)
+
+_MEMORY_WRITE_TOOL_NAMES = frozenset(
+    {
+        "memory_writer",
+        "mindmemos_add",
+        "mindmemos_update",
+        "mindmemos_delete",
+        "mindmemos_feedback",
+    }
+)
+
 _INTENTIONAL_COLLISIONS = {
     "robot_go_to": ("alfworld", frozenset({"home", "alfworld"})),
     "observe": ("home", frozenset({"home", "alfworld"})),
@@ -89,7 +114,7 @@ class _ReceiptVerifier:
 
 def build_tool_registry(
     *,
-    environment: Literal["local_robot", "alfworld", "browser"] | None,
+    environment: Literal["local_robot", "alfworld", "browser", "robocasa"] | None,
     world_path: Path | None = None,
     memory_path: Path | None = None,
     runtime_memory_root: Path | None = None,
@@ -122,10 +147,47 @@ def build_tool_registry(
         )
     elif environment == "browser":
         pass
+    elif environment == "robocasa":
+        sources["robocasa"] = _robocasa_tools(
+            memory_mode=memory_mode,
+            memory_path=memory_path,
+            runtime_memory_root=runtime_memory_root,
+        )
     elif environment is not None:
         raise ValueError(f"unsupported tool environment: {environment}")
 
     selected = _select_universal_tools(sources)
+    if environment == "robocasa":
+        # The completion-claim guard for a borrowed benchmark environment:
+        # ``task_progress_check`` arrives via the universal home source with a
+        # NORMAL terminal rule, which would let the model end an episode on its
+        # own say-so.  For RoboCasa the environment success flag must approve
+        # completion, so the selected universal gets the external-owner rule —
+        # same contract ALFWorld gives its environment-scoped twin.
+        selected = tuple(
+            replace(
+                tool,
+                definition=replace(
+                    tool.definition,
+                    verification_policy=replace(
+                        tool.definition.verification_policy,
+                        terminal_rule=TerminalRule.EXTERNAL_TERMINAL_OWNER,
+                    ),
+                ),
+            )
+            if tool.definition.model_alias == "task_progress_check"
+            else tool
+            for tool in selected
+        )
+    if environment == "robocasa" and memory_mode == "readonly":
+        # ``readonly`` must be a real boundary for the memory ablation arm:
+        # the mindmemos write tools arrive via the always-on home source, so
+        # gating only inside _robocasa_tools would leave them callable.
+        selected = tuple(
+            tool
+            for tool in selected
+            if tool.definition.model_alias not in _MEMORY_WRITE_TOOL_NAMES
+        )
     if environment == "browser":
         # Browser runs receive the run-owned V3.1 registry once a session
         # exists; the legacy generic screenshot tool must not leak into the
@@ -274,6 +336,35 @@ def _alfworld_tools(
     return tuple(tools)
 
 
+def _robocasa_tools(
+    *,
+    memory_mode: str,
+    memory_path: Path | None,
+    runtime_memory_root: Path | None,
+) -> tuple[RegisteredTool, ...]:
+    from homemaster.robocasa.tools import build_robocasa_tools
+
+    if memory_mode not in {"disabled", "readonly", "full"}:
+        raise ValueError(f"unsupported memory_mode: {memory_mode}")
+    specs: list[RegisteredTool] = []
+    if memory_mode in {"readonly", "full"}:
+        specs.append(make_memory_retriever(memory_path=memory_path))
+    if memory_mode == "full":
+        specs.append(make_memory_writer(runtime_memory_root=runtime_memory_root))
+    specs.extend(build_robocasa_tools())
+    return tuple(
+        _configured_tool(
+            tool,
+            environment="robocasa",
+            policy=_policy_for(tool.definition.model_alias, environment="robocasa"),
+            state_effects=("backend.advance",)
+            if tool.definition.model_alias in _ROBOCASA_MUTATING_TOOLS
+            else (),
+        )
+        for tool in specs
+    )
+
+
 def alfworld_physical_manipulate_tool(*, backend: Any) -> Any:
     """Build the opt-in permission-gated ALFWorld manipulation tool.
 
@@ -375,6 +466,14 @@ def _policy_for(name: str, *, environment: str) -> VerificationPolicy:
         "robot_manipulate",
         "robot_go_to",
     }
+    if environment == "robocasa":
+        if name == "robocasa_verify":
+            return VerificationPolicy(execution_proof=ExecutionProof.EXTERNAL_STATE)
+        if name.startswith("robocasa_") and name != "robocasa_observe":
+            if name in {"robocasa_back_project", "robocasa_world_map"}:
+                return VerificationPolicy(execution_proof=ExecutionProof.NONE)
+            return VerificationPolicy(execution_proof=ExecutionProof.STRUCTURED_RECEIPT)
+        return VerificationPolicy(execution_proof=ExecutionProof.NONE)
     if name in receipt_tools:
         return VerificationPolicy(execution_proof=ExecutionProof.STRUCTURED_RECEIPT)
     if name == "robot_verify":
