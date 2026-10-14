@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import os
 import sys
 import uuid
@@ -63,6 +64,8 @@ from homemaster.tools.runtime_services import HomeToolServices
 
 if TYPE_CHECKING:
     from homemaster.extensions.reloader import ExtensionReloader
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -651,6 +654,36 @@ def _finish_home_application(
         else None
     )
     session_end_handler = session_finalization.enqueue if session_finalization is not None else None
+
+    # Queued finalization jobs are in-memory, but every accepted job persists a
+    # durable job.json + episode.json under experience_jobs/. On startup, sweep
+    # for unfinished jobs and re-queue them so a crash or a killed drain cannot
+    # silently drop a session's archival.
+    if finalizer is not None and memory_add_queue is not None:
+
+        async def resume_finalization_jobs(_application: ApplicationRuntime) -> None:
+            scan = getattr(finalizer, "incomplete_jobs", None)
+            resume = getattr(finalizer, "resume_job", None)
+            if not callable(scan) or not callable(resume):
+                return
+            pending = await asyncio.to_thread(scan)
+            for job_dir, session_id in pending:
+
+                async def resume_work(job_dir: Path = job_dir) -> None:
+                    await resume(job_dir)
+
+                memory_add_queue.enqueue_work(
+                    job_type="session_finalization_resume",
+                    session_id=session_id,
+                    work=resume_work,
+                )
+                logger.info(
+                    "re-queued incomplete session finalization %s (session=%s)",
+                    job_dir.name,
+                    session_id,
+                )
+
+        starter_steps.append(resume_finalization_jobs)
 
     async def start_application_services(application: ApplicationRuntime) -> None:
         for starter in starter_steps:

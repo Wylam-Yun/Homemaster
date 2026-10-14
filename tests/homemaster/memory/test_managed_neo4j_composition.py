@@ -178,7 +178,10 @@ async def test_session_finalization_drains_before_memory_resources_close(
         def __init__(self, **kwargs: object) -> None:
             assert kwargs["memory_tenant_id"] == "benchmark-tenant"
 
-        async def finalize(self, session_id: str, exit_reason: str) -> FinalizeResult:
+        async def finalize(
+            self, session_id: str, exit_reason: str, *, trace_end: int | None = None
+        ) -> FinalizeResult:
+            del trace_end
             calls.append(f"finalize:{session_id}:{exit_reason}")
             return FinalizeResult(session_id=session_id, status="completed")
 

@@ -1,5 +1,33 @@
 # Unreleased
 
+- Session finalization no longer freezes the main event loop or loses
+  work on restart:
+
+  - Trace collection, schema-episode build, and job-state I/O run on a
+    worker thread via `asyncio.to_thread`, so a finalization pass can
+    no longer stall interactive sessions between awaits.
+  - Every accepted job now persists `episode.json` (the frozen schema
+    episode) next to `job.json`, making the job resumable without the
+    original per-run trace file. `schema_version` bumps to 4.
+  - Job identity drops `exit_reason`: re-archiving the same session
+    window under a different exit reason maps to the same job instead
+    of double-extracting. The reason remains stored as metadata.
+  - A per-session coverage watermark
+    (`experience_jobs/_coverage/<hash>.json`) plus a trigger-time byte
+    boundary splits archival into units: a second archive only
+    collects events appended after the first, so `/archive` followed
+    by `/new` no longer re-extracts overlapping content.
+  - `SessionFinalizationController` deduplicates in-flight admissions
+    per session — a second trigger before the queued job starts merges
+    into it (boundary and reason roll forward, same receipt returned);
+    after the job starts, a new job queues for the new delta only.
+  - Application startup sweeps `experience_jobs/` for unfinished jobs
+    and re-queues them (`session_finalization_resume`), so a crash or
+    killed drain no longer silently drops a session's archival.
+  - `enrich_flat_memory` re-reads memory metadata before each write
+    and overlays only the fields it owns; concurrent metadata updates
+    during the LLM window are no longer clobbered by a stale snapshot.
+
 - Manual session archival: `POST /api/sessions/{id}/archive` admits the
   session to the application-owned finalization queue (episode schema
   add → implicit feedback → dreaming check), returning a job receipt.

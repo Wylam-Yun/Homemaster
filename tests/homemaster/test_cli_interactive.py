@@ -149,7 +149,8 @@ def _install_finalizer(monkeypatch, bundle, finalizer_type=None):
         def __init__(self, **kwargs):
             calls.append(("init", kwargs))
 
-        async def finalize(self, session_id, exit_reason):
+        async def finalize(self, session_id, exit_reason, *, trace_end=None):
+            del trace_end
             calls.append((session_id, exit_reason))
             return SimpleNamespace(
                 status="completed",
@@ -319,7 +320,8 @@ def test_shell_new_runs_next_task_before_old_finalization_completes(monkeypatch,
         def __init__(self, **kwargs):
             del kwargs
 
-        async def finalize(self, session_id, exit_reason):
+        async def finalize(self, session_id, exit_reason, *, trace_end=None):
+            del trace_end
             events.append(("finalize_started", session_id, exit_reason))
             await asyncio.sleep(0.02)
             events.append(("finalize_completed", session_id, exit_reason))
@@ -361,7 +363,8 @@ def test_shell_ignores_sigint_during_session_finalization(monkeypatch, tmp_path)
         def __init__(self, **kwargs):
             del kwargs
 
-        async def finalize(self, session_id, exit_reason):
+        async def finalize(self, session_id, exit_reason, *, trace_end=None):
+            del trace_end
             events.append((session_id, exit_reason, "started"))
             signal.raise_signal(signal.SIGINT)
             signal.raise_signal(signal.SIGINT)

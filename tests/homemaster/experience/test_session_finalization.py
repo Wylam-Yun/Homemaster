@@ -23,7 +23,8 @@ async def test_controller_admits_without_waiting_and_exposes_result() -> None:
     release = asyncio.Event()
 
     class Finalizer:
-        async def finalize(self, session_id, exit_reason):
+        async def finalize(self, session_id, exit_reason, *, trace_end=None):
+            del trace_end
             await release.wait()
             return FinalizeResult(session_id=session_id, status=exit_reason)
 
@@ -68,3 +69,39 @@ def test_controller_admission_does_not_require_a_running_event_loop() -> None:
 
     assert receipt is not None
     assert receipt.status == "accepted"
+
+
+def test_controller_merges_duplicate_enqueues_for_same_session() -> None:
+    queue = RecordingQueue()
+    controller = SessionFinalizationController(object(), queue)
+
+    first = controller.enqueue("session-one", "archived")
+    merged = controller.enqueue("session-one", "new_session")
+
+    assert first is not None and merged is first
+    assert [(kind, session_id) for kind, session_id, _ in queue.jobs] == [
+        ("session_finalization", "session-one")
+    ]
+
+    other = controller.enqueue("session-two", "new_session")
+    assert other is not None and other is not first
+    assert len(queue.jobs) == 2
+
+
+@pytest.mark.asyncio
+async def test_controller_enqueue_after_completion_creates_new_job() -> None:
+    class Finalizer:
+        async def finalize(self, session_id, exit_reason, *, trace_end=None):
+            del trace_end
+            return FinalizeResult(session_id=session_id, status="empty")
+
+    queue = RecordingQueue()
+    controller = SessionFinalizationController(Finalizer(), queue)
+
+    first = controller.enqueue("session-one", "archived")
+    await queue.jobs[0][2]()
+
+    second = controller.enqueue("session-one", "new_session")
+
+    assert second is not None and second is not first
+    assert len(queue.jobs) == 2
