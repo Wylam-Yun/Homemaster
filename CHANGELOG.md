@@ -1,5 +1,13 @@
 # Unreleased
 
+- Cancelling a run while `ask_user_question` waits for input no longer
+  leaves a zombie stdin reader: on TTYs the answer prompt now uses
+  `prompt_toolkit.PromptSession.prompt_async`, which unwinds cleanly on
+  cancellation. Previously the `asyncio.to_thread(input)` call could not
+  be cancelled, so the orphaned thread kept competing for keystrokes and
+  made the next `homemaster>` prompt look hung. Non-TTY shells keep the
+  `to_thread` fallback.
+
 - The interactive shell no longer hides `ask_user_question` prompts behind
   the tool-running spinner: `ask_user` now emits a
   `user_question.requested` runtime event, and `RichStreamEventSink` hands

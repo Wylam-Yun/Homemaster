@@ -132,6 +132,18 @@ def run_interactive_shell(
                 except Exception:
                     shown = False
             prompt = "answer> " if shown else f"{question}\nanswer> "
+            from homemaster.cli.prompt_loop import interactive_prompt_supported
+
+            if interactive_prompt_supported():
+                # Async-native prompt: cancelling the run unwinds prompt_async
+                # cleanly. A to_thread(input) call cannot be cancelled and its
+                # zombie thread would keep holding stdin afterwards, stealing
+                # input from the next shell prompt.
+                from prompt_toolkit import PromptSession
+                from prompt_toolkit.patch_stdout import patch_stdout
+
+                with patch_stdout():
+                    return await PromptSession().prompt_async(prompt)
             return await asyncio.to_thread(input, prompt)
 
         def end_session(reason: str) -> None:
