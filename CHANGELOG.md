@@ -1,5 +1,20 @@
 # Unreleased
 
+- Cancelling a run at the `ask_user_question` prompt no longer corrupts
+  the *next* run. The prompt's Ctrl+C binding raises `KeyboardInterrupt`
+  inside the `ask_user` coroutine; because `Task.__step` re-raises
+  `BaseException` out of `loop._run_once`, the raw exception aborted
+  `run_until_complete` mid-flight, left the run task suspended at its
+  `asyncio.gather` await, and the stale done-callback re-raised the same
+  `KeyboardInterrupt` inside the *next* `runner.run` loop — so the
+  following task instantly printed "Run cancelled." and the prompt
+  appeared responsive but never ran anything. `ask_user` now routes the
+  abort through `application.cancel()` (proper engine teardown:
+  `runtime.cancelled` event, dangling tool-call closure, cancelled
+  `agent_state`) and re-raises `asyncio.CancelledError`, which unwinds
+  inside the event loop instead of escaping it. Ctrl+D at the question
+  (`EOFError`) gets the same treatment.
+
 - Cancelling a run while `ask_user_question` waits for input no longer
   leaves a zombie stdin reader: on TTYs the answer prompt now uses
   `prompt_toolkit.PromptSession.prompt_async`, which unwinds cleanly on

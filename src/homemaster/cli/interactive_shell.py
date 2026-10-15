@@ -142,8 +142,26 @@ def run_interactive_shell(
                 from prompt_toolkit import PromptSession
                 from prompt_toolkit.patch_stdout import patch_stdout
 
-                with patch_stdout():
-                    return await PromptSession().prompt_async(prompt)
+                try:
+                    with patch_stdout():
+                        return await PromptSession().prompt_async(prompt)
+                except (KeyboardInterrupt, EOFError) as exc:
+                    # prompt_async's Ctrl+C binding raises KeyboardInterrupt
+                    # *inside* this coroutine. Letting it propagate is unsafe:
+                    # Task.__step re-raises BaseException out of _run_once,
+                    # which aborts run_until_complete mid-flight and leaves
+                    # stale wakeup callbacks that re-raise the same KI inside
+                    # the NEXT runner.run loop, instantly cancelling that run
+                    # too. Route the abort through application.cancel() so the
+                    # run unwinds via the engine's normal cancellation path,
+                    # then fail this call with CancelledError — task-level
+                    # cancellation unwinds inside the event loop instead of
+                    # escaping it.
+                    try:
+                        application.cancel(ctx.session_id)
+                    except Exception:
+                        pass
+                    raise asyncio.CancelledError() from exc
             return await asyncio.to_thread(input, prompt)
 
         def end_session(reason: str) -> None:
