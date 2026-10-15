@@ -1,5 +1,15 @@
 # Unreleased
 
+- The interactive shell no longer hides `ask_user_question` prompts behind
+  the tool-running spinner: `ask_user` now emits a
+  `user_question.requested` runtime event, and `RichStreamEventSink` hands
+  it to `RichOutputRenderer`, which stops the spinner/Live region, prints
+  the question in a bordered panel, and parks the renderer in a
+  `waiting-user-question` state before `input()` blocks for the answer.
+  If event delivery fails (or the run is not live-rendered), the prompt
+  falls back to embedding the question text directly, so the question can
+  never go unanswered invisibly.
+
 - Session finalization no longer freezes the main event loop or loses
   work on restart:
 

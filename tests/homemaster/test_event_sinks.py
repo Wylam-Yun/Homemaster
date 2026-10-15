@@ -320,6 +320,34 @@ def test_confirmation_request_stops_tool_spinner_before_terminal_prompt() -> Non
     assert _FakeStatus.instances[-1].stopped == 1
 
 
+def test_user_question_request_stops_tool_spinner_and_shows_question() -> None:
+    module = _load_module("homemaster.cli.live_output")
+    renderer_module = _load_module("homemaster.cli.rich_renderer")
+    _FakeStatus.instances.clear()
+    output = StringIO()
+    renderer = renderer_module.RichOutputRenderer(
+        console=Console(file=output, force_terminal=False, color_system=None),
+        live_factory=_FakeLive,
+        status_factory=_FakeStatus,
+    )
+    sink = module.RichStreamEventSink(renderer)
+    renderer.render(ToolExecutionStarted("ask_user_question", {"question": "pick one"}))
+
+    sink.emit(
+        RuntimeEvent(
+            type="user_question.requested",
+            session_id="s1",
+            run_id="r1",
+            turn_index=0,
+            payload={"question": "把 superpowers 装到哪里？"},
+        )
+    )
+
+    assert renderer.state == "waiting-user-question"
+    assert _FakeStatus.instances[-1].stopped == 1
+    assert "把 superpowers 装到哪里？" in output.getvalue()
+
+
 def test_rich_renderer_error_status_and_close_are_idempotent() -> None:
     module = _load_module("homemaster.cli.rich_renderer")
     output = StringIO()

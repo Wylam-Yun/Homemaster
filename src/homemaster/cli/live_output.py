@@ -95,6 +95,12 @@ class RichStreamEventSink(_ProjectedRuntimeSink):
         if event.type == "permission.confirmation_requested":
             self._renderer.confirmation_requested()
             return
+        if event.type == "user_question.requested":
+            question = ""
+            if isinstance(event.payload, dict):
+                question = str(event.payload.get("question") or "")
+            self._renderer.user_question_requested(question)
+            return
         public = self._project(event)
         if public is None:
             return
