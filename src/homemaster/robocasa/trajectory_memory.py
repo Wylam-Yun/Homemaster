@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from homemaster.events.runtime_events import RuntimeEvent
+
 RoboCasaOutcome = Literal["success", "failure", "unknown"]
 
 _FORBIDDEN_PUBLIC_KEYS = {
@@ -232,20 +234,33 @@ class RoboCasaTrajectoryWriter:
             work=work,
         )
 
+    def _event(
+        self, event_type: str, record: RoboCasaTrajectoryRecord, payload: dict[str, Any]
+    ) -> RuntimeEvent:
+        return RuntimeEvent(
+            type=event_type,
+            session_id=record.source_session_id,
+            run_id=record.run_id,
+            turn_index=None,
+            payload={
+                "trajectory_id": record.trajectory_id,
+                "episode_id": record.episode_id,
+                "task_name": record.task_name,
+                "seed": record.seed,
+                "outcome": record.outcome,
+                "classification": record.classification,
+                "source_trace_sha256": record.source_trace_sha256,
+                **payload,
+            },
+        )
+
     def _emit(self, event: str, record: RoboCasaTrajectoryRecord, payload: dict[str, Any]) -> None:
         sink = self._event_sink
         if sink is None:
             return
         emitter = getattr(sink, "emit", None)
         if callable(emitter):
-            emitter(
-                {
-                    "event": event,
-                    "trajectory_id": record.trajectory_id,
-                    "session_id": record.source_session_id,
-                    **payload,
-                }
-            )
+            emitter(self._event(event, record, payload))
 
     async def _aemit(
         self, event: str, record: RoboCasaTrajectoryRecord, payload: dict[str, Any]
@@ -253,18 +268,16 @@ class RoboCasaTrajectoryWriter:
         sink = self._event_sink
         if sink is None:
             return
-        emitter = getattr(sink, "aemit", None) or getattr(sink, "emit", None)
-        if callable(emitter):
-            output = emitter(
-                {
-                    "event": event,
-                    "trajectory_id": record.trajectory_id,
-                    "session_id": record.source_session_id,
-                    **payload,
-                }
-            )
+        built = self._event(event, record, payload)
+        aemitter = getattr(sink, "aemit", None)
+        if callable(aemitter):
+            output = aemitter(built)
             if hasattr(output, "__await__"):
                 await output
+            return
+        emitter = getattr(sink, "emit", None)
+        if callable(emitter):
+            emitter(built)
 
 
 __all__ = [

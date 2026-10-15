@@ -12,6 +12,7 @@ from typing import Any
 
 from homemaster.agent.messages import ToolResultMessage
 from homemaster.alfworld.benchmark.episode import BenchmarkApplicationLifecycle
+from homemaster.alfworld.benchmark.runner import _start_trajectory_runtime
 from homemaster.application import RunPolicy, RunRequest, RuntimeStopDecision
 from homemaster.config import ConfigError, load_config
 from homemaster.events.sinks import JsonlEventSink
@@ -178,6 +179,7 @@ class RoboCasaBenchmarkRunner:
                 event_sink=runtime_sink,
                 disable_memory_for_worker=True,
             )
+            _start_trajectory_runtime(entry)
             entry.begin_session(cell_run_id, exit_reason="robocasa_episode_end")
         except Exception as exc:
             logger.exception("cell %s application setup failed", cell_run_id)
@@ -304,8 +306,31 @@ class RoboCasaBenchmarkRunner:
             episode_summary["trajectory_id"] = trajectory_record.trajectory_id
             trace.write_summary(episode_summary)
             trace.write_trajectory_memory(trajectory_record.model_dump(mode="json"))
-            if entry.bundle.robocasa_trajectory_writer is not None:
-                entry.bundle.robocasa_trajectory_writer.enqueue(trajectory_record)
+            trajectory_memory_error: str | None = None
+            writer = _started_robocasa_trajectory_writer(entry)
+            if writer is not None:
+                try:
+                    writer.enqueue(trajectory_record)
+                except Exception as exc:
+                    # Memory persistence is a side channel: a failed admission
+                    # must not clobber the env-authoritative cell result, but
+                    # the failure is recorded so full-mode cells can be
+                    # excluded from the ablation arm downstream.
+                    trajectory_memory_error = f"{type(exc).__name__}: {exc}"
+                    logger.warning(
+                        "cell %s trajectory memory enqueue failed: %s",
+                        cell_run_id,
+                        trajectory_memory_error,
+                    )
+            elif entry.bundle.robocasa_trajectory_writer is not None:
+                trajectory_memory_error = "memory_add_queue_not_started"
+                logger.warning(
+                    "cell %s trajectory writer present but queue not started",
+                    cell_run_id,
+                )
+            episode_result = dataclasses.replace(
+                episode_result, trajectory_memory_error=trajectory_memory_error
+            )
             result_path = self._write_cell_result(
                 cell=cell,
                 episode_dir=episode_dir,
@@ -523,6 +548,7 @@ class RoboCasaBenchmarkRunner:
             "steps": episode.steps,
             "invalid_actions": episode.invalid_actions,
             "agent_tool_call_count": episode.agent_tool_call_count,
+            "trajectory_memory_error": episode.trajectory_memory_error,
             "runtime": {"cell_timeout_seconds": cell.timeout_seconds},
             "planner": {
                 "backend": "homemaster",
@@ -565,6 +591,17 @@ class RoboCasaBenchmarkRunner:
 
 def _failure_reason(error_code: str | None) -> str:
     return str(error_code or "not_success")
+
+
+def _started_robocasa_trajectory_writer(entry: Any) -> Any | None:
+    """Return the trajectory writer only when its memory queue is running."""
+    writer = getattr(getattr(entry, "bundle", None), "robocasa_trajectory_writer", None)
+    if writer is None:
+        return None
+    queue = getattr(writer, "_queue", None)
+    if queue is not None and getattr(queue, "started", True) is not True:
+        return None
+    return writer
 
 
 def _classification(

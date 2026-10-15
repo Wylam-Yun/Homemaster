@@ -114,6 +114,7 @@ class RoboCasaEpisodeResult:
     terminal_tool_call_id: str | None = None
     terminal_evidence_ref: str | None = None
     task_language: str = ""
+    trajectory_memory_error: str | None = None
     result_path: Path | None = None
 
 
@@ -199,6 +200,7 @@ class RoboCasaSummary:
                     "score_eligible": cell.score_eligible,
                     "steps": cell.steps,
                     "invalid_actions": cell.invalid_actions,
+                    "trajectory_memory_error": cell.trajectory_memory_error,
                     "run_id": cell.run_id,
                     "trace_path": str(cell.trace_path),
                     "result_path": (
