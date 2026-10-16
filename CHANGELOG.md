@@ -1,5 +1,23 @@
 # Unreleased
 
+- Mid-stream provider transport failures now retry instead of killing the
+  run. `ProviderRetryMiddleware` previously refused to re-issue a request
+  once any non-thinking chunk had streamed; but text/thinking/tool-arg
+  deltas are preview-only — the canonical response is rebuilt from the
+  retried attempt's `is_last` chunk — so a `ReadTimeout`/
+  `RemoteProtocolError` mid-generation no longer discards the whole turn.
+  The gate is now precise: only a *finished* tool call commits the
+  attempt (its `ToolCallEndEvent` already projected `tool.call_started`,
+  and replaying would dispatch duplicate call events). Ids of tool calls
+  abandoned mid-flight are recorded (`AsRunHandle.abandoned_tool_call_ids`)
+  so the stream-end sweep's phantom `ToolCallEndEvent` reconciles
+  bookkeeping without emitting a bogus `tool.call_started`.
+  `AsLLMClient.stream()` (doctor / verdict / memory distillation path)
+  gains the same narrow retry while zero deltas have escaped.
+  Long-context tasks that stalled mid-stream (observed: `ReadTimeout`
+  after 65-124 streamed deltas on request ~22-39 of a deep architecture
+  survey) now survive via `transport.request_retrying`.
+
 - Full memory mode gains `memory.qdrant.mode: managed_local`: HomeMaster
   now spawns and babysits one private `qdrant` binary itself — no docker,
   no root, no systemd. The lifecycle mirrors `neo4j.mode: managed_local`:

@@ -74,6 +74,11 @@ class AsRunHandle:
     tool_call_names: dict[str, str] = field(default_factory=dict)
     pending_args: dict[str, str] = field(default_factory=dict)
     tool_call_args: dict[str, Any] = field(default_factory=dict)
+    # Tool-call ids whose argument stream was abandoned mid-flight by a
+    # transport retry (ProviderRetryMiddleware records them). AS still emits
+    # a phantom ToolCallEndEvent for them at stream end — the projection
+    # must reconcile the bookkeeping without emitting tool.call_started.
+    abandoned_tool_call_ids: set[str] = field(default_factory=set)
     reply_finished_reason: str | None = None
     reply_error: Any = None
     tool_registry: Any = None
@@ -784,6 +789,14 @@ class AsAgentRuntime:
             )
         elif isinstance(item, ToolCallEndEvent):
             raw = handle.pending_args.pop(item.tool_call_id, "")
+            if item.tool_call_id in handle.abandoned_tool_call_ids:
+                # Phantom end event for a call dropped by a transport retry
+                # — clean the bookkeeping and undo its start-event count;
+                # the retried attempt's call carries a fresh id.
+                handle.tool_call_names.pop(item.tool_call_id, None)
+                if handle.round_tool_calls > 0:
+                    handle.round_tool_calls -= 1
+                return None
             try:
                 arguments = json.loads(raw) if raw else {}
             except json.JSONDecodeError:

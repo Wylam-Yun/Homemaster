@@ -197,6 +197,114 @@ async def test_as_runtime_tool_call_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_as_runtime_mid_stream_transport_retry(tmp_path: Path) -> None:
+    """A transport drop while tool-call arguments stream is pre-commit:
+    the middleware re-issues the same frozen call, the retried attempt's
+    fresh call id dispatches, and the abandoned id's phantom
+    ToolCallEndEvent stays silent (no bogus tool.call_started)."""
+    import httpx
+
+    from homemaster.providers.attempts import ListProviderAttemptSink
+
+    class MidStreamDeathModel(ScriptedModel):
+        """First call streams thinking + partial tool args then dies;
+        second call streams a fresh tool call id to completion."""
+
+        async def _call_api(self, model_name, messages, tools=None,
+                            tool_choice=None, **kwargs):
+            self.calls.append(messages)
+            self.call_tools.append(tools)
+            for msg in messages:
+                for block in getattr(msg, "content", ()) or ():
+                    if getattr(block, "type", None) == "tool_result":
+                        for out in getattr(block, "output", ()) or ():
+                            self.seen_tool_result_text += str(
+                                getattr(out, "text", "") or ""
+                            )
+            item = self._script.pop(0) if self._script else [
+                TextBlock(text="done")
+            ]
+            if isinstance(item, Exception):
+                raise item
+            blocks = item
+            if getattr(self, "_stream_mode", False):
+
+                async def _gen():
+                    for chunk in blocks:
+                        if isinstance(chunk, Exception):
+                            raise chunk
+                        yield chunk
+
+                return _gen()
+            return ChatResponse(
+                content=blocks,
+                is_last=True,
+                usage=ChatUsage(input_tokens=7, output_tokens=3, time=0.0),
+                metadata={"stop_reason": "end_turn"},
+            )
+
+    def _chunk(blocks, *, last=False):
+        return ChatResponse(
+            content=list(blocks),
+            is_last=last,
+            usage=ChatUsage(input_tokens=1, output_tokens=1, time=0.0),
+        )
+
+    registry = ToolRegistry()
+    registry.register(_echo_tool())
+    executor = ToolExecutor(registry)
+    scope = _scope(tmp_path)
+    tools = [
+        HomeToolAdapter(tool, executor, scope) for tool in registry.list_tools()
+    ]
+    model = MidStreamDeathModel([
+        # call 1: thinking + half-written tool args, then the wire dies
+        [
+            _chunk([ThinkingBlock(thinking="plan")]),
+            _chunk([ToolCallBlock(id="stale", name="echo", input='{"x"')]),
+            httpx.ReadTimeout(
+                "mid-stream stall",
+                request=httpx.Request("POST", "https://provider.example/x"),
+            ),
+        ],
+        # call 2 (the retry): fresh id streams to completion
+        [
+            _chunk([ToolCallBlock(id="fresh", name="echo", input='{"x"')]),
+            _chunk([ToolCallBlock(id="fresh", name="echo", input=': 1}')]),
+            _chunk(
+                [ToolCallBlock(id="fresh", name="echo", input='{"x": 1}')],
+                last=True,
+            ),
+        ],
+        # call 3: post-tool reply
+        [_chunk([TextBlock(text="finished")], last=True)],
+    ])
+    model._stream_mode = True
+    runtime = AsAgentRuntime(
+        model=model,
+        system_prompt="sys",
+        tools=tools,
+        max_tool_iterations=4,
+        provider_attempt_sink_factory=ListProviderAttemptSink,
+    )
+    session = AgentSession("as-runtime-test")
+    result = await runtime.run(session, "go", settings=_settings(tmp_path))
+
+    assert result.status == "replied"
+    assert result.final_reply == "finished"
+    assert len(model.calls) == 3
+
+    event_types = [e.type for e in result.events]
+    assert "transport.request_retrying" in event_types
+    started = [e for e in result.events if e.type == "tool.call_started"]
+    assert [e.tool_call_id for e in started] == ["fresh"]
+    completed = [e for e in result.events if e.type == "tool.call_completed"]
+    assert [e.tool_call_id for e in completed] == ["fresh"]
+    tool_msg = next(m for m in session.messages if m.role == "tool")
+    assert tool_msg.tool_call_id == "fresh"
+
+
+@pytest.mark.asyncio
 async def test_as_runtime_text_only(tmp_path: Path) -> None:
     registry = ToolRegistry()
     executor = ToolExecutor(registry)

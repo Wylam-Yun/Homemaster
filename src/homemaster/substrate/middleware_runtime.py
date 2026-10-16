@@ -604,31 +604,62 @@ class ProviderRetryMiddleware(MiddlewareBase):
         next_handler: Callable[..., Any],
         attempt_index: int,
     ) -> AsyncGenerator:
-        """Consume the model stream; a failure after only reasoning chunks
-        is still pre-commit (nothing user-visible landed) and may retry with
-        the same frozen call — mirroring the legacy ``_reasoning_only_delta``
-        guard."""
+        """Consume the model stream; a failure before the response committed
+        may retry with the same frozen call — mirroring the legacy
+        ``_reasoning_only_delta`` guard. Canonical content comes from the
+        ``is_last`` chunk alone (``_reasoning_impl``), so a mid-stream
+        transport drop is safe to re-issue while no tool call has finished
+        streaming (a completed call already projected ``tool.call_started``
+        — replaying it would dispatch duplicate call events). Tool-call ids
+        opened by an abandoned attempt are recorded on the handle so the
+        end-of-stream sweep's phantom end events stay silent."""
         while True:
-            reasoning_only = True
+            committed = False
+            open_tool_ids: set[str] = set()
             try:
+                if stream is None:
+                    # The retried call itself goes through the inner
+                    # middlewares, so its own failure is recorded + gated
+                    # like a fresh attempt.
+                    stream = await next_handler()
+                    if not hasattr(stream, "__aiter__"):
+                        # Non-stream model response — a complete chunk.
+                        yield stream
+                        return
                 async for chunk in stream:
-                    if not _reasoning_only_chunk(chunk):
-                        reasoning_only = False
+                    if _chunk_commits(chunk, open_tool_ids):
+                        committed = True
                     yield chunk
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:
                 if (
-                    reasoning_only
-                    and attempt_index < _PROVIDER_MAX_ATTEMPTS - 1
-                    and self._retry_allowed(exc)
+                    committed
+                    or attempt_index >= _PROVIDER_MAX_ATTEMPTS - 1
+                    or not self._retry_allowed(exc)
                 ):
-                    delay_s = self._delay(attempt_index)
-                    attempt_index += 1
-                    await self._emit_retrying(attempt_index, delay_s)
-                    await self._sleep(delay_s)
-                    stream = await next_handler()
-                    continue
-                raise
+                    raise
+                self._mark_abandoned_tool_calls(open_tool_ids)
+                delay_s = self._delay(attempt_index)
+                attempt_index += 1
+                await self._emit_retrying(attempt_index, delay_s)
+                await self._sleep(delay_s)
+                stream = None
+                continue
             return
+
+    def _mark_abandoned_tool_calls(self, tool_call_ids: set[str]) -> None:
+        """Ids of tool calls whose arguments were mid-flight when the
+        attempt died — AS keeps them in ``block_ids["tools"]`` and emits a
+        phantom ``ToolCallEndEvent`` at stream end, which would surface a
+        ``tool.call_started`` for a call the final response never made."""
+        if not tool_call_ids:
+            return
+        abandoned = getattr(self._handle, "abandoned_tool_call_ids", None)
+        if abandoned is None:
+            abandoned = set()
+            self._handle.abandoned_tool_call_ids = abandoned
+        abandoned.update(tool_call_ids)
 
     def _retry_allowed(self, error: Exception) -> bool:
         # Marked ``_hm_propagate`` failures (session fences, teardown errors)
@@ -706,16 +737,30 @@ class ProviderRetryMiddleware(MiddlewareBase):
         await asyncio.sleep(min(delay_s, remaining))
 
 
-def _reasoning_only_chunk(chunk: Any) -> bool:
-    """``ChatResponse`` chunk carrying nothing but thinking blocks — the AS
-    analogue of the legacy ``_reasoning_only_delta`` guard (a finish chunk
-    or any text/tool block commits the response)."""
+def _chunk_commits(chunk: Any, open_tool_ids: set[str]) -> bool:
+    """Whether this chunk makes the attempt non-retryable — the AS analogue
+    of the legacy ``_reasoning_only_delta`` guard, narrowed to what truly
+    commits. Text/thinking/tool-arg deltas are preview-only: the canonical
+    response is rebuilt from the retried attempt's ``is_last`` chunk, so a
+    mid-flight transport drop may re-issue (the user sees the text/thinking
+    regenerate once, explained by ``transport.request_retrying``). What
+    genuinely commits is a *finished* tool call — its ``ToolCallEndEvent``
+    already projected ``tool.call_started``, and replaying would dispatch
+    the call's events twice."""
     content = getattr(chunk, "content", None) or []
     if getattr(chunk, "is_last", False):
-        return False
+        return True
     if getattr(chunk, "metadata", None) and chunk.metadata.get("stop_reason"):
-        return False
-    return all(getattr(block, "type", None) == "thinking" for block in content)
+        return True
+    tool_ids = {
+        str(getattr(block, "id", "") or "")
+        for block in content
+        if getattr(block, "type", None) == "tool_call"
+    }
+    if open_tool_ids - tool_ids:
+        return True
+    open_tool_ids.update(tool_ids)
+    return False
 
 
 def _last_provider_attempt(sink: Any) -> Any:
