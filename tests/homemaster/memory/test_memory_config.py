@@ -232,6 +232,58 @@ def test_memory_qdrant_server_mode_accepts_connection_fields() -> None:
     assert config.memory.qdrant.grpc_port == 6400
 
 
+def test_memory_qdrant_managed_local_fields(tmp_path: Path) -> None:
+    home = tmp_path / "qdrant-home"
+    home.mkdir()
+    config = HomeMasterConfig(
+        memory={
+            "qdrant": {
+                "mode": "managed_local",
+                "home": home,
+                "rest_port": 16333,
+                "grpc_port": 16334,
+            }
+        }
+    )
+    assert config.memory.qdrant.mode == "managed_local"
+    assert config.memory.qdrant.home == home
+    assert config.memory.qdrant.effective_url == "http://127.0.0.1:16333"
+    assert config.memory.mindmemos_qdrant_service_root == (
+        config.memory.data_root / "mindmemos" / "qdrant_service"
+    )
+
+
+def test_memory_qdrant_managed_local_rejects_equal_ports(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="must differ"):
+        HomeMasterConfig(
+            memory={
+                "qdrant": {
+                    "mode": "managed_local",
+                    "home": tmp_path,
+                    "rest_port": 6333,
+                    "grpc_port": 6333,
+                }
+            }
+        )
+
+
+def test_memory_qdrant_rejects_out_of_range_ports() -> None:
+    with pytest.raises(ValidationError):
+        HomeMasterConfig(
+            memory={"qdrant": {"mode": "server", "grpc_port": 70000}}
+        )
+
+
+def test_memory_qdrant_home_is_anchored_to_config_dir(tmp_path: Path) -> None:
+    from homemaster.config.config import _anchor_config_relative_paths
+
+    anchored = _anchor_config_relative_paths(
+        {"memory": {"qdrant": {"mode": "managed_local", "home": "vendor/qdrant"}}},
+        config_dir=tmp_path,
+    )
+    assert anchored["memory"]["qdrant"]["home"] == (tmp_path / "vendor/qdrant").resolve()
+
+
 @pytest.mark.parametrize(
     "url",
     ["not-a-url", "qdrant.internal:6333", "bolt://127.0.0.1:6333", ""],

@@ -198,9 +198,19 @@ class ManagedNeo4jRuntime:
 
         threading.Thread(target=acquire, name="homemaster-neo4j-lock", daemon=True).start()
         try:
-            await asyncio.shield(acquired)
+            cancellation: asyncio.CancelledError | None = None
+            while True:
+                try:
+                    await asyncio.shield(acquired)
+                    break
+                except asyncio.CancelledError as exc:
+                    cancellation = exc
+                    if not acquired.done():
+                        continue
+                    break
+            if cancellation is not None:
+                raise cancellation
         except BaseException:
-            await acquired
             fcntl.flock(descriptor, fcntl.LOCK_UN)
             os.close(descriptor)
             raise
@@ -458,11 +468,33 @@ class ManagedNeo4jRuntime:
 
 
 def _process_start_identity(pid: int) -> str:
+    """Boot-epoch start identity for *pid* — used to detect pid recycling.
+
+    Linux reads ``/proc/<pid>/stat`` field 22 (starttime); ``comm`` is
+    parenthesised and may itself contain spaces, so the split happens after
+    the closing paren, not on whitespace across the whole line. Other
+    platforms fall back to ``ps -o lstart=`` (macOS has no /proc). The value
+    is only ever compared for equality, so any stable string works.
+    """
     try:
-        fields = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").split()
-        return fields[21]
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        fields = stat.rsplit(")", 1)[1].split()
+        return fields[19]
     except (OSError, IndexError):
+        pass
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
         return "unknown"
+    if result.returncode != 0:
+        return "unknown"
+    value = result.stdout.strip()
+    return value or "unknown"
 
 
 def _process_identity_is_alive(pid: int, expected_start: str) -> bool:
@@ -470,6 +502,11 @@ def _process_identity_is_alive(pid: int, expected_start: str) -> bool:
         os.kill(pid, 0)
     except (OSError, ValueError):
         return False
+    if expected_start == "unknown":
+        # Cannot prove the pid was not recycled — the bare kill only shows
+        # *a* process exists, so it counts as alive (stale leases/owners
+        # degrade to pid-only matching rather than being wrongly pruned).
+        return True
     return _process_start_identity(pid) == expected_start
 
 

@@ -137,6 +137,33 @@ def test_build_mindmemos_config_maps_server_mode_qdrant(tmp_path: Path) -> None:
     assert mapped.database.qdrant.grpc_port == 6400
 
 
+def test_build_mindmemos_config_maps_managed_local_qdrant(tmp_path: Path) -> None:
+    """managed_local must hand MindMemOS the loopback URL HomeMaster binds —
+    never the embedded local path."""
+    module = importlib.import_module("homemaster.memory.mindmemos_runtime")
+    config = HomeMasterConfig(
+        providers={"default": "Mimo", "items": [_chat_provider(), _embedding_provider()]},
+        runtime_defaults={
+            "default_provider_name": "Mimo",
+            "default_embedding_provider_name": "MemoryEmbedding",
+        },
+        memory={
+            "data_root": tmp_path / "memory",
+            "qdrant": {
+                "mode": "managed_local",
+                "home": tmp_path / "qdrant-home",
+                "rest_port": 16333,
+                "grpc_port": 16334,
+            },
+        },
+    )
+
+    mapped = module.build_mindmemos_config(config)
+
+    assert mapped.database.qdrant.url == "http://127.0.0.1:16333"
+    assert mapped.database.qdrant.grpc_port == 16334
+
+
 def test_homemaster_schema_prompt_requires_native_entity_output() -> None:
     module = importlib.import_module("homemaster.memory.mindmemos_runtime")
 

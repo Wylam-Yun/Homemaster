@@ -431,16 +431,27 @@ class MemoryQdrantConfig(BaseModel):
     is exclusive so only one HomeMaster process may run ``memory.mode=full``
     at a time. ``server`` connects to an externally managed Qdrant service
     (docker, systemd, or a bare binary) that any number of processes can
-    share — the shape required for concurrent full-mode sessions.
+    share. ``managed_local`` lets HomeMaster itself spawn and babysit one
+    private Qdrant binary on this node — the same lifecycle shape as
+    ``neo4j.mode: managed_local``: the first process starts it, later ones
+    attach, and the last leaser stops it. No docker/root needed.
     """
 
     model_config = ConfigDict(extra="forbid", validate_default=True)
 
-    mode: Literal["embedded", "server"] = "embedded"
+    mode: Literal["embedded", "server", "managed_local"] = "embedded"
+    # server-mode connection fields
     url: str = "http://127.0.0.1:6333"
     api_key: SecretStr = SecretStr("")
     prefer_grpc: bool = False
-    grpc_port: int = Field(default=6334, gt=0)
+    grpc_port: int = Field(default=6334, gt=0, le=65535)
+    # managed_local fields: ``home`` is the qdrant install dir (or the
+    # binary itself); the service binds loopback rest_port/grpc_port and
+    # stores data under ``data_root/mindmemos/qdrant_service/``.
+    home: Path | None = None
+    rest_port: int = Field(default=6333, gt=0, le=65535)
+    start_timeout_seconds: float = Field(default=60.0, gt=0)
+    stop_timeout_seconds: float = Field(default=30.0, gt=0)
 
     @field_validator("url")
     @classmethod
@@ -450,6 +461,33 @@ class MemoryQdrantConfig(BaseModel):
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("memory.qdrant.url must be an absolute http(s) URI")
         return stripped
+
+    @field_validator("home")
+    @classmethod
+    def _expand_home(cls, value: Path | None) -> Path | None:
+        return _private_absolute_path(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def _managed_local_requires_home(self) -> MemoryQdrantConfig:
+        if self.mode == "managed_local":
+            if self.home is None:
+                raise ValueError(
+                    "managed_local Qdrant requires memory.qdrant.home pointing at "
+                    "the qdrant installation directory or binary"
+                )
+            if self.rest_port == self.grpc_port:
+                raise ValueError(
+                    "memory.qdrant.rest_port and grpc_port must differ under "
+                    "managed_local"
+                )
+        return self
+
+    @property
+    def effective_url(self) -> str:
+        """The URL the MindMemOS client should dial for this Qdrant."""
+        if self.mode == "managed_local":
+            return f"http://127.0.0.1:{self.rest_port}"
+        return self.url
 
 
 class MemoryConfig(BaseModel):
@@ -597,6 +635,12 @@ class MemoryConfig(BaseModel):
     @property
     def mindmemos_qdrant_path(self) -> Path:
         return self.data_root / "mindmemos" / "qdrant"
+
+    @property
+    def mindmemos_qdrant_service_root(self) -> Path:
+        """Managed-local Qdrant root: ``storage/`` (served data) plus
+        ``runtime/`` (manager lock, owner file, leases, logs)."""
+        return self.data_root / "mindmemos" / "qdrant_service"
 
     @property
     def neo4j_runtime_root(self) -> Path:
@@ -950,6 +994,12 @@ def _anchor_config_relative_paths(payload: dict[str, Any], *, config_dir: Path) 
             if key in neo4j and neo4j[key] is not None:
                 neo4j[key] = _anchor_path(neo4j[key], config_dir=config_dir)
         memory["neo4j"] = neo4j
+    raw_qdrant = memory.get("qdrant")
+    if isinstance(raw_qdrant, Mapping):
+        qdrant = dict(raw_qdrant)
+        if qdrant.get("home") is not None:
+            qdrant["home"] = _anchor_path(qdrant["home"], config_dir=config_dir)
+        memory["qdrant"] = qdrant
     anchored["memory"] = memory
     return anchored
 

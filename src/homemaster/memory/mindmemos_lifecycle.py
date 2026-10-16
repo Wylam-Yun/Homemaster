@@ -83,8 +83,8 @@ class MindMemOSLifecycleMixin:
         if self._qdrant is not None:
             return
 
-        server_mode = self._config.memory.qdrant.mode == "server"
-        if not server_mode:
+        remote_mode = self._config.memory.qdrant.mode in {"server", "managed_local"}
+        if not remote_mode:
             # Embedded Qdrant owns this directory with an exclusive lock.
             self.qdrant_path.mkdir(mode=0o700, parents=True, exist_ok=True)
             os.chmod(self.qdrant_path, 0o700)
@@ -148,7 +148,7 @@ class MindMemOSLifecycleMixin:
             self._unavailable_cause = f"{type(exc).__name__}: {exc}"
             return
         init_config_value(mapped)
-        if server_mode:
+        if remote_mode:
             # Hand the engine the mapped url/api_key/grpc settings and let it
             # build the remote client itself (retry/concurrency/pool wiring
             # stay upstream-owned). No local path client — that constructor

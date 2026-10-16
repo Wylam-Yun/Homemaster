@@ -142,6 +142,100 @@ async def test_managed_neo4j_wraps_embedded_mindmemos_application_lifecycle(
 
 
 @pytest.mark.asyncio
+async def test_managed_qdrant_wraps_mindmemos_inside_neo4j_ordering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """qdrant.mode=managed_local must slot between Neo4j and MindMemOS:
+    start order neo4j → qdrant → mindmemos, close order reversed so the
+    service outlives every client that dials it."""
+    calls: list[str] = []
+
+    class FakeManagedNeo4jRuntime:
+        def __init__(self, _memory_config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            calls.append("neo4j.start")
+
+        async def close(self) -> None:
+            calls.append("neo4j.close")
+
+    class FakeManagedQdrantRuntime:
+        def __init__(self, _memory_config: object) -> None:
+            pass
+
+        async def start(self) -> None:
+            calls.append("qdrant.start")
+
+        async def close(self) -> None:
+            calls.append("qdrant.close")
+
+    class FakeEmbeddedMindMemOS:
+        available = True
+        unavailable_cause = None
+
+        def __init__(self, _config: object) -> None:
+            pass
+
+        def add_schema_episode(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def start(self) -> None:
+            calls.append("mindmemos.start")
+
+        async def close(self) -> None:
+            calls.append("mindmemos.close")
+
+    class FakeMemoryAddQueue:
+        def __init__(self, _mindmemos: object, *, audit_path: Path) -> None:
+            pass
+
+        async def start(self) -> None:
+            calls.append("queue.start")
+
+        async def aclose(self) -> None:
+            calls.append("queue.close")
+
+    monkeypatch.setattr(composition, "ManagedNeo4jRuntime", FakeManagedNeo4jRuntime)
+    monkeypatch.setattr(composition, "ManagedQdrantRuntime", FakeManagedQdrantRuntime)
+    monkeypatch.setattr(composition, "EmbeddedMindMemOS", FakeEmbeddedMindMemOS)
+    monkeypatch.setattr(composition, "MemoryAddQueue", FakeMemoryAddQueue)
+
+    config = _config(tmp_path)
+    config = config.model_copy(
+        update={
+            "memory": config.memory.model_copy(
+                update={
+                    "qdrant": config.memory.qdrant.model_copy(
+                        update={
+                            "mode": "managed_local",
+                            "home": tmp_path / "qdrant-home",
+                        }
+                    )
+                }
+            )
+        }
+    )
+    bundle = composition.compose_application(config=config, run_label="managed-qdrant")
+
+    assert "managed_qdrant" in bundle.application.settings.application_services
+    await bundle.application.start()
+    await bundle.application.aclose()
+
+    assert calls == [
+        "neo4j.start",
+        "qdrant.start",
+        "mindmemos.start",
+        "queue.start",
+        "queue.close",
+        "mindmemos.close",
+        "qdrant.close",
+        "neo4j.close",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_session_finalization_drains_before_memory_resources_close(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

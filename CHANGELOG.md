@@ -1,5 +1,26 @@
 # Unreleased
 
+- Full memory mode gains `memory.qdrant.mode: managed_local`: HomeMaster
+  now spawns and babysits one private `qdrant` binary itself — no docker,
+  no root, no systemd. The lifecycle mirrors `neo4j.mode: managed_local`:
+  the first process takes `manager.lock`, spawns `qdrant` bound to
+  `127.0.0.1:{rest_port,grpc_port}` with storage under
+  `data_root/mindmemos/qdrant_service/storage`, waits for readiness, and
+  claims an ownership sentinel (a `_homemaster_runtime` collection whose
+  point carries the runtime root plus an owner token); later processes
+  see the claimed sentinel,
+  verify it against the `managed-owner.json` record, and attach by lease
+  file only. Mid-lifecycle exits leave the service running; the last
+  lease holder stops it iff the pid+start-time identity still matches —
+  a Qdrant on the port that isn't ours (foreign sentinel, missing
+  sentinel with a dead owner, or a non-Qdrant service) is refused rather
+  than adopted or killed. `qdrant.home` (dir or binary path) is the only
+  required field. Verified live with the official qdrant 1.19.2 macOS
+  binary: two concurrent full-mode processes shared one spawned service
+  (one qdrant pid, two leases), a third fresh process recalled the fact
+  the first stored, and the service exited with the last lease — no
+  orphan process, no leftover owner file.
+
 - Full memory mode (`memory.mode: full`) can now share one Qdrant across
   any number of HomeMaster processes. `memory.qdrant` gains
   `mode: embedded | server` (plus `url`/`api_key`/`prefer_grpc`/

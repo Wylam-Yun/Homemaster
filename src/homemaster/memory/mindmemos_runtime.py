@@ -130,11 +130,12 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
         neo4j_mapping["password"] = password
     qdrant = config.memory.qdrant
     qdrant_mapping: dict[str, Any] = {"vector_size": dimensions}
-    if qdrant.mode == "server":
-        # Server mode reaches an externally managed Qdrant over the wire;
-        # the engine then builds its own client from these fields instead of
-        # the injected process-local ``path=`` client.
-        qdrant_mapping["url"] = qdrant.url
+    if qdrant.mode in {"server", "managed_local"}:
+        # Both remote modes reach Qdrant over the wire — ``server`` dials the
+        # configured URL, ``managed_local`` the loopback port HomeMaster just
+        # spawned. The engine then builds its own client from these fields
+        # instead of the injected process-local ``path=`` client.
+        qdrant_mapping["url"] = qdrant.effective_url
         qdrant_mapping["prefer_grpc"] = qdrant.prefer_grpc
         qdrant_mapping["grpc_port"] = qdrant.grpc_port
         api_key = qdrant.api_key.get_secret_value()

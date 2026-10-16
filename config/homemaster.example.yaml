@@ -102,16 +102,23 @@ memory:
   # "embedded" opens a process-local Qdrant directory under
   # data_root/mindmemos/qdrant — zero deployment, but the directory lock is
   # exclusive so only one HomeMaster process may run full mode at a time.
-  # "server" connects to an externally managed Qdrant service (docker,
-  # systemd, or a bare `qdrant` binary) that any number of processes share —
-  # required when multiple HomeMaster processes run full mode concurrently.
+  # "managed_local" has HomeMaster itself spawn and babysit one private
+  # `qdrant` binary (same lifecycle shape as managed_local Neo4j: first
+  # process starts it, later ones attach, last leaser stops it) — no
+  # docker/root needed; data lives under data_root/mindmemos/qdrant_service.
+  # "server" connects to an externally managed Qdrant service.
   qdrant:
     mode: embedded
-    # server-mode connection fields (ignored under embedded):
+    # managed_local fields:
+    # home: ../.runtime/qdrant          # dir containing the `qdrant` binary
+    # rest_port: 6333
+    # grpc_port: 6334
+    # start_timeout_seconds: 60
+    # stop_timeout_seconds: 30
+    # server-mode fields (ignored under embedded/managed_local):
     # url: http://127.0.0.1:6333
     # api_key: "<optional; falls back to MINDMEMOS_QDRANT_API_KEY>"
     # prefer_grpc: false
-    # grpc_port: 6334
 
 observability:
   console_enabled: true

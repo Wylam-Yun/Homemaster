@@ -53,6 +53,7 @@ from homemaster.memory.enrichment_queue import MemoryEnrichmentQueue
 from homemaster.memory.evidence import MemoryEvidenceLedger
 from homemaster.memory.file_store import FileMemoryStore
 from homemaster.memory.managed_neo4j import ManagedNeo4jRuntime
+from homemaster.memory.managed_qdrant import ManagedQdrantRuntime
 from homemaster.memory.migration import MemoryMigrationCoordinator
 from homemaster.memory.mindmemos_runtime import EmbeddedMindMemOS
 from homemaster.permissions import PermissionMode, PermissionSettingsConfig
@@ -444,6 +445,7 @@ def _finish_home_application(
     frozen_memory_context: FrozenMemoryContextService | None = None
     memory_evidence_ledger: MemoryEvidenceLedger | None = None
     managed_neo4j: ManagedNeo4jRuntime | None = None
+    managed_qdrant: ManagedQdrantRuntime | None = None
     mindmemos: EmbeddedMindMemOS | None = None
     memory_add_queue: MemoryAddQueue | None = None
     trajectory_writer: AlfworldTrajectoryWriter | None = None
@@ -486,6 +488,11 @@ def _finish_home_application(
         if memory_full_tier:
             memory_migration = MemoryMigrationCoordinator(resolved.memory)
             managed_neo4j = ManagedNeo4jRuntime(resolved.memory)
+            managed_qdrant = (
+                ManagedQdrantRuntime(resolved.memory)
+                if resolved.memory.qdrant.mode == "managed_local"
+                else None
+            )
             mindmemos = EmbeddedMindMemOS(resolved)
             memory_add_queue = MemoryAddQueue(
                 mindmemos,
@@ -523,6 +530,16 @@ def _finish_home_application(
                     lifetime=ResourceLifetime.APPLICATION,
                 )
             )
+            if managed_qdrant is not None:
+                # Bound before embedded-mindmemos so scope teardown (LIFO)
+                # closes MindMemOS first and stops the Qdrant service last.
+                scope.bind(
+                    ResourceBinding.owned(
+                        "managed-qdrant",
+                        managed_qdrant,
+                        lifetime=ResourceLifetime.APPLICATION,
+                    )
+                )
             scope.bind(
                 ResourceBinding.owned(
                     "embedded-mindmemos",
@@ -558,6 +575,8 @@ def _finish_home_application(
                 assert mindmemos is not None
                 assert memory_add_queue is not None
                 await managed_neo4j.start()
+                if managed_qdrant is not None:
+                    await managed_qdrant.start()
                 await mindmemos.start()
                 if not mindmemos.available:
                     cause = mindmemos.unavailable_cause or "unknown startup failure"
@@ -732,6 +751,7 @@ def _finish_home_application(
                             "dreaming_coordinator": dreaming_coordinator,
                             "memory_migration": memory_migration,
                             "managed_neo4j": managed_neo4j,
+                            "managed_qdrant": managed_qdrant,
                         }
                         if resolved.memory.mode == "full" and mindmemos is not None
                         else {}
