@@ -1,5 +1,21 @@
 # Unreleased
 
+- Full memory mode (`memory.mode: full`) can now share one Qdrant across
+  any number of HomeMaster processes. `memory.qdrant` gains
+  `mode: embedded | server` (plus `url`/`api_key`/`prefer_grpc`/
+  `grpc_port`): embedded keeps the previous zero-deployment behavior —
+  the process-local directory under `data_root/mindmemos/qdrant` — while
+  server connects to an externally managed Qdrant service. Previously the
+  embedded directory's exclusive file lock made a second full-mode
+  process fail at startup (~10 s, zero events), so concurrent sessions
+  could never share MindMemOS memory. Verified live against a real qdrant
+  1.19.2 binary: two concurrent full-mode runs both completed, both wrote
+  to the shared server, and a third fresh process recalled the fact the
+  first one stored. Neo4j was already multi-process-safe via
+  `managed_local` leases; server mode closes the remaining gap. `doctor`
+  now reports `qdrant_mode` (and `qdrant_url` in server mode) instead of
+  only the embedded path.
+
 - SIGINT cancellation now actually interrupts in-flight tool execution
   instead of waiting for it to finish. `InterruptController.handle_sigint`
   is a synchronous `signal.signal` handler running on the loop thread; the

@@ -83,8 +83,11 @@ class MindMemOSLifecycleMixin:
         if self._qdrant is not None:
             return
 
-        self.qdrant_path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(self.qdrant_path, 0o700)
+        server_mode = self._config.memory.qdrant.mode == "server"
+        if not server_mode:
+            # Embedded Qdrant owns this directory with an exclusive lock.
+            self.qdrant_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(self.qdrant_path, 0o700)
         self.jieba_cache_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.jieba_cache_path, 0o700)
 
@@ -145,11 +148,18 @@ class MindMemOSLifecycleMixin:
             self._unavailable_cause = f"{type(exc).__name__}: {exc}"
             return
         init_config_value(mapped)
-        client = AsyncQdrantClient(path=str(self.qdrant_path))
-        store = QdrantStore(
-            mapped.database.qdrant,
-            client=client,
-        )
+        if server_mode:
+            # Hand the engine the mapped url/api_key/grpc settings and let it
+            # build the remote client itself (retry/concurrency/pool wiring
+            # stay upstream-owned). No local path client — that constructor
+            # is what takes the exclusive directory lock.
+            store = QdrantStore(mapped.database.qdrant)
+        else:
+            client = AsyncQdrantClient(path=str(self.qdrant_path))
+            store = QdrantStore(
+                mapped.database.qdrant,
+                client=client,
+            )
         neo4j = Neo4jStore(mapped.database.neo4j)
         try:
             await store.ensure_schema()

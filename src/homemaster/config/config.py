@@ -423,6 +423,35 @@ class MemoryNeo4jConfig(BaseModel):
         return self
 
 
+class MemoryQdrantConfig(BaseModel):
+    """Qdrant storage mode for the MindMemOS tier.
+
+    ``embedded`` opens a process-local Qdrant directory under
+    ``data_root/mindmemos/qdrant`` — zero deployment, but the directory lock
+    is exclusive so only one HomeMaster process may run ``memory.mode=full``
+    at a time. ``server`` connects to an externally managed Qdrant service
+    (docker, systemd, or a bare binary) that any number of processes can
+    share — the shape required for concurrent full-mode sessions.
+    """
+
+    model_config = ConfigDict(extra="forbid", validate_default=True)
+
+    mode: Literal["embedded", "server"] = "embedded"
+    url: str = "http://127.0.0.1:6333"
+    api_key: SecretStr = SecretStr("")
+    prefer_grpc: bool = False
+    grpc_port: int = Field(default=6334, gt=0)
+
+    @field_validator("url")
+    @classmethod
+    def _valid_url(cls, value: str) -> str:
+        stripped = value.strip()
+        parsed = urlsplit(stripped)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("memory.qdrant.url must be an absolute http(s) URI")
+        return stripped
+
+
 class MemoryConfig(BaseModel):
     """File memory and embedded MindMemOS configuration.
 
@@ -457,6 +486,7 @@ class MemoryConfig(BaseModel):
     embedding_dimensions: int = Field(default=4096, gt=0)
     dreaming_memory_threshold: int = Field(default=8, ge=1)
     neo4j: MemoryNeo4jConfig = Field(default_factory=MemoryNeo4jConfig)
+    qdrant: MemoryQdrantConfig = Field(default_factory=MemoryQdrantConfig)
     migration_spec: MemoryMigrationSpec = Field(exclude=True, repr=False)
 
     @model_validator(mode="before")

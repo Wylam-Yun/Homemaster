@@ -137,6 +137,14 @@ V3.2 固定使用 `neo4j.mode: managed_local`：HomeMaster 只管理同一节点
 模式。不要让不同节点用同一组 Neo4j 数据目录。Neo4j 的 `server.directories.data` 应指向该节点专属的
 持久目录，尤其不能与另一节点上仍在运行的 Neo4j 共用 `store_lock`。图数据仍按 Neo4j 的备份流程单独备份。
 
+`qdrant.mode` 默认 `embedded`：HomeMaster 以进程内嵌方式打开 `data_root/mindmemos/qdrant` 目录，零部署但
+该目录持独占文件锁——同一时刻只允许一个 HomeMaster 进程以 `memory.mode: full` 运行，第二个进程会因锁
+冲突启动失败。`qdrant.mode: server` 改为连接外部托管的 Qdrant 服务（docker、systemd 或直接运行的
+`qdrant` 二进制），任意多个 HomeMaster 进程可并发共享；`url`/`api_key`/`prefer_grpc`/`grpc_port`
+即为连接参数，`api_key` 未配置时回落 `MINDMEMOS_QDRANT_API_KEY` 环境变量。server 模式下
+`mindmemos/qdrant/` 目录不再创建。需要并发 full-mode 会话的部署（例如多个 CLI 进程，或 CLI 与常驻
+gateway 并存）应使用 server 模式；单进程内多个 session 共享同一个 MindMemOS 实例，embedded 即可。
+
 全新 Neo4j 数据目录在第一次启动前，还要把 YAML 中的同一个密码写入 Neo4j（已启动过的数据库应使用正常的
 密码修改流程，不能再用 initial-password）：
 

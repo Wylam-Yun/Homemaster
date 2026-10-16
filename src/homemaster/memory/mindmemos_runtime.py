@@ -128,6 +128,18 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
     password = neo4j.password.get_secret_value()
     if password:
         neo4j_mapping["password"] = password
+    qdrant = config.memory.qdrant
+    qdrant_mapping: dict[str, Any] = {"vector_size": dimensions}
+    if qdrant.mode == "server":
+        # Server mode reaches an externally managed Qdrant over the wire;
+        # the engine then builds its own client from these fields instead of
+        # the injected process-local ``path=`` client.
+        qdrant_mapping["url"] = qdrant.url
+        qdrant_mapping["prefer_grpc"] = qdrant.prefer_grpc
+        qdrant_mapping["grpc_port"] = qdrant.grpc_port
+        api_key = qdrant.api_key.get_secret_value()
+        if api_key:
+            qdrant_mapping["api_key"] = api_key
     mapped = build(
         MemoryConfig,
         {
@@ -158,7 +170,7 @@ def build_mindmemos_config(config: HomeMasterConfig) -> Any:
                 "dimensions_supported_models": [embedding.model],
             },
             "database": {
-                "qdrant": {"vector_size": dimensions},
+                "qdrant": qdrant_mapping,
                 "neo4j": neo4j_mapping,
             },
             "algo_config": {

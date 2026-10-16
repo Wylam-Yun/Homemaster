@@ -206,6 +206,41 @@ def test_memory_config_rejects_removed_mem0_settings() -> None:
         HomeMasterConfig(memory={"mem0": {"qdrant_path": "/tmp/old-qdrant"}})
 
 
+def test_memory_qdrant_defaults_to_embedded() -> None:
+    config = HomeMasterConfig(providers={"items": [_embedding_provider()]})
+    assert config.memory.qdrant.mode == "embedded"
+    assert config.memory.qdrant.url == "http://127.0.0.1:6333"
+
+
+def test_memory_qdrant_server_mode_accepts_connection_fields() -> None:
+    config = HomeMasterConfig(
+        memory={
+            "qdrant": {
+                "mode": "server",
+                "url": "http://qdrant.internal:6333",
+                "api_key": "private-qdrant-key",
+                "prefer_grpc": True,
+                "grpc_port": 6400,
+            }
+        }
+    )
+    assert config.memory.qdrant.mode == "server"
+    assert config.memory.qdrant.url == "http://qdrant.internal:6333"
+    assert config.memory.qdrant.api_key.get_secret_value() == "private-qdrant-key"
+    assert "private-qdrant-key" not in repr(config.memory.qdrant)
+    assert config.memory.qdrant.prefer_grpc is True
+    assert config.memory.qdrant.grpc_port == 6400
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["not-a-url", "qdrant.internal:6333", "bolt://127.0.0.1:6333", ""],
+)
+def test_memory_qdrant_rejects_invalid_url(url: str) -> None:
+    with pytest.raises(ValidationError, match="http"):
+        HomeMasterConfig(memory={"qdrant": {"mode": "server", "url": url}})
+
+
 def test_memory_config_rejects_mixed_new_and_legacy_path_fields(tmp_path: Path) -> None:
     with pytest.raises(ValidationError, match="cannot be combined"):
         HomeMasterConfig(memory={"data_root": tmp_path / "new", "root": tmp_path / "old"})

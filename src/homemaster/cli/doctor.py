@@ -496,11 +496,21 @@ def _memory_backend_check(path: Path) -> DoctorCheck:
             "enabled": True,
             "probe": "not_opened",
             "embedding_provider_name": config.memory.embedding_provider_name,
-            "qdrant_path": str(config.memory.mindmemos_qdrant_path),
             "data_root": str(config.memory.data_root),
             **_neo4j_details(config),
+            **_qdrant_details(config),
         },
     )
+
+
+def _qdrant_details(config: Any) -> dict[str, Any]:
+    qdrant = config.memory.qdrant
+    details: dict[str, Any] = {"qdrant_mode": qdrant.mode}
+    if qdrant.mode == "server":
+        details["qdrant_url"] = qdrant.url
+    else:
+        details["qdrant_path"] = str(config.memory.mindmemos_qdrant_path)
+    return details
 
 
 def _neo4j_details(config: Any) -> dict[str, Any]:
