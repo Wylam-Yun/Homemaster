@@ -142,6 +142,12 @@ class ProviderProfileConfig(BaseModel):
     auth_type: AuthType = "api_key"
     context_window_tokens: int = DEFAULT_CONTEXT_WINDOW_TOKENS
     max_output_tokens: int | None = None
+    # Anthropic-wire thinking controls — when ``thinking_enable`` is set the
+    # SDK sends ``thinking: {type: enabled, budget_tokens}``; the budget caps
+    # reasoning spend inside the output budget so oversized thinking cannot
+    # truncate the tool-call tail of a response.
+    thinking_enable: bool | None = None
+    thinking_budget: int | None = None
     embedding_url: str | None = None
     kind: ProviderKind = "chat"
 
@@ -283,6 +289,12 @@ class RuntimeGuardConfig(BaseModel):
 
     max_tool_iterations: int | None = None
     max_consecutive_tool_errors: int = 5
+    # Responses that hit the provider output cap without dispatching any
+    # tool call are truncated mid-generation (usually oversized thinking
+    # or an oversized tool_use payload). Consecutive stalls cannot
+    # self-recover — the model re-issues the same generation — so the run
+    # fails fast instead of burning full responses until timeout.
+    max_consecutive_truncated_responses: int = 2
     max_no_progress_iterations: int = 20
     runtime_root: Path = Path("/tmp/homemaster/runs")
     debug_root: Path = Path("/tmp/homemaster/debug")

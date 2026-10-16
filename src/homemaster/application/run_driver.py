@@ -359,6 +359,13 @@ class RunDriver:
                         ),
                     )
                 except asyncio.CancelledError:
+                    # Same rationale as the ``generic.status == "cancelled"``
+                    # branch below: mirror the turn into a committed revision
+                    # so ``--resume`` does not cold-start.
+                    try:
+                        await self._session_manager.save(session_id)
+                    except Exception:
+                        pass
                     return RunResult(
                         run_id=run_id,
                         session_id=session_id,
@@ -377,6 +384,20 @@ class RunDriver:
                 if generic.engine_state is not None:
                     runtime.engine_state = generic.engine_state
                 if generic.status == "cancelled":
+                    # Commit the cancelled turn as a revision — the substrate
+                    # teardown already mirrored user/assistant/tool messages
+                    # into ``runtime.session`` (``_sync_session``), but only
+                    # ``session.json`` saw them: ``load()``/``--resume`` read
+                    # committed revisions, so without this a cancelled run is
+                    # invisible to the next session. ``save()`` with no
+                    # generation uses ``runtime.generation`` — the cancel
+                    # itself may have bumped it, which is exactly what the
+                    # revision_commit_guard requires. A persist failure must
+                    # not turn a clean cancel into a failed run.
+                    try:
+                        await self._session_manager.save(session_id)
+                    except Exception:
+                        pass
                     return RunResult(
                         run_id=run_id,
                         session_id=session_id,

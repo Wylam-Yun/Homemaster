@@ -1,5 +1,75 @@
 # Unreleased
 
+- SIGINT cancellation now actually interrupts in-flight tool execution
+  instead of waiting for it to finish. `InterruptController.handle_sigint`
+  is a synchronous `signal.signal` handler running on the loop thread; the
+  cancellation callbacks it queues (`task.cancel()` → `Future.cancel()` →
+  `loop.call_soon`) only append to `_ready` — they never write the
+  selector self-pipe, and PEP 475 restarts the interrupted `kevent` call
+  with its old timeout. The loop therefore slept until the next natural fd
+  event — in practice the subprocess child watcher firing on exit — so a
+  Ctrl+C during `run_terminal` took effect only after the child finished
+  on its own (~80 s in eval). `handle_sigint` now queues a no-op via
+  `call_soon_threadsafe`, which writes the self-pipe byte and wakes the
+  selector immediately: observed cancellation latency went from ~65-80 s
+  to the same millisecond as the SIGINT.
+
+- Cancelling a run mid-tool no longer leaves the spawned process running.
+  `BashExecutor` now handles `GeneratorExit` (delivered by
+  `stream.aclose()` during abort, which bypasses the `CancelledError`
+  path) by signalling `SIGKILL` to the whole process group synchronously —
+  awaits are illegal inside generator-close unwinding. Verified live: the
+  marker file a cancelled `longjob.sh` was appending to stops growing at
+  the SIGINT and `pgrep` finds no orphan.
+
+- A cancelled run's turn is now persisted and resumable. Both cancel paths
+  in `RunDriver` (the driver's own task being cancelled, and the engine
+  reporting `status="cancelled"`) previously returned without committing a
+  session revision — `--resume` cold-started with zero history even though
+  `session.json` held the interrupted turn. Both paths now call
+  `session_manager.save()` (failures stay non-fatal: a persist error must
+  not turn a clean cancel into a failed run). Verified live: a resumed
+  session correctly recalls that `longjob.sh` was interrupted mid-run.
+
+- Reconciled results for tool calls cut off by cancellation are now
+  honest about backend execution. When `aclose()` lands between the
+  executor returning and `call_tool` yielding its terminal chunk, the real
+  result never reached the persisted `ToolResultBlock`, so the teardown
+  sweep synthesized `backend_attempted: false / status: interrupted` even
+  though bash had spawned and killed a real process group. The adapter now
+  records every executor outcome into `RunScope.late_tool_results` *before*
+  yielding, and `_close_dangling_tool_calls` emits the real result —
+  `backend_attempted: true`, `status: "outcome_unknown"` for mutating
+  tools whose final external state can't be proven — instead of the
+  synthetic placeholder.
+
+- Tool results no longer hide their `data` payload from the model on the
+  AgentScope path. `result_to_chunk` previously rendered `data` as
+  model-visible JSON only for the seven memory tools, so `load_skill`
+  returned an empty string (the SKILL.md body lived in `data`) and
+  `web_fetch` failures surfaced without their `error_code` — the model
+  resorted to `find /` to locate skill files. Every tool now projects
+  `data`; fields that merely duplicate `result.text` (e.g. `read_file`'s
+  `content`) are deduplicated, and injected envelope fields
+  (`backend_attempted`, `artifacts`, and a `status` the tool did not emit
+  itself) stay machine-only in `metadata["hm"]`. `IMAGE_ONLY` results
+  still project the image with no JSON sidecar.
+
+- A response truncated at the provider output cap without dispatching a
+  tool call is now detected and bounded. Oversized thinking (or an
+  oversized `tool_use` payload) can consume the entire `max_tokens` budget
+  before the tool call completes — the truncated call never surfaces, the
+  model re-issues the same generation, and eval T12 burned two ~210 s
+  responses producing zero tool calls. `AsAgentRuntime` now counts
+  `ToolCallStartEvent`s per model call; `output_tokens >= cap` with zero
+  calls increments `consecutive_truncated_stalls`, and after
+  `runtime_guards.max_consecutive_truncated_responses` (default 2) the run
+  fails fast with `model_output_truncation_stall` instead of looping to
+  timeout. `ProviderProfileConfig` also gains optional `thinking_enable` /
+  `thinking_budget`, passed through to the Anthropic-wire models, so the
+  reasoning budget can be capped inside the output budget (agentscope
+  auto-expands `max_tokens` when `budget >= max_tokens`).
+
 - Cancelling a run at the `ask_user_question` prompt no longer corrupts
   the *next* run. The prompt's Ctrl+C binding raises `KeyboardInterrupt`
   inside the `ask_user` coroutine; because `Task.__step` re-raises

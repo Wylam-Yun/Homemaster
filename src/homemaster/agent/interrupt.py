@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 
@@ -24,6 +25,20 @@ class InterruptController:
             close = getattr(self._current_stream, "close", None)
             if callable(close):
                 close()
+        # A ``signal.signal`` handler runs synchronously on the loop thread
+        # while the selector is parked inside ``kevent``/``select``. Every
+        # wakeup queued above (``task.cancel()`` → ``Future.cancel()`` →
+        # ``loop.call_soon``) only appends to ``_ready`` — it does NOT write
+        # the self-pipe, and PEP 475 restarts the interrupted selector call
+        # with its old timeout. Without an explicit thread-safe wakeup the
+        # loop sleeps until the next fd/timer event (e.g. the subprocess
+        # child watcher firing on natural exit), so cancellation is applied
+        # only after the in-flight tool finishes by itself.
+        try:
+            asyncio.get_running_loop().call_soon_threadsafe(lambda: None)
+        except RuntimeError:
+            # No loop running on this thread — nothing to wake.
+            pass
 
     def set_stream(self, stream: Any) -> None:
         self._current_stream = stream
